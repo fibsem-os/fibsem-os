@@ -1,23 +1,24 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, fields
-from typing import List, Union, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Self
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.patterning.patterns2 import BasePattern as BasePattern, get_pattern as get_pattern
-from fibsem.structures import FibsemMillingSettings, Point, MillingAlignment, ImageSettings, CrossSectionPattern
+from fibsem.structures import FibsemMillingSettings, MillingAlignment, ImageSettings, CrossSectionPattern
 
 @dataclass
 class MillingStrategyConfig(ABC):
     """Abstract base class for milling strategy configurations"""
     
-    def to_dict(self):
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
         return {}
 
-    @staticmethod
-    def from_dict(d: dict) -> "MillingStrategyConfig":
-        return MillingStrategyConfig()
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> Self:
+        return cls(**d)
     
     @property
     def required_attributes(self) -> Tuple[str]:
@@ -25,9 +26,8 @@ class MillingStrategyConfig(ABC):
     
     @property
     def advanced_attributes(self) -> List[str]:
-        if hasattr(self, "_advanced_attributes"):
-            return self._advanced_attributes
-        return []
+        return getattr(self, "_advanced_attributes", [])
+
 
 @dataclass
 class MillingStrategy(ABC):
@@ -35,17 +35,16 @@ class MillingStrategy(ABC):
     name: str = "Milling Strategy"    
     config = MillingStrategyConfig()
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         pass
     
     @abstractmethod
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "config": self.config.to_dict()}
-    
-    @staticmethod
-    @abstractmethod
-    def from_dict(d: dict) -> "MillingStrategy":
-        pass
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> Self:
+        return cls(**d)
 
     @abstractmethod
     def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False, parent_ui = None) -> None:
@@ -67,7 +66,7 @@ class FibsemMillingStage:
     alignment: MillingAlignment = MillingAlignment()
     imaging: ImageSettings = ImageSettings() # settings for post-milling acquisition
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.pattern is None:
             self.pattern = get_pattern("Rectangle", 
                                        config={"width": 10e-6, "height": 5e-6, "depth": 1e-6})
@@ -86,7 +85,7 @@ class FibsemMillingStage:
         }
 
     @classmethod
-    def from_dict(cls, data: dict):
+    def from_dict(cls, data: dict) -> Self:
         strategy_config = data.get("strategy", {})
         strategy_name = strategy_config.get("name", "Standard")
         pattern_name = data["pattern"]["name"]
