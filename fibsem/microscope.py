@@ -46,10 +46,10 @@ except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
 try:
-    sys.path.append('C:\Program Files\Thermo Scientific AutoScript')
-    sys.path.append('C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages')
-    sys.path.append('C:\Program Files\Python36\envs\AutoScript')
-    sys.path.append('C:\Program Files\Python36\envs\AutoScript\Lib\site-packages')
+    sys.path.append(r'C:\Program Files\Thermo Scientific AutoScript')
+    sys.path.append(r'C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages')
+    sys.path.append(r'C:\Program Files\Python36\envs\AutoScript')
+    sys.path.append(r'C:\Program Files\Python36\envs\AutoScript\Lib\site-packages')
     import autoscript_sdb_microscope_client
     from autoscript_sdb_microscope_client import SdbMicroscopeClient
     version = autoscript_sdb_microscope_client.build_information.INFO_VERSIONSHORT
