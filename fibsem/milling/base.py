@@ -17,7 +17,7 @@ class MillingStrategyConfig(ABC):
         return {}
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> Self:
+    def from_dict(cls, d: Dict[str, Any]) -> "MillingStrategyConfig":
         return cls(**d)
     
     @property
@@ -43,7 +43,7 @@ class MillingStrategy(ABC):
         return {"name": self.name, "config": self.config.to_dict()}
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> Self:
+    def from_dict(cls, d: Dict[str, Any]) -> "MillingStrategy":
         return cls(**d)
 
     @abstractmethod
@@ -85,7 +85,7 @@ class FibsemMillingStage:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> Self:
+    def from_dict(cls, data: Dict[str, Any]) -> "FibsemMillingStage":
         strategy_config = data.get("strategy", {})
         strategy_name = strategy_config.get("name", "Standard")
         pattern_name = data["pattern"]["name"]

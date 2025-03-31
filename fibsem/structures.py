@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Any
-from collections.abc import Generator
+from typing import List, Optional, Tuple, Union, Any, Generator
 
 import numpy as np
 import tifffile as tff
@@ -1060,7 +1059,7 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     rotation: float
     centre_x: float
     centre_y: float
-    bitmap: Union[str, os.PathLike[str], np.typing.NDArray[Any]] = None
+    bitmap: Optional[Union[Union[str, os.PathLike[str]], np.typing.NDArray[Any]]] = None
 
     def to_dict(self) -> dict:
         return {
