@@ -12,7 +12,6 @@ from fibsem.structures import FibsemMillingSettings, MillingAlignment, ImageSett
 class MillingStrategyConfig(ABC):
     """Abstract base class for milling strategy configurations"""
     
-    @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
         return {}
 
@@ -38,7 +37,6 @@ class MillingStrategy(ABC):
     def __init__(self, **kwargs) -> None:
         pass
     
-    @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "config": self.config.to_dict()}
 
