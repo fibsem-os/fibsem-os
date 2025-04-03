@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, fields
-from typing import List, Dict, Any, Tuple, Self
+from typing import List, Dict, Any, Tuple
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.config import MILLING_SPUTTER_RATE
