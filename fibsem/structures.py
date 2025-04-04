@@ -1059,7 +1059,7 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     rotation: float
     centre_x: float
     centre_y: float
-    bitmap: Optional[Union[Union[str, os.PathLike[str]], np.typing.NDArray[Any]]] = None
+    bitmap: Optional[Union[np.typing.NDArray[Any], Union[str, os.PathLike]]] = None
 
     def to_dict(self) -> dict:
         return {
