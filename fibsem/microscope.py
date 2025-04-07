@@ -17,7 +17,7 @@ from psygnal import Signal
 import numpy as np
 
 _TESCAN_API_AVAILABLE = False
-THERMO_API_AVAILABLE = False
+_THERMO_API_AVAILABLE = False
 
 # DEVELOPMENT
 _OVERWRITE_AUTOSCRIPT_VERSION = False
@@ -86,7 +86,8 @@ try:
         MoveSettings,
         StagePosition,
     )
-    THERMO_API_AVAILABLE = True
+
+    _THERMO_API_AVAILABLE = True
 except Exception as e:
     logging.debug("Autoscript (ThermoFisher) not installed.")
     if isinstance(e, NameError):
@@ -823,7 +824,7 @@ class ThermoMicroscope(FibsemMicroscope):
     """
 
     def __init__(self, system_settings: SystemSettings = None):
-        if not THERMO_API_AVAILABLE:
+        if not _THERMO_API_AVAILABLE:
             raise Exception("Autoscript (ThermoFisher) not installed. Please see the user guide for installation instructions.")
 
         # create microscope client
