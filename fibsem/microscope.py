@@ -128,7 +128,7 @@ from fibsem.structures import (
     MillingState,
     ACTIVE_MILLING_STATES,
 )
-
+from fibsem import utils
 
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
