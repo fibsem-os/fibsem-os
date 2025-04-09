@@ -36,7 +36,7 @@ from fibsem.milling.patterning.patterns2 import (
     FiducialPattern,
     get_pattern,
 )
-from fibsem.milling.strategy import DEFAULT_STRATEGY_NAME, MILLING_STRATEGY_NAMES
+from fibsem.milling.strategy import DEFAULT_STRATEGY_NAME, get_strategy_names
 from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
@@ -212,7 +212,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.comboBox_patterns.currentIndexChanged.connect(self.update_current_selected_pattern)
 
         # strategy
-        self.comboBox_strategy_name.addItems(MILLING_STRATEGY_NAMES)
+        self.comboBox_strategy_name.addItems(get_strategy_names())
         self.comboBox_strategy_name.setCurrentText(DEFAULT_STRATEGY_NAME)
         self.comboBox_strategy_name.currentIndexChanged.connect(self.update_current_selected_strategy) # TODO: connect event
         # TODO: auto-update drift correction and strategy on value changes
