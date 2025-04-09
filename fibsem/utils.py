@@ -1,3 +1,4 @@
+from __future__ import annotations
 import datetime
 import glob
 
@@ -6,19 +7,21 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Tuple
+import typing
 
 
 import yaml
 from PIL import Image
 
 from fibsem import config as cfg
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
     MicroscopeSettings,
 )
+
+if typing.TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 
 def current_timestamp():
@@ -155,7 +158,7 @@ def setup_session(
     ip_address: str = None,
     manufacturer: str = None,
     debug: bool = False,
-) -> Tuple[FibsemMicroscope, MicroscopeSettings]:
+) -> typing.Tuple[FibsemMicroscope, MicroscopeSettings]:
     """Setup microscope session
 
     Args:
@@ -348,7 +351,7 @@ def _get_position(name: str):
             return FibsemStagePosition.from_dict(d)
     return None
 
-def _get_positions(fname: str = None) -> List[str]:    
+def _get_positions(fname: str = None) -> typing.List[str]:    
     
     import os
 
