@@ -92,7 +92,7 @@ UNSCALED_VALUES = [
     "maximum_drift_um",
     "maximum_side_difference_um",
     "milling_interval_s",
-    "minimum_lamella_lamella_area_um2",
+    "minimum_lamella_area_um2",
     "window_size_px",
 ]
 LINE_KEYS = ["start_x", "start_y", "end_x", "end_y"]
