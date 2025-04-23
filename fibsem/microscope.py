@@ -1144,12 +1144,54 @@ class ThermoMicroscope(FibsemMicroscope):
 
         logging.info(f"{beam_type.name} shifting by ({dx}, {dy})")
         if beam_type == BeamType.ELECTRON:
-            self.connection.beams.electron_beam.beam_shift.value += (dx, dy)
+            beam_shift = self.connection.beams.electron_beam.beam_shift
         else:
-            self.connection.beams.ion_beam.beam_shift.value += (dx, dy)
+            beam_shift = self.connection.beams.ion_beam.beam_shift
 
-        logging.debug({"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name})
+        x_limits, y_limits = beam_shift.limits.limits_x, beam_shift.limits.limits_y
 
+        new_shift = beam_shift.value + (dx, dy)
+
+        if new_shift[0] < x_limits.min:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds minimum X limit, shifting to limit %f",
+                dx,
+                new_shift[0],
+                x_limits.min,
+            )
+            new_shift[0] = x_limits.min
+        elif new_shift[0] > x_limits.max:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds maximum X limit, shifting to limit %f",
+                dx,
+                new_shift[0],
+                x_limits.max,
+            )
+            new_shift[0] = x_limits.max
+
+        if new_shift[1] < y_limits.min:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds minimum Y limit, shifting to limit %f",
+                dy,
+                new_shift[1],
+                y_limits.min,
+            )
+            new_shift[1] = y_limits.min
+        elif new_shift[1] > y_limits.max:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds maximum Y limit, shifting to limit %f",
+                dy,
+                new_shift[1],
+                y_limits.max,
+            )
+            new_shift[1] = y_limits.max
+
+        beam_shift.value += new_shift
+
+        dx, dy = new_shift - beam_shift.value
+        logging.debug(
+            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
+        )
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
