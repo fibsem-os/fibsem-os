@@ -94,8 +94,8 @@ def beam_shift_alignment(
     # TODO: beam_shift depending in the scan/beam rotation
     #logging.info(f"LMAP DEBUG: ion beam rotation: {microscope.get_beam_settings(BeamType.ION).scan_rotation}")
 
-    # adjust beamshift (reverse direction for x)
-    microscope.beam_shift(-dx, dy, image_settings.beam_type)
+    # adjust beamshift (reverse direction)
+    microscope.beam_shift(-dx, -dy, image_settings.beam_type)
 
     # reset beam current
     if alignment_current is not None:
@@ -454,7 +454,7 @@ def shift_from_crosscorrelation(
 
     # calculate shift in metres
     dx = err[1] * pixelsize_x
-    dy = err[0] * pixelsize_y  # this could be the issue?
+    dy = -err[0] * pixelsize_y  # this could be the issue?
 
     msgd = {"msg": "cross-correlation", "pixelsize": (pixelsize_x, pixelsize_y), 
         "max": (maxX, maxY), "centre": cen, "shift": (err[1], err[0]), "shift_meters": (dx, dy)}

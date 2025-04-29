@@ -345,7 +345,10 @@ class AdaptiveLamellaCentre(Feature):
     color = "green"
     name: str = "AdaptiveLamellaCentre"
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'AdaptiveLamellaCentre':
-        self.px = detect_centre_point(mask == 2)
+        if np.issubdtype(mask.dtype, np.bool_):
+            self.px = detect_centre_point(mask)
+        else:
+            self.px = detect_centre_point(mask == 2)
         return self.px
 
 # TODO: we can probably consolidate this, rather than have so many classes

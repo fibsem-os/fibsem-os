@@ -69,7 +69,7 @@ class BitmapPattern(BasePattern):
     width: float
     height: float
     depth: float
-    bitmap: Union[str, PathLike[str], np.typing.NDArray[Any]]
+    bitmap: Union[np.typing.NDArray[Any], Union[str, PathLike]]
     rotation: float = 0
     shapes: List[FibsemPatternSettings] = None
     point: Point = Point()
@@ -1288,7 +1288,7 @@ class TrenchBitmapPattern(BasePattern):
     spacing: float
     upper_trench_height: float
     lower_trench_height: float
-    bitmap: Union[str, PathLike[str], np.typing.NDArray[Any]]
+    bitmap: Union[np.typing.NDArray[Any], Union[str, PathLike]]
     cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
     point: Point = Point()
     name: str = "TrenchBitmap"

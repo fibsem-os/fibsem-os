@@ -1,40 +1,38 @@
-
+from __future__ import annotations
 from pathlib import Path
-from typing import Tuple, List, Optional
+import typing
 
 import numpy as np
 from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import (
-    QLabel,
-    QMessageBox,
-    QWidget,
-)
 
 from fibsem import config as cfg
-from fibsem.microscope import FibsemMicroscope
+
+
+if typing.TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+
 
 def set_arr_as_qlabel(
     arr: np.ndarray,
-    label: QLabel,
+    label: QtWidgets.QLabel,
     shape: tuple = (1536 // 4, 1024 // 4),
-) -> QLabel:
-    image = QImage(
+) -> QtWidgets.QLabel:
+    image = QtGui.QImage(
         arr.data,
         arr.shape[1],
         arr.shape[0],
-        QImage.Format_Grayscale8,
+        QtGui.QImage.Format_Grayscale8,
     )
-    label.setPixmap(QPixmap.fromImage(image).scaled(*shape))
+    label.setPixmap(QtGui.QPixmap.fromImage(image).scaled(*shape))
 
     return label
 
 
 def message_box_ui(title: str,
                    text: str,
-                   buttons=QMessageBox.Yes | QMessageBox.No,
-                   parent: Optional[QWidget] = None) -> bool:
-    msg = QMessageBox(parent=parent)
+                   buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                   parent: typing.Optional[QtWidgets.QWidget] = None) -> bool:
+    msg = QtWidgets.QMessageBox(parent=parent)
     msg.setWindowTitle(title)
     msg.setText(text)
     msg.setStandardButtons(buttons)
@@ -42,8 +40,8 @@ def message_box_ui(title: str,
 
     response = (
         True
-        if (msg.clickedButton() == msg.button(QMessageBox.Yes))
-        or (msg.clickedButton() == msg.button(QMessageBox.Ok))
+        if (msg.clickedButton() == msg.button(QtWidgets.QMessageBox.Yes))
+        or (msg.clickedButton() == msg.button(QtWidgets.QMessageBox.Ok))
         else False
     )
 
@@ -128,7 +126,7 @@ def open_text_input_dialog(
     title: str = "Text Entry",
     default: str = "UserText",
     parent=None,
-) -> Tuple[str, bool]:
+) -> typing.Tuple[str, bool]:
     text, okPressed = QtWidgets.QInputDialog.getText(
         parent,
         title,

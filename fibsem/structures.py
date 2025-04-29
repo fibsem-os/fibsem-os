@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Any
-from collections.abc import Generator
+from typing import List, Optional, Tuple, Union, Any, Generator
 
 import numpy as np
 import tifffile as tff
@@ -27,12 +26,12 @@ except ImportError:
     TESCAN = False
 
 try:
-    sys.path.append("C:\Program Files\Thermo Scientific AutoScript")
+    sys.path.append(r"C:\Program Files\Thermo Scientific AutoScript")
     sys.path.append(
-        "C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages"
+        r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages"
     )
-    sys.path.append("C:\Program Files\Python36\envs\AutoScript")
-    sys.path.append("C:\Program Files\Python36\envs\AutoScript\Lib\site-packages")
+    sys.path.append(r"C:\Program Files\Python36\envs\AutoScript")
+    sys.path.append(r"C:\Program Files\Python36\envs\AutoScript\Lib\site-packages")
     from autoscript_sdb_microscope_client.enumerations import CoordinateSystem
     from autoscript_sdb_microscope_client.structures import (
         AdornedImage,
@@ -1060,7 +1059,7 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     rotation: float
     centre_x: float
     centre_y: float
-    bitmap: Union[str, os.PathLike[str], np.typing.NDArray[Any]] = None
+    bitmap: Optional[Union[np.typing.NDArray[Any], Union[str, os.PathLike]]] = None
 
     def to_dict(self) -> dict:
         return {

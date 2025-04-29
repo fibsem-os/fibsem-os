@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import warnings
+from packaging.version import parse
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from queue import Queue
@@ -16,7 +17,7 @@ from psygnal import Signal
 import numpy as np
 
 _TESCAN_API_AVAILABLE = False
-THERMO_API_AVAILABLE = False
+_THERMO_API_AVAILABLE = False
 
 # DEVELOPMENT
 _OVERWRITE_AUTOSCRIPT_VERSION = False
@@ -45,20 +46,22 @@ except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
 try:
-    sys.path.append('C:\Program Files\Thermo Scientific AutoScript')
-    sys.path.append('C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages')
-    sys.path.append('C:\Program Files\Python36\envs\AutoScript')
-    sys.path.append('C:\Program Files\Python36\envs\AutoScript\Lib\site-packages')
+    sys.path.append(r'C:\Program Files\Thermo Scientific AutoScript')
+    sys.path.append(r'C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages')
+    sys.path.append(r'C:\Program Files\Python36\envs\AutoScript')
+    sys.path.append(r'C:\Program Files\Python36\envs\AutoScript\Lib\site-packages')
     import autoscript_sdb_microscope_client
     from autoscript_sdb_microscope_client import SdbMicroscopeClient
     version = autoscript_sdb_microscope_client.build_information.INFO_VERSIONSHORT
-    VERSION = float(version[:3])
-    if VERSION < 4.6:
-        raise NameError("Please update your AutoScript version to 4.6 or higher.")
+    VERSION = parse(version)
+    if VERSION < parse("4.6"):
+        raise NameError(
+            f"AutoScript {version} found. Please update your AutoScript version to 4.6 or higher."
+        )
 
     if _OVERWRITE_AUTOSCRIPT_VERSION:
-        VERSION = 4.7
-
+        VERSION = parse("4.7")
+        
     from autoscript_sdb_microscope_client._dynamic_object_proxies import (
         CirclePattern,
         CleaningCrossSectionPattern,
@@ -83,7 +86,8 @@ try:
         MoveSettings,
         StagePosition,
     )
-    THERMO_API_AVAILABLE = True
+
+    _THERMO_API_AVAILABLE = True
 except Exception as e:
     logging.debug("Autoscript (ThermoFisher) not installed.")
     if isinstance(e, NameError):
@@ -124,7 +128,7 @@ from fibsem.structures import (
     MillingState,
     ACTIVE_MILLING_STATES,
 )
-
+from fibsem import utils
 
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
@@ -820,7 +824,7 @@ class ThermoMicroscope(FibsemMicroscope):
     """
 
     def __init__(self, system_settings: SystemSettings = None):
-        if not THERMO_API_AVAILABLE:
+        if not _THERMO_API_AVAILABLE:
             raise Exception("Autoscript (ThermoFisher) not installed. Please see the user guide for installation instructions.")
 
         # create microscope client
@@ -1140,12 +1144,54 @@ class ThermoMicroscope(FibsemMicroscope):
 
         logging.info(f"{beam_type.name} shifting by ({dx}, {dy})")
         if beam_type == BeamType.ELECTRON:
-            self.connection.beams.electron_beam.beam_shift.value += (dx, dy)
+            beam_shift = self.connection.beams.electron_beam.beam_shift
         else:
-            self.connection.beams.ion_beam.beam_shift.value += (dx, dy)
+            beam_shift = self.connection.beams.ion_beam.beam_shift
 
-        logging.debug({"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name})
+        x_limits, y_limits = beam_shift.limits.limits_x, beam_shift.limits.limits_y
 
+        new_shift = beam_shift.value + (dx, dy)
+
+        if new_shift[0] < x_limits.min:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds minimum X limit, shifting to limit %f",
+                dx,
+                new_shift[0],
+                x_limits.min,
+            )
+            new_shift[0] = x_limits.min
+        elif new_shift[0] > x_limits.max:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds maximum X limit, shifting to limit %f",
+                dx,
+                new_shift[0],
+                x_limits.max,
+            )
+            new_shift[0] = x_limits.max
+
+        if new_shift[1] < y_limits.min:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds minimum Y limit, shifting to limit %f",
+                dy,
+                new_shift[1],
+                y_limits.min,
+            )
+            new_shift[1] = y_limits.min
+        elif new_shift[1] > y_limits.max:
+            logging.warning(
+                "Requested beam shift of %+f to %f exceeds maximum Y limit, shifting to limit %f",
+                dy,
+                new_shift[1],
+                y_limits.max,
+            )
+            new_shift[1] = y_limits.max
+
+        beam_shift.value += new_shift
+
+        dx, dy = new_shift - beam_shift.value
+        logging.debug(
+            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
+        )
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
@@ -1528,7 +1574,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"insert position {name} not supported.")
-        if VERSION < 4.7:
+        if VERSION < parse("4.7"):
             raise NotImplementedError("Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher")
 
         # get the saved position name
@@ -1551,7 +1597,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def retract_manipulator(self):
         """Retract the manipulator"""
 
-        if VERSION < 4.7:
+        if VERSION < parse("4.7"):
             raise NotImplementedError("Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher")
 
         if not self.is_available("manipulator"):
@@ -1711,7 +1757,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"saved position {name} not supported.")
-        if VERSION < 4.7:
+        if VERSION < parse("4.7"):
             raise NotImplementedError("Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher")
 
         named_position = ManipulatorSavedPosition.PARK if name == "PARK" else ManipulatorSavedPosition.EUCENTRIC
@@ -6277,30 +6323,35 @@ class Demo2Microscope(DemoMicroscope):
     and what this can provide is different.
 
     """
+
     def __init__(self, system_settings: SystemSettings):
         super().__init__(system_settings)
 
         # TODO: Modify this default implementation with our implementation
-        SEM_folder_path_str = eval(system_settings.demo2["SEM_folder_path_str"]) # TODO: check this works
-        FIB_folder_path_str = eval(system_settings.demo2["FIB_folder_path_str"])
+        sem_directory = Path(
+            system_settings.demo2["SEM_folder_path_str"].strip("\"'")
+        )  # TODO: check this works
+        fib_directory = Path(system_settings.demo2["FIB_folder_path_str"].strip("\"'"))
+        cycle_paths = bool(system_settings.demo2.get("cycle", False))
 
-        folder_p_SEM = Path(SEM_folder_path_str)
-        folder_p_FIB = Path(FIB_folder_path_str)
+        if not sem_directory.is_dir():
+            raise FileNotFoundError(f"{sem_directory} is not a valid directory")
+        if not fib_directory.is_dir():
+            raise FileNotFoundError(f"{fib_directory} is not a valid directory")
 
-        #This below is giving error, not sure why
-        # if not folder_p_SEM.exists():
-        #     raise ValueError(f"{SEM_folder_path_str} is not a valid folder")
-        # if not folder_p_FIB.exists():
-        #     raise ValueError(f"{FIB_folder_path_str} is not a valid folder")
+        example_sem_image_iterator = sem_directory.glob("*.tif")
+        example_fib_image_iterator = fib_directory.glob("*.tif")
 
-        self.cycle_example_images_SEM = folder_p_SEM.glob("*.tif")
-        self.cycle_example_images_FIB = folder_p_FIB.glob("*.tif")
+        if cycle_paths:
+            from itertools import cycle
 
-        # print(len(list(self.cycle_example_images_SEM)))
-        # print(len(list(self.cycle_example_images_FIB)))
+            example_sem_image_iterator = cycle(example_sem_image_iterator)
+            example_fib_image_iterator = cycle(example_fib_image_iterator)
+
+        self.example_sem_image_iterator = example_sem_image_iterator
+        self.example_fib_image_iterator = example_fib_image_iterator
 
     def acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
-
         # _check_beam(image_settings.beam_type, self.system)
         # vfw = image_settings.hfw * image_settings.resolution[1] / image_settings.resolution[0]
         # pixelsize = Point(image_settings.hfw / image_settings.resolution[0],
@@ -6328,26 +6379,40 @@ class Demo2Microscope(DemoMicroscope):
         #     self._ib_image = image
 
         _check_beam(image_settings.beam_type, self.system)
-        vfw = image_settings.hfw * image_settings.resolution[1] / image_settings.resolution[0]
-        pixelsize = Point(image_settings.hfw / image_settings.resolution[0],
-                          vfw / image_settings.resolution[1])
+        vfw = (
+            image_settings.hfw
+            * image_settings.resolution[1]
+            / image_settings.resolution[0]
+        )
+        pixelsize = Point(
+            image_settings.hfw / image_settings.resolution[0],
+            vfw / image_settings.resolution[1],
+        )
 
-        logging.info(f"acquiring new {image_settings.beam_type.name} image.")
-        logging.info(f"resolution:{image_settings.resolution}, hfw:{image_settings.hfw}")
+        logging.info("Acquiring new %s image", image_settings.beam_type.name)
+        logging.debug(
+            "Resolution: %s, hfw: %f",
+            str(image_settings.resolution),
+            image_settings.hfw,
+        )
 
-        new_image_fn=None #default
+        new_image_fn = None  # default
 
         try:
             if image_settings.beam_type is BeamType.ELECTRON:
-                new_image_fn = next(self.cycle_example_images_SEM)
-                logging.info("SEM")
+                new_image_fn = next(self.example_sem_image_iterator)
+                logging.debug("Acquired SEM image")
 
             elif image_settings.beam_type is BeamType.ION:
-                #cycle_example_images = self.cycle_example_images_FIB
-                new_image_fn = next(self.cycle_example_images_FIB)
-                logging.info("FIB")
-        except:
-            logging.warning("new_image_fn is None. Probably run out of images in folder.")
+                # cycle_example_images = self.cycle_example_images_FIB
+                new_image_fn = next(self.example_fib_image_iterator)
+                logging.debug("Acquired FIB image")
+        except StopIteration:
+            logging.info("Run out of images to iterate over")
+        except Exception:
+            logging.error(
+                "Failed to get further images due to unexpected error", exc_info=True
+            )
             return None
 
         ad_img = AdornedImage.load(new_image_fn)
@@ -6364,40 +6429,46 @@ class Demo2Microscope(DemoMicroscope):
 
         # Try to create a new image from loaded one
         # by resizing using skimage
-
         img_data = ad_img.data
-        #img_data = ad_img.raw_data
         logging.info(f"img_data.type:{type(img_data)}")
-        logging.info(f"img_data.dtype:{img_data.dtype}, img_data.shape:{img_data.shape}")
+        logging.info(
+            f"img_data.dtype:{img_data.dtype}, img_data.shape:{img_data.shape}"
+        )
 
-        newshape = tuple(np.array(image_settings.resolution)[::-1]) #inverts shape, resloution is in X,Y, so converts to Y,X format
-        if ad_img.data.shape !=  newshape:
-            logging.info(f"demo image has shape:{ad_img.data.shape}. Resizing to {newshape}")
+        newshape = tuple(
+            np.array(image_settings.resolution)[::-1]
+        )  # inverts shape, resloution is in X,Y, so converts to Y,X format
+        if ad_img.data.shape != newshape:
+            logging.info(
+                f"demo image has shape:{ad_img.data.shape}. Resizing to {newshape}"
+            )
             from skimage.transform import resize
+
             dt = img_data.dtype
-            img_data = resize(img_data, newshape, anti_aliasing=True, preserve_range=True).astype(dt)
-            logging.info(f"Resized, img_data.dtype:{img_data.dtype}, img_data.shape:{img_data.shape}")
+            img_data = resize(
+                img_data, newshape, anti_aliasing=True, preserve_range=True
+            ).astype(dt)
+            logging.info(
+                f"Resized, img_data.dtype:{img_data.dtype}, img_data.shape:{img_data.shape}"
+            )
 
         data_uint8 = img_data
-        #Turn new_image_fn to uint8
-        if img_data.dtype in [np.uint16, np.int16]:
-            logging.info(f"img_data is int16 or uint16, converting to uint8")
-            data_uint8 = (img_data/256).astype(np.uint8)
-        elif img_data.dtype in [np.uint32, np.int32]:
-            logging.info(f"img_data is int32 or uint32, converting to uint8")
-            data_uint8 = (img_data/65536).astype(np.uint8)
-        elif np.issubdtype(img_data.dtype, np.floating):
-            logging.info(f"img_data is float, converting to uint8")
-            data_uint8 = (img_data/img_data.max()*255).astype(np.uint8)
-
-        logging.info(f"data_uint8.dtype:{data_uint8.dtype}")
-
-        if data_uint8.dtype != np.uint8:
-            logging.warning("img_data could not be converted to uint8. Forcing...")
-            #force
-            data_uint8 =  img_data.astype(np.uint8)
-
-        # logging.info(f"data_uint8.dtype:{data_uint8.dtype}")
+        # Turn new_image_fn to uint8
+        if not np.issubdtype(img_data.dtype, np.uint8):
+            logging.info("img_data is %s, converting to uint8", img_data.dtype)
+            if np.issubdtype(img_data.dtype, np.integer):
+                iinfo = np.iinfo(img_data.dtype)
+                img_data = img_data.astype(np.float64)
+                img_data += iinfo.min
+                img_data *= 255 / (iinfo.max - iinfo.min)
+            elif np.issubdtype(img_data.dtype, np.floating):
+                img_data += min(
+                    img_data.min(), 0
+                )  # Don't rescale bottom unless negative
+                img_data *= 255 / img_data.max()
+            data_uint8 = np.round(img_data).astype(np.uint8)
+        else:
+            data_uint8 = img_data
 
         fibsem_image = FibsemImage(
             data=data_uint8,
@@ -6413,14 +6484,16 @@ class Demo2Microscope(DemoMicroscope):
         fibsem_image.metadata.user = self.user
         fibsem_image.metadata.experiment = self.experiment
         fibsem_image.metadata.system = self.system
+        fibsem_image.metadata.image_settings.filename = f"{new_image_fn.stem}_{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
         if image_settings.beam_type is BeamType.ELECTRON:
             self._eb_image = fibsem_image # must be FibsemImage object
         elif image_settings.beam_type is BeamType.ION:
-            self._ib_image = fibsem_image # must be FibsemImage object
+            self._ib_image = fibsem_image  # must be FibsemImage object
 
+        # store last imaging settings
+        self._last_imaging_settings = image_settings
 
         logging.debug({"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()})
 
         return fibsem_image
-
