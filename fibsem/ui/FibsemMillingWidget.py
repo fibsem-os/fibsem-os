@@ -94,6 +94,14 @@ UNSCALED_VALUES = [
     "milling_interval_s",
     "minimum_lamella_area_um2",
     "window_size_px",
+    "fib_res_x",
+    "fib_res_y",
+    "fib_dwell_time_us",
+    "fib_hfw_um",
+    "sem_res_x",
+    "sem_res_y",
+    "sem_dwell_time_us",
+    "sem_hfw_um",
 ]
 LINE_KEYS = ["start_x", "start_y", "end_x", "end_y"]
 
