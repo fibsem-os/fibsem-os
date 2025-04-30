@@ -1152,34 +1152,38 @@ class ThermoMicroscope(FibsemMicroscope):
 
         new_shift = beam_shift.value + (dx, dy)
 
-        if new_shift[0] < x_limits.min:
+        if new_shift[0] <= x_limits.min:
             logging.warning(
-                "Requested beam shift of %+f to %f exceeds minimum X limit, shifting to limit %f",
+                "Adjusting %s beamshift X by %+f to %f would exceed the minimum X limit of %f, shifting to limit",
+                beam_type.name,
                 dx,
                 new_shift[0],
                 x_limits.min,
             )
             new_shift[0] = x_limits.min
-        elif new_shift[0] > x_limits.max:
+        elif new_shift[0] >= x_limits.max:
             logging.warning(
-                "Requested beam shift of %+f to %f exceeds maximum X limit, shifting to limit %f",
+                "Adjusting %s beamshift X by %+f to %f would exceed the maximum X limit of %f, shifting to limit",
+                beam_type.name,
                 dx,
                 new_shift[0],
                 x_limits.max,
             )
             new_shift[0] = x_limits.max
 
-        if new_shift[1] < y_limits.min:
+        if new_shift[1] <= y_limits.min:
             logging.warning(
-                "Requested beam shift of %+f to %f exceeds minimum Y limit, shifting to limit %f",
+                "Adjusting %s beamshift Y by %+f to %f would exceed the minimum Y limit of %f, shifting to limit",
+                beam_type.name,
                 dy,
                 new_shift[1],
                 y_limits.min,
             )
             new_shift[1] = y_limits.min
-        elif new_shift[1] > y_limits.max:
+        elif new_shift[1] >= y_limits.max:
             logging.warning(
-                "Requested beam shift of %+f to %f exceeds maximum Y limit, shifting to limit %f",
+                "Adjusting %s beamshift Y by %+f to %f would exceed the maximum Y limit of %f, shifting to limit",
+                beam_type.name,
                 dy,
                 new_shift[1],
                 y_limits.max,
