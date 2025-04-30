@@ -1186,7 +1186,7 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             new_shift[1] = y_limits.max
 
-        beam_shift.value += new_shift
+        beam_shift.value = new_shift
 
         dx, dy = new_shift - beam_shift.value
         logging.debug(
