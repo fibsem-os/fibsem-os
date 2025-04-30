@@ -14,7 +14,7 @@ import os
 
 
 # NOTE: these models contain numeric training bugs that were fixed in later versions. For reproducibility, we need to re-implement the bug for these models...
-# please contact (pat) if these models arent working as expected. 
+# please contact (pat) if these models arent working as expected.
 __DEPRECIATED_CHECKPOINTS__ = [
     "autolamella-02-34.pt",
     "autolamella-03-34.pt",
@@ -69,9 +69,9 @@ class SegmentationModel:
             in_channels=1,  # grayscale images
             classes=self.num_classes,
         )
-        self.model.to(self.device)        
-        
-        
+        self.model.to(self.device)
+
+
         self.load_weights(checkpoint=checkpoint)
         if checkpoint:
             checkpoint = download_checkpoint(checkpoint)
@@ -141,7 +141,7 @@ class SegmentationModel:
             outputs = self.model(img_t)
             outputs = F.softmax(outputs, dim=1)
             masks = torch.argmax(outputs, dim=1).detach().cpu().numpy()
-        
+
         # decode to rgb
         if rgb:
             masks = self.postprocess(masks, nc=self.num_classes)
@@ -157,14 +157,14 @@ class SegmentationModel:
             outputs = self.model(img_t)
             outputs = F.softmax(outputs, dim=1)
             masks = torch.argmax(outputs, dim=1).detach().cpu().numpy()
-        
+
         # decode to rgb
         if rgb:
             masks = self.postprocess(masks, nc=self.num_classes)
 
         # TODO: return masks, scores, logits
         return masks, outputs
-        
+
     def postprocess(self, masks, nc):
         # TODO: vectorise this properly
         # TODO: use decode_segmap_v2
@@ -195,7 +195,7 @@ def load_model(
 ) -> SegmentationModel:
     """Load a model checkpoint
     backend: str, optional The backend to use. If None, will try to infer from the checkpoint name"""
-    
+
     if backend is None:
         backend = get_backend(checkpoint=checkpoint)
 
@@ -214,8 +214,11 @@ def load_model(
                 logging.debug(f"Failed to load {type(onnx_model)} for {checkpoint}: {e}")
 
     elif backend == "huggingface":
-        from fibsem.segmentation.hf_segmentation_model import SegmentationModelHuggingFace
-        model = SegmentationModelHuggingFace(checkpoint=checkpoint)
+        try:
+            from fibsem.segmentation.hf_segmentation_model import SegmentationModelHuggingFace
+            model = SegmentationModelHuggingFace(checkpoint=checkpoint)
+        except Exception as e:
+            logging.warning(f"Could not load model from huggingface: {e}")
     elif backend == "adaptive-smp":
         from fibsem.segmentation.adaptive_model import AdaptiveSegmentationModel
         model = AdaptiveSegmentationModel(checkpoint=checkpoint)
