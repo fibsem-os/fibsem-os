@@ -61,7 +61,7 @@ try:
 
     if _OVERWRITE_AUTOSCRIPT_VERSION:
         VERSION = parse("4.7")
-        
+
     from autoscript_sdb_microscope_client._dynamic_object_proxies import (
         CirclePattern,
         CleaningCrossSectionPattern,
@@ -94,11 +94,13 @@ except Exception as e:
         raise e
 
 import fibsem.constants as constants
+
 try:
     AdornedImage
 except NameError:
     logging.info("AdornedImage not defined. Defining it here")
     import fibsem.spoof_adorned_image
+
     AdornedImage = fibsem.spoof_adorned_image.SpoofAdornedImage
 
 from fibsem.structures import (
@@ -130,8 +132,10 @@ from fibsem.structures import (
 )
 from fibsem import utils
 
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
+
     milling_progress_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
 
@@ -144,7 +148,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def acquire_image(self, image_settings:ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
         pass
 
     @abstractmethod
@@ -152,7 +156,12 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def live_imaging(self, image_settings: ImageSettings, image_queue: Queue, stop_event: threading.Event):
+    def live_imaging(
+        self,
+        image_settings: ImageSettings,
+        image_queue: Queue,
+        stop_event: threading.Event,
+    ):
         pass
 
     @abstractmethod
@@ -160,11 +169,13 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def consume_image_queue(self, parent_ui = None, sleep: float = 0.1):
+    def consume_image_queue(self, parent_ui=None, sleep: float = 0.1):
         pass
 
     @abstractmethod
-    def autocontrast(self, beam_type: BeamType, reduced_area: FibsemRectangle = None) -> None:
+    def autocontrast(
+        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
+    ) -> None:
         pass
 
     @abstractmethod
@@ -204,7 +215,9 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def stable_move(self,dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
+    def stable_move(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemStagePosition:
         pass
 
     @abstractmethod
@@ -221,10 +234,10 @@ class FibsemMicroscope(ABC):
     ) -> FibsemStagePosition:
         pass
 
-    def move_flat_to_beam(self, beam_type: BeamType, _safe:bool = True) -> None:
+    def move_flat_to_beam(self, beam_type: BeamType, _safe: bool = True) -> None:
         """Move the sample surface flat to the electron or ion beam."""
 
-        _check_stage(self.system, rotation= True, tilt=True)
+        _check_stage(self.system, rotation=True, tilt=True)
         stage_settings = self.system.stage
         shuttle_pre_tilt = stage_settings.shuttle_pre_tilt
 
@@ -248,9 +261,17 @@ class FibsemMicroscope(ABC):
 
         # updated safe rotation move
         logging.info(f"moving flat to {beam_type.name}")
-        stage_position = FibsemStagePosition(r=rotation, t=tilt, coordinate_system="Raw")
+        stage_position = FibsemStagePosition(
+            r=rotation, t=tilt, coordinate_system="Raw"
+        )
 
-        logging.debug({"msg": "move_flat_to_beam", "stage_position": stage_position.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "move_flat_to_beam",
+                "stage_position": stage_position.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
 
         if _safe:
             self.safe_absolute_stage_movement(stage_position)
@@ -287,11 +308,15 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def move_manipulator_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
+    def move_manipulator_corrected(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> None:
         pass
 
     @abstractmethod
-    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str) -> None:
+    def move_manipulator_to_position_offset(
+        self, offset: FibsemManipulatorPosition, name: str
+    ) -> None:
         pass
 
     @abstractmethod
@@ -303,8 +328,10 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    #def run_milling(self, milling_current: float, asynch: bool) -> None:
-    def run_milling(self, milling_current: float, milling_voltage: float, asynch: bool) -> None:
+    # def run_milling(self, milling_current: float, asynch: bool) -> None:
+    def run_milling(
+        self, milling_current: float, milling_voltage: float, asynch: bool
+    ) -> None:
         pass
 
     @abstractmethod
@@ -368,16 +395,20 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def get_available_values(self, key:str, beam_type: BeamType = None) -> list:
+    def get_available_values(self, key: str, beam_type: BeamType = None) -> list:
         pass
 
     # TODO: use a decorator instead?
-    def get(self, key: str, beam_type: BeamType = None) -> Union[float, int, bool, str, list]:
+    def get(
+        self, key: str, beam_type: BeamType = None
+    ) -> Union[float, int, bool, str, list]:
         """Get wrapper for logging."""
         logging.debug(f"Getting {key} ({beam_type})")
         value = self._get(key, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
-        logging.debug({"msg": "get", "key": key, "beam_type": beam_name, "value": value})
+        logging.debug(
+            {"msg": "get", "key": key, "beam_type": beam_name, "value": value}
+        )
         return value
 
     def set(self, key: str, value, beam_type: BeamType = None) -> None:
@@ -385,16 +416,19 @@ class FibsemMicroscope(ABC):
         logging.debug(f"Setting {key} to {value} ({beam_type})")
         self._set(key, value, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
-        logging.debug({"msg": "set", "key": key, "beam_type": beam_name, "value": value})
+        logging.debug(
+            {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
+        )
 
     @abstractmethod
-    def _get(self, key: str, beam_type: BeamType = None) -> Union[float, int, bool, str, list]:
+    def _get(
+        self, key: str, beam_type: BeamType = None
+    ) -> Union[float, int, bool, str, list]:
         pass
 
     @abstractmethod
     def _set(self, key: str, value, beam_type: BeamType = None) -> None:
         pass
-
 
     # TODO: i dont think this is needed, you set the beam settings and detector settings separately
     # you can't set image settings, only when acquiring an image
@@ -410,7 +444,13 @@ class FibsemMicroscope(ABC):
             path=self._last_imaging_settings.path,
             filename=self._last_imaging_settings.filename,
         )
-        logging.debug({"msg": "get_imaging_settings", "image_settings": image_settings.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "get_imaging_settings",
+                "image_settings": image_settings.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
         return image_settings
 
     def set_imaging_settings(self, image_settings: ImageSettings) -> None:
@@ -425,13 +465,18 @@ class FibsemMicroscope(ABC):
         # self.set("drift_correction", image_settings.drift_correction, image_settings.beam_type)
 
         # TODO: implement the rest of these settings... @patrick
-        logging.debug({"msg": "set_imaging_settings", "image_settings": image_settings.to_dict(), "beam_type": image_settings.beam_type.name})
+        logging.debug(
+            {
+                "msg": "set_imaging_settings",
+                "image_settings": image_settings.to_dict(),
+                "beam_type": image_settings.beam_type.name,
+            }
+        )
 
         return
 
     def get_beam_settings(self, beam_type: BeamType) -> BeamSettings:
-        """Get the current beam settings for the specified beam type.
-        """
+        """Get the current beam settings for the specified beam type."""
 
         logging.debug(f"Getting {beam_type.name} beam settings...")
         beam_settings = BeamSettings(
@@ -441,19 +486,27 @@ class FibsemMicroscope(ABC):
             voltage=self.get("voltage", beam_type),
             hfw=self.get("hfw", beam_type),
             resolution=self.get("resolution", beam_type),
-            dwell_time=self.get("dwell_time" , beam_type),
+            dwell_time=self.get("dwell_time", beam_type),
             stigmation=self.get("stigmation", beam_type),
             shift=self.get("shift", beam_type),
             scan_rotation=self.get("scan_rotation", beam_type),
         )
-        logging.debug({"msg": "get_beam_settings", "beam_settings": beam_settings.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "get_beam_settings",
+                "beam_settings": beam_settings.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
 
         return beam_settings
 
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
         """Set the beam settings for the specified beam type"""
         logging.debug(f"Setting {beam_settings.beam_type.name} beam settings...")
-        self.set("working_distance", beam_settings.working_distance, beam_settings.beam_type)
+        self.set(
+            "working_distance", beam_settings.working_distance, beam_settings.beam_type
+        )
         self.set("current", beam_settings.beam_current, beam_settings.beam_type)
         self.set("voltage", beam_settings.voltage, beam_settings.beam_type)
         self.set("hfw", beam_settings.hfw, beam_settings.beam_type)
@@ -463,12 +516,17 @@ class FibsemMicroscope(ABC):
         self.set("shift", beam_settings.shift, beam_settings.beam_type)
         self.set("scan_rotation", beam_settings.scan_rotation, beam_settings.beam_type)
 
-        logging.debug({"msg": "set_beam_settings", "beam_settings": beam_settings.to_dict(), "beam_type": beam_settings.beam_type.name})
+        logging.debug(
+            {
+                "msg": "set_beam_settings",
+                "beam_settings": beam_settings.to_dict(),
+                "beam_type": beam_settings.beam_type.name,
+            }
+        )
         return
 
     def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
-        """Get the current beam system settings for the specified beam type.
-        """
+        """Get the current beam system settings for the specified beam type."""
         logging.debug(f"Getting {beam_type.name} beam system settings...")
         beam_system_settings = BeamSystemSettings(
             beam_type=beam_type,
@@ -481,12 +539,17 @@ class FibsemMicroscope(ABC):
             plasma_gas=self.get("plasma_gas", beam_type),
         )
 
-        logging.debug({"msg": "get_beam_system_settings", "settings": beam_system_settings.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "get_beam_system_settings",
+                "settings": beam_system_settings.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
         return beam_system_settings
 
     def set_beam_system_settings(self, settings: BeamSystemSettings) -> None:
-        """Set the beam system settings for the specified beam type.
-        """
+        """Set the beam system settings for the specified beam type."""
         beam_type = settings.beam_type
         logging.debug(f"Setting {settings.beam_type.name} beam system settings...")
         self.set("beam_enabled", settings.enabled, beam_type)
@@ -499,13 +562,20 @@ class FibsemMicroscope(ABC):
             self.set("plasma_gas", settings.plasma_gas, beam_type)
             self.set("plasma", settings.plasma, beam_type)
 
-        logging.debug( {"msg": "set_beam_system_settings", "settings": settings.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "set_beam_system_settings",
+                "settings": settings.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
 
         return
 
-    def get_detector_settings(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemDetectorSettings:
-        """Get the current detector settings for the specified beam type.
-        """
+    def get_detector_settings(
+        self, beam_type: BeamType = BeamType.ELECTRON
+    ) -> FibsemDetectorSettings:
+        """Get the current detector settings for the specified beam type."""
         logging.debug(f"Getting {beam_type.name} detector settings...")
         detector_settings = FibsemDetectorSettings(
             type=self.get("detector_type", beam_type),
@@ -513,17 +583,33 @@ class FibsemMicroscope(ABC):
             brightness=self.get("detector_brightness", beam_type),
             contrast=self.get("detector_contrast", beam_type),
         )
-        logging.debug({"msg": "get_detector_settings", "detector_settings": detector_settings.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "get_detector_settings",
+                "detector_settings": detector_settings.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
         return detector_settings
 
-    def set_detector_settings(self, detector_settings: FibsemDetectorSettings, beam_type: BeamType = BeamType.ELECTRON) -> None:
+    def set_detector_settings(
+        self,
+        detector_settings: FibsemDetectorSettings,
+        beam_type: BeamType = BeamType.ELECTRON,
+    ) -> None:
         """Set the detector settings for the specified beam type"""
         logging.debug(f"Setting {beam_type.name} detector settings...")
         self.set("detector_type", detector_settings.type, beam_type)
         self.set("detector_mode", detector_settings.mode, beam_type)
         self.set("detector_brightness", detector_settings.brightness, beam_type)
         self.set("detector_contrast", detector_settings.contrast, beam_type)
-        logging.debug({"msg": "set_detector_settings", "detector_settings": detector_settings.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "set_detector_settings",
+                "detector_settings": detector_settings.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
 
         return
 
@@ -553,14 +639,16 @@ class FibsemMicroscope(ABC):
 
         current_microscope_state = MicroscopeState(
             timestamp=datetime.datetime.timestamp(datetime.datetime.now()),
-            stage_position=stage_position,                                  # get absolute stage coordinates (RAW)
-            electron_beam=electron_beam,                                    # electron beam state
-            ion_beam=ion_beam,                                              # ion beam state
-            electron_detector=electron_detector,                            # electron beam detector state
-            ion_detector=ion_detector,                                      # ion beam detector state
+            stage_position=stage_position,  # get absolute stage coordinates (RAW)
+            electron_beam=electron_beam,  # electron beam state
+            ion_beam=ion_beam,  # ion beam state
+            electron_detector=electron_detector,  # electron beam detector state
+            ion_detector=ion_detector,  # ion beam detector state
         )
 
-        logging.debug({"msg": "get_microscope_state", "state": current_microscope_state.to_dict()})
+        logging.debug(
+            {"msg": "get_microscope_state", "state": current_microscope_state.to_dict()}
+        )
 
         return deepcopy(current_microscope_state)
 
@@ -571,7 +659,9 @@ class FibsemMicroscope(ABC):
             if microscope_state.electron_beam is not None:
                 self.set_beam_settings(microscope_state.electron_beam)
             if microscope_state.electron_detector is not None:
-                self.set_detector_settings(microscope_state.electron_detector, BeamType.ELECTRON)
+                self.set_detector_settings(
+                    microscope_state.electron_detector, BeamType.ELECTRON
+                )
         if self.is_available("ion_beam"):
             if microscope_state.ion_beam is not None:
                 self.set_beam_settings(microscope_state.ion_beam)
@@ -580,22 +670,45 @@ class FibsemMicroscope(ABC):
         if self.is_available("stage"):
             self.safe_absolute_stage_movement(microscope_state.stage_position)
 
-        logging.debug({"msg": "set_microscope_state", "state": microscope_state.to_dict()})
+        logging.debug(
+            {"msg": "set_microscope_state", "state": microscope_state.to_dict()}
+        )
 
         return
 
     def set_milling_settings(self, mill_settings: FibsemMillingSettings) -> None:
-        self.set("active_view", mill_settings.milling_channel, mill_settings.milling_channel)
-        self.set("active_device", mill_settings.milling_channel, mill_settings.milling_channel)
-        self.set("default_patterning_beam_type", mill_settings.milling_channel, mill_settings.milling_channel)
-        self.set("application_file", mill_settings.application_file, mill_settings.milling_channel)
-        self.set("patterning_mode", mill_settings.patterning_mode, mill_settings.milling_channel)
+        self.set(
+            "active_view", mill_settings.milling_channel, mill_settings.milling_channel
+        )
+        self.set(
+            "active_device",
+            mill_settings.milling_channel,
+            mill_settings.milling_channel,
+        )
+        self.set(
+            "default_patterning_beam_type",
+            mill_settings.milling_channel,
+            mill_settings.milling_channel,
+        )
+        self.set(
+            "application_file",
+            mill_settings.application_file,
+            mill_settings.milling_channel,
+        )
+        self.set(
+            "patterning_mode",
+            mill_settings.patterning_mode,
+            mill_settings.milling_channel,
+        )
         self.set("hfw", mill_settings.hfw, mill_settings.milling_channel)
-        self.set("current", mill_settings.milling_current, mill_settings.milling_channel)
-        self.set("voltage", mill_settings.milling_voltage, mill_settings.milling_channel)
+        self.set(
+            "current", mill_settings.milling_current, mill_settings.milling_channel
+        )
+        self.set(
+            "voltage", mill_settings.milling_voltage, mill_settings.milling_channel
+        )
 
     def is_available(self, system: str) -> bool:
-
         if system == "electron_beam":
             return self.system.electron.enabled
         elif system == "ion_beam":
@@ -622,7 +735,6 @@ class FibsemMicroscope(ABC):
             return self.system.gis.sputter_coater
 
     def set_available(self, system: str, value: bool) -> None:
-
         if system == "electron_beam":
             self.system.electron.enabled = value
         elif system == "ion_beam":
@@ -647,7 +759,6 @@ class FibsemMicroscope(ABC):
             self.system.gis.multichem = value
         elif system == "gis_sputter_coater":
             self.system.gis.sputter_coater = value
-
 
     def apply_configuration(self, system_settings: SystemSettings = None) -> None:
         """Apply the system settings to the microscope."""
@@ -675,10 +786,14 @@ class FibsemMicroscope(ABC):
 
         # dont update info -> read only
         logging.info("Microscope configuration applied.")
-        logging.debug({"msg": "apply_configuration", "system_settings": system_settings.to_dict()})
+        logging.debug(
+            {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
+        )
 
     @abstractmethod
-    def check_available_values(self, key:str, values, beam_type: BeamType = None) -> bool:
+    def check_available_values(
+        self, key: str, values, beam_type: BeamType = None
+    ) -> bool:
         pass
 
     def home(self) -> bool:
@@ -692,7 +807,7 @@ class FibsemMicroscope(ABC):
         return self.get("stage_linked")
 
     def pump(self) -> str:
-        """"Pump the chamber."""
+        """ "Pump the chamber."""
         self.set("pump_chamber", True)
         return self.get("chamber_state")
 
@@ -714,6 +829,7 @@ class FibsemMicroscope(ABC):
     def is_on(self, beam_type: BeamType) -> bool:
         """Check if the specified beam type is on."""
         return self.get("on", beam_type)
+
 
 class ThermoMicroscope(FibsemMicroscope):
     """
@@ -825,7 +941,9 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def __init__(self, system_settings: SystemSettings = None):
         if not _THERMO_API_AVAILABLE:
-            raise Exception("Autoscript (ThermoFisher) not installed. Please see the user guide for installation instructions.")
+            raise Exception(
+                "Autoscript (ThermoFisher) not installed. Please see the user guide for installation instructions."
+            )
 
         # create microscope client
         self.connection = SdbMicroscopeClient()
@@ -840,7 +958,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self.experiment = FibsemExperiment()
 
         # logging
-        logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
+        logging.debug(
+            {
+                "msg": "create_microscope_client",
+                "system_settings": system_settings.to_dict(),
+            }
+        )
 
     def reconnect(self):
         if not hasattr(self, "system"):
@@ -887,13 +1010,21 @@ class ThermoMicroscope(FibsemMicroscope):
         self.system.info.model = self.connection.service.system.name
         self.system.info.serial_number = self.connection.service.system.serial_number
         self.system.info.hardware_version = self.connection.service.system.version
-        self.system.info.software_version = self.connection.service.autoscript.client.version
+        self.system.info.software_version = (
+            self.connection.service.autoscript.client.version
+        )
         info = self.system.info
-        logging.info(f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}.")
+        logging.info(
+            f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
+        )
 
         # autoscript information
-        logging.info(f"Autoscript Client: {self.connection.service.autoscript.client.version}")
-        logging.info(f"Autoscript Server: {self.connection.service.autoscript.server.version}")
+        logging.info(
+            f"Autoscript Client: {self.connection.service.autoscript.client.version}"
+        )
+        logging.info(
+            f"Autoscript Server: {self.connection.service.autoscript.server.version}"
+        )
 
         self.reset_beam_shifts()
 
@@ -922,7 +1053,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
-    def acquire_image(self, image_settings:ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
         """
         Acquire a new image with the specified settings.
 
@@ -937,14 +1068,18 @@ class ThermoMicroscope(FibsemMicroscope):
         _check_beam(image_settings.beam_type, self.system)
 
         # get the beam api
-        beam = (self.connection.beams.electron_beam
-                if image_settings.beam_type == BeamType.ELECTRON
-                else self.connection.beams.ion_beam)
+        beam = (
+            self.connection.beams.electron_beam
+            if image_settings.beam_type == BeamType.ELECTRON
+            else self.connection.beams.ion_beam
+        )
 
         # set reduced area settings
         if image_settings.reduced_area is not None:
             reduced_area = image_settings.reduced_area.__to_FEI__()
-            logging.debug(f"Set reduced are: {reduced_area} for beam type {image_settings.beam_type}")
+            logging.debug(
+                f"Set reduced are: {reduced_area} for beam type {image_settings.beam_type}"
+            )
         else:
             reduced_area = None
             beam.scanning.mode.set_full_frame()
@@ -993,7 +1128,9 @@ class ThermoMicroscope(FibsemMicroscope):
         # store last imaging settings
         self._last_imaging_settings = image_settings
 
-        logging.debug({"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()})
+        logging.debug(
+            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
+        )
 
         return fibsem_image
 
@@ -1011,7 +1148,7 @@ class ThermoMicroscope(FibsemMicroscope):
         Raises:
             Exception: If there's an error while getting the last image.
         """
-        _check_beam(beam_type = beam_type, settings = self.system)
+        _check_beam(beam_type=beam_type, settings=self.system)
 
         # set active view and device
         self.connection.imaging.set_active_view(beam_type.value)
@@ -1037,7 +1174,9 @@ class ThermoMicroscope(FibsemMicroscope):
         fibsem_image.metadata.experiment = self.experiment
         fibsem_image.metadata.system = self.system
 
-        logging.debug({"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()})
+        logging.debug(
+            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
+        )
 
         return fibsem_image
 
@@ -1049,7 +1188,12 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=image.data, metadata=None)
 
-    def live_imaging(self, image_settings: ImageSettings, image_queue: Queue, stop_event: threading.Event):
+    def live_imaging(
+        self,
+        image_settings: ImageSettings,
+        image_queue: Queue,
+        stop_event: threading.Event,
+    ):
         pass
         # self.image_queue = image_queue
         # self.stop_event = stop_event
@@ -1059,7 +1203,7 @@ class ThermoMicroscope(FibsemMicroscope):
         #     image = self.acquire_image(deepcopy(image_settings))
         #     image_queue.put(image)
 
-    def consume_image_queue(self, parent_ui = None, sleep = 0.1):
+    def consume_image_queue(self, parent_ui=None, sleep=0.1):
         pass
         # logging.info("Consuming image queue")
 
@@ -1080,7 +1224,6 @@ class ThermoMicroscope(FibsemMicroscope):
         #             if parent_ui is not None:
         #                     parent_ui.live_imaging_signal.emit({"image": image})
 
-
         #     except KeyboardInterrupt:
         #         self.stop_event
         #         logging.info("Keyboard interrupt, stopping live imaging")
@@ -1089,27 +1232,30 @@ class ThermoMicroscope(FibsemMicroscope):
         #         import traceback
         #         logging.error(traceback.format_exc())
 
-    def autocontrast(self, beam_type: BeamType, reduced_area: FibsemRectangle = None) -> None:
+    def autocontrast(
+        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
+    ) -> None:
         """
         Automatically adjust the microscope image contrast for the specified beam type.
 
         Args:
             beam_type (BeamType) The imaging beam type for which to adjust the contrast.
         """
-        _check_beam(beam_type = beam_type, settings = self.system)
+        _check_beam(beam_type=beam_type, settings=self.system)
         logging.debug(f"Running autocontrast on {beam_type.name}.")
         self.connection.imaging.set_active_view(beam_type.value)
         self.connection.imaging.set_active_device(beam_type.value)
         if reduced_area is not None:
             # TODO: migrate to set api
-            beam = (self.connection.beams.electron_beam
-                    if beam_type == BeamType.ELECTRON
-                    else self.connection.beams.ion_beam)
+            beam = (
+                self.connection.beams.electron_beam
+                if beam_type == BeamType.ELECTRON
+                else self.connection.beams.ion_beam
+            )
             rect = reduced_area.__to_FEI__()
-            beam.scanning.mode.set_reduced_area(left=rect.left,
-                                                top=rect.top,
-                                                width=rect.width,
-                                                height=rect.height)
+            beam.scanning.mode.set_reduced_area(
+                left=rect.left, top=rect.top, width=rect.width, height=rect.height
+            )
 
         self.connection.auto_functions.run_auto_cb()
         if reduced_area is not None:
@@ -1123,14 +1269,16 @@ class ThermoMicroscope(FibsemMicroscope):
         Args:
             beam_type (BeamType): The imaging beam type for which to focus.
         """
-        _check_beam(beam_type = beam_type, settings = self.system)
+        _check_beam(beam_type=beam_type, settings=self.system)
         logging.debug(f"Running auto-focus on {beam_type.name}.")
         self.connection.imaging.set_active_view(beam_type.value)
         self.connection.imaging.set_active_device(beam_type.value)
         self.connection.auto_functions.run_auto_focus()
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
-    def beam_shift(self, dx: float, dy: float, beam_type: BeamType = BeamType.ION) -> None:
+    def beam_shift(
+        self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
+    ) -> None:
         """
         Adjusts the beam shift based on relative values that are provided.
 
@@ -1190,9 +1338,10 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             new_shift[1] = y_limits.max
 
+        dx, dy = new_shift - beam_shift.value
+
         beam_shift.value = new_shift
 
-        dx, dy = new_shift - beam_shift.value
         logging.debug(
             {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
         )
