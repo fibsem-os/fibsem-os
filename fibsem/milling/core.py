@@ -210,8 +210,8 @@ def mill_stages(
 
                 if parent_ui:
                     parent_ui.milling_progress_signal.emit({"msg": f"Finished: {stage.name}"})
-            except Exception as e:
-                logging.error(f"Error running milling stage: {stage.name}, {e}")
+            except Exception:
+                logging.error("Error running milling stage: %s", stage.name, exc_info=True)
 
         if parent_ui:
             parent_ui.milling_progress_signal.emit({"msg": f"Finished {len(stages)} Milling Stages. Restoring Imaging Conditions..."})
