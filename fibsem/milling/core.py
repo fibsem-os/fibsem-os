@@ -36,12 +36,17 @@ def setup_milling(
     if milling_stage.alignment.enabled:
         from fibsem import alignment
 
-        possible_ref_image_path = os.path.join(
-            milling_stage.imaging.path, "ref_alignment_ib.tif"
-        )
-        if os.path.isfile(possible_ref_image_path):
+        try:
+            if milling_stage.imaging.path is None:
+                raise ValueError(f"No path set for milling stage {milling_stage.name}")
+            possible_ref_image_path = os.path.join(
+                milling_stage.imaging.path, "ref_alignment_ib.tif"
+            )
             ref_image = FibsemImage.load(possible_ref_image_path)
-        else:
+        except Exception as e:
+            logging.warning(
+                f"Failed to load existing reference image, a new one will be taken: {e}"
+            )
             image_settings = ImageSettings(
                 hfw=milling_stage.milling.hfw,
                 dwell_time=1e-6,
