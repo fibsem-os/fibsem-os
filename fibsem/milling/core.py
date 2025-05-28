@@ -34,6 +34,8 @@ def setup_milling(
 
     # acquire reference image for drift correction
     if milling_stage.alignment.enabled:
+        from fibsem import alignment
+
         possible_ref_image_path = os.path.join(
             milling_stage.imaging.path, "ref_alignment_ib.tif"
         )
@@ -51,17 +53,20 @@ def setup_milling(
             )
             ref_image = microscope.acquire_image(image_settings)
 
+        logging.info(
+            f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}"
+        )
+        alignment.multi_step_alignment_v2(
+            microscope=microscope,
+            ref_image=ref_image,
+            beam_type=milling_stage.milling.milling_channel,
+            alignment_current=milling_stage.milling.milling_current,
+            steps=1,
+            use_autocontrast=True,
+        )  # high current -> damaging
+
     # set up milling settings
     microscope.setup_milling(mill_settings=milling_stage.milling)
-
-    # align at the milling current to correct for shift
-    if milling_stage.alignment.enabled:
-        from fibsem import alignment
-        logging.info(f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}")
-        alignment.multi_step_alignment_v2(microscope=microscope,
-                                        ref_image=ref_image,
-                                        beam_type=milling_stage.milling.milling_channel,
-                                        steps=1, use_autocontrast=True)  # high current -> damaging
 
 # TODO: migrate run milling to take milling_stage argument, rather than current, voltage
 def run_milling(
