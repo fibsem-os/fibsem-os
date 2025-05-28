@@ -1,5 +1,6 @@
 import logging
 import time
+import os
 from typing import List, Tuple
 
 from fibsem import config as fcfg
@@ -33,16 +34,22 @@ def setup_milling(
 
     # acquire reference image for drift correction
     if milling_stage.alignment.enabled:
-        image_settings = ImageSettings(
-            hfw=milling_stage.milling.hfw,
-            dwell_time=1e-6,
-            resolution=[1536, 1024],
-            beam_type=milling_stage.milling.milling_channel,
-            reduced_area=milling_stage.alignment.rect,
-            path=fcfg.DATA_CC_PATH, # TODO: set this to the last-path?
-            filename=f"ref_{milling_stage.name}_initial_alignment_{current_timestamp_v2()}"
+        possible_ref_image_path = os.path.join(
+            milling_stage.imaging.path, "ref_alignment_ib.tif"
         )
-        ref_image = microscope.acquire_image(image_settings)
+        if os.path.isfile(possible_ref_image_path):
+            ref_image = FibsemImage.load(possible_ref_image_path)
+        else:
+            image_settings = ImageSettings(
+                hfw=milling_stage.milling.hfw,
+                dwell_time=1e-6,
+                resolution=[1536, 1024],
+                beam_type=milling_stage.milling.milling_channel,
+                reduced_area=milling_stage.alignment.rect,
+                path=fcfg.DATA_CC_PATH,  # TODO: set this to the last-path?
+                filename=f"ref_{milling_stage.name}_initial_alignment_{current_timestamp_v2()}",
+            )
+            ref_image = microscope.acquire_image(image_settings)
 
     # set up milling settings
     microscope.setup_milling(mill_settings=milling_stage.milling)
