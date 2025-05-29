@@ -776,8 +776,28 @@ class FiducialPattern(BasePattern):
             cross_section=cross_section,
             rotation=rotation + np.deg2rad(90),
         )
+        left_pattern_2 = FibsemRectangleSettings(
+            width=width,
+            height=height * 0.5,
+            depth=depth,
+            centre_x=self.point.x,
+            centre_y=self.point.y,
+            scan_direction="TopToBottom",
+            cross_section=cross_section,
+            rotation=rotation + np.deg2rad(37),
+        )
+        right_pattern_2 = FibsemRectangleSettings(
+            width=width,
+            height=height * 0.75,
+            depth=depth,
+            centre_x=self.point.x,
+            centre_y=self.point.y,
+            scan_direction="TopToBottom",
+            cross_section=cross_section,
+            rotation=rotation + np.deg2rad(147),
+        )
 
-        self.shapes = [left_pattern, right_pattern]
+        self.shapes = [left_pattern, right_pattern, left_pattern_2, right_pattern_2]
         return self.shapes
 
     def to_dict(self):
