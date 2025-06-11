@@ -10,7 +10,9 @@ from fibsem.fm.structures import ChannelSettings, ZParameters, FluorescenceImage
 from typing import List, Tuple, Dict
 
 
-def acquire_channels(microscope: FluorescenceMicroscope, settings: List[ChannelSettings]) -> List[FluorescenceImage]:
+def acquire_channels(
+    microscope: FluorescenceMicroscope, settings: List[ChannelSettings]
+) -> List[FluorescenceImage]:
     """Acquire images for multiple channels."""
     images: List[FluorescenceImage] = []
     for channel in settings:
@@ -20,30 +22,40 @@ def acquire_channels(microscope: FluorescenceMicroscope, settings: List[ChannelS
     return images
 
 
-def acquire_z_stack(microscope: FluorescenceMicroscope,
-                    channel_settings: ChannelSettings,
-                    zparams: ZParameters) -> FluorescenceImage:
+def acquire_z_stack(
+    microscope: FluorescenceMicroscope,
+    channel_settings: ChannelSettings,
+    zparams: ZParameters,
+) -> FluorescenceImage:
     """Acquire a Z-stack of images for a given channel."""
-    z_positions = zparams.generate_positions(microscope.objective.position)
+
+    z_init = microscope.objective.position  # initial z position of the objective
+    z_positions = zparams.generate_positions(z_init=z_init)
     images: List[FluorescenceImage] = []
-    
+
     # TODO: support multi-channel Z-stacks
     # for channel_settings in [channel_settings]:
-    
+
     for z in z_positions:
-        microscope.objective.move_absolute(z)  # Move objective to the specified z position
+        microscope.objective.move_absolute(
+            z
+        )  # Move objective to the specified z position
         image = microscope.acquire_image(channel_settings)
         images.append(image)
-        
+
     # stack the images along the z-axis
     arrs = [img.data for img in images]
     zstack = FluorescenceImage(np.stack(arrs, axis=0), metadata=images[0].metadata)
     # TODO: properly handle metadata + image structure
 
+    # restore objective to initial position
+    microscope.objective.move_absolute(z_init)
+
     return zstack
 
 
 ########## CALIBRATION FUNCTIONS ##########
+
 
 def get_sharpness(img: np.ndarray, **kwargs) -> float:
     """Calculate sharpness (accutance) of an image.
@@ -56,6 +68,7 @@ def get_sharpness(img: np.ndarray, **kwargs) -> float:
     filtered = scipy.ndimage.median_filter(img_norm, 3)
     return np.mean(gradient(filtered, disk(disk_size)))
 
+
 def get_variance(img: np.ndarray, **kwargs) -> float:
     """Get variance of the Laplacian of an image.
     (Faster than get_sharpness, but more sensitive to noise)"""
@@ -64,13 +77,16 @@ def get_variance(img: np.ndarray, **kwargs) -> float:
     laplacian = laplace(img_float)
     return np.var(laplacian)
 
-DEFAULT_FOCUS_METHOD = "variance"
-FOCUS_FN_MAP = {
-    "sharpness": get_sharpness,
-    "variance": get_variance
-}
 
-def run_auto_focus(microscope: FluorescenceMicroscope, channel_settings: ChannelSettings, method: str = DEFAULT_FOCUS_METHOD) -> float:
+DEFAULT_FOCUS_METHOD = "variance"
+FOCUS_FN_MAP = {"sharpness": get_sharpness, "variance": get_variance}
+
+
+def run_auto_focus(
+    microscope: FluorescenceMicroscope,
+    channel_settings: ChannelSettings,
+    method: str = DEFAULT_FOCUS_METHOD,
+) -> float:
     """Run autofocus by acquiring images at different z positions and finding the best focus."""
 
     # TODO:
@@ -78,15 +94,14 @@ def run_auto_focus(microscope: FluorescenceMicroscope, channel_settings: Channel
     # - allow user to specify z parameters (defaults for coarse/fine focus?)
 
     # set up z parameters
-    zparams = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=2.5e-6) 
+    zparams = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=2.5e-6)
     z_positions = zparams.generate_positions(microscope.objective.position)
-    
+
     # get the focus metric function
     focus_fn = FOCUS_FN_MAP.get(method, DEFAULT_FOCUS_METHOD)
 
     scores = []
     for pos in z_positions:
-
         # set objective position
         microscope.objective.move_absolute(pos)
 
@@ -102,7 +117,9 @@ def run_auto_focus(microscope: FluorescenceMicroscope, channel_settings: Channel
     idx = np.argmax(scores)
     best_focus = z_positions[idx]
 
-    print(f"Best focus found at z position: {best_focus:.2e} microns with score: {scores[idx]:.2f}")
+    print(
+        f"Best focus found at z position: {best_focus:.2e} microns with score: {scores[idx]:.2f}"
+    )
     # move objective to best focus position
     microscope.objective.move_absolute(best_focus)
 

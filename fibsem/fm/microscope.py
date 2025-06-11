@@ -11,15 +11,15 @@ from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 
 
 class ObjectiveLens(ABC):
-
-    def __init__(self, parent: Optional['FluorescenceMicroscope'] = None):
+    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
         self._position: float = 0.0
-        self._magnification: float = 100.0 # placeholder value, should be overridden by subclasses
+        self._magnification: float = (
+            100.0  # placeholder value, should be overridden by subclasses
+        )
         self._na = 1.4  # Numerical Aperture, placeholder value
 
     @property
-    # @abstractmethod
     def magnification(self) -> float:
         """Return the magnification of the objective lens."""
         return self._magnification
@@ -30,15 +30,16 @@ class ObjectiveLens(ABC):
         self._magnification = value
 
     @property
-    # @abstractmethod
     def position(self) -> float:
         """Return the current position of the objective lens. (z-axis)"""
         return self._position
-    
+
     def move_relative(self, delta: float):
         """Move the objective lens relative to its current position."""
         self._position += delta
-        print(f"Objective lens moved to new position: {self._position} microns (delta: {delta} microns)")
+        print(
+            f"Objective lens moved to new position: {self._position} microns (delta: {delta} microns)"
+        )
 
     def move_absolute(self, position: float):
         """Move the objective lens to an absolute position."""
@@ -55,51 +56,55 @@ class ObjectiveLens(ABC):
         # Implementation for retracting the lens
         pass
 
+
 class Camera(ABC):
-
-
-    def __init__(self, parent: Optional['FluorescenceMicroscope'] = None):
+    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
         self._exposure_time: float = 100.0  # Default exposure time in milliseconds
         self._binning: int = 1
         self._gain: float = 1.0
         self._offset: float = 0.0
-        self._resolution: Tuple[int, int] = (1024, 1024)  # Default resolution (width, height)
+        self._resolution: Tuple[int, int] = (1024, 1024)  # default resolution
         super().__init__()
 
     # @abstractmethod
     def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:
         """Acquire an image with the specified channel settings."""
-        
+
         # get min and max values for the image
         min_value = np.iinfo(np.uint16).min  # 0 for uint16
         max_value = np.iinfo(np.uint16).max  # 65535 for uint16
-        return np.random.randint(min_value, max_value, size=self._resolution, dtype=np.uint16)
+        return np.random.randint(
+            min_value, max_value, size=self._resolution, dtype=np.uint16
+        )
 
     @property
     def exposure_time(self) -> float:
         """Return the current exposure time of the camera."""
         return self._exposure_time
+
     @exposure_time.setter
     def exposure_time(self, value: float):
         """Set the exposure time of the camera."""
         self._exposure_time = value
-    
+
     @property
     def binning(self) -> int:
         """Return the current binning of the camera."""
         return self._binning
+
     @binning.setter
     def binning(self, value: int):
         """Set the binning of the camera."""
         if value < 1:
             raise ValueError("Binning must be at least 1.")
         self._binning = value
-    
+
     @property
     def gain(self) -> float:
         """Return the current gain of the camera."""
         return self._gain
+
     @gain.setter
     def gain(self, value: float):
         """Set the gain of the camera."""
@@ -111,21 +116,21 @@ class Camera(ABC):
     def offset(self) -> float:
         """Return the current offset of the camera."""
         return self._offset
+
     @offset.setter
     def offset(self, value: float):
         """Set the offset of the camera."""
         if value < 0:
             raise ValueError("Offset must be non-negative.")
         self._offset = value
-        
-class LightSource(ABC):
 
-    def __init__(self, parent: Optional['FluorescenceMicroscope'] = None):
+
+class LightSource(ABC):
+    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
         self._power: float = 100  # Power level of the light source
         super().__init__()
 
-    # @abstractmethod
     @property
     def power(self) -> float:
         """Return the current power of the light source."""
@@ -136,29 +141,29 @@ class LightSource(ABC):
         """Set the power of the light source."""
         self._power = value
 
-class FilterSet(ABC):
 
-    def __init__(self, parent: Optional['FluorescenceMicroscope'] = None):
+class FilterSet(ABC):
+    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
-        self._excitation_wavelength: float = 488.0  # Default excitation wavelength in nm
-        self._emission_wavelength: Optional[float] = None  # Default emission wavelength (None = reflection)
+        self._excitation_wavelength: float = 488.0
+        self._emission_wavelength: Optional[float] = None  # None = reflection
         super().__init__()
 
     @property
     def excitation_wavelength(self) -> float:
         """Return the current excitation wavelength."""
         return self._excitation_wavelength
-    
+
     @excitation_wavelength.setter
     def excitation_wavelength(self, value: float):
         """Set the excitation wavelength."""
         self._excitation_wavelength = value
-    
+
     @property
     def emission_wavelength(self) -> Optional[float]:
         """Return the current emission wavelength."""
         return self._emission_wavelength
-    
+
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[float]):
         """Set the emission wavelength."""
@@ -168,8 +173,8 @@ class FilterSet(ABC):
 class FluorescenceMicroscope(ABC):
     objective: ObjectiveLens
     filter_sets: List[FilterSet]
-    camera: 'Camera'
-    light_source: 'LightSource'
+    camera: "Camera"
+    light_source: "LightSource"
 
     def __init__(self):
         super().__init__()
@@ -188,7 +193,9 @@ class FluorescenceMicroscope(ABC):
 
         # set the filter wheel to the correct settings? QUERY: better way to do this?
         # move excitation filter to the correct position
-        self.filter_sets[0].excitation_wavelength = channel_settings.excitation_wavelength
+        self.filter_sets[
+            0
+        ].excitation_wavelength = channel_settings.excitation_wavelength
         # move emission filter to the correct position
         self.filter_sets[0].emission_wavelength = channel_settings.emission_wavelength
 
@@ -223,7 +230,7 @@ class FluorescenceMicroscope(ABC):
             raise ValueError("Camera is not set.")
         self.set_channel(channel_settings)
         image = self.camera.acquire_image(channel_settings)
-        md  = self.get_metadata()
+        md = self.get_metadata()
         img = FluorescenceImage(data=image, metadata=md)
         return img
 
@@ -232,23 +239,22 @@ class FluorescenceMicroscope(ABC):
         metadata = {
             "objective": {
                 "position": self.objective.position,
-                "magnification": self.objective.magnification
+                "magnification": self.objective.magnification,
             },
             "filter_sets": [
                 {
                     "excitation_wavelength": fs.excitation_wavelength,
-                    "emission_wavelength": fs.emission_wavelength
-                } for fs in self.filter_sets
+                    "emission_wavelength": fs.emission_wavelength,
+                }
+                for fs in self.filter_sets
             ],
             "camera": {
                 "exposure_time": self.camera.exposure_time,
                 "binning": self.camera.binning,
                 "gain": self.camera.gain,
-                "offset": self.camera.offset
+                "offset": self.camera.offset,
             },
-            "light_source": {
-                "power": self.light_source.power
-            }
-        } 
+            "light_source": {"power": self.light_source.power},
+        }
         # QUERY: FOV, PIXELSIZE, RESOLUTION
         return metadata
