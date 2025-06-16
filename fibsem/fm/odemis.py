@@ -230,7 +230,7 @@ class OdemisFilterSet(FilterSet):
             choices = tuple(self._stream.emission.choices)
             if model.BAND_PASS_THROUGH not in choices:
                 raise ValueError(f"Pass-through (reflection) is not available in the current filter set. Available choices: {choices}")
-            self._stream.emission.value = "pass-through"
+            self._stream.emission.value = model.BAND_PASS_THROUGH
             return
 
         # filter out None values from available wavelengths
