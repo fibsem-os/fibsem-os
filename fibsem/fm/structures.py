@@ -63,7 +63,7 @@ class ZParameters:
             start=z_init + self.zmin, stop=z_init + self.zmax, step=self.zstep
         )
 
-        print(f"Generated z positions: {z_positions}")
+        logging.debug(f"Generated z positions: {z_positions}")
         return z_positions.tolist()
 
 
