@@ -63,7 +63,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
 
     def retract(self):
         self.parent.set_active_channel()
-        self.parent.detector.retract()
+        self.parent.connection.detector.retract()
 
 
 class ThermoFisherCamera(Camera):
