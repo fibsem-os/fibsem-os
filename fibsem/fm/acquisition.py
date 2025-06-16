@@ -107,7 +107,7 @@ def run_auto_focus(
     z_positions = zparams.generate_positions(microscope.objective.position)
 
     # get the focus metric function
-    focus_fn = FOCUS_FN_MAP.get(method, DEFAULT_FOCUS_METHOD)
+    focus_fn = FOCUS_FN_MAP.get(method, FOCUS_FN_MAP[DEFAULT_FOCUS_METHOD])
 
     scores = []
     for pos in z_positions:
