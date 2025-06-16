@@ -1,12 +1,8 @@
-from typing import Optional
 from abc import ABC, abstractmethod
-import numpy as np
-from typing import List, Tuple, Dict
-import matplotlib.pyplot as plt
-from pprint import pprint
+from typing import Optional, Tuple
 
-from fibsem import utils
-from dataclasses import dataclass, field
+import numpy as np
+
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 
 
@@ -14,20 +10,20 @@ class ObjectiveLens(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
         self._position: float = 0.0
-        self._magnification: float = (
-            100.0  # placeholder value, should be overridden by subclasses
-        )
-        self._na = 1.4  # Numerical Aperture, placeholder value
+        self._magnification: float = 100.0 # placeholder
+        self._numerical_aperture = 1.0     # placeholder
+        self._insert_position = 0.0 # z-axis
+        self._retract_position = -10e-3
 
     @property
     def magnification(self) -> float:
         """Return the magnification of the objective lens."""
         return self._magnification
 
-    @magnification.setter
-    def magnification(self, value: float):
-        """Set the magnification of the objective lens."""
-        self._magnification = value
+    @property
+    def numerical_aperture(self) -> float:
+        """Return the numerical aperture of the objective lens."""
+        return self._numerical_aperture
 
     @property
     def position(self) -> float:
@@ -37,24 +33,24 @@ class ObjectiveLens(ABC):
     def move_relative(self, delta: float):
         """Move the objective lens relative to its current position."""
         self._position += delta
-        print(
-            f"Objective lens moved to new position: {self._position} microns (delta: {delta} microns)"
-        )
+        print(f"Objective moved to new position: {self._position} (delta: {delta})")
 
     def move_absolute(self, position: float):
         """Move the objective lens to an absolute position."""
         self._position = position
-        print(f"Objective lens moved to absolute position: {self._position} microns")
+        print(f"Objective moved to absolute position: {self._position}")
 
     def insert(self):
         """Insert the objective lens into the optical path."""
         # Implementation for inserting the lens
-        pass
-
+        self.move_absolute(self._insert_position)
+        print(f"Objective lens inserted to position: {self._insert_position}")
+        
     def retract(self):
         """Retract the objective lens from the optical path."""
         # Implementation for retracting the lens
-        pass
+        self.move_absolute(self._retract_position)
+        print(f"Objective lens retracted to position: {self._retract_position}")
 
 
 class Camera(ABC):
@@ -64,6 +60,7 @@ class Camera(ABC):
         self._binning: int = 1
         self._gain: float = 1.0
         self._offset: float = 0.0
+        self._pixel_size: Tuple[float, float] = (100e-9, 100e-9)  # in meters
         self._resolution: Tuple[int, int] = (1024, 1024)  # default resolution
         super().__init__()
 
@@ -75,7 +72,7 @@ class Camera(ABC):
         min_value = np.iinfo(np.uint16).min  # 0 for uint16
         max_value = np.iinfo(np.uint16).max  # 65535 for uint16
         return np.random.randint(
-            min_value, max_value, size=self._resolution, dtype=np.uint16
+            min_value, max_value, size=self.resolution, dtype=np.uint16
         )
 
     @property
@@ -123,6 +120,19 @@ class Camera(ABC):
         if value < 0:
             raise ValueError("Offset must be non-negative.")
         self._offset = value
+
+    @property
+    def pixel_size(self) -> Tuple[float, float]:
+        """Return the current pixel size of the camera accounting for binning."""
+        return (
+            self._pixel_size[0] * self.binning,
+            self._pixel_size[1] * self.binning,
+        )
+
+    @property
+    def resolution(self) -> Tuple[int, int]:
+        """Return the current resolution of the camera accounting for binning."""
+        return self._resolution[0] // self.binning, self._resolution[1] // self.binning
 
 
 class LightSource(ABC):
@@ -172,19 +182,19 @@ class FilterSet(ABC):
 
 class FluorescenceMicroscope(ABC):
     objective: ObjectiveLens
-    filter_sets: List[FilterSet]
-    camera: "Camera"
-    light_source: "LightSource"
+    filter_set: FilterSet
+    camera: Camera
+    light_source: LightSource
 
     def __init__(self):
         super().__init__()
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(objective={self.objective}, filter_sets={self.filter_sets}, camera={self.camera}, light_source={self.light_source})"
+        return f"{self.__class__.__name__}(objective={self.objective}, filter_set={self.filter_set}, camera={self.camera}, light_source={self.light_source})"
 
     def set_channel(self, channel_settings: ChannelSettings):
         """Set the channel settings for the fluorescence microscope."""
-        if not self.filter_sets:
+        if not self.filter_set:
             raise ValueError("No filter sets available.")
         if not self.light_source:
             raise ValueError("Light source is not set.")
@@ -193,11 +203,9 @@ class FluorescenceMicroscope(ABC):
 
         # set the filter wheel to the correct settings? QUERY: better way to do this?
         # move excitation filter to the correct position
-        self.filter_sets[
-            0
-        ].excitation_wavelength = channel_settings.excitation_wavelength
+        self.filter_set.excitation_wavelength = channel_settings.excitation_wavelength
         # move emission filter to the correct position
-        self.filter_sets[0].emission_wavelength = channel_settings.emission_wavelength
+        self.filter_set.emission_wavelength = channel_settings.emission_wavelength
 
         # Set light source power
         self.set_power(channel_settings.power)
@@ -224,11 +232,10 @@ class FluorescenceMicroscope(ABC):
             raise ValueError("Light source is not set.")
         self.light_source.power = power
 
-    def acquire_image(self, channel_settings: ChannelSettings) -> FluorescenceImage:
+    def acquire_image(self, channel_settings: Optional[ChannelSettings] = None) -> FluorescenceImage:
         """Acquire an image using the channel settings."""
-        if not self.camera:
-            raise ValueError("Camera is not set.")
-        self.set_channel(channel_settings)
+        if channel_settings is not None:
+            self.set_channel(channel_settings)
         image = self.camera.acquire_image(channel_settings)
         md = self.get_metadata()
         img = FluorescenceImage(data=image, metadata=md)
@@ -240,19 +247,22 @@ class FluorescenceMicroscope(ABC):
             "objective": {
                 "position": self.objective.position,
                 "magnification": self.objective.magnification,
+                "numerical_aperture": self.objective.numerical_aperture,
             },
-            "filter_sets": [
+            "filter_set": 
                 {
-                    "excitation_wavelength": fs.excitation_wavelength,
-                    "emission_wavelength": fs.emission_wavelength,
-                }
-                for fs in self.filter_sets
-            ],
+                "excitation_wavelength": self.filter_set.excitation_wavelength,
+                "emission_wavelength": self.filter_set.emission_wavelength,
+                },
             "camera": {
                 "exposure_time": self.camera.exposure_time,
                 "binning": self.camera.binning,
                 "gain": self.camera.gain,
                 "offset": self.camera.offset,
+                "pixel_size": self.camera.pixel_size,
+                "resolution": self.camera.resolution,
+                "sensor_pixel_size": self.camera._pixel_size,  # Original pixel size before binning
+                "sensor_resolution": self.camera._resolution,  # Full resolution before binning
             },
             "light_source": {"power": self.light_source.power},
         }

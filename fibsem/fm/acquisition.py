@@ -14,13 +14,16 @@ def acquire_channels(
     microscope: FluorescenceMicroscope, settings: List[ChannelSettings]
 ) -> List[FluorescenceImage]:
     """Acquire images for multiple channels."""
+    
+    if not isinstance(settings, list):
+        settings = [settings]  # Ensure settings is a list
+
     images: List[FluorescenceImage] = []
     for channel in settings:
         microscope.set_channel(channel)
         image = microscope.acquire_image(channel)
         images.append(image)
-    return images
-
+    return images # TODO: migrate to 5D FluorescenceImage structure
 
 def acquire_z_stack(
     microscope: FluorescenceMicroscope,
@@ -33,25 +36,31 @@ def acquire_z_stack(
     z_positions = zparams.generate_positions(z_init=z_init)
     images: List[FluorescenceImage] = []
 
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+
     # TODO: support multi-channel Z-stacks
-    # for channel_settings in [channel_settings]:
+    for ch in channel_settings:
 
-    for z in z_positions:
-        microscope.objective.move_absolute(
-            z
-        )  # Move objective to the specified z position
-        image = microscope.acquire_image(channel_settings)
-        images.append(image)
+        ch_images: List[FluorescenceImage] = []
+        for z in z_positions:
+            # Move objective to the specified z position
+            microscope.objective.move_absolute(z)
+            # Acquire image at the current z position
+            image = microscope.acquire_image(channel_settings=ch)
+            ch_images.append(image)
 
-    # stack the images along the z-axis
-    arrs = [img.data for img in images]
-    zstack = FluorescenceImage(np.stack(arrs, axis=0), metadata=images[0].metadata)
-    # TODO: properly handle metadata + image structure
+        # stack the images along the z-axis
+        arrs = [img.data for img in ch_images]
+        zstack = FluorescenceImage(np.stack(arrs, axis=0), metadata=ch_images[0].metadata)
+        # TODO: properly handle metadata + image structure
+
+        images.append(zstack)  # TODO: migrate to 5D FluorescenceImage structure
 
     # restore objective to initial position
     microscope.objective.move_absolute(z_init)
 
-    return zstack
+    return images
 
 
 ########## CALIBRATION FUNCTIONS ##########
