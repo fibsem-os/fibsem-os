@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+import logging
 
 import numpy as np
 
@@ -87,3 +88,20 @@ class FluorescenceImage:
         data = imread(filename)
         metadata = {}
         return cls(data=data, metadata=metadata)
+
+    @staticmethod
+    def create_z_stack(ch_images: List['FluorescenceImage']) -> 'FluorescenceImage':
+        """Create a z-stack from a list of FluorescenceImage objects."""
+
+        # Ensure all images have the same shape
+        shapes = [img.data.shape for img in ch_images]
+        if not all(shape == shapes[0] for shape in shapes):
+            raise ValueError("All images must have the same shape for z-stacking.")
+        
+        arrs = np.stack([img.data for img in ch_images], axis=0)
+        md = ch_images[0].metadata.copy()
+        md['z_positions'] = [img.metadata['objective']['position'] for img in ch_images]
+
+        # this should be all the same metadata, except for z position
+
+        return FluorescenceImage(data=arrs, metadata=md)

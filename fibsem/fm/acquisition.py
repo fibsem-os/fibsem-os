@@ -51,8 +51,8 @@ def acquire_z_stack(
             ch_images.append(image)
 
         # stack the images along the z-axis
-        arrs = [img.data for img in ch_images]
-        zstack = FluorescenceImage(np.stack(arrs, axis=0), metadata=ch_images[0].metadata)
+        zstack = FluorescenceImage.create_z_stack(ch_images)
+
         # TODO: properly handle metadata + image structure
 
         images.append(zstack)  # TODO: migrate to 5D FluorescenceImage structure
