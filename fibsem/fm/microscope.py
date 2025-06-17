@@ -16,7 +16,7 @@ class ObjectiveLens(ABC):
         self.parent = parent
         self._position: float = 0.0
         self._magnification: float = 100.0 # placeholder
-        self._numerical_aperture = 1.0     # placeholder
+        self._numerical_aperture = 0.8     # placeholder
         self._insert_position = 0.0 # z-axis
         self._retract_position = -10e-3
 

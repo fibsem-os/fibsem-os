@@ -17,19 +17,35 @@ FLUORESCENCE_MODE = "Fluorescence"
 
 AVAILABLE_FLM_MODES = [REFLECTION_MODE, FLUORESCENCE_MODE]
 COLOR_TO_WAVELENGTH = {
-    "Violet": 405,
-    "Blue": 440,
-    "GreenYellow": 525,
-    "Red": 590,
+    "Violet": 365,
+    "Blue": 450,
+    "GreenYellow": 550,
+    "Red": 635,
 }
 WAVELENGTH_TO_COLOR = {v: k for k, v in COLOR_TO_WAVELENGTH.items()}
 AVAILABLE_FLM_COLORS = list(COLOR_TO_WAVELENGTH.keys())
+
+
+# specs: 
+# arctis: https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/arctis-cryo-plasma-fib-ds0384-en.pdf
+# - 100x magnification
+# - 0.75 NA
+# - 150 um fov
+# - 4mm working distance
+# - light source: 365 nm, 450 nm, 550 nm, 635 nm
+# iflm: https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/iflm-correlative-system-ds0499.pdf
+# - 20x magnification
+# - 0.7 NA
+# - 500 um fov
+# - 1.3 mm working distance
+# - light source: 365 nm, 450 nm, 550 nm, 635 nm
 
 class ThermoFisherObjectiveLens(ObjectiveLens):
     def __init__(self, parent: "ThermoFisherFluorescenceMicroscope"):
         super().__init__(parent)
         self.parent = parent
-        self._magnification = 40.0 # TODO: check if this is available?
+        self._magnification = 100.0 # TODO: check if this is available?
+        self._numerical_aperture = 0.75
         self._pixel_size = (100e-9, 100e-9)  # Default pixel size in meters (100 nm)
         self._resolution = (1024, 1024)  # Default resolution
 
@@ -126,7 +142,7 @@ class ThermoFisherFilterSet(FilterSet):
     @property
     def excitation_wavelength(self) -> float:
         color: str = self.parent.fm_settings.color
-        return COLOR_TO_WAVELENGTH[color]  # map to excitation wavelength
+        return COLOR_TO_WAVELENGTH[color] * 1e-9  # map to excitation wavelength
 
     @excitation_wavelength.setter
     def excitation_wavelength(self, value: float):
