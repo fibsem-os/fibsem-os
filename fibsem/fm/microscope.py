@@ -189,6 +189,11 @@ class FluorescenceMicroscope(ABC):
     def __init__(self):
         super().__init__()
 
+        self.objective = ObjectiveLens(parent=self)
+        self.filter_set = FilterSet(parent=self)
+        self.camera = Camera(parent=self)
+        self.light_source = LightSource(parent=self)
+
     def __repr__(self):
         return f"{self.__class__.__name__}(objective={self.objective}, filter_set={self.filter_set}, camera={self.camera}, light_source={self.light_source})"
 
@@ -211,7 +216,7 @@ class FluorescenceMicroscope(ABC):
         self.set_power(channel_settings.power)
 
         # Set camera settings
-        self.set_binning(channel_settings.binning)
+        # self.set_binning(channel_settings.binning)
         self.set_exposure_time(channel_settings.exposure_time)
 
     def set_binning(self, binning: int):
@@ -249,8 +254,7 @@ class FluorescenceMicroscope(ABC):
                 "magnification": self.objective.magnification,
                 "numerical_aperture": self.objective.numerical_aperture,
             },
-            "filter_set": 
-                {
+            "filter_set": {
                 "excitation_wavelength": self.filter_set.excitation_wavelength,
                 "emission_wavelength": self.filter_set.emission_wavelength,
                 },
@@ -266,5 +270,6 @@ class FluorescenceMicroscope(ABC):
             },
             "light_source": {"power": self.light_source.power},
         }
-        # QUERY: FOV, PIXELSIZE, RESOLUTION
+
+        # TODO: microscope-state metadata
         return metadata
