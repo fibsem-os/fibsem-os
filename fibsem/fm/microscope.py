@@ -1,7 +1,12 @@
+import logging
+import threading
+import time
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Optional, Tuple
 
 import numpy as np
+from psygnal import Signal
 
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 
@@ -56,7 +61,7 @@ class ObjectiveLens(ABC):
 class Camera(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
-        self._exposure_time: float = 100.0  # Default exposure time in milliseconds
+        self._exposure_time: float = 0.1  # seconds
         self._binning: int = 1
         self._gain: float = 1.0
         self._offset: float = 0.0
@@ -64,9 +69,10 @@ class Camera(ABC):
         self._resolution: Tuple[int, int] = (1024, 1024)  # default resolution
         super().__init__()
 
-    # @abstractmethod
     def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:
         """Acquire an image with the specified channel settings."""
+
+        time.sleep(self.exposure_time)  # Simulate exposure time in seconds
 
         # get min and max values for the image
         min_value = np.iinfo(np.uint16).min  # 0 for uint16
@@ -186,6 +192,11 @@ class FluorescenceMicroscope(ABC):
     camera: Camera
     light_source: LightSource
 
+    # live acquisition
+    acquisition_signal = Signal(FluorescenceImage)
+    _stop_acquisition_event = threading.Event()
+    _acquisition_thread: threading.Thread = None
+
     def __init__(self):
         super().__init__()
 
@@ -196,6 +207,11 @@ class FluorescenceMicroscope(ABC):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(objective={self.objective}, filter_set={self.filter_set}, camera={self.camera}, light_source={self.light_source})"
+
+    @property
+    def is_acquiring(self) -> bool:
+        """Check if the microscope is currently acquiring an image."""
+        return self._acquisition_thread and self._acquisition_thread.is_alive()
 
     def set_channel(self, channel_settings: ChannelSettings):
         """Set the channel settings for the fluorescence microscope."""
@@ -269,7 +285,51 @@ class FluorescenceMicroscope(ABC):
                 "sensor_resolution": self.camera._resolution,  # Full resolution before binning
             },
             "light_source": {"power": self.light_source.power},
+            "acquisition_date": datetime.now().isoformat(),
         }
 
         # TODO: microscope-state metadata
         return metadata
+
+    def start_acquisition(self) -> None:
+        """Start the image acquisition process."""
+        if self.is_acquiring:
+            logging.warning("Acquisition thread is already running.")
+            return
+
+        # reset stop event if needed
+        self._stop_acquisition_event.clear()
+
+        # start acquisition thread
+        self._acquisition_thread = threading.Thread(
+            target=self._acquisition_worker,
+            args=(),
+            daemon=True
+        )
+        self._acquisition_thread.start()
+
+    def stop_acquisition(self) -> None:
+        """Stop the image acquisition process."""
+        if self._stop_acquisition_event and not self._stop_acquisition_event.is_set():
+            self._stop_acquisition_event.set()
+            if self._acquisition_thread:
+                self._acquisition_thread.join(timeout=2)
+            # Disconnect signal handler
+            # self.acquisition_signal.disconnect()
+
+    def _acquisition_worker(self):
+        """Worker thread for image acquisition."""
+
+        # TODO: add lock
+        try:
+            while True:
+                if self._stop_acquisition_event.is_set():
+                    break
+
+                # acquire image using current beam settings
+                image = self.acquire_image()
+                # emit the acquired image
+                self.acquisition_signal.emit(image)
+
+        except Exception as e:
+            logging.error(f"Error in acquisition worker: {e}")

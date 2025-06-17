@@ -1,3 +1,7 @@
+import numpy as np
+import logging
+
+from typing import List, Optional, Tuple
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -5,14 +9,13 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
-import numpy as np
 from fibsem.microscopes.odemis_microscope import add_odemis_path
+
 add_odemis_path()
 
 from odemis import model
-from odemis.acq.stream import FluoStream
 from odemis.acq.acqmng import acquire
-from typing import List, Optional, Tuple
+from odemis.acq.stream import FluoStream
 
 # NOTES: needed to install shapely, pylibtiff, and odemis
 
@@ -75,8 +78,8 @@ class OdemisObjectiveLens(ObjectiveLens):
 
     def retract(self):
         """Move the objective lens to the deactive position (retracted position)."""
-        active_position = self._focuser.getMetadata()[model.MD_FAV_POS_DEACTIVE]
-        f = self._focuser.moveAbs(active_position)
+        deactive_position = self._focuser.getMetadata()[model.MD_FAV_POS_DEACTIVE]
+        f = self._focuser.moveAbs(deactive_position)
         f.result()
 
 class OdemisCamera(Camera):
@@ -94,11 +97,17 @@ class OdemisCamera(Camera):
     # other attributes: depthOfField, readoutRate, pointSpreadFunctionSize
 
     def acquire_image(self, channel_settings) -> np.ndarray:
-        f = acquire([self._stream])
         da: List[model.DataArray]
-        da, err = f.result()
-        if err:
-            raise RuntimeError(f"Error acquiring image: {err}")
+        try:
+            # QUERY: WARNING:root:Re-acquiring an image, as the one received appears 0.519948 s too early
+            # We should check if anything is acquiring, and stop it?
+            f = acquire([self._stream])
+            da, err = f.result()
+            if err:
+                raise RuntimeError(f"Error acquiring image: {err}")
+        except Exception as e:
+            logging.warning(f"Error acquiring image: {e}")
+            return None
         return da[0] # model.DataArray -> np.ndarray
 
     @property
@@ -184,9 +193,9 @@ class OdemisFilterSet(FilterSet):
         choices = []
         # return the bottom wavelength of each emission choice
         for c in self._stream.emission.choices:
-            # special case for pass-through
+            # special case for pass-through (reflection -> None)
             if isinstance(c, str) and c == model.BAND_PASS_THROUGH:
-                choices.append(None)  # pass-through means reflection, so we return None
+                choices.append(None)
                 continue
             choices.append(c[0])
         return choices
@@ -201,7 +210,7 @@ class OdemisFilterSet(FilterSet):
         """Set the excitation wavelength of the filter set."""
         if not isinstance(value, (int, float)):
             raise TypeError("Excitation wavelength must be an integer or float.")
-        
+
         closest_excitation = min(self.available_excitation_wavelengths, key=lambda x: abs(x - value))
         if closest_excitation is None:
             raise ValueError(f"Excitation wavelength {value} is not available. Available wavelengths: {self.available_excitation_wavelengths}")
@@ -210,9 +219,9 @@ class OdemisFilterSet(FilterSet):
         idx = self.available_excitation_wavelengths.index(closest_excitation)
         choices = tuple(self._stream.excitation.choices)
 
-        print("Setting excitation wavelength to index:", idx, "value:", choices[idx], "requested:", value)
+        logging.info("Setting excitation wavelength to index:", idx, "value:", choices[idx], "requested:", value)
         self._stream.excitation.value = choices[idx]
-       
+
     @property
     def emission_wavelength(self) -> Optional[float]:
         """Get the emission wavelength of the filter set."""
@@ -239,10 +248,12 @@ class OdemisFilterSet(FilterSet):
         if closest_emission is None:
             raise ValueError(f"Emission wavelength {value} is not available. Available wavelengths: {self.available_emission_wavelengths}")
 
+        # TODO: only set the emission wavelength if it is different from the current value, it's slow to set it
+
         # find the index of the closest emission wavelength
         idx = self.available_emission_wavelengths.index(closest_emission)
         choices = tuple(self._stream.emission.choices)
-        print("Setting emission wavelength to index:", idx, "value:", choices[idx], "requested:", value)
+        logging.info("Setting emission wavelength to index:", idx, "value:", choices[idx], "requested:", value)
         self._stream.emission.value = choices[idx]
 
 
