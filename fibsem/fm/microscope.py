@@ -10,14 +10,16 @@ from psygnal import Signal
 
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 
+EXCITATION_WAVELENGTHS = {365, 450, 550, 635}  # in nm, example wavelengths
+
 
 class ObjectiveLens(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
         self._position: float = 0.0
-        self._magnification: float = 100.0 # placeholder
-        self._numerical_aperture = 0.8     # placeholder
-        self._insert_position = 0.0 # z-axis
+        self._magnification: float = 100.0  # placeholder
+        self._numerical_aperture = 0.8  # placeholder
+        self._insert_position = 0.0  # z-axis
         self._retract_position = -10e-3
 
     @property
@@ -50,7 +52,7 @@ class ObjectiveLens(ABC):
         # Implementation for inserting the lens
         self.move_absolute(self._insert_position)
         print(f"Objective lens inserted to position: {self._insert_position}")
-        
+
     def retract(self):
         """Retract the objective lens from the optical path."""
         # Implementation for retracting the lens
@@ -66,7 +68,7 @@ class Camera(ABC):
         self._gain: float = 1.0
         self._offset: float = 0.0
         self._pixel_size: Tuple[float, float] = (100e-9, 100e-9)  # in meters
-        self._resolution: Tuple[int, int] = (1024, 1024)  # default resolution
+        self._resolution: Tuple[int, int] = (512, 512)  # default resolution
         super().__init__()
 
     def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:
@@ -165,6 +167,15 @@ class FilterSet(ABC):
         self._emission_wavelength: Optional[float] = None  # None = reflection
         super().__init__()
 
+    def available_excitation_wavelengths(self) -> Tuple[float, ...]:
+        """Return a tuple of available excitation wavelengths."""
+        return sorted(tuple(EXCITATION_WAVELENGTHS))
+    
+    def available_emission_wavelengths(self) -> Tuple[float, ...]:
+        """Return a tuple of available emission wavelengths."""
+        # For simplicity, we assume emission wavelengths are the same as excitation
+        return sorted(tuple(EXCITATION_WAVELENGTHS))
+
     @property
     def excitation_wavelength(self) -> float:
         """Return the current excitation wavelength."""
@@ -200,6 +211,7 @@ class FluorescenceMicroscope(ABC):
     def __init__(self):
         super().__init__()
 
+        self.channel_name: str = "channel-01"
         self.objective = ObjectiveLens(parent=self)
         self.filter_set = FilterSet(parent=self)
         self.camera = Camera(parent=self)
@@ -223,17 +235,17 @@ class FluorescenceMicroscope(ABC):
             raise ValueError("Camera is not set.")
 
         # set the filter wheel to the correct settings? QUERY: better way to do this?
-        # move excitation filter to the correct position
         self.filter_set.excitation_wavelength = channel_settings.excitation_wavelength
-        # move emission filter to the correct position
         self.filter_set.emission_wavelength = channel_settings.emission_wavelength
 
         # Set light source power
         self.set_power(channel_settings.power)
 
         # Set camera settings
-        # self.set_binning(channel_settings.binning)
         self.set_exposure_time(channel_settings.exposure_time)
+
+        # set channel name
+        self.channel_name = channel_settings.name
 
     def set_binning(self, binning: int):
         """Set the binning of the camera."""
@@ -253,7 +265,9 @@ class FluorescenceMicroscope(ABC):
             raise ValueError("Light source is not set.")
         self.light_source.power = power
 
-    def acquire_image(self, channel_settings: Optional[ChannelSettings] = None) -> FluorescenceImage:
+    def acquire_image(
+        self, channel_settings: Optional[ChannelSettings] = None
+    ) -> FluorescenceImage:
         """Acquire an image using the channel settings."""
         if channel_settings is not None:
             self.set_channel(channel_settings)
@@ -265,6 +279,8 @@ class FluorescenceMicroscope(ABC):
     def get_metadata(self) -> dict:
         """Get metadata for the current configuration."""
         metadata = {
+            "acquisition_date": datetime.now().isoformat(),
+            "channel": {"name": self.channel_name},
             "objective": {
                 "position": self.objective.position,
                 "magnification": self.objective.magnification,
@@ -273,7 +289,7 @@ class FluorescenceMicroscope(ABC):
             "filter_set": {
                 "excitation_wavelength": self.filter_set.excitation_wavelength,
                 "emission_wavelength": self.filter_set.emission_wavelength,
-                },
+            },
             "camera": {
                 "exposure_time": self.camera.exposure_time,
                 "binning": self.camera.binning,
@@ -285,13 +301,12 @@ class FluorescenceMicroscope(ABC):
                 "sensor_resolution": self.camera._resolution,  # Full resolution before binning
             },
             "light_source": {"power": self.light_source.power},
-            "acquisition_date": datetime.now().isoformat(),
         }
 
         # TODO: microscope-state metadata
         return metadata
 
-    def start_acquisition(self) -> None:
+    def start_acquisition(self, channel_settings: Optional[ChannelSettings] = None) -> None:
         """Start the image acquisition process."""
         if self.is_acquiring:
             logging.warning("Acquisition thread is already running.")
@@ -302,9 +317,7 @@ class FluorescenceMicroscope(ABC):
 
         # start acquisition thread
         self._acquisition_thread = threading.Thread(
-            target=self._acquisition_worker,
-            args=(),
-            daemon=True
+            target=self._acquisition_worker, args=(channel_settings, ), daemon=True
         )
         self._acquisition_thread.start()
 
@@ -317,11 +330,14 @@ class FluorescenceMicroscope(ABC):
             # Disconnect signal handler
             # self.acquisition_signal.disconnect()
 
-    def _acquisition_worker(self):
+    def _acquisition_worker(self, channel_settings: Optional[ChannelSettings] = None):
         """Worker thread for image acquisition."""
 
         # TODO: add lock
         try:
+            if channel_settings is not None:
+                self.set_channel(channel_settings)
+            logging.info("Starting acquisition worker thread.")
             while True:
                 if self._stop_acquisition_event.is_set():
                     break

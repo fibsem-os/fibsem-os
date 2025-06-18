@@ -1,3 +1,4 @@
+from typing import Tuple
 from autoscript_sdb_microscope_client.structures import (
     GrabFrameSettings,
 )
@@ -15,7 +16,7 @@ REFLECTION_MODE = "Reflection"
 FLUORESCENCE_MODE = "Fluorescence"
 
 
-AVAILABLE_FLM_MODES = [REFLECTION_MODE, FLUORESCENCE_MODE]
+AVAILABLE_FM_MODES = [REFLECTION_MODE, FLUORESCENCE_MODE]
 COLOR_TO_WAVELENGTH = {
     "Violet": 365,
     "Blue": 450,
@@ -23,8 +24,8 @@ COLOR_TO_WAVELENGTH = {
     "Red": 635,
 }
 WAVELENGTH_TO_COLOR = {v: k for k, v in COLOR_TO_WAVELENGTH.items()}
-AVAILABLE_FLM_COLORS = list(COLOR_TO_WAVELENGTH.keys())
-
+AVAILABLE_FM_COLORS = list(COLOR_TO_WAVELENGTH.keys())
+AVAILABLE_FM_WAVELENGTHS = list(COLOR_TO_WAVELENGTH.values())
 
 # specs: 
 # arctis: https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/arctis-cryo-plasma-fib-ds0384-en.pdf
@@ -138,6 +139,12 @@ class ThermoFisherFilterSet(FilterSet):
         self.parent = parent
         self._excitation_wavelength = None
         self._emission_wavelength = None
+
+    def available_excitation_wavelengths(self) -> Tuple[float, ...]:
+        return sorted(tuple(AVAILABLE_FM_WAVELENGTHS))
+
+    def available_emission_wavelengths(self) -> Tuple[float, ...]:
+        return sorted(tuple(AVAILABLE_FM_WAVELENGTHS))
 
     @property
     def excitation_wavelength(self) -> float:

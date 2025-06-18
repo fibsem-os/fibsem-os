@@ -206,6 +206,7 @@ class OdemisFilterSet(FilterSet):
                 continue
             choices.append(c[0])
         return choices
+    # TODO: fix this
 
     @property
     def excitation_wavelength(self) -> float:

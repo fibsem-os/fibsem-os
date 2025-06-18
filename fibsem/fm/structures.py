@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import tifffile as tff
-from ome_types import from_xml, to_xml
 from ome_types.model import (
     OME as OMEMetadata,
 )
@@ -15,17 +14,11 @@ from ome_types.model import (
     Channel_ContrastMethod,
     Channel_IlluminationType,
     DetectorSettings,
-    FilterSet,
-    FilterSetRef,
     Image,
     Instrument,
     LightEmittingDiode,
-    LightSourceSettings,
-    Objective,
-    ObjectiveSettings,
     Pixels,
     Pixels_DimensionOrder,
-    PixelType,
     Plane,
     TiffData,
     UnitsLength,
@@ -181,7 +174,7 @@ class FluorescenceImage:
             light_sources.append(light_source)
 
             ch_md = Channel(
-                name=f"Channel:{id_str}",
+                name=f"{md['channel']['name']}",
                 id=f"Channel:{id_str}",
                 excitation_wavelength=excitation_wavelength,
                 excitation_wavelength_unit=UnitsLength.NANOMETER,
