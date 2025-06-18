@@ -156,6 +156,8 @@ class ThermoFisherFilterSet(FilterSet):
     @property
     def emission_wavelength(self) -> float:
         # Thermo Fisher FLM does not support specific emission filters, only reflection or fluorescence
+        # uses a multi-band filter, so we should return the map of excitation -> emission filter
+        # not sure what these values are for now, so for now we just return the excitation wavelength
         mode = self.parent.fm_settings.filter.type.value
         if mode == REFLECTION_MODE:
             return None

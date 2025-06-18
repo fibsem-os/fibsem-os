@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -8,6 +8,8 @@ import tifffile as tff
 from ome_types import from_xml, to_xml
 from ome_types.model import (
     OME as OMEMetadata,
+)
+from ome_types.model import (
     Binning,
     Channel,
     Channel_ContrastMethod,
@@ -28,7 +30,9 @@ from ome_types.model import (
     TiffData,
     UnitsLength,
 )
-from ome_types.model import Detector as OME_Detector
+from ome_types.model import (
+    Detector as OME_Detector,
+)
 
 BINNING_MAP = {
     1: Binning.ONEBYONE,
@@ -40,29 +44,17 @@ BINNING_MAP = {
 @dataclass
 class ChannelSettings:
     name: str
-    excitation_wavelength: float            # nm
-    emission_wavelength: Optional[float]    # nm
+    excitation_wavelength: float  # nm
+    emission_wavelength: Optional[float]  # nm
     power: float
     exposure_time: float
 
     def to_dict(self):
-        return {
-            "name": self.name,
-            "excitation_wavelength": self.excitation_wavelength,
-            "emission_wavelength": self.emission_wavelength,
-            "power": self.power,
-            "exposure_time": self.exposure_time,
-        }
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "ChannelSettings":
-        return cls(
-            name=ddict["name"],
-            excitation_wavelength=ddict["excitation_wavelength"],
-            emission_wavelength=ddict.get("emission_wavelength"),
-            power=ddict["power"],
-            exposure_time=ddict["exposure_time"],
-        )
+        return cls(**ddict)
 
 
 @dataclass
@@ -72,11 +64,11 @@ class ZParameters:
     zstep: float = 1e-6
 
     def to_dict(self) -> dict:
-        return {"zmin": self.zmin, "zmax": self.zmax, "zstep": self.zstep}
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "ZParameters":
-        return cls(zmin=ddict["zmin"], zmax=ddict["zmax"], zstep=ddict["zstep"])
+        return cls(**ddict)
 
     def generate_positions(self, z_init: float) -> List[float]:
         """Generate a list of z positions based on the current z init and relative z parameters.
@@ -90,7 +82,9 @@ class ZParameters:
 
         # Generate z positions
         z_positions = np.arange(
-            start=z_init + self.zmin, stop=z_init + self.zmax, step=self.zstep
+            start=z_init + self.zmin,
+            stop=z_init + self.zmax,
+            step=self.zstep
         )
 
         logging.debug(f"Generated z positions: {z_positions}")
@@ -104,7 +98,7 @@ class FluorescenceImage:
     data: np.ndarray # TCZYX format (Time, Channels, Z, Y, X)
     metadata: List[Dict[str, any]] = field(default_factory=list)
 
-    def save(self, filename: str):
+    def save(self, filename: str) -> str:
         """
         Save a FMImage to a TIFF file with OME metadata.
         
@@ -113,7 +107,7 @@ class FluorescenceImage:
         """
         ome_md = self.get_ome_metadata()
         ome_xml = ome_md.to_xml()
-        
+
         # Validate OME XML
         assert tff.OmeXml.validate(ome_xml), "OME XML is not valid"
         
@@ -146,10 +140,8 @@ class FluorescenceImage:
         dtype = self.data.dtype.name
 
         for ch_idx in range(nc):
-            print(f"Image {ch_idx} Metadata:")
             md = self.metadata[ch_idx]
             id_str = f"{ch_idx+1:02d}"
-
 
             # TODO: stage-position
 
@@ -163,12 +155,11 @@ class FluorescenceImage:
             camera_gain = camera_md["gain"]
             camera_offset = camera_md["offset"]
 
-            # Convert to nm
-            excitation_wavelength = int(filter_md["excitation_wavelength"] * 1e9)
+            # wavelengths are in nm
+            excitation_wavelength = int(filter_md["excitation_wavelength"])
             emission_wavelength = filter_md["emission_wavelength"]
-            # convert to nm if not None
             if emission_wavelength is not None:
-                emission_wavelength = int(emission_wavelength * 1e9)
+                emission_wavelength = int(emission_wavelength)
 
             light_source = LightEmittingDiode(
                 id=f"LightSource:{id_str}", power=light_source_power
@@ -268,7 +259,6 @@ class FluorescenceImage:
 
         return ome_md
 
-
     @classmethod
     def load(cls, filename: str) -> "FluorescenceImage":
         """Load an image from a file."""
@@ -305,7 +295,6 @@ class FluorescenceImage:
         shapes = [img.data.shape for img in images]
         if not all(shape == shapes[0] for shape in shapes):
             raise ValueError("All images must have the same shape for multi-channel stacking.")
-
 
         if len(images) == 0:
             raise ValueError("No images provided for multi-channel stacking.")

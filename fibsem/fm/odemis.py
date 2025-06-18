@@ -110,6 +110,9 @@ class OdemisCamera(Camera):
             return None
         return da[0] # model.DataArray -> np.ndarray
 
+    # QUERY: migrate to using the camera dataflow interface?
+    # .camera._camera.data.get()
+
     @property
     def exposure_time(self) -> float:
         """Get the exposure time of the camera."""
@@ -126,7 +129,7 @@ class OdemisCamera(Camera):
     def binning(self) -> int:
         """Get the binning of the camera."""
         return self._camera.binning.value[0]  # Assuming binning is a tuple (x, y)
-    
+
     @binning.setter
     def binning(self, value: int):
         """Set the binning of the camera."""
@@ -140,10 +143,14 @@ class OdemisCamera(Camera):
         return self._offset
 
 class OdemisLightSource(LightSource):
-    def __init__(self, parent: "OdemisFluorescenceMicroscope"):
+    def __init__(self, parent: "OdemisFluorescenceMicroscope", 
+                 light_source: model.Emitter = None):
         super().__init__(parent)
         self.parent = parent
         self._stream = self.parent._stream
+        if light_source is None:
+            light_source = model.getComponent(role="light")
+        self._light_source = light_source
 
     @property
     def power(self) -> float:
@@ -203,7 +210,7 @@ class OdemisFilterSet(FilterSet):
     @property
     def excitation_wavelength(self) -> float:
         """Get the excitation wavelength of the filter set."""
-        return self._stream.excitation.value[2]  # centre wavelength
+        return self._stream.excitation.value[2] * 1e9 # centre wavelength (nm)
 
     @excitation_wavelength.setter
     def excitation_wavelength(self, value: float) -> None:
@@ -220,7 +227,7 @@ class OdemisFilterSet(FilterSet):
         idx = self.available_excitation_wavelengths.index(closest_excitation)
         choices = tuple(self._stream.excitation.choices)
 
-        logging.info("Setting excitation wavelength to index:", idx, "value:", choices[idx], "requested:", value)
+        logging.info(f"Setting excitation wavelength to index: {idx}, value: {choices[idx]}, requested: {value}")
         self._stream.excitation.value = choices[idx]
 
     @property
@@ -255,7 +262,7 @@ class OdemisFilterSet(FilterSet):
         # find the index of the closest emission wavelength
         idx = self.available_emission_wavelengths.index(closest_emission)
         choices = tuple(self._stream.emission.choices)
-        logging.info("Setting emission wavelength to index:", idx, "value:", choices[idx], "requested:", value)
+        logging.info(f"Setting emission wavelength to index: {idx}, value: {choices[idx]}, requested: {value}")
         self._stream.emission.value = choices[idx]
 
 
@@ -285,6 +292,6 @@ class OdemisFluorescenceMicroscope(FluorescenceMicroscope):
 
         self.objective = OdemisObjectiveLens(self, focuser=focuser)
         self.camera = OdemisCamera(self, camera=camera)
-        self.light_source = OdemisLightSource(self)
+        self.light_source = OdemisLightSource(self, light_source=light_source)
         self.filter_set = OdemisFilterSet(self)
 
