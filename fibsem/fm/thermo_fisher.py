@@ -142,7 +142,7 @@ class ThermoFisherFilterSet(FilterSet):
     @property
     def excitation_wavelength(self) -> float:
         color: str = self.parent.fm_settings.color
-        return COLOR_TO_WAVELENGTH[color] * 1e-9  # map to excitation wavelength
+        return COLOR_TO_WAVELENGTH[color] # map to excitation wavelength
 
     @excitation_wavelength.setter
     def excitation_wavelength(self, value: float):

@@ -40,8 +40,8 @@ BINNING_MAP = {
 @dataclass
 class ChannelSettings:
     name: str
-    excitation_wavelength: float
-    emission_wavelength: Optional[float]
+    excitation_wavelength: float            # nm
+    emission_wavelength: Optional[float]    # nm
     power: float
     exposure_time: float
 

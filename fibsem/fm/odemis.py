@@ -211,6 +211,7 @@ class OdemisFilterSet(FilterSet):
         if not isinstance(value, (int, float)):
             raise TypeError("Excitation wavelength must be an integer or float.")
 
+        value *= 1e-9
         closest_excitation = min(self.available_excitation_wavelengths, key=lambda x: abs(x - value))
         if closest_excitation is None:
             raise ValueError(f"Excitation wavelength {value} is not available. Available wavelengths: {self.available_excitation_wavelengths}")
@@ -228,7 +229,7 @@ class OdemisFilterSet(FilterSet):
         value = self._stream.emission.value
         if isinstance(value, str) and value == model.BAND_PASS_THROUGH:
             return None  # pass-through means reflection, so we return None
-        return self._stream.emission.value[0]
+        return self._stream.emission.value[0] * 1e9 # convert from m to nm
     
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[float]) -> None:
@@ -243,6 +244,7 @@ class OdemisFilterSet(FilterSet):
             return
 
         # filter out None values from available wavelengths
+        value *= 1e-9  # convert from nm to m
         available_wavelengths = [wl for wl in self.available_emission_wavelengths if wl is not None]
         closest_emission = min(available_wavelengths, key=lambda x: abs(x - value))
         if closest_emission is None:
