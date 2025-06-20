@@ -41,7 +41,7 @@ class FMAcquisitionWidget(QWidget):
     # NOTE: not in main thread, so we need to handle signals properly
     def on_acquisition_signal(self, image: FluorescenceImage):
         # Placeholder for handling acquisition signal
-        acq_date = image.metadata.get("acquisition_date", "Unknown")
+        acq_date = image.metadata.acquisition_date if image.metadata else "Unknown"
         self.label.setText(f"Acquisition Signal Received: {acq_date}")
         print(f"Acquisition Date: {acq_date}")
         print(f"Acquisition signal received with image:  {image.data.shape}")
@@ -54,17 +54,20 @@ class FMAcquisitionWidget(QWidget):
         # Placeholder for updating the image in the viewer
         print(f"Image updated with shape: {image.data.shape}")
 
+        # Convert structured metadata to dictionary for napari compatibility
+        metadata_dict = image.metadata.to_dict() if image.metadata else {}
+
         # Here you would typically add the image to the napari viewer
         if "Fluorescence Image" in self.viewer.layers:
             # If the layer already exists, update it
             self.viewer.layers["Fluorescence Image"].data = image.data
-            self.viewer.layers["Fluorescence Image"].metadata = image.metadata
+            self.viewer.layers["Fluorescence Image"].metadata = metadata_dict
         else:
             # If the layer does not exist, create a new one
             self.viewer.add_image(
                 data=image.data,
                 name="Fluorescence Image",
-                metadata=image.metadata
+                metadata=metadata_dict
             )
 
     def start_acquisition(self):
@@ -159,11 +162,13 @@ class ChannelSettingsWidget(QWidget):
         print(f"Exposure time updated to: {value} s")   
 
 def main():
-    # viewer = napari.Viewer()
-    # fm = FluorescenceMicroscope()
-    # widget = FMAcquisitionWidget(fm=fm, viewer=viewer)
-    # viewer.window.add_dock_widget(widget, area="right")
-    # napari.run()
+    viewer = napari.Viewer()
+    fm = FluorescenceMicroscope()
+    widget = FMAcquisitionWidget(fm=fm, viewer=viewer)
+    viewer.window.add_dock_widget(widget, area="right")
+    napari.run()
+
+    return
 
     # import sys
     # from PyQt5.QtWidgets import QApplication

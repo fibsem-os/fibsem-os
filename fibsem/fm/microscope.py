@@ -1,14 +1,19 @@
 import logging
 import threading
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
 from datetime import datetime
 from typing import Optional, Tuple
 
 import numpy as np
 from psygnal import Signal
 
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage
+from fibsem.fm.structures import (
+    ChannelSettings,
+    FluorescenceChannelMetadata,
+    FluorescenceImage,
+    FluorescenceImageMetadata,
+)
 
 EXCITATION_WAVELENGTHS = {365, 450, 550, 635}  # in nm, example wavelengths
 
@@ -71,7 +76,7 @@ class Camera(ABC):
         self._resolution: Tuple[int, int] = (512, 512)  # default resolution
         super().__init__()
 
-    def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:
+    def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:  # noqa: ARG002
         """Acquire an image with the specified channel settings."""
 
         time.sleep(self.exposure_time)  # Simulate exposure time in seconds
@@ -210,8 +215,10 @@ class FluorescenceMicroscope(ABC):
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
 
-    def __init__(self):
+    def __init__(self, parent = None):
         super().__init__()
+
+        self.parent = parent
 
         self.channel_name: str = "channel-01"
         self.objective = ObjectiveLens(parent=self)
@@ -277,36 +284,36 @@ class FluorescenceMicroscope(ABC):
         md = self.get_metadata()
         img = FluorescenceImage(data=image, metadata=md)
         return img
+    
+    def get_metadata(self) -> FluorescenceImageMetadata:
+        """Get structured metadata for the current microscope configuration."""
 
-    def get_metadata(self) -> dict:
-        """Get metadata for the current configuration."""
-        metadata = {
-            "acquisition_date": datetime.now().isoformat(),
-            "channel": {"name": self.channel_name},
-            "objective": {
-                "position": self.objective.position,
-                "magnification": self.objective.magnification,
-                "numerical_aperture": self.objective.numerical_aperture,
-            },
-            "filter_set": {
-                "excitation_wavelength": self.filter_set.excitation_wavelength,
-                "emission_wavelength": self.filter_set.emission_wavelength,
-            },
-            "camera": {
-                "exposure_time": self.camera.exposure_time,
-                "binning": self.camera.binning,
-                "gain": self.camera.gain,
-                "offset": self.camera.offset,
-                "pixel_size": self.camera.pixel_size,
-                "resolution": self.camera.resolution,
-                "sensor_pixel_size": self.camera._pixel_size,  # Original pixel size before binning
-                "sensor_resolution": self.camera._resolution,  # Full resolution before binning
-            },
-            "light_source": {"power": self.light_source.power},
-        }
+        stage_position = self.parent.get_stage_position() if self.parent else None
 
-        # TODO: microscope-state metadata
-        return metadata
+        # Create channel metadata from current microscope state
+        channel_metadata = FluorescenceChannelMetadata(
+            name=self.channel_name,
+            excitation_wavelength=self.filter_set.excitation_wavelength,
+            emission_wavelength=self.filter_set.emission_wavelength,
+            power=self.light_source.power,
+            exposure_time=self.camera.exposure_time,
+            gain=self.camera.gain,
+            offset=self.camera.offset,
+            binning=self.camera.binning,
+            objective_position=self.objective.position,
+            objective_magnification=self.objective.magnification,
+            objective_numerical_aperture=self.objective.numerical_aperture
+        )
+        
+        # Create complete image metadata
+        return FluorescenceImageMetadata(
+            acquisition_date=datetime.now().isoformat(),
+            pixel_size_x=self.camera.pixel_size[0],
+            pixel_size_y=self.camera.pixel_size[1],
+            resolution=tuple(self.camera.resolution),
+            stage_position=stage_position,
+            channels=[channel_metadata]
+        )
 
     def start_acquisition(self, channel_settings: Optional[ChannelSettings] = None) -> None:
         """Start the image acquisition process."""
