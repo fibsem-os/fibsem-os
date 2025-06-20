@@ -114,7 +114,7 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
-
+from fibsem.fm.microscope import FluorescenceMicroscope
 
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
@@ -129,6 +129,9 @@ class FibsemMicroscope(ABC):
     fib_acquisition_signal = Signal(FibsemImage)
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
+
+    # fluorescence
+    fm: FluorescenceMicroscope
 
     @abstractmethod
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
