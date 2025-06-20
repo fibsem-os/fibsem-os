@@ -140,9 +140,11 @@ class ThermoFisherFilterSet(FilterSet):
         self._excitation_wavelength = None
         self._emission_wavelength = None
 
+    @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         return sorted(tuple(AVAILABLE_FM_WAVELENGTHS))
 
+    @property
     def available_emission_wavelengths(self) -> Tuple[float, ...]:
         return sorted(tuple(AVAILABLE_FM_WAVELENGTHS))
 

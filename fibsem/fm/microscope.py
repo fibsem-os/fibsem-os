@@ -167,10 +167,12 @@ class FilterSet(ABC):
         self._emission_wavelength: Optional[float] = None  # None = reflection
         super().__init__()
 
+    @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         """Return a tuple of available excitation wavelengths."""
         return sorted(tuple(EXCITATION_WAVELENGTHS))
-    
+
+    @property
     def available_emission_wavelengths(self) -> Tuple[float, ...]:
         """Return a tuple of available emission wavelengths."""
         # For simplicity, we assume emission wavelengths are the same as excitation
