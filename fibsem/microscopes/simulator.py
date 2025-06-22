@@ -4,7 +4,7 @@ import os
 import time
 from dataclasses import dataclass
 from itertools import cycle
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Generator
 
 import numpy as np
 from skimage.transform import resize
@@ -148,7 +148,7 @@ class ImagingSystem:
     active_view: int = BeamType.ELECTRON.value
     active_device: int = BeamType.ELECTRON.value
     last_image: Dict[BeamType, FibsemImage] = None
-    generator: Dict[BeamType, cycle] = None  # Image filename generators
+    generator: Dict[BeamType, Generator] = None  # Image filename generators
 
 class DemoMicroscope(FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
@@ -349,7 +349,11 @@ class DemoMicroscope(FibsemMicroscope):
         """
         try:
             # get the next filename from the imaging system
-            filename = next(self.imaging_system.generator[beam_type])
+            image_generator = self.imaging_system.generator.get(beam_type, None)
+            if image_generator is None:
+                raise ValueError(f"No image generator found for beam type {beam_type.name}")
+
+            filename = next(image_generator)
             
             # check if file still exists
             if not os.path.exists(filename):
@@ -368,8 +372,11 @@ class DemoMicroscope(FibsemMicroscope):
                 preserve_range=True
             )
             return image_data.astype(dtype)
-            
-        except (StopIteration, FileNotFoundError, OSError, ValueError) as e:
+        except StopIteration as e:
+            logging.debug(f"Image sequence for {beam_type.name} exhausted, falling back to random noise: {e}")
+            return np.random.randint(0, 256, output_shape, dtype=dtype)
+
+        except (FileNotFoundError, OSError, ValueError) as e:
             logging.warning(f"Failed to load image for {beam_type.name}: {e}, falling back to random noise")
             return np.random.randint(0, 256, output_shape, dtype=dtype)
         except Exception as e:
@@ -392,7 +399,7 @@ class DemoMicroscope(FibsemMicroscope):
         fib_data_path = self.system.sim.get("fib", None)
         
         if sem_data_path is None or fib_data_path is None:
-            logging.debug("SEM or FIB data path not configured in simulator settings, using random noise generation")
+            logging.info("SEM or FIB data path not configured in simulator settings, using random noise generation")
             return
 
         if not os.path.exists(sem_data_path) or not os.path.exists(fib_data_path):
@@ -409,8 +416,13 @@ class DemoMicroscope(FibsemMicroscope):
             raise ValueError(f"No .tif files found in FIB data path: {fib_data_path}")
 
         # create cycling generators for continuous image sequences
-        self.imaging_system.generator[BeamType.ELECTRON] = cycle(self._sem_filenames)
-        self.imaging_system.generator[BeamType.ION] = cycle(self._fib_filenames)
+        use_cycle = self.system.sim.get("use_cycle", False)
+        if use_cycle:
+            self.imaging_system.generator[BeamType.ELECTRON] = cycle(self._sem_filenames)
+            self.imaging_system.generator[BeamType.ION] = cycle(self._fib_filenames)
+        else:
+            self.imaging_system.generator[BeamType.ELECTRON] = iter(self._sem_filenames)
+            self.imaging_system.generator[BeamType.ION] = iter(self._fib_filenames)
 
         self.use_image_sequence = True
         logging.info(f"Image generators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images")

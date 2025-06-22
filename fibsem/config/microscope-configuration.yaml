@@ -63,3 +63,4 @@ milling:
 sim:
     sem: null # "/path/to/sem/image/data"                   # the path to the SEM image data for simulation                 [USER]
     fib: null # "/path/to/fib/image/data"                   # the path to the FIB image data for simulation                 [USER]
+    use_cycle: true                                         # infinitely cycle sem/fib dataset                              [USER]
