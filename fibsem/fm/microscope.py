@@ -3,7 +3,7 @@ import threading
 import time
 from abc import ABC
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 from psygnal import Signal
@@ -15,17 +15,35 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+
 EXCITATION_WAVELENGTHS = [365, 450, 550, 635]  # in nm, example wavelengths
 EMISSION_WAVELENGTHS = [365, 450, 550, 635, None]  # in nm, example wavelengths
+
+SIM_OBJECTIVE_MAGNIFICATION = 100.0  # placeholder for simulation
+SIM_OBJECTIVE_NA = 0.8
+SIM_OBJECTIVE_INSERT_POSITION = 0.0  # z-axis position for inserting the objective lens
+SIM_OBJECTIVE_RETRACT_POSITION = -10e-3  # z-axis position for retracting the objective lens
+SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 5e-3)  # z-axis limits for the objective lens
+
+
+SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
+SIM_CAMERA_BINNING = 1
+SIM_CAMERA_GAIN = 1.0
+SIM_CAMERA_OFFSET = 0.0
+SIM_CAMERA_PIXEL_SIZE = (100e-9, 100e-9)  # in meters (100 nm)
+SIM_CAMERA_RESOLUTION = (512, 512)  # default resolution
+
 
 class ObjectiveLens(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
-        self._position: float = 0.0
-        self._magnification: float = 100.0  # placeholder
-        self._numerical_aperture = 0.8  # placeholder
-        self._insert_position = 0.0  # z-axis
-        self._retract_position = -10e-3
+        self._position: float =  SIM_OBJECTIVE_RETRACT_POSITION  # start at retracted position
+        self._magnification: float = SIM_OBJECTIVE_MAGNIFICATION
+        self._numerical_aperture = SIM_OBJECTIVE_NA
+        self._insert_position = SIM_OBJECTIVE_INSERT_POSITION
+        self._retract_position = SIM_OBJECTIVE_RETRACT_POSITION
 
     @property
     def magnification(self) -> float:
@@ -64,16 +82,20 @@ class ObjectiveLens(ABC):
         self.move_absolute(self._retract_position)
         logging.info(f"Objective lens retracted to position: {self._retract_position}")
 
+    @property
+    def limits(self) -> Tuple[float, float]:
+        """Return the limits of the objective lens position."""
+        return SIM_OBJECTIVE_POSITION_LIMITS
 
 class Camera(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
-        self._exposure_time: float = 0.1  # seconds
-        self._binning: int = 1
-        self._gain: float = 1.0
-        self._offset: float = 0.0
-        self._pixel_size: Tuple[float, float] = (100e-9, 100e-9)  # in meters
-        self._resolution: Tuple[int, int] = (512, 512)  # default resolution
+        self._exposure_time: float = SIM_CAMERA_EXPOSURE_TIME
+        self._binning: int = SIM_CAMERA_BINNING
+        self._gain: float = SIM_CAMERA_GAIN
+        self._offset: float = SIM_CAMERA_OFFSET
+        self._pixel_size: Tuple[float, float] = SIM_CAMERA_PIXEL_SIZE
+        self._resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
         super().__init__()
 
     def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:  # noqa: ARG002
@@ -168,7 +190,7 @@ class LightSource(ABC):
 class FilterSet(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
-        self._excitation_wavelength: float = 488.0
+        self._excitation_wavelength: float = EXCITATION_WAVELENGTHS[0]  # default to first wavelength
         self._emission_wavelength: Optional[float] = None  # None = reflection
         super().__init__()
 
@@ -215,7 +237,7 @@ class FluorescenceMicroscope(ABC):
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
 
-    def __init__(self, parent: 'FibsemMicroscope' = None):
+    def __init__(self, parent: Optional['FibsemMicroscope'] = None):
         super().__init__()
 
         self.parent = parent

@@ -1,4 +1,6 @@
 from typing import Tuple
+
+import numpy as np
 from autoscript_sdb_microscope_client.structures import (
     GrabFrameSettings,
 )
@@ -51,7 +53,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         self._resolution = (1024, 1024)  # Default resolution
 
     @property
-    def magnification(self):
+    def magnification(self) -> float:
         self.parent.set_active_channel()
         return self._magnification
 
@@ -65,7 +67,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         position = self.parent.fm_settings.focus.value
         return position
 
-    def move_relative(self, delta):
+    def move_relative(self, delta: float):
         self.parent.set_active_channel()
         current_position = self.position
         new_position = current_position + delta
@@ -74,11 +76,11 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
     def move_absolute(self, position: float):
         self.parent.fm_settings.focus.value = position
 
-    def insert(self):
+    def insert(self) -> None:
         self.parent.set_active_channel()
         self.parent.connection.detector.insert()
 
-    def retract(self):
+    def retract(self) -> None:
         self.parent.set_active_channel()
         self.parent.connection.detector.retract()
 
@@ -90,7 +92,7 @@ class ThermoFisherCamera(Camera):
         self.parent = parent
 
     # QUERY: other properties like pixel size, resolution, etc.?
-    def acquire_image(self, channel_settings):
+    def acquire_image(self, channel_settings) -> np.ndarray:
         frame_settings = GrabFrameSettings()
 
         self.parent.set_active_channel()
@@ -99,19 +101,19 @@ class ThermoFisherCamera(Camera):
         return image.data  # AdornedImage.data -> np.ndarray
 
     @property
-    def exposure_time(self):
+    def exposure_time(self)  -> float:
         return self.parent.fm_settings.exposure_time
 
     @exposure_time.setter
-    def exposure_time(self, value: float):
+    def exposure_time(self, value: float) -> None:
         self.parent.fm_settings.exposure_time = value
 
     @property
-    def binning(self):
+    def binning(self) -> int:
         return self.parent.fm_settings.binning.value
 
     @binning.setter
-    def binning(self, value: int):
+    def binning(self, value: int) -> None:
         if value not in [1, 2, 4, 8]:
             raise ValueError(f"Binning must be one of [1, 2, 4, 8], got {value}")
         self.parent.fm_settings.binning.value = value
@@ -123,12 +125,13 @@ class ThermoFisherLightSource(LightSource):
         self.parent = parent
 
     @property
-    def power(self):
+    def power(self)  -> float:
+        # QUERY: is this in W or percentage?
         self.parent.set_active_channel()
         return self.parent.connection.detector.brightness.value
 
     @power.setter
-    def power(self, value: float):
+    def power(self, value: float) -> None:
         self.parent.set_active_channel()
         self.parent.connection.detector.brightness.value = value
 
@@ -137,16 +140,14 @@ class ThermoFisherFilterSet(FilterSet):
     def __init__(self, parent: "ThermoFisherFluorescenceMicroscope"):
         super().__init__(parent)
         self.parent = parent
-        self._excitation_wavelength = None
-        self._emission_wavelength = None
 
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
-        return sorted(tuple(AVAILABLE_FM_WAVELENGTHS))
+        return tuple(sorted(AVAILABLE_FM_WAVELENGTHS))
 
     @property
     def available_emission_wavelengths(self) -> Tuple[float, ...]:
-        return sorted(tuple(AVAILABLE_FM_WAVELENGTHS))
+        return tuple(sorted(AVAILABLE_FM_WAVELENGTHS))
 
     @property
     def excitation_wavelength(self) -> float:
@@ -154,7 +155,7 @@ class ThermoFisherFilterSet(FilterSet):
         return COLOR_TO_WAVELENGTH[color] # map to excitation wavelength
 
     @excitation_wavelength.setter
-    def excitation_wavelength(self, value: float):
+    def excitation_wavelength(self, value: float) -> None:
         color = WAVELENGTH_TO_COLOR.get(value, None)  # TODO: support closest match?
         if color is None:
             raise ValueError(
@@ -174,15 +175,12 @@ class ThermoFisherFilterSet(FilterSet):
             return self.excitation_wavelength  # This should probably be different?
 
     @emission_wavelength.setter
-    def emission_wavelength(self, value: float):
+    def emission_wavelength(self, value: float) -> None:
         # Thermo Fisher FLM does not support specific emission filters, only reflection or fluorescence
         if value is None:
             self.parent.fm_settings.filter.type.value = REFLECTION_MODE
         else:
             self.parent.fm_settings.filter.type.value = FLUORESCENCE_MODE
-            # don't think I wanna set it like this
-            # self.excitation_wavelength = value  # Set excitation wavelength to match emission
-
 
 class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
     objective: ThermoFisherObjectiveLens
@@ -195,6 +193,7 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
 
         if connection is None:
             connection = SdbMicroscopeClient()
+        # possible to identify the microscope type? e.g. arctis or iflm?
 
         self.connection = connection
         self.objective = ThermoFisherObjectiveLens(self)
