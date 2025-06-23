@@ -192,7 +192,7 @@ class OdemisFilterSet(FilterSet):
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         """Get the available excitation wavelengths."""
-        return [c[2] for c in self._stream.excitation.choices] # centre wavelengths
+        return [c[2] * 1e9 for c in self._stream.excitation.choices] # centre wavelengths
 
     @property
     def available_emission_wavelengths(self) -> Tuple[float, ...]:
@@ -204,7 +204,7 @@ class OdemisFilterSet(FilterSet):
             if isinstance(c, str) and c == model.BAND_PASS_THROUGH:
                 choices.append(None)
                 continue
-            choices.append(c[0])
+            choices.append(c[0]* 1e9)  # convert from m to nm
         return choices
     # TODO: fix this
 
