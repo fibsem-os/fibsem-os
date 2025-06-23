@@ -910,6 +910,10 @@ class FibsemMicroscope(ABC):
         """Get the compucentric rotation position for the given stage position. 
         Assumes 180deg rotation. TFS only"""
 
+        # compustage does not support compucentric rotation
+        if self.stage_is_compustage:
+            return position
+
         # get the compucentric rotation offset
         offset = self._get_compucentric_rotation_offset()
     
@@ -3122,6 +3126,10 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         """Get the difference between the stage position in specimen coordinates and raw coordinates."""
+        # no offset for compustage
+        if self.stage_is_compustage:
+            return FibsemStagePosition(x=0, y=0)
+
         # get stage position in speciemn coordinates 
         self.stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
         specimen_stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)

@@ -15,8 +15,8 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 
-EXCITATION_WAVELENGTHS = {365, 450, 550, 635}  # in nm, example wavelengths
-
+EXCITATION_WAVELENGTHS = [365, 450, 550, 635]  # in nm, example wavelengths
+EMISSION_WAVELENGTHS = [365, 450, 550, 635, None]  # in nm, example wavelengths
 
 class ObjectiveLens(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
@@ -175,13 +175,13 @@ class FilterSet(ABC):
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         """Return a tuple of available excitation wavelengths."""
-        return sorted(tuple(EXCITATION_WAVELENGTHS))
+        return tuple(EXCITATION_WAVELENGTHS)
 
     @property
     def available_emission_wavelengths(self) -> Tuple[float, ...]:
         """Return a tuple of available emission wavelengths."""
         # For simplicity, we assume emission wavelengths are the same as excitation
-        return sorted(tuple(EXCITATION_WAVELENGTHS))
+        return tuple(EMISSION_WAVELENGTHS)
 
     @property
     def excitation_wavelength(self) -> float:
@@ -254,7 +254,11 @@ class FluorescenceMicroscope(ABC):
         self.set_exposure_time(channel_settings.exposure_time)
 
         # set channel name
-        self.channel_name = channel_settings.name
+        self.set_channel_name(channel_settings.name)
+
+    def set_channel_name(self, name: str):
+        """Set the name of the current channel."""
+        self.channel_name = name
 
     def set_binning(self, binning: int):
         """Set the binning of the camera."""
