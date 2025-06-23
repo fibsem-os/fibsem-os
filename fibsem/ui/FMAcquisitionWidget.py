@@ -1,9 +1,25 @@
-import napari
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget, QGridLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox
+import logging
 
+import napari
+import numpy as np
+from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from fibsem import conversions, utils
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
+from fibsem.structures import BeamType, Point
+from fibsem.ui.napari.utilities import is_position_inside_layer
 
 
 class FMAcquisitionWidget(QWidget):
@@ -14,13 +30,14 @@ class FMAcquisitionWidget(QWidget):
 
         self.fm = fm
         self.viewer = viewer
+        self.channel_name = "Channel-1"  # Default channel name, can be changed later
 
         self.initUI()
 
     def initUI(self):
         layout = QVBoxLayout()
 
-        self.label = QLabel("FMA Acquisition Widget", self)
+        self.label = QLabel("FM Acquisition Widget", self)
         layout.addWidget(self.label)
 
         self.startButton = QPushButton("Start Acquisition", self)
@@ -28,6 +45,34 @@ class FMAcquisitionWidget(QWidget):
 
         self.stopButton = QPushButton("Stop Acquisition", self)
         layout.addWidget(self.stopButton)
+
+        # add insert and retraact buttons for objective
+        self.insertButton = QPushButton("Insert Objective", self)
+        self.retractButton = QPushButton("Retract Objective", self)
+        layout.addWidget(self.insertButton)
+        layout.addWidget(self.retractButton)
+
+        # Connect the insert and retract buttons to the microscope's objective
+        self.insertButton.clicked.connect(lambda: self.fm.objective.insert())
+        self.retractButton.clicked.connect(lambda: self.fm.objective.retract())
+
+        # add double spin box for objective position
+        self.objectivePositionInput = QDoubleSpinBox(self)
+        self.objectivePositionInput.setRange(-15, 5)
+        self.objectivePositionInput.setSingleStep(0.01)
+        self.objectivePositionInput.setSuffix(" mm")
+        self.objectivePositionInput.setValue(self.fm.objective.position)
+        self.objectivePositionInput.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
+        layout.addWidget(QLabel("Objective Position (mm):"))
+        layout.addWidget(self.objectivePositionInput)
+
+        # Connect the objective position input to the microscope's objective
+        self.objectivePositionInput.valueChanged.connect(
+            lambda value: self.fm.objective.move_absolute(value*1e-3)  # Convert mm to m
+        )
+        # Add a label to display the current objective position
+        self.objectivePositionLabel = QLabel(f"Current Objective Position: {self.fm.objective.position*1e3:.2f} mm", self)
+        layout.addWidget(self.objectivePositionLabel)
 
         self.setLayout(layout)
 
@@ -38,13 +83,47 @@ class FMAcquisitionWidget(QWidget):
         self.fm.acquisition_signal.connect(self.on_acquisition_signal)
         self.update_image_signal.connect(self.update_image)
 
+        # movement controls
+        self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
+
+    def on_mouse_double_click(self, viewer, event):
+        """Handle double-click events in the napari viewer."""
+
+        logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
+        self.image_layer = self.viewer.layers[self.channel_name]
+
+        if not is_position_inside_layer(event.position, self.image_layer):
+            logging.warning("Click position is outside the image layer.")
+            return
+
+        resolution = self.fm.camera.resolution
+        pixelsize = self.fm.camera.pixel_size[0]
+
+        # convert from image coordinates to microscope coordinates
+        coords = self.image_layer.world_to_data(event.position)
+        point_clicked = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=coords[1], y=coords[0]), # yx required
+            image=np.zeros((resolution[1], resolution[0])),  # dummy image for shape
+            pixelsize=pixelsize,
+        )
+        logging.info(f"Mouse double-clicked at coordinates: {point_clicked}")
+
+        self.fm.parent.stable_move(
+            dx=point_clicked.x,
+            dy=point_clicked.y,
+            beam_type=BeamType.ION, 
+        )
+        # TODO: we need to handle this better as scan rotation is not handled here
+        # TODO: handle for the arctis? -> BeamType.ELECTRON?
+
+        logging.info(f"Microscope position: {self.fm.parent.get_stage_position()}")
+
     # NOTE: not in main thread, so we need to handle signals properly
     def on_acquisition_signal(self, image: FluorescenceImage):
         # Placeholder for handling acquisition signal
         acq_date = image.metadata.acquisition_date if image.metadata else "Unknown"
         self.label.setText(f"Acquisition Signal Received: {acq_date}")
-        print(f"Acquisition Date: {acq_date}")
-        print(f"Acquisition signal received with image:  {image.data.shape}")
+        logging.info(f"Acquisition signal at {acq_date} received with image:  {image.data.shape}")
 
         # Here you would typically process the image or update the UI accordingly
         # For example, you might display the image in a QLabel or similar widget
@@ -52,38 +131,42 @@ class FMAcquisitionWidget(QWidget):
 
     def update_image(self, image: FluorescenceImage):
         # Placeholder for updating the image in the viewer
-        print(f"Image updated with shape: {image.data.shape}")
+        logging.info(f"Image updated with shape: {image.data.shape}, Objective position: {self.fm.objective.position*1e3:.2f} mm")
 
         # Convert structured metadata to dictionary for napari compatibility
         metadata_dict = image.metadata.to_dict() if image.metadata else {}
 
+        channel_name = image.metadata.channels[0].name # QUERY: is this 
+
         # Here you would typically add the image to the napari viewer
-        if "Fluorescence Image" in self.viewer.layers:
+        if channel_name in self.viewer.layers:
             # If the layer already exists, update it
-            self.viewer.layers["Fluorescence Image"].data = image.data
-            self.viewer.layers["Fluorescence Image"].metadata = metadata_dict
+            self.viewer.layers[channel_name].data = image.data
+            self.viewer.layers[channel_name].metadata = metadata_dict
         else:
             # If the layer does not exist, create a new one
-            self.viewer.add_image(
+            self.image_layer = self.viewer.add_image(
                 data=image.data,
-                name="Fluorescence Image",
+                name=channel_name,
                 metadata=metadata_dict
             )
+        
+        self.channel_name = channel_name
+
 
     def start_acquisition(self):
         # Placeholder for starting acquisition logic
         self.label.setText("Acquisition Started")
-        print("Acquisition started")
+        logging.info("Acquisition started")
 
         self.fm.start_acquisition()
 
     def stop_acquisition(self):
         # Placeholder for stopping acquisition logic
         self.label.setText("Acquisition Stopped")
-        print("Acquisition stopped")
+        logging.info("Acquisition stopped")
 
         self.fm.stop_acquisition()
-
 
 
 class ChannelSettingsWidget(QWidget):
@@ -162,9 +245,10 @@ class ChannelSettingsWidget(QWidget):
         print(f"Exposure time updated to: {value} s")   
 
 def main():
+
+    microscope, settings = utils.setup_session()
     viewer = napari.Viewer()
-    fm = FluorescenceMicroscope()
-    widget = FMAcquisitionWidget(fm=fm, viewer=viewer)
+    widget = FMAcquisitionWidget(fm=microscope.fm, viewer=viewer)
     viewer.window.add_dock_widget(widget, area="right")
     napari.run()
 

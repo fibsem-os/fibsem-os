@@ -45,24 +45,24 @@ class ObjectiveLens(ABC):
     def move_relative(self, delta: float):
         """Move the objective lens relative to its current position."""
         self._position += delta
-        print(f"Objective moved to new position: {self._position} (delta: {delta})")
+        logging.info(f"Objective moved to new position: {self._position} (delta: {delta})")
 
     def move_absolute(self, position: float):
         """Move the objective lens to an absolute position."""
         self._position = position
-        print(f"Objective moved to absolute position: {self._position}")
+        logging.info(f"Objective moved to absolute position: {self._position}")
 
     def insert(self):
         """Insert the objective lens into the optical path."""
         # Implementation for inserting the lens
         self.move_absolute(self._insert_position)
-        print(f"Objective lens inserted to position: {self._insert_position}")
+        logging.info(f"Objective lens inserted to position: {self._insert_position}")
 
     def retract(self):
         """Retract the objective lens from the optical path."""
         # Implementation for retracting the lens
         self.move_absolute(self._retract_position)
-        print(f"Objective lens retracted to position: {self._retract_position}")
+        logging.info(f"Objective lens retracted to position: {self._retract_position}")
 
 
 class Camera(ABC):
@@ -151,7 +151,7 @@ class Camera(ABC):
 class LightSource(ABC):
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         self.parent = parent
-        self._power: float = 100  # Power level of the light source
+        self._power: float = 0.1 # W
         super().__init__()
 
     @property
@@ -215,7 +215,7 @@ class FluorescenceMicroscope(ABC):
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
 
-    def __init__(self, parent = None):
+    def __init__(self, parent: 'FibsemMicroscope' = None):
         super().__init__()
 
         self.parent = parent

@@ -1024,6 +1024,47 @@ class FibsemMicroscope(ABC):
             column_tilt=np.radians(self.system.ion.column_tilt)
         )
         return np.degrees(milling_angle)
+    
+    def move_to_microscope(self, target: str) -> None:
+        """Move the stage to the specified microscope (FIBSEM <-> FM)"""
+        if target not in ["FIBSEM", "FM"]:
+            raise ValueError(f"Microscope {target} not supported.")
+
+        stage_position = self.get_stage_position()
+
+        if target == "FM" and self.get_stage_orientation(stage_position) != "FIB":
+            raise ValueError("Cannot move to FM from SEM or MILLING orientation. Please switch to FIB orientation first.")
+
+        # check if we are already at the target position
+        # this is for TFS SDB chamber: e.g. piescope, meteor, iflm
+        # arctis has same range for FIBSEM/FM (stage is flipped upside down)
+        FM_RANGE  = (40e-3, 60e-3)  # 40 mm to 60 mm
+        FIBSEM_RANGE = (-20e-3, 20e-3)  # -20 mm to 20 mm
+        if target == "FM" and (FM_RANGE[0] < stage_position.x < FM_RANGE[1]):
+            logging.info("Already at FM position, no need to move.")
+            return
+
+        if target == "FIBSEM" and (FIBSEM_RANGE[0] < stage_position.x < FIBSEM_RANGE[1]):
+            logging.info("Already at FIBSEM position, no need to move.")
+            return
+
+        logging.info(f"Moving to {target} position...")
+
+        # retract objective (safety precaution)
+        self.fm.objective.retract()
+
+        TRANSLATION_DX = 48.8e-3  # 48.8 mm
+        transf = FibsemStagePosition(x=TRANSLATION_DX)
+
+        # move to FIBSEM
+        if target == "FIBSEM":
+            transf.x *= -1
+            self.move_stage_relative(transf)
+        # move to FM
+        if target == "FM":
+            self.move_stage_relative(transf)
+            self.fm.objective.insert()
+
 
 class ThermoMicroscope(FibsemMicroscope):
     """

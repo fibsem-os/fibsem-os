@@ -159,7 +159,6 @@ class FluorescenceImage:
 
             light_source_settings = LightSourceSettings(
                 id=f"LightSource:{id_str}",
-                power=light_source_power
             )
 
             detector = OME_Detector(
@@ -599,30 +598,7 @@ class FluorescenceImageMetadata:
                 raise ValueError("Z-stack must have at least 2 positions")
             if self.pixel_size_z is None:
                 # Auto-calculate z pixel size from positions
-                self.pixel_size_z = abs(self.z_positions[1] - self.z_positions[0])
-    
-    def to_dict_list(self) -> List[dict]:
-        """Convert to list of dictionaries format expected by get_ome_metadata."""
-        metadata_list = []
-        
-        for channel in self.channels:
-            channel_dict = channel.to_dict()
-            
-            # Add acquisition date
-            channel_dict["acquisition_date"] = self.acquisition_date
-            
-            # Add pixel size information to camera metadata
-            channel_dict["camera"]["pixel_size"] = (self.pixel_size_x, self.pixel_size_y)
-            channel_dict["camera"]["resolution"] = self.resolution
-            
-            # Add z-positions for z-stacks
-            if self.z_positions is not None:
-                channel_dict["objective-positions"] = self.z_positions
-            
-            metadata_list.append(channel_dict)
-        
-        return metadata_list
-    
+                self.pixel_size_z = abs(self.z_positions[1] - self.z_positions[0])   
     
     def add_channel(self, channel: FluorescenceChannelMetadata) -> None:
         """Add a new channel to the metadata."""

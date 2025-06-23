@@ -35,6 +35,7 @@ from fibsem.structures import (
 )
 
 from fibsem.microscope import FibsemMicroscope, ThermoMicroscope, _check_beam, _check_manipulator, _check_stage, _check_sputter, _check_stage_movement, _check_manipulator_movement
+from fibsem.fm.microscope import FluorescenceMicroscope, FluorescenceImage, ChannelSettings
 
 ######################## SIMULATOR ########################
 
@@ -219,6 +220,9 @@ class DemoMicroscope(FibsemMicroscope):
         self.imaging_system.last_image[BeamType.ELECTRON] = None
         self.imaging_system.last_image[BeamType.ION] = None
             
+        # fluorescence microscope
+        self.fm = FluorescenceMicroscope(self)
+
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
