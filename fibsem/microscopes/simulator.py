@@ -1,10 +1,12 @@
+from __future__ import annotations
 import glob
 import logging
 import os
 import time
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import Dict, List, Optional, Tuple, Union, Generator
+from typing import Dict, List, Optional, Tuple, Union
+from collections.abc import Iterator
 
 import numpy as np
 from skimage.transform import resize
@@ -148,7 +150,7 @@ class ImagingSystem:
     active_view: int = BeamType.ELECTRON.value
     active_device: int = BeamType.ELECTRON.value
     last_image: Dict[BeamType, Optional[FibsemImage]] = field(default_factory=dict)
-    generator: Dict[BeamType, Generator] = None  # Image filename generators
+    image_iterators: Dict[BeamType, Iterator[str]] = field(default_factory=dict)  # Image filename iterators
 
 class DemoMicroscope(FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
@@ -229,8 +231,8 @@ class DemoMicroscope(FibsemMicroscope):
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
-        # setup image generators
-        self._setup_image_generators()
+        # setup image iterators
+        self._setup_image_iterators()
             
         # user, experiment metadata
         # TODO: remove once db integrated
@@ -347,11 +349,11 @@ class DemoMicroscope(FibsemMicroscope):
         """
         try:
             # get the next filename from the imaging system
-            image_generator = self.imaging_system.generator.get(beam_type, None)
-            if image_generator is None:
-                raise ValueError(f"No image generator found for beam type {beam_type.name}")
+            image_iterator = self.imaging_system.image_iterators.get(beam_type, None)
+            if image_iterator is None:
+                raise ValueError(f"No image iterator found for beam type {beam_type.name}")
 
-            filename = next(image_generator)
+            filename = next(image_iterator)
             
             # check if file still exists
             if not os.path.exists(filename):
@@ -381,10 +383,10 @@ class DemoMicroscope(FibsemMicroscope):
             logging.error(f"Unexpected error loading image for {beam_type.name}: {e}, falling back to random noise")
             return np.random.randint(0, 256, output_shape, dtype=dtype)
 
-    def _setup_image_generators(self) -> None:
-        """Setup image generators for simulator image sequences.
+    def _setup_image_iterators(self) -> None:
+        """Setup image iterators for simulator image sequences.
         
-        Initializes image sequence generators from configured SEM and FIB data paths.
+        Initializes image sequence iterators from configured SEM and FIB data paths.
         Falls back to random noise generation if no simulator configuration is provided.
         """
         self.use_image_sequence = False
@@ -413,17 +415,17 @@ class DemoMicroscope(FibsemMicroscope):
         if len(self._fib_filenames) == 0:
             raise ValueError(f"No .tif files found in FIB data path: {fib_data_path}")
 
-        # create cycling generators for continuous image sequences
+        # create cycling iterators for continuous image sequences
         use_cycle = self.system.sim.get("use_cycle", False)
         if use_cycle:
-            self.imaging_system.generator[BeamType.ELECTRON] = cycle(self._sem_filenames)
-            self.imaging_system.generator[BeamType.ION] = cycle(self._fib_filenames)
+            self.imaging_system.image_iterators[BeamType.ELECTRON] = cycle(self._sem_filenames)
+            self.imaging_system.image_iterators[BeamType.ION] = cycle(self._fib_filenames)
         else:
-            self.imaging_system.generator[BeamType.ELECTRON] = iter(self._sem_filenames)
-            self.imaging_system.generator[BeamType.ION] = iter(self._fib_filenames)
+            self.imaging_system.image_iterators[BeamType.ELECTRON] = iter(self._sem_filenames)
+            self.imaging_system.image_iterators[BeamType.ION] = iter(self._fib_filenames)
 
         self.use_image_sequence = True
-        logging.info(f"Image generators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images")
+        logging.info(f"Image iterators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images")
 
     def last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
         """Get the last acquired image of the specified beam type.
