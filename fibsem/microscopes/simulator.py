@@ -582,6 +582,15 @@ class DemoMicroscope(FibsemMicroscope):
     def clear_patterns(self) -> None:
         self.milling_system.patterns = []
 
+    def start_milling(self) -> None:
+        """Start milling by setting the state to RUNNING."""
+        # TODO: support this by properly estimating the end time
+        if self.get_milling_state() is MillingState.IDLE:
+            self.milling_system.state = MillingState.RUNNING
+            logging.info("Milling started.")
+        else:
+            logging.warning("Milling is already running or paused.")
+
     def stop_milling(self) -> None:
         self.milling_system.state = MillingState.IDLE
 
