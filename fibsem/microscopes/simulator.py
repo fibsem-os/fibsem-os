@@ -2,7 +2,7 @@ import glob
 import logging
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import cycle
 from typing import Dict, List, Optional, Tuple, Union, Generator
 
@@ -147,7 +147,7 @@ class MillingSystem:
 class ImagingSystem:
     active_view: int = BeamType.ELECTRON.value
     active_device: int = BeamType.ELECTRON.value
-    last_image: Dict[BeamType, FibsemImage] = None
+    last_image: Dict[BeamType, Optional[FibsemImage]] = field(default_factory=dict)
     generator: Dict[BeamType, Generator] = None  # Image filename generators
 
 class DemoMicroscope(FibsemMicroscope):
@@ -227,9 +227,7 @@ class DemoMicroscope(FibsemMicroscope):
         )
         self.stage_is_compustage: bool = False
         self.milling_system = MillingSystem(patterns=[])
-        self.imaging_system = ImagingSystem(last_image={}, generator={})
-        self.imaging_system.last_image[BeamType.ELECTRON] = None
-        self.imaging_system.last_image[BeamType.ION] = None
+        self.imaging_system = ImagingSystem()
 
         # setup image generators
         self._setup_image_generators()
@@ -427,14 +425,14 @@ class DemoMicroscope(FibsemMicroscope):
         self.use_image_sequence = True
         logging.info(f"Image generators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images")
 
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
+    def last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
         """Get the last acquired image of the specified beam type.
         Args:
             beam_type: The type of beam (electron or ion).
         Returns:
             FibsemImage: The last acquired image.
         """
-        image = self.imaging_system.last_image[beam_type]
+        image = self.imaging_system.last_image.get(beam_type)
         logging.debug({"msg": "last_image", "beam_type": beam_type.name, "metadata": image.metadata.to_dict()})
         return image
 
