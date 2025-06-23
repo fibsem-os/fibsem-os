@@ -232,7 +232,10 @@ class DemoMicroscope(FibsemMicroscope):
         self.imaging_system = ImagingSystem()
 
         # setup image iterators
-        self._setup_image_iterators()
+        try:
+            self._setup_image_iterators()
+        except ValueError as e:
+            logging.error("Failed to set up sim image iterators: %s", str(e))
             
         # user, experiment metadata
         # TODO: remove once db integrated
