@@ -43,6 +43,8 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         # Handle any special cases
         if "cross_section" in ddict:
             ddict["cross_section"] = ddict["cross_section"].name
+        if "vertices" in ddict:
+            ddict["vertices"] = ddict["vertices"].tolist()
         ddict["name"] = self.name
         del ddict["shapes"]
         return ddict
@@ -62,6 +64,10 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         cross_section = kwargs.pop("cross_section", None)
         if cross_section is not None:
             kwargs["cross_section"] = CrossSectionPattern[cross_section]
+
+        vertices = kwargs.pop("vertices", None)
+        if vertices is not None:
+            kwargs["vertices"] = np.array(vertices)
 
         return cls(**kwargs)
                 
@@ -981,42 +987,14 @@ class TrapezoidPattern(BasePattern[FibsemRectangleSettings]):
             )
             self.shapes.append(deepcopy(pattern))
         return self.shapes
-    
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "point": self.point.to_dict(),
-            "inner_width": self.inner_width,
-            "outer_width": self.outer_width,
-            "trench_height": self.trench_height,
-            "depth": self.depth,
-            "distance": self.distance,
-            "n_rectangles": self.n_rectangles,
-            "overlap": self.overlap
-        }
-    
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "TrapezoidPattern":
-
-        return cls(
-            inner_width=ddict["inner_width"],
-            outer_width=ddict["outer_width"],
-            trench_height=ddict["trench_height"],
-            depth=ddict["depth"],
-            distance=ddict["distance"],
-            n_rectangles=ddict["n_rectangles"],
-            overlap=ddict["overlap"],
-            point=Point.from_dict(ddict.get("point", DEFAULT_POINT_DDICT))
-        )
-
 
 
 @dataclass
 class TrapezoidTrenchPattern(BasePattern):
-    trench_width: float
-    trench_height: float
-    spacing: float
-    depth: float
+    trench_width: float = 10e-6
+    trench_height: float = 5e-6
+    spacing: float = 5.0e-6
+    depth: float = 1.0e-6
     angle: float = 60  # angle in degrees
     name: str = "TrapezoidTrench"
     point: Point = field(default_factory=Point)
@@ -1058,32 +1036,10 @@ class TrapezoidTrenchPattern(BasePattern):
         self.shapes = [top_trench, bottom_trench]
         return self.shapes
 
-    def to_dict(self):
-        return {
-            "name": "TrapezoidTrench",
-            "point": self.point.to_dict(),
-            "trench_width": self.trench_width,
-            "trench_height": self.trench_height,
-            "spacing": self.spacing,
-            "depth": self.depth,
-            "angle": self.angle
-        }
-
-    @classmethod
-    def from_dict(cls, ddict):
-        return cls(
-            trench_width=ddict["trench_width"],
-            trench_height=ddict["trench_height"],
-            spacing=ddict["spacing"],
-            depth=ddict["depth"],
-            angle=ddict.get("angle", 60),
-            point=Point.from_dict(ddict.get("point", DEFAULT_POINT_DDICT))
-        )
-
 @dataclass
 class PolygonPattern(BasePattern):
-    vertices: np.ndarray[float]
-    depth: float
+    vertices: np.ndarray[float] = field(default_factory=list)
+    depth: float = 1.0e-6
     is_exclusion: bool = False
     point: Point = field(default_factory=Point)
     shapes: List[FibsemPolygonSettings] = None
@@ -1104,24 +1060,6 @@ class PolygonPattern(BasePattern):
 
         self.shapes = [polygon]
         return self.shapes
-
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "point": self.point.to_dict(),
-            "vertices": self.vertices.tolist(),
-            "depth": self.depth,
-            "is_exclusion": self.is_exclusion
-        }
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "PolygonPattern":
-        return cls(
-            vertices=np.array(ddict["vertices"]),
-            depth=ddict["depth"],
-            is_exclusion=ddict.get("is_exclusion", False),
-            point=Point.from_dict(ddict.get("point", DEFAULT_POINT_DDICT))
-        )
 
 
 def create_triangle_patterns(
