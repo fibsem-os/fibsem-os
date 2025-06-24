@@ -96,7 +96,7 @@ class OdemisCamera(Camera):
 
     # other attributes: depthOfField, readoutRate, pointSpreadFunctionSize
 
-    def acquire_image(self, channel_settings) -> np.ndarray:
+    def acquire_image(self) -> np.ndarray:
         da: List[model.DataArray]
         try:
             # QUERY: WARNING:root:Re-acquiring an image, as the one received appears 0.519948 s too early

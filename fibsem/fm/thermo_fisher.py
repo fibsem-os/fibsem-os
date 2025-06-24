@@ -43,14 +43,31 @@ AVAILABLE_FM_WAVELENGTHS = list(COLOR_TO_WAVELENGTH.values())
 # - 1.3 mm working distance
 # - light source: 365 nm, 450 nm, 550 nm, 635 nm
 
+ARCTIS_CONFIGURATION = {
+    "magnification": 100.0,
+    "numerical_aperture": 0.75,
+    "working_distance": 4e-3,
+    "pixel_size": (100e-9, 100e-9),
+    "resolution": (1024, 1024),
+}
+
+IFLM_CONFIGURATION = {
+    "magnification": 20.0,
+    "numerical_aperture": 0.7,
+    "working_distance": 1.3e-3,
+    "pixel_size": (100e-9, 100e-9),
+    "resolution": (1024, 1024),
+}
+DEFAULT_CONFIGURATION = ARCTIS_CONFIGURATION  # Default to ARCTIS configuration
+
 class ThermoFisherObjectiveLens(ObjectiveLens):
     def __init__(self, parent: "ThermoFisherFluorescenceMicroscope"):
         super().__init__(parent)
         self.parent = parent
-        self._magnification = 100.0 # TODO: check if this is available?
-        self._numerical_aperture = 0.75
-        self._pixel_size = (100e-9, 100e-9)  # Default pixel size in meters (100 nm)
-        self._resolution = (1024, 1024)  # Default resolution
+        self._magnification = DEFAULT_CONFIGURATION["magnification"]
+        self._numerical_aperture = DEFAULT_CONFIGURATION["numerical_aperture"]
+        self._pixel_size = DEFAULT_CONFIGURATION["pixel_size"]
+        self._resolution = DEFAULT_CONFIGURATION["resolution"]
 
     @property
     def magnification(self) -> float:
@@ -88,11 +105,10 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
 class ThermoFisherCamera(Camera):
     def __init__(self, parent: "ThermoFisherFluorescenceMicroscope"):
         super().__init__(parent)
-        self._binning = 1
         self.parent = parent
 
     # QUERY: other properties like pixel size, resolution, etc.?
-    def acquire_image(self, channel_settings) -> np.ndarray:
+    def acquire_image(self) -> np.ndarray:
         frame_settings = GrabFrameSettings()
 
         self.parent.set_active_channel()
@@ -102,11 +118,11 @@ class ThermoFisherCamera(Camera):
 
     @property
     def exposure_time(self)  -> float:
-        return self.parent.fm_settings.exposure_time
+        return self.parent.fm_settings.exposure_time.value
 
     @exposure_time.setter
     def exposure_time(self, value: float) -> None:
-        self.parent.fm_settings.exposure_time = value
+        self.parent.fm_settings.exposure_time.value = value
 
     @property
     def binning(self) -> int:
@@ -151,7 +167,7 @@ class ThermoFisherFilterSet(FilterSet):
 
     @property
     def excitation_wavelength(self) -> float:
-        color: str = self.parent.fm_settings.color
+        color: str = self.parent.fm_settings.emission.type
         return COLOR_TO_WAVELENGTH[color] # map to excitation wavelength
 
     @excitation_wavelength.setter
@@ -161,7 +177,7 @@ class ThermoFisherFilterSet(FilterSet):
             raise ValueError(
                 f"Invalid excitation wavelength: {value}: must be one of {list(COLOR_TO_WAVELENGTH.keys())}"
             )
-        self.parent.fm_settings.color = color
+        self.parent.fm_settings.emission.type = color
 
     @property
     def emission_wavelength(self) -> float:

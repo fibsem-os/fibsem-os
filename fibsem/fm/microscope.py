@@ -98,8 +98,8 @@ class Camera(ABC):
         self._resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
         super().__init__()
 
-    def acquire_image(self, channel_settings: ChannelSettings) -> np.ndarray:  # noqa: ARG002
-        """Acquire an image with the specified channel settings."""
+    def acquire_image(self) -> np.ndarray:
+        """Acquire an image with the current channel settings."""
 
         time.sleep(self.exposure_time)  # Simulate exposure time in seconds
 
@@ -306,7 +306,7 @@ class FluorescenceMicroscope(ABC):
         """Acquire an image using the channel settings."""
         if channel_settings is not None:
             self.set_channel(channel_settings)
-        image = self.camera.acquire_image(channel_settings)
+        image = self.camera.acquire_image()
         md = self.get_metadata()
         img = FluorescenceImage(data=image, metadata=md)
         return img

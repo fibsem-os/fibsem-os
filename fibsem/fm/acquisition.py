@@ -108,17 +108,20 @@ def run_auto_focus(
     # get the focus metric function
     focus_fn = FOCUS_FN_MAP.get(method, FOCUS_FN_MAP[DEFAULT_FOCUS_METHOD])
 
+    # apply the channel settings
+    microscope.set_channel(channel_settings=channel_settings)
+
     scores = []
     for pos in z_positions:
         # set objective position
         microscope.objective.move_absolute(pos)
 
         # acquire image
-        img = microscope.acquire_image(channel_settings=channel_settings)
+        img = microscope.acquire_image()
 
         # calculate sharpness of image
         score = focus_fn(img.data)
-        print(f"Z Position: {pos:.2e} microns, Score: {score:.2f}")
+        logging.info(f"Z Position: {pos*1e3:.2e} mm, Score: {score:.2f}")
         scores.append(score)
 
     # get best focus position

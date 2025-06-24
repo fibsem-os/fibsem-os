@@ -88,6 +88,11 @@ class ZParameters:
 
 
 # QUERY: add AcquisitionSettings class to handle acquisition settings?
+@dataclass
+class AcquisitionSettings:
+    channels: List[ChannelSettings] = field(default_factory=list)
+    zparams: ZParameters = ZParameters()
+    filename: str = "image.ome.tiff"
 
 @dataclass
 class FluorescenceImage:
@@ -101,6 +106,10 @@ class FluorescenceImage:
         Args:
             filename (str): The filename to save the image to.
         """
+        # if data is 2D, reshape to 4D (CZYX)
+        if self.data.ndim == 2:
+            self.data = self.data.reshape(1, 1, *self.data.shape)
+
         ome_md = self.get_ome_metadata()
         ome_xml = ome_md.to_xml()
 
