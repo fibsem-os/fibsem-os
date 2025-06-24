@@ -1258,7 +1258,7 @@ class SystemSettings:
     manipulator: ManipulatorSystemSettings
     gis: GISSystemSettings
     info: SystemInfo
-    sim: Dict[str, str] = field(default_factory=dict) 
+    sim: Dict[str, Union[str, bool]] = field(default_factory=dict) 
 
     def to_dict(self):
         return {
