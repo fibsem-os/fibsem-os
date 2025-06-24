@@ -185,15 +185,15 @@ def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings,
     # image centre
     icy, icx = get_image_pixel_centre(shape)
 
-    verticies = np.array(pattern_settings.vertices)
-    # convert verticies to pixels
-    verticies = verticies / pixelsize
+    vertices = np.array(pattern_settings.vertices)
+    # convert vertices to pixels
+    vertices = vertices / pixelsize
     # reverse the order of coordinates for napari
-    verticies = verticies[:, ::-1]
+    vertices = vertices[:, ::-1]
     # add the image centre
-    verticies += np.array([icy, icx])
+    vertices += np.array([icy, icx])
 
-    return verticies
+    return vertices
 
 
 def convert_bitmap_pattern_to_napari_image(
