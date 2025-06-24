@@ -102,12 +102,7 @@ def scale_value_for_display(key: str, value: Union[float, int], scale: float) ->
         return value * scale    
     return value
 
-# default milling protocol
-DEFAULT_PROTOCOL = utils.load_yaml(cfg.PROTOCOL_PATH)
 
-def get_default_milling_pattern(name: str) -> BasePattern:
-    """Get the default milling pattern."""
-    return get_pattern(name, config = DEFAULT_PROTOCOL["patterns"][name])
 
 # TODO: make these more generic for other units, or use pint
 def _format_beam_current_as_str(val: float):
@@ -255,9 +250,14 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         # image acquisition
         self.comboBox_imaging_resolution.addItems(cfg.STANDARD_RESOLUTIONS)
         self.comboBox_imaging_resolution.setCurrentText(cfg.DEFAULT_STANDARD_RESOLUTION)
-        self.checkBox_imaging_save.setChecked(True)
-        self.checkBox_imaging_use_autocontrast.setChecked(True)
         self.groupBox_imaging.setVisible(False)
+
+        # imaging updates
+        self.doubleSpinBox_imaging_dwell_time.valueChanged.connect(self.update_ui)
+        self.doubleSpinBox_imaging_fov.valueChanged.connect(self.update_ui)
+        self.comboBox_imaging_resolution.currentIndexChanged.connect(self.update_ui)
+        self.checkBox_imaging_use_autocontrast.stateChanged.connect(self.update_ui)
+        self.checkBox_imaging_save.stateChanged.connect(self.update_ui)
 
         # milling stages
         self.pushButton_add_milling_stage.clicked.connect(self.add_milling_stage)
@@ -357,7 +357,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         num = len(self.milling_stages) + 1
         name = f"Milling Stage {num}"
-        pattern = get_default_milling_pattern(DEFAULT_MILLING_PATTERN)
+        pattern = DEFAULT_MILLING_PATTERN()
         strategy = get_strategy(DEFAULT_STRATEGY_NAME)
         milling_stage = FibsemMillingStage(name=name, 
                                            num=num, 
@@ -470,7 +470,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.set_milling_strategy_ui()
         self.set_milling_alignment_ui()
         self.set_pattern_settings_ui()
-        # self.set_imaging_settings_ui() # TODO: implement
+        self.set_imaging_settings_ui()
         self.MILLING_STAGES_INITIALISED = True
         self.show_milling_stage_widgets()
 
@@ -572,13 +572,11 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
 
     def get_milling_alignment_from_ui(self):
         """Get the drift correction settings from the UI."""
-        milling_alignment = MillingAlignment(
-            enabled=self.checkBox_alignment_enabled.isChecked(),
-            interval_enabled=self.checkBox_alignment_interval_enabled.isChecked(),
-            interval=self.doubleSpinBox_alignment_interval.value(),
-            # rect=self.image_widget.get_alignment_area(), # TODO: get the alignment area from the image widget
-        ) # TODO: maintain existing alignment area...
-
+        milling_alignment = self.current_milling_stage.alignment
+        milling_alignment.enabled=self.checkBox_alignment_enabled.isChecked()
+        milling_alignment.interval_enabled=self.checkBox_alignment_interval_enabled.isChecked()
+        milling_alignment.interval=self.doubleSpinBox_alignment_interval.value()
+        #milling_alignment.rect=self.image_widget.get_alignment_area(), # TODO: get the alignment area from the image widget
         return milling_alignment
 
     def toggle_imaging_visibility(self):
@@ -589,16 +587,16 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
     def get_imaging_settings_from_ui(self):
         """Get the imaging settings from the UI."""
 
-        # imaging settings
+        imaging_settings = self.current_milling_stage.imaging
+
+        # imaging settings (only a partial update)
         resolution = list(map(int, self.comboBox_imaging_resolution.currentText().split("x")))
-        imaging_settings = ImageSettings(
-            resolution=resolution,
-            dwell_time=self.doubleSpinBox_imaging_dwell_time.value() * constants.MICRO_TO_SI,
-            hfw=self.doubleSpinBox_imaging_fov.value() * constants.MICRO_TO_SI,
-            beam_type=BeamType.ELECTRON, # redundant, always both
-            autocontrast=self.checkBox_imaging_use_autocontrast.isChecked(),
-            save = self.checkBox_imaging_save.isChecked(),
-        )
+        imaging_settings.resolution=resolution
+        imaging_settings.dwell_time=self.doubleSpinBox_imaging_dwell_time.value() * constants.MICRO_TO_SI
+        imaging_settings.hfw=self.doubleSpinBox_imaging_fov.value() * constants.MICRO_TO_SI
+        imaging_settings.autocontrast=self.checkBox_imaging_use_autocontrast.isChecked()
+        imaging_settings.save = self.checkBox_imaging_save.isChecked()
+
         return imaging_settings
 
     def set_imaging_settings_ui(self):
@@ -606,8 +604,14 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         imaging_settings = self.current_milling_stage.imaging
         res = imaging_settings.resolution
         res_str = f"{res[0]}x{res[1]}"
-        self.comboBox_imaging_resolution.setCurrentText(res_str) # TODO: handle when it doesn't match exactly?
-        # TODO:
+        if res_str not in cfg.STANDARD_RESOLUTIONS:
+            logging.warning(f"Resolution {res_str} not in standard resolutions, using default {cfg.DEFAULT_STANDARD_RESOLUTION}.")
+            res_str = cfg.DEFAULT_STANDARD_RESOLUTION
+        self.comboBox_imaging_resolution.setCurrentText(res_str)
+        self.doubleSpinBox_imaging_dwell_time.setValue(imaging_settings.dwell_time * constants.SI_TO_MICRO)
+        self.doubleSpinBox_imaging_fov.setValue(imaging_settings.hfw * constants.SI_TO_MICRO)
+        self.checkBox_imaging_use_autocontrast.setChecked(imaging_settings.autocontrast)
+        self.checkBox_imaging_save.setChecked(imaging_settings.save)
 
     def redraw_patterns(self):
         """Redraw the patterns in the viewer."""
@@ -655,7 +659,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         pattern_name = self.comboBox_patterns.currentText()
 
         logging.info(f"selected pattern: {pattern_name}")
-        pattern = get_default_milling_pattern(pattern_name)
+        pattern = get_pattern(pattern_name)
         self.current_milling_stage.pattern = pattern
         self.set_pattern_settings_ui()
 
@@ -946,6 +950,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.comboBox_preset.setCurrentText(str(milling.preset))
         self.spinBox_voltage.setValue(int(milling.milling_voltage))
         self.comboBox_patterning_mode.setCurrentText(milling.patterning_mode)
+        self.checkBox_milling_acquire_images.setChecked(milling.acquire_images)
 
     def get_milling_settings_from_ui(self):
         """Get the Milling Settings from the UI."""
