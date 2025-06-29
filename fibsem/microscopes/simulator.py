@@ -49,6 +49,9 @@ from fibsem.structures import (
     SystemSettings,
 )
 
+from fibsem.microscope import FibsemMicroscope, ThermoMicroscope, _check_beam, _check_manipulator, _check_stage, _check_sputter, _check_stage_movement, _check_manipulator_movement
+from fibsem.fm.microscope import FluorescenceMicroscope, FluorescenceImage, ChannelSettings
+
 ######################## SIMULATOR ########################
 
 SIMULATOR_KNOWN_UNKNOWN_KEYS = ["preset"]
@@ -237,6 +240,9 @@ class DemoMicroscope(FibsemMicroscope):
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
             
+        # fluorescence microscope
+        self.fm = FluorescenceMicroscope(self)
+
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
@@ -696,6 +702,15 @@ class DemoMicroscope(FibsemMicroscope):
 
     def clear_patterns(self) -> None:
         self.milling_system.patterns = []
+
+    def start_milling(self) -> None:
+        """Start milling by setting the state to RUNNING."""
+        # TODO: support this by properly estimating the end time
+        if self.get_milling_state() is MillingState.IDLE:
+            self.milling_system.state = MillingState.RUNNING
+            logging.info("Milling started.")
+        else:
+            logging.warning("Milling is already running or paused.")
 
     def stop_milling(self) -> None:
         self.milling_system.state = MillingState.IDLE
