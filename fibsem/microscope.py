@@ -1243,16 +1243,20 @@ class ThermoMicroscope(FibsemMicroscope):
         self.connection.imaging.set_active_device(channel.value)
         logging.debug(f"Set active channel to {channel.name}")
         
-    def acquire_image(self, image_settings:ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         """
         Acquire a new image with the specified settings.
 
             Args:
             image_settings (ImageSettings): The settings for the new image.
+            beam_type (BeamType, optional): The beam type to use with current settings.
+                Used only if image_settings is not provided.
 
         Returns:
             FibsemImage: A new FibsemImage object representing the acquired image.
         """
+        if beam_type is not None:
+            return self.acquire_image3(image_settings=None, beam_type=beam_type)
 
         # set reduced area settings
         if image_settings.reduced_area is not None:
@@ -1528,7 +1532,7 @@ class ThermoMicroscope(FibsemMicroscope):
                     break
 
                 # acquire image using current beam settings
-                image = self._acquire_image2(beam_type=beam_type, frame_settings=None)
+                image = self.acquire_image(beam_type=beam_type, image_settings=None)
 
                 # emit the acquired image
                 if beam_type is BeamType.ELECTRON:
