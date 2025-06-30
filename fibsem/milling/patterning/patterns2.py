@@ -996,9 +996,9 @@ class TrapezoidTrenchPattern(BasePattern):
     spacing: float = 5.0e-6
     depth: float = 1.0e-6
     angle: float = 60  # angle in degrees
-    name: str = "TrapezoidTrench"
-    point: Point = field(default_factory=Point)
-    shapes: List[FibsemPolygonSettings] = None
+
+    name: ClassVar[str] = "TrapezoidTrench"
+
     # ref: https://www.researchsquare.com/article/rs-6497420/v1
     
     def define(self):
@@ -1041,9 +1041,7 @@ class PolygonPattern(BasePattern):
     vertices: np.ndarray[float] = field(default_factory=list)
     depth: float = 1.0e-6
     is_exclusion: bool = False
-    point: Point = field(default_factory=Point)
-    shapes: List[FibsemPolygonSettings] = None
-    name: str = "PolygonPattern"
+    name: ClassVar[str] = "PolygonPattern"
 
     def define(self) -> List[FibsemPolygonSettings]:
         """Define a polygon milling pattern based on the provided vertices."""
