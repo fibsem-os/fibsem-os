@@ -9,10 +9,12 @@ import numpy as np
 
 from fibsem.utils import format_value
 from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
 )
@@ -146,6 +148,37 @@ def _line_pattern_to_image_pixels(
 
     return start_pixel_x, start_pixel_y, end_pixel_x, end_pixel_y
 
+def _polygon_pattern_to_image_pixels(
+    pattern, pixel_size: float, image_shape: Tuple[int, int]
+) -> np.ndarray:
+    """Convert polygon pattern to image pixel coordinates.
+    Args:
+        pattern: FibsemPolygonSettings: Polygon pattern to convert.
+        pixel_size: float: Pixel size of the image.
+        image_shape: Tuple[int, int]: Shape of the image.
+    Returns:
+        np.ndarray: Vertices in image pixel coordinates as array of (x, y) pairs.
+    """
+    # get pattern parameters
+    vertices = pattern.vertices
+
+    # convert to image coordinates
+    cy, cx = image_shape[0] // 2, image_shape[1] // 2
+    
+    # convert vertices to pixel coordinates
+    pixel_vertices = []
+    for vertex in vertices:
+        # position in metres from image centre
+        pmx, pmy = vertex[0] / pixel_size, vertex[1] / pixel_size
+        
+        # convert to image coordinates
+        px = cx + pmx
+        py = cy - pmy
+        
+        pixel_vertices.append((px, py))
+    
+    return np.array(pixel_vertices)
+
 def _create_rectangle_patch(shape: FibsemRectangleSettings, image: FibsemImage, colour: str) -> mpatches.Rectangle:
     """Create a rectangle patch from a shape."""
     pixel_size = image.metadata.pixel_size.x
@@ -225,6 +258,20 @@ def _create_line_patch(shape: FibsemLineSettings, image: FibsemImage, colour: st
         arrowstyle='-',
     )
 
+def _create_polygon_patch(shape: FibsemPolygonSettings, image: FibsemImage, colour: str) -> mpatches.Polygon:
+    """Create a polygon patch from a shape."""
+    pixel_size = image.metadata.pixel_size.x
+    image_shape = image.data.shape
+    pixel_vertices = _polygon_pattern_to_image_pixels(shape, pixel_size, image_shape)
+    
+    return mpatches.Polygon(
+        pixel_vertices,
+        closed=True,
+        linewidth=PROPERTIES["line_width"],
+        edgecolor='black',
+        facecolor=colour,
+        alpha=PROPERTIES["opacity"],
+    )
 
 
 def _detect_pattern_overlaps(milling_stages: List[FibsemMillingStage], image: FibsemImage) -> List[mpatches.Patch]:
@@ -361,6 +408,8 @@ def draw_milling_patterns(
                     patch = _create_circle_patch(shape, image, colour)
                 elif isinstance(shape, FibsemLineSettings):
                     patch = _create_line_patch(shape, image, colour)
+                elif isinstance(shape, FibsemPolygonSettings):
+                    patch = _create_polygon_patch(shape, image, colour)
                 else:
                     logging.debug(f"Unsupported shape type {type(shape)}, skipping")
                     continue
