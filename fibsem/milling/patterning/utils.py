@@ -9,6 +9,7 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
     FibsemRectangle,
