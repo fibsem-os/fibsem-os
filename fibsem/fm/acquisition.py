@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 
 import numpy as np
 import scipy.ndimage
@@ -92,7 +92,7 @@ DEFAULT_FOCUS_FN = FOCUS_FN_MAP[DEFAULT_FOCUS_METHOD]
 
 def run_auto_focus(
     microscope: FluorescenceMicroscope,
-    channel_settings: ChannelSettings,
+    channel_settings: Optional[ChannelSettings] = None,
     method: str = DEFAULT_FOCUS_METHOD,
 ) -> float:
     """Run autofocus by acquiring images at different z positions and finding the best focus."""
@@ -109,7 +109,8 @@ def run_auto_focus(
     focus_fn = FOCUS_FN_MAP.get(method, FOCUS_FN_MAP[DEFAULT_FOCUS_METHOD])
 
     # apply the channel settings
-    microscope.set_channel(channel_settings=channel_settings)
+    if channel_settings is not None:
+        microscope.set_channel(channel_settings=channel_settings)
 
     scores = []
     for pos in z_positions:

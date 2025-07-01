@@ -1013,6 +1013,14 @@ class FibsemMicroscope(ABC):
         if self.stage_is_compustage:
             self.orientations["FIB"].t -= np.radians(180)
 
+            self.orientations["FM"] = FibsemStagePosition(
+                r=np.radians(stage_settings.rotation_reference),
+                t=np.radians(180),
+            )
+        else:
+            # only x/y translation, no rotation
+            self.orientations["FM"] = deepcopy(self.orientations["FIB"])
+
         if orientation not in self.orientations:
             raise ValueError(f"Orientation {orientation} not supported.")
 
@@ -1040,6 +1048,10 @@ class FibsemMicroscope(ABC):
         if target not in ["FIBSEM", "FM"]:
             raise ValueError(f"Microscope {target} not supported.")
 
+        if self.stage_is_compustage:
+            self.move_to_microscope_compustage(target)
+            return
+
         stage_position = self.get_stage_position()
 
         if target == "FM" and self.get_stage_orientation(stage_position) != "FIB":
@@ -1063,7 +1075,7 @@ class FibsemMicroscope(ABC):
         # retract objective (safety precaution)
         self.fm.objective.retract()
 
-        TRANSLATION_DX = 48.8e-3  # 48.8 mm
+        TRANSLATION_DX = 48.8e-3  # 48.8 mm # THIS needs to be configurable for different microscopes
         transf = FibsemStagePosition(x=TRANSLATION_DX)
 
         # move to FIBSEM
@@ -1075,7 +1087,21 @@ class FibsemMicroscope(ABC):
             self.move_stage_relative(transf)
             self.fm.objective.insert()
 
+    def move_to_microscope_compustage(self, target: str) -> None:
+        """Special method to move to the specified microscope (FIBSEM <-> FM) for Compustage microscopes."""
 
+        if not self.stage_is_compustage:
+            raise ValueError("This method is only available for Compustage microscopes.")
+        
+        self.fm.objective.retract()  # retract objective (safety precaution)
+
+        if target == "FIBSEM":
+            self.move_flat_to_beam(BeamType.ELECTRON) # or ION?
+
+        if target == "FM":
+            fm_orientation = self.get_orientation("FM")
+            self.move_stage_absolute(fm_orientation)
+            self.fm.objective.insert()  # insert objective
 
 class ThermoMicroscope(FibsemMicroscope):
     """
@@ -1947,7 +1973,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if is_fib_rotation and is_fib_tilt:
             return "FIB"
 
-        return "UNKNOWN"
+        return "NONE"
 
     def _safe_rotation_movement(
         self, stage_position: FibsemStagePosition
