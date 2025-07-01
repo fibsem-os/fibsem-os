@@ -142,19 +142,13 @@ def open_information_dialog(microscope: FibsemMicroscope, parent=None):
     import fibsem
     
     fibsem_version = fibsem.__version__
-    autolamella_version = "Not Installed"
-    try:
-        import autolamella
-        autolamella_version = autolamella.__version__
-    except ImportError:
-        pass
     from fibsem.structures import SystemInfo
     info: SystemInfo = microscope.system.info
 
     text = f"""
     OpenFIBSEM Information:
     OpenFIBSEM: {fibsem_version}
-    AutoLamella: {autolamella_version}
+    AutoLamella: {fibsem_version}
 
     Microscope Information:
     Name: {info.name}

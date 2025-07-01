@@ -29,8 +29,8 @@ from fibsem.structures import (
 )
 from fibsem.utils import configure_logging
 
-from autolamella import config as cfg
-from autolamella.protocol.validation import (
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.protocol.validation import (
     LANDING_KEY,
     LIFTOUT_KEY,
     MILL_POLISHING_KEY,
@@ -248,7 +248,7 @@ class Lamella:
 
         # convert old milling protocol to new protocol
         if "lamella" in protocol or "MillRoughCut" in protocol:
-            from autolamella.protocol.validation import convert_old_milling_protocol_to_new_protocol
+            from fibsem.applications.autolamella.protocol.validation import convert_old_milling_protocol_to_new_protocol
             nprotocol = convert_old_milling_protocol_to_new_protocol(protocol)
             if "MillRoughCut" in nprotocol:
                 nprotocol[MILL_ROUGH_KEY] = nprotocol.pop("MillRoughCut")
@@ -1002,7 +1002,7 @@ class AutoLamellaProtocol(FibsemProtocol):
 
         tmp_ddict = deepcopy(ddict)
         try:
-            from autolamella.protocol.validation import validate_and_convert_protocol
+            from fibsem.applications.autolamella.protocol.validation import validate_and_convert_protocol
             ddict = validate_and_convert_protocol(ddict)
         except Exception as e:
             logging.debug(f"Error converting protocol: {e}")

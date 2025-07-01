@@ -5,8 +5,8 @@ import pytest
 from fibsem import utils
 from fibsem.milling import get_protocol_from_stages
 
-from autolamella import config as cfg
-from autolamella.structures import (
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.structures import (
     AutoLamellaMethod,
     AutoLamellaProtocol,
     AutoLamellaStage,
@@ -14,7 +14,7 @@ from autolamella.structures import (
     create_new_experiment,
     create_new_lamella,
 )
-from autolamella.workflows.runners import run_autolamella
+from fibsem.applications.autolamella.workflows.runners import run_autolamella
 
 
 def test_run_autolamella():

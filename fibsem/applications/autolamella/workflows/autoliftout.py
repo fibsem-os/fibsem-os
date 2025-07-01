@@ -37,17 +37,17 @@ from fibsem.structures import (
     ImageSettings
 )
 
-from autolamella.workflows import actions
-from autolamella.structures import AutoLamellaStage, Experiment, Lamella
-from autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.workflows import actions
+from fibsem.applications.autolamella.structures import AutoLamellaStage, Experiment, Lamella
+from fibsem.applications.autolamella.ui import AutoLamellaUI
 from fibsem import config as fcfg
 
 
-from autolamella.workflows.core import (log_status_message, log_status_message_raw,
+from fibsem.applications.autolamella.workflows.core import (log_status_message, log_status_message_raw,
                                         start_of_stage_update, end_of_stage_update, 
                                         mill_trench, mill_undercut, mill_lamella, 
                                         setup_lamella)
-from autolamella.workflows.ui import (update_milling_ui, update_status_ui, 
+from fibsem.applications.autolamella.workflows.ui import (update_milling_ui, update_status_ui, 
                                       set_images_ui, ask_user, update_detection_ui, 
                                       update_experiment_ui)
 

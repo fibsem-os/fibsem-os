@@ -5,13 +5,13 @@ from copy import deepcopy
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import autolamella
-from autolamella.tools.data import calculate_statistics_dataframe
+from fibsem.applications import autolamella
+from fibsem.applications.autolamella.tools.data import calculate_statistics_dataframe
 from fibsem.structures import FibsemImage
-from autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.imaging import tiled
 
-import autolamella.config as cfg
+from fibsem.applications.autolamella import config as cfg
 
 import plotly.io as pio
 

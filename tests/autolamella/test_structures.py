@@ -5,7 +5,7 @@ from typing import List
 
 import pytest
 
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaMethod,
     AutoLamellaStage,
     Lamella,

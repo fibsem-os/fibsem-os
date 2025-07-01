@@ -1,7 +1,7 @@
 import pytest
 from fibsem.milling import get_protocol_from_stages
-from autolamella.structures import Lamella, create_new_lamella, AutoLamellaProtocol, LamellaState
-from autolamella import config as cfg
+from fibsem.applications.autolamella.structures import Lamella, create_new_lamella, AutoLamellaProtocol, LamellaState
+from fibsem.applications.autolamella import config as cfg
 from copy import deepcopy
 
 # test lamella class

@@ -31,14 +31,14 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from autolamella.protocol.validation import (
+from fibsem.applications.autolamella.protocol.validation import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
     convert_old_milling_protocol_to_new_protocol,
 )
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaMethod,
     AutoLamellaProtocol,
     AutoLamellaStage,
@@ -46,7 +46,7 @@ from autolamella.structures import (
     Lamella,
     get_completed_stages,
 )
-from autolamella.tools.data import calculate_statistics_dataframe
+from fibsem.applications.autolamella.tools.data import calculate_statistics_dataframe
 
 
 class PDFReportGenerator:

@@ -6,8 +6,8 @@ import streamlit as st
 from fibsem.milling.patterning.plotting import draw_milling_patterns
 from fibsem.structures import FibsemImage
 
-import autolamella.config as cfg
-from autolamella.structures import Experiment
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.structures import Experiment
 
 
 def parse_args():

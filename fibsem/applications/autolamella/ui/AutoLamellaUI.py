@@ -47,9 +47,9 @@ from qtpy import QtWidgets
 if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if they are available
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI
 
-import autolamella
-import autolamella.config as cfg
-from autolamella.protocol.validation import (
+from fibsem.applications import autolamella
+from fibsem.applications import autolamella.config as cfg
+from fibsem.applications.autolamella.protocol.validation import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
@@ -57,7 +57,7 @@ from autolamella.protocol.validation import (
     NOTCH_KEY,
     TRENCH_KEY,
 )
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaMethod,
     AutoLamellaProtocol,
     AutoLamellaStage,
@@ -67,21 +67,21 @@ from autolamella.structures import (
     create_new_lamella,
     get_autolamella_method,
 )
-from autolamella.ui.qt import AutoLamellaUI as AutoLamellaMainUI
-from autolamella.ui.AutoLamellaWorkflowDialog import (
+from fibsem.applications.autolamella.ui.qt import AutoLamellaUI as AutoLamellaMainUI
+from fibsem.applications.autolamella.ui.AutoLamellaWorkflowDialog import (
     display_lamella_info,
     display_selected_lamella_info,
     open_workflow_dialog,
 )
-from autolamella.ui.tooltips import TOOLTIPS
-from autolamella.ui.utils import setup_experiment_ui_v2
+from fibsem.applications.autolamella.ui.tooltips import TOOLTIPS
+from fibsem.applications.autolamella.ui.utils import setup_experiment_ui_v2
 
 REPORTING_AVAILABLE: bool = False
 try:
-    from autolamella.tools.reporting import generate_report, save_final_overview_image
+    from fibsem.applications.autolamella.tools.reporting import generate_report, save_final_overview_image
     REPORTING_AVAILABLE = True
 except ImportError as e:
-    logging.debug(f"Could not import generate_report from autolamella.tools.reporting: {e}")
+    logging.debug(f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}")
 
 AUTOLAMELLA_CHECKPOINTS = []
 try:
@@ -338,7 +338,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         parent_ui: "AutoLamellaUI",
     ):
         """Thread worker to run the spot burn workflow."""
-        from autolamella.workflows.runners import run_spot_burn_workflow
+        from fibsem.applications.autolamella.workflows.runners import run_spot_burn_workflow
         run_spot_burn_workflow(microscope=microscope,
                                protocol=protocol,
                                experiment=experiment,
@@ -750,7 +750,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             self.settings.image.path = self.experiment.path
 
         # register metadata
-        import autolamella  # NB: microscope needs to be connected beforehand
+        from fibsem.applications import autolamella  # NB: microscope needs to be connected beforehand
 
         utils._register_metadata(
             microscope=self.microscope,
@@ -1584,7 +1584,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         if filename == "":
             return
 
-        from autolamella.compat.odemis import _add_features_from_odemis
+        from fibsem.applications.autolamella.compat.odemis import _add_features_from_odemis
         stage_positions = _add_features_from_odemis(filename)
 
         for pos in stage_positions:
@@ -1618,7 +1618,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
                                      state=state, 
                                      protocol=tmp_protocol)
 
-        from autolamella.workflows.core import log_status_message
+        from fibsem.applications.autolamella.workflows.core import log_status_message
         log_status_message(lamella, "STARTED")
         self.experiment.positions.append(deepcopy(lamella))
         
@@ -1627,7 +1627,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
             # TODO: this is excessive, we need a cleaner way to do this
 
-            from autolamella.workflows.core import (
+            from fibsem.applications.autolamella.workflows.core import (
                 end_of_stage_update,
                 start_of_stage_update,
             )
@@ -1749,7 +1749,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.experiment.positions[idx].state.start_timestamp = datetime.timestamp(
             datetime.now()
         )
-        from autolamella.workflows.core import log_status_message
+        from fibsem.applications.autolamella.workflows.core import log_status_message
 
         log_status_message(self.experiment.positions[idx], "STARTED")
         # TODO: use start of stage update to restore the state properly
@@ -1769,7 +1769,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         method = self.protocol.method
 
         lamella: Lamella = self.experiment.positions[idx]
-        from autolamella.workflows.core import (
+        from fibsem.applications.autolamella.workflows.core import (
             end_of_stage_update,
             start_of_stage_update,
         )
@@ -2122,9 +2122,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         if stc is None:
             stc = method.workflow
 
-        from autolamella.workflows import runners as wfl  # avoiding circular import
+        from fibsem.applications.autolamella.workflows import runners as wfl  # avoiding circular import
         if method in [AutoLamellaMethod.LIFTOUT, AutoLamellaMethod.SERIAL_LIFTOUT]:
-            from autolamella.workflows import autoliftout
+            from fibsem.applications.autolamella.workflows import autoliftout
 
         if workflow == "trench":
             wfl.run_trench_milling(microscope, protocol, experiment, parent_ui=self)
@@ -2141,7 +2141,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
                                                 stages_to_complete=stc)
     
             if method is AutoLamellaMethod.SERIAL_LIFTOUT:
-                from autolamella.workflows.runners import run_autolamella
+                from fibsem.applications.autolamella.workflows.runners import run_autolamella
                 run_autolamella(microscope=microscope, 
                                 protocol=protocol, 
                                 experiment=experiment, 
@@ -2166,7 +2166,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
                     parent_ui=self,
                 )
             if method is AutoLamellaMethod.SERIAL_LIFTOUT:
-                from autolamella.workflows import serial as serial_workflow
+                from fibsem.applications.autolamella.workflows import serial as serial_workflow
 
                 self.experiment = serial_workflow.run_serial_liftout_workflow(
                     microscope=microscope,
@@ -2175,7 +2175,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
                     parent_ui=self,
                 )
         if workflow == "serial-liftout-landing":
-            from autolamella.workflows import serial as serial_workflow
+            from fibsem.applications.autolamella.workflows import serial as serial_workflow
 
             self.experiment = serial_workflow.run_serial_liftout_landing(
                 microscope=microscope,
@@ -2184,7 +2184,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
                 parent_ui=self,
             )
         if workflow == "select-landing-positions":
-            from autolamella.workflows import serial as serial_workflow
+            from fibsem.applications.autolamella.workflows import serial as serial_workflow
 
             self.experiment = serial_workflow.select_landing_positions(
                 microscope=microscope,

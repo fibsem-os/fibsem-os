@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fibsem.config import DEFAULT_CHECKPOINT
 
-import autolamella
+from fibsem.applications import autolamella
 
 BASE_PATH: Path = os.path.dirname(__file__)
 LOG_PATH: Path = os.path.join(BASE_PATH, 'log')

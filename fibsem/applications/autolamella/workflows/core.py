@@ -28,9 +28,9 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
-from autolamella.structures import AutoLamellaProtocol
+from fibsem.applications.autolamella.structures import AutoLamellaProtocol
 
-from autolamella.protocol.validation import (
+from fibsem.applications.autolamella.protocol.validation import (
     DEFAULT_ALIGNMENT_AREA,
     DEFAULT_FIDUCIAL_PROTOCOL,
     FIDUCIAL_KEY,
@@ -42,16 +42,16 @@ from autolamella.protocol.validation import (
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaStage,
     AutoLamellaMethod,
     Experiment,
     Lamella,
     get_autolamella_method,
 )
-from autolamella.ui import AutoLamellaUI
-from autolamella.workflows import actions
-from autolamella.workflows.ui import (
+from fibsem.applications.autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.workflows import actions
+from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     set_images_ui,
     update_alignment_area_ui,
@@ -61,7 +61,7 @@ from autolamella.workflows.ui import (
     update_status_ui,
 )
 
-from autolamella.structures import WORKFLOW_STAGE_TO_PROTOCOL_KEY
+from fibsem.applications.autolamella.structures import WORKFLOW_STAGE_TO_PROTOCOL_KEY
 
 # constants
 ATOL_STAGE_TILT = 0.017 # 1 degrees

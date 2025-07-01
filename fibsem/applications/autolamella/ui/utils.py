@@ -5,8 +5,8 @@ import os
 from fibsem.ui import utils as fui
 from PyQt5 import QtWidgets
 
-from autolamella import config as cfg
-from autolamella.structures import Experiment, create_new_experiment
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.structures import Experiment, create_new_experiment
 
 
 def setup_experiment_ui_v2(

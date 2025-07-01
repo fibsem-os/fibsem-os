@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
 )
 from fibsem.utils import format_duration
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaMethod,
     AutoLamellaProtocol,
     AutoLamellaStage,
@@ -23,7 +23,7 @@ from autolamella.structures import (
     Lamella,
     get_completed_stages,
 )
-from autolamella.ui.qt import AutoLamellaWorkflowDialog as AutoLamellaWorkflowDialogUI
+from fibsem.applications.autolamella.ui.qt import AutoLamellaWorkflowDialog as AutoLamellaWorkflowDialogUI
 
 
 def display_selected_lamella_info(grid_layout: QGridLayout, pos: Lamella, method: AutoLamellaMethod) -> None:

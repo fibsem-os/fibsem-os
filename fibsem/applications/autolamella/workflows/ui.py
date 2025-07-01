@@ -15,8 +15,8 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
 )
-from autolamella.ui import AutoLamellaUI
-from autolamella.structures import Experiment
+from fibsem.applications.autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.structures import Experiment
 
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
 def _check_for_abort(parent_ui: AutoLamellaUI, msg: str = "Workflow aborted by user.") -> bool:

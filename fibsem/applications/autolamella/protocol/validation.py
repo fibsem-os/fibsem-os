@@ -2,7 +2,7 @@ import logging
 from copy import deepcopy
 from typing import List, Dict
 
-from autolamella.protocol.constants import (
+from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,

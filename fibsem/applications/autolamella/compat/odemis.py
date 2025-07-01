@@ -7,13 +7,13 @@ from fibsem.microscopes.odemis_microscope import add_odemis_path
 from fibsem.structures import FibsemImage, FibsemStagePosition
 from fibsem.utils import save_yaml
 
-from autolamella.protocol.validation import (
+from fibsem.applications.autolamella.protocol.validation import (
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
 )
-from autolamella.structures import AutoLamellaStage, Experiment, Lamella, LamellaState
-from autolamella.workflows.core import log_status_message
+from fibsem.applications.autolamella.structures import AutoLamellaStage, Experiment, Lamella, LamellaState
+from fibsem.applications.autolamella.workflows.core import log_status_message
 
 add_odemis_path()
 

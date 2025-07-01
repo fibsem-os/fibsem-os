@@ -1,7 +1,7 @@
 import streamlit as st
 
 
-from autolamella import config as cfg
+from fibsem.applications.autolamella import config as cfg
 import os
 
 import plotly.io as pio

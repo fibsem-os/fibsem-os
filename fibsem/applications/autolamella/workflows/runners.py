@@ -4,15 +4,15 @@ from typing import List
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaMethod,
     AutoLamellaStage,
     Experiment,
     AutoLamellaProtocol,
     is_ready_for,
 )
-from autolamella.ui import AutoLamellaUI
-from autolamella.workflows.core import (
+from fibsem.applications.autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.workflows.core import (
     end_of_stage_update,
     log_status_message,
     mill_lamella,
@@ -23,7 +23,7 @@ from autolamella.workflows.core import (
     pass_through_stage,
     setup_polishing,
 )
-from autolamella.workflows.ui import ask_user, ask_user_continue_workflow
+from fibsem.applications.autolamella.workflows.ui import ask_user, ask_user_continue_workflow
 
 WORKFLOW_STAGES = {
     AutoLamellaStage.MillTrench: mill_trench,
@@ -247,7 +247,7 @@ def run_spot_burn_workflow(microscope: FibsemMicroscope,
 
         # acquire images, set ui
         from fibsem import acquire
-        from autolamella.workflows.ui import set_images_ui
+        from fibsem.applications.autolamella.workflows.ui import set_images_ui
         sem_image, fib_image = acquire.take_reference_images(microscope, protocol.configuration.image)
         set_images_ui(parent_ui, sem_image, fib_image)
 

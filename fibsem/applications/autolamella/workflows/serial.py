@@ -49,7 +49,7 @@ from fibsem.structures import (
     Point,
 )
 
-from autolamella.structures import (
+from fibsem.applications.autolamella.structures import (
     AutoLamellaProtocol,
     AutoLamellaStage,
     Experiment,
@@ -58,9 +58,9 @@ from autolamella.structures import (
     create_new_lamella,
 )
 
-from autolamella.ui import AutoLamellaUI
-from autolamella.workflows import actions
-from autolamella.workflows.autoliftout import (
+from fibsem.applications.autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.workflows import actions
+from fibsem.applications.autolamella.workflows.autoliftout import (
     end_of_stage_update,
     log_status_message,
     mill_lamella,
@@ -68,12 +68,12 @@ from autolamella.workflows.autoliftout import (
     start_of_stage_update,
     log_status_message_raw,
 )
-from autolamella.workflows.core import (
+from fibsem.applications.autolamella.workflows.core import (
     align_feature_coincident,
     mill_trench,
     mill_undercut,
 )
-from autolamella.workflows.ui import (
+from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     set_images_ui,
     update_detection_ui,
