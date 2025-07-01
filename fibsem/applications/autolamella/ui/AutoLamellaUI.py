@@ -14,6 +14,7 @@ from typing import List, Optional
 
 import napari
 import napari.utils.notifications
+import fibsem
 from fibsem import utils
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.imaging.spot import run_spot_burn
@@ -48,7 +49,7 @@ if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if the
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI
 
 from fibsem.applications import autolamella
-from fibsem.applications import autolamella.config as cfg
+from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.validation import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -152,9 +153,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
-        self.label_title.setText(f"AutoLamella v{autolamella.__version__}")
+        self.label_title.setText(f"AutoLamella v{fibsem.__version__}")
         self.viewer = viewer
-        self.viewer.title = f"AutoLamella v{autolamella.__version__}"
+        self.viewer.title = f"AutoLamella v{fibsem.__version__}"
 
 
         self.IS_MICROSCOPE_UI_LOADED: bool = False
@@ -755,7 +756,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         utils._register_metadata(
             microscope=self.microscope,
             application_software="autolamella",
-            application_software_version=autolamella.__version__,
+            application_software_version=fibsem.__version__,
             experiment_name=self.experiment.name,
             experiment_method="null",
         )  # TODO: add method to experiment
@@ -2201,7 +2202,7 @@ def main():
         widget=autolamella_ui,
         area="right",
         add_vertical_stretch=True,
-        name=f"AutoLamella v{autolamella.__version__}",
+        name=f"AutoLamella v{fibsem.__version__}",
     )
     napari.run()
 
