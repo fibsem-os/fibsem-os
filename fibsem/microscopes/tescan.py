@@ -436,6 +436,10 @@ class TescanMicroscope(FibsemMicroscope):
         self._beam_parameters[effective_beam_type].stigmation = beam_state.stigmation
         self._beam_parameters[effective_beam_type].preset = beam_state.preset
 
+        # Store last imaging settings only if image_settings was provided  
+        if image_settings is not None:
+            self._last_imaging_settings = image_settings
+
         fibsem_image.metadata.user = self.user
         fibsem_image.metadata.experiment = self.experiment 
         fibsem_image.metadata.system = self.system
