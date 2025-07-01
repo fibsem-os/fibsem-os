@@ -360,6 +360,10 @@ class FMAcquisitionWidget(QWidget):
         self.startButton.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.stopButton.setStyleSheet(RED_PUSHBUTTON_STYLE)
 
+        # draw scale bar
+        self.viewer.scale_bar.visible = True
+        self.viewer.scale_bar.unit = "m"
+
     def on_mouse_wheel(self, viewer, event):
         """Handle mouse wheel events in the napari viewer."""
         # no image layer available yet
@@ -451,16 +455,17 @@ class FMAcquisitionWidget(QWidget):
             return
 
         # add text layer, showing the stage position in cyan
-        points = np.array([[self.image_layer.data.shape[0], 0]])
+        scale_y, scale_x = self.image_layer.scale
+        points = np.array([[self.image_layer.data.shape[0] * scale_y, 0]])
         text = {
             "string": [
                 f"STAGE: {to_pretty_string_short(pos)} [{orientation}]"
                 f"\nOBJECTIVE: {self.fm.objective.position*1e3:.2f} mm",
                 ],
             "color": "white",
-            "font_size": 20,
+            "font_size": 50,
             "anchor": "lower_left",
-            "translation": (5, 0),  # Adjust translation if needed
+            "translation": (5*scale_y, 0),  # Adjust translation if needed
         }
         try:
             self.viewer.layers['stage_position'].data = points
@@ -475,7 +480,50 @@ class FMAcquisitionWidget(QWidget):
                 border_width_is_relative=False,
                 border_color="transparent",
                 face_color="transparent",
+                translate=self.image_layer.translate,
             )   
+
+    def draw_crosshair(self):
+        """Draw a crosshair at the center of the image using a single shapes layer."""
+        if self.image_layer is None:
+            return
+            
+        # Get image dimensions
+        height, width = self.image_layer.data.shape
+        
+        # Calculate center in data coordinates (pixel coordinates)
+        center_y = height / 2
+        center_x = width / 2
+        
+        # Create horizontal line (across width) in data coordinates
+        horizontal_line = np.array([
+            [center_y, 0],
+            [center_y, width]
+        ])
+        
+        # Create vertical line (across height) in data coordinates
+        vertical_line = np.array([
+            [0, center_x],
+            [height, center_x]
+        ])
+        
+        # Combine both lines into a single shapes layer
+        crosshair_lines = [horizontal_line, vertical_line]
+        
+        # Add or update crosshair layer
+        try:
+            self.viewer.layers['crosshair'].data = crosshair_lines
+        except KeyError:
+            self.viewer.add_shapes(
+                data=crosshair_lines,
+                name="crosshair",
+                shape_type="line",
+                edge_color="yellow",
+                edge_width=2,
+                face_color="transparent",
+                scale=self.image_layer.scale,
+                translate=self.image_layer.translate
+            )
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -505,21 +553,15 @@ class FMAcquisitionWidget(QWidget):
                 name=channel_name,
                 metadata=metadata_dict,
                 colormap=wavelength_to_color(wavelength),
-                # scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
+                scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
             )
 
-            # draw scale bar
-            self.viewer.scale_bar.visible = True
-            self.viewer.scale_bar.unit = "m"
 
-            # # # draw image crosshair in napari
-            # draw_crosshair_in_napari(viewer=self.viewer, 
-            #                          sem_shape=image.data.shape, 
-            #                          is_checked=True)
         
         self.channel_name = channel_name
 
         self.display_stage_position_overlay()
+        self.draw_crosshair()
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
