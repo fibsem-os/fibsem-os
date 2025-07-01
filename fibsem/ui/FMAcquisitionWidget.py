@@ -1,5 +1,5 @@
 import logging
-
+from typing import Union, List, Dict, Optional
 import napari
 import numpy as np
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
@@ -24,6 +24,7 @@ from fibsem.ui.napari.utilities import (
     draw_crosshair_in_napari,
     is_position_inside_layer,
 )
+from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     GRAY_PUSHBUTTON_STYLE,
@@ -31,10 +32,10 @@ from fibsem.ui.stylesheets import (
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
 )
-
+from fibsem.ui.utils import message_box_ui
 
 # TODO: allow the user to select the colormap
-def wavelength_to_color(wavelength: int) -> str:
+def wavelength_to_color(wavelength: Union[int, float]) -> str:
     """Convert a wavelength in nm to a color string."""
     if wavelength is None:
         return "gray"
@@ -64,9 +65,10 @@ OBJECTIVE_CONFIG = {
 
 
 class ObjectiveControlWidget(QWidget):    
-    def __init__(self, fm: FluorescenceMicroscope, parent=None):
+    def __init__(self, fm: FluorescenceMicroscope, parent: Optional[QWidget]=None):
         super().__init__(parent)
         self.fm = fm
+        self.parent = parent
         self.initUI()
 
     def initUI(self):
@@ -90,7 +92,6 @@ class ObjectiveControlWidget(QWidget):
         self.label_objective_position = QLabel(f"Current Objective Position: {self.fm.objective.position*METRE_TO_MILLIMETRE:.2f} mm", self)
 
         # TODO: add step-size controls
-        # TODO: connect scroll wheel to change objective position
 
         # Create the layout
         layout = QGridLayout()
@@ -113,6 +114,17 @@ class ObjectiveControlWidget(QWidget):
 
     def insert_objective(self):
         """Insert the objective."""
+
+        # confirmation dialog
+        ret = message_box_ui(
+            title="Insert Objective",
+            text="Are you sure you want to insert the objective?",
+            parent=self
+        )
+        if ret is False:
+            logging.info("Objective insertion cancelled by user.")
+            return
+
         logging.info("Inserting objective...")
         self.fm.objective.insert()
         logging.info("Objective inserted.")
@@ -120,6 +132,16 @@ class ObjectiveControlWidget(QWidget):
 
     def retract_objective(self):
         """Retract the objective."""
+        # confirmation dialog
+        ret = message_box_ui(
+            title="Retract Objective",
+            text="Are you sure you want to retract the objective?",
+            parent=self
+        )
+        if ret is False:
+            logging.info("Objective retraction cancelled by user.")
+            return
+
         self.fm.objective.retract()
         logging.info("Objective retracted.")
         self.update_objective_position_labels()
@@ -132,9 +154,27 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
         self.label_objective_position.setText(f"Current Objective Position: {objective_position:.2f} mm")
 
+        self.parent.display_stage_position_overlay()  # Update the stage position overlay in the parent widget
+
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
         """Handle changes to the objective position."""
+
+        is_large_change = abs(self.fm.objective.position - (position * MILLIMETRE_TO_METRE)) > 1e-3  # 1 mm threshold
+
+        if is_large_change:
+            logging.info(f"Large change in objective position requested: {position:.2f} mm")
+        
+            ret = message_box_ui(
+                title="Large Objective Movement",
+                text=f"Are you sure you want to change the objective position to {position:.2f} mm?",
+                parent=self)
+            
+            if ret is False:
+                logging.info("Objective position change cancelled by user.")
+                # Reset the spin box to the current position
+                self.update_objective_position_labels()
+                return
 
         logging.info(f"Changing objective position to: {position:.2f} mm")
         self.fm.objective.move_absolute(position * MILLIMETRE_TO_METRE)
@@ -380,6 +420,9 @@ class FMAcquisitionWidget(QWidget):
 
         # NOTE: this assumes the stage is always at the center of the image... may to not be true
         # need infinite plane -> use absolute coordinates
+        if self.fm.parent is None:
+            logging.error("FluorescenceMicroscope parent is None. Cannot move stage.")
+            return
 
         # move the stage to the clicked position
         # TODO: we need to handle this better as scan rotation is not handled here
@@ -391,6 +434,48 @@ class FMAcquisitionWidget(QWidget):
         self.fm.parent.stable_move(dx=point_clicked.x, dy=point_clicked.y,beam_type=beam_type)
         logging.info(f"Microscope position: {self.fm.parent.get_stage_position()}")
         # TODO: multi-channels?
+
+        self.display_stage_position_overlay()
+
+    def display_stage_position_overlay(self):
+        """Display the stage position as text overlay on the image widget"""
+        try:
+            # NOTE: this crashes for tescan systems?
+            pos = self.fm.parent.get_stage_position()
+            orientation = self.fm.parent.get_stage_orientation()
+        except Exception as e:
+            logging.warning(f"Error getting stage position: {e}")
+            return
+
+        if self.image_layer is None:
+            return
+
+        # add text layer, showing the stage position in cyan
+        points = np.array([[self.image_layer.data.shape[0], 0]])
+        text = {
+            "string": [
+                f"STAGE: {to_pretty_string_short(pos)} [{orientation}]"
+                f"\nOBJECTIVE: {self.fm.objective.position*1e3:.2f} mm",
+                ],
+            "color": "white",
+            "font_size": 20,
+            "anchor": "lower_left",
+            "translation": (5, 0),  # Adjust translation if needed
+        }
+        try:
+            self.viewer.layers['stage_position'].data = points
+            self.viewer.layers['stage_position'].text = text
+        except KeyError:
+            self.viewer.add_points(
+                data=points,
+                name="stage_position",
+                size=20,
+                text=text,
+                border_width=7,
+                border_width_is_relative=False,
+                border_color="transparent",
+                face_color="transparent",
+            )   
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -420,7 +505,7 @@ class FMAcquisitionWidget(QWidget):
                 name=channel_name,
                 metadata=metadata_dict,
                 colormap=wavelength_to_color(wavelength),
-                scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
+                # scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
             )
 
             # draw scale bar
@@ -433,6 +518,8 @@ class FMAcquisitionWidget(QWidget):
             #                          is_checked=True)
         
         self.channel_name = channel_name
+
+        self.display_stage_position_overlay()
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
