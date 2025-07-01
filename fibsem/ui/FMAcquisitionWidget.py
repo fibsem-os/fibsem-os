@@ -167,7 +167,7 @@ class ChannelSettingsWidget(QWidget):
         layout.addWidget(QLabel("Excitation Wavelength"), 1, 0)
         self.excitation_wavelength_input = QComboBox()
         for wavelength in self.fm.filter_set.available_excitation_wavelengths:
-            self.excitation_wavelength_input.addItem(f"{wavelength} nm", wavelength)
+            self.excitation_wavelength_input.addItem(f"{int(wavelength)} nm", wavelength)
 
         layout.addWidget(self.excitation_wavelength_input, 1, 1)
         layout.addWidget(QLabel("Emission Wavelength"), 2, 0)
@@ -176,7 +176,7 @@ class ChannelSettingsWidget(QWidget):
             if wavelength is None:
                 self.emission_wavelength_input.addItem("Reflection", None)
                 continue
-            self.emission_wavelength_input.addItem(f"{wavelength} nm", wavelength)
+            self.emission_wavelength_input.addItem(f"{int(wavelength)} nm", wavelength)
 
         layout.addWidget(self.emission_wavelength_input, 2, 1)
         

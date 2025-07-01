@@ -83,16 +83,17 @@ class OdemisObjectiveLens(ObjectiveLens):
         f.result()
 
 class OdemisCamera(Camera):
-    def __init__(self, parent: "Client", camera: model.DigitalCamera = None):
+    def __init__(self, parent: "Client", camera: Optional[model.DigitalCamera] = None):
         super().__init__(parent)
         self.parent = parent
         self._stream: FluoStream = self.parent._stream
         if camera is None:
-            camera = model.getComponent(role="ccd")
+            camera: model.DigitalCamera = model.getComponent(role="ccd")
         self._camera = camera
+        camera_md = self._camera.getMetadata()
         self._resolution = self._camera.resolution.value # (width, height)
-        self._pixel_size = self._camera.pixelSize.value  # (x, y) sensor pixel size
-        self._offset = self._camera.getMetadata()[model.MD_BASELINE]  # offset for the camera
+        self._pixel_size = camera_md[model.MD_PIXEL_SIZE]  # (x, y) sensor pixel size
+        self._offset = camera_md[model.MD_BASELINE]  # offset for the camera
 
     # other attributes: depthOfField, readoutRate, pointSpreadFunctionSize
 
@@ -273,7 +274,7 @@ class OdemisFluorescenceMicroscope(FluorescenceMicroscope):
     light_source: OdemisLightSource
     filter_set: OdemisFilterSet
 
-    def __init__(self, parent: "Client"):
+    def __init__(self, parent: "FibsemMicroscope"):
         super().__init__()
 
         self.parent = parent
