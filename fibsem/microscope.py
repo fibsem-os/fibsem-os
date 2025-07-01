@@ -1295,16 +1295,20 @@ class ThermoMicroscope(FibsemMicroscope):
         self.connection.imaging.set_active_device(channel.value)
         logging.debug(f"Set active channel to {channel.name}")
         
-    def acquire_image(self, image_settings:ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         """
         Acquire a new image with the specified settings.
 
             Args:
             image_settings (ImageSettings): The settings for the new image.
+            beam_type (BeamType, optional): The beam type to use with current settings.
+                Used only if image_settings is not provided.
 
         Returns:
             FibsemImage: A new FibsemImage object representing the acquired image.
         """
+        if beam_type is not None:
+            return self.acquire_image3(image_settings=None, beam_type=beam_type)
 
         # set reduced area settings
         if image_settings.reduced_area is not None:
@@ -1397,6 +1401,127 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return image
 
+    def acquire_image3(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
+        """
+        Acquire a new image with the specified settings or current settings for the given beam type.
+
+        Args:
+            image_settings (ImageSettings, optional): The settings for the new image.
+                Takes precedence if both parameters are provided.
+            beam_type (BeamType, optional): The beam type to use with current settings.
+                Used only if image_settings is not provided.
+
+        Returns:
+            FibsemImage: A new FibsemImage representing the acquired image.
+
+        Raises:
+            ValueError: If neither image_settings nor beam_type is provided.
+
+        Examples:
+            # Acquire with specific settings
+            settings = ImageSettings(beam_type=BeamType.ELECTRON, hfw=1e-6, resolution=(1024, 1024))
+            image = microscope.acquire_image3(image_settings=settings)
+
+            # Acquire with current settings for a specific beam type
+            image = microscope.acquire_image3(beam_type=BeamType.ION)
+
+            # If both provided, image_settings takes precedence
+            image = microscope.acquire_image3(image_settings=settings, beam_type=BeamType.ION)  # Uses settings
+        """
+
+        # Validate parameters - at least one must be provided
+        if image_settings is None and beam_type is None:
+            raise ValueError(
+                "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
+            )
+
+        if image_settings is not None:
+            # Use provided image settings (takes precedence)
+            effective_beam_type = image_settings.beam_type
+            effective_image_settings = image_settings
+
+            # apply specified image settings, create frame settings
+            self._apply_image_settings(image_settings)
+            frame_settings = self._create_frame_settings(image_settings)
+        else:
+            # Use current settings for the specified beam type
+            effective_beam_type = beam_type
+            effective_image_settings = self.get_imaging_settings(beam_type=beam_type)
+            frame_settings = None
+
+        logging.info(f"acquiring new {effective_beam_type.name} image.")
+
+        self.set_channel(effective_beam_type)
+        adorned_image: AdornedImage = self.connection.imaging.grab_frame(frame_settings)
+
+        # QUERY: is this required, reduced area is only set for the grab_frame?
+        # Restore full frame if reduced area was used (same as acquire_image)
+        if image_settings is not None and image_settings.reduced_area is not None:
+            self.set_full_frame_scanning_mode(image_settings.beam_type)
+
+        logging.info(f"acquiring new {effective_beam_type.name} image.")
+
+        # Create FibsemImage with metadata (common for both paths)
+        state = self.get_microscope_state(beam_type=effective_beam_type)
+        fibsem_image = FibsemImage.fromAdornedImage(
+            copy.deepcopy(adorned_image),
+            copy.deepcopy(effective_image_settings),
+            copy.deepcopy(state),
+        )
+
+        # Set additional metadata
+        self._set_additional_metadata(fibsem_image)
+
+        # Store last imaging settings if image_settings was provided
+        if image_settings is not None:
+            self._last_imaging_settings = image_settings
+
+        logging.debug(
+            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
+        )
+
+        return fibsem_image
+
+    def _apply_image_settings(self, image_settings: ImageSettings) -> None:
+        """Apply imaging settings to the microscope."""
+        # Set reduced area or full frame
+        if image_settings.reduced_area is not None:
+            logging.debug(
+                f"Set reduced area: {image_settings.reduced_area} for beam type {image_settings.beam_type}"
+            )
+        else:
+            self.set_full_frame_scanning_mode(image_settings.beam_type)
+
+        # Set the imaging hfw
+        self.set_field_of_view(
+            hfw=image_settings.hfw, beam_type=image_settings.beam_type
+        )
+
+    def _create_frame_settings(
+        self, image_settings: ImageSettings
+    ) -> "GrabFrameSettings":
+        """Create GrabFrameSettings from ImageSettings."""
+        reduced_area = None
+        if image_settings.reduced_area is not None:
+            rect = image_settings.reduced_area
+            reduced_area = Rectangle(rect.left, rect.top, rect.width, rect.height)
+
+        return GrabFrameSettings(
+            resolution=f"{image_settings.resolution[0]}x{image_settings.resolution[1]}",
+            dwell_time=image_settings.dwell_time,
+            reduced_area=reduced_area,
+            line_integration=image_settings.line_integration,
+            scan_interlacing=image_settings.scan_interlacing,
+            frame_integration=image_settings.frame_integration,
+            drift_correction=image_settings.drift_correction,
+        )
+
+    def _set_additional_metadata(self, fibsem_image: FibsemImage) -> None:
+        """Set additional metadata for the FibsemImage."""
+        fibsem_image.metadata.user = self.user
+        fibsem_image.metadata.experiment = self.experiment
+        fibsem_image.metadata.system = self.system
+
     def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
         """
         Get the last previously acquired image.
@@ -1459,7 +1584,7 @@ class ThermoMicroscope(FibsemMicroscope):
                     break
 
                 # acquire image using current beam settings
-                image = self._acquire_image2(beam_type=beam_type, frame_settings=None)
+                image = self.acquire_image(beam_type=beam_type, image_settings=None)
 
                 # emit the acquired image
                 if beam_type is BeamType.ELECTRON:
@@ -2243,6 +2368,57 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return total_time
 
+    def get_application_file(self, application_file: str, strict: bool = True) -> str:
+        """Get a valid application file for the patterning API.
+        The api requires setting a valid application file before creating patterns.
+        Args:
+            application_file (str): The name of the application file to set as default.
+            strict (bool): If True, raises an error if the application file is not available.
+                If False, tries to find the closest match to the application file.
+                Defaults to True.
+        Returns:
+                str: The name of the application file that was set as default.
+        Raises:
+            ValueError: If the application file is not available.
+        """
+
+        # check if the application file is valid
+        application_files = self.get_available_values("application_file")
+        if application_file not in application_files:
+            if strict:
+                raise ValueError(f"Application file {application_file} not available. Available files: {application_files}")
+            from difflib import get_close_matches
+            closest_match = get_close_matches(application_file, application_files, n=1)
+            if not closest_match:
+                raise ValueError(f"Application file {application_file} not available. Available files: {application_files}")
+            application_file = str(closest_match[0])
+
+        return application_file
+
+    def set_default_application_file(self, application_file: str, strict: bool = True) -> str:
+        """Sets the default application file for the patterning API.
+        The api requires setting a valid application file before creating patterns.
+        Args:
+            application_file (str): The name of the application file to set as default.
+        """
+        application_file = self.get_application_file(application_file, strict=strict)
+        self.connection.patterning.set_default_application_file(application_file)
+        logging.debug({"msg": "set_default_application_file", "application_file": self._default_application_file})
+        return application_file
+
+    def set_patterning_mode(self, mode: str):
+        """Sets the patterning mode for the patterning API.
+        The api requires setting a valid patterning mode before creating patterns.
+        Args:
+            mode (str): The patterning mode to set. Can be "Serial" or "Parallel".
+        """
+        if mode not in ["Serial", "Parallel"]:
+            raise ValueError(f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel")
+        
+        self.connection.patterning.mode = mode
+        logging.debug({"msg": "set_patterning_mode", "mode": mode})
+        return mode
+
     def draw_rectangle(
         self,
         pattern_settings: FibsemRectangleSettings,
@@ -2718,7 +2894,7 @@ class ThermoMicroscope(FibsemMicroscope):
         return values
 
 
-    def _get(self, key: str, beam_type: BeamType = None) -> Union[float, str, list, None]:
+    def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Union[int, float, str, list, Point, FibsemStagePosition, FibsemManipulatorPosition, None]:
         """Get a property of the microscope."""
         # TODO: make the list of get and set keys available to the user
         if beam_type is not None:
@@ -2860,7 +3036,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # logging.warning(f"Unknown key: {key} ({beam_type})")
         return None    
 
-    def _set(self, key: str, value, beam_type: BeamType = None) -> None:
+    def _set(self, key: str, value: Union[str, int, float, BeamType, Point, FibsemRectangle], beam_type: Optional[BeamType] = None) -> None:
         """Set a property of the microscope."""
         # required for setting shift, stigmation
         from autoscript_sdb_microscope_client.structures import Point as ThermoPoint
