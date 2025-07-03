@@ -1204,3 +1204,262 @@ def test_max_intensity_projection_2d_vs_metadata_return():
         np.squeeze(projected_metadata_ch.data), 
         projected_2d_ch
     )
+
+
+def test_focus_stack_basic():
+    """Test basic focus stacking functionality."""
+    # Create test data with simulated focus variation
+    ny, nx = 64, 64
+    nc, nz = 1, 5
+    data = np.zeros((nc, nz, ny, nx), dtype=np.uint16)
+    
+    # Create synthetic focus pattern - each z-plane has peak sharpness in different regions
+    for z in range(nz):
+        # Create a gaussian blob that's sharpest at different z-planes for different regions
+        y_center = ny // 2
+        x_center = nx // 2 + (z - nz//2) * 8  # Shift center for each z-plane
+        
+        y, x = np.ogrid[:ny, :nx]
+        # Create a focused region for this z-plane
+        focused_region = np.exp(-((y - y_center)**2 + (x - x_center)**2) / (2 * 10**2))
+        
+        # Add noise and make this z-plane sharpest in its region
+        base_blur = 0.3  # Base blur level
+        sharpness = np.where(focused_region > 0.5, 1.0, base_blur)
+        
+        # Simulate image with varying sharpness
+        data[0, z, :, :] = (focused_region * sharpness * 1000 + np.random.normal(0, 50, (ny, nx))).astype(np.uint16)
+    
+    # Create metadata
+    channel = FluorescenceChannelMetadata(
+        name="Test",
+        excitation_wavelength=488.0,
+        power=1.0,
+        exposure_time=0.1,
+        gain=1.0,
+        offset=0.0
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(nx, ny),
+        channels=[channel],
+        z_positions=[i * 100e-9 for i in range(nz)]
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test focus stacking with different methods
+    for method in ['laplacian', 'sobel', 'variance', 'tenengrad']:
+        stacked = image.focus_stack(method=method)
+        
+        # Check return type and shape
+        assert isinstance(stacked, FluorescenceImage)
+        assert stacked.data.shape == (1, 1, ny, nx)
+        
+        # Check metadata preservation
+        assert len(stacked.metadata.channels) == 1
+        assert stacked.metadata.channels[0].name == "Test"
+        assert stacked.metadata.z_positions is None
+        assert stacked.metadata.pixel_size_z is None
+        
+        # Check that the stacked image has reasonable values
+        assert stacked.data.dtype == data.dtype
+        assert np.all(stacked.data >= 0)
+
+
+def test_focus_stack_2d_return():
+    """Test focus stacking with 2D return option."""
+    # Create simple test data
+    ny, nx = 32, 32
+    nc, nz = 2, 3
+    data = np.random.randint(100, 1000, (nc, nz, ny, nx), dtype=np.uint16)
+    
+    # Create sharp features at different z-planes
+    data[0, 0, 10:15, 10:15] = 2000  # Sharp feature in channel 0, z=0
+    data[0, 2, 20:25, 20:25] = 2000  # Sharp feature in channel 0, z=2
+    data[1, 1, 5:10, 25:30] = 2000   # Sharp feature in channel 1, z=1
+    
+    # Create metadata
+    channels = [
+        FluorescenceChannelMetadata(name="CH1", excitation_wavelength=488, power=1.0, exposure_time=0.1, gain=1.0, offset=0.0),
+        FluorescenceChannelMetadata(name="CH2", excitation_wavelength=555, power=1.0, exposure_time=0.1, gain=1.0, offset=0.0)
+    ]
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(nx, ny),
+        channels=channels
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test 2D return for all channels
+    stacked_2d = image.focus_stack(return_2d=True)
+    assert isinstance(stacked_2d, np.ndarray)
+    assert stacked_2d.shape == (nc, ny, nx)
+    
+    # Test 2D return for single channel
+    stacked_2d_ch0 = image.focus_stack(channel=0, return_2d=True)
+    assert isinstance(stacked_2d_ch0, np.ndarray)
+    assert stacked_2d_ch0.shape == (ny, nx)
+    
+    # Test that 2D and metadata returns are equivalent
+    stacked_metadata = image.focus_stack(return_2d=False)
+    np.testing.assert_array_equal(np.squeeze(stacked_metadata.data), stacked_2d)
+
+
+def test_focus_stack_error_cases():
+    """Test focus stacking error handling."""
+    # Create minimal test data
+    ny, nx = 16, 16
+    
+    # Test insufficient z-planes
+    data_2d = np.random.randint(0, 255, (1, 1, ny, nx), dtype=np.uint8)
+    channel = FluorescenceChannelMetadata(name="Test", excitation_wavelength=488, power=1.0, exposure_time=0.1, gain=1.0, offset=0.0)
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9, pixel_size_y=100e-9, resolution=(nx, ny), channels=[channel]
+    )
+    image_2d = FluorescenceImage(data=data_2d, metadata=metadata)
+    
+    with pytest.raises(ValueError, match="Focus stacking requires at least 2 z-planes"):
+        image_2d.focus_stack()
+    
+    # Create valid multi-z data for other tests
+    data_3d = np.random.randint(0, 255, (2, 3, ny, nx), dtype=np.uint8)
+    metadata_3d = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9, pixel_size_y=100e-9, resolution=(nx, ny), 
+        channels=[channel, channel]
+    )
+    image_3d = FluorescenceImage(data=data_3d, metadata=metadata_3d)
+    
+    # Test invalid channel index
+    with pytest.raises(ValueError, match="Channel index 5 out of range"):
+        image_3d.focus_stack(channel=5)
+    
+    # Test invalid method
+    with pytest.raises(ValueError, match="Method 'invalid' not supported"):
+        image_3d.focus_stack(method='invalid')
+
+
+def test_focus_stack_methods_comparison():
+    """Test that different focus measure methods produce reasonable results."""
+    # Create test data with clear focus variation
+    ny, nx = 32, 32
+    nc, nz = 1, 4
+    data = np.zeros((nc, nz, ny, nx), dtype=np.uint16)
+    
+    # Create different focus patterns for each z-plane
+    for z in range(nz):
+        # Different regions are in focus at different z-planes
+        region_size = 8
+        start_y = z * 6
+        start_x = z * 6
+        end_y = min(start_y + region_size, ny)
+        end_x = min(start_x + region_size, nx)
+        
+        # Base noise
+        data[0, z, :, :] = np.random.randint(50, 150, (ny, nx))
+        
+        # Sharp feature in specific region
+        data[0, z, start_y:end_y, start_x:end_x] = 1000
+    
+    # Create metadata
+    channel = FluorescenceChannelMetadata(name="Test", excitation_wavelength=488, power=1.0, exposure_time=0.1, gain=1.0, offset=0.0)
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9, pixel_size_y=100e-9, resolution=(nx, ny), channels=[channel]
+    )
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test all methods
+    results = {}
+    for method in ['laplacian', 'sobel', 'variance', 'tenengrad']:
+        stacked = image.focus_stack(method=method, return_2d=True)
+        results[method] = stacked
+        
+        # All methods should preserve the high-intensity regions
+        assert np.max(stacked) >= 800  # Should preserve most of the sharp features
+        assert stacked.shape == (ny, nx)
+    
+    # Results should be similar but not identical
+    # (Different methods may select slightly different pixels)
+    for method1 in results:
+        for method2 in results:
+            if method1 != method2:
+                # Results should be correlated but not identical
+                correlation = np.corrcoef(results[method1].flatten(), results[method2].flatten())[0, 1]
+                assert correlation > 0.7  # Should be reasonably similar
+
+
+def test_focus_stack_block_based():
+    """Test block-based focus stacking."""
+    # Create test data with clear focus variation by blocks
+    ny, nx = 128, 128  # Large enough for multiple 64x64 blocks
+    nc, nz = 1, 4
+    data = np.random.randint(50, 150, (nc, nz, ny, nx), dtype=np.uint16)
+    
+    # Create focused regions in different blocks and z-planes
+    # Top-left block (0-64, 0-64) is sharpest at z=0
+    data[0, 0, 0:64, 0:64] = np.random.randint(800, 1000, (64, 64))
+    
+    # Top-right block (0-64, 64-128) is sharpest at z=1
+    data[0, 1, 0:64, 64:128] = np.random.randint(800, 1000, (64, 64))
+    
+    # Bottom-left block (64-128, 0-64) is sharpest at z=2
+    data[0, 2, 64:128, 0:64] = np.random.randint(800, 1000, (64, 64))
+    
+    # Bottom-right block (64-128, 64-128) is sharpest at z=3
+    data[0, 3, 64:128, 64:128] = np.random.randint(800, 1000, (64, 64))
+    
+    # Create metadata
+    channel = FluorescenceChannelMetadata(
+        name="Test", excitation_wavelength=488, power=1.0, 
+        exposure_time=0.1, gain=1.0, offset=0.0
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9, pixel_size_y=100e-9, 
+        resolution=(nx, ny), channels=[channel]
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test block-based focus stacking
+    stacked_blocks = image.focus_stack(use_blocks=True, block_size=64, return_2d=True)
+    stacked_pixels = image.focus_stack(use_blocks=False, return_2d=True)
+    
+    # Both should have same shape
+    assert stacked_blocks.shape == stacked_pixels.shape == (ny, nx)
+    
+    # Block-based should preserve the high-intensity regions we created
+    assert np.max(stacked_blocks[0:64, 0:64]) >= 700      # Top-left
+    assert np.max(stacked_blocks[0:64, 64:128]) >= 700    # Top-right
+    assert np.max(stacked_blocks[64:128, 0:64]) >= 700    # Bottom-left
+    assert np.max(stacked_blocks[64:128, 64:128]) >= 700  # Bottom-right
+    
+    # Test with different block sizes
+    stacked_small_blocks = image.focus_stack(use_blocks=True, block_size=32, return_2d=True)
+    assert stacked_small_blocks.shape == (ny, nx)
+    
+    # Test metadata preservation
+    stacked_with_metadata = image.focus_stack(use_blocks=True, return_2d=False)
+    assert isinstance(stacked_with_metadata, FluorescenceImage)
+    assert stacked_with_metadata.metadata.channels[0].name == "Test"
+    
+    # Test smoothing options
+    stacked_smooth = image.focus_stack(use_blocks=True, smooth_transitions=True, return_2d=True)
+    stacked_no_smooth = image.focus_stack(use_blocks=True, smooth_transitions=False, return_2d=True)
+    
+    assert stacked_smooth.shape == stacked_no_smooth.shape == (ny, nx)
+    
+    # Both should preserve high-intensity regions
+    assert np.max(stacked_smooth) >= 500
+    assert np.max(stacked_no_smooth) >= 500

@@ -563,6 +563,115 @@ class FluorescenceImage:
         
         return FluorescenceImage(data=projected_data, metadata=projected_metadata)
 
+    def focus_stack(self, channel: Optional[int] = None, method: str = 'laplacian', 
+                   return_2d: bool = False, use_blocks: bool = False, 
+                   block_size: int = 128, smooth_transitions: bool = True) -> Union['FluorescenceImage', np.ndarray]:
+        """Create a focus-stacked image with extended depth of field.
+        
+        Combines multiple images at different focus positions by selecting the sharpest
+        regions from each z-plane to create a single image with maximum sharpness
+        throughout the field of view.
+        
+        Args:
+            channel: Optional channel index to stack. If None, stacks all channels.
+                    Zero-indexed (0 = first channel, 1 = second channel, etc.)
+            method: Focus measure algorithm to use. Options:
+                   'laplacian' - Laplacian variance (default, good general purpose)
+                   'sobel' - Sobel gradient magnitude (edge-based)
+                   'variance' - Local variance (simple, fast)
+                   'tenengrad' - Thresholded Sobel (good for noisy images)
+            return_2d: If True, return a 2D numpy array suitable for plotting.
+                      If False, return a FluorescenceImage with metadata.
+            use_blocks: If True, use block-based focus selection instead of per-pixel.
+                       More robust to noise and computationally efficient.
+            block_size: Size of square blocks for block-based selection (default: 128)
+            smooth_transitions: If True and use_blocks=True, apply Gaussian blur to 
+                              reduce sharp block boundary artifacts (default: True)
+                    
+        Returns:
+            If return_2d=True: A 2D numpy array (Y, X) for single channel or (C, Y, X) for multiple channels
+            If return_2d=False: A new FluorescenceImage with the focus-stacked result.
+                               The z-dimension will be reduced to 1.
+            
+        Raises:
+            ValueError: If the specified channel index is out of range
+            ValueError: If the image has insufficient z-planes for stacking
+            ValueError: If the specified method is not supported
+            
+        Note:
+            Focus stacking works best with images that have overlapping depth of field
+            across z-planes. Requires at least 2 z-planes to perform stacking.
+            Block-based approach (use_blocks=True) is recommended for noisy images.
+        """
+        from .calibration import create_block_based_focus_stack, create_pixel_based_focus_stack
+        
+        # Check if data has sufficient z-planes for stacking
+        if self.data.ndim < 3:
+            raise ValueError("Image must have at least 3 dimensions (C, Z, Y, X) for focus stacking")
+        
+        nc, nz, ny, nx = self.data.shape
+        
+        if nz < 2:
+            raise ValueError("Focus stacking requires at least 2 z-planes")
+        
+        # Validate method by importing function (validation happens in calibration functions)
+        from .calibration import get_focus_measure_function
+        get_focus_measure_function(method)  # Just for validation
+        
+        # Select channels to process
+        if channel is not None:
+            if channel < 0 or channel >= nc:
+                raise ValueError(f"Channel index {channel} out of range [0, {nc-1}]")
+            data_to_process = self.data[channel:channel+1, :, :, :]  # Shape: (1, Z, Y, X)
+            selected_channels = [self.metadata.channels[channel]]
+        else:
+            data_to_process = self.data  # Shape: (C, Z, Y, X)
+            selected_channels = self.metadata.channels.copy()
+        
+        # Process each channel separately
+        stacked_channels = []
+        
+        for ch_idx in range(data_to_process.shape[0]):
+            channel_data = data_to_process[ch_idx, :, :, :]  # Shape: (Z, Y, X)
+            
+            if use_blocks:
+                # Use block-based focus selection
+                stacked_image = create_block_based_focus_stack(channel_data, method=method, 
+                                                             block_size=block_size, 
+                                                             smooth_transitions=smooth_transitions)
+            else:
+                # Use per-pixel focus selection
+                stacked_image = create_pixel_based_focus_stack(channel_data, method=method)
+            
+            stacked_channels.append(stacked_image)
+        
+        # Stack the processed channels
+        if len(stacked_channels) == 1:
+            stacked_data = stacked_channels[0][np.newaxis, np.newaxis, :, :]  # Shape: (1, 1, Y, X)
+        else:
+            stacked_data = np.stack(stacked_channels, axis=0)  # Shape: (C, Y, X)
+            stacked_data = stacked_data[:, np.newaxis, :, :]  # Shape: (C, 1, Y, X)
+        
+        # Return 2D array if requested
+        if return_2d:
+            return np.squeeze(stacked_data)
+        
+        # Create new metadata for the stacked image
+        stacked_metadata = FluorescenceImageMetadata(
+            acquisition_date=self.metadata.acquisition_date,
+            pixel_size_x=self.metadata.pixel_size_x,
+            pixel_size_y=self.metadata.pixel_size_y,
+            pixel_size_z=None,  # No z-dimension after stacking
+            resolution=self.metadata.resolution,
+            channels=selected_channels,
+            z_positions=None,  # No z-positions after stacking
+            stage_position=self.metadata.stage_position,
+            system_info=self.metadata.system_info,
+            dimension_order=self.metadata.dimension_order
+        )
+        
+        return FluorescenceImage(data=stacked_data, metadata=stacked_metadata)
+
 
 @dataclass 
 class FluorescenceChannelMetadata:
