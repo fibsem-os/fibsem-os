@@ -2,7 +2,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import tifffile as tff
@@ -97,7 +97,7 @@ class AcquisitionSettings:
 @dataclass
 class FluorescenceImage:
     data: np.ndarray # TCZYX format (Time, Channels, Z, Y, X)
-    metadata: 'FluorescenceImageMetadata' = None
+    metadata: 'FluorescenceImageMetadata'
 
     def save(self, filename: str) -> str:
         """
@@ -493,10 +493,76 @@ class FluorescenceImage:
 
         return FluorescenceImage(data=stacked_data, metadata=mds)
 
+    def max_intensity_projection(self, channel: Optional[int] = None, return_2d: bool = False) -> Union['FluorescenceImage', np.ndarray]:
+        """Create a maximum intensity projection along the z-axis.
+        
+        Args:
+            channel: Optional channel index to project. If None, projects all channels.
+                    Zero-indexed (0 = first channel, 1 = second channel, etc.)
+            return_2d: If True, return a 2D numpy array suitable for plotting.
+                      If False, return a FluorescenceImage with metadata.
+                    
+        Returns:
+            If return_2d=True: A 2D numpy array (Y, X) for single channel or (C, Y, X) for multiple channels
+            If return_2d=False: A new FluorescenceImage with the maximum intensity projection.
+                               The z-dimension will be reduced to 1.
+            
+        Raises:
+            ValueError: If the specified channel index is out of range
+            ValueError: If the image has no z-dimension to project
+        """
+        # Check if data has z-dimension to project
+        if self.data.ndim < 3:
+            raise ValueError("Image must have at least 3 dimensions (C, Z, Y, X) for z-projection")
+        
+        nc, nz, ny, nx = self.data.shape
+        
+        if nz == 1:
+            # No z-projection needed, return a copy
+            if channel is not None:
+                if channel < 0 or channel >= nc:
+                    raise ValueError(f"Channel index {channel} out of range [0, {nc-1}]")
+                projected_data = self.data[channel:channel+1, :, :, :]
+                projected_channels = [self.metadata.channels[channel]]
+            else:
+                projected_data = self.data.copy()
+                projected_channels = self.metadata.channels.copy()
+        else:
+            # Perform maximum intensity projection along z-axis (axis=1)
+            if channel is not None:
+                if channel < 0 or channel >= nc:
+                    raise ValueError(f"Channel index {channel} out of range [0, {nc-1}]")
+                # Project single channel
+                channel_data = self.data[channel, :, :, :]  # Shape: (Z, Y, X)
+                projected_data = np.max(channel_data, axis=0, keepdims=True)  # Shape: (1, Y, X)
+                projected_data = projected_data[np.newaxis, :, :, :]  # Shape: (1, 1, Y, X)
+                projected_channels = [self.metadata.channels[channel]]
+            else:
+                # Project all channels
+                projected_data = np.max(self.data, axis=1, keepdims=True)  # Shape: (C, 1, Y, X)
+                projected_channels = self.metadata.channels.copy()
+        
+        # Return 2D array if requested
+        if return_2d:
+            # Remove singleton dimensions for plotting convenience
+            return np.squeeze(projected_data)
+        
+        # Create new metadata for the projected image
+        projected_metadata = FluorescenceImageMetadata(
+            acquisition_date=self.metadata.acquisition_date,
+            pixel_size_x=self.metadata.pixel_size_x,
+            pixel_size_y=self.metadata.pixel_size_y,
+            pixel_size_z=None,  # No z-dimension after projection
+            resolution=self.metadata.resolution,
+            channels=projected_channels,
+            z_positions=None,  # No z-positions after projection
+            stage_position=self.metadata.stage_position,
+            system_info=self.metadata.system_info,
+            dimension_order=self.metadata.dimension_order
+        )
+        
+        return FluorescenceImage(data=projected_data, metadata=projected_metadata)
 
-# TODO: create FMImageMetadata class to handle metadata more clearly rather than using dicts
-# split into core microscope metadata, and channel metadata
-# e.g. microscope-state?
 
 @dataclass 
 class FluorescenceChannelMetadata:
@@ -589,6 +655,7 @@ class FluorescenceImageMetadata:
     
     # System information (optional)
     system_info: Optional[dict] = None
+    dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
     
     def __post_init__(self):
         """Validate metadata consistency."""

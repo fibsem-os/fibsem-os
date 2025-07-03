@@ -730,3 +730,477 @@ def test_fluorescence_image_z_stack_creation():
 def test_fluorescence_image():
     """Legacy test placeholder - now covered by specific tests above."""
     pass
+
+
+def test_max_intensity_projection_single_z():
+    """Test maximum intensity projection with single z-plane (no projection needed)."""
+    # Create test data with single z-plane
+    data = np.random.randint(0, 255, (2, 1, 256, 256), dtype=np.uint8)  # C, Z, Y, X
+    
+    # Create metadata
+    channel1 = FluorescenceChannelMetadata(
+        name="DAPI",
+        excitation_wavelength=365.0,
+        power=0.5,
+        exposure_time=0.1,
+        gain=2.0,
+        offset=100.0,
+    )
+    channel2 = FluorescenceChannelMetadata(
+        name="GFP",
+        excitation_wavelength=488.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.5,
+        offset=50.0,
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(256, 256),
+        channels=[channel1, channel2],
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test projection of all channels (should return a copy)
+    projected = image.max_intensity_projection()
+    assert projected.data.shape == (2, 1, 256, 256)
+    np.testing.assert_array_equal(projected.data, data)
+    assert len(projected.metadata.channels) == 2
+    assert projected.metadata.z_positions is None
+    assert projected.metadata.pixel_size_z is None
+    
+    # Test projection of single channel
+    projected_ch0 = image.max_intensity_projection(channel=0)
+    assert projected_ch0.data.shape == (1, 1, 256, 256)
+    np.testing.assert_array_equal(projected_ch0.data[0], data[0])
+    assert len(projected_ch0.metadata.channels) == 1
+    assert projected_ch0.metadata.channels[0].name == "DAPI"
+
+
+def test_max_intensity_projection_multi_z():
+    """Test maximum intensity projection with multiple z-planes."""
+    # Create test data with known maximum values
+    data = np.zeros((2, 3, 4, 4), dtype=np.uint16)  # C, Z, Y, X
+    
+    # Channel 0: max values in different z-planes for different pixels
+    data[0, 0, 0, 0] = 100  # max at z=0
+    data[0, 1, 0, 0] = 50
+    data[0, 2, 0, 0] = 75
+    
+    data[0, 0, 1, 1] = 200
+    data[0, 1, 1, 1] = 300  # max at z=1
+    data[0, 2, 1, 1] = 150
+    
+    data[0, 0, 2, 2] = 80
+    data[0, 1, 2, 2] = 120
+    data[0, 2, 2, 2] = 400  # max at z=2
+    
+    # Channel 1: different pattern
+    data[1, 0, 0, 0] = 500  # max at z=0
+    data[1, 1, 0, 0] = 300
+    data[1, 2, 0, 0] = 200
+    
+    data[1, 0, 1, 1] = 100
+    data[1, 1, 1, 1] = 150
+    data[1, 2, 1, 1] = 600  # max at z=2
+    
+    # Create metadata
+    channel1 = FluorescenceChannelMetadata(
+        name="DAPI",
+        excitation_wavelength=365.0,
+        power=0.5,
+        exposure_time=0.1,
+        gain=2.0,
+        offset=100.0,
+    )
+    channel2 = FluorescenceChannelMetadata(
+        name="GFP", 
+        excitation_wavelength=488.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.5,
+        offset=50.0,
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        pixel_size_z=200e-9,
+        resolution=(4, 4),
+        channels=[channel1, channel2],
+        z_positions=[0.0, 200e-9, 400e-9],
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test projection of all channels
+    projected = image.max_intensity_projection()
+    assert projected.data.shape == (2, 1, 4, 4)
+    
+    # Check maximum values are correct
+    assert projected.data[0, 0, 0, 0] == 100  # max of [100, 50, 75]
+    assert projected.data[0, 0, 1, 1] == 300  # max of [200, 300, 150] 
+    assert projected.data[0, 0, 2, 2] == 400  # max of [80, 120, 400]
+    
+    assert projected.data[1, 0, 0, 0] == 500  # max of [500, 300, 200]
+    assert projected.data[1, 0, 1, 1] == 600  # max of [100, 150, 600]
+    
+    # Check metadata
+    assert len(projected.metadata.channels) == 2
+    assert projected.metadata.z_positions is None
+    assert projected.metadata.pixel_size_z is None
+    assert projected.metadata.pixel_size_x == 100e-9
+    assert projected.metadata.pixel_size_y == 100e-9
+    
+    # Test projection of single channel (channel 0)
+    projected_ch0 = image.max_intensity_projection(channel=0)
+    assert projected_ch0.data.shape == (1, 1, 4, 4)
+    assert projected_ch0.data[0, 0, 0, 0] == 100
+    assert projected_ch0.data[0, 0, 1, 1] == 300
+    assert projected_ch0.data[0, 0, 2, 2] == 400
+    assert len(projected_ch0.metadata.channels) == 1
+    assert projected_ch0.metadata.channels[0].name == "DAPI"
+    
+    # Test projection of single channel (channel 1)
+    projected_ch1 = image.max_intensity_projection(channel=1)
+    assert projected_ch1.data.shape == (1, 1, 4, 4)
+    assert projected_ch1.data[0, 0, 0, 0] == 500
+    assert projected_ch1.data[0, 0, 1, 1] == 600
+    assert len(projected_ch1.metadata.channels) == 1
+    assert projected_ch1.metadata.channels[0].name == "GFP"
+
+
+def test_max_intensity_projection_error_cases():
+    """Test error cases for maximum intensity projection."""
+    # Create test data
+    data = np.random.randint(0, 255, (2, 3, 256, 256), dtype=np.uint8)  # C, Z, Y, X
+    
+    channel1 = FluorescenceChannelMetadata(
+        name="DAPI",
+        excitation_wavelength=365.0,
+        power=0.5,
+        exposure_time=0.1,
+        gain=2.0,
+        offset=100.0,
+    )
+    channel2 = FluorescenceChannelMetadata(
+        name="GFP",
+        excitation_wavelength=488.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.5,
+        offset=50.0,
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(256, 256),
+        channels=[channel1, channel2],
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test invalid channel index (too high)
+    with pytest.raises(ValueError, match="Channel index 2 out of range"):
+        image.max_intensity_projection(channel=2)
+    
+    # Test invalid channel index (negative)
+    with pytest.raises(ValueError, match="Channel index -1 out of range"):
+        image.max_intensity_projection(channel=-1)
+    
+    # Test with insufficient dimensions
+    data_2d = np.random.randint(0, 255, (256, 256), dtype=np.uint8)  # Y, X only
+    image_2d = FluorescenceImage(data=data_2d, metadata=metadata)
+    
+    with pytest.raises(ValueError, match="Image must have at least 3 dimensions"):
+        image_2d.max_intensity_projection()
+
+
+def test_max_intensity_projection_metadata_preservation():
+    """Test that metadata is properly preserved and updated in projections."""
+    # Create test data
+    data = np.random.randint(0, 255, (1, 5, 128, 128), dtype=np.uint16)  # C, Z, Y, X
+    
+    # Create comprehensive metadata
+    channel = FluorescenceChannelMetadata(
+        name="Cy5",
+        excitation_wavelength=635.0,
+        emission_wavelength=680.0,
+        power=0.8,
+        exposure_time=0.2,
+        gain=3.0,
+        offset=200.0,
+        binning=2,
+        objective_position=1e-3,
+        objective_magnification=63.0,
+        objective_numerical_aperture=1.4,
+    )
+    
+    stage_pos = FibsemStagePosition(
+        x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0, coordinate_system="RAW"
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date="2025-01-01T12:00:00",
+        pixel_size_x=50e-9,
+        pixel_size_y=50e-9,
+        pixel_size_z=100e-9,
+        resolution=(128, 128),
+        channels=[channel],
+        z_positions=[0.0, 100e-9, 200e-9, 300e-9, 400e-9],
+        stage_position=stage_pos,
+        system_info={"microscope": "Test Scope", "version": "1.0"},
+        dimension_order="CZYX",
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test projection
+    projected = image.max_intensity_projection()
+    
+    # Test preserved metadata
+    assert projected.metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert projected.metadata.pixel_size_x == 50e-9
+    assert projected.metadata.pixel_size_y == 50e-9
+    assert projected.metadata.resolution == (128, 128)
+    assert projected.metadata.stage_position == stage_pos
+    assert projected.metadata.system_info == {"microscope": "Test Scope", "version": "1.0"}
+    assert projected.metadata.dimension_order == "CZYX"
+    
+    # Test updated metadata (z-related fields should be cleared)
+    assert projected.metadata.pixel_size_z is None
+    assert projected.metadata.z_positions is None
+    
+    # Test channel metadata preservation
+    assert len(projected.metadata.channels) == 1
+    proj_channel = projected.metadata.channels[0]
+    assert proj_channel.name == "Cy5"
+    assert proj_channel.excitation_wavelength == 635.0
+    assert proj_channel.emission_wavelength == 680.0
+    assert proj_channel.power == 0.8
+    assert proj_channel.exposure_time == 0.2
+    assert proj_channel.gain == 3.0
+    assert proj_channel.offset == 200.0
+    assert proj_channel.binning == 2
+    assert proj_channel.objective_position == 1e-3
+    assert proj_channel.objective_magnification == 63.0
+    assert proj_channel.objective_numerical_aperture == 1.4
+
+
+def test_max_intensity_projection_data_types():
+    """Test maximum intensity projection with different data types."""
+    # Test with different data types
+    shapes = (1, 4, 64, 64)  # C, Z, Y, X
+    
+    # Create metadata
+    channel = FluorescenceChannelMetadata(
+        name="Test",
+        excitation_wavelength=488.0,
+        power=1.0,
+        exposure_time=0.1,
+        gain=1.0,
+        offset=0.0,
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(64, 64),
+        channels=[channel],
+    )
+    
+    # Test uint8
+    data_uint8 = np.random.randint(0, 255, shapes, dtype=np.uint8)
+    image_uint8 = FluorescenceImage(data=data_uint8, metadata=metadata)
+    projected_uint8 = image_uint8.max_intensity_projection()
+    assert projected_uint8.data.dtype == np.uint8
+    assert projected_uint8.data.shape == (1, 1, 64, 64)
+    
+    # Test uint16
+    data_uint16 = np.random.randint(0, 65535, shapes, dtype=np.uint16)
+    image_uint16 = FluorescenceImage(data=data_uint16, metadata=metadata)
+    projected_uint16 = image_uint16.max_intensity_projection()
+    assert projected_uint16.data.dtype == np.uint16
+    assert projected_uint16.data.shape == (1, 1, 64, 64)
+    
+    # Test float32
+    data_float32 = np.random.random(shapes).astype(np.float32)
+    image_float32 = FluorescenceImage(data=data_float32, metadata=metadata)
+    projected_float32 = image_float32.max_intensity_projection()
+    assert projected_float32.data.dtype == np.float32
+    assert projected_float32.data.shape == (1, 1, 64, 64)
+
+
+def test_max_intensity_projection_large_stack():
+    """Test maximum intensity projection with larger z-stack."""
+    # Create larger z-stack to test performance
+    nc, nz, ny, nx = 3, 20, 512, 512
+    data = np.random.randint(0, 4095, (nc, nz, ny, nx), dtype=np.uint16)  # C, Z, Y, X
+    
+    # Set some known maximum values to verify correctness
+    data[0, 5, 100, 100] = 4095  # max for channel 0 at (100, 100)
+    data[1, 10, 200, 200] = 4095  # max for channel 1 at (200, 200)
+    data[2, 15, 300, 300] = 4095  # max for channel 2 at (300, 300)
+    
+    # Create metadata
+    channels = []
+    for i in range(nc):
+        channel = FluorescenceChannelMetadata(
+            name=f"Channel_{i+1}",
+            excitation_wavelength=400.0 + i * 100,
+            power=0.5,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0,
+        )
+        channels.append(channel)
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        pixel_size_z=50e-9,
+        resolution=(nx, ny),
+        channels=channels,
+        z_positions=[i * 50e-9 for i in range(nz)],
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test projection of all channels
+    projected = image.max_intensity_projection()
+    assert projected.data.shape == (nc, 1, ny, nx)
+    
+    # Verify known maximum values
+    assert projected.data[0, 0, 100, 100] == 4095
+    assert projected.data[1, 0, 200, 200] == 4095
+    assert projected.data[2, 0, 300, 300] == 4095
+    
+    # Test single channel projection
+    projected_ch1 = image.max_intensity_projection(channel=1)
+    assert projected_ch1.data.shape == (1, 1, ny, nx)
+    assert projected_ch1.data[0, 0, 200, 200] == 4095
+    assert len(projected_ch1.metadata.channels) == 1
+    assert projected_ch1.metadata.channels[0].name == "Channel_2"
+
+
+def test_max_intensity_projection_2d_return():
+    """Test max_intensity_projection with return_2d=True option."""
+    # Create test data with multiple channels and z-planes
+    ny, nx = 256, 256
+    nc, nz = 2, 5
+    data = np.random.randint(0, 1000, (nc, nz, ny, nx), dtype=np.uint16)
+    
+    # Set known maximum values at specific locations
+    data[0, 2, 50, 50] = 4095  # Channel 0, z=2
+    data[1, 4, 100, 100] = 4095  # Channel 1, z=4
+    
+    # Create metadata
+    channels = []
+    for i in range(nc):
+        channel = FluorescenceChannelMetadata(
+            name=f"Channel_{i+1}",
+            excitation_wavelength=488.0 + i * 50,
+            power=1.0,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0
+        )
+        channels.append(channel)
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(nx, ny),
+        channels=channels,
+        z_positions=[i * 100e-9 for i in range(nz)]
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Test 2D return for all channels
+    projected_2d = image.max_intensity_projection(return_2d=True)
+    
+    # Should return numpy array, not FluorescenceImage
+    assert isinstance(projected_2d, np.ndarray)
+    assert not hasattr(projected_2d, 'metadata')
+    
+    # Shape should be (C, Y, X) after squeezing singleton Z dimension
+    assert projected_2d.shape == (nc, ny, nx)
+    
+    # Verify maximum values are preserved
+    assert projected_2d[0, 50, 50] == 4095
+    assert projected_2d[1, 100, 100] == 4095
+    
+    # Test 2D return for single channel
+    projected_2d_ch0 = image.max_intensity_projection(channel=0, return_2d=True)
+    
+    # Should return 2D array (Y, X) after squeezing C and Z dimensions
+    assert projected_2d_ch0.shape == (ny, nx)
+    assert projected_2d_ch0[50, 50] == 4095
+    
+    # Test 2D return for single z-plane (no projection needed)
+    single_z_data = data[:, :1, :, :]  # Take only first z-plane
+    single_z_image = FluorescenceImage(data=single_z_data, metadata=metadata)
+    
+    projected_2d_single_z = single_z_image.max_intensity_projection(return_2d=True)
+    assert projected_2d_single_z.shape == (nc, ny, nx)
+    
+    # Verify data is identical (no projection needed)
+    np.testing.assert_array_equal(projected_2d_single_z, single_z_data.squeeze(axis=1))
+
+
+def test_max_intensity_projection_2d_vs_metadata_return():
+    """Test that 2D and metadata returns produce equivalent data."""
+    # Create test data
+    ny, nx = 128, 128
+    nc, nz = 1, 3
+    data = np.random.randint(0, 1000, (nc, nz, ny, nx), dtype=np.uint16)
+    
+    # Create metadata
+    channel = FluorescenceChannelMetadata(
+        name="Test",
+        excitation_wavelength=488.0,
+        power=1.0,
+        exposure_time=0.1,
+        gain=1.0,
+        offset=0.0
+    )
+    
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(nx, ny),
+        channels=[channel]
+    )
+    
+    image = FluorescenceImage(data=data, metadata=metadata)
+    
+    # Get projections with both methods
+    projected_metadata = image.max_intensity_projection(return_2d=False)
+    projected_2d = image.max_intensity_projection(return_2d=True)
+    
+    # Verify that the squeezed metadata version equals the 2D version
+    np.testing.assert_array_equal(
+        np.squeeze(projected_metadata.data), 
+        projected_2d
+    )
+    
+    # Test with specific channel
+    projected_metadata_ch = image.max_intensity_projection(channel=0, return_2d=False)
+    projected_2d_ch = image.max_intensity_projection(channel=0, return_2d=True)
+    
+    np.testing.assert_array_equal(
+        np.squeeze(projected_metadata_ch.data), 
+        projected_2d_ch
+    )
