@@ -81,7 +81,7 @@ def tiled_image_acquisition(
     dxg, dyg = start_move, start_move
     dyg *= -1
 
-    microscope.stable_move(dx=-dxg, dy=-dyg, beam_type=image_settings.beam_type, static_wd=True)
+    microscope.stable_move(dx=-dxg, dy=-dyg, beam_type=image_settings.beam_type)
     start_position = microscope.get_stage_position()
     images = []
 
@@ -96,11 +96,7 @@ def tiled_image_acquisition(
         microscope.safe_absolute_stage_movement(start_position)
         
         img_row = []
-        microscope.stable_move(
-            dx=0,
-            dy=i*dy, 
-            beam_type=image_settings.beam_type, 
-            static_wd=True)
+        microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
 
         for j in range(n_cols):
             image_settings.filename = f"tile_{i}_{j}"
