@@ -5,8 +5,15 @@ applications. Different algorithms are suitable for different types of samples
 and imaging conditions.
 """
 
+import logging
 import numpy as np
-from typing import Optional
+from typing import Optional, List, Dict, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.fm.structures import ChannelSettings, ZParameters
+    from fibsem.structures import FibsemStagePosition
+    from fibsem.microscope import FibsemMicroscope
 
 
 def laplacian_focus_measure(image: np.ndarray) -> np.ndarray:
@@ -611,3 +618,259 @@ def adaptive_frame_integration(image_stack: np.ndarray, method: str = 'mean',
     integrated_image = integrated_image.astype(image_stack.dtype)
     
     return integrated_image
+
+
+def run_autofocus(
+    microscope: "FluorescenceMicroscope",
+    channel_settings: Optional["ChannelSettings"] = None,
+    z_parameters: Optional["ZParameters"] = None,
+    method: str = 'laplacian'
+) -> float:
+    """Run autofocus by acquiring images at different z positions and finding the best focus.
+    
+    Uses the focus measure functions to evaluate image sharpness at different
+    objective positions and moves to the position with the highest focus score.
+    
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Channel settings to use for autofocus (optional)
+        z_parameters: Z-stack parameters defining search range and step size
+        method: Focus measure method ('laplacian', 'sobel', 'variance', 'tenengrad')
+        
+    Returns:
+        Best focus position in meters
+        
+    Example:
+        >>> # Run autofocus with default parameters
+        >>> best_z = run_autofocus(microscope)
+        >>> print(f"Best focus at {best_z*1e6:.1f} μm")
+        
+        >>> # Custom autofocus with specific channel and range
+        >>> z_params = ZParameters(zmin=-20e-6, zmax=20e-6, zstep=1e-6)
+        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365, 
+        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
+        >>> best_z = run_autofocus(microscope, channel, z_params, method='sobel')
+    """
+    from fibsem.fm.structures import ZParameters
+    
+    # Set up default z parameters if not provided
+    if z_parameters is None:
+        z_parameters = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=2.5e-6)
+    
+    # Generate z positions around current objective position
+    z_positions = z_parameters.generate_positions(microscope.objective.position)
+    
+    # Validate focus measure method
+    get_focus_measure_function(method)  # Will raise error if invalid
+    
+    # Apply channel settings if provided
+    if channel_settings is not None:
+        microscope.set_channel(channel_settings=channel_settings)
+    
+    logging.info(f"Starting autofocus: {len(z_positions)} positions, method='{method}'")
+    
+    # Evaluate focus at each z position
+    scores = []
+    for i, z_pos in enumerate(z_positions):
+        # Move objective to test position
+        microscope.objective.move_absolute(z_pos)
+        
+        # Acquire image
+        image = microscope.acquire_image()
+        
+        # Calculate focus score
+        focus_score = calculate_focus_quality(image.data, method=method)
+        scores.append(focus_score)
+        
+        logging.debug(f"Z[{i+1}/{len(z_positions)}]: {z_pos*1e6:.1f} μm, Score: {focus_score:.4f}")
+    
+    # Find best focus position
+    best_idx = np.argmax(scores)
+    best_z_position = z_positions[best_idx]
+    best_score = scores[best_idx]
+    
+    # Move to best focus position
+    microscope.objective.move_absolute(best_z_position)
+    
+    logging.info(f"Autofocus complete: Best position {best_z_position*1e6:.1f} μm "
+                f"(score: {best_score:.4f})")
+    
+    return best_z_position
+
+
+def run_coarse_fine_autofocus(
+    microscope: "FluorescenceMicroscope",
+    channel_settings: Optional["ChannelSettings"] = None,
+    coarse_range: float = 20e-6,
+    coarse_step: float = 5e-6,
+    fine_range: float = 10e-6,
+    fine_step: float = 1e-6,
+    method: str = 'laplacian'
+) -> float:
+    """Run two-stage autofocus: coarse search followed by fine adjustment.
+    
+    Performs an initial coarse search over a large range, then a fine search
+    around the coarse optimum. This approach is faster and more reliable for
+    large focus adjustments.
+    
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Channel settings to use for autofocus
+        coarse_range: Range for coarse search in meters (±range/2)
+        coarse_step: Step size for coarse search in meters
+        fine_range: Range for fine search in meters (±range/2)
+        fine_step: Step size for fine search in meters
+        method: Focus measure method to use
+        
+    Returns:
+        Best focus position in meters after fine adjustment
+        
+    Example:
+        >>> # Two-stage autofocus for precise focusing
+        >>> best_z = run_coarse_fine_autofocus(
+        ...     microscope, channel,
+        ...     coarse_range=50e-6, coarse_step=10e-6,
+        ...     fine_range=20e-6, fine_step=2e-6
+        ... )
+    """
+    from fibsem.fm.structures import ZParameters
+    
+    initial_position = microscope.objective.position
+    logging.info(f"Starting two-stage autofocus from {initial_position*1e6:.1f} μm")
+    
+    # Stage 1: Coarse search
+    logging.info(f"Coarse search: ±{coarse_range*1e6:.1f} μm, step {coarse_step*1e6:.1f} μm")
+    coarse_z_params = ZParameters(
+        zmin=-coarse_range/2, 
+        zmax=coarse_range/2, 
+        zstep=coarse_step
+    )
+    
+    coarse_best_z = run_autofocus(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        z_parameters=coarse_z_params,
+        method=method
+    )
+    
+    # Stage 2: Fine search around coarse optimum
+    logging.info(f"Fine search around {coarse_best_z*1e6:.1f} μm: "
+                f"±{fine_range*1e6:.1f} μm, step {fine_step*1e6:.1f} μm")
+    
+    # Move to coarse best position first
+    microscope.objective.move_absolute(coarse_best_z)
+    
+    fine_z_params = ZParameters(
+        zmin=-fine_range/2,
+        zmax=fine_range/2, 
+        zstep=fine_step
+    )
+    
+    fine_best_z = run_autofocus(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        z_parameters=fine_z_params,
+        method=method
+    )
+    
+    total_adjustment = fine_best_z - initial_position
+    logging.info(f"Two-stage autofocus complete: "
+                f"Final position {fine_best_z*1e6:.1f} μm "
+                f"(total adjustment: {total_adjustment*1e6:.1f} μm)")
+    
+    return fine_best_z
+
+
+def run_multi_position_autofocus(
+    fibsem_microscope: "FibsemMicroscope",
+    positions: List["FibsemStagePosition"],
+    channel_settings: Optional["ChannelSettings"] = None,
+    z_parameters: Optional["ZParameters"] = None,
+    method: str = 'laplacian',
+    return_to_start: bool = True
+) -> Dict[str, float]:
+    """Run autofocus at multiple stage positions and return focus map.
+    
+    NOTE: This function requires the main FIBSEM microscope for stage movement
+    and uses its fluorescence microscope (fm) for autofocus.
+    
+    Useful for characterizing sample tilt or mapping optimal focus across
+    a large field of view before starting acquisition.
+    
+    Args:
+        fibsem_microscope: The main FIBSEM microscope instance (has stage control)
+        positions: List of stage positions to test
+        channel_settings: Channel settings for autofocus
+        z_parameters: Z-stack parameters for search
+        method: Focus measure method
+        return_to_start: Whether to return to initial position when done
+        
+    Returns:
+        Dictionary mapping position names to dict with 'focus_z' and 'stage_position'
+        
+    Example:
+        >>> # Create test positions
+        >>> positions = [
+        ...     FibsemStagePosition(x=0, y=0, z=0, name="center"),
+        ...     FibsemStagePosition(x=100e-6, y=0, z=0, name="right"),
+        ...     FibsemStagePosition(x=0, y=100e-6, z=0, name="top")
+        ... ]
+        >>> focus_map = run_multi_position_autofocus(fibsem_microscope, positions)
+        >>> for pos_name, data in focus_map.items():
+        ...     print(f"{pos_name}: {data['focus_z']*1e6:.1f} μm at {data['stage_position']}")
+    """
+    if not positions:
+        raise ValueError("At least one position must be provided")
+    
+    # Check that fluorescence microscope is available
+    if not hasattr(fibsem_microscope, 'fm') or fibsem_microscope.fm is None:
+        raise ValueError("FIBSEM microscope must have fluorescence microscope (fm) available")
+    
+    # Store initial state
+    initial_position = fibsem_microscope.get_stage_position()
+    initial_objective_position = fibsem_microscope.fm.objective.position
+    
+    focus_map = {}
+    
+    try:
+        logging.info(f"Multi-position autofocus: {len(positions)} positions")
+        
+        for i, position in enumerate(positions):
+            logging.info(f"Position {i+1}/{len(positions)}: {position.name}")
+            
+            # Move to test position using FIBSEM stage
+            fibsem_microscope.safe_absolute_stage_movement(position)
+            
+            # Run autofocus using fluorescence microscope
+            best_z = run_autofocus(
+                microscope=fibsem_microscope.fm,
+                channel_settings=channel_settings,
+                z_parameters=z_parameters,
+                method=method
+            )
+            
+            # Get actual stage position after movement (for verification)
+            actual_position = fibsem_microscope.get_stage_position()
+            
+            focus_map[position.name] = {
+                'focus_z': best_z,
+                'stage_position': actual_position
+            }
+            
+        logging.info("Multi-position autofocus complete")
+        
+        # Log results summary
+        for pos_name, data in focus_map.items():
+            focus_z = data['focus_z']
+            stage_pos = data['stage_position']
+            logging.info(f"  {pos_name}: {focus_z*1e6:.1f} μm at ({stage_pos.x*1e6:.1f}, {stage_pos.y*1e6:.1f}) μm")
+            
+    finally:
+        if return_to_start:
+            logging.info("Restoring initial objective and stage positions")
+            # First restore objective to initial position to avoid stage movement issues
+            fibsem_microscope.fm.objective.move_absolute(initial_objective_position)
+            # Then move stage back to initial position
+            fibsem_microscope.safe_absolute_stage_movement(initial_position)
+    
+    return focus_map
