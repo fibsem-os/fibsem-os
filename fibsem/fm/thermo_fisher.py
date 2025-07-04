@@ -205,7 +205,9 @@ class ThermoFisherCamera(Camera):
         Returns:
             A numpy array containing the image data
         """
-        frame_settings = GrabFrameSettings()
+        # get the internal excitation wavelength (emission type)
+        emission_type = self.parent.filter_set._emission_type
+        frame_settings = GrabFrameSettings(emission_type=emission_type)
         # Uses current camera settings for binning and exposure time
 
         self.parent.set_active_channel()
@@ -369,6 +371,7 @@ class ThermoFisherFilterSet(FilterSet):
         """
         super().__init__(parent)
         self.parent = parent
+        self._emission_type: CameraEmissionType = CameraEmissionType.RED  # Default to RED
 
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
@@ -400,7 +403,9 @@ class ThermoFisherFilterSet(FilterSet):
         Raises:
             ValueError: If the current color setting is invalid
         """
-        color: str = self.parent.fm_settings.emission.type.value
+        # This is read-only, doesn't seem to change?
+        # color: str = self.parent.fm_settings.emission.type.value
+        color = self._emission_type  # Use internal storage for wavelength
         if color not in COLOR_TO_WAVELENGTH:
             raise ValueError(
                 f"Invalid excitation color: {color}: must be one of {list(COLOR_TO_WAVELENGTH.keys())}"
@@ -424,8 +429,10 @@ class ThermoFisherFilterSet(FilterSet):
             available_wavelengths = list(COLOR_TO_WAVELENGTH.values())
             closest_wavelength = min(available_wavelengths, key=lambda x: abs(x - value))
             color = WAVELENGTH_TO_COLOR[closest_wavelength]
-            
-        self.parent.fm_settings.emission.type.value = color
+        
+        # .emission.type.value is read-only, so we just store it internally
+        self._emission_type = color  # Store the wavelength internally
+        # self.parent.fm_settings.emission.type.value = color
 
     @property
     def emission_wavelength(self) -> Optional[float]:
@@ -490,6 +497,7 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
 
         if connection is None:
             connection = SdbMicroscopeClient()
+            connection.connect()
         # TODO: Identify microscope type (Arctis vs iFlm) automatically
 
         self.connection = connection
