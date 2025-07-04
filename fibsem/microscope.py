@@ -114,7 +114,7 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
-
+from fibsem.fm.microscope import FluorescenceMicroscope
 
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
@@ -129,6 +129,9 @@ class FibsemMicroscope(ABC):
     fib_acquisition_signal = Signal(FibsemImage)
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
+
+    # fluorescence
+    fm: FluorescenceMicroscope
 
     @abstractmethod
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
@@ -335,6 +338,10 @@ class FibsemMicroscope(ABC):
 
     @abstractmethod
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
+        pass
+
+    @abstractmethod
+    def start_milling(self) -> None:
         pass
 
     @abstractmethod
@@ -909,6 +916,10 @@ class FibsemMicroscope(ABC):
         """Get the compucentric rotation position for the given stage position. 
         Assumes 180deg rotation. TFS only"""
 
+        # compustage does not support compucentric rotation
+        if self.stage_is_compustage:
+            return position
+
         # get the compucentric rotation offset
         offset = self._get_compucentric_rotation_offset()
 
@@ -1002,6 +1013,14 @@ class FibsemMicroscope(ABC):
         if self.stage_is_compustage:
             self.orientations["FIB"].t -= np.radians(180)
 
+            self.orientations["FM"] = FibsemStagePosition(
+                r=np.radians(stage_settings.rotation_reference),
+                t=np.radians(180),
+            )
+        else:
+            # only x/y translation, no rotation
+            self.orientations["FM"] = deepcopy(self.orientations["FIB"])
+
         if orientation not in self.orientations:
             raise ValueError(f"Orientation {orientation} not supported.")
 
@@ -1023,7 +1042,66 @@ class FibsemMicroscope(ABC):
             column_tilt=np.radians(self.system.ion.column_tilt)
         )
         return np.degrees(milling_angle)
+    
+    def move_to_microscope(self, target: str) -> None:
+        """Move the stage to the specified microscope (FIBSEM <-> FM)"""
+        if target not in ["FIBSEM", "FM"]:
+            raise ValueError(f"Microscope {target} not supported.")
 
+        if self.stage_is_compustage:
+            self.move_to_microscope_compustage(target)
+            return
+
+        stage_position = self.get_stage_position()
+
+        if target == "FM" and self.get_stage_orientation(stage_position) != "FIB":
+            raise ValueError("Cannot move to FM from SEM or MILLING orientation. Please switch to FIB orientation first.")
+
+        # check if we are already at the target position
+        # this is for TFS SDB chamber: e.g. piescope, meteor, iflm
+        # arctis has same range for FIBSEM/FM (stage is flipped upside down)
+        FM_RANGE  = (40e-3, 60e-3)  # 40 mm to 60 mm
+        FIBSEM_RANGE = (-20e-3, 20e-3)  # -20 mm to 20 mm
+        if target == "FM" and (FM_RANGE[0] < stage_position.x < FM_RANGE[1]):
+            logging.info("Already at FM position, no need to move.")
+            return
+
+        if target == "FIBSEM" and (FIBSEM_RANGE[0] < stage_position.x < FIBSEM_RANGE[1]):
+            logging.info("Already at FIBSEM position, no need to move.")
+            return
+
+        logging.info(f"Moving to {target} position...")
+
+        # retract objective (safety precaution)
+        self.fm.objective.retract()
+
+        TRANSLATION_DX = 48.8e-3  # 48.8 mm # THIS needs to be configurable for different microscopes
+        transf = FibsemStagePosition(x=TRANSLATION_DX)
+
+        # move to FIBSEM
+        if target == "FIBSEM":
+            transf.x *= -1
+            self.move_stage_relative(transf)
+        # move to FM
+        if target == "FM":
+            self.move_stage_relative(transf)
+            self.fm.objective.insert()
+
+    def move_to_microscope_compustage(self, target: str) -> None:
+        """Special method to move to the specified microscope (FIBSEM <-> FM) for Compustage microscopes."""
+
+        if not self.stage_is_compustage:
+            raise ValueError("This method is only available for Compustage microscopes.")
+        
+        self.fm.objective.retract()  # retract objective (safety precaution)
+
+        if target == "FIBSEM":
+            self.move_flat_to_beam(BeamType.ELECTRON) # or ION?
+
+        if target == "FM":
+            fm_orientation = self.get_orientation("FM")
+            self.move_stage_absolute(fm_orientation)
+            self.fm.objective.insert()  # insert objective
 
 class ThermoMicroscope(FibsemMicroscope):
     """
@@ -1895,7 +1973,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if is_fib_rotation and is_fib_tilt:
             return "FIB"
 
-        return "UNKNOWN"
+        return "NONE"
 
     def _safe_rotation_movement(
         self, stage_position: FibsemStagePosition
@@ -3252,6 +3330,10 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         """Get the difference between the stage position in specimen coordinates and raw coordinates."""
+        # no offset for compustage
+        if self.stage_is_compustage:
+            return FibsemStagePosition(x=0, y=0)
+
         # get stage position in speciemn coordinates 
         self.stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
         specimen_stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)

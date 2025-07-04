@@ -253,6 +253,9 @@ class OdemisMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperiment()
 
+        from fibsem.fm.odemis import OdemisFluorescenceMicroscope
+        self.fm = OdemisFluorescenceMicroscope(self)
+
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
         pass
 
