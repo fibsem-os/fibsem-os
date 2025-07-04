@@ -9,10 +9,12 @@ import numpy as np
 
 from fibsem.utils import format_value
 from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
 )
@@ -146,6 +148,37 @@ def _line_pattern_to_image_pixels(
 
     return start_pixel_x, start_pixel_y, end_pixel_x, end_pixel_y
 
+def _polygon_pattern_to_image_pixels(
+    pattern, pixel_size: float, image_shape: Tuple[int, int]
+) -> np.ndarray:
+    """Convert polygon pattern to image pixel coordinates.
+    Args:
+        pattern: FibsemPolygonSettings: Polygon pattern to convert.
+        pixel_size: float: Pixel size of the image.
+        image_shape: Tuple[int, int]: Shape of the image.
+    Returns:
+        np.ndarray: Vertices in image pixel coordinates as array of (x, y) pairs.
+    """
+    # get pattern parameters
+    vertices = pattern.vertices
+
+    # convert to image coordinates
+    cy, cx = image_shape[0] // 2, image_shape[1] // 2
+    
+    # convert vertices to pixel coordinates
+    pixel_vertices = []
+    for vertex in vertices:
+        # position in metres from image centre
+        pmx, pmy = vertex[0] / pixel_size, vertex[1] / pixel_size
+        
+        # convert to image coordinates
+        px = cx + pmx
+        py = cy - pmy
+        
+        pixel_vertices.append((px, py))
+    
+    return np.array(pixel_vertices)
+
 def _create_rectangle_patch(shape: FibsemRectangleSettings, image: FibsemImage, colour: str) -> mpatches.Rectangle:
     """Create a rectangle patch from a shape."""
     pixel_size = image.metadata.pixel_size.x
@@ -225,6 +258,20 @@ def _create_line_patch(shape: FibsemLineSettings, image: FibsemImage, colour: st
         arrowstyle='-',
     )
 
+def _create_polygon_patch(shape: FibsemPolygonSettings, image: FibsemImage, colour: str) -> mpatches.Polygon:
+    """Create a polygon patch from a shape."""
+    pixel_size = image.metadata.pixel_size.x
+    image_shape = image.data.shape
+    pixel_vertices = _polygon_pattern_to_image_pixels(shape, pixel_size, image_shape)
+    
+    return mpatches.Polygon(
+        pixel_vertices,
+        closed=True,
+        linewidth=PROPERTIES["line_width"],
+        edgecolor='black',
+        facecolor=colour,
+        alpha=PROPERTIES["opacity"],
+    )
 
 
 def _detect_pattern_overlaps(milling_stages: List[FibsemMillingStage], image: FibsemImage) -> List[mpatches.Patch]:
@@ -361,6 +408,8 @@ def draw_milling_patterns(
                     patch = _create_circle_patch(shape, image, colour)
                 elif isinstance(shape, FibsemLineSettings):
                     patch = _create_line_patch(shape, image, colour)
+                elif isinstance(shape, FibsemPolygonSettings):
+                    patch = _create_polygon_patch(shape, image, colour)
                 else:
                     logging.debug(f"Unsupported shape type {type(shape)}, skipping")
                     continue
@@ -528,11 +577,67 @@ def draw_rectangle_shape(pattern_settings: FibsemRectangleSettings, image: Fibse
 
     return DrawnPattern(pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion)
 
+def draw_polygon_shape(pattern_settings: FibsemPolygonSettings, image: FibsemImage) -> DrawnPattern:
+    """Convert a polygon pattern to a np array.
+    Args:
+        pattern_settings: FibsemPolygonSettings: Polygon pattern settings.
+        image: FibsemImage: Image to draw pattern on.
+    Returns:
+        DrawnPattern: Polygon shape in image as rasterized mask.
+    """
+    from skimage.draw import polygon
+
+    # image parameters (centre, pixel size)
+    icy, icx = image.data.shape[0] // 2, image.data.shape[1] // 2
+    pixelsize_x, pixelsize_y = image.metadata.pixel_size.x, image.metadata.pixel_size.y
+
+    # Convert vertices to pixel coordinates
+    vertices_px = []
+    for vertex in pattern_settings.vertices:
+        # position in metres from image centre
+        pmx, pmy = vertex[0] / pixelsize_x, vertex[1] / pixelsize_y
+        
+        # convert to image coordinates
+        px = icx + pmx
+        py = icy - pmy
+        
+        vertices_px.append((px, py))
+    
+    vertices_px = np.array(vertices_px)
+    
+    # Find bounding box of polygon
+    min_x, min_y = np.floor(vertices_px.min(axis=0)).astype(int)
+    max_x, max_y = np.ceil(vertices_px.max(axis=0)).astype(int)
+    
+    # Create shape array with some padding
+    padding = 2
+    shape_width = max_x - min_x + 2 * padding
+    shape_height = max_y - min_y + 2 * padding
+    
+    # Offset vertices to shape coordinates
+    vertices_shape = vertices_px - [min_x - padding, min_y - padding]
+    
+    # Create the polygon mask
+    shape = np.zeros((shape_height, shape_width), dtype=float)
+    
+    # Use skimage.draw.polygon to fill the polygon
+    rr, cc = polygon(vertices_shape[:, 1], vertices_shape[:, 0], shape.shape)
+    shape[rr, cc] = 1.0
+    
+    # Calculate center position
+    center_x = (min_x + max_x) // 2
+    center_y = (min_y + max_y) // 2
+    pos = Point(x=center_x, y=center_y)
+
+    return DrawnPattern(pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion)
+
 def draw_pattern_shape(ps, image):
     if isinstance(ps, FibsemCircleSettings):
         return draw_annulus_shape(ps, image)
     elif isinstance(ps, FibsemRectangleSettings):
         return draw_rectangle_shape(ps, image)
+    elif isinstance(ps, FibsemPolygonSettings):
+        return draw_polygon_shape(ps, image)
     else:
         raise ValueError(f"Unsupported shape type {type(ps)}")
 
