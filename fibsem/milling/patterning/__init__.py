@@ -30,6 +30,8 @@ from fibsem.milling.patterning.patterns2 import (
     TriForcePattern,
     BitmapPattern,
     TrapezoidPattern,
+    TrapezoidTrenchPattern,
+
 )
 
 # Built-in patterns registry
@@ -50,6 +52,7 @@ BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
     TriForcePattern.name: TriForcePattern,
     BitmapPattern.name: BitmapPattern,
     TrapezoidPattern.name: TrapezoidPattern,
+    TrapezoidTrenchPattern.name: TrapezoidTrenchPattern,
 }
 
 # Runtime registered patterns
