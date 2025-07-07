@@ -1,7 +1,7 @@
 import logging
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from fibsem import acquire, config as fcfg
 from fibsem.microscope import FibsemMicroscope
@@ -17,6 +17,7 @@ from fibsem.structures import (
     BeamType,
 )
 from fibsem.utils import current_timestamp_v2
+from fibsem.milling.base import FibsemMillingTask, FibsemMillingTaskConfig
 
 ########################### SETUP
 
@@ -24,25 +25,34 @@ from fibsem.utils import current_timestamp_v2
 def setup_milling(
     microscope: FibsemMicroscope,
     milling_stage: FibsemMillingStage,
+    config: FibsemMillingTaskConfig,
+    reference_image: Optional[FibsemImage] = None,
 ):
     """Setup Microscope for FIB Milling.
 
     Args:
         microscope (FibsemMicroscope): Fibsem microscope instance
         milling_stage (FibsemMillingStage): Milling Stage
+        config (FibsemMillingTaskConfig): Task configuration containing alignment and imaging settings
+        reference_image (Optional[FibsemImage], optional): Reference image for alignment. Defaults to None.
     """
+    
+    # acquire reference image for alignment if not provided
+    if config.alignment.enabled and reference_image is None:
+        reference_image = acquire_stage_reference_image(microscope, config, milling_stage.name)
 
-    # acquire reference image for drift correction
-    if milling_stage.alignment.enabled:
-        reference_image = get_stage_reference_image(
-            microscope=microscope, milling_stage=milling_stage
-        )
+    # apply task-level configuration to milling settings
+    milling_stage.milling.hfw = config.hfw
+    milling_stage.milling.milling_channel = config.milling_channel
 
     # set up milling settings
     microscope.setup_milling(mill_settings=milling_stage.milling)
 
     # align at the milling current to correct for shift
-    if milling_stage.alignment.enabled:
+    if config.alignment.enabled:
+        if reference_image is None:
+            raise ValueError("Reference image is required for alignment but was not provided or acquired")
+        
         from fibsem import alignment
         logging.info(f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}")
         alignment.multi_step_alignment_v2(
@@ -125,33 +135,87 @@ def convert_to_bitmap_format(path):
     return new_path
 
 
-def mill_stage(microscope: FibsemMicroscope, stage: FibsemMillingStage, asynch: bool=False):
-    logging.warning("mill_stage will be deprecated in the next version. Use mill_stages instead.")
-    # set up milling
-    setup_milling(microscope, milling_stage=stage)
+############################# UTILS #############################
 
-    # draw patterns
-    for pattern in stage.pattern.define():
-        draw_pattern(microscope, pattern)
+def acquire_images_after_milling(
+    microscope: FibsemMicroscope,
+    image_settings: ImageSettings,
+) -> Tuple[FibsemImage, FibsemImage]:
+    """Acquire images after milling for reference.
+    Args:
+        microscope (FibsemMicroscope): Fibsem microscope instance
+        image_settings (ImageSettings): Imaging settings for acquiring images
+    Returns:
+        Tuple[FibsemImage, FibsemImage]: Tuple of acquired images (SEM, FIB).
+    """
+    # restore imaging conditions
+    imaging_current = microscope.system.ion.beam.beam_current or 20e-12
+    imaging_voltage = microscope.system.ion.beam.voltage or 30e3
+    finish_milling(
+        microscope=microscope,
+        imaging_current=imaging_current,
+        imaging_voltage=imaging_voltage,
+    )
 
-    run_milling(microscope=microscope, 
-        milling_current=stage.milling.milling_current, 
-        milling_voltage=stage.milling.milling_voltage, 
-        asynch=asynch)
+    # acquire images
+    from fibsem import acquire
+    return acquire.take_reference_images(microscope, image_settings)
+
+def acquire_stage_reference_image(microscope: FibsemMicroscope, config: FibsemMillingTaskConfig, name: str) -> FibsemImage:
+    """Acquire a reference image for the stage using the task configuration."""
+    path = config.imaging.path
+    if path is None:
+        path = Path(fcfg.DATA_CC_PATH)
+    image_settings = ImageSettings(
+        hfw=config.hfw,
+        dwell_time=1e-6,
+        resolution=(1536, 1024),
+        beam_type=config.milling_channel,
+        reduced_area=config.alignment.rect,
+        save=True,
+        path=path,
+        filename=f"ref_{name}_initial_alignment_{current_timestamp_v2()}",
+    )
+    return acquire.acquire_image(microscope, image_settings)
+
+
+# QUERY: should List[FibsemMillingStage] be a class? that has it's own settings?
+# E.G. should acquire images be set at that level, rather than at the stage level?
 
 def mill_stages(
     microscope: FibsemMicroscope,
-    stages: List[FibsemMillingStage],
+    stages: List[FibsemMillingStage], parent_ui=None) -> None:
+    """Backwards compatible wrapper function to mill stages."""
+
+    config = FibsemMillingTaskConfig(
+        hfw=stages[0].milling.hfw,
+        acquire_after_milling=stages[0].milling.acquire_images,
+        alignment=stages[0].alignment,
+        milling_channel=stages[0].milling.milling_channel,
+        imaging=stages[0].imaging,
+    )
+
+    task = FibsemMillingTask(
+        name="Milling Task",
+        config=config,
+        stages=stages,
+    )
+    task.run(microscope=microscope, parent_ui=parent_ui)
+
+def run_milling_task(
+    microscope: FibsemMicroscope,
+    task: FibsemMillingTask,
     parent_ui=None,
 ):
-    """Run a list of milling stages, with a progress bar and notifications."""
+    """Run a milling task (sequence of milling stages), with a progress bar and notifications."""
 
+    # TODO: add task_id, stage_id
+
+    initial_beam_shift = None
+
+    stages = task.stages
     if isinstance(stages, FibsemMillingStage):
         stages = [stages]
-
-    # TMP: store initial imaging path
-    imaging_path = microscope.get_imaging_settings(beam_type=BeamType.ION).path
-
     try:
         if hasattr(microscope, "milling_progress_signal"):
             if parent_ui: # TODO: tmp ladder to handle progress indirectly
@@ -162,13 +226,9 @@ def mill_stages(
                     logging.info(ddict)
             microscope.milling_progress_signal.connect(_handle_progress)
 
-        reference_image = get_stage_reference_image(
-            microscope=microscope, milling_stage=stages[0]
-        )
-
-        initial_beam_shift = microscope.get("shift", beam_type=stages[0].milling.milling_channel)
-
-        # TODO: reset beam shift after aligning at milling current
+        if task.config.alignment.enabled:
+            task.reference_image = acquire_stage_reference_image(microscope=microscope, config=task.config, name=task.name)
+        initial_beam_shift = microscope.get_beam_shift(beam_type=task.config.milling_channel)
 
         for idx, stage in enumerate(stages):
             start_time = time.time()
@@ -185,23 +245,18 @@ def mill_stages(
                 parent_ui.milling_progress_signal.emit(msgd)
 
             try:
-                stage.reference_image = reference_image
-                stage.strategy.run(
-                    microscope=microscope,
-                    stage=stage,
-                    asynch=False,
-                    parent_ui=parent_ui,
-                )
+                task.run_stage(microscope=microscope, stage=stage, asynch=False, parent_ui=parent_ui)
 
                 # performance logging
                 msgd = {"msg": "mill_stages", "idx": idx, "stage": stage.to_dict(), "start_time": start_time, "end_time": time.time()}
                 logging.debug(f"{msgd}")
 
                 # optionally acquire images after milling
-                if stage.milling.acquire_images:
-                    acquire_images_after_milling(microscope=microscope, milling_stage=stage, 
-                                                 start_time=start_time, 
-                                                 path=imaging_path)
+                if task.config.acquire_after_milling:
+                    filename = f"ref_milling_{stage.name.replace(' ', '-')}_finished_{str(start_time).replace('.', '_')}"
+                    image_settings = task.config.imaging
+                    image_settings.filename = filename
+                    acquire_images_after_milling(microscope=microscope, image_settings=image_settings)
 
                 if parent_ui:
                     parent_ui.milling_progress_signal.emit({"msg": f"Finished: {stage.name}"})
@@ -217,82 +272,15 @@ def mill_stages(
             napari.utils.notifications.show_error(f"Error while milling {e}")
         logging.error(e)
     finally:
+        imaging_current = microscope.system.ion.beam.beam_current or 20e-12
+        imaging_voltage = microscope.system.ion.beam.voltage or 30e3
         finish_milling(
             microscope=microscope,
-            imaging_current=microscope.system.ion.beam.beam_current,
-            imaging_voltage=microscope.system.ion.beam.voltage,
+            imaging_current=imaging_current,
+            imaging_voltage=imaging_voltage,
         )
         # restore initial beam shift
-        if initial_beam_shift:
-            microscope.set(key="shift", value=initial_beam_shift, beam_type=BeamType.ION)
+        if initial_beam_shift is not None:
+            microscope.set_beam_shift(initial_beam_shift, beam_type=task.config.milling_channel)
         if hasattr(microscope, "milling_progress_signal"):
             microscope.milling_progress_signal.disconnect(_handle_progress)
-
-############################# UTILS #############################
-
-def acquire_images_after_milling(
-    microscope: FibsemMicroscope,
-    milling_stage: FibsemMillingStage,
-    start_time: float,
-    path: str,
-) -> Tuple[FibsemImage, FibsemImage]:
-    """Acquire images after milling for reference.
-    Args:
-        microscope (FibsemMicroscope): Fibsem microscope instance
-        milling_stage (FibsemMillingStage): Milling Stage
-        start_time (float): Start time of milling (used for filename / tracking)
-        path (str): Path to save images
-    """
-
-    # restore imaging conditions
-    finish_milling(
-        microscope=microscope,
-        imaging_current=microscope.system.ion.beam.beam_current,
-        imaging_voltage=microscope.system.ion.beam.voltage,
-    )
-
-    # set imaging parameters (filename, path, etc.)
-    if milling_stage.imaging.path is None:
-        milling_stage.imaging.path = path
-    milling_stage.imaging.filename = f"ref_milling_{milling_stage.name.replace(' ', '-')}_finished_{str(start_time).replace('.', '_')}"
-    
-    # from pprint import pprint
-    # pprint(milling_stage.imaging.to_dict())
-
-    # acquire images
-    from fibsem import acquire
-    images = acquire.take_reference_images(microscope, milling_stage.imaging)
-
-    # query: set the images to the UI?
-    # query: add an id to the milling stage to track the images?
-    # QUERY: what is a better way to set the path?
-
-    return images
-
-
-def get_stage_reference_image(
-    microscope: FibsemMicroscope, milling_stage: FibsemMillingStage
-) -> FibsemImage:
-    ref_image = milling_stage.reference_image
-    if isinstance(ref_image, FibsemImage):
-        return ref_image
-    elif ref_image is None:
-        path = milling_stage.imaging.path
-        if path is None:
-            path = Path(fcfg.DATA_CC_PATH)
-        image_settings = ImageSettings(
-            hfw=milling_stage.milling.hfw,
-            dwell_time=1e-6,
-            resolution=[1536, 1024],
-            beam_type=milling_stage.milling.milling_channel,
-            reduced_area=milling_stage.alignment.rect,
-            save=True,
-            path=path,
-            filename=f"ref_{milling_stage.name}_initial_alignment_{current_timestamp_v2()}",
-        )
-        return acquire.acquire_image(microscope, image_settings)
-    raise TypeError(f"Invalid ref_image type '{type(ref_image)}'")
-
-
-# QUERY: should List[FibsemMillingStage] be a class? that has it's own settings?
-# E.G. should acquire images be set at that level, rather than at the stage level?

@@ -1,20 +1,32 @@
+import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, fields, field, asdict
-from typing import List, Union, Dict, Any, Tuple, Optional, Type, TypeVar, ClassVar, Generic
+from dataclasses import asdict, dataclass, field, fields
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Generic,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.config import MILLING_SPUTTER_RATE
+from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
-from fibsem.milling.patterning import get_pattern, DEFAULT_MILLING_PATTERN
 from fibsem.structures import (
-    FibsemMillingSettings,
-    MillingAlignment,
-    ImageSettings,
+    BeamType,
     CrossSectionPattern,
     FibsemImage,
+    FibsemMillingSettings,
+    ImageSettings,
+    MillingAlignment,
 )
-
 
 TMillingStrategyConfig = TypeVar(
     "TMillingStrategyConfig", bound="MillingStrategyConfig"
@@ -63,14 +75,20 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         return cls(config=config)
 
     @abstractmethod
-    def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False, parent_ui = None) -> None:
+    def run(self, 
+            microscope: FibsemMicroscope,
+            stage: "FibsemMillingStage",
+            config: "FibsemMillingTaskConfig",
+            reference_image: Optional[FibsemImage] = None,
+            asynch: bool = False,
+            parent_ui = None) -> None:
         pass
 
 
 def get_strategy(
     name: str = "Standard", config: Optional[Dict[str, Any]] = None
 ) -> MillingStrategy[Any]:
-    from fibsem.milling.strategy import get_strategies, DEFAULT_STRATEGY
+    from fibsem.milling.strategy import DEFAULT_STRATEGY, get_strategies
 
     if config is None:
         config = {}
@@ -89,20 +107,7 @@ class FibsemMillingStage:
     strategy: MillingStrategy[Any] = field(default_factory=get_strategy)
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     imaging: ImageSettings = field(default_factory=ImageSettings) # settings for post-milling acquisition
-    reference_image: Optional[FibsemImage] = None
 
-    def __post_init__(self):
-        
-        if self.imaging.resolution is None:
-            self.imaging.resolution = [1536, 1024]  # default resolution for imaging
-        if self.imaging.hfw is None:
-            self.imaging.hfw = 150e-6
-        if self.imaging.dwell_time is None:
-            self.imaging.dwell_time = 1e-6
-        if self.imaging.autocontrast is None:
-            self.imaging.autocontrast = False
-        if self.imaging.save is None:
-            self.imaging.save = False
 
     def to_dict(self):
         return {
@@ -138,10 +143,7 @@ class FibsemMillingStage:
     def estimated_time(self) -> float:
         return estimate_milling_time(self.pattern, self.milling.milling_current)
 
-    def run(self, microscope: FibsemMicroscope, asynch: bool = False, parent_ui = None) -> None:
-        """Run the milling stage strategy on the given microscope."""
-        self.strategy.run(microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui)
-
+    # Note: run() method removed - FibsemMillingTask now orchestrates stage execution
 
 def get_milling_stages(key: str, protocol: Dict[str, List[Dict[str, Any]]]) -> List[FibsemMillingStage]:
     """Get the milling stages for specific key from the protocol.
@@ -208,3 +210,95 @@ def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
     return sum([estimate_milling_time(stage.pattern, stage.milling.milling_current) for stage in stages])
 
 
+DEFAULT_FIELD_OF_VIEW = 150e-6  # Default field of view in meters
+
+@dataclass
+class FibsemMillingTaskConfig:
+    """Task-level configuration parameters needed for stage execution"""
+    hfw: float = DEFAULT_FIELD_OF_VIEW
+    acquire_after_milling: bool = True
+    milling_channel: BeamType = BeamType.ION
+    alignment: MillingAlignment = field(default_factory=MillingAlignment)
+    imaging: ImageSettings = field(default_factory=ImageSettings)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "hfw": self.hfw,
+            "acquire_after_milling": self.acquire_after_milling,
+            "milling_channel": self.milling_channel.name,
+            "alignment": self.alignment.to_dict(),
+            "imaging": self.imaging.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: Dict[str, Any]) -> "FibsemMillingTaskConfig":
+        """Create a FibsemMillingTaskConfig from a dictionary"""
+        alignment = MillingAlignment.from_dict(ddict.get("alignment", {}))
+        imaging = ImageSettings.from_dict(ddict.get("imaging", {}))
+         
+        return cls(
+            hfw=ddict.get("hfw", DEFAULT_FIELD_OF_VIEW),
+            acquire_after_milling=ddict.get("acquire_after_milling", True),
+            milling_channel=BeamType.ION,
+            alignment=alignment,
+            imaging=imaging
+        )
+
+
+@dataclass
+class FibsemMillingTask:
+    name: str = "Milling Task"
+    task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    config: FibsemMillingTaskConfig = field(default_factory=FibsemMillingTaskConfig)
+    stages: List[FibsemMillingStage] = field(default_factory=list)
+    reference_image: Optional[FibsemImage] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "task_id": self.task_id,
+            "config": self.config.to_dict(),
+            "stages": [stage.to_dict() for stage in self.stages],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FibsemMillingTask":
+        stages = [FibsemMillingStage.from_dict(stage) for stage in data.get("stages", [])]
+        config = FibsemMillingTaskConfig.from_dict(data.get("config", {}))
+        return cls(
+            name=data.get("name", "Milling Task"),
+            task_id=data.get("task_id", str(uuid.uuid4())),
+            config=config,
+            stages=stages,
+        )
+    
+    def run_stage(self, microscope: FibsemMicroscope, stage: FibsemMillingStage, asynch: bool = False, parent_ui=None) -> None:
+        """Task orchestrates running a stage with its configuration context"""
+        
+        stage.strategy.run(
+            microscope=microscope,
+            stage=stage,
+            config=self.config,
+            reference_image=self.reference_image,
+            asynch=asynch,
+            parent_ui=parent_ui
+        )
+
+    def run(self, microscope: FibsemMicroscope, parent_ui=None) -> None:
+        """Run the milling task, executing each stage in sequence"""
+        import logging
+
+        from fibsem.milling.core import run_milling_task
+
+        logging.info(f"Running milling task: {self.name} with {len(self.stages)} stages. TASK ID: {self.task_id}")
+
+        run_milling_task(
+            microscope=microscope,
+            task=self,
+            parent_ui=parent_ui
+        )
+
+    @property
+    def estimated_time(self) -> float:
+        """Estimate the total milling time for all stages in the task"""
+        return estimate_total_milling_time(self.stages)
