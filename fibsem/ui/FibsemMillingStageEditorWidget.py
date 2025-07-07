@@ -1201,7 +1201,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         self._milling_stages_updated.emit(milling_stages)
 
 
-from autolamella.structures import AutoLamellaProtocol, Experiment, Lamella
+from fibsem.applications.autolamella.structures import AutoLamellaProtocol, Experiment, Lamella
 # TODO: move to autolamella
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
@@ -1390,7 +1390,7 @@ def show_protocol_editor(viewer: napari.Viewer,
 
 if __name__ == "__main__":
     
-    from autolamella.structures import AutoLamellaProtocol
+    from fibsem.applications.autolamella.structures import AutoLamellaProtocol
 
     microscope, settings = utils.setup_session()
     viewer = napari.Viewer()

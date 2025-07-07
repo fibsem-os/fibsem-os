@@ -1,0 +1,44 @@
+milling:
+    trench:
+    -   milling:
+            application_file: Si
+            hfw: 0.00018
+            milling_current: 7.6e-09
+            milling_voltage: 30000
+            preset: 30 keV; 2.5 nA
+        name: Trench
+        pattern:
+            depth: 1.25e-06
+            lower_trench_height: 3.2e-05
+            name: Trench
+            spacing: 2.5e-05
+            upper_trench_height: 1.6e-05
+            width: 2.2e-05
+        strategy: {}
+options:
+    alignment_at_milling_current: false
+    alignment_attempts: 3.0
+    checkpoint: null
+    high_quality_image:
+        dwell_time: 2.0e-06
+        enabled: false
+        frame_integration: 2
+        hfw: 5.0e-05
+        resolution:
+        - 3072
+        - 2048
+    lamella_tilt_angle: 18.0
+    method: autolamella-trench
+    name: autolamella-trench-milling
+    supervise:
+        mill_polishing: true
+        mill_rough: true
+        setup_lamella: true
+        trench: true
+        undercut: true
+    take_final_overview_image: true
+    take_final_reference_images: true
+    undercut_tilt_angle: -5.0
+    use_fiducial: true
+    use_microexpansion: false
+    use_notch: true

@@ -41,7 +41,7 @@ from fibsem.ui.napari.utilities import draw_positions_in_napari, is_inside_image
 from fibsem.ui.qtdesigner_files import FibsemMinimapWidget as FibsemMinimapWidgetUI
 
 try:
-    from autolamella.protocol import AutoLamellaProtocol
+    from fibsem.applications.autolamella.structures import AutoLamellaProtocol
 except ImportError:
     AutoLamellaProtocol = None
 
@@ -666,7 +666,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
 
         # Performance Note: the reason this is slow is because every time a new position is added, we re-draw every position
         # this is not necessary, we can just add the new position to the existing layer
-        # almost all the slow down comes from the linked callbacks from autolamella. probably saving and re-drawing milling patterns
+        # almost all the slow down comes from the linked callbacks from fibsem.applications.autolamella. probably saving and re-drawing milling patterns
         # we should delay that until the user requests it
 
         if self.image and self.positions:
