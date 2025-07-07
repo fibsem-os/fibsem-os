@@ -1,13 +1,18 @@
 import logging
+import time
 from dataclasses import dataclass
+from typing import Optional
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling import (draw_patterns, run_milling,
-                            setup_milling)
-from fibsem.milling.base import (FibsemMillingStage, MillingStrategy,
-                                 MillingStrategyConfig)
+from fibsem.milling import draw_patterns, run_milling, setup_milling
+from fibsem.milling.base import (
+    FibsemMillingStage,
+    FibsemMillingTaskConfig,
+    MillingStrategy,
+    MillingStrategyConfig,
+)
+from fibsem.structures import FibsemImage
 
-import time
 
 @dataclass
 class StandardMillingConfig(MillingStrategyConfig):
@@ -25,11 +30,17 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         self,
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
+        config: FibsemMillingTaskConfig,
+        reference_image: Optional[FibsemImage] = None,
         asynch: bool = False,
         parent_ui = None,
     ) -> None:
+        """Run the standard milling strategy on the given microscope."""
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
-        setup_milling(microscope, milling_stage=stage)
+        setup_milling(microscope=microscope,
+                      milling_stage=stage,
+                      config=config,
+                      reference_image=reference_image)
 
         draw_patterns(microscope, stage.pattern.define())
 
