@@ -114,12 +114,10 @@ def acquire_tileset(
     # Store initial position to return to later
     initial_position = microscope.get_stage_position()
     
-    # Acquire a reference image to determine field of view and pixel size
-    reference_image = acquire_channels(microscope.fm, channel_settings)
     
-    # Calculate the physical field of view from image metadata
-    pixel_size_x, pixel_size_y = reference_image.metadata.pixel_size_x, reference_image.metadata.pixel_size_y
-    image_height, image_width = reference_image.data.shape[-2:]
+    # Calculate the physical field of view from metadata
+    pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
+    image_width, image_height = microscope.fm.camera.resolution
     fov_x = image_width * pixel_size_x
     fov_y = image_height * pixel_size_y
 
