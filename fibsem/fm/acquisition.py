@@ -1,13 +1,15 @@
 import logging
-from typing import Dict, List, Tuple, Union
+from copy import deepcopy
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
-from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.microscope import FibsemMicroscope
-from fibsem.fm.calibration import run_autofocus
+from fibsem.structures import BeamType, FibsemStagePosition
+
 
 def acquire_channels(
     microscope: FluorescenceMicroscope, 
@@ -50,8 +52,6 @@ def acquire_z_stack(
 
         # stack the images along the z-axis
         zstack = FluorescenceImage.create_z_stack(ch_images)
-
-        # TODO: properly handle metadata + image structure
         images.append(zstack)
 
     # restore objective to initial position
@@ -59,12 +59,81 @@ def acquire_z_stack(
 
     return FluorescenceImage.create_multi_channel_image(images)
 
+def acquire_image(microscope: FluorescenceMicroscope,
+                  channel_settings: Union[ChannelSettings, List[ChannelSettings]], 
+                  zparams: Optional[ZParameters] = None) -> FluorescenceImage:
+    """Acquire a fluroescence image for a single channel or multiple channels.
+    If zparams is provided, a Z-stack will be acquired instead.
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Single channel or list of channels to acquire
+        zparams: ZParameters for Z-stack acquisition (optional)
+    Returns:
+            FluorescenceImage object containing the acquired image(s)"""
+    
+    if zparams is not None:
+        # Acquire Z-stack if zparams is provided
+        return acquire_z_stack(microscope, channel_settings, zparams)
+    
+    # Acquire single image(s) for specified channel(s)
+    return acquire_channels(microscope, channel_settings)
 
 # Autofocus functions have been moved to fibsem.fm.calibration
 
+def acquire_at_positions(
+    microscope: FibsemMicroscope,
+    positions: List[FibsemStagePosition],
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]], 
+    zparams: Optional[ZParameters] = None,
+    use_autofocus: bool = False,
+    ) -> List[FluorescenceImage]:
+    """Acquire fluorescence images at specified stage positions.
+    This function moves the stage to each specified position and acquires images
+    for the given channel settings. If zparams is provided, a Z-stack will be acquired
+    at each position.
+    Args:
+        microscope: The fluorescence microscope instance
+        positions: List of FibsemStagePosition objects defining where to acquire images
+        channel_settings: Single channel or list of channels to acquire
+        zparams: ZParameters for Z-stack acquisition (optional)
+        use_autofocus: Whether to run autofocus at each position (default: False)
+    Returns:
+        List of FluorescenceImage objects containing the acquired images
+    Raises:
+        ValueError: If positions is empty or contains invalid stage positions
+    Example:
+        >>> positions = [FibsemStagePosition(x=0, y=0, z=0),
+        ...             FibsemStagePosition(x=10e-6, y=0, z=0)]
+        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365, 
+        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
+        >>> images = acquire_at_positions(microscope, positions, channel)
+    """ 
+    if not positions:
+        raise ValueError("Positions list cannot be empty")
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
 
+    images: List[FluorescenceImage] = []
+    for i, pos in enumerate(positions):
+        logging.info(f"Moving to position {i}/{len(positions)}: {pos}")
+        microscope.safe_absolute_stage_movement(pos)
+        
+        # Run autofocus if requested
+        if use_autofocus:
+            logging.info(f"Running autofocus at position: {pos}")
+            run_autofocus(microscope.fm, channel_settings[0])
+            logging.info("Running autofocus")
+
+        # Acquire image(s) at the current position
+        image = acquire_image(microscope.fm, channel_settings, zparams)
+        images.append(image)
+        
+        logging.info(f"Acquired image at position: {pos}")
+
+    return images
 
 # TODO: auto-focus, z-stack + mip
+# TODO: handle multiple channels properly
 def acquire_tileset(
     microscope: FibsemMicroscope,
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
@@ -114,7 +183,6 @@ def acquire_tileset(
     # Store initial position to return to later
     initial_position = microscope.get_stage_position()
     
-    
     # Calculate the physical field of view from metadata
     pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
     image_width, image_height = microscope.fm.camera.resolution
@@ -147,7 +215,7 @@ def acquire_tileset(
                 logging.info(f"Acquiring tile [{row+1}/{rows}][{col+1}/{cols}]")
                 
                 # Acquire all channels at current position
-                tile_image = acquire_channels(microscope.fm, channel_settings)
+                tile_image = acquire_image(microscope.fm, channel_settings)
                 logging.info(f"Stage position for tile [{row+1}/{rows}][{col+1}/{cols}]: {tile_image.metadata.stage_position}")
                 
                 row_images.append(tile_image)
@@ -256,7 +324,6 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
             mosaic_data[y_start:y_end, x_start:x_end] = tile_data
     
     # Create updated metadata for stitched image
-    from copy import deepcopy
     stitched_metadata = deepcopy(ref_tile.metadata)
     
     # Update resolution to reflect new mosaic size
@@ -319,4 +386,24 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
     logging.info(f"Updated stage position to mosaic center: {stitched_metadata.stage_position}")
     return stitched_image
 
+def acquire_and_stitch_tileset(
+    microscope: FibsemMicroscope,
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    grid_size: Tuple[int, int],
+    tile_overlap: float = 0.1,
+    beam_type: BeamType = BeamType.ELECTRON,
+) -> FluorescenceImage:
+    """Acquire a tileset and stitch it into a single mosaic image."""
 
+    if isinstance(channel_settings, list):
+        raise ValueError("Channel settings must be a single ChannelSettings instance for tileset acquisition")
+
+    tileset = acquire_tileset(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        grid_size=grid_size,
+        tile_overlap=tile_overlap,
+        beam_type=beam_type
+    )
+    
+    return stitch_tileset(tileset, tile_overlap)
