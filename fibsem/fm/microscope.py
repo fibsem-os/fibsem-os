@@ -14,6 +14,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
+from fibsem.util.draw_numbers import draw_number
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -150,6 +151,8 @@ class Camera(ABC):
             parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
+        self._index: int = 0  # Image index for simulating sequential images
+        self._use_counter: bool = True 
         self._exposure_time: float = SIM_CAMERA_EXPOSURE_TIME
         self._binning: int = SIM_CAMERA_BINNING
         self._gain: float = SIM_CAMERA_GAIN
@@ -173,9 +176,19 @@ class Camera(ABC):
         # get min and max values for the image
         min_value = np.iinfo(np.uint16).min  # 0 for uint16
         max_value = np.iinfo(np.uint16).max  # 65535 for uint16
-        return np.random.randint(
+        noise = np.random.randint(
             min_value, max_value, size=self.resolution, dtype=np.uint16
         )
+        if not self._use_counter:
+            return noise
+
+        # Simulate a simple image with a number drawn in the center
+        mod = self._index % 10  # cycle through digits 0-9
+        image = draw_number(mod, size=(256, 256), thickness=64, image_shape=self.resolution)
+        self._index += 1  # increment index for next image
+        # use the image as an inverse mask for the noise
+        data = np.where(image > 0, image, noise)
+        return data
 
     @property
     def exposure_time(self) -> float:
