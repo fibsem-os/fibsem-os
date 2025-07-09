@@ -141,6 +141,7 @@ def acquire_tileset(
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     grid_size: Tuple[int, int],
     tile_overlap: float = 0.1,
+    zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
 ) -> List[List[FluorescenceImage]]:
     """Acquire a tileset of fluorescence images across a grid pattern.
@@ -172,19 +173,19 @@ def acquire_tileset(
     """
     if not isinstance(channel_settings, list):
         channel_settings = [channel_settings]
-        
+
     rows, cols = grid_size
     if rows <= 0 or cols <= 0:
         raise ValueError("Grid size must contain positive values")
-        
+
     if not 0.0 <= tile_overlap < 1.0:
         raise ValueError("Tile overlap must be between 0.0 and 1.0 (exclusive)")
-    
+
     logging.info(f"Starting tileset acquisition: {rows}x{cols} grid with {tile_overlap:.1%} overlap")
-    
+
     # Store initial position to return to later
     initial_position = microscope.get_stage_position()
-    
+
     # Calculate the physical field of view from metadata
     pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
     image_width, image_height = microscope.fm.camera.resolution
@@ -194,54 +195,57 @@ def acquire_tileset(
     # Calculate step size accounting for overlap
     step_x = fov_x * (1.0 - tile_overlap)
     step_y = fov_y * (1.0 - tile_overlap)
-    
+
     logging.info(f"Field of view: {fov_x*1e6:.1f} x {fov_y*1e6:.1f} μm")
     logging.info(f"Step size: {step_x*1e6:.1f} x {step_y*1e6:.1f} μm")
-    
+
     # Calculate starting position (top-left corner of grid)
     start_offset_x = -(cols - 1) * step_x / 2
     start_offset_y = -(rows - 1) * step_y / 2
-    
+
     # Move to starting position
     logging.info("Moving to grid starting position")
     microscope.stable_move(dx=start_offset_x, dy=start_offset_y, beam_type=beam_type)
-    
+
     # Initialize results array
     tileset = []
-    
+
+    # TODO: migrate to generate_grid_positions
     try:
         for row in range(rows):
             row_images = []
-            
+
             for col in range(cols):
                 logging.info(f"Acquiring tile [{row+1}/{rows}][{col+1}/{cols}]")
-                
+
                 # Acquire all channels at current position
-                tile_image = acquire_image(microscope.fm, channel_settings)
+                tile_image = acquire_image(microscope.fm, channel_settings, zparams)
                 logging.info(f"Stage position for tile [{row+1}/{rows}][{col+1}/{cols}]: {tile_image.metadata.stage_position}")
-                
+
+                if zparams is not None:
+                    tile_image = tile_image.max_intensity_projection(0)
                 row_images.append(tile_image)
-                
+
                 # Move to next column position (except for last column)
                 if col < cols - 1:
                     microscope.stable_move(dx=step_x, dy=0, beam_type=beam_type)
-            
+
             tileset.append(row_images)
-            
+
             # Move to next row (except for last row)
             if row < rows - 1:
                 # Return to first column of next row
                 microscope.stable_move(dx=-(cols - 1) * step_x, dy=step_y, beam_type=beam_type)
-    
+
     except Exception as e:
         logging.error(f"Error during tileset acquisition: {e}")
         raise
-    
+
     finally:
         # Return to initial position
         logging.info("Returning to initial position")
         microscope.safe_absolute_stage_movement(initial_position)
-    
+
     logging.info(f"Tileset acquisition complete: {rows}x{cols} tiles acquired")
     return tileset
 
@@ -270,38 +274,38 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
     """
     if not tileset or not tileset[0]:
         raise ValueError("Tileset cannot be empty")
-        
+
     rows = len(tileset)
     cols = len(tileset[0])
-    
+
     # Validate tileset is rectangular
     for row in tileset:
         if len(row) != cols:
             raise ValueError("Tileset must be rectangular (all rows same length)")
-    
+
     logging.info(f"Stitching {rows}x{cols} tileset with {tile_overlap:.1%} overlap")
-    
+
     # Get reference tile for dimensions
     ref_tile = tileset[0][0]
     tile_height, tile_width = ref_tile.data.shape[-2:]
-    
+
     # Calculate overlap in pixels
     overlap_pixels_x = int(tile_width * tile_overlap)
     overlap_pixels_y = int(tile_height * tile_overlap)
-    
+
     # Calculate final mosaic dimensions
     effective_tile_width = tile_width - overlap_pixels_x
     effective_tile_height = tile_height - overlap_pixels_y
-    
+
     mosaic_width = effective_tile_width * (cols - 1) + tile_width
     mosaic_height = effective_tile_height * (rows - 1) + tile_height
-    
+
     logging.info(f"Tile size: {tile_height}x{tile_width}")
     logging.info(f"Mosaic size: {mosaic_height}x{mosaic_width}")
-    
+
     # Initialize mosaic array
     mosaic_data = np.zeros((mosaic_height, mosaic_width), dtype=ref_tile.data.dtype)
-    
+
     # Place each tile
     for row in range(rows):
         for col in range(cols):
@@ -327,10 +331,10 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
     
     # Create updated metadata for stitched image
     stitched_metadata = deepcopy(ref_tile.metadata)
-    
+
     # Update resolution to reflect new mosaic size
     stitched_metadata.resolution = (mosaic_width, mosaic_height)
-    
+
     # Calculate the center position as average of all tile positions
     if any(hasattr(tileset[row][col].metadata, 'stage_position') and 
            tileset[row][col].metadata.stage_position is not None 
@@ -393,9 +397,13 @@ def acquire_and_stitch_tileset(
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     grid_size: Tuple[int, int],
     tile_overlap: float = 0.1,
+    zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
 ) -> FluorescenceImage:
     """Acquire a tileset and stitch it into a single mosaic image."""
+
+    # TODO: support multi-channel tilesets
+    # TODO: support different projection methods (e.g. max intensity, focus stacking)
 
     if isinstance(channel_settings, list):
         raise ValueError("Channel settings must be a single ChannelSettings instance for tileset acquisition")
@@ -405,7 +413,8 @@ def acquire_and_stitch_tileset(
         channel_settings=channel_settings,
         grid_size=grid_size,
         tile_overlap=tile_overlap,
-        beam_type=beam_type
+        beam_type=beam_type,
+        zparams=zparams,
     )
     
     return stitch_tileset(tileset, tile_overlap)
