@@ -159,6 +159,7 @@ class Camera(ABC):
         self._offset: float = SIM_CAMERA_OFFSET
         self._pixel_size: Tuple[float, float] = SIM_CAMERA_PIXEL_SIZE
         self._resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
+        self._number_cache: dict = {}  # Cache for draw_number images by mod
         super().__init__()
 
     def acquire_image(self) -> np.ndarray:
@@ -184,7 +185,13 @@ class Camera(ABC):
 
         # Simulate a simple image with a number drawn in the center
         mod = self._index % 10  # cycle through digits 0-9
-        image = draw_number(mod, size=(256, 256), thickness=64, image_shape=self.resolution)
+        
+        # Cache the draw_number image by mod and resolution
+        cache_key = (mod, self.resolution)
+        if cache_key not in self._number_cache:
+            self._number_cache[cache_key] = draw_number(mod, size=(256, 256), thickness=64, image_shape=self.resolution)
+        
+        image = self._number_cache[cache_key]
         self._index += 1  # increment index for next image
         # use the image as an inverse mask for the noise
         data = np.where(image > 0, image, noise)
@@ -582,6 +589,7 @@ class FluorescenceMicroscope(ABC):
         data = self.camera.acquire_image()
         md = self.get_metadata()
         img = FluorescenceImage(data=data, metadata=md)
+        self.acquisition_signal.emit(img)  # Emit the acquired image signal
         return img
     
     def get_metadata(self) -> FluorescenceImageMetadata:
@@ -684,10 +692,8 @@ class FluorescenceMicroscope(ABC):
                 if self._stop_acquisition_event.is_set():
                     break
 
-                # acquire image using current settings
-                image = self.acquire_image()
-                # emit the acquired image
-                self.acquisition_signal.emit(image)
+                # acquire and emit image using current settings
+                self.acquire_image()
 
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
