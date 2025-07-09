@@ -407,3 +407,88 @@ def acquire_and_stitch_tileset(
     )
     
     return stitch_tileset(tileset, tile_overlap)
+
+
+def generate_grid_positions(ncols: int, nrows: int, fov: float, tile_overlap: float = 0.1) -> List[Tuple[float, float]]:
+    """Generate a grid of positions, centered around the origin, for acquiring tiles.
+    
+    Creates a regular grid of (x, y) positions that are properly centered around the origin
+    (0, 0) for both odd and even numbers of columns and rows. The spacing between positions
+    accounts for the specified field of view and tile overlap.
+    
+    Args:
+        ncols: Number of columns in the grid (must be positive)
+        nrows: Number of rows in the grid (must be positive)
+        fov: Field of view size in meters (physical dimension of each tile)
+        tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+    
+    Returns:
+        List of (x, y) tuples representing grid positions in meters, centered around origin
+    
+    Example:
+        >>> # 3x3 grid with 10μm FOV and 10% overlap
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 0.1)
+        >>> len(positions)
+        9
+        >>> positions[4]  # Center position
+        (0.0, 0.0)
+        
+        >>> # 4x4 grid is also properly centered
+        >>> positions = generate_grid_positions(4, 4, 10e-6, 0.0)
+        >>> import numpy as np
+        >>> np.mean([pos[0] for pos in positions])  # Mean x should be ~0
+        0.0
+    """
+    positions = []
+    for i in range(ncols):
+        for j in range(nrows):
+            x = (i - (ncols - 1) / 2) * (fov * (1 - tile_overlap))
+            y = (j - (nrows - 1) / 2) * (fov * (1 - tile_overlap))
+            positions.append((x, y))
+
+    return positions
+
+
+def convert_grid_positions_to_stage_positions(
+    microscope: FibsemMicroscope,
+    positions: List[Tuple[float, float]],
+    beam_type: BeamType = BeamType.ELECTRON,
+    base_position: Optional[FibsemStagePosition] = None
+) -> List[FibsemStagePosition]:
+    """Convert grid positions to stage positions using microscope projection.
+    
+    Takes a list of (x, y) grid positions and converts them to FibsemStagePosition
+    objects using the microscope's project_stable_move method. This accounts for
+    the microscope's coordinate system and current stage configuration.
+    
+    Args:
+        microscope: The FibsemMicroscope instance to use for projection
+        positions: List of (x, y) tuples representing grid positions in meters
+        beam_type: Beam type to use for projection (default: ELECTRON)
+        base_position: Base stage position to project from (default: current position)
+    
+    Returns:
+        List of FibsemStagePosition objects representing the projected stage positions
+    
+    Example:
+        >>> # Generate grid positions
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 0.1)
+        >>> # Convert to stage positions
+        >>> stage_positions = convert_grid_positions_to_stage_positions(
+        ...     microscope, positions, BeamType.ELECTRON
+        ... )
+        >>> len(stage_positions)
+        9
+    """
+    if base_position is None:
+        base_position = microscope.get_stage_position()
+    
+    stage_positions = []
+    for pos in positions:
+        x, y = pos
+        stage_position = microscope.project_stable_move(
+            dx=x, dy=y, beam_type=beam_type,
+            base_position=base_position
+        )
+        stage_positions.append(stage_position)
+    return stage_positions
