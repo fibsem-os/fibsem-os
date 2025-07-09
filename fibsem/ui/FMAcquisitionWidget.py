@@ -65,10 +65,10 @@ OBJECTIVE_CONFIG = {
 
 
 class ObjectiveControlWidget(QWidget):    
-    def __init__(self, fm: FluorescenceMicroscope, parent: Optional[QWidget]=None):
+    def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None):
         super().__init__(parent)
         self.fm = fm
-        self.parent = parent
+        self.parent_widget = parent
         self.initUI()
 
     def initUI(self):
@@ -153,8 +153,9 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setValue(objective_position)  # Convert m to mm
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
         self.label_objective_position.setText(f"Current Objective Position: {objective_position:.2f} mm")
-
-        self.parent.display_stage_position_overlay()  # Update the stage position overlay in the parent widget
+        
+        if self.parent_widget is not None:
+            self.parent_widget.display_stage_position_overlay()  # Update the stage position overlay in the parent widget
 
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
