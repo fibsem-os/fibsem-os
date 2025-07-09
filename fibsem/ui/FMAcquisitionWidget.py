@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem.constants import METRE_TO_MILLIMETRE, MILLIMETRE_TO_METRE
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
@@ -62,6 +63,7 @@ OBJECTIVE_CONFIG = {
     "decimals": 3,  # number of decimal places
     "suffix": " mm",  # unit suffix
 }
+MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
 
 
 class ObjectiveControlWidget(QWidget):    
@@ -79,6 +81,7 @@ class ObjectiveControlWidget(QWidget):
 
         # add double spin box for objective position
         self.label_objective_control = QLabel("Position", self)
+        self.label_objective_step_size = QLabel("Step Size", self)
         self.doubleSpinBox_objective_position = QDoubleSpinBox(self)
         self.doubleSpinBox_objective_position.setRange(self.fm.objective.limits[0] * METRE_TO_MILLIMETRE,
                                                         self.fm.objective.limits[1] * METRE_TO_MILLIMETRE)
@@ -87,11 +90,16 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setDecimals(OBJECTIVE_CONFIG["decimals"])
         self.doubleSpinBox_objective_position.setSuffix(OBJECTIVE_CONFIG["suffix"])
         self.doubleSpinBox_objective_position.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
+        self.doubleSpinBox_objective_step_size = QDoubleSpinBox(self)
+        self.doubleSpinBox_objective_step_size.setRange(1.0, 50.0)      # Set a reasonable range for step size
+        self.doubleSpinBox_objective_step_size.setSingleStep(0.1)       # Set step size for the spin box
+        self.doubleSpinBox_objective_step_size.setValue(1.0)            # Default step size (1.0 µm)
+        self.doubleSpinBox_objective_step_size.setSuffix(" µm")
+        self.doubleSpinBox_objective_step_size.setToolTip("Step size for objective movement in microns")
+        self.doubleSpinBox_objective_step_size.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
 
         # Add a label to display the current objective position
         self.label_objective_position = QLabel(f"Current Objective Position: {self.fm.objective.position*METRE_TO_MILLIMETRE:.2f} mm", self)
-
-        # TODO: add step-size controls
 
         # Create the layout
         layout = QGridLayout()
@@ -100,13 +108,16 @@ class ObjectiveControlWidget(QWidget):
         layout.addWidget(self.pushButton_retract_objective, 1, 1)
         layout.addWidget(self.label_objective_control, 2, 0)
         layout.addWidget(self.doubleSpinBox_objective_position, 2, 1) 
-        layout.addWidget(self.label_objective_position, 3, 0, 1, 2)
+        layout.addWidget(self.label_objective_step_size, 3, 0)
+        layout.addWidget(self.doubleSpinBox_objective_step_size, 3, 1)
+        layout.addWidget(self.label_objective_position, 4, 0, 1, 2)
         self.setLayout(layout)
 
         # connect signals
         self.pushButton_insert_objective.clicked.connect(self.insert_objective)
         self.pushButton_retract_objective.clicked.connect(self.retract_objective)
         self.doubleSpinBox_objective_position.valueChanged.connect(self.on_objective_position_changed)
+        self.doubleSpinBox_objective_step_size.valueChanged.connect(lambda value: self.doubleSpinBox_objective_position.setSingleStep(value * 1e-3))  # Convert from um to mm
 
         # set stylesheets
         self.pushButton_insert_objective.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
@@ -196,6 +207,7 @@ class ChannelSettingsWidget(QWidget):
 
     def initUI(self):
         layout = QGridLayout()
+        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
 
         self.setLayout(layout)
 
@@ -266,8 +278,6 @@ class ChannelSettingsWidget(QWidget):
             # if the current wavelength is not available, set to the first one
             self.emission_wavelength_input.setCurrentIndex(0)
 
-        
-
     @pyqtSlot(int)
     def update_excitation_wavelength(self, idx: int):
         wavelength = self.excitation_wavelength_input.itemData(idx)
@@ -294,7 +304,7 @@ class ChannelSettingsWidget(QWidget):
     def update_channel_name(self):
         self.channel_settings.name = self.channel_name_input.text()
         print(f"Channel name updated to: {self.channel_settings.name}")
-   
+
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
 
@@ -304,7 +314,7 @@ class FMAcquisitionWidget(QWidget):
         self.channel_name: str
         self.fm = fm
         self.viewer = viewer
-        self.image_layer = None  # Placeholder for the image layer
+        self.image_layer: Optional[NapariImageLayer] = None  # Placeholder for the image layer
 
         self.initUI()
 
@@ -320,10 +330,10 @@ class FMAcquisitionWidget(QWidget):
         # create channel settings widget
         channel_settings=ChannelSettings(
                 name="Channel-01",
-                excitation_wavelength=450,  # Example wavelength in nm
-                emission_wavelength=550,  # Example wavelength in nm
-                power=0.5,  # Example power in W
-                exposure_time=0.1,  # Example exposure time in seconds
+                excitation_wavelength=450,      # Example wavelength in nm
+                emission_wavelength=None,       # Example wavelength in nm
+                power=0.1,                      # Example power in W
+                exposure_time=0.25,             # Example exposure time in seconds
         )
         self.channelSettingsWidget = ChannelSettingsWidget(
             fm=self.fm,
@@ -331,14 +341,20 @@ class FMAcquisitionWidget(QWidget):
             parent=self
         )
     
-        self.startButton = QPushButton("Start Acquisition", self)
-        self.stopButton = QPushButton("Stop Acquisition", self)
+        self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
+        self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
 
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
         layout.addWidget(self.channelSettingsWidget)
-        layout.addWidget(self.startButton)
-        layout.addWidget(self.stopButton)
+
+        # create grid layout for buttons
+        button_layout = QGridLayout()
+        button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
+        button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
+        button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
+        layout.addLayout(button_layout)
+
         self.setLayout(layout)
 
         # connect signals
@@ -346,8 +362,8 @@ class FMAcquisitionWidget(QWidget):
         self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
         self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)
         self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
-        self.startButton.clicked.connect(self.start_acquisition)
-        self.stopButton.clicked.connect(self.stop_acquisition)
+        self.pushButton_start_acquisition.clicked.connect(self.start_acquisition)
+        self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
@@ -358,8 +374,10 @@ class FMAcquisitionWidget(QWidget):
         self.viewer.mouse_wheel_callbacks.append(self.on_mouse_wheel)
 
         # stylesheets
-        self.startButton.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.stopButton.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_start_acquisition.setEnabled(True)
+        self.pushButton_stop_acquisition.setEnabled(False)
 
         # draw scale bar
         self.viewer.scale_bar.visible = True
@@ -378,7 +396,8 @@ class FMAcquisitionWidget(QWidget):
             # TODO: add shift key to change step size?
 
             # Calculate step size based on wheel delta
-            step_mm = np.clip(0.001 * event.delta[1], -0.01, 0.01)  # Adjust sensitivity as needed
+            objective_step_size = self.objectiveControlWidget.doubleSpinBox_objective_step_size.value() * 1e-3 # convert from um to mm    
+            step_mm = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE, MAX_OBJECTIVE_STEP_SIZE)  # Adjust sensitivity as needed
             # delta ~= 1
             
             logging.info(f"Mouse wheel event detected with delta: {event.delta}, step size: {step_mm:.4f} mm")
@@ -482,7 +501,7 @@ class FMAcquisitionWidget(QWidget):
                 border_color="transparent",
                 face_color="transparent",
                 translate=self.image_layer.translate,
-            )   
+            )
 
     def draw_crosshair(self):
         """Draw a crosshair at the center of the image using a single shapes layer."""
@@ -556,8 +575,6 @@ class FMAcquisitionWidget(QWidget):
                 colormap=wavelength_to_color(wavelength),
                 scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
             )
-
-
         
         self.channel_name = channel_name
 
@@ -571,9 +588,9 @@ class FMAcquisitionWidget(QWidget):
             return
         
         logging.info("Acquisition started")
-        self.startButton.setEnabled(False)
-        self.startButton.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.stopButton.setEnabled(True)
+        self.pushButton_start_acquisition.setEnabled(False)
+        self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_stop_acquisition.setEnabled(True)
         # TODO: handle case where acquisition fails...
 
         channel_settings = self.channelSettingsWidget.channel_settings
@@ -585,10 +602,10 @@ class FMAcquisitionWidget(QWidget):
         """Stop the fluorescence acquisition."""
 
         logging.info("Acquisition stopped")
-        self.stopButton.setEnabled(False)
-        self.stopButton.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.startButton.setEnabled(True)
-        self.startButton.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_stop_acquisition.setEnabled(False)
+        self.pushButton_stop_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_start_acquisition.setEnabled(True)
+        self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
         self.fm.stop_acquisition()
 
