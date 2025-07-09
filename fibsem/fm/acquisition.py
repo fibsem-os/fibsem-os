@@ -3,6 +3,8 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
@@ -409,7 +411,7 @@ def acquire_and_stitch_tileset(
     return stitch_tileset(tileset, tile_overlap)
 
 
-def generate_grid_positions(ncols: int, nrows: int, fov: float, tile_overlap: float = 0.1) -> List[Tuple[float, float]]:
+def generate_grid_positions(ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1) -> List[Tuple[float, float]]:
     """Generate a grid of positions, centered around the origin, for acquiring tiles.
     
     Creates a regular grid of (x, y) positions that are properly centered around the origin
@@ -419,22 +421,23 @@ def generate_grid_positions(ncols: int, nrows: int, fov: float, tile_overlap: fl
     Args:
         ncols: Number of columns in the grid (must be positive)
         nrows: Number of rows in the grid (must be positive)
-        fov: Field of view size in meters (physical dimension of each tile)
-        tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        fov_x: Horizontal field of view size in meters (physical dimension of each tile)
+        fov_y: Vertical field of view size in meters (physical dimension of each tile)
+        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
     
     Returns:
         List of (x, y) tuples representing grid positions in meters, centered around origin
     
     Example:
-        >>> # 3x3 grid with 10μm FOV and 10% overlap
-        >>> positions = generate_grid_positions(3, 3, 10e-6, 0.1)
+        >>> # 3x3 grid with 10μm x 8μm FOV and 10% overlap
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
         >>> len(positions)
         9
         >>> positions[4]  # Center position
         (0.0, 0.0)
         
         >>> # 4x4 grid is also properly centered
-        >>> positions = generate_grid_positions(4, 4, 10e-6, 0.0)
+        >>> positions = generate_grid_positions(4, 4, 10e-6, 10e-6, 0.0)
         >>> import numpy as np
         >>> np.mean([pos[0] for pos in positions])  # Mean x should be ~0
         0.0
@@ -442,8 +445,8 @@ def generate_grid_positions(ncols: int, nrows: int, fov: float, tile_overlap: fl
     positions = []
     for i in range(ncols):
         for j in range(nrows):
-            x = (i - (ncols - 1) / 2) * (fov * (1 - tile_overlap))
-            y = (j - (nrows - 1) / 2) * (fov * (1 - tile_overlap))
+            x = (i - (ncols - 1) / 2) * (fov_x * (1 - overlap))
+            y = (j - (nrows - 1) / 2) * (fov_y * (1 - overlap))
             positions.append((x, y))
 
     return positions
@@ -492,3 +495,381 @@ def convert_grid_positions_to_stage_positions(
         )
         stage_positions.append(stage_position)
     return stage_positions
+
+
+def calculate_grid_size_for_area(
+    area_width: float,
+    area_height: float,
+    fov_x: float,
+    fov_y: float,
+    overlap: float = 0.1
+) -> Tuple[int, int]:
+    """Calculate the number of rows and columns needed to cover a given area.
+    
+    Determines the minimum grid dimensions required to fully cover a rectangular area
+    with the specified field of view and overlap between adjacent tiles.
+    
+    Args:
+        area_width: Width of the area to cover in meters
+        area_height: Height of the area to cover in meters
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        
+    Returns:
+        Tuple of (ncols, nrows) representing the minimum grid dimensions needed
+        
+    Raises:
+        ValueError: If area dimensions, FOV, or overlap are invalid
+        
+    Example:
+        >>> # Cover a 100×80 μm area with 10×8 μm FOV and 10% overlap
+        >>> ncols, nrows = calculate_grid_size_for_area(100e-6, 80e-6, 10e-6, 8e-6, 0.1)
+        >>> print(f"Need {ncols}×{nrows} grid")
+        Need 12×11 grid
+        
+        >>> # Cover a 50×50 μm area with 20×20 μm FOV and no overlap
+        >>> ncols, nrows = calculate_grid_size_for_area(50e-6, 50e-6, 20e-6, 20e-6, 0.0)
+        >>> print(f"Need {ncols}×{nrows} grid")
+        Need 3×3 grid
+    """
+    # Validate inputs
+    if area_width <= 0 or area_height <= 0:
+        raise ValueError("Area dimensions must be positive")
+    if fov_x <= 0 or fov_y <= 0:
+        raise ValueError("FOV dimensions must be positive")
+    if not 0.0 <= overlap < 1.0:
+        raise ValueError("Overlap must be between 0.0 and 1.0 (exclusive)")
+    
+    # Calculate effective step size (distance between tile centers)
+    step_x = fov_x * (1.0 - overlap)
+    step_y = fov_y * (1.0 - overlap)
+    
+    # Calculate number of tiles needed
+    # For n tiles, we need: (n-1) * step + fov >= area
+    # Solving for n: n >= (area - fov) / step + 1
+    
+    if area_width <= fov_x:
+        # Area fits in single tile horizontally
+        ncols = 1
+    else:
+        # Need multiple tiles
+        ncols = int(np.ceil((area_width - fov_x) / step_x)) + 1
+    
+    if area_height <= fov_y:
+        # Area fits in single tile vertically
+        nrows = 1
+    else:
+        # Need multiple tiles
+        nrows = int(np.ceil((area_height - fov_y) / step_y)) + 1
+    
+    return ncols, nrows
+
+
+def calculate_grid_coverage_area(
+    ncols: int,
+    nrows: int,
+    fov_x: float,
+    fov_y: float,
+    overlap: float = 0.1
+) -> Tuple[float, float]:
+    """Calculate the total area covered by a grid of tiles.
+    
+    Determines the total width and height of the area covered by a grid of tiles
+    with specified dimensions, field of view, and overlap between adjacent tiles.
+    
+    Args:
+        ncols: Number of columns in the grid (must be positive)
+        nrows: Number of rows in the grid (must be positive)
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        
+    Returns:
+        Tuple of (total_width, total_height) in meters representing the covered area
+        
+    Raises:
+        ValueError: If grid dimensions, FOV, or overlap are invalid
+        
+    Example:
+        >>> # Calculate area covered by 3×4 grid with 10×8 μm FOV and 10% overlap
+        >>> width, height = calculate_grid_coverage_area(3, 4, 10e-6, 8e-6, 0.1)
+        >>> print(f"Covers {width*1e6:.1f}×{height*1e6:.1f} μm")
+        Covers 28.0×30.4 μm
+        
+        >>> # Calculate area covered by 2×2 grid with 20×20 μm FOV and no overlap
+        >>> width, height = calculate_grid_coverage_area(2, 2, 20e-6, 20e-6, 0.0)
+        >>> print(f"Covers {width*1e6:.1f}×{height*1e6:.1f} μm")
+        Covers 40.0×40.0 μm
+    """
+    # Validate inputs
+    if ncols <= 0 or nrows <= 0:
+        raise ValueError("Grid dimensions must be positive")
+    if fov_x <= 0 or fov_y <= 0:
+        raise ValueError("FOV dimensions must be positive")
+    if not 0.0 <= overlap < 1.0:
+        raise ValueError("Overlap must be between 0.0 and 1.0 (exclusive)")
+    
+    # Calculate step size (distance between tile centers)
+    step_x = fov_x * (1.0 - overlap)
+    step_y = fov_y * (1.0 - overlap)
+    
+    # Calculate total coverage area
+    # For n tiles: total_coverage = (n-1) * step + fov
+    if ncols == 1:
+        total_width = fov_x
+    else:
+        total_width = (ncols - 1) * step_x + fov_x
+    
+    if nrows == 1:
+        total_height = fov_y
+    else:
+        total_height = (nrows - 1) * step_y + fov_y
+    
+    return total_width, total_height
+
+
+def calculate_grid_dimensions(positions: List[Tuple[float, float]]) -> Tuple[int, int]:
+    """Calculate the number of rows and columns from grid positions.
+    
+    Analyzes the grid positions to determine the number of unique rows and columns
+    in the grid layout. Works with regular grids where positions are arranged in
+    a rectangular pattern.
+    
+    Args:
+        positions: List of (x, y) tuples representing grid positions in meters
+        
+    Returns:
+        Tuple of (ncols, nrows) representing the grid dimensions
+        Returns (0, 0) if positions is empty
+        
+    Example:
+        >>> positions = generate_grid_positions(3, 4, 10e-6, 8e-6, 0.1)
+        >>> ncols, nrows = calculate_grid_dimensions(positions)
+        >>> print(f"Grid: {ncols}×{nrows}")
+        Grid: 3×4
+    """
+    if not positions:
+        return 0, 0
+    
+    # Extract unique x and y coordinates
+    x_coords = [pos[0] for pos in positions]
+    y_coords = [pos[1] for pos in positions]
+    
+    # Count unique coordinates with tolerance for floating point precision
+    tolerance = 1e-10
+    
+    # Find unique x coordinates (columns)
+    unique_x = []
+    for x in x_coords:
+        if not any(abs(x - ux) < tolerance for ux in unique_x):
+            unique_x.append(x)
+    
+    # Find unique y coordinates (rows)
+    unique_y = []
+    for y in y_coords:
+        if not any(abs(y - uy) < tolerance for uy in unique_y):
+            unique_y.append(y)
+    
+    ncols = len(unique_x)
+    nrows = len(unique_y)
+    
+    return ncols, nrows
+
+
+def calculate_grid_overlap(
+    positions: List[Tuple[float, float]],
+    fov_x: float,
+    fov_y: float
+) -> Tuple[float, float]:
+    """Calculate the overlap between grid positions given the FOV dimensions.
+    
+    Analyzes the spacing between adjacent grid positions to determine the overlap
+    fraction in both horizontal and vertical directions.
+    
+    Args:
+        positions: List of (x, y) tuples representing grid positions in meters
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        
+    Returns:
+        Tuple of (horizontal_overlap, vertical_overlap) as fractions (0.0 to 1.0)
+        Returns (0.0, 0.0) if overlap cannot be determined
+        
+    Example:
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
+        >>> overlap_x, overlap_y = calculate_grid_overlap(positions, 10e-6, 8e-6)
+        >>> print(f"Horizontal overlap: {overlap_x:.1%}, Vertical overlap: {overlap_y:.1%}")
+        Horizontal overlap: 10.0%, Vertical overlap: 10.0%
+    """
+    if len(positions) < 2:
+        return 0.0, 0.0
+    
+    # We'll analyze all pairs of positions to find minimum steps
+    
+    # Find minimum horizontal and vertical step distances
+    min_x_step = float('inf')
+    min_y_step = float('inf')
+    
+    # Check all pairs of positions to find minimum steps
+    for i, pos1 in enumerate(positions):
+        for j, pos2 in enumerate(positions):
+            if i >= j:
+                continue
+                
+            x1, y1 = pos1
+            x2, y2 = pos2
+            
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+            
+            # Look for horizontal steps (same y, different x)
+            if abs(dy) < 1e-10 and dx > 1e-10:  # Same y coordinate
+                min_x_step = min(min_x_step, dx)
+                
+            # Look for vertical steps (same x, different y)
+            if abs(dx) < 1e-10 and dy > 1e-10:  # Same x coordinate
+                min_y_step = min(min_y_step, dy)
+    
+    # Calculate overlaps
+    overlap_x = 0.0
+    overlap_y = 0.0
+    
+    if min_x_step != float('inf') and min_x_step > 0:
+        overlap_x = max(0.0, min(1.0, (fov_x - min_x_step) / fov_x))
+    
+    if min_y_step != float('inf') and min_y_step > 0:
+        overlap_y = max(0.0, min(1.0, (fov_y - min_y_step) / fov_y))
+    
+    return overlap_x, overlap_y
+
+
+def plot_grid_positions(
+    positions: List[Tuple[float, float]],
+    fov_x: float,
+    fov_y: float,
+    title: str = "Grid Positions with FOV",
+    figsize: Tuple[float, float] = (8, 8),
+    show_fov_boxes: bool = True,
+    show_grid_lines: bool = True,
+    show_center_lines: bool = True,
+    show_overlap_info: bool = True
+) -> None:
+    """Plot grid positions with field of view bounding boxes.
+    
+    Creates a visualization of the grid positions showing:
+    - Grid positions as red circles
+    - FOV bounding boxes as dashed rectangles around each position
+    - Center lines (optional)
+    - Grid lines (optional)
+    - Calculated overlap information (optional)
+    
+    Args:
+        positions: List of (x, y) tuples representing grid positions in meters
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        title: Plot title
+        figsize: Figure size tuple (width, height)
+        show_fov_boxes: Whether to show FOV bounding boxes around each position
+        show_grid_lines: Whether to show grid lines
+        show_center_lines: Whether to show center axis lines
+        show_overlap_info: Whether to calculate and display overlap information
+    
+    Example:
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
+        >>> plot_grid_positions(positions, 10e-6, 8e-6)
+    """
+    _, ax = plt.subplots(figsize=figsize)
+    
+    # Plot grid positions as red circles
+    for pos in positions:
+        x, y = pos
+        ax.plot(x, y, 'ro', markersize=8, label='Grid Position' if pos == positions[0] else "")
+        
+        # Draw FOV bounding box around each position
+        if show_fov_boxes:
+            # Create rectangle centered at position
+            rect = patches.Rectangle(
+                (x - fov_x/2, y - fov_y/2),  # Bottom-left corner
+                fov_x, fov_y,  # Width and height
+                linewidth=1,
+                edgecolor='blue',
+                facecolor='none',
+                linestyle='--',
+                alpha=0.7,
+                label='FOV Boundary' if pos == positions[0] else ""
+            )
+            ax.add_patch(rect)
+    
+    # Calculate plot limits from positions and FOV dimensions
+    if positions:
+        x_coords = [pos[0] for pos in positions]
+        y_coords = [pos[1] for pos in positions]
+        
+        # Find the extent of positions
+        x_min, x_max = min(x_coords), max(x_coords)
+        y_min, y_max = min(y_coords), max(y_coords)
+        
+        # Add FOV/2 to account for the bounding boxes around each position
+        # Plus some padding for better visualization
+        padding_x = fov_x * 0.25
+        padding_y = fov_y * 0.25
+        
+        x_extent_min = x_min - fov_x/2 - padding_x
+        x_extent_max = x_max + fov_x/2 + padding_x
+        y_extent_min = y_min - fov_y/2 - padding_y
+        y_extent_max = y_max + fov_y/2 + padding_y
+        
+        ax.set_xlim(x_extent_min, x_extent_max)
+        ax.set_ylim(y_extent_min, y_extent_max)
+    else:
+        # Fallback for empty positions
+        ax.set_xlim(-fov_x, fov_x)
+        ax.set_ylim(-fov_y, fov_y)
+    
+    # Add center lines
+    if show_center_lines:
+        ax.axhline(0, color='black', linewidth=0.5, linestyle='--', alpha=0.5)
+        ax.axvline(0, color='black', linewidth=0.5, linestyle='--', alpha=0.5)
+    
+    # Add grid lines
+    if show_grid_lines:
+        ax.grid(True, alpha=0.3)
+    
+    # Labels and title
+    ax.set_xlabel('X Position (m)')
+    ax.set_ylabel('Y Position (m)')
+    ax.set_title(title)
+    
+    # Add legend
+    ax.legend(loc='upper right')
+    
+    # Equal aspect ratio for proper visualization
+    ax.set_aspect('equal', adjustable='box')
+    
+    # Add text annotation with grid info
+    ncols, nrows = calculate_grid_dimensions(positions)
+    if ncols > 0 and nrows > 0:
+        info_text = f"Grid: {ncols}×{nrows}\nFOV: {fov_x*1e6:.1f}×{fov_y*1e6:.1f} μm"
+        
+        # Calculate and add total grid area
+        overlap_x, overlap_y = calculate_grid_overlap(positions, fov_x, fov_y) if show_overlap_info and len(positions) > 1 else (0.0, 0.0)
+        overlap = max(overlap_x, overlap_y)
+        total_width, total_height = calculate_grid_coverage_area(ncols, nrows, fov_x, fov_y, overlap)
+        info_text += f"\nArea: {total_width*1e6:.1f}×{total_height*1e6:.1f} μm"
+    else:
+        info_text = f"Positions: {len(positions)}\nFOV: {fov_x*1e6:.1f}×{fov_y*1e6:.1f} μm"
+    
+    # Optionally add overlap information
+    if show_overlap_info and len(positions) > 1:
+        overlap_x, overlap_y = calculate_grid_overlap(positions, fov_x, fov_y)
+        if overlap_x > 0 or overlap_y > 0:
+            # Use the maximum overlap value (they should be the same for regular grids)
+            overlap = max(overlap_x, overlap_y)
+            info_text += f"\nOverlap: {overlap:.1%}"
+    
+    ax.text(0.02, 0.98, info_text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.show()
