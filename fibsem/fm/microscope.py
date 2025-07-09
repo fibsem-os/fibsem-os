@@ -298,6 +298,17 @@ class Camera(ABC):
         """
         return self._resolution[0] // self.binning, self._resolution[1] // self.binning
 
+    @property
+    def field_of_view(self) -> Tuple[float, float]:
+        """Get the effective field of view in meters accounting for binning.
+        
+        Returns:
+            A tuple of (width, height) in meters
+        """
+        return (
+            self.pixel_size[0] * self.resolution[0],
+            self.pixel_size[1] * self.resolution[1],
+        )
 
 class LightSource(ABC):
     """Abstract base class for light source control in fluorescence microscopy.
