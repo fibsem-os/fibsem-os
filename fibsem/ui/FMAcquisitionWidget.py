@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Union, List, Dict, Optional
 import napari
 import numpy as np
@@ -18,8 +19,9 @@ from PyQt5.QtWidgets import (
 from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem.constants import METRE_TO_MILLIMETRE, MILLIMETRE_TO_METRE
+from fibsem.fm.acquisition import acquire_z_stack
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType, Point
 from fibsem.ui.napari.utilities import (
     draw_crosshair_in_napari,
@@ -64,6 +66,119 @@ OBJECTIVE_CONFIG = {
     "suffix": " mm",  # unit suffix
 }
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
+
+Z_PARAMETERS_CONFIG = {
+    "step_size": 0.1,  # µm
+    "decimals": 1,  # number of decimal places
+    "suffix": " µm",  # unit suffix
+}
+
+
+class ZParametersWidget(QWidget):
+    def __init__(self, z_parameters: ZParameters, parent: Optional['FMAcquisitionWidget'] = None):
+        super().__init__(parent)
+        self.z_parameters = z_parameters
+        self.parent_widget = parent
+        self.initUI()
+
+    def initUI(self):
+        
+        self.label_header = QLabel("Z-Stack Parameters", self)
+        
+        # Z minimum
+        self.label_zmin = QLabel("Z Min", self)
+        self.doubleSpinBox_zmin = QDoubleSpinBox(self)
+        self.doubleSpinBox_zmin.setRange(-100.0, -0.5)  # ±100 µm range
+        self.doubleSpinBox_zmin.setValue(self.z_parameters.zmin * 1e6)  # Convert m to µm
+        self.doubleSpinBox_zmin.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
+        self.doubleSpinBox_zmin.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
+        self.doubleSpinBox_zmin.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
+        self.doubleSpinBox_zmin.setToolTip("Minimum Z position relative to current position")
+        self.doubleSpinBox_zmin.setKeyboardTracking(False)
+        
+        # Z maximum
+        self.label_zmax = QLabel("Z Max", self)
+        self.doubleSpinBox_zmax = QDoubleSpinBox(self)
+        self.doubleSpinBox_zmax.setRange(0.5, 100.0)  # ±100 µm range
+        self.doubleSpinBox_zmax.setValue(self.z_parameters.zmax * 1e6)  # Convert m to µm
+        self.doubleSpinBox_zmax.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
+        self.doubleSpinBox_zmax.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
+        self.doubleSpinBox_zmax.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
+        self.doubleSpinBox_zmax.setToolTip("Maximum Z position relative to current position")
+        self.doubleSpinBox_zmax.setKeyboardTracking(False)
+        
+        # Z step
+        self.label_zstep = QLabel("Z Step", self)
+        self.doubleSpinBox_zstep = QDoubleSpinBox(self)
+        self.doubleSpinBox_zstep.setRange(0.1, 10.0)  # 0.1 to 10 µm range
+        self.doubleSpinBox_zstep.setValue(self.z_parameters.zstep * 1e6)  # Convert m to µm
+        self.doubleSpinBox_zstep.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
+        self.doubleSpinBox_zstep.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
+        self.doubleSpinBox_zstep.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
+        self.doubleSpinBox_zstep.setToolTip("Step size between Z positions")
+        self.doubleSpinBox_zstep.setKeyboardTracking(False)
+        
+        # Number of planes (calculated, read-only)
+        self.label_num_planes = QLabel("Planes", self)
+        self.label_num_planes_value = QLabel(self._calculate_num_planes(), self)
+        self.label_num_planes_value.setStyleSheet("QLabel { color: #666666; }")
+        
+        # Create the layout
+        layout = QGridLayout()
+        layout.addWidget(self.label_header, 0, 0, 1, 2)
+        layout.addWidget(self.label_zmin, 1, 0)
+        layout.addWidget(self.doubleSpinBox_zmin, 1, 1)
+        layout.addWidget(self.label_zmax, 2, 0)
+        layout.addWidget(self.doubleSpinBox_zmax, 2, 1)
+        layout.addWidget(self.label_zstep, 3, 0)
+        layout.addWidget(self.doubleSpinBox_zstep, 3, 1)
+        layout.addWidget(self.label_num_planes, 4, 0)
+        layout.addWidget(self.label_num_planes_value, 4, 1)
+        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
+        self.setLayout(layout)
+
+        # connect signals
+        self.doubleSpinBox_zmin.valueChanged.connect(self._on_zmin_changed)
+        self.doubleSpinBox_zmax.valueChanged.connect(self._on_zmax_changed)
+        self.doubleSpinBox_zstep.valueChanged.connect(self._on_zstep_changed)
+
+    def _calculate_num_planes(self) -> str:
+        """Calculate the number of planes based on current parameters."""
+        try:
+            z_range = self.z_parameters.zmax - self.z_parameters.zmin
+            if self.z_parameters.zstep <= 0:
+                return "Invalid"
+            num_planes = int(z_range / self.z_parameters.zstep) + 1
+            return f"{num_planes}"
+        except (ValueError, ZeroDivisionError):
+            return "Invalid"
+
+    def _update_num_planes_display(self):
+        """Update the number of planes display."""
+        self.label_num_planes_value.setText(self._calculate_num_planes())
+
+    def _on_zmin_changed(self, value: float):
+        """Handle Z min value change."""
+        self.z_parameters.zmin = value * 1e-6  # Convert µm to m
+        self._update_num_planes_display()
+        
+        # Ensure zmin <= zmax
+        if self.z_parameters.zmin > self.z_parameters.zmax:
+            self.doubleSpinBox_zmax.setValue(value)
+
+    def _on_zmax_changed(self, value: float):
+        """Handle Z max value change."""
+        self.z_parameters.zmax = value * 1e-6  # Convert µm to m
+        self._update_num_planes_display()
+        
+        # Ensure zmax >= zmin
+        if self.z_parameters.zmax < self.z_parameters.zmin:
+            self.doubleSpinBox_zmin.setValue(value)
+
+    def _on_zstep_changed(self, value: float):
+        """Handle Z step value change."""
+        self.z_parameters.zstep = value * 1e-6  # Convert µm to m
+        self._update_num_planes_display()
 
 
 class ObjectiveControlWidget(QWidget):    
@@ -111,6 +226,7 @@ class ObjectiveControlWidget(QWidget):
         layout.addWidget(self.label_objective_step_size, 3, 0)
         layout.addWidget(self.doubleSpinBox_objective_step_size, 3, 1)
         layout.addWidget(self.label_objective_position, 4, 0, 1, 2)
+        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 
         # connect signals
@@ -213,7 +329,7 @@ class ChannelSettingsWidget(QWidget):
 
         # add grid layout
         layout.addWidget(QLabel("Channel"), 0, 0)
-        self.channel_name_input = QLineEdit(self.channel_settings.name)
+        self.channel_name_input = QLineEdit(self.channel_settings.name, self)
         self.channel_name_input.setPlaceholderText("Enter channel name")
         layout.addWidget(self.channel_name_input, 0, 1)
 
@@ -247,6 +363,10 @@ class ChannelSettingsWidget(QWidget):
         self.exposure_time_input.setSingleStep(0.01)
         self.exposure_time_input.setSuffix(" s")
         layout.addWidget(self.exposure_time_input, 4, 1)
+
+        # Set column stretch factors to make widgets expand properly
+        layout.setColumnStretch(0, 1)  # Labels column - expandable
+        layout.setColumnStretch(1, 1)  # Input widgets column - expandable
 
         # connect signals to slots
         self.channel_name_input.textChanged.connect(self.update_channel_name)
@@ -307,6 +427,7 @@ class ChannelSettingsWidget(QWidget):
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
+    zstack_finished_signal = pyqtSignal()
 
     def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, parent=None):
         super().__init__(parent)
@@ -315,6 +436,10 @@ class FMAcquisitionWidget(QWidget):
         self.fm = fm
         self.viewer = viewer
         self.image_layer: Optional[NapariImageLayer] = None  # Placeholder for the image layer
+
+        # Z-stack acquisition threading
+        self._zstack_thread: Optional[threading.Thread] = None
+        self._zstack_stop_event = threading.Event()
 
         self.initUI()
 
@@ -326,6 +451,14 @@ class FMAcquisitionWidget(QWidget):
         # Add objective control widget
         self.objectiveControlWidget = ObjectiveControlWidget(fm=self.fm, parent=self)
         self.objectiveControlWidget.setContentsMargins(0, 0, 0, 0)
+
+        # create z parameters widget
+        z_parameters = ZParameters(
+            zmin=-5e-6,     # -5 µm
+            zmax=5e-6,      # +5 µm
+            zstep=1e-6      # 1 µm step
+        )
+        self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
 
         # create channel settings widget
         channel_settings=ChannelSettings(
@@ -343,15 +476,18 @@ class FMAcquisitionWidget(QWidget):
     
         self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
+        self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
 
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
+        layout.addWidget(self.zParametersWidget)
         layout.addWidget(self.channelSettingsWidget)
 
         # create grid layout for buttons
         button_layout = QGridLayout()
         button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
         button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)  # Span 2 columns
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
@@ -364,10 +500,12 @@ class FMAcquisitionWidget(QWidget):
         self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
         self.pushButton_start_acquisition.clicked.connect(self.start_acquisition)
         self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
+        self.pushButton_acquire_zstack.clicked.connect(self.acquire_zstack)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
         self.update_image_signal.connect(self.update_image)
+        self.zstack_finished_signal.connect(self._on_zstack_finished)
 
         # movement controls
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
@@ -376,6 +514,7 @@ class FMAcquisitionWidget(QWidget):
         # stylesheets
         self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
 
@@ -609,6 +748,71 @@ class FMAcquisitionWidget(QWidget):
 
         self.fm.stop_acquisition()
 
+    def acquire_zstack(self):
+        """Start threaded Z-stack acquisition using the current Z parameters and channel settings."""
+        if self.fm.is_acquiring:
+            logging.warning("Cannot acquire Z-stack while live acquisition is running. Stop acquisition first.")
+            return
+        
+        if self._zstack_thread and self._zstack_thread.is_alive():
+            logging.warning("Z-stack acquisition is already in progress.")
+            return
+        
+        logging.info("Starting Z-stack acquisition")
+        self.pushButton_acquire_zstack.setEnabled(False)
+        self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        
+        # Clear stop event
+        self._zstack_stop_event.clear()
+        
+        # Get current settings
+        channel_settings = self.channelSettingsWidget.channel_settings
+        z_parameters = self.zParametersWidget.z_parameters
+        
+        # Start acquisition thread
+        self._zstack_thread = threading.Thread(
+            target=self._zstack_worker,
+            args=(channel_settings, z_parameters),
+            daemon=True
+        )
+        self._zstack_thread.start()
+    
+    def _zstack_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
+        """Worker thread for Z-stack acquisition."""
+        try:
+            logging.info(f"Acquiring Z-stack with {len(z_parameters.generate_positions(self.fm.objective.position))} planes")
+            logging.info(f"Z parameters: {z_parameters.to_dict()}")
+            
+            # Acquire z-stack
+            zstack_image = acquire_z_stack(
+                microscope=self.fm,
+                channel_settings=channel_settings,
+                zparams=z_parameters
+            )
+            
+            # Check if acquisition was cancelled
+            if self._zstack_stop_event.is_set():
+                logging.info("Z-stack acquisition was cancelled")
+                return
+            
+            # Emit the z-stack image
+            # self.update_image_signal.emit(zstack_image)
+            
+            logging.info("Z-stack acquisition completed successfully")
+            
+        except Exception as e:
+            logging.error(f"Error during Z-stack acquisition: {e}")
+            # TODO: Show error message to user
+            
+        finally:
+            # Signal that Z-stack acquisition is finished (thread-safe)
+            self.zstack_finished_signal.emit()
+    
+    def _on_zstack_finished(self):
+        """Handle Z-stack acquisition completion in the main thread."""
+        self.pushButton_acquire_zstack.setEnabled(True)
+        self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+
     # update methods for live updates
     def _update_exposure_time(self, value: float):
         if self.fm.is_acquiring:
@@ -634,6 +838,8 @@ class FMAcquisitionWidget(QWidget):
     def closeEvent(self, event: QEvent):
         """Handle the close event to stop acquisition."""
         logging.info("Closing FMAcquisitionWidget, stopping acquisition if running.")
+        
+        # Stop live acquisition
         if self.fm.is_acquiring:
             try:
                 self.fm.acquisition_signal.disconnect()
@@ -643,6 +849,15 @@ class FMAcquisitionWidget(QWidget):
                 logging.error(f"Error stopping acquisition: {e}")
             finally:
                 print("Acquisition stopped due to widget close.")
+        
+        # Stop Z-stack acquisition
+        if self._zstack_thread and self._zstack_thread.is_alive():
+            try:
+                self._zstack_stop_event.set()
+                self._zstack_thread.join(timeout=5)  # Wait up to 5 seconds
+                logging.info("Z-stack acquisition stopped due to widget close.")
+            except Exception as e:
+                logging.error(f"Error stopping Z-stack acquisition: {e}")
 
         event.accept()
 
