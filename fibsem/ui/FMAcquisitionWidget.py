@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem.constants import METRE_TO_MILLIMETRE, MILLIMETRE_TO_METRE
-from fibsem.fm.acquisition import acquire_z_stack, acquire_and_stitch_tileset, calculate_grid_coverage_area
+from fibsem.fm.acquisition import acquire_z_stack, acquire_and_stitch_tileset, calculate_grid_coverage_area, acquire_at_positions
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType, Point, FibsemStagePosition
@@ -328,6 +328,201 @@ class OverviewParametersWidget(QWidget):
         return self.overlap
 
 
+class SavedPositionsWidget(QWidget):
+    position_deleted = pyqtSignal(int)  # Signal emitted when a position is deleted (index)
+    position_selected = pyqtSignal(int)  # Signal emitted when a position is selected (index)
+    
+    def __init__(self, parent: Optional['FMAcquisitionWidget'] = None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.initUI()
+
+    def initUI(self):
+        self.label_header = QLabel("Saved Positions", self)
+        
+        # Combobox for selecting saved positions
+        self.label_positions = QLabel("Select Position", self)
+        self.comboBox_positions = QComboBox(self)
+        self.comboBox_positions.setToolTip("Select a saved position from the list")
+        
+        # Buttons for managing positions
+        self.pushButton_goto_position = QPushButton("Go To", self)
+        self.pushButton_goto_position.setToolTip("Move stage to the selected position")
+        self.pushButton_delete_position = QPushButton("Delete", self)
+        self.pushButton_delete_position.setToolTip("Delete the selected position")
+        self.pushButton_clear_all = QPushButton("Clear All", self)
+        self.pushButton_clear_all.setToolTip("Delete all saved positions")
+        
+        # Position info label
+        self.label_position_info = QLabel("No positions saved", self)
+        self.label_position_info.setStyleSheet("QLabel { color: #666666; font-size: 10px; }")
+        self.label_position_info.setWordWrap(True)
+        
+        # Create the layout
+        layout = QGridLayout()
+        layout.addWidget(self.label_header, 0, 0, 1, 3)
+        layout.addWidget(self.label_positions, 1, 0)
+        layout.addWidget(self.comboBox_positions, 1, 1, 1, 2)
+        layout.addWidget(self.pushButton_goto_position, 2, 0)
+        layout.addWidget(self.pushButton_delete_position, 2, 1)
+        layout.addWidget(self.pushButton_clear_all, 2, 2)
+        layout.addWidget(self.label_position_info, 3, 0, 1, 3)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+
+        # Connect signals
+        self.comboBox_positions.currentIndexChanged.connect(self._on_position_selected)
+        self.pushButton_goto_position.clicked.connect(self._goto_selected_position)
+        self.pushButton_delete_position.clicked.connect(self._delete_selected_position)
+        self.pushButton_clear_all.clicked.connect(self._clear_all_positions)
+        
+        # Set initial button states
+        self._update_widget_state()
+        
+        # Set button styles
+        self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+
+    def update_positions(self, positions: List[FibsemStagePosition]):
+        """Update the combobox with current saved positions."""
+        # Store current selection
+        current_text = self.comboBox_positions.currentText()
+        
+        # Clear and repopulate combobox
+        self.comboBox_positions.clear()
+        
+        if not positions:
+            self.comboBox_positions.addItem("No positions saved")
+            self.label_position_info.setText("No positions saved")
+        else:
+            for i, pos in enumerate(positions):
+                display_text = f"{pos.name}" if pos.name else f"Position {i+1}"
+                self.comboBox_positions.addItem(display_text)
+            
+            # Try to restore previous selection
+            current_index = self.comboBox_positions.findText(current_text)
+            if current_index >= 0:
+                self.comboBox_positions.setCurrentIndex(current_index)
+            
+            # Update info for currently selected position
+            self._update_position_info()
+        
+        self._update_widget_state()
+
+    def _update_widget_state(self):
+        """Update button enabled/disabled state based on available positions."""
+        has_positions = self.parent_widget and len(self.parent_widget.stage_positions) > 0
+        
+        self.pushButton_goto_position.setEnabled(has_positions)
+        self.pushButton_delete_position.setEnabled(has_positions)
+        self.pushButton_clear_all.setEnabled(has_positions)
+        self.comboBox_positions.setEnabled(has_positions)
+        
+        if not has_positions:
+            self.pushButton_goto_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_delete_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_clear_all.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        else:
+            self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
+            self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+
+    def _update_position_info(self):
+        """Update the position info label with details of the selected position."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            self.label_position_info.setText("No positions saved")
+            return
+        
+        current_index = self.comboBox_positions.currentIndex()
+        if 0 <= current_index < len(self.parent_widget.stage_positions):
+            pos = self.parent_widget.stage_positions[current_index]
+            info_text = f"X: {pos.x*1e6:.1f} μm, Y: {pos.y*1e6:.1f} μm"
+            if hasattr(pos, 'z') and pos.z is not None:
+                info_text += f", Z: {pos.z*1e6:.1f} μm"
+            self.label_position_info.setText(info_text)
+        else:
+            self.label_position_info.setText("Invalid selection")
+
+    def _on_position_selected(self, index: int):
+        """Handle position selection in combobox."""
+        self._update_position_info()
+        if index >= 0:
+            self.position_selected.emit(index)
+
+    def _goto_selected_position(self):
+        """Move stage to the selected position."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return
+        
+        current_index = self.comboBox_positions.currentIndex()
+        if 0 <= current_index < len(self.parent_widget.stage_positions):
+            position = self.parent_widget.stage_positions[current_index]
+            
+            if self.parent_widget.fm.parent:
+                try:
+                    logging.info(f"Moving to saved position: {position.name} at {position}")
+                    self.parent_widget.fm.parent.move_stage_absolute(position)
+                    self.parent_widget.display_stage_position_overlay()
+                except Exception as e:
+                    logging.error(f"Error moving to position: {e}")
+            else:
+                logging.error("No parent microscope available for stage movement")
+
+    def _delete_selected_position(self):
+        """Delete the selected position."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return
+        
+        current_index = self.comboBox_positions.currentIndex()
+        if 0 <= current_index < len(self.parent_widget.stage_positions):
+            position = self.parent_widget.stage_positions[current_index]
+            
+            # Confirmation dialog
+            from fibsem.ui.utils import message_box_ui
+            ret = message_box_ui(
+                title="Delete Position",
+                text=f"Are you sure you want to delete position '{position.name}'?",
+                parent=self
+            )
+            if ret:
+                # Remove from parent's list
+                del self.parent_widget.stage_positions[current_index]
+                
+                # Update displays
+                self.update_positions(self.parent_widget.stage_positions)
+                self.parent_widget.draw_stage_position_crosshairs()
+                self.parent_widget._update_positions_button()
+                
+                # Emit signal
+                self.position_deleted.emit(current_index)
+                
+                logging.info(f"Deleted saved position: {position.name}")
+
+    def _clear_all_positions(self):
+        """Clear all saved positions."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return
+        
+        # Confirmation dialog
+        from fibsem.ui.utils import message_box_ui
+        ret = message_box_ui(
+            title="Clear All Positions",
+            text=f"Are you sure you want to delete all {len(self.parent_widget.stage_positions)} saved positions?",
+            parent=self
+        )
+        if ret:
+            # Clear parent's list
+            self.parent_widget.stage_positions.clear()
+            
+            # Update displays
+            self.update_positions(self.parent_widget.stage_positions)
+            self.parent_widget.draw_stage_position_crosshairs()
+            self.parent_widget._update_positions_button()
+            
+            logging.info("Cleared all saved positions")
+
+
 class ObjectiveControlWidget(QWidget):    
     def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None):
         super().__init__(parent)
@@ -577,6 +772,7 @@ class FMAcquisitionWidget(QWidget):
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
     zstack_finished_signal = pyqtSignal()
     overview_finished_signal = pyqtSignal()
+    positions_acquisition_finished_signal = pyqtSignal()
 
     def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, parent=None):
         super().__init__(parent)
@@ -594,6 +790,10 @@ class FMAcquisitionWidget(QWidget):
         # Overview acquisition threading
         self._overview_thread: Optional[threading.Thread] = None
         self._overview_stop_event = threading.Event()
+        
+        # Positions acquisition threading
+        self._positions_thread: Optional[threading.Thread] = None
+        self._positions_stop_event = threading.Event()
 
         self.initUI()
         self.display_stage_position_overlay()
@@ -617,6 +817,9 @@ class FMAcquisitionWidget(QWidget):
         
         # create overview parameters widget
         self.overviewParametersWidget = OverviewParametersWidget(parent=self)
+        
+        # create saved positions widget
+        self.savedPositionsWidget = SavedPositionsWidget(parent=self)
 
         # create channel settings widget
         channel_settings=ChannelSettings(
@@ -636,11 +839,13 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
+        self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
 
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
         layout.addWidget(self.zParametersWidget)
         layout.addWidget(self.overviewParametersWidget)
+        layout.addWidget(self.savedPositionsWidget)
         layout.addWidget(self.channelSettingsWidget)
 
         # create grid layout for buttons
@@ -649,6 +854,7 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
         button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)  # Span 2 columns
         button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)  # Span 2 columns
+        button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)  # Span 2 columns
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
@@ -663,6 +869,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_zstack)
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
+        self.pushButton_acquire_at_positions.clicked.connect(self.acquire_at_positions)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
@@ -670,6 +877,7 @@ class FMAcquisitionWidget(QWidget):
         self.update_persistent_image_signal.connect(self.update_persistent_image)
         self.zstack_finished_signal.connect(self._on_zstack_finished)
         self.overview_finished_signal.connect(self._on_overview_finished)
+        self.positions_acquisition_finished_signal.connect(self._on_positions_finished)
 
         # movement controls
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
@@ -681,8 +889,12 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
+        
+        # Initialize positions button state
+        self._update_positions_button()
 
         # draw scale bar
         self.viewer.scale_bar.visible = True
@@ -738,7 +950,7 @@ class FMAcquisitionWidget(QWidget):
         # add to saved positions
 
         # give it a petname
-        import petname, uuid
+        import petname
         num = len(self.stage_positions) + 1
         name = f"{num:02d}-{petname.generate(2)}"
         stage_position.name = name
@@ -747,6 +959,9 @@ class FMAcquisitionWidget(QWidget):
         logging.info(f"Stage position saved: {stage_position}")
         # add crosshair at clicked position
         self.draw_stage_position_crosshairs()
+        # Update positions button and widget
+        self._update_positions_button()
+        self.savedPositionsWidget.update_positions(self.stage_positions)
 
     def on_mouse_double_click(self, viewer, event):
         """Handle double-click events in the napari viewer."""
@@ -761,7 +976,7 @@ class FMAcquisitionWidget(QWidget):
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
         # coords = self.image_layer.world_to_data(event.position)  # PIXEL COORDINATES
-        logging.info(f"-" * 40)
+        logging.info("-" * 40)
         position_clicked = event.position[-2:]  # yx required
         stage_position = FibsemStagePosition(x=position_clicked[1], y=-position_clicked[0])  # yx required
 
@@ -994,6 +1209,98 @@ class FMAcquisitionWidget(QWidget):
                 scale=layer_scale,
                 text=text_properties,
             )
+
+    def _update_positions_button(self):
+        """Update the positions acquisition button text and state based on saved positions."""
+        num_positions = len(self.stage_positions)
+        button_text = f"Acquire at Saved Positions ({num_positions})"
+        self.pushButton_acquire_at_positions.setText(button_text)
+        
+        # Enable/disable button based on whether positions exist
+        if num_positions == 0:
+            self.pushButton_acquire_at_positions.setEnabled(False)
+            self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        else:
+            self.pushButton_acquire_at_positions.setEnabled(True)
+            self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+
+    def acquire_at_positions(self):
+        """Start threaded acquisition at all saved positions."""
+        if self.fm.is_acquiring:
+            logging.warning("Cannot acquire at positions while live acquisition is running. Stop acquisition first.")
+            return
+        
+        if not self.stage_positions:
+            logging.warning("No saved positions available for acquisition.")
+            return
+        
+        if self._positions_thread and self._positions_thread.is_alive():
+            logging.warning("Positions acquisition is already in progress.")
+            return
+        
+        logging.info(f"Starting acquisition at {len(self.stage_positions)} saved positions")
+        self.pushButton_acquire_at_positions.setEnabled(False)
+        self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        
+        # Clear stop event
+        self._positions_stop_event.clear()
+        
+        # Get current settings
+        channel_settings = self.channelSettingsWidget.channel_settings
+        z_parameters = self.zParametersWidget.z_parameters if hasattr(self, 'zParametersWidget') else None
+        
+        # Start acquisition thread
+        self._positions_thread = threading.Thread(
+            target=self._positions_worker,
+            args=(channel_settings, z_parameters),
+            daemon=True
+        )
+        self._positions_thread.start()
+    
+    def _positions_worker(self, channel_settings: ChannelSettings, z_parameters: Optional[ZParameters]):
+        """Worker thread for positions acquisition."""
+        try:
+            logging.info(f"Acquiring at {len(self.stage_positions)} saved positions")
+            
+            # Get the parent microscope for stage movement
+            if self.fm.parent is None:
+                logging.error("FluorescenceMicroscope parent is None. Cannot acquire at positions.")
+                return
+            
+            # Acquire images at all saved positions
+            images = acquire_at_positions(
+                microscope=self.fm.parent,
+                positions=self.stage_positions,
+                channel_settings=channel_settings,
+                zparams=z_parameters,
+                use_autofocus=False
+            )
+            
+            # Check if acquisition was cancelled
+            if self._positions_stop_event.is_set():
+                logging.info("Positions acquisition was cancelled")
+                return
+            
+            # Emit each acquired image
+            for image in images:
+                self.update_persistent_image_signal.emit(image)
+            
+            logging.info(f"Positions acquisition completed successfully. Acquired {len(images)} images.")
+            
+        except Exception as e:
+            logging.error(f"Error during positions acquisition: {e}")
+            # TODO: Show error message to user
+            
+        finally:
+            # Signal that positions acquisition is finished (thread-safe)
+            self.positions_acquisition_finished_signal.emit()
+    
+    def _on_positions_finished(self):
+        """Handle positions acquisition completion in the main thread."""
+        self.pushButton_acquire_at_positions.setEnabled(True)
+        self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        # Update button text in case positions were modified during acquisition
+        self._update_positions_button()
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -1293,6 +1600,15 @@ class FMAcquisitionWidget(QWidget):
                 logging.info("Overview acquisition stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping overview acquisition: {e}")
+        
+        # Stop positions acquisition
+        if self._positions_thread and self._positions_thread.is_alive():
+            try:
+                self._positions_stop_event.set()
+                self._positions_thread.join(timeout=5)  # Wait up to 5 seconds
+                logging.info("Positions acquisition stopped due to widget close.")
+            except Exception as e:
+                logging.error(f"Error stopping positions acquisition: {e}")
 
         event.accept()
 
