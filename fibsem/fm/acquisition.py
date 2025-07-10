@@ -223,7 +223,7 @@ def acquire_tileset(
                 logging.info(f"Stage position for tile [{row+1}/{rows}][{col+1}/{cols}]: {tile_image.metadata.stage_position}")
 
                 if zparams is not None:
-                    tile_image = tile_image.max_intensity_projection(0)
+                    tile_image = tile_image.max_intensity_projection()
                 row_images.append(tile_image)
 
                 # Move to next column position (except for last column)
