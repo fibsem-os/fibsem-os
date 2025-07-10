@@ -1140,229 +1140,127 @@ class FMAcquisitionWidget(QWidget):
                 layer_scale=layer_scale
             )
             
-            # Draw overview area bounding box on separate layer (only if not acquiring)
-            if not self._is_overview_acquiring:
-                self._draw_overview_bounding_box(layer_scale)
-            
-            # Draw single image FOV bounding box on separate layer
-            self._draw_single_image_fov(layer_scale)
-            
-            # Draw FOV bounding boxes for saved positions
-            self._draw_saved_positions_fov(layer_scale)
+            # Draw all FOV bounding boxes on single layer
+            self._draw_fov_boxes(layer_scale)
 
         except Exception as e:
             logging.warning(f"Error drawing stage position crosshairs: {e}")
     
-    def _draw_overview_bounding_box(self, layer_scale: Tuple[float, float]):
-        """Draw overview acquisition area bounding box around current stage position.
+    def _draw_fov_boxes(self, layer_scale: Tuple[float, float]):
+        """Draw all FOV bounding boxes on a single layer.
         
-        Creates a rectangle overlay showing the total area that would be covered by 
-        overview acquisition with current parameters (grid size, overlap, FOV).
+        Creates rectangle overlays for:
+        - Current position single image FOV (magenta)
+        - Overview acquisition area (orange, only if not acquiring)
+        - Saved positions FOV (cyan)
         
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
         """
-        LAYER_NAME = "overview-area"
+        LAYER_NAME = "fov-boxes"
         
         try:
-            # Check if we have the necessary components
-            if not (self.fm.parent and hasattr(self, 'overviewParametersWidget')):
-                # Hide layer if it exists but we can't draw the bounding box
+            # Collect all FOV rectangles and their colors
+            fov_data = self._collect_fov_rectangles(layer_scale)
+            
+            # Update or create the FOV layer
+            if not fov_data["rectangles"]:
+                # Hide layer if no rectangles to display
                 if LAYER_NAME in self.viewer.layers:
                     self.viewer.layers[LAYER_NAME].visible = False
                 return
             
-            current_pos = self.fm.parent.get_stage_position()
-            if not current_pos:
-                # Hide layer if no current position available
-                if LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers[LAYER_NAME].visible = False
-                return
-            
-            # Get overview parameters
-            grid_size = self.overviewParametersWidget.get_grid_size()
-            overlap = self.overviewParametersWidget.get_overlap()
-            
-            # Get FOV from camera
-            fov_x, fov_y = self.fm.camera.field_of_view
-            
-            # Calculate total coverage area
-            total_width, total_height = calculate_grid_coverage_area(
-                ncols=grid_size[1],  # cols
-                nrows=grid_size[0],  # rows
-                fov_x=fov_x,
-                fov_y=fov_y,
-                overlap=overlap
-            )
-            
-            # Create rectangle shape for overview area
-            center_point = Point(x=current_pos.x, y=-current_pos.y)
-            overview_rect = create_rectangle_shape(
-                center_point=center_point,
-                width=total_width,
-                height=total_height,
-                scale=layer_scale
-            )
-            
-            # Update or create the overview area layer
             if LAYER_NAME in self.viewer.layers:
                 # Update existing layer
                 layer = self.viewer.layers[LAYER_NAME]
-                layer.data = [overview_rect]  # Single rectangle
+                layer.data = fov_data["rectangles"]
+                layer.edge_color = fov_data["colors"]
+                layer.edge_width = 10
+                layer.face_color = "transparent"
+                layer.opacity = 0.7
                 layer.visible = True
             else:
                 # Create new layer
                 self.viewer.add_shapes(
-                    data=[overview_rect],  # Single rectangle
+                    data=fov_data["rectangles"],
                     name=LAYER_NAME,
                     shape_type="rectangle",
-                    edge_color="orange",
+                    edge_color=fov_data["colors"],
                     edge_width=10,
                     face_color="transparent",
                     scale=layer_scale,
-                    opacity=0.8,
+                    opacity=0.7,
                 )
                 
         except Exception as e:
-            logging.warning(f"Could not draw overview bounding box: {e}")
-            # Hide layer if drawing fails
+            logging.warning(f"Error drawing FOV boxes: {e}")
             if LAYER_NAME in self.viewer.layers:
                 self.viewer.layers[LAYER_NAME].visible = False
     
+    def _collect_fov_rectangles(self, layer_scale: Tuple[float, float]) -> Dict[str, List]:
+        """Collect all FOV rectangles with their associated colors.
+        
+        Returns:
+            Dictionary containing:
+            - rectangles: List of rectangle arrays for FOV areas
+            - colors: List of color strings for each rectangle
+        """
+        rectangles = []
+        colors = []
+        
+        # Get camera FOV once for all calculations
+        fov_x, fov_y = self.fm.camera.field_of_view
+        
+        # Add current position single image FOV (magenta)
+        if self.fm.parent:
+            current_pos = self.fm.parent.get_stage_position()
+            if current_pos:
+                center_point = Point(x=current_pos.x, y=-current_pos.y)
+                fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+                rectangles.append(fov_rect)
+                colors.append("magenta")
+        
+        # Add overview acquisition area (orange, only if not acquiring)
+        if not self._is_overview_acquiring and self.fm.parent and hasattr(self, 'overviewParametersWidget'):
+            current_pos = self.fm.parent.get_stage_position()
+            if current_pos:
+                # Get overview parameters and calculate total area
+                grid_size = self.overviewParametersWidget.get_grid_size()
+                overlap = self.overviewParametersWidget.get_overlap()
+                
+                total_width, total_height = calculate_grid_coverage_area(
+                    ncols=grid_size[1], nrows=grid_size[0],
+                    fov_x=fov_x, fov_y=fov_y, overlap=overlap
+                )
+                
+                center_point = Point(x=current_pos.x, y=-current_pos.y)
+                overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
+                rectangles.append(overview_rect)
+                colors.append("orange")
+        
+        # Add saved positions FOV (cyan)
+        for saved_pos in self.stage_positions:
+            center_point = Point(x=saved_pos.x, y=-saved_pos.y)
+            fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+            rectangles.append(fov_rect)
+            colors.append("cyan")
+        
+        return {
+            "rectangles": rectangles,
+            "colors": colors
+        }
+    
     def _update_overview_bounding_box(self):
-        """Update the overview bounding box when parameters change."""
+        """Update the FOV boxes when parameters change."""
         # Don't update bounding box during overview acquisition
         if self._is_overview_acquiring:
             return
             
         try:
             layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
-            self._draw_overview_bounding_box(layer_scale)
+            self._draw_fov_boxes(layer_scale)
         except Exception as e:
-            logging.warning(f"Error updating overview bounding box: {e}")
-    
-    def _draw_single_image_fov(self, layer_scale: Tuple[float, float]):
-        """Draw single image field of view bounding box around current stage position.
-        
-        Creates a rectangle overlay showing the area that would be covered by 
-        a single image acquisition with the current camera FOV.
-        
-        Args:
-            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
-        """
-        LAYER_NAME = "single-image-fov"
-        
-        try:
-            # Check if we have the necessary components
-            if not self.fm.parent:
-                # Hide layer if it exists but we can't draw the FOV
-                if LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers[LAYER_NAME].visible = False
-                return
-            
-            current_pos = self.fm.parent.get_stage_position()
-            if not current_pos:
-                # Hide layer if no current position available
-                if LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers[LAYER_NAME].visible = False
-                return
-            
-            # Get FOV from camera
-            fov_x, fov_y = self.fm.camera.field_of_view
-            
-            # Create rectangle shape for single image FOV
-            center_point = Point(x=current_pos.x, y=-current_pos.y)
-            fov_rect = create_rectangle_shape(
-                center_point=center_point,
-                width=fov_x,
-                height=fov_y,
-                scale=layer_scale
-            )
-            
-            # Update or create the single image FOV layer
-            if LAYER_NAME in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[LAYER_NAME]
-                layer.data = [fov_rect]  # Single rectangle
-                layer.visible = True
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=[fov_rect],  # Single rectangle
-                    name=LAYER_NAME,
-                    shape_type="rectangle",
-                    edge_color="magenta",
-                    edge_width=10,
-                    face_color="transparent",
-                    scale=layer_scale,
-                    opacity=0.6,
-                )
-                
-        except Exception as e:
-            logging.warning(f"Could not draw single image FOV: {e}")
-            # Hide layer if drawing fails
-            if LAYER_NAME in self.viewer.layers:
-                self.viewer.layers[LAYER_NAME].visible = False
-    
-    def _draw_saved_positions_fov(self, layer_scale: Tuple[float, float]):
-        """Draw FOV bounding boxes for all saved positions.
-        
-        Creates rectangle overlays showing the area that would be covered by 
-        image acquisition at each saved position with the current camera FOV.
-        
-        Args:
-            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
-        """
-        LAYER_NAME = "saved-positions-fov"
-        
-        try:
-            # Check if we have saved positions
-            if not self.stage_positions:
-                # Hide layer if no saved positions
-                if LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers[LAYER_NAME].visible = False
-                return
-            
-            # Get FOV from camera
-            fov_x, fov_y = self.fm.camera.field_of_view
-            
-            # Create FOV rectangles for each saved position
-            fov_rectangles = []
-            for saved_pos in self.stage_positions:
-                # Convert to napari coordinate convention (y inverted)
-                center_point = Point(x=saved_pos.x, y=-saved_pos.y)
-                fov_rect = create_rectangle_shape(
-                    center_point=center_point,
-                    width=fov_x,
-                    height=fov_y,
-                    scale=layer_scale
-                )
-                fov_rectangles.append(fov_rect)
-            
-            # Update or create the saved positions FOV layer
-            if LAYER_NAME in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[LAYER_NAME]
-                layer.data = fov_rectangles
-                layer.visible = True
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=fov_rectangles,
-                    name=LAYER_NAME,
-                    shape_type="rectangle",
-                    edge_color="cyan",
-                    edge_width=10,
-                    face_color="transparent",
-                    scale=layer_scale,
-                    opacity=0.8,
-                )
-                
-        except Exception as e:
-            logging.warning(f"Could not draw saved positions FOV: {e}")
-            # Hide layer if drawing fails
-            if LAYER_NAME in self.viewer.layers:
-                self.viewer.layers[LAYER_NAME].visible = False
+            logging.warning(f"Error updating FOV boxes: {e}")
     
     def _collect_stage_positions(self) -> Dict[str, List]:
         """Collect all stage positions with their associated colors and labels.
