@@ -449,6 +449,9 @@ class SavedPositionsWidget(QWidget):
         self._update_position_info()
         if index >= 0:
             self.position_selected.emit(index)
+            # Update crosshairs to highlight selected position
+            if self.parent_widget:
+                self.parent_widget.draw_stage_position_crosshairs()
 
     def _goto_selected_position(self):
         """Move stage to the selected position."""
@@ -1144,6 +1147,11 @@ class FMAcquisitionWidget(QWidget):
         colors = []
         labels = []
         
+        # Get currently selected position index from the SavedPositionsWidget
+        selected_index = -1
+        if hasattr(self, 'savedPositionsWidget') and self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
+            selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
+        
         # Add origin position (0,0)
         positions.append(Point(x=0, y=0))
         colors.extend(["red", "red"])  # Red for origin crosshair
@@ -1162,10 +1170,16 @@ class FMAcquisitionWidget(QWidget):
                 logging.warning(f"Could not get current stage position: {e}")
         
         # Add saved positions from user clicks
-        for saved_pos in self.stage_positions:
+        for i, saved_pos in enumerate(self.stage_positions):
             # Convert to napari coordinate convention (y inverted)
             positions.append(Point(x=saved_pos.x, y=-saved_pos.y))
-            colors.extend(["cyan", "cyan"])  # Cyan for saved positions
+            
+            # Use lime for selected position, cyan for others
+            if i == selected_index:
+                colors.extend(["lime", "lime"])  # Lime for selected position
+            else:
+                colors.extend(["cyan", "cyan"])  # Cyan for other saved positions
+                
             labels.extend([saved_pos.name or "saved", ""])  # Use position name or default
         
         return {
