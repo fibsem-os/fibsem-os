@@ -578,6 +578,7 @@ class FMAcquisitionWidget(QWidget):
         self._overview_stop_event = threading.Event()
 
         self.initUI()
+        self.draw_origin_crosshair()
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -701,17 +702,35 @@ class FMAcquisitionWidget(QWidget):
         """Handle double-click events in the napari viewer."""
 
         # no image layer available yet
-        if self.image_layer is None:
+        # if self.image_layer is None:
+            # return
+
+        # only left clicks
+        if event.button != 1:  # Left mouse button
             return
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
+        # coords = self.image_layer.world_to_data(event.position)  # PIXEL COORDINATES
+        logging.info(f"-" * 40)
+        from fibsem.structures import FibsemStagePosition
+        stage_position = FibsemStagePosition(x=event.position[1], y=-event.position[0])  # yx required
+
+        self.fm.parent.move_stage_absolute(stage_position) # TODO: support absolute stable-move
+
+        stage_position = self.fm.parent.get_stage_position()
+        logging.info(f"Stage position after move: {stage_position}")
+
+        self.display_stage_position_overlay()
+        # self.draw_origin_crosshair(point=Point(x=event.position[1], y=event.position[0]), name="clicked-position")  # yx required
+        self.draw_origin_crosshair(point=Point(x=stage_position.x, y=-stage_position.y), name="clicked-position")  # yx required
+        return
         self.image_layer = self.viewer.layers[self.channel_name]
 
         # NOTE: this doesn't matter, as long as the image layer is present
         # TODO: remove this limitation once tested. We should still put a max range?
-        if not is_position_inside_layer(event.position, self.image_layer):
-            logging.warning("Click position is outside the image layer.")
-            return
+        # if not is_position_inside_layer(event.position, self.image_layer):
+        #     logging.warning("Click position is outside the image layer.")
+        #     return
 
         # changed by binning...
         # resolution = self.fm.camera.resolution
@@ -758,17 +777,18 @@ class FMAcquisitionWidget(QWidget):
             logging.warning(f"Error getting stage position: {e}")
             return
 
-        if self.image_layer is None:
-            return
+        # if self.image_layer is None:
+            # return
 
         # add text layer, showing the stage position in cyan
-        pixelsize = self.image_layer.scale
-        if len(pixelsize) == 2:
-            scale_y = pixelsize[0]
-        elif len(pixelsize) == 3:
-            scale_y = pixelsize[1]
+        # pixelsize = self.image_layer.scale
+        # if len(pixelsize) == 2:
+        #     scale_y = pixelsize[0]
+        # elif len(pixelsize) == 3:
+        #     scale_y = pixelsize[1]
+        pixelsize = self.fm.camera.pixel_size[0]  # Assuming square pixels
 
-        points = np.array([[self.image_layer.data.shape[0] * scale_y, 0]])
+        points = np.array([[0, 0]])
         text = {
             "string": [
                 f"STAGE: {to_pretty_string_short(pos)} [{orientation}]"
@@ -777,7 +797,7 @@ class FMAcquisitionWidget(QWidget):
             "color": "white",
             "font_size": 50,
             "anchor": "lower_left",
-            "translation": (5*scale_y, 0),  # Adjust translation if needed
+            "translation": (20*pixelsize, 0),  # Adjust translation if needed
         }
         try:
             self.viewer.layers['stage_position'].data = points
@@ -792,7 +812,7 @@ class FMAcquisitionWidget(QWidget):
                 border_width_is_relative=False,
                 border_color="transparent",
                 face_color="transparent",
-                translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
+                # translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
             )
 
     def draw_crosshair(self):
@@ -837,6 +857,55 @@ class FMAcquisitionWidget(QWidget):
                 translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
             )
 
+    def draw_origin_crosshair(self, point: Point = Point(x=0, y=0), name: str = "origin_crosshair", colour: str = None):
+        """Draw a crosshair at stage coordinates (0,0)."""
+        try:
+            
+            # Simple crosshair at stage origin (0,0)
+            crosshair_size = 50  # 50 pixels in each direction
+            
+            # Create horizontal line at y=0
+            horizontal_line = np.array([
+                [point.y, -crosshair_size],
+                [point.y, crosshair_size]
+            ])
+            
+            # Create vertical line at x=0
+            vertical_line = np.array([
+                [-crosshair_size, point.x],
+                [crosshair_size, point.x]
+            ])
+            
+            # Combine both lines
+            origin_crosshair_lines = [horizontal_line, vertical_line]
+            
+            if name == "origin_crosshair":
+                # Use red for the origin crosshair
+                colour = "red"
+            elif colour is None:
+                # Default colour if not specified
+                colour = "yellow"
+           
+            # Add or update origin crosshair layer
+            try:
+                self.viewer.layers[name].data = origin_crosshair_lines
+                self.viewer.layers[name].translate = (point.y, point.x)  # yx required
+                self.viewer.layers[name].edge_color = colour
+            except KeyError:
+                self.viewer.add_shapes(
+                    data=origin_crosshair_lines,
+                    name=name,
+                    shape_type="line",
+                    edge_color=colour,
+                    edge_width=6,
+                    face_color="transparent",
+                    scale=(self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1]),
+                    translate=(point.y, point.x),  # yx required
+                )
+                
+        except Exception as e:
+            logging.warning(f"Error drawing origin crosshair: {e}")
+
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
@@ -853,11 +922,36 @@ class FMAcquisitionWidget(QWidget):
         wavelength = image.metadata.channels[0].excitation_wavelength
         logging.info(f"Updating image layer with channel name: {channel_name}, wavelength: {wavelength} nm")
 
+        stage_position = image.metadata.stage_position
+
+        from fibsem.structures import FibsemStagePosition
+        from typing import Tuple
+
+        def to_napari_pos(image: np.ndarray, pos: FibsemStagePosition, pixelsize: float) -> Point:
+            """Convert a sample-stage coordinate to a napari image coordinate"""
+            pos2 = Point(
+                x = pos.x - image.shape[1] * pixelsize / 2,
+                        y = -pos.y - image.shape[0] * pixelsize / 2)
+            return pos2
+
+        def from_napari_pos(image: np.ndarray, pos: Point, pixelsize: float) -> FibsemStagePosition:
+            """Convert a napari image coordinate to a sample-stage coordinate"""
+            p = FibsemStagePosition(
+                x = pos.x + image.shape[1] * pixelsize / 2,
+                y = -pos.y - image.shape[0] * pixelsize / 2)
+
+            return p
+
+        # napari coordinate is y down, x right, based at top left
+        # need to offset ssp, by half image size, and invert y
+        pos = to_napari_pos(image.data, stage_position, image.metadata.pixel_size_x)
+
         if channel_name in self.viewer.layers:
             # If the layer already exists, update it
             self.viewer.layers[channel_name].data = image.data
             self.viewer.layers[channel_name].metadata = metadata_dict
             self.viewer.layers[channel_name].colormap = wavelength_to_color(wavelength)
+            self.viewer.layers[channel_name].translate = (pos.y, pos.x)  # Translate to stage position
         else:
             # If the layer does not exist, create a new one
             self.image_layer = self.viewer.add_image(
@@ -866,12 +960,15 @@ class FMAcquisitionWidget(QWidget):
                 metadata=metadata_dict,
                 colormap=wavelength_to_color(wavelength),
                 scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
+                translate=(pos.y, pos.x),  # Translate to stage position
             )
         
         self.channel_name = channel_name
 
         self.display_stage_position_overlay()
-        self.draw_crosshair()
+        # self.draw_crosshair()
+        self.draw_origin_crosshair(point=Point(stage_position.x, -stage_position.y), name="image-position-crosshair", colour="cyan")
+        self.draw_origin_crosshair()
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
@@ -1097,6 +1194,8 @@ class FMAcquisitionWidget(QWidget):
 def main():
 
     microscope, settings = utils.setup_session()
+    # from fibsem.structures import BeamType
+    # microscope.move_flat_to_beam(BeamType.ELECTRON)
     viewer = napari.Viewer()
     widget = FMAcquisitionWidget(fm=microscope.fm, viewer=viewer)
     viewer.window.add_dock_widget(widget, area="right")
