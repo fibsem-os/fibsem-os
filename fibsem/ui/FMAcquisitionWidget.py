@@ -1,6 +1,6 @@
 import logging
 import threading
-from typing import Union, List, Dict, Optional
+from typing import Union, List, Dict, Optional, Tuple
 import napari
 import numpy as np
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
@@ -24,8 +24,7 @@ from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType, Point, FibsemStagePosition
 from fibsem.ui.napari.utilities import (
-    draw_crosshair_in_napari,
-    is_position_inside_layer,
+    create_crosshair_shape,
 )
 from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.stylesheets import (
@@ -597,7 +596,6 @@ class FMAcquisitionWidget(QWidget):
         self._overview_stop_event = threading.Event()
 
         self.initUI()
-        self.draw_crosshair()
         self.display_stage_position_overlay()
 
     def initUI(self):
@@ -748,7 +746,7 @@ class FMAcquisitionWidget(QWidget):
 
         logging.info(f"Stage position saved: {stage_position}")
         # add crosshair at clicked position
-        self.draw_crosshair(point=Point(x=stage_position.x, y=-stage_position.y), name=name, colour="cyan")
+        self.draw_stage_position_crosshairs()
 
     def on_mouse_double_click(self, viewer, event):
         """Handle double-click events in the napari viewer."""
@@ -855,70 +853,147 @@ class FMAcquisitionWidget(QWidget):
                 face_color="transparent",
                 # translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
             )
-        self.draw_crosshair(point=Point(x=pos.x, y=-pos.y), name="stage-position")  # yx required
+        self.draw_stage_position_crosshairs()
 
-    def draw_crosshair(self, point: Point = Point(x=0, y=0), name: str = "origin_crosshair", colour: str = None):
-        """Draw a crosshair at specified stage coordinates.
+    def draw_stage_position_crosshairs(self):
+        """Draw multiple crosshairs showing various stage positions on a single layer.
         
-        Creates a crosshair overlay in the napari viewer at the specified stage position.
-        The crosshair consists of horizontal and vertical lines intersecting at the given point.
+        Creates crosshair overlays in the napari viewer showing:
+        - Origin crosshair (red) at stage coordinates (0,0) 
+        - Current stage position crosshair (yellow)
+        - Saved stage positions crosshairs (cyan) from self.stage_positions list
         
-        Args:
-            point: Stage coordinates where to draw the crosshair. Defaults to origin (0,0).
-            name: Name for the napari layer. Defaults to "origin_crosshair".
-            colour: Color of the crosshair lines. If None, uses red for origin_crosshair 
-                   and yellow for others.
+        Each crosshair consists of horizontal and vertical lines intersecting at the 
+        respective stage position, with text labels for identification.
         
+        Features:
+            - All crosshairs combined on single "stage-position" layer
+            - Color-coded: red (origin), yellow (current), cyan (saved positions)
+            - Text labels showing position names ("origin", "stage-position", custom names)
+            - Automatic coordinate conversion from stage to pixel coordinates
+            - Updates existing layer or creates new one if it doesn't exist
+                   
         Note:
             - Crosshair size is fixed at 50 pixels in each direction
-            - Uses stage coordinate system (not image pixel coordinates)
-            - Updates existing layer if it already exists, creates new one otherwise
+            - Uses stage coordinate system converted to pixel coordinates via camera pixel size
+            - Handles multiple positions dynamically based on self.stage_positions list
+            - Uses create_crosshair_shape() utility function for coordinate conversion
         """
         try:
+            CROSSHAIR_SIZE = 50
+            LAYER_NAME = "stage-position"
             
-            # 50 pixels crosshair size
-            crosshair_size = 50
+            # Get coordinate conversion scale from camera pixel size
+            layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
             
-            # Create horizontal line at y=0
-            horizontal_line = np.array([
-                [point.y, -crosshair_size],
-                [point.y, crosshair_size]
-            ])
+            # Collect all positions to display
+            positions_data = self._collect_stage_positions()
             
-            # Create vertical line at x=0
-            vertical_line = np.array([
-                [-crosshair_size, point.x],
-                [crosshair_size, point.x]
-            ])
-
-            # Combine both lines
-            origin_crosshair_lines = [horizontal_line, vertical_line]
-
-            # Use red for the origin crosshair, yelllow if not specified
-            if name == "origin_crosshair":
-                colour = "red"
-            elif colour is None:
-                colour = "yellow"
-
-            # Add or update origin crosshair layer
-            try:
-                self.viewer.layers[name].data = origin_crosshair_lines
-                self.viewer.layers[name].translate = (point.y, point.x)  # yx required
-                self.viewer.layers[name].edge_color = colour
-            except KeyError:
-                self.viewer.add_shapes(
-                    data=origin_crosshair_lines,
-                    name=name,
-                    shape_type="line",
-                    edge_color=colour,
-                    edge_width=6,
-                    face_color="transparent",
-                    scale=(self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1]),
-                    translate=(point.y, point.x),  # yx required
-                )
+            # Generate crosshair line data for all positions
+            crosshair_lines = []
+            for position in positions_data["positions"]:
+                lines = create_crosshair_shape(position, CROSSHAIR_SIZE, layer_scale)
+                crosshair_lines.extend(lines)
+            
+            # Prepare text properties for labels
+            text_properties = {
+                "string": positions_data["labels"],
+                "color": "white",
+                "font_size": 50,
+                "anchor": "lower_left",
+                "translation": (5, 55),
+            }
+            
+            # Update or create the napari layer
+            self._update_crosshair_layer(
+                layer_name=LAYER_NAME,
+                crosshair_lines=crosshair_lines,
+                colors=positions_data["colors"],
+                text_properties=text_properties,
+                layer_scale=layer_scale
+            )
 
         except Exception as e:
-            logging.warning(f"Error drawing origin crosshair: {e}")
+            logging.warning(f"Error drawing stage position crosshairs: {e}")
+    
+    def _collect_stage_positions(self) -> Dict[str, List]:
+        """Collect all stage positions with their associated colors and labels.
+        
+        Returns:
+            Dictionary containing:
+            - positions: List of Point objects in stage coordinates
+            - colors: List of color strings (2 per position for horizontal/vertical lines)
+            - labels: List of label strings (2 per position, with empty string for spacing)
+        """
+        positions = []
+        colors = []
+        labels = []
+        
+        # Add origin position (0,0)
+        positions.append(Point(x=0, y=0))
+        colors.extend(["red", "red"])  # Red for origin crosshair
+        labels.extend(["origin", ""])  # Label with spacing
+        
+        # Add current stage position if available
+        if self.fm.parent:
+            try:
+                current_pos = self.fm.parent.get_stage_position()
+                if current_pos:
+                    # Convert to napari coordinate convention (y inverted)
+                    positions.append(Point(x=current_pos.x, y=-current_pos.y))
+                    colors.extend(["yellow", "yellow"])  # Yellow for current position
+                    labels.extend(["stage-position", ""])
+            except Exception as e:
+                logging.warning(f"Could not get current stage position: {e}")
+        
+        # Add saved positions from user clicks
+        for saved_pos in self.stage_positions:
+            # Convert to napari coordinate convention (y inverted)
+            positions.append(Point(x=saved_pos.x, y=-saved_pos.y))
+            colors.extend(["cyan", "cyan"])  # Cyan for saved positions
+            labels.extend([saved_pos.name or "saved", ""])  # Use position name or default
+        
+        return {
+            "positions": positions,
+            "colors": colors,
+            "labels": labels
+        }
+    
+    def _update_crosshair_layer(self, layer_name: str, crosshair_lines: List, 
+                               colors: List[str], text_properties: Dict, 
+                               layer_scale: Tuple[float, float]):
+        """Update or create the crosshair layer in napari viewer.
+        
+        Args:
+            layer_name: Name of the napari layer
+            crosshair_lines: List of line arrays for crosshair shapes
+            colors: List of color strings for each line
+            text_properties: Dictionary of text styling properties
+            layer_scale: Tuple of (x_scale, y_scale) for coordinate conversion
+        """
+        if layer_name in self.viewer.layers:
+            # Update existing layer
+            layer = self.viewer.layers[layer_name]
+            layer.data = crosshair_lines
+            # Note: edge_color and text updates may not work with all napari versions
+            try:
+                layer.edge_color = colors
+                layer.edge_width = 6
+                layer.text = text_properties
+            except AttributeError:
+                logging.debug("Could not update layer properties directly")
+        else:
+            # Create new layer
+            self.viewer.add_shapes(
+                data=crosshair_lines,
+                name=layer_name,
+                shape_type="line",
+                edge_color=colors,
+                edge_width=6,
+                face_color="transparent",
+                scale=layer_scale,
+                text=text_properties,
+            )
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -961,7 +1036,6 @@ class FMAcquisitionWidget(QWidget):
         self.channel_name = channel_name
 
         self.display_stage_position_overlay()
-        # self.draw_crosshair(point=Point(stage_position.x, -stage_position.y), name="image-position-crosshair", colour="cyan")
 
     @pyqtSlot(FluorescenceImage)
     def update_persistent_image(self, image: FluorescenceImage):

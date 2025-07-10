@@ -289,3 +289,54 @@ def is_position_inside_layer(position: Tuple[float, float], target_layer) -> boo
             return False
 
     return True
+
+
+def create_crosshair_shape(point: Point, size: int, scale: Optional[Tuple[float, float]] = None) -> List[np.ndarray]:
+    """Create a crosshair shape at the specified point with given size and scale.
+    
+    Generates horizontal and vertical line data for creating a crosshair overlay
+    in napari. The function converts stage coordinates to pixel coordinates using
+    the provided scale factors.
+    
+    Args:
+        point: Stage coordinates where to create the crosshair (x, y in meters)
+        size: Half-length of crosshair arms in pixels (total crosshair span = 2 * size)
+        scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion from meters to pixels (optional).
+               If not provided, defaults to (1, 1)
+        
+    Returns:
+        List of numpy arrays representing crosshair line segments:
+        - [0]: Horizontal line array [[y, x_start], [y, x_end]]
+        - [1]: Vertical line array [[y_start, x], [y_end, x]]
+        
+    Note:
+        - Modifies the input point in-place by converting coordinates to pixel space
+        - Uses napari coordinate convention (y, x) for line endpoints
+        - Scale factors should match camera pixel size for accurate positioning
+        
+    Example:
+        >>> point = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y
+        >>> scale = (1e-6, 1e-6)  # 1μm per pixel
+        >>> crosshair = create_crosshair_shape(point, 25, scale)
+        >>> # Returns 2 line arrays for horizontal and vertical crosshair arms
+    """
+    if scale is None:
+        scale = (1.0, 1.0)
+
+    # Convert stage coordinates to pixel coordinates
+    point.x /= scale[0]  
+    point.y /= scale[1]  
+    
+    # Create horizontal line at point
+    horizontal_line = np.array([
+        [point.y, point.x - size],
+        [point.y, point.x + size]
+    ])
+    
+    # Create vertical line at point
+    vertical_line = np.array([
+        [point.y - size, point.x],
+        [point.y + size, point.x]
+    ])
+
+    return [horizontal_line, vertical_line]
