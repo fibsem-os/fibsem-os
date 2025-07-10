@@ -1238,12 +1238,22 @@ class FMAcquisitionWidget(QWidget):
                 rectangles.append(overview_rect)
                 colors.append("orange")
         
-        # Add saved positions FOV (cyan)
-        for saved_pos in self.stage_positions:
+        # Add saved positions FOV (cyan/lime based on selection)
+        # Get currently selected position index from the SavedPositionsWidget
+        selected_index = -1
+        if hasattr(self, 'savedPositionsWidget') and self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
+            selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
+        
+        for i, saved_pos in enumerate(self.stage_positions):
             center_point = Point(x=saved_pos.x, y=-saved_pos.y)
             fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
             rectangles.append(fov_rect)
-            colors.append("cyan")
+            
+            # Use lime for selected position, cyan for others
+            if i == selected_index:
+                colors.append("lime")  # Lime for selected position
+            else:
+                colors.append("cyan")  # Cyan for other saved positions
         
         return {
             "rectangles": rectangles,
