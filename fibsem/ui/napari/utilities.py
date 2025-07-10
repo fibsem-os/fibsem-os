@@ -340,3 +340,62 @@ def create_crosshair_shape(point: Point, size: int, scale: Optional[Tuple[float,
     ])
 
     return [horizontal_line, vertical_line]
+
+
+def create_rectangle_shape(
+    center_point: Point, 
+    width: float, 
+    height: float, 
+    scale: Optional[Tuple[float, float]] = None
+) -> np.ndarray:
+    """Create a rectangle shape centered at the specified point.
+    
+    Generates rectangle corner coordinates for creating a bounding box overlay
+    in napari. The function converts stage coordinates to pixel coordinates using
+    the provided scale factors.
+    
+    Args:
+        center_point: Stage coordinates for rectangle center (x, y in meters)
+        width: Rectangle width in meters
+        height: Rectangle height in meters  
+        scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion from meters to pixels (optional).
+               If not provided, defaults to (1, 1)
+        
+    Returns:
+        Numpy array of rectangle corner coordinates in napari format:
+        [[y0, x0], [y1, x1], [y2, x2], [y3, x3]] representing the four corners
+        in clockwise order starting from top-left
+        
+    Note:
+        - Modifies the input center_point in-place by converting coordinates to pixel space
+        - Uses napari coordinate convention (y, x) for corner coordinates
+        - Scale factors should match camera pixel size for accurate positioning
+        - Rectangle is axis-aligned (no rotation support)
+        
+    Example:
+        >>> center = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y center
+        >>> scale = (1e-6, 1e-6)  # 1μm per pixel
+        >>> rect = create_rectangle_shape(center, 20e-6, 15e-6, scale)
+        >>> # Returns 4×2 array of corner coordinates for 20×15 μm rectangle
+    """
+    if scale is None:
+        scale = (1.0, 1.0)
+
+    # Convert stage coordinates to pixel coordinates
+    center_x = center_point.x / scale[0]
+    center_y = center_point.y / scale[1]
+    
+    # Convert dimensions to pixels
+    w_px = width / scale[0]
+    h_px = height / scale[1]
+    
+    # Create rectangle corners in napari format (y, x)
+    # Clockwise order starting from top-left
+    corners = np.array([
+        [center_y - h_px/2, center_x - w_px/2],  # Top-left
+        [center_y - h_px/2, center_x + w_px/2],  # Top-right
+        [center_y + h_px/2, center_x + w_px/2],  # Bottom-right
+        [center_y + h_px/2, center_x - w_px/2]   # Bottom-left
+    ])
+    
+    return corners
