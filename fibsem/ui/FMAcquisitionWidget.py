@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem.constants import METRE_TO_MILLIMETRE, MILLIMETRE_TO_METRE
-from fibsem.fm.acquisition import acquire_z_stack
+from fibsem.fm.acquisition import acquire_z_stack, acquire_and_stitch_tileset, calculate_grid_coverage_area
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType, Point
@@ -71,6 +71,16 @@ Z_PARAMETERS_CONFIG = {
     "step_size": 0.1,  # µm
     "decimals": 1,  # number of decimal places
     "suffix": " µm",  # unit suffix
+}
+
+OVERVIEW_PARAMETERS_CONFIG = {
+    "min_grid_size": 1,
+    "max_grid_size": 10,
+    "default_rows": 3,
+    "default_cols": 3,
+    "default_overlap": 0.1,
+    "overlap_step": 0.01,
+    "overlap_decimals": 2,
 }
 
 
@@ -179,6 +189,127 @@ class ZParametersWidget(QWidget):
         """Handle Z step value change."""
         self.z_parameters.zstep = value * 1e-6  # Convert µm to m
         self._update_num_planes_display()
+
+
+class OverviewParametersWidget(QWidget):
+    def __init__(self, parent: Optional['FMAcquisitionWidget'] = None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        
+        # Initialize parameters
+        self.rows = OVERVIEW_PARAMETERS_CONFIG["default_rows"]
+        self.cols = OVERVIEW_PARAMETERS_CONFIG["default_cols"]
+        self.overlap = OVERVIEW_PARAMETERS_CONFIG["default_overlap"]
+        
+        self.initUI()
+
+    def initUI(self):
+        
+        self.label_header = QLabel("Overview Parameters", self)
+        
+        # Number of rows
+        self.label_rows = QLabel("Rows", self)
+        self.spinBox_rows = QSpinBox(self)
+        self.spinBox_rows.setRange(OVERVIEW_PARAMETERS_CONFIG["min_grid_size"], 
+                                   OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
+        self.spinBox_rows.setValue(self.rows)
+        self.spinBox_rows.setToolTip("Number of rows in the overview grid")
+        
+        # Number of columns
+        self.label_cols = QLabel("Columns", self)
+        self.spinBox_cols = QSpinBox(self)
+        self.spinBox_cols.setRange(OVERVIEW_PARAMETERS_CONFIG["min_grid_size"], 
+                                   OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
+        self.spinBox_cols.setValue(self.cols)
+        self.spinBox_cols.setToolTip("Number of columns in the overview grid")
+        
+        # Tile overlap
+        self.label_overlap = QLabel("Overlap", self)
+        self.doubleSpinBox_overlap = QDoubleSpinBox(self)
+        self.doubleSpinBox_overlap.setRange(0.0, 0.9)
+        self.doubleSpinBox_overlap.setValue(self.overlap)
+        self.doubleSpinBox_overlap.setSingleStep(OVERVIEW_PARAMETERS_CONFIG["overlap_step"])
+        self.doubleSpinBox_overlap.setDecimals(OVERVIEW_PARAMETERS_CONFIG["overlap_decimals"])
+        self.doubleSpinBox_overlap.setToolTip("Fraction of overlap between adjacent tiles")
+        self.doubleSpinBox_overlap.setKeyboardTracking(False)
+        
+        # Total area (calculated, read-only)
+        self.label_total_area = QLabel("Total Area", self)
+        self.label_total_area_value = QLabel(self._calculate_total_area(), self)
+        self.label_total_area_value.setStyleSheet("QLabel { color: #666666; }")
+        
+        # Create the layout
+        layout = QGridLayout()
+        layout.addWidget(self.label_header, 0, 0, 1, 2)
+        layout.addWidget(self.label_rows, 1, 0)
+        layout.addWidget(self.spinBox_rows, 1, 1)
+        layout.addWidget(self.label_cols, 2, 0)
+        layout.addWidget(self.spinBox_cols, 2, 1)
+        layout.addWidget(self.label_overlap, 3, 0)
+        layout.addWidget(self.doubleSpinBox_overlap, 3, 1)
+        layout.addWidget(self.label_total_area, 4, 0)
+        layout.addWidget(self.label_total_area_value, 4, 1)
+        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
+        self.setLayout(layout)
+
+        # connect signals
+        self.spinBox_rows.valueChanged.connect(self._on_rows_changed)
+        self.spinBox_cols.valueChanged.connect(self._on_cols_changed)
+        self.doubleSpinBox_overlap.valueChanged.connect(self._on_overlap_changed)
+
+    def _calculate_total_area(self) -> str:
+        """Calculate the total area of the overview grid."""
+        try:
+            if self.parent_widget is None or self.parent_widget.fm is None:
+                return "N/A"
+            
+            # Get FOV dimensions directly from camera
+            fov_x, fov_y = self.parent_widget.fm.camera.field_of_view
+            
+            # Calculate total coverage area using helper function
+            total_width, total_height = calculate_grid_coverage_area(
+                ncols=self.cols,
+                nrows=self.rows,
+                fov_x=fov_x,
+                fov_y=fov_y,
+                overlap=self.overlap
+            )
+            
+            # Convert to micrometers for display
+            width_um = total_width * 1e6
+            height_um = total_height * 1e6
+            
+            return f"{width_um:.1f} × {height_um:.1f} μm"
+            
+        except (ValueError, TypeError, AttributeError) as e:
+            return f"Error: {str(e)}"
+
+    def _update_total_area_display(self):
+        """Update the total area display."""
+        self.label_total_area_value.setText(self._calculate_total_area())
+
+    def _on_rows_changed(self, value: int):
+        """Handle rows value change."""
+        self.rows = value
+        self._update_total_area_display()
+
+    def _on_cols_changed(self, value: int):
+        """Handle columns value change."""
+        self.cols = value
+        self._update_total_area_display()
+
+    def _on_overlap_changed(self, value: float):
+        """Handle overlap value change."""
+        self.overlap = value
+        self._update_total_area_display()
+
+    def get_grid_size(self) -> tuple[int, int]:
+        """Get the current grid size as (rows, cols)."""
+        return (self.rows, self.cols)
+
+    def get_overlap(self) -> float:
+        """Get the current overlap fraction."""
+        return self.overlap
 
 
 class ObjectiveControlWidget(QWidget):    
@@ -428,6 +559,7 @@ class ChannelSettingsWidget(QWidget):
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
     zstack_finished_signal = pyqtSignal()
+    overview_finished_signal = pyqtSignal()
 
     def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, parent=None):
         super().__init__(parent)
@@ -440,6 +572,10 @@ class FMAcquisitionWidget(QWidget):
         # Z-stack acquisition threading
         self._zstack_thread: Optional[threading.Thread] = None
         self._zstack_stop_event = threading.Event()
+        
+        # Overview acquisition threading
+        self._overview_thread: Optional[threading.Thread] = None
+        self._overview_stop_event = threading.Event()
 
         self.initUI()
 
@@ -459,6 +595,9 @@ class FMAcquisitionWidget(QWidget):
             zstep=1e-6      # 1 µm step
         )
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
+        
+        # create overview parameters widget
+        self.overviewParametersWidget = OverviewParametersWidget(parent=self)
 
         # create channel settings widget
         channel_settings=ChannelSettings(
@@ -477,10 +616,12 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
+        self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
 
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
         layout.addWidget(self.zParametersWidget)
+        layout.addWidget(self.overviewParametersWidget)
         layout.addWidget(self.channelSettingsWidget)
 
         # create grid layout for buttons
@@ -488,6 +629,7 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
         button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
         button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)  # Span 2 columns
+        button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)  # Span 2 columns
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
@@ -501,11 +643,13 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition.clicked.connect(self.start_acquisition)
         self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_zstack)
+        self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
         self.update_image_signal.connect(self.update_image)
         self.zstack_finished_signal.connect(self._on_zstack_finished)
+        self.overview_finished_signal.connect(self._on_overview_finished)
 
         # movement controls
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
@@ -515,6 +659,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
 
@@ -569,8 +714,11 @@ class FMAcquisitionWidget(QWidget):
             return
 
         # changed by binning...
-        resolution = self.fm.camera.resolution
-        pixelsize = self.fm.camera.pixel_size[0]
+        # resolution = self.fm.camera.resolution
+        # pixelsize = self.fm.camera.pixel_size[0]
+        resolution = self.image_layer.data.shape[-2:]
+        pixelsize = self.image_layer.scale[-1] if len(self.image_layer.scale) > 0 else self.fm.camera.pixel_size[0]
+        # NOTE: this doesn't work with overview images as they are composited of multiple images
 
         # convert from image coordinates to microscope coordinates
         coords = self.image_layer.world_to_data(event.position)
@@ -614,7 +762,12 @@ class FMAcquisitionWidget(QWidget):
             return
 
         # add text layer, showing the stage position in cyan
-        scale_y, scale_x = self.image_layer.scale
+        pixelsize = self.image_layer.scale
+        if len(pixelsize) == 2:
+            scale_y = pixelsize[0]
+        elif len(pixelsize) == 3:
+            scale_y = pixelsize[1]
+
         points = np.array([[self.image_layer.data.shape[0] * scale_y, 0]])
         text = {
             "string": [
@@ -639,7 +792,7 @@ class FMAcquisitionWidget(QWidget):
                 border_width_is_relative=False,
                 border_color="transparent",
                 face_color="transparent",
-                translate=self.image_layer.translate,
+                translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
             )
 
     def draw_crosshair(self):
@@ -648,7 +801,7 @@ class FMAcquisitionWidget(QWidget):
             return
             
         # Get image dimensions
-        height, width = self.image_layer.data.shape
+        height, width = self.image_layer.data.shape[-2:]
         
         # Calculate center in data coordinates (pixel coordinates)
         center_y = height / 2
@@ -680,8 +833,8 @@ class FMAcquisitionWidget(QWidget):
                 edge_color="yellow",
                 edge_width=2,
                 face_color="transparent",
-                scale=self.image_layer.scale,
-                translate=self.image_layer.translate
+                scale=self.image_layer.scale[-2:] if len(self.image_layer.scale) >= 2 else self.image_layer.scale,
+                translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
             )
 
     # NOTE: not in main thread, so we need to handle signals properly
@@ -813,6 +966,77 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_zstack.setEnabled(True)
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
 
+    def acquire_overview(self):
+        """Start threaded overview acquisition using the current channel settings."""
+        if self.fm.is_acquiring:
+            logging.warning("Cannot acquire overview while live acquisition is running. Stop acquisition first.")
+            return
+        
+        if self._overview_thread and self._overview_thread.is_alive():
+            logging.warning("Overview acquisition is already in progress.")
+            return
+        
+        logging.info("Starting overview acquisition")
+        self.pushButton_acquire_overview.setEnabled(False)
+        self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        
+        # Clear stop event
+        self._overview_stop_event.clear()
+        
+        # Get current settings
+        channel_settings = self.channelSettingsWidget.channel_settings
+        grid_size = self.overviewParametersWidget.get_grid_size()
+        tile_overlap = self.overviewParametersWidget.get_overlap()
+        
+        # Start acquisition thread
+        self._overview_thread = threading.Thread(
+            target=self._overview_worker,
+            args=(channel_settings, grid_size, tile_overlap),
+            daemon=True
+        )
+        self._overview_thread.start()
+    
+    def _overview_worker(self, channel_settings: ChannelSettings, grid_size: tuple[int, int], tile_overlap: float):
+        """Worker thread for overview acquisition."""
+        try:
+            logging.info(f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap")
+            
+            # Get the parent microscope for tileset acquisition
+            if self.fm.parent is None:
+                logging.error("FluorescenceMicroscope parent is None. Cannot acquire overview.")
+                return
+            
+            # Acquire and stitch tileset
+            overview_image = acquire_and_stitch_tileset(
+                microscope=self.fm.parent,
+                channel_settings=channel_settings,
+                grid_size=grid_size,
+                tile_overlap=tile_overlap
+            )
+            
+            # Check if acquisition was cancelled
+            if self._overview_stop_event.is_set():
+                logging.info("Overview acquisition was cancelled")
+                return
+            
+            # Emit the overview image
+            self.update_image_signal.emit(overview_image)
+            
+            logging.info("Overview acquisition completed successfully")
+            
+        except Exception as e:
+            logging.error(f"Error during overview acquisition: {e}")
+            # TODO: Show error message to user
+            
+        finally:
+            # Signal that overview acquisition is finished (thread-safe)
+            self.overview_finished_signal.emit()
+    
+    def _on_overview_finished(self):
+        """Handle overview acquisition completion in the main thread."""
+        self.pushButton_acquire_overview.setEnabled(True)
+        self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+
     # update methods for live updates
     def _update_exposure_time(self, value: float):
         if self.fm.is_acquiring:
@@ -858,6 +1082,15 @@ class FMAcquisitionWidget(QWidget):
                 logging.info("Z-stack acquisition stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping Z-stack acquisition: {e}")
+        
+        # Stop overview acquisition
+        if self._overview_thread and self._overview_thread.is_alive():
+            try:
+                self._overview_stop_event.set()
+                self._overview_thread.join(timeout=5)  # Wait up to 5 seconds
+                logging.info("Overview acquisition stopped due to widget close.")
+            except Exception as e:
+                logging.error(f"Error stopping overview acquisition: {e}")
 
         event.accept()
 
