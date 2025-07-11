@@ -799,6 +799,7 @@ class FMAcquisitionWidget(QWidget):
         # Positions acquisition threading
         self._positions_thread: Optional[threading.Thread] = None
         self._positions_stop_event = threading.Event()
+        self._is_positions_acquiring = False
 
         self.initUI()
         self.draw_stage_position_crosshairs()
@@ -920,7 +921,7 @@ class FMAcquisitionWidget(QWidget):
         # NOTE: scroll wheel events don't seem connected until there is an image layer?
 
         # Check for Ctrl key to control objective position
-        if 'Control' in event.modifiers:
+        if 'Shift' in event.modifiers:
             # TODO: add shift key to change step size?
 
             # Calculate step size based on wheel delta
@@ -1221,7 +1222,7 @@ class FMAcquisitionWidget(QWidget):
                 colors.append("magenta")
         
         # Add overview acquisition area (orange, only if not acquiring)
-        if not self._is_overview_acquiring and self.fm.parent and hasattr(self, 'overviewParametersWidget'):
+        if not self._is_overview_acquiring and not self._is_positions_acquiring and self.fm.parent and hasattr(self, 'overviewParametersWidget'):
             current_pos = self.fm.parent.get_stage_position()
             if current_pos:
                 # Get overview parameters and calculate total area
@@ -1262,8 +1263,8 @@ class FMAcquisitionWidget(QWidget):
     
     def _update_overview_bounding_box(self):
         """Update the FOV boxes when parameters change."""
-        # Don't update bounding box during overview acquisition
-        if self._is_overview_acquiring:
+        # Don't update bounding box during overview or position acquisition
+        if self._is_overview_acquiring or self._is_positions_acquiring:
             return
             
         try:
@@ -1394,6 +1395,9 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_at_positions.setEnabled(False)
         self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         
+        # Set positions acquisition flag to prevent FOV updates
+        self._is_positions_acquiring = True
+        
         # Clear stop event
         self._positions_stop_event.clear()
         
@@ -1451,8 +1455,11 @@ class FMAcquisitionWidget(QWidget):
         """Handle positions acquisition completion in the main thread."""
         self.pushButton_acquire_at_positions.setEnabled(True)
         self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self._is_positions_acquiring = False
         # Update button text in case positions were modified during acquisition
         self._update_positions_button()
+        # Re-display overview FOV now that acquisition is complete
+        self._update_overview_bounding_box()
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -1701,6 +1708,8 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_overview.setEnabled(True)
         self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self._is_overview_acquiring = False
+        # Re-display overview FOV now that acquisition is complete
+        self._update_overview_bounding_box()
 
     # update methods for live updates
     def _update_exposure_time(self, value: float):
@@ -1765,6 +1774,10 @@ class FMAcquisitionWidget(QWidget):
                 logging.info("Positions acquisition stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping positions acquisition: {e}")
+        
+        # Reset acquisition flags
+        self._is_overview_acquiring = False
+        self._is_positions_acquiring = False
 
         event.accept()
 
