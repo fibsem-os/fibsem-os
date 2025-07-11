@@ -849,6 +849,7 @@ class FMAcquisitionWidget(QWidget):
         # Z-stack acquisition threading
         self._zstack_thread: Optional[threading.Thread] = None
         self._zstack_stop_event = threading.Event()
+        self._is_zstack_acquiring = False
         
         # Overview acquisition threading
         self._overview_thread: Optional[threading.Thread] = None
@@ -868,6 +869,18 @@ class FMAcquisitionWidget(QWidget):
         self.initUI()
         self.draw_stage_position_crosshairs()
         self.display_stage_position_overlay()
+
+    @property
+    def is_acquisition_active(self) -> bool:
+        """Check if any acquisition or operation is currently running.
+        
+        Returns:
+            True if any acquisition (overview, z-stack, positions) or autofocus is active
+        """
+        return (self._is_overview_acquiring or 
+                self._is_zstack_acquiring or 
+                self._is_positions_acquiring or 
+                self._is_autofocus_running)
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -994,6 +1007,12 @@ class FMAcquisitionWidget(QWidget):
         if self.image_layer is None:
             return
         
+        # Prevent objective movement during acquisitions
+        if self.is_acquisition_active:
+            logging.info("Objective movement disabled during acquisition")
+            event.handled = True
+            return
+        
         # NOTE: scroll wheel events don't seem connected until there is an image layer?
 
         # Check for Ctrl key to control objective position
@@ -1060,6 +1079,12 @@ class FMAcquisitionWidget(QWidget):
 
         # only left clicks
         if event.button != 1:  # Left mouse button
+            return
+
+        # Prevent stage movement during acquisitions
+        if self.is_acquisition_active:
+            logging.info("Stage movement disabled during acquisition")
+            event.handled = True
             return
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
@@ -1816,6 +1841,9 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_zstack.setEnabled(False)
         self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         
+        # Set z-stack acquisition flag
+        self._is_zstack_acquiring = True
+        
         # Clear stop event
         self._zstack_stop_event.clear()
         
@@ -1877,6 +1905,9 @@ class FMAcquisitionWidget(QWidget):
         """Handle Z-stack acquisition completion in the main thread."""
         self.pushButton_acquire_zstack.setEnabled(True)
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        
+        # Clear z-stack acquisition flag
+        self._is_zstack_acquiring = False
 
     def acquire_overview(self):
         """Start threaded overview acquisition using the current channel settings."""
@@ -2057,6 +2088,7 @@ class FMAcquisitionWidget(QWidget):
         # Reset acquisition flags
         self._is_overview_acquiring = False
         self._is_positions_acquiring = False
+        self._is_zstack_acquiring = False
         self._is_autofocus_running = False
 
         event.accept()
