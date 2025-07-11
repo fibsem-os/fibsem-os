@@ -6,6 +6,7 @@ import numpy as np
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
@@ -220,6 +221,7 @@ class OverviewParametersWidget(QWidget):
         self.rows = OVERVIEW_PARAMETERS_CONFIG["default_rows"]
         self.cols = OVERVIEW_PARAMETERS_CONFIG["default_cols"]
         self.overlap = OVERVIEW_PARAMETERS_CONFIG["default_overlap"]
+        self.use_zstack = False
         
         self.initUI()
 
@@ -253,6 +255,11 @@ class OverviewParametersWidget(QWidget):
         self.doubleSpinBox_overlap.setToolTip("Fraction of overlap between adjacent tiles")
         self.doubleSpinBox_overlap.setKeyboardTracking(False)
         
+        # Z-stack checkbox
+        self.checkBox_use_zstack = QCheckBox("Use Z-Stack", self)
+        self.checkBox_use_zstack.setChecked(self.use_zstack)
+        self.checkBox_use_zstack.setToolTip("Acquire z-stacks at each tile position using current Z parameters")
+        
         # Total area (calculated, read-only)
         self.label_total_area = QLabel("Total Area", self)
         self.label_total_area_value = QLabel(self._calculate_total_area(), self)
@@ -267,8 +274,9 @@ class OverviewParametersWidget(QWidget):
         layout.addWidget(self.spinBox_cols, 2, 1)
         layout.addWidget(self.label_overlap, 3, 0)
         layout.addWidget(self.doubleSpinBox_overlap, 3, 1)
-        layout.addWidget(self.label_total_area, 4, 0)
-        layout.addWidget(self.label_total_area_value, 4, 1)
+        layout.addWidget(self.checkBox_use_zstack, 4, 0, 1, 2)  # Span both columns
+        layout.addWidget(self.label_total_area, 5, 0)
+        layout.addWidget(self.label_total_area_value, 5, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 
@@ -276,6 +284,7 @@ class OverviewParametersWidget(QWidget):
         self.spinBox_rows.valueChanged.connect(self._on_rows_changed)
         self.spinBox_cols.valueChanged.connect(self._on_cols_changed)
         self.doubleSpinBox_overlap.valueChanged.connect(self._on_overlap_changed)
+        self.checkBox_use_zstack.stateChanged.connect(self._on_zstack_changed)
 
     def _calculate_total_area(self) -> str:
         """Calculate the total area of the overview grid."""
@@ -330,6 +339,14 @@ class OverviewParametersWidget(QWidget):
     def get_overlap(self) -> float:
         """Get the current overlap fraction."""
         return self.overlap
+    
+    def get_use_zstack(self) -> bool:
+        """Get whether to use z-stack acquisition."""
+        return self.use_zstack
+    
+    def _on_zstack_changed(self, state: int):
+        """Handle z-stack checkbox change."""
+        self.use_zstack = state == 2  # Qt.Checked
 
 
 class SavedPositionsWidget(QWidget):
@@ -1836,19 +1853,24 @@ class FMAcquisitionWidget(QWidget):
         channel_settings = self.channelSettingsWidget.channel_settings
         grid_size = self.overviewParametersWidget.get_grid_size()
         tile_overlap = self.overviewParametersWidget.get_overlap()
+        use_zstack = self.overviewParametersWidget.get_use_zstack()
+        z_parameters = self.zParametersWidget.z_parameters if use_zstack else None
         
         # Start acquisition thread
         self._overview_thread = threading.Thread(
             target=self._overview_worker,
-            args=(channel_settings, grid_size, tile_overlap),
+            args=(channel_settings, grid_size, tile_overlap, z_parameters),
             daemon=True
         )
         self._overview_thread.start()
     
-    def _overview_worker(self, channel_settings: ChannelSettings, grid_size: tuple[int, int], tile_overlap: float):
+    def _overview_worker(self, channel_settings: ChannelSettings, grid_size: tuple[int, int], tile_overlap: float, z_parameters: Optional[ZParameters]):
         """Worker thread for overview acquisition."""
         try:
-            logging.info(f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap")
+            if z_parameters:
+                logging.info(f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap, with z-stacks")
+            else:
+                logging.info(f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap")
             
             # Get the parent microscope for tileset acquisition
             if self.fm.parent is None:
@@ -1860,7 +1882,8 @@ class FMAcquisitionWidget(QWidget):
                 microscope=self.fm.parent,
                 channel_settings=channel_settings,
                 grid_size=grid_size,
-                tile_overlap=tile_overlap
+                tile_overlap=tile_overlap,
+                zparams=z_parameters
             )
             
             # Check if acquisition was cancelled
