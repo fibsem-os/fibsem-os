@@ -1177,15 +1177,29 @@ class FMAcquisitionWidget(QWidget):
                     self.viewer.layers[LAYER_NAME].visible = False
                 return
             
+            # Prepare text properties for labels
+            text_properties = {
+                "string": fov_data["labels"],
+                "color": "white",
+                "font_size": 50,
+                "anchor": "upper_left",
+                "translation": (5, 5),
+            }
+            
             if LAYER_NAME in self.viewer.layers:
                 # Update existing layer
                 layer = self.viewer.layers[LAYER_NAME]
                 layer.data = fov_data["rectangles"]
                 layer.edge_color = fov_data["colors"]
-                layer.edge_width = 10
+                layer.edge_width = 30
                 layer.face_color = "transparent"
                 layer.opacity = 0.7
                 layer.visible = True
+                # Try to update text properties
+                try:
+                    layer.text = text_properties
+                except AttributeError:
+                    logging.debug("Could not update text properties for FOV layer")
             else:
                 # Create new layer
                 self.viewer.add_shapes(
@@ -1193,10 +1207,11 @@ class FMAcquisitionWidget(QWidget):
                     name=LAYER_NAME,
                     shape_type="rectangle",
                     edge_color=fov_data["colors"],
-                    edge_width=10,
+                    edge_width=30,
                     face_color="transparent",
                     scale=layer_scale,
                     opacity=0.7,
+                    text=text_properties,
                 )
                 
         except Exception as e:
@@ -1211,9 +1226,11 @@ class FMAcquisitionWidget(QWidget):
             Dictionary containing:
             - rectangles: List of rectangle arrays for FOV areas
             - colors: List of color strings for each rectangle
+            - labels: List of text labels for each rectangle
         """
         rectangles = []
         colors = []
+        labels = []
         
         # Get camera FOV once for all calculations
         fov_x, fov_y = self.fm.camera.field_of_view
@@ -1226,6 +1243,7 @@ class FMAcquisitionWidget(QWidget):
                 fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
                 rectangles.append(fov_rect)
                 colors.append("magenta")
+                labels.append("Current FOV")
         
         # Add overview acquisition area (orange, only if not acquiring)
         if not self._is_overview_acquiring and not self._is_positions_acquiring and self.fm.parent and hasattr(self, 'overviewParametersWidget'):
@@ -1244,6 +1262,15 @@ class FMAcquisitionWidget(QWidget):
                 overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
                 rectangles.append(overview_rect)
                 colors.append("orange")
+                labels.append(f"Overview {grid_size[0]}×{grid_size[1]}")
+        
+        # Add 1mm bounding box around origin (yellow)
+        origin_point = Point(x=0, y=0)
+        origin_size = 0.8e-3  # 0.8mm in meters
+        origin_rect = create_rectangle_shape(origin_point, origin_size, origin_size, layer_scale)
+        rectangles.append(origin_rect)
+        colors.append("yellow")
+        labels.append("Stage Limits")
         
         # Add saved positions FOV (cyan/lime based on selection)
         # Get currently selected position index from the SavedPositionsWidget
@@ -1261,10 +1288,15 @@ class FMAcquisitionWidget(QWidget):
                 colors.append("lime")  # Lime for selected position
             else:
                 colors.append("cyan")  # Cyan for other saved positions
+            
+            # Add label with position name
+            pos_name = saved_pos.name if saved_pos.name else f"Pos {i+1}"
+            labels.append(pos_name)
         
         return {
             "rectangles": rectangles,
-            "colors": colors
+            "colors": colors,
+            "labels": labels
         }
     
     def _update_overview_bounding_box(self):
@@ -1325,8 +1357,8 @@ class FMAcquisitionWidget(QWidget):
             else:
                 colors.extend(["cyan", "cyan"])  # Cyan for other saved positions
                 
-            labels.extend([saved_pos.name or "saved", ""])  # Use position name or default
-        
+            # labels.extend([saved_pos.name or "saved", ""])  # Use position name or default
+            labels.extend(["", ""])
         return {
             "positions": positions,
             "colors": colors,
@@ -1352,7 +1384,7 @@ class FMAcquisitionWidget(QWidget):
             # Note: edge_color and text updates may not work with all napari versions
             try:
                 layer.edge_color = colors
-                layer.edge_width = 6
+                layer.edge_width = 12
                 layer.text = text_properties
             except AttributeError:
                 logging.debug("Could not update layer properties directly")
@@ -1363,7 +1395,7 @@ class FMAcquisitionWidget(QWidget):
                 name=layer_name,
                 shape_type="line",
                 edge_color=colors,
-                edge_width=6,
+                edge_width=12,
                 face_color="transparent",
                 scale=layer_scale,
                 text=text_properties,
