@@ -28,6 +28,7 @@ from fibsem.structures import BeamType, Point, FibsemStagePosition
 from fibsem.ui.napari.utilities import (
     create_crosshair_shape,
     create_rectangle_shape,
+    create_circle_shape,
 )
 from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.stylesheets import (
@@ -1149,6 +1150,9 @@ class FMAcquisitionWidget(QWidget):
             
             # Draw all FOV bounding boxes on single layer
             self._draw_fov_boxes(layer_scale)
+            
+            # Draw all circle overlays on single layer
+            self._draw_circle_overlays(layer_scale)
 
         except Exception as e:
             logging.warning(f"Error drawing stage position crosshairs: {e}")
@@ -1310,6 +1314,107 @@ class FMAcquisitionWidget(QWidget):
             self._draw_fov_boxes(layer_scale)
         except Exception as e:
             logging.warning(f"Error updating FOV boxes: {e}")
+    
+    def _draw_circle_overlays(self, layer_scale: Tuple[float, float]):
+        """Draw circle overlays on a single layer.
+        
+        Args:
+            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
+        """
+        LAYER_NAME = "circle-overlays"
+        
+        try:
+            # Collect all circle overlays and their colors
+            circle_data = self._collect_circle_overlays(layer_scale)
+            
+            # Update or create the circle layer
+            if not circle_data["circles"]:
+                # Hide layer if no circles to display
+                if LAYER_NAME in self.viewer.layers:
+                    self.viewer.layers[LAYER_NAME].visible = False
+                return
+            
+            # Prepare text properties for labels
+            text_properties = {
+                "string": circle_data["labels"],
+                "color": "white",
+                "font_size": 50,
+                "anchor": "upper_left",
+                "translation": (5, 5),
+            }
+            
+            if LAYER_NAME in self.viewer.layers:
+                # Update existing layer
+                layer = self.viewer.layers[LAYER_NAME]
+                layer.data = circle_data["circles"]
+                layer.edge_color = circle_data["colors"]
+                layer.edge_width = 40
+                layer.face_color = "transparent"
+                layer.opacity = 0.7
+                layer.visible = True
+                # Try to update text properties
+                try:
+                    layer.text = text_properties
+                except AttributeError:
+                    logging.debug("Could not update text properties for circle layer")
+            else:
+                # Create new layer
+                self.viewer.add_shapes(
+                    data=circle_data["circles"],
+                    name=LAYER_NAME,
+                    shape_type="polygon",
+                    edge_color=circle_data["colors"],
+                    edge_width=40,
+                    face_color="transparent",
+                    scale=layer_scale,
+                    opacity=0.7,
+                    text=text_properties,
+                )
+                
+        except Exception as e:
+            logging.warning(f"Error drawing circle overlays: {e}")
+            if LAYER_NAME in self.viewer.layers:
+                self.viewer.layers[LAYER_NAME].visible = False
+    
+    def _collect_circle_overlays(self, layer_scale: Tuple[float, float]) -> Dict[str, List]:
+        """Collect all circle overlays with their associated colors and labels.
+        
+        Args:
+            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
+            
+        Returns:
+            Dictionary containing:
+            - circles: List of circle arrays
+            - colors: List of color strings for each circle
+            - labels: List of text labels for each circle
+        """
+        circles = []
+        colors = []
+        labels = []
+        
+        # Example: Add a circle at origin with 100μm radius
+        origin_point = Point(x=0, y=0)
+        origin_radius = 1000e-6  # 100μm in meters
+        origin_circle = create_circle_shape(origin_point, origin_radius, layer_scale)
+        circles.append(origin_circle)
+        colors.append("red")
+        labels.append("Origin Circle")
+        
+        # You can add more circles here by following the same pattern
+        # Example: Add circles at saved positions
+        # for i, saved_pos in enumerate(self.stage_positions):
+        #     circle_point = Point(x=saved_pos.x, y=-saved_pos.y)
+        #     circle_radius = 50e-6  # 50μm radius
+        #     circle_shape = create_circle_shape(circle_point, circle_radius, layer_scale)
+        #     circles.append(circle_shape)
+        #     colors.append("blue")
+        #     labels.append(f"Circle {i+1}")
+        
+        return {
+            "circles": circles,
+            "colors": colors,
+            "labels": labels
+        }
     
     def _collect_stage_positions(self) -> Dict[str, List]:
         """Collect all stage positions with their associated colors and labels.

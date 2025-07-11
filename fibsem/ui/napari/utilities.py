@@ -399,3 +399,58 @@ def create_rectangle_shape(
     ])
     
     return corners
+
+
+def create_circle_shape(
+    center_point: Point, 
+    radius: float, 
+    scale: Optional[Tuple[float, float]] = None,
+    num_points: int = 64
+) -> np.ndarray:
+    """Create a circle shape centered at the specified point.
+    
+    Generates circle points for creating a circular overlay in napari. The function 
+    converts stage coordinates to pixel coordinates using the provided scale factors.
+    
+    Args:
+        center_point: Stage coordinates for circle center (x, y in meters)
+        radius: Circle radius in meters
+        scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion from meters to pixels (optional).
+               If not provided, defaults to (1, 1)
+        num_points: Number of points to use for circle approximation (default: 64)
+        
+    Returns:
+        Numpy array of circle points in napari format:
+        [[y0, x0], [y1, x1], ...] representing points around the circle circumference
+        
+    Note:
+        - Modifies the input center_point in-place by converting coordinates to pixel space
+        - Uses napari coordinate convention (y, x) for point coordinates
+        - Scale factors should match camera pixel size for accurate positioning
+        - Circle is approximated using regular polygon with num_points vertices
+        
+    Example:
+        >>> center = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y center
+        >>> scale = (1e-6, 1e-6)  # 1μm per pixel
+        >>> circle = create_circle_shape(center, 5e-6, scale)
+        >>> # Returns array of points for 5μm radius circle
+    """
+    if scale is None:
+        scale = (1.0, 1.0)
+
+    # Convert stage coordinates to pixel coordinates
+    center_x = center_point.x / scale[0]
+    center_y = center_point.y / scale[1]
+    
+    # Convert radius to pixels
+    radius_px = radius / scale[0]  # Assume square pixels for simplicity
+    
+    # Generate circle points
+    angles = np.linspace(0, 2*np.pi, num_points, endpoint=False)
+    x_points = center_x + radius_px * np.cos(angles)
+    y_points = center_y + radius_px * np.sin(angles)
+    
+    # Create circle points in napari format (y, x)
+    circle_points = np.column_stack([y_points, x_points])
+    
+    return circle_points
