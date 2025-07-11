@@ -1929,6 +1929,11 @@ class FMAcquisitionWidget(QWidget):
                 logging.error("FluorescenceMicroscope parent is None. Cannot acquire overview.")
                 return
             
+            # Create timestamp and subdirectory for tiles
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            tiles_directory = os.path.join(self.experiment_path, f"overview-{timestamp}")
+            os.makedirs(tiles_directory, exist_ok=True)
+            
             # Acquire and stitch tileset
             overview_image = acquire_and_stitch_tileset(
                 microscope=self.fm.parent,
@@ -1936,7 +1941,8 @@ class FMAcquisitionWidget(QWidget):
                 grid_size=grid_size,
                 tile_overlap=tile_overlap,
                 zparams=z_parameters,
-                autofocus_mode=autofocus_mode
+                autofocus_mode=autofocus_mode,
+                save_directory=tiles_directory
             )
             
             # Check if acquisition was cancelled
@@ -1945,7 +1951,6 @@ class FMAcquisitionWidget(QWidget):
                 return
             
             # Save overview to experiment directory
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"overview-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
             

@@ -1,4 +1,5 @@
 import logging
+import os
 from copy import deepcopy
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
@@ -154,6 +155,7 @@ def acquire_tileset(
     autofocus_mode: AutofocusMode = AutofocusMode.NONE,
     autofocus_channel: Optional[ChannelSettings] = None,
     autofocus_zparams: Optional[ZParameters] = None,
+    save_directory: Optional[str] = None,
 ) -> List[List[FluorescenceImage]]:
     """Acquire a tileset of fluorescence images across a grid pattern.
     
@@ -176,6 +178,7 @@ def acquire_tileset(
                        - EACH_TILE: Auto-focus at each tile position
         autofocus_channel: Channel settings to use for auto-focus (uses first channel if None)
         autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
+        save_directory: Optional directory path to save individual tile images (default: None)
         
     Returns:
         List of lists containing FluorescenceImage objects organized as [row][col]
@@ -291,8 +294,20 @@ def acquire_tileset(
                 tile_image = acquire_image(microscope.fm, channel_settings, zparams)
                 logging.info(f"Stage position for tile [{row+1}/{rows}][{col+1}/{cols}]: {tile_image.metadata.stage_position}")
 
+                # Save individual tile if save_directory is provided
+                if save_directory is not None:
+                    tile_filename = f"tile-{row:02d}-{col:02d}.ome.tiff"
+                    tile_path = os.path.join(save_directory, tile_filename)
+                    try:
+                        tile_image.save(tile_path)
+                        logging.info(f"Saved tile [{row+1}/{rows}][{col+1}/{cols}] to {tile_path}")
+                    except Exception as e:
+                        logging.error(f"Failed to save tile [{row+1}/{rows}][{col+1}/{cols}]: {e}")
+                
+                # max intensity projection if zparams is provided
                 if zparams is not None:
                     tile_image = tile_image.max_intensity_projection()
+                
                 row_images.append(tile_image)
 
                 # Move to next column position (except for last column)
@@ -379,7 +394,7 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
     for row in range(rows):
         for col in range(cols):
             tile = tileset[row][col]
-            
+
             # Calculate position in mosaic
             y_start = row * effective_tile_height
             x_start = col * effective_tile_width
@@ -471,6 +486,7 @@ def acquire_and_stitch_tileset(
     autofocus_mode: AutofocusMode = AutofocusMode.NONE,
     autofocus_channel: Optional[ChannelSettings] = None,
     autofocus_zparams: Optional[ZParameters] = None,
+    save_directory: Optional[str] = None,
 ) -> FluorescenceImage:
     """Acquire a tileset and stitch it into a single mosaic image.
     
@@ -484,6 +500,7 @@ def acquire_and_stitch_tileset(
         autofocus_mode: Auto-focus mode for tileset acquisition (default: NONE)
         autofocus_channel: Channel settings to use for auto-focus (uses main channel if None)
         autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
+        save_directory: Optional directory path to save individual tile images (default: None)
         
     Returns:
         Single stitched FluorescenceImage
@@ -505,6 +522,7 @@ def acquire_and_stitch_tileset(
         autofocus_mode=autofocus_mode,
         autofocus_channel=autofocus_channel,
         autofocus_zparams=autofocus_zparams,
+        save_directory=save_directory,
     )
     
     return stitch_tileset(tileset, tile_overlap)
