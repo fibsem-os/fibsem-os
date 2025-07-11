@@ -4,6 +4,7 @@ from typing import Union, List, Dict, Optional, Tuple
 import napari
 import numpy as np
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -11,6 +12,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QShortcut,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -890,6 +892,10 @@ class FMAcquisitionWidget(QWidget):
         self.zstack_finished_signal.connect(self._on_zstack_finished)
         self.overview_finished_signal.connect(self._on_overview_finished)
         self.positions_acquisition_finished_signal.connect(self._on_positions_finished)
+        
+        # Setup keyboard shortcuts
+        self.f6_shortcut = QShortcut(QKeySequence("F6"), self)
+        self.f6_shortcut.activated.connect(self.toggle_acquisition)
 
         # movement controls
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
@@ -1568,6 +1574,15 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
         self.fm.stop_acquisition()
+
+    def toggle_acquisition(self):
+        """Toggle acquisition start/stop with F6 key."""
+        if self.fm.is_acquiring:
+            logging.info("F6 pressed: Stopping acquisition")
+            self.stop_acquisition()
+        else:
+            logging.info("F6 pressed: Starting acquisition")
+            self.start_acquisition()
 
     def acquire_zstack(self):
         """Start threaded Z-stack acquisition using the current Z parameters and channel settings."""
