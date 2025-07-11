@@ -1,6 +1,7 @@
 import logging
 import os
 from copy import deepcopy
+from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -98,6 +99,7 @@ def acquire_at_positions(
     channel_settings: Union[ChannelSettings, List[ChannelSettings]], 
     zparams: Optional[ZParameters] = None,
     use_autofocus: bool = False,
+    save_directory: Optional[str] = None,
     ) -> List[FluorescenceImage]:
     """Acquire fluorescence images at specified stage positions.
     This function moves the stage to each specified position and acquires images
@@ -109,16 +111,20 @@ def acquire_at_positions(
         channel_settings: Single channel or list of channels to acquire
         zparams: ZParameters for Z-stack acquisition (optional)
         use_autofocus: Whether to run autofocus at each position (default: False)
+        save: Whether to save images to disk (default: False)
+        save_directory: Directory to save images in. If provided with save=True, 
+                       creates subdirectories for each position (default: None)
     Returns:
         List of FluorescenceImage objects containing the acquired images
     Raises:
         ValueError: If positions is empty or contains invalid stage positions
     Example:
-        >>> positions = [FibsemStagePosition(x=0, y=0, z=0),
-        ...             FibsemStagePosition(x=10e-6, y=0, z=0)]
+        >>> positions = [FibsemStagePosition(x=0, y=0, z=0, name="pos1"),
+        ...             FibsemStagePosition(x=10e-6, y=0, z=0, name="pos2")]
         >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365, 
         ...                          emission_wavelength=450, power=50, exposure_time=0.1)
-        >>> images = acquire_at_positions(microscope, positions, channel)
+        >>> images = acquire_at_positions(microscope, positions, channel, 
+        ...                              save=True, save_directory="/data/experiment")
     """ 
     if not positions:
         raise ValueError("Positions list cannot be empty")
@@ -127,7 +133,7 @@ def acquire_at_positions(
 
     images: List[FluorescenceImage] = []
     for i, pos in enumerate(positions):
-        logging.info(f"Moving to position {i}/{len(positions)}: {pos}")
+        logging.info(f"Moving to position {i+1}/{len(positions)}: {pos}")
         microscope.safe_absolute_stage_movement(pos)
         
         # Run autofocus if requested
@@ -139,8 +145,28 @@ def acquire_at_positions(
         # Acquire image(s) at the current position
         image = acquire_image(microscope.fm, channel_settings, zparams)
         image.metadata.description = f"{pos.name}-{image.metadata.acquisition_date}"
-        images.append(image)
         
+        # Save image if requested
+        if save_directory is not None:
+            # Create position-specific subdirectory
+            position_name = pos.name or f"position_{i+1:03d}"
+            position_dir = os.path.join(save_directory, position_name)
+            os.makedirs(position_dir, exist_ok=True)
+            
+            # Generate timestamp-based filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{position_name}-{timestamp}.ome.tiff"
+            filepath = os.path.join(position_dir, filename)
+            
+            # Set filename in metadata and save
+            image.metadata.filename = filename
+            try:
+                image.save(filepath)
+                logging.info(f"Saved image for position {pos.name} to {filepath}")
+            except Exception as e:
+                logging.error(f"Failed to save image for position {pos.name}: {e}")
+        
+        images.append(image)
         logging.info(f"Acquired image at position: {pos}")
 
     return images

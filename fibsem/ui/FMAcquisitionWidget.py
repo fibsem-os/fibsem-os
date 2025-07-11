@@ -1666,7 +1666,8 @@ class FMAcquisitionWidget(QWidget):
                 positions=self.stage_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
-                use_autofocus=False
+                use_autofocus=False,
+                save_directory=self.experiment_path,
             )
             
             # Check if acquisition was cancelled
