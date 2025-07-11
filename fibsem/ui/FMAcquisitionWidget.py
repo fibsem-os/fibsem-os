@@ -1618,17 +1618,23 @@ class FMAcquisitionWidget(QWidget):
 
         channel_name = image.metadata.channels[0].name # QUERY: is this
         wavelength = image.metadata.channels[0].excitation_wavelength
+        emission_wavelength = image.metadata.channels[0].emission_wavelength
         logging.info(f"Updating image layer with channel name: {channel_name}, wavelength: {wavelength} nm")
 
         stage_position = image.metadata.stage_position
 
         pos = to_napari_pos(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
 
+        if emission_wavelength is not None:
+            colormap = wavelength_to_color(wavelength)
+        else:
+            colormap = "gray"
+
         if channel_name in self.viewer.layers:
             # If the layer already exists, update it
             self.viewer.layers[channel_name].data = image.data
             self.viewer.layers[channel_name].metadata = metadata_dict
-            self.viewer.layers[channel_name].colormap = wavelength_to_color(wavelength)
+            self.viewer.layers[channel_name].colormap = colormap
             self.viewer.layers[channel_name].translate = (pos.y, pos.x)  # Translate to stage position
         else:
             # If the layer does not exist, create a new one
@@ -1636,7 +1642,7 @@ class FMAcquisitionWidget(QWidget):
                 data=image.data,
                 name=channel_name,
                 metadata=metadata_dict,
-                colormap=wavelength_to_color(wavelength),
+                colormap=colormap,
                 scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
                 translate=(pos.y, pos.x),  # Translate to stage position,
                 blending="additive",
@@ -1656,6 +1662,7 @@ class FMAcquisitionWidget(QWidget):
 
         channel_name = image.metadata.channels[0].name
         wavelength = image.metadata.channels[0].excitation_wavelength
+        emission_wavelength = image.metadata.channels[0].emission_wavelength
 
         stage_position = image.metadata.stage_position
         pos = to_napari_pos(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
@@ -1666,11 +1673,16 @@ class FMAcquisitionWidget(QWidget):
         if image.data.ndim == 3:
             scale = (1, *scale)  # Add a singleton dimension for time if needed
 
+        if emission_wavelength is not None:
+            colormap = wavelength_to_color(wavelength)
+        else:
+            colormap = "gray"
+
         if layer_name in self.viewer.layers:
             # If the layer already exists, update it
             self.viewer.layers[layer_name].data = image.data
             self.viewer.layers[layer_name].metadata = metadata_dict
-            self.viewer.layers[layer_name].colormap = wavelength_to_color(wavelength)
+            self.viewer.layers[layer_name].colormap = colormap
             self.viewer.layers[layer_name].translate = (pos.y, pos.x)  # Translate to stage position
         else:
             # If the layer does not exist, create a new one
@@ -1678,7 +1690,7 @@ class FMAcquisitionWidget(QWidget):
                 data=image.data,
                 name=layer_name,
                 metadata=metadata_dict,
-                colormap=wavelength_to_color(wavelength),
+                colormap=colormap,
                 scale=scale,
                 translate=(pos.y, pos.x),  # Translate to stage position
                 blending="additive",
