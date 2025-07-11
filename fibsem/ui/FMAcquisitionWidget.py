@@ -1948,8 +1948,10 @@ class FMAcquisitionWidget(QWidget):
 def main():
 
     microscope, settings = utils.setup_session()
-    # from fibsem.structures import BeamType
+    from fibsem.structures import BeamType
     # microscope.move_flat_to_beam(BeamType.ELECTRON)
+    microscope.move_to_microscope("FM")
+    
     viewer = napari.Viewer()
     widget = FMAcquisitionWidget(fm=microscope.fm, viewer=viewer)
     viewer.window.add_dock_widget(widget, area="right")

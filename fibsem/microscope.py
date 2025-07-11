@@ -1015,7 +1015,7 @@ class FibsemMicroscope(ABC):
 
             self.orientations["FM"] = FibsemStagePosition(
                 r=np.radians(stage_settings.rotation_reference),
-                t=np.radians(180),
+                t=np.radians(-180),
             )
         else:
             # only x/y translation, no rotation
@@ -1958,13 +1958,16 @@ class ThermoMicroscope(FibsemMicroscope):
         sem = self.get_orientation("SEM")
         fib = self.get_orientation("FIB")
         milling = self.get_orientation("MILLING")
+        fm = self.get_orientation("FM")
 
         is_sem_rotation = movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5) # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
         is_fib_rotation = movement.rotation_angle_is_smaller(stage_rotation, fib.r, atol=5)
+        is_fm_rotation = movement.rotation_angle_is_smaller(stage_rotation, fm.r, atol=5)
 
         is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
         is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
         is_milling_tilt = np.isclose(stage_tilt, milling.t, atol=0.1)
+        is_fm_tilt = np.isclose(stage_tilt, fm.t, atol=0.1)
 
         if is_sem_rotation and is_sem_tilt:
             return "SEM"
@@ -1972,6 +1975,8 @@ class ThermoMicroscope(FibsemMicroscope):
             return "MILLING"
         if is_fib_rotation and is_fib_tilt:
             return "FIB"
+        if is_fm_rotation and is_fm_tilt:
+            return "FM"
 
         return "NONE"
 
