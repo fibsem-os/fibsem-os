@@ -144,6 +144,35 @@ def acquire_at_positions(
 
     return images
 
+
+def run_tileset_autofocus(
+    microscope: FibsemMicroscope, 
+    channel_settings: Optional[ChannelSettings], 
+    z_parameters: Optional[ZParameters],
+    context: str
+) -> None:
+    """Run autofocus during tileset acquisition with error handling and logging.
+    
+    Args:
+        microscope: The FIBSEM microscope instance
+        channel_settings: Channel settings for autofocus
+        z_parameters: Z parameters for autofocus range
+        context: Description of the autofocus context for logging
+    """
+    logging.info(f"Performing auto-focus {context}")
+    try:
+        run_autofocus(
+            microscope=microscope.fm,
+            channel_settings=channel_settings,
+            z_parameters=z_parameters,
+            method='laplacian'
+        )
+        logging.info(f"Auto-focus completed {context}")
+    except Exception as e:
+        logging.warning(f"Auto-focus failed {context}: {e}")
+
+
+
 # TODO: handle multiple channels properly
 def acquire_tileset(
     microscope: FibsemMicroscope,
@@ -231,17 +260,7 @@ def acquire_tileset(
         
         # Perform initial auto-focus if mode is ONCE (before moving to starting position)
         if autofocus_mode == AutofocusMode.ONCE:
-            logging.info("Performing initial auto-focus at current position")
-            try:
-                run_autofocus(
-                    microscope=microscope.fm,
-                    channel_settings=autofocus_channel,
-                    z_parameters=autofocus_zparams,
-                    method='laplacian'
-                )
-                logging.info("Initial auto-focus completed")
-            except Exception as e:
-                logging.warning(f"Initial auto-focus failed: {e}")
+            run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, "at current position")
 
     # Calculate starting position (top-left corner of grid)
     start_offset_x = -(cols - 1) * step_x / 2
@@ -261,32 +280,12 @@ def acquire_tileset(
             
             # Perform auto-focus at start of each row
             if autofocus_mode == AutofocusMode.EACH_ROW:
-                logging.info(f"Performing auto-focus for row {row+1}")
-                try:
-                    run_autofocus(
-                        microscope=microscope.fm,
-                        channel_settings=autofocus_channel,
-                        z_parameters=autofocus_zparams,
-                        method='laplacian'
-                    )
-                    logging.info(f"Auto-focus completed for row {row+1}")
-                except Exception as e:
-                    logging.warning(f"Auto-focus failed for row {row+1}: {e}")
+                run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for row {row+1}/{rows}")
 
             for col in range(cols):
                 # Perform auto-focus at each tile
                 if autofocus_mode == AutofocusMode.EACH_TILE:
-                    logging.info(f"Performing auto-focus for tile [{row+1}/{rows}][{col+1}/{cols}]")
-                    try:
-                        run_autofocus(
-                            microscope=microscope.fm,
-                            channel_settings=autofocus_channel,
-                            z_parameters=autofocus_zparams,
-                            method='laplacian'
-                        )
-                        logging.info(f"Auto-focus completed for tile [{row+1}/{rows}][{col+1}/{cols}]")
-                    except Exception as e:
-                        logging.warning(f"Auto-focus failed for tile [{row+1}/{rows}][{col+1}/{cols}]: {e}")
+                    run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for tile [{row+1}/{rows}][{col+1}/{cols}]")
                 
                 logging.info(f"Acquiring tile [{row+1}/{rows}][{col+1}/{cols}]")
 
