@@ -1,5 +1,7 @@
 import logging
+import os
 import threading
+from datetime import datetime
 from typing import Union, List, Dict, Optional, Tuple
 import napari
 import numpy as np
@@ -40,6 +42,7 @@ from fibsem.ui.stylesheets import (
     RED_PUSHBUTTON_STYLE,
 )
 from fibsem.ui.utils import message_box_ui
+from fibsem.config import LOG_PATH
 
 # TODO: allow the user to select the colormap
 def wavelength_to_color(wavelength: Union[int, float]) -> str:
@@ -829,6 +832,19 @@ class FMAcquisitionWidget(QWidget):
         self.viewer = viewer
         self.image_layer: Optional[NapariImageLayer] = None  # Placeholder for the image layer
         self.stage_positions: List[FibsemStagePosition] = []  # List to store stage positions
+        
+        # Create experiment path with current directory + datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.experiment_path = os.path.join(LOG_PATH, f"fibsem_experiment_{timestamp}")
+        
+        # Create the experiment directory
+        try:
+            os.makedirs(self.experiment_path, exist_ok=True)
+            logging.info(f"Created experiment directory: {self.experiment_path}")
+        except Exception as e:
+            logging.error(f"Failed to create experiment directory: {e}")
+            # Fallback to current directory
+            self.experiment_path = os.getcwd()
 
         # Z-stack acquisition threading
         self._zstack_thread: Optional[threading.Thread] = None
@@ -1833,6 +1849,17 @@ class FMAcquisitionWidget(QWidget):
                 logging.info("Z-stack acquisition was cancelled")
                 return
             
+            # Save z-stack to experiment directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"z-stack-{timestamp}.ome.tiff"
+            filepath = os.path.join(self.experiment_path, filename)
+            
+            try:
+                zstack_image.save(filepath)
+                logging.info(f"Z-stack saved to: {filepath}")
+            except Exception as e:
+                logging.error(f"Failed to save Z-stack to {filepath}: {e}")
+            
             # Emit the z-stack image
             self.update_persistent_image_signal.emit(zstack_image)
             
@@ -1916,6 +1943,17 @@ class FMAcquisitionWidget(QWidget):
             if self._overview_stop_event.is_set():
                 logging.info("Overview acquisition was cancelled")
                 return
+            
+            # Save overview to experiment directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"overview-{timestamp}.ome.tiff"
+            filepath = os.path.join(self.experiment_path, filename)
+            
+            try:
+                overview_image.save(filepath)
+                logging.info(f"Overview saved to: {filepath}")
+            except Exception as e:
+                logging.error(f"Failed to save overview to {filepath}: {e}")
             
             # Emit the overview image
             self.update_persistent_image_signal.emit(overview_image)
