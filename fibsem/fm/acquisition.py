@@ -1,5 +1,6 @@
 import logging
 from copy import deepcopy
+from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -11,6 +12,14 @@ from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
+
+
+class AutofocusMode(Enum):
+    """Auto-focus modes for tileset acquisition."""
+    NONE = "none"
+    ONCE = "once"
+    EACH_ROW = "each_row"
+    EACH_TILE = "each_tile"
 
 
 def acquire_channels(
@@ -134,7 +143,6 @@ def acquire_at_positions(
 
     return images
 
-# TODO: auto-focus, z-stack + mip
 # TODO: handle multiple channels properly
 def acquire_tileset(
     microscope: FibsemMicroscope,
@@ -143,6 +151,9 @@ def acquire_tileset(
     tile_overlap: float = 0.1,
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
+    autofocus_mode: AutofocusMode = AutofocusMode.NONE,
+    autofocus_channel: Optional[ChannelSettings] = None,
+    autofocus_zparams: Optional[ZParameters] = None,
 ) -> List[List[FluorescenceImage]]:
     """Acquire a tileset of fluorescence images across a grid pattern.
     
@@ -156,7 +167,15 @@ def acquire_tileset(
         channel_settings: Single channel or list of channels to acquire
         grid_size: Tuple of (rows, cols) defining the grid dimensions
         tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        zparams: Optional Z parameters for z-stack acquisition
         beam_type: Beam type to use for stage movements (default: ELECTRON)
+        autofocus_mode: Auto-focus mode for tileset acquisition (default: NONE)
+                       - NONE: No auto-focus
+                       - ONCE: Auto-focus once before acquisition
+                       - EACH_ROW: Auto-focus at start of each row
+                       - EACH_TILE: Auto-focus at each tile position
+        autofocus_channel: Channel settings to use for auto-focus (uses first channel if None)
+        autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
         
     Returns:
         List of lists containing FluorescenceImage objects organized as [row][col]
@@ -199,6 +218,28 @@ def acquire_tileset(
     logging.info(f"Field of view: {fov_x*1e6:.1f} x {fov_y*1e6:.1f} μm")
     logging.info(f"Step size: {step_x*1e6:.1f} x {step_y*1e6:.1f} μm")
 
+    # Set up auto-focus parameters
+    if autofocus_mode != AutofocusMode.NONE:
+        if autofocus_channel is None:
+            autofocus_channel = channel_settings[0] if isinstance(channel_settings, list) else channel_settings
+        if autofocus_zparams is None:
+            autofocus_zparams = zparams
+        logging.info(f"Auto-focus mode: {autofocus_mode.value}")
+        
+        # Perform initial auto-focus if mode is ONCE (before moving to starting position)
+        if autofocus_mode == AutofocusMode.ONCE:
+            logging.info("Performing initial auto-focus at current position")
+            try:
+                run_autofocus(
+                    microscope=microscope.fm,
+                    channel_settings=autofocus_channel,
+                    z_parameters=autofocus_zparams,
+                    method='laplacian'
+                )
+                logging.info("Initial auto-focus completed")
+            except Exception as e:
+                logging.warning(f"Initial auto-focus failed: {e}")
+
     # Calculate starting position (top-left corner of grid)
     start_offset_x = -(cols - 1) * step_x / 2
     start_offset_y = -(rows - 1) * step_y / 2
@@ -214,8 +255,36 @@ def acquire_tileset(
     try:
         for row in range(rows):
             row_images = []
+            
+            # Perform auto-focus at start of each row
+            if autofocus_mode == AutofocusMode.EACH_ROW:
+                logging.info(f"Performing auto-focus for row {row+1}")
+                try:
+                    run_autofocus(
+                        microscope=microscope.fm,
+                        channel_settings=autofocus_channel,
+                        z_parameters=autofocus_zparams,
+                        method='laplacian'
+                    )
+                    logging.info(f"Auto-focus completed for row {row+1}")
+                except Exception as e:
+                    logging.warning(f"Auto-focus failed for row {row+1}: {e}")
 
             for col in range(cols):
+                # Perform auto-focus at each tile
+                if autofocus_mode == AutofocusMode.EACH_TILE:
+                    logging.info(f"Performing auto-focus for tile [{row+1}/{rows}][{col+1}/{cols}]")
+                    try:
+                        run_autofocus(
+                            microscope=microscope.fm,
+                            channel_settings=autofocus_channel,
+                            z_parameters=autofocus_zparams,
+                            method='laplacian'
+                        )
+                        logging.info(f"Auto-focus completed for tile [{row+1}/{rows}][{col+1}/{cols}]")
+                    except Exception as e:
+                        logging.warning(f"Auto-focus failed for tile [{row+1}/{rows}][{col+1}/{cols}]: {e}")
+                
                 logging.info(f"Acquiring tile [{row+1}/{rows}][{col+1}/{cols}]")
 
                 # Acquire all channels at current position
@@ -399,8 +468,26 @@ def acquire_and_stitch_tileset(
     tile_overlap: float = 0.1,
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
+    autofocus_mode: AutofocusMode = AutofocusMode.NONE,
+    autofocus_channel: Optional[ChannelSettings] = None,
+    autofocus_zparams: Optional[ZParameters] = None,
 ) -> FluorescenceImage:
-    """Acquire a tileset and stitch it into a single mosaic image."""
+    """Acquire a tileset and stitch it into a single mosaic image.
+    
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Single channel settings to acquire (multi-channel not yet supported)
+        grid_size: Tuple of (rows, cols) defining the grid dimensions
+        tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        zparams: Optional Z parameters for z-stack acquisition
+        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        autofocus_mode: Auto-focus mode for tileset acquisition (default: NONE)
+        autofocus_channel: Channel settings to use for auto-focus (uses main channel if None)
+        autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
+        
+    Returns:
+        Single stitched FluorescenceImage
+    """
 
     # TODO: support multi-channel tilesets
     # TODO: support different projection methods (e.g. max intensity, focus stacking)
@@ -415,6 +502,9 @@ def acquire_and_stitch_tileset(
         tile_overlap=tile_overlap,
         beam_type=beam_type,
         zparams=zparams,
+        autofocus_mode=autofocus_mode,
+        autofocus_channel=autofocus_channel,
+        autofocus_zparams=autofocus_zparams,
     )
     
     return stitch_tileset(tileset, tile_overlap)

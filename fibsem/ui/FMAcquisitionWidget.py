@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem.constants import METRE_TO_MILLIMETRE, MILLIMETRE_TO_METRE
-from fibsem.fm.acquisition import acquire_z_stack, acquire_and_stitch_tileset, calculate_grid_coverage_area, acquire_at_positions
+from fibsem.fm.acquisition import acquire_z_stack, acquire_and_stitch_tileset, calculate_grid_coverage_area, acquire_at_positions, AutofocusMode
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType, Point, FibsemStagePosition
@@ -222,6 +222,7 @@ class OverviewParametersWidget(QWidget):
         self.cols = OVERVIEW_PARAMETERS_CONFIG["default_cols"]
         self.overlap = OVERVIEW_PARAMETERS_CONFIG["default_overlap"]
         self.use_zstack = False
+        self.autofocus_mode = AutofocusMode.NONE
         
         self.initUI()
 
@@ -260,6 +261,16 @@ class OverviewParametersWidget(QWidget):
         self.checkBox_use_zstack.setChecked(self.use_zstack)
         self.checkBox_use_zstack.setToolTip("Acquire z-stacks at each tile position using current Z parameters")
         
+        # Auto-focus mode selection
+        self.label_autofocus_mode = QLabel("Auto-Focus Mode", self)
+        self.comboBox_autofocus_mode = QComboBox(self)
+        self.comboBox_autofocus_mode.addItem("Don't Auto-Focus", AutofocusMode.NONE)
+        self.comboBox_autofocus_mode.addItem("Auto-Focus Once", AutofocusMode.ONCE)
+        self.comboBox_autofocus_mode.addItem("Auto-Focus Each Row", AutofocusMode.EACH_ROW)
+        self.comboBox_autofocus_mode.addItem("Auto-Focus Each Tile", AutofocusMode.EACH_TILE)
+        self.comboBox_autofocus_mode.setCurrentIndex(0)  # Default to NONE
+        self.comboBox_autofocus_mode.setToolTip("Select when to perform auto-focus during tileset acquisition")
+        
         # Total area (calculated, read-only)
         self.label_total_area = QLabel("Total Area", self)
         self.label_total_area_value = QLabel(self._calculate_total_area(), self)
@@ -275,8 +286,10 @@ class OverviewParametersWidget(QWidget):
         layout.addWidget(self.label_overlap, 3, 0)
         layout.addWidget(self.doubleSpinBox_overlap, 3, 1)
         layout.addWidget(self.checkBox_use_zstack, 4, 0, 1, 2)  # Span both columns
-        layout.addWidget(self.label_total_area, 5, 0)
-        layout.addWidget(self.label_total_area_value, 5, 1)
+        layout.addWidget(self.label_autofocus_mode, 5, 0)
+        layout.addWidget(self.comboBox_autofocus_mode, 5, 1)
+        layout.addWidget(self.label_total_area, 6, 0)
+        layout.addWidget(self.label_total_area_value, 6, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 
@@ -285,6 +298,7 @@ class OverviewParametersWidget(QWidget):
         self.spinBox_cols.valueChanged.connect(self._on_cols_changed)
         self.doubleSpinBox_overlap.valueChanged.connect(self._on_overlap_changed)
         self.checkBox_use_zstack.stateChanged.connect(self._on_zstack_changed)
+        self.comboBox_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_mode_changed)
 
     def _calculate_total_area(self) -> str:
         """Calculate the total area of the overview grid."""
@@ -344,9 +358,17 @@ class OverviewParametersWidget(QWidget):
         """Get whether to use z-stack acquisition."""
         return self.use_zstack
     
+    def get_autofocus_mode(self) -> AutofocusMode:
+        """Get the selected auto-focus mode."""
+        return self.autofocus_mode
+    
     def _on_zstack_changed(self, state: int):
         """Handle z-stack checkbox change."""
         self.use_zstack = state == 2  # Qt.Checked
+    
+    def _on_autofocus_mode_changed(self, index: int):
+        """Handle auto-focus mode change."""
+        self.autofocus_mode = self.comboBox_autofocus_mode.itemData(index)
 
 
 class SavedPositionsWidget(QWidget):
@@ -1096,7 +1118,7 @@ class FMAcquisitionWidget(QWidget):
         text = {
             "string": [
                 f"STAGE: {to_pretty_string_short(pos)} [{orientation}]"
-                f"\nOBJECTIVE: {self.fm.objective.position*1e3:.2f} mm",
+                f"\nOBJECTIVE: {self.fm.objective.position*1e3:.3f} mm",
                 ],
             "color": "white",
             "font_size": 50,
@@ -1855,22 +1877,25 @@ class FMAcquisitionWidget(QWidget):
         tile_overlap = self.overviewParametersWidget.get_overlap()
         use_zstack = self.overviewParametersWidget.get_use_zstack()
         z_parameters = self.zParametersWidget.z_parameters if use_zstack else None
+        autofocus_mode = self.overviewParametersWidget.get_autofocus_mode()
         
         # Start acquisition thread
         self._overview_thread = threading.Thread(
             target=self._overview_worker,
-            args=(channel_settings, grid_size, tile_overlap, z_parameters),
+            args=(channel_settings, grid_size, tile_overlap, z_parameters, autofocus_mode),
             daemon=True
         )
         self._overview_thread.start()
     
-    def _overview_worker(self, channel_settings: ChannelSettings, grid_size: tuple[int, int], tile_overlap: float, z_parameters: Optional[ZParameters]):
+    def _overview_worker(self, channel_settings: ChannelSettings, grid_size: tuple[int, int], tile_overlap: float, z_parameters: Optional[ZParameters], autofocus_mode: AutofocusMode):
         """Worker thread for overview acquisition."""
         try:
+            info_parts = [f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap"]
             if z_parameters:
-                logging.info(f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap, with z-stacks")
-            else:
-                logging.info(f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap")
+                info_parts.append("with z-stacks")
+            if autofocus_mode != AutofocusMode.NONE:
+                info_parts.append(f"with auto-focus mode: {autofocus_mode.value}")
+            logging.info(", ".join(info_parts))
             
             # Get the parent microscope for tileset acquisition
             if self.fm.parent is None:
@@ -1883,7 +1908,8 @@ class FMAcquisitionWidget(QWidget):
                 channel_settings=channel_settings,
                 grid_size=grid_size,
                 tile_overlap=tile_overlap,
-                zparams=z_parameters
+                zparams=z_parameters,
+                autofocus_mode=autofocus_mode
             )
             
             # Check if acquisition was cancelled
