@@ -1761,7 +1761,9 @@ class FMAcquisitionWidget(QWidget):
         stage_position = image.metadata.stage_position
         pos = to_napari_pos(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
 
-        layer_name = f"{channel_name}-{acq_date}"
+        layer_name = image.metadata.description
+        if not layer_name:
+            layer_name = f"{channel_name}-{acq_date}"
 
         scale = (image.metadata.pixel_size_y, image.metadata.pixel_size_x)  # yx order for napari
         if image.data.ndim == 3:
@@ -1881,6 +1883,7 @@ class FMAcquisitionWidget(QWidget):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"z-stack-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
+            zstack_image.metadata.description = filename.removesuffix(".ome.tiff")
             
             try:
                 zstack_image.save(filepath)
@@ -1984,6 +1987,7 @@ class FMAcquisitionWidget(QWidget):
             # Save overview to experiment directory
             filename = f"overview-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
+            overview_image.metadata.description = filename.removesuffix(".ome.tiff")
             
             try:
                 overview_image.save(filepath)

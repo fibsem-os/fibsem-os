@@ -138,6 +138,7 @@ def acquire_at_positions(
 
         # Acquire image(s) at the current position
         image = acquire_image(microscope.fm, channel_settings, zparams)
+        image.metadata.description = f"{pos.name}-{image.metadata.acquisition_date}"
         images.append(image)
         
         logging.info(f"Acquired image at position: {pos}")

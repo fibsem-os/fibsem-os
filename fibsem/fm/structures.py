@@ -263,10 +263,14 @@ class FluorescenceImage:
         except (ValueError, AttributeError):
             acquisition_date = datetime.now()
 
+        # Use filename and description from metadata if available
+        image_name = self.metadata.filename or "Fluorescence Image"
+        image_description = self.metadata.description or "Fluorescence microscopy image"
+        
         image_md = Image(
             id="Image:01",
-            name="Fluorescence Image",
-            description="Fluorescence microscopy image",
+            name=image_name,
+            description=image_description,
             acquisition_date=acquisition_date,
             pixels=Pixels(
                 id="Pixels:01",
@@ -441,6 +445,8 @@ class FluorescenceImage:
             channels=first_metadata.channels,
             z_positions=z_positions,
             stage_position=first_metadata.stage_position,
+            filename=first_metadata.filename,
+            description=first_metadata.description,
             system_info=first_metadata.system_info
         )
 
@@ -488,6 +494,8 @@ class FluorescenceImage:
             channels=channels,
             z_positions=first_img.metadata.z_positions,
             stage_position=first_img.metadata.stage_position,
+            filename=first_img.metadata.filename,
+            description=first_img.metadata.description,
             system_info=first_img.metadata.system_info
         )
 
@@ -557,6 +565,8 @@ class FluorescenceImage:
             channels=projected_channels,
             z_positions=None,  # No z-positions after projection
             stage_position=self.metadata.stage_position,
+            filename=self.metadata.filename,
+            description=self.metadata.description,
             system_info=self.metadata.system_info,
             dimension_order=self.metadata.dimension_order
         )
@@ -666,6 +676,8 @@ class FluorescenceImage:
             channels=selected_channels,
             z_positions=None,  # No z-positions after stacking
             stage_position=self.metadata.stage_position,
+            filename=self.metadata.filename,
+            description=self.metadata.description,
             system_info=self.metadata.system_info,
             dimension_order=self.metadata.dimension_order
         )
@@ -844,6 +856,10 @@ class FluorescenceImageMetadata:
     # Stage position (optional, for correlative imaging)
     stage_position: Optional[FibsemStagePosition] = None
     
+    # File information
+    filename: Optional[str] = None  # original filename
+    description: Optional[str] = None  # image description/notes
+    
     # System information (optional)
     system_info: Optional[dict] = None
     dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
@@ -891,6 +907,8 @@ class FluorescenceImageMetadata:
             "z_count": self.get_z_count(),
             "z_positions": self.z_positions,
             "stage_position": self.stage_position.to_dict() if self.stage_position else None,
+            "filename": self.filename,
+            "description": self.description,
             "system_info": self.system_info,
             "channels": [
                 {
@@ -952,5 +970,7 @@ class FluorescenceImageMetadata:
             channels=channels,
             z_positions=metadata_dict.get("z_positions"),
             stage_position=stage_position,
+            filename=metadata_dict.get("filename"),
+            description=metadata_dict.get("description"),
             system_info=metadata_dict.get("system_info")
         )
