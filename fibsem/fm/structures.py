@@ -672,6 +672,88 @@ class FluorescenceImage:
         
         return FluorescenceImage(data=stacked_data, metadata=stacked_metadata)
 
+    def calculate_histogram(self, channel: Optional[int] = None, bins: int = 256, 
+                           density: bool = False, range_values: Optional[Tuple[float, float]] = None) -> dict:
+        """Calculate histogram of pixel intensities for FluorescenceImage.
+        
+        Args:
+            channel: Optional channel index to calculate histogram for. If None, calculates for all channels.
+                    Zero-indexed (0 = first channel, 1 = second channel, etc.)
+            bins: Number of histogram bins or sequence of bin edges (default: 256)
+            density: If True, return probability density instead of counts (default: False)
+            range_values: Optional tuple (min, max) to set histogram range. If None, uses data range.
+                         
+        Returns:
+            Dictionary containing histogram data:
+            - If single channel: {"counts": array, "bin_edges": array, "channel_name": str}
+            - If multiple channels: {"channel_0": {"counts": array, "bin_edges": array, "channel_name": str}, ...}
+            
+        Raises:
+            ValueError: If the specified channel index is out of range
+            
+        Example:
+            >>> image = FluorescenceImage(data=data, metadata=metadata)
+            >>> # Get histogram for all channels
+            >>> hist_all = image.calculate_histogram()
+            >>> # Get histogram for first channel only
+            >>> hist_ch0 = image.calculate_histogram(channel=0)
+            >>> # Get histogram with custom bins and range
+            >>> hist_custom = image.calculate_histogram(bins=100, range_values=(0, 4095))
+        """
+        # Temporarily reshape 2D data to 4D (1C, 1Z, Y, X) for consistent processing
+        if self.data.ndim == 2:
+            data = self.data.reshape(1, 1, *self.data.shape)
+        elif self.data.ndim == 3:
+            data = self.data.reshape(1, *self.data.shape)
+        else:
+            data = self.data
+            
+        nc, nz, ny, nx = data.shape
+        
+        # Validate channel index
+        if channel is not None:
+            if channel < 0 or channel >= nc:
+                raise ValueError(f"Channel index {channel} out of range [0, {nc-1}]")
+        
+        # Calculate histogram for specific channel
+        if channel is not None:
+            channel_data = data[channel, :, :, :].flatten()  # Flatten all z, y, x dimensions
+            channel_name = self.metadata.channels[channel].name
+            
+            hist_counts, bin_edges = np.histogram(
+                channel_data, 
+                bins=bins, 
+                density=density, 
+                range=range_values
+            )
+            
+            return {
+                "counts": hist_counts,
+                "bin_edges": bin_edges,
+                "channel_name": channel_name
+            }
+        
+        # Calculate histogram for all channels
+        result = {}
+        for ch_idx in range(nc):
+            channel_data = data[ch_idx, :, :, :].flatten()  # Flatten all z, y, x dimensions
+            channel_name = self.metadata.channels[ch_idx].name
+            
+            hist_counts, bin_edges = np.histogram(
+                channel_data, 
+                bins=bins, 
+                density=density, 
+                range=range_values
+            )
+            
+            result[f"channel_{ch_idx}"] = {
+                "counts": hist_counts,
+                "bin_edges": bin_edges,
+                "channel_name": channel_name
+            }
+        
+        return result
+
 
 @dataclass 
 class FluorescenceChannelMetadata:
