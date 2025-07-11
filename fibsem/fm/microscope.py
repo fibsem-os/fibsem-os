@@ -35,7 +35,7 @@ SIM_CAMERA_GAIN = 1.0
 SIM_CAMERA_OFFSET = 0.0
 SIM_CAMERA_PIXEL_SIZE = (100e-9, 100e-9)  # in meters (100 nm)
 SIM_CAMERA_RESOLUTION = (512, 512)  # default resolution
-
+# TODO: test with asymetric resolution
 
 class ObjectiveLens(ABC):
     """Abstract base class for objective lens control in fluorescence microscopy.
@@ -178,7 +178,7 @@ class Camera(ABC):
         min_value = np.iinfo(np.uint16).min  # 0 for uint16
         max_value = np.iinfo(np.uint16).max  # 65535 for uint16
         noise = np.random.randint(
-            min_value, max_value, size=self.resolution, dtype=np.uint16
+            min_value, max_value, size=self.resolution[::-1], dtype=np.uint16
         )
         if not self._use_counter:
             return noise
@@ -189,7 +189,7 @@ class Camera(ABC):
         # Cache the draw_number image by mod and resolution
         cache_key = (mod, self.resolution)
         if cache_key not in self._number_cache:
-            self._number_cache[cache_key] = draw_number(mod, size=(256, 256), thickness=64, image_shape=self.resolution)
+            self._number_cache[cache_key] = draw_number(mod, size=(256, 256), thickness=64, image_shape=self.resolution[::-1])
         
         image = self._number_cache[cache_key]
         self._index += 1  # increment index for next image
