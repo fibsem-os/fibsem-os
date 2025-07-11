@@ -780,6 +780,7 @@ class FMAcquisitionWidget(QWidget):
     zstack_finished_signal = pyqtSignal()
     overview_finished_signal = pyqtSignal()
     positions_acquisition_finished_signal = pyqtSignal()
+    autofocus_finished_signal = pyqtSignal()
 
     def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, parent=None):
         super().__init__(parent)
@@ -803,6 +804,11 @@ class FMAcquisitionWidget(QWidget):
         self._positions_thread: Optional[threading.Thread] = None
         self._positions_stop_event = threading.Event()
         self._is_positions_acquiring = False
+        
+        # Auto-focus threading
+        self._autofocus_thread: Optional[threading.Thread] = None
+        self._autofocus_stop_event = threading.Event()
+        self._is_autofocus_running = False
 
         self.initUI()
         self.draw_stage_position_crosshairs()
@@ -855,6 +861,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
         self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
+        self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
 
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
@@ -870,6 +877,7 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)  # Span 2 columns
         button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)  # Span 2 columns
         button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)  # Span 2 columns
+        button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)  # Span 2 columns
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
@@ -885,6 +893,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_zstack)
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
         self.pushButton_acquire_at_positions.clicked.connect(self.acquire_at_positions)
+        self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
@@ -893,6 +902,7 @@ class FMAcquisitionWidget(QWidget):
         self.zstack_finished_signal.connect(self._on_zstack_finished)
         self.overview_finished_signal.connect(self._on_overview_finished)
         self.positions_acquisition_finished_signal.connect(self._on_positions_finished)
+        self.autofocus_finished_signal.connect(self._on_autofocus_finished)
         
         # Setup keyboard shortcuts
         self.f6_shortcut = QShortcut(QKeySequence("F6"), self)
@@ -909,6 +919,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
         
@@ -1939,11 +1950,91 @@ class FMAcquisitionWidget(QWidget):
             except Exception as e:
                 logging.error(f"Error stopping positions acquisition: {e}")
         
+        # Stop auto-focus
+        if self._autofocus_thread and self._autofocus_thread.is_alive():
+            try:
+                self._autofocus_stop_event.set()
+                self._autofocus_thread.join(timeout=5)  # Wait up to 5 seconds
+                logging.info("Auto-focus stopped due to widget close.")
+            except Exception as e:
+                logging.error(f"Error stopping auto-focus: {e}")
+        
         # Reset acquisition flags
         self._is_overview_acquiring = False
         self._is_positions_acquiring = False
+        self._is_autofocus_running = False
 
         event.accept()
+
+    def run_autofocus(self):
+        """Start threaded auto-focus using the current channel settings and Z parameters."""
+        if self.fm.is_acquiring:
+            logging.warning("Cannot run autofocus while live acquisition is running. Stop acquisition first.")
+            return
+        
+        if self._autofocus_thread and self._autofocus_thread.is_alive():
+            logging.warning("Auto-focus is already in progress.")
+            return
+        
+        logging.info("Starting auto-focus")
+        self.pushButton_run_autofocus.setEnabled(False)
+        self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        
+        # Set auto-focus running flag
+        self._is_autofocus_running = True
+        
+        # Clear stop event
+        self._autofocus_stop_event.clear()
+        
+        # Get current settings
+        channel_settings = self.channelSettingsWidget.channel_settings
+        z_parameters = self.zParametersWidget.z_parameters
+        
+        # Start auto-focus thread
+        self._autofocus_thread = threading.Thread(
+            target=self._autofocus_worker,
+            args=(channel_settings, z_parameters),
+            daemon=True
+        )
+        self._autofocus_thread.start()
+    
+    def _autofocus_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
+        """Worker thread for auto-focus."""
+        try:
+            logging.info("Running auto-focus with laplacian method")
+            
+            from fibsem.fm.calibration import run_autofocus
+            
+            # Run autofocus using laplacian method (default)
+            best_z = run_autofocus(
+                microscope=self.fm,
+                channel_settings=channel_settings,
+                # z_parameters=z_parameters,
+                method='laplacian'
+            )
+            
+            # Check if auto-focus was cancelled
+            if self._autofocus_stop_event.is_set():
+                logging.info("Auto-focus was cancelled")
+                return
+            
+            logging.info(f"Auto-focus completed successfully. Best focus: {best_z*1e6:.1f} μm")
+            
+        except Exception as e:
+            logging.error(f"Auto-focus failed: {e}")
+            
+        finally:
+            # Signal that auto-focus is finished (thread-safe)
+            self.autofocus_finished_signal.emit()
+    
+    def _on_autofocus_finished(self):
+        """Handle auto-focus completion in the main thread."""
+        self.pushButton_run_autofocus.setEnabled(True)
+        self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        self._is_autofocus_running = False
+        
+        # Update objective position display
+        self.objectiveControlWidget.update_objective_position_labels()
 
 def main():
 
