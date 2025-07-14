@@ -447,8 +447,8 @@ def test_calculate_grid_coverage_area():
     width, height = calculate_grid_coverage_area(3, 4, 15.0, 12.0, 0.2)
     # step_x = 15 * 0.8 = 12, step_y = 12 * 0.8 = 9.6
     # width = (3-1) * 12 + 15 = 39, height = (4-1) * 9.6 + 12 = 40.8
-    assert width == 39.0
-    assert height == 40.8
+    assert np.isclose(width, 39.0)
+    assert np.isclose(height, 40.8)
     
     # Test reciprocal relationship with calculate_grid_size_for_area
     # Generate a grid size for an area, then calculate the area it covers
