@@ -38,6 +38,53 @@ BINNING_MAP = {
 }
 
 @dataclass
+class FMStagePosition:
+    """Stage position for fluorescence microscopy with position names."""
+    name: str
+    stage_position: FibsemStagePosition
+    objective_position: float  # meters, z-axis position of objective
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary representation."""
+        return {
+            "name": self.name,
+            "stage_position": self.stage_position.to_dict(),
+            "objective_position": self.objective_position
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "FMStagePosition":
+        """Create FMStagePosition from dictionary."""
+        return cls(
+            name=ddict["name"],
+            stage_position=FibsemStagePosition.from_dict(ddict["stage_position"]),
+            objective_position=ddict["objective_position"]
+        )
+
+    def __str__(self) -> str:
+        """String representation of the stage position."""
+        return f"FMStagePosition(name='{self.name}', stage={self.stage_position}, obj_z={self.objective_position:.6f})"
+
+    def __repr__(self) -> str:
+        """Detailed string representation."""
+        return (f"FMStagePosition(name='{self.name}', "
+                f"stage_position={repr(self.stage_position)}, "
+                f"objective_position={self.objective_position})")
+
+    def format_position_info(self) -> str:
+        """Format position information for UI display.
+        
+        Returns:
+            str: Formatted string with stage coordinates and objective position
+                 (e.g., "X: 123.4 μm, Y: 567.8 μm, Z: 90.1 μm, Obj: 12.345 mm")
+        """
+        info_text = f"X: {self.stage_position.x*1e6:.1f} μm, Y: {self.stage_position.y*1e6:.1f} μm"
+        if hasattr(self.stage_position, 'z') and self.stage_position.z is not None:
+            info_text += f", Z: {self.stage_position.z*1e6:.1f} μm"
+        info_text += f", Obj: {self.objective_position*1e3:.3f} mm"
+        return info_text
+
+@dataclass
 class ChannelSettings:
     name: str
     excitation_wavelength: float  # nm

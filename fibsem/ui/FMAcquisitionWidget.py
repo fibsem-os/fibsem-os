@@ -28,6 +28,7 @@ from fibsem.fm.acquisition import acquire_z_stack, acquire_and_stitch_tileset, c
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType, Point, FibsemStagePosition
+from fibsem.fm.structures import FMStagePosition
 from fibsem.ui.napari.utilities import (
     create_crosshair_shape,
     create_rectangle_shape,
@@ -430,7 +431,7 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
 
-    def update_positions(self, positions: List[FibsemStagePosition]):
+    def update_positions(self, positions: List[FMStagePosition]):
         """Update the combobox with current saved positions."""
         # Store current selection
         current_text = self.comboBox_positions.currentText()
@@ -443,7 +444,7 @@ class SavedPositionsWidget(QWidget):
             self.label_position_info.setText("No positions saved")
         else:
             for i, pos in enumerate(positions):
-                display_text = f"{pos.name}" if pos.name else f"Position {i+1}"
+                display_text = pos.name  # FMStagePosition.name is required
                 self.comboBox_positions.addItem(display_text)
             
             # Try to restore previous selection
@@ -482,10 +483,8 @@ class SavedPositionsWidget(QWidget):
         
         current_index = self.comboBox_positions.currentIndex()
         if 0 <= current_index < len(self.parent_widget.stage_positions):
-            pos = self.parent_widget.stage_positions[current_index]
-            info_text = f"X: {pos.x*1e6:.1f} μm, Y: {pos.y*1e6:.1f} μm"
-            if hasattr(pos, 'z') and pos.z is not None:
-                info_text += f", Z: {pos.z*1e6:.1f} μm"
+            fm_pos = self.parent_widget.stage_positions[current_index]
+            info_text = fm_pos.format_position_info()
             self.label_position_info.setText(info_text)
         else:
             self.label_position_info.setText("Invalid selection")
@@ -506,13 +505,20 @@ class SavedPositionsWidget(QWidget):
         
         current_index = self.comboBox_positions.currentIndex()
         if 0 <= current_index < len(self.parent_widget.stage_positions):
-            position = self.parent_widget.stage_positions[current_index]
+            fm_position = self.parent_widget.stage_positions[current_index]
+            stage_position = fm_position.stage_position
             
             if self.parent_widget.fm.parent:
                 try:
-                    logging.info(f"Moving to saved position: {position.name} at {position}")
-                    self.parent_widget.fm.parent.move_stage_absolute(position)
+                    logging.info(f"Moving to saved position: {fm_position.name} at {stage_position}")
+                    self.parent_widget.fm.parent.move_stage_absolute(stage_position)
+                    
+                    # Also move objective to saved position
+                    logging.info(f"Moving objective to: {fm_position.objective_position*1e3:.2f} mm")
+                    self.parent_widget.fm.objective.move_absolute(fm_position.objective_position)
+                    
                     self.parent_widget.display_stage_position_overlay()
+                    self.parent_widget.objectiveControlWidget.update_objective_position_labels()
                 except Exception as e:
                     logging.error(f"Error moving to position: {e}")
             else:
@@ -831,7 +837,7 @@ class FMAcquisitionWidget(QWidget):
         self.fm = fm
         self.viewer = viewer
         self.image_layer: Optional[NapariImageLayer] = None  # Placeholder for the image layer
-        self.stage_positions: List[FibsemStagePosition] = []  # List to store stage positions
+        self.stage_positions: List[FMStagePosition] = []  # List to store stage positions
         
         # Create experiment path with current directory + datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1060,8 +1066,17 @@ class FMAcquisitionWidget(QWidget):
         import petname
         num = len(self.stage_positions) + 1
         name = f"{num:02d}-{petname.generate(2)}"
-        stage_position.name = name
-        self.stage_positions.append(stage_position)
+        
+        # Get current objective position
+        current_objective_position = self.fm.objective.position
+        
+        # Create FMStagePosition with stage position and objective position
+        fm_stage_position = FMStagePosition(
+            name=name,
+            stage_position=stage_position,
+            objective_position=current_objective_position
+        )
+        self.stage_positions.append(fm_stage_position)
 
         logging.info(f"Stage position saved: {stage_position}")
         # add crosshair at clicked position
@@ -1377,7 +1392,7 @@ class FMAcquisitionWidget(QWidget):
             selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
         
         for i, saved_pos in enumerate(self.stage_positions):
-            center_point = Point(x=saved_pos.x, y=-saved_pos.y)
+            center_point = Point(x=saved_pos.stage_position.x, y=-saved_pos.stage_position.y)
             fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
             rectangles.append(fov_rect)
             
@@ -1388,7 +1403,7 @@ class FMAcquisitionWidget(QWidget):
                 colors.append("cyan")  # Cyan for other saved positions
             
             # Add label with position name
-            pos_name = saved_pos.name if saved_pos.name else f"Pos {i+1}"
+            pos_name = saved_pos.name
             labels.append(pos_name)
         
         return {
@@ -1548,7 +1563,7 @@ class FMAcquisitionWidget(QWidget):
         # Add saved positions from user clicks
         for i, saved_pos in enumerate(self.stage_positions):
             # Convert to napari coordinate convention (y inverted)
-            positions.append(Point(x=saved_pos.x, y=-saved_pos.y))
+            positions.append(Point(x=saved_pos.stage_position.x, y=-saved_pos.stage_position.y))
             
             # Use lime for selected position, cyan for others
             if i == selected_index:
@@ -1660,10 +1675,13 @@ class FMAcquisitionWidget(QWidget):
                 logging.error("FluorescenceMicroscope parent is None. Cannot acquire at positions.")
                 return
             
+            # Extract FibsemStagePosition objects from FMStagePosition objects
+            stage_positions = [fm_pos.stage_position for fm_pos in self.stage_positions]
+            
             # Acquire images at all saved positions
             images = acquire_at_positions(
                 microscope=self.fm.parent,
-                positions=self.stage_positions,
+                positions=stage_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
                 use_autofocus=False,
