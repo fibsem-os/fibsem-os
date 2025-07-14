@@ -1,6 +1,10 @@
 import numpy as np
+import pytest
+from unittest.mock import Mock, patch, call
 
-from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area
+from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area, acquire_at_positions, acquire_channels, acquire_z_stack, acquire_image
+from fibsem.fm.structures import FMStagePosition, ChannelSettings, ZParameters, FluorescenceImage
+from fibsem.structures import FibsemStagePosition
 
 
 def test_generate_grid_positions_odd_dimensions():
@@ -491,3 +495,306 @@ def test_calculate_grid_coverage_area():
     # width = (3-1) * 1 + 10 = 12, height = (2-1) * 1 + 10 = 11
     assert width == 12.0
     assert height == 11.0
+
+
+# Tests for acquire_at_positions function
+
+def test_acquire_at_positions_single_position():
+    """Test acquire_at_positions with a single position using demo microscope."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create test position
+    stage_pos = FibsemStagePosition(x=0.001, y=0.002, z=0.003)
+    fm_position = FMStagePosition(
+        name="test_pos_1",
+        stage_position=stage_pos,
+        objective_position=0.012
+    )
+    
+    # Create test channel settings
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=358,
+        emission_wavelength=461,
+        power=0.1,
+        exposure_time=0.5
+    )
+    
+    # Call function
+    result = acquire_at_positions(
+        microscope=microscope,
+        positions=[fm_position],
+        channel_settings=channel
+    )
+    
+    # Verify result
+    assert len(result) == 1
+    assert isinstance(result[0], FluorescenceImage)
+    
+
+def test_acquire_at_positions_multiple_positions():
+    """Test acquire_at_positions with multiple positions using demo microscope."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create test positions
+    positions = [
+        FMStagePosition(
+            name="pos_1",
+            stage_position=FibsemStagePosition(x=0.001, y=0.002, z=0.003),
+            objective_position=0.010
+        ),
+        FMStagePosition(
+            name="pos_2", 
+            stage_position=FibsemStagePosition(x=0.004, y=0.005, z=0.006),
+            objective_position=0.015
+        )
+    ]
+    
+    # Create test channel
+    channel = ChannelSettings(
+        name="GFP",
+        excitation_wavelength=488,
+        emission_wavelength=509,
+        power=0.2,
+        exposure_time=0.3
+    )
+    
+    # Call function
+    result = acquire_at_positions(
+        microscope=microscope,
+        positions=positions,
+        channel_settings=channel
+    )
+    
+    # Verify result
+    assert len(result) == 2
+    for image in result:
+        assert isinstance(image, FluorescenceImage)
+
+
+def test_acquire_at_positions_with_z_stack():
+    """Test acquire_at_positions with Z-stack parameters using demo microscope."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create test position
+    position = FMStagePosition(
+        name="z_stack_pos",
+        stage_position=FibsemStagePosition(x=0.001, y=0.002, z=0.003),
+        objective_position=0.012
+    )
+    
+    # Create test channel
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=358,
+        emission_wavelength=461,
+        power=0.1,
+        exposure_time=0.5
+    )
+    
+    # Create Z-stack parameters
+    z_params = ZParameters(
+        zmin=-0.005,
+        zmax=0.005,
+        zstep=0.001
+    )
+    
+    # Call function
+    result = acquire_at_positions(
+        microscope=microscope,
+        positions=[position],
+        channel_settings=channel,
+        zparams=z_params
+    )
+    
+    # Verify result
+    assert len(result) == 1
+    assert isinstance(result[0], FluorescenceImage)
+
+
+def test_acquire_at_positions_empty_list():
+    """Test acquire_at_positions with empty positions list raises ValueError."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create test channel
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=358,
+        emission_wavelength=461,
+        power=0.1,
+        exposure_time=0.5
+    )
+    
+    # Call function with empty list should raise ValueError
+    with pytest.raises(ValueError, match="Positions list cannot be empty"):
+        acquire_at_positions(
+            microscope=microscope,
+            positions=[],
+            channel_settings=channel
+        )
+
+
+def test_acquire_channels():
+    """Test acquire_channels with multiple channels using demo microscope."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create multiple test channels
+    channels = [
+        ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=358,
+            emission_wavelength=461,
+            power=0.1,
+            exposure_time=0.5
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=488,
+            emission_wavelength=509,
+            power=0.2,
+            exposure_time=0.3
+        )
+    ]
+    
+    # Call function
+    result = acquire_channels(
+        microscope=microscope.fm,
+        channel_settings=channels
+    )
+    
+    # Verify result
+    assert isinstance(result, FluorescenceImage)
+    
+    # Check metadata
+    assert len(result.metadata.channels) == 2
+    assert result.metadata.channels[0].name == "DAPI"
+    assert result.metadata.channels[0].excitation_wavelength == 358
+    assert result.metadata.channels[0].emission_wavelength == 461
+    assert result.metadata.channels[0].power == 0.1
+    assert result.metadata.channels[0].exposure_time == 0.5
+    
+    assert result.metadata.channels[1].name == "GFP"
+    assert result.metadata.channels[1].excitation_wavelength == 488
+    assert result.metadata.channels[1].emission_wavelength == 509
+    assert result.metadata.channels[1].power == 0.2
+    assert result.metadata.channels[1].exposure_time == 0.3
+    
+    # Check image data has correct number of channels
+    assert result.data.shape[0] == 2  # Should have 2 channels (CZYX format)
+    
+    # Check that acquisition date is set
+    assert result.metadata.acquisition_date is not None
+
+
+def test_acquire_z_stack():
+    """Test acquire_z_stack with Z-stack parameters using demo microscope."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create test channel
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=358,
+        emission_wavelength=461,
+        power=0.1,
+        exposure_time=0.1
+    )
+    
+    # Create Z-stack parameters
+    z_params = ZParameters(
+        zmin=-0.005,
+        zmax=0.005,
+        zstep=0.001
+    )
+    
+    # Call function
+    result = acquire_z_stack(
+        microscope=microscope.fm,
+        channel_settings=channel,
+        zparams=z_params
+    )
+    
+    # Verify result
+    assert isinstance(result, FluorescenceImage)
+    
+    # Check metadata
+    assert len(result.metadata.channels) == 1
+    assert result.metadata.channels[0].name == "DAPI"
+    assert result.metadata.channels[0].excitation_wavelength == 358
+    assert result.metadata.channels[0].emission_wavelength == 461
+    assert result.metadata.channels[0].power == 0.1
+    assert result.metadata.channels[0].exposure_time == 0.1
+    
+    # Check Z-stack parameters are preserved
+    assert result.metadata.z_positions is not None
+    expected_nz = len(z_params.generate_positions(microscope.fm.objective.position))
+
+    assert len(result.metadata.z_positions) == expected_nz
+    
+    # Check image data has correct Z dimension
+    assert result.data.shape[1] == expected_nz  # Z dimension should match expected slices (CZYX format)
+    
+    # Check that acquisition date is set
+    assert result.metadata.acquisition_date is not None
+
+
+def test_acquire_image():
+    """Test acquire_image function using demo microscope."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    
+    # Create test channel
+    channel = ChannelSettings(
+        name="GFP",
+        excitation_wavelength=488,
+        emission_wavelength=509,
+        power=0.2,
+        exposure_time=0.3
+    )
+    
+    # Call function without Z-stack
+    result = acquire_image(
+        microscope=microscope.fm,
+        channel_settings=channel
+    )
+    
+    # Verify result
+    assert isinstance(result, FluorescenceImage)
+    
+    # Check metadata
+    assert len(result.metadata.channels) == 1
+    assert result.metadata.channels[0].name == "GFP"
+    assert result.metadata.channels[0].excitation_wavelength == 488
+    assert result.metadata.channels[0].emission_wavelength == 509
+    assert result.metadata.channels[0].power == 0.2
+    assert result.metadata.channels[0].exposure_time == 0.3
+    
+    # Check that no Z-stack parameters are set for regular image
+    assert result.metadata.z_positions is None
+    
+    # Check image data dimensions (should be 2D for single channel, single Z)
+    assert len(result.data.shape) >= 2  # At least height and width
+    assert result.data.shape[0] == 1  # Single channel (TCZYX format)
+    assert result.data.shape[1] == 1
+
+    # Check that acquisition date is set
+    assert result.metadata.acquisition_date is not None
