@@ -321,8 +321,8 @@ class FMAcquisitionWidget(QWidget):
         if event.button != 1:  # Left mouse button
             return
         
-        # shift key pressed
-        if 'Alt' not in event.modifiers:
+        # Check for modifier keys - Alt to add new position, Shift to update existing
+        if 'Alt' not in event.modifiers and 'Shift' not in event.modifiers:
             return
         
         # get event position in world coordinates, convert to stage coordinates
@@ -331,18 +331,30 @@ class FMAcquisitionWidget(QWidget):
         logging.info(f"Mouse clicked at {event.position} in viewer {viewer}")
         logging.info(f"Stage position clicked: {stage_position}")
 
-        # Get current objective position and create FMStagePosition
-        current_objective_position = self.fm.objective.position
-        
-        # Create FMStagePosition with automatic name generation
-        fm_stage_position = FMStagePosition.create_from_current_position(
-            stage_position=stage_position,
-            objective_position=current_objective_position,
-            num=len(self.stage_positions) + 1
-        )
-        self.stage_positions.append(fm_stage_position)
+        if 'Alt' in event.modifiers:
+            # Add new position
+            current_objective_position = self.fm.objective.position
+            
+            # Create FMStagePosition with automatic name generation
+            fm_stage_position = FMStagePosition.create_from_current_position(
+                stage_position=stage_position,
+                objective_position=current_objective_position,
+                num=len(self.stage_positions) + 1
+            )
+            self.stage_positions.append(fm_stage_position)
+            logging.info(f"New stage position saved: {stage_position}. Objective position: {current_objective_position}")
+            
+        elif 'Shift' in event.modifiers:
+            # Update existing position
+            current_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
+            if 0 <= current_index < len(self.stage_positions):
+                # Update only the stage position, keep name and objective position
+                self.stage_positions[current_index].stage_position = stage_position
+                logging.info(f"Updated position '{self.stage_positions[current_index].name}' to new stage coordinates: {stage_position}")
+            else:
+                logging.warning("No position selected to update. Please select a position first.")
+                return
 
-        logging.info(f"Stage position saved: {stage_position}. Objective position: {current_objective_position}")
         # Update positions button and widget
         self.savedPositionsWidget.update_positions(self.stage_positions)
         self.draw_stage_position_crosshairs()
