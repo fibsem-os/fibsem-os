@@ -277,6 +277,12 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
         
+        # Explicitly enable acquisition buttons initially (disabled only during live acquisition)
+        self.pushButton_acquire_zstack.setEnabled(True)
+        self.pushButton_acquire_overview.setEnabled(True)
+        self.pushButton_acquire_at_positions.setEnabled(True)
+        self.pushButton_run_autofocus.setEnabled(True)
+        
         # Initialize positions button state
         self._update_positions_button()
 
@@ -933,6 +939,9 @@ class FMAcquisitionWidget(QWidget):
         # Set positions acquisition flag to prevent FOV updates
         self._is_positions_acquiring = True
         
+        # Update all acquisition button states
+        self._update_acquisition_button_states()
+        
         # Clear stop event
         self._positions_stop_event.clear()
         
@@ -990,15 +999,16 @@ class FMAcquisitionWidget(QWidget):
     
     def _on_positions_finished(self):
         """Handle positions acquisition completion in the main thread."""
-        self.pushButton_acquire_at_positions.setEnabled(True)
-        self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        # Clear positions acquisition flag first
         self._is_positions_acquiring = False
+        
         # Update button text in case positions were modified during acquisition
         self._update_positions_button()
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
         
-        # Hide cancel button if no acquisitions are running
+        # Update all button states now that acquisition is finished
+        self._update_acquisition_button_states()
         self._update_cancel_button_visibility()
 
     # NOTE: not in main thread, so we need to handle signals properly
@@ -1016,7 +1026,7 @@ class FMAcquisitionWidget(QWidget):
         channel_name = image.metadata.channels[0].name
         wavelength = image.metadata.channels[0].excitation_wavelength
         emission_wavelength = image.metadata.channels[0].emission_wavelength
-        logging.info(f"Updating image channel: {channel_name}, acq_date: {acq_date}, wavelength: {wavelength} nm")
+        logging.info(f"Updating image channel: {channel_name}, wavelength: {wavelength} nm, acq_date: {acq_date}")
 
         stage_position = image.metadata.stage_position
 
@@ -1105,12 +1115,16 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition.setEnabled(False)
         self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.pushButton_stop_acquisition.setEnabled(True)
+        
         # TODO: handle case where acquisition fails...
 
         channel_settings = self.channelSettingsWidget.channel_settings
         logging.info(f"Starting acquisition with channel settings: {channel_settings}")
 
         self.fm.start_acquisition(channel_settings=channel_settings)
+        
+        # Update acquisition button states after live acquisition starts
+        self._update_acquisition_button_states()
 
     def stop_acquisition(self):
         """Stop the fluorescence acquisition."""
@@ -1122,6 +1136,9 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
         self.fm.stop_acquisition()
+        
+        # Update acquisition button states after live acquisition stops
+        self._update_acquisition_button_states()
 
     def cancel_acquisition(self):
         """Cancel all ongoing acquisitions (z-stack, overview, positions, autofocus)."""
@@ -1192,6 +1209,9 @@ class FMAcquisitionWidget(QWidget):
         # Set z-stack acquisition flag
         self._is_zstack_acquiring = True
         
+        # Update all acquisition button states
+        self._update_acquisition_button_states()
+        
         # Clear stop event
         self._zstack_stop_event.clear()
         
@@ -1253,13 +1273,11 @@ class FMAcquisitionWidget(QWidget):
     
     def _on_zstack_finished(self):
         """Handle Z-stack acquisition completion in the main thread."""
-        self.pushButton_acquire_zstack.setEnabled(True)
-        self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        
-        # Clear z-stack acquisition flag
+        # Clear z-stack acquisition flag first
         self._is_zstack_acquiring = False
         
-        # Hide cancel button if no acquisitions are running
+        # Update all button states now that acquisition is finished
+        self._update_acquisition_button_states()
         self._update_cancel_button_visibility()
 
     def _update_cancel_button_visibility(self):
@@ -1268,6 +1286,49 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_cancel_acquisition.show()
         else:
             self.pushButton_cancel_acquisition.hide()
+    
+    def _update_acquisition_button_states(self):
+        """Update acquisition button states based on live acquisition or specific acquisition status."""
+        # Check if any acquisition is active (live or specific acquisitions)
+        any_acquisition_active = self.fm.is_acquiring or self.is_acquisition_active
+        
+        if any_acquisition_active:
+            # Disable start acquisition button during any acquisition
+            self.pushButton_start_acquisition.setEnabled(False)
+            self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            
+            # Disable specific acquisition buttons that aren't currently running
+            if not self._is_zstack_acquiring:
+                self.pushButton_acquire_zstack.setEnabled(False)
+                self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            if not self._is_overview_acquiring:
+                self.pushButton_acquire_overview.setEnabled(False)
+                self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            if not self._is_positions_acquiring:
+                self.pushButton_acquire_at_positions.setEnabled(False)
+                self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            if not self._is_autofocus_running:
+                self.pushButton_run_autofocus.setEnabled(False)
+                self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        else:
+            # Enable all acquisition buttons when no acquisitions are running
+            self.pushButton_start_acquisition.setEnabled(True)
+            self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_zstack.setEnabled(True)
+            self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_overview.setEnabled(True)
+            self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+            
+            # Only enable positions button if there are saved positions
+            if self.stage_positions:
+                self.pushButton_acquire_at_positions.setEnabled(True)
+                self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+            else:
+                self.pushButton_acquire_at_positions.setEnabled(False)
+                self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+                
+            self.pushButton_run_autofocus.setEnabled(True)
+            self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
 
     def acquire_overview(self):
         """Start threaded overview acquisition using the current channel settings."""
@@ -1286,6 +1347,9 @@ class FMAcquisitionWidget(QWidget):
         
         # Set overview acquisition flag to prevent bounding box updates
         self._is_overview_acquiring = True
+        
+        # Update all acquisition button states
+        self._update_acquisition_button_states()
         
         # Clear stop event
         self._overview_stop_event.clear()
@@ -1369,13 +1433,14 @@ class FMAcquisitionWidget(QWidget):
     
     def _on_overview_finished(self):
         """Handle overview acquisition completion in the main thread."""
-        self.pushButton_acquire_overview.setEnabled(True)
-        self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        # Clear overview acquisition flag first
         self._is_overview_acquiring = False
+        
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
         
-        # Hide cancel button if no acquisitions are running
+        # Update all button states now that acquisition is finished
+        self._update_acquisition_button_states()
         self._update_cancel_button_visibility()
 
     # update methods for live updates
@@ -1477,6 +1542,9 @@ class FMAcquisitionWidget(QWidget):
         # Set auto-focus running flag
         self._is_autofocus_running = True
         
+        # Update all acquisition button states
+        self._update_acquisition_button_states()
+        
         # Clear stop event
         self._autofocus_stop_event.clear()
         
@@ -1524,14 +1592,14 @@ class FMAcquisitionWidget(QWidget):
     
     def _on_autofocus_finished(self):
         """Handle auto-focus completion in the main thread."""
-        self.pushButton_run_autofocus.setEnabled(True)
-        self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        # Clear autofocus running flag first
         self._is_autofocus_running = False
         
         # Update objective position display
         self.objectiveControlWidget.update_objective_position_labels()
         
-        # Hide cancel button if no acquisitions are running
+        # Update all button states now that acquisition is finished
+        self._update_acquisition_button_states()
         self._update_cancel_button_visibility()
 
 def main():
