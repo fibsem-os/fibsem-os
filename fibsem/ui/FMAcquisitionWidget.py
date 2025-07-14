@@ -208,6 +208,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
         self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
+        self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
@@ -224,6 +225,7 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)  # Span 2 columns
         button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)  # Span 2 columns
         button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)  # Span 2 columns
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)  # Span 2 columns
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
@@ -240,6 +242,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
         self.pushButton_acquire_at_positions.clicked.connect(self.acquire_at_positions)
         self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
+        self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
@@ -269,6 +272,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        self.pushButton_cancel_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
         
@@ -960,6 +964,7 @@ class FMAcquisitionWidget(QWidget):
                 positions=self.stage_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
+                stop_event=self._positions_stop_event,
                 use_autofocus=False,
                 save_directory=self.experiment_path,
             )
@@ -999,8 +1004,8 @@ class FMAcquisitionWidget(QWidget):
         
         acq_date = image.metadata.acquisition_date
         self.label.setText(f"Acquisition Signal Received: {acq_date}")
-        logging.info(f"Image updated with shape: {image.data.shape}, Objective position: {self.fm.objective.position*1e3:.2f} mm")
-        logging.info(f"Metadata: {image.metadata.channels[0].to_dict()}")
+        # logging.info(f"Image updated with shape: {image.data.shape}, Objective position: {self.fm.objective.position*1e3:.2f} mm")
+        # logging.info(f"Metadata: {image.metadata.channels[0].to_dict()}")
 
         # Convert structured metadata to dictionary for napari compatibility
         metadata_dict = image.metadata.to_dict() if image.metadata else {}
@@ -1115,6 +1120,48 @@ class FMAcquisitionWidget(QWidget):
 
         self.fm.stop_acquisition()
 
+    def cancel_acquisition(self):
+        """Cancel all ongoing acquisitions (z-stack, overview, positions, autofocus)."""
+        logging.info("Cancelling all acquisitions")
+        
+        # Cancel z-stack acquisition
+        if self._zstack_thread and self._zstack_thread.is_alive():
+            logging.info("Cancelling z-stack acquisition")
+            self._zstack_stop_event.set()
+            self._zstack_thread.join(timeout=5)  # Wait up to 5 seconds
+            self._is_zstack_acquiring = False
+            self.pushButton_acquire_zstack.setEnabled(True)
+            self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        
+        # Cancel overview acquisition
+        if self._overview_thread and self._overview_thread.is_alive():
+            logging.info("Cancelling overview acquisition")
+            self._overview_stop_event.set()
+            self._overview_thread.join(timeout=5)  # Wait up to 5 seconds
+            self._is_overview_acquiring = False
+            self.pushButton_acquire_overview.setEnabled(True)
+            self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        
+        # Cancel positions acquisition
+        if self._positions_thread and self._positions_thread.is_alive():
+            logging.info("Cancelling positions acquisition")
+            self._positions_stop_event.set()
+            self._positions_thread.join(timeout=5)  # Wait up to 5 seconds
+            self._is_positions_acquiring = False
+            self.pushButton_acquire_at_positions.setEnabled(True)
+            self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        
+        # Cancel autofocus
+        if self._autofocus_thread and self._autofocus_thread.is_alive():
+            logging.info("Cancelling autofocus")
+            self._autofocus_stop_event.set()
+            self._autofocus_thread.join(timeout=5)  # Wait up to 5 seconds
+            self._is_autofocus_running = False
+            self.pushButton_run_autofocus.setEnabled(True)
+            self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        
+        logging.info("All acquisitions cancelled")
+
     def toggle_acquisition(self):
         """Toggle acquisition start/stop with F6 key."""
         if self.fm.is_acquiring:
@@ -1162,15 +1209,16 @@ class FMAcquisitionWidget(QWidget):
             logging.info(f"Acquiring Z-stack with {len(z_parameters.generate_positions(self.fm.objective.position))} planes")
             logging.info(f"Z parameters: {z_parameters.to_dict()}")
             
-            # Acquire z-stack
+            # Acquire z-stack with cancellation support
             zstack_image = acquire_z_stack(
                 microscope=self.fm,
                 channel_settings=channel_settings,
-                zparams=z_parameters
+                zparams=z_parameters,
+                stop_event=self._zstack_stop_event
             )
             
             # Check if acquisition was cancelled
-            if self._zstack_stop_event.is_set():
+            if self._zstack_stop_event.is_set() or zstack_image is None:
                 logging.info("Z-stack acquisition was cancelled")
                 return
             
@@ -1271,11 +1319,12 @@ class FMAcquisitionWidget(QWidget):
                 tile_overlap=tile_overlap,
                 zparams=z_parameters,
                 autofocus_mode=autofocus_mode,
-                save_directory=tiles_directory
+                save_directory=tiles_directory,
+                stop_event=self._overview_stop_event
             )
             
             # Check if acquisition was cancelled
-            if self._overview_stop_event.is_set():
+            if self._overview_stop_event.is_set() or overview_image is None:
                 logging.info("Overview acquisition was cancelled")
                 return
             
@@ -1436,11 +1485,12 @@ class FMAcquisitionWidget(QWidget):
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 # z_parameters=z_parameters,
-                method='laplacian'
+                method='laplacian',
+                stop_event=self._autofocus_stop_event
             )
             
             # Check if auto-focus was cancelled
-            if self._autofocus_stop_event.is_set():
+            if best_z is None or self._autofocus_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
             

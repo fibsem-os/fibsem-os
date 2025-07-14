@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from copy import deepcopy
 from datetime import datetime
 from enum import Enum
@@ -26,8 +27,9 @@ class AutofocusMode(Enum):
 
 def acquire_channels(
     microscope: FluorescenceMicroscope, 
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]]
-) -> FluorescenceImage:
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    stop_event: Optional[threading.Event] = None
+) -> Optional[FluorescenceImage]:
     """Acquire images for multiple channels."""
     
     if not isinstance(channel_settings, list):
@@ -35,6 +37,11 @@ def acquire_channels(
 
     images: List[FluorescenceImage] = []
     for channel in channel_settings:
+        # Check for cancellation before each channel
+        if stop_event and stop_event.is_set():
+            logging.info("Multi-channel acquisition cancelled")
+            return None
+            
         image = microscope.acquire_image(channel)
         images.append(image)
     return FluorescenceImage.create_multi_channel_image(images)
@@ -43,7 +50,8 @@ def acquire_z_stack(
     microscope: FluorescenceMicroscope,
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     zparams: ZParameters,
-) -> FluorescenceImage:
+    stop_event: Optional['threading.Event'] = None,
+) -> Optional[FluorescenceImage]:
     """Acquire a Z-stack of images for a given channel."""
 
     z_init = microscope.objective.position  # initial z position of the objective
@@ -54,9 +62,20 @@ def acquire_z_stack(
         channel_settings = [channel_settings]
 
     for ch in channel_settings:
+        # Check for cancellation before starting channel
+        if stop_event and stop_event.is_set():
+            logging.info("Z-stack acquisition cancelled before channel acquisition")
+            microscope.objective.move_absolute(z_init)  # Restore position
+            return None
 
         ch_images: List[FluorescenceImage] = []
         for z in z_positions:
+            # Check for cancellation before each z position
+            if stop_event and stop_event.is_set():
+                logging.info("Z-stack acquisition cancelled during z-stack")
+                microscope.objective.move_absolute(z_init)  # Restore position
+                return None
+                
             # Move objective to the specified z position
             microscope.objective.move_absolute(z)
             # Acquire image at the current z position
@@ -74,7 +93,8 @@ def acquire_z_stack(
 
 def acquire_image(microscope: FluorescenceMicroscope,
                   channel_settings: Union[ChannelSettings, List[ChannelSettings]], 
-                  zparams: Optional[ZParameters] = None) -> FluorescenceImage:
+                  zparams: Optional[ZParameters] = None,
+                  stop_event: Optional[threading.Event] = None) -> Optional[FluorescenceImage]:
     """Acquire a fluroescence image for a single channel or multiple channels.
     If zparams is provided, a Z-stack will be acquired instead.
     Args:
@@ -86,10 +106,10 @@ def acquire_image(microscope: FluorescenceMicroscope,
     
     if zparams is not None:
         # Acquire Z-stack if zparams is provided
-        return acquire_z_stack(microscope, channel_settings, zparams)
+        return acquire_z_stack(microscope, channel_settings, zparams, stop_event)
     
     # Acquire single image(s) for specified channel(s)
-    return acquire_channels(microscope, channel_settings)
+    return acquire_channels(microscope, channel_settings, stop_event)
 
 # Autofocus functions have been moved to fibsem.fm.calibration
 
@@ -100,6 +120,7 @@ def acquire_at_positions(
     zparams: Optional[ZParameters] = None,
     use_autofocus: bool = False,
     save_directory: Optional[str] = None,
+    stop_event: Optional[threading.Event] = None,
     ) -> List[FluorescenceImage]:
     """Acquire fluorescence images at specified FMStagePosition locations.
     This function moves both the stage and objective to each specified position and 
@@ -113,6 +134,7 @@ def acquire_at_positions(
         use_autofocus: Whether to run autofocus at each position (default: False)
         save_directory: Directory to save images in. If provided, 
                        creates subdirectories for each position (default: None)
+        stop_event: Threading event to signal cancellation (optional)
     Returns:
         List of FluorescenceImage objects containing the acquired images
     Raises:
@@ -133,6 +155,11 @@ def acquire_at_positions(
 
     images: List[FluorescenceImage] = []
     for i, fm_pos in enumerate(positions):
+        # Check for cancellation before each position
+        if stop_event and stop_event.is_set():
+            logging.info("Multi-position acquisition cancelled")
+            return images  # Return images acquired so far
+
         logging.info(f"Moving to position {i+1}/{len(positions)}: {fm_pos.name}")
         
         # Move stage to the saved stage position
@@ -146,11 +173,20 @@ def acquire_at_positions(
         # Run autofocus if requested
         if use_autofocus:
             logging.info(f"Running autofocus at position: {fm_pos.name}")
-            run_autofocus(microscope.fm, channel_settings[0])
-            logging.info("Running autofocus")
+            result = run_autofocus(microscope.fm, channel_settings[0], stop_event=stop_event)
+            if result is None:
+                logging.info("Autofocus cancelled")
+                return images  # Return images acquired so far
+            logging.info("Autofocus completed")
 
-        # Acquire image(s) at the current position
-        image = acquire_image(microscope.fm, channel_settings, zparams)
+        # Acquire image(s) at the current position with cancellation support
+        image = acquire_image(microscope.fm, channel_settings, zparams, stop_event)
+        
+        # Check if acquisition was cancelled
+        if image is None:
+            logging.info("Image acquisition cancelled")
+            return images  # Return images acquired so far
+            
         image.metadata.description = f"{fm_pos.name}-{image.metadata.acquisition_date}"
         
         # Save image if requested
@@ -184,8 +220,9 @@ def run_tileset_autofocus(
     channel_settings: Optional[ChannelSettings], 
     z_parameters: Optional[ZParameters],
     context: str, 
-    method: str = 'laplacian'
-) -> None:
+    method: str = 'laplacian',
+    stop_event: Optional[threading.Event] = None
+) -> bool:
     """Run autofocus during tileset acquisition with error handling and logging.
     
     Args:
@@ -194,18 +231,28 @@ def run_tileset_autofocus(
         z_parameters: Z parameters for autofocus range
         context: Description of the autofocus context for logging
         method: Autofocus method to use (default: 'laplacian')
+        stop_event: Threading event to check for cancellation (optional)
+        
+    Returns:
+        True if autofocus completed successfully, False if cancelled
     """
     logging.info(f"Performing auto-focus {context}")
     try:
-        run_autofocus(
+        result = run_autofocus(
             microscope=microscope.fm,
             channel_settings=channel_settings,
             z_parameters=z_parameters,
-            method=method
+            method=method,
+            stop_event=stop_event
         )
+        if result is None:
+            logging.info(f"Auto-focus cancelled {context}")
+            return False
         logging.info(f"Auto-focus completed {context}")
+        return True
     except Exception as e:
         logging.warning(f"Auto-focus failed {context}: {e}")
+        return False
 
 
 
@@ -221,7 +268,8 @@ def acquire_tileset(
     autofocus_channel: Optional[ChannelSettings] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,
-) -> List[List[FluorescenceImage]]:
+    stop_event: Optional[threading.Event] = None,
+) -> List[List[Optional[FluorescenceImage]]]:
     """Acquire a tileset of fluorescence images across a grid pattern.
     
     This function moves the stage in a grid pattern to acquire multiple overlapping
@@ -244,6 +292,7 @@ def acquire_tileset(
         autofocus_channel: Channel settings to use for auto-focus (uses first channel if None)
         autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
         save_directory: Optional directory path to save individual tile images (default: None)
+        stop_event: Threading event to signal cancellation (optional)
         
     Returns:
         List of lists containing FluorescenceImage objects organized as [row][col]
@@ -296,7 +345,9 @@ def acquire_tileset(
         
         # Perform initial auto-focus if mode is ONCE (before moving to starting position)
         if autofocus_mode == AutofocusMode.ONCE:
-            run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, "at current position")
+            if not run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, "at current position", stop_event=stop_event):
+                logging.info("Initial autofocus cancelled")
+                return []  # Return empty list if cancelled
 
     # Calculate starting position (top-left corner of grid)
     start_offset_x = -(cols - 1) * step_x / 2
@@ -312,21 +363,43 @@ def acquire_tileset(
     # TODO: migrate to generate_grid_positions
     try:
         for row in range(rows):
+            # Check for cancellation before each row
+            if stop_event and stop_event.is_set():
+                logging.info("Tileset acquisition cancelled")
+                return tileset  # Return partial results
+                
             row_images = []
             
             # Perform auto-focus at start of each row
             if autofocus_mode == AutofocusMode.EACH_ROW:
-                run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for row {row+1}/{rows}")
+                autofocus_success = run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for row {row+1}/{rows}", stop_event=stop_event)
+                if not autofocus_success:
+                    logging.info("Row autofocus cancelled")
+                    return tileset  # Return partial results
 
             for col in range(cols):
+                # Check for cancellation before each tile
+                if stop_event and stop_event.is_set():
+                    logging.info("Tileset acquisition cancelled")
+                    return tileset  # Return partial results
+                    
                 # Perform auto-focus at each tile
                 if autofocus_mode == AutofocusMode.EACH_TILE:
-                    run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for tile [{row+1}/{rows}][{col+1}/{cols}]")
+                    autofocus_success = run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for tile [{row+1}/{rows}][{col+1}/{cols}]", stop_event=stop_event)
+                    if not autofocus_success:
+                        logging.info("Tile autofocus cancelled")
+                        return tileset  # Return partial results
                 
                 logging.info(f"Acquiring tile [{row+1}/{rows}][{col+1}/{cols}]")
 
-                # Acquire all channels at current position
-                tile_image = acquire_image(microscope.fm, channel_settings, zparams)
+                # Acquire all channels at current position with cancellation support
+                tile_image = acquire_image(microscope.fm, channel_settings, zparams, stop_event)
+                
+                # Check if acquisition was cancelled
+                if tile_image is None:
+                    logging.info("Tile acquisition cancelled")
+                    return tileset  # Return partial results
+                    
                 logging.info(f"Stage position for tile [{row+1}/{rows}][{col+1}/{cols}]: {tile_image.metadata.stage_position}")
 
                 # Save individual tile if save_directory is provided
@@ -522,7 +595,8 @@ def acquire_and_stitch_tileset(
     autofocus_channel: Optional[ChannelSettings] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,
-) -> FluorescenceImage:
+    stop_event: Optional[threading.Event] = None,
+) -> Optional[FluorescenceImage]:
     """Acquire a tileset and stitch it into a single mosaic image.
     
     Args:
@@ -558,7 +632,13 @@ def acquire_and_stitch_tileset(
         autofocus_channel=autofocus_channel,
         autofocus_zparams=autofocus_zparams,
         save_directory=save_directory,
+        stop_event=stop_event,
     )
+    
+    # Check if acquisition was cancelled (empty or incomplete tileset)
+    if not tileset or any(None in row for row in tileset):
+        logging.info("Tileset acquisition was cancelled, cannot stitch")
+        return None
     
     return stitch_tileset(tileset, tile_overlap)
 

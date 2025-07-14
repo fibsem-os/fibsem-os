@@ -6,6 +6,7 @@ and imaging conditions.
 """
 
 import logging
+import threading
 import numpy as np
 from typing import Optional, List, Dict, TYPE_CHECKING
 
@@ -624,8 +625,9 @@ def run_autofocus(
     microscope: "FluorescenceMicroscope",
     channel_settings: Optional["ChannelSettings"] = None,
     z_parameters: Optional["ZParameters"] = None,
-    method: str = 'laplacian'
-) -> float:
+    method: str = 'laplacian',
+    stop_event: Optional[threading.Event] = None
+) -> Optional[float]:
     """Run autofocus by acquiring images at different z positions and finding the best focus.
     
     Uses the focus measure functions to evaluate image sharpness at different
@@ -636,9 +638,10 @@ def run_autofocus(
         channel_settings: Channel settings to use for autofocus (optional)
         z_parameters: Z-stack parameters defining search range and step size
         method: Focus measure method ('laplacian', 'sobel', 'variance', 'tenengrad')
+        stop_event: Threading event to check for cancellation (optional)
         
     Returns:
-        Best focus position in meters
+        Best focus position in meters, or None if cancelled
         
     Example:
         >>> # Run autofocus with default parameters
@@ -671,7 +674,15 @@ def run_autofocus(
     
     # Evaluate focus at each z position
     scores = []
+    initial_z = microscope.objective.position  # Store initial position for restoration if cancelled
+    
     for i, z_pos in enumerate(z_positions):
+        # Check for cancellation before each z position
+        if stop_event and stop_event.is_set():
+            logging.info("Autofocus cancelled")
+            microscope.objective.move_absolute(initial_z)  # Restore initial position
+            return None
+            
         # Move objective to test position
         microscope.objective.move_absolute(z_pos)
         
