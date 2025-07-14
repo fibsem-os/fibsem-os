@@ -146,7 +146,7 @@ class FMAcquisitionWidget(QWidget):
 
         self.initUI()
         self.draw_stage_position_crosshairs()
-        self.display_stage_position_overlay()
+        self.update_text_overlay()
 
     @property
     def is_acquisition_active(self) -> bool:
@@ -281,9 +281,6 @@ class FMAcquisitionWidget(QWidget):
 
     def on_mouse_wheel(self, viewer, event):
         """Handle mouse wheel events in the napari viewer."""
-        # no image layer available yet
-        if self.image_layer is None:
-            return
         
         # Prevent objective movement during acquisitions
         if self.is_acquisition_active:
@@ -455,44 +452,29 @@ class FMAcquisitionWidget(QWidget):
 
         self.display_stage_position_overlay()
 
-    def display_stage_position_overlay(self):
-        """Display the stage position as text overlay on the image widget"""
+    def update_text_overlay(self):
+        """Update the text overlay with current stage position and objective information."""
         try:
-            # NOTE: this crashes for tescan systems?
             pos = self.fm.parent.get_stage_position()
             orientation = self.fm.parent.get_stage_orientation()
-        except Exception as e:
-            logging.warning(f"Error getting stage position: {e}")
-            return
-
-        pixelsize = self.fm.camera.pixel_size[0]  # Assuming square pixels
-
-        points = np.array([[0, 0]])
-        text = {
-            "string": [
-                f"STAGE: {to_pretty_string_short(pos)} [{orientation}]"
-                f"\nOBJECTIVE: {self.fm.objective.position*1e3:.3f} mm",
-                ],
-            "color": "white",
-            "font_size": 50,
-            "anchor": "lower_left",
-            "translation": (20*pixelsize, 5*pixelsize),  # Adjust translation if needed
-        }
-        try:
-            self.viewer.layers["microscope-info"].data = points
-            self.viewer.layers["microscope-info"].text = text
-        except KeyError:
-            self.viewer.add_points(
-                data=points,
-                name="microscope-info",
-                size=20,
-                text=text,
-                border_width=7,
-                border_width_is_relative=False,
-                border_color="transparent",
-                face_color="transparent",
-                # translate=self.image_layer.translate[-2:] if len(self.image_layer.translate) >= 2 else self.image_layer.translate,
+            
+            # Create combined text for overlay
+            overlay_text = (
+                f"STAGE: {to_pretty_string_short(pos)} [{orientation}]\n"
+                f"OBJECTIVE: {self.fm.objective.position*1e3:.3f} mm"
             )
+            self.viewer.text_overlay.visible = True
+            self.viewer.text_overlay.position = "bottom_left"
+            self.viewer.text_overlay.text = overlay_text
+            
+        except Exception as e:
+            logging.warning(f"Error updating text overlay: {e}")
+            # Fallback text if stage position unavailable
+            self.viewer.text_overlay.text = "Fluorescence Acquisition Widget"
+    
+    def display_stage_position_overlay(self):
+        """Legacy method for compatibility - redirects to update_text_overlay."""
+        self.update_text_overlay()
         self.draw_stage_position_crosshairs()
 
     def draw_stage_position_crosshairs(self):
