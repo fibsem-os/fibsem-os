@@ -12,6 +12,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QShortcut,
     QVBoxLayout,
@@ -348,9 +349,29 @@ class FMAcquisitionWidget(QWidget):
             # Update existing position
             current_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
             if 0 <= current_index < len(self.stage_positions):
-                # Update only the stage position, keep name and objective position
-                self.stage_positions[current_index].stage_position = stage_position
-                logging.info(f"Updated position '{self.stage_positions[current_index].name}' to new stage coordinates: {stage_position}")
+                current_position = self.stage_positions[current_index]
+                
+                # Show confirmation dialog
+                reply = QMessageBox.question(
+                    self,
+                    "Update Position",
+                    f"Update position '{current_position.name}' to new coordinates?\n\n"
+                    f"Current: X={current_position.stage_position.x*1e6:.1f} μm, "
+                    f"Y={current_position.stage_position.y*1e6:.1f} μm\n"
+                    f"New: X={stage_position.x*1e6:.1f} μm, "
+                    f"Y={stage_position.y*1e6:.1f} μm",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply == QMessageBox.Yes:
+                    # Update only the stage position, keep name and objective position
+                    self.stage_positions[current_index].stage_position = stage_position
+                    logging.info(f"Updated position '{current_position.name}' to new stage coordinates: {stage_position}")
+                else:
+                    logging.info(f"Position update cancelled for '{current_position.name}'")
+                    event.handled = True  # Prevent further processing
+                    return
             else:
                 logging.warning("No position selected to update. Please select a position first.")
                 return
@@ -359,6 +380,7 @@ class FMAcquisitionWidget(QWidget):
         self.savedPositionsWidget.update_positions(self.stage_positions)
         self.draw_stage_position_crosshairs()
         self._update_positions_button()
+        event.handled = True  # Prevent further processing by napari
 
     def on_mouse_double_click(self, viewer, event):
         """Handle double-click events in the napari viewer."""
