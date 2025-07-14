@@ -1,0 +1,225 @@
+import logging
+from typing import TYPE_CHECKING, List, Optional
+
+from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QWidget,
+)
+
+from fibsem.fm.structures import FMStagePosition
+from fibsem.ui.stylesheets import (
+    BLUE_PUSHBUTTON_STYLE,
+    GRAY_PUSHBUTTON_STYLE,
+    ORANGE_PUSHBUTTON_STYLE,
+    RED_PUSHBUTTON_STYLE,
+)
+
+if TYPE_CHECKING:
+    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
+
+
+class SavedPositionsWidget(QWidget):
+    position_deleted = pyqtSignal(int)  # Signal emitted when a position is deleted (index)
+    position_selected = pyqtSignal(int)  # Signal emitted when a position is selected (index)
+    
+    def __init__(self, parent: Optional['FMAcquisitionWidget'] = None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.initUI()
+
+    def initUI(self):
+        self.label_header = QLabel("Saved Positions", self)
+        
+        # Combobox for selecting saved positions
+        self.label_positions = QLabel("Select Position", self)
+        self.comboBox_positions = QComboBox(self)
+        self.comboBox_positions.setToolTip("Select a saved position from the list")
+        
+        # Buttons for managing positions
+        self.pushButton_goto_position = QPushButton("Go To", self)
+        self.pushButton_goto_position.setToolTip("Move stage to the selected position")
+        self.pushButton_delete_position = QPushButton("Delete", self)
+        self.pushButton_delete_position.setToolTip("Delete the selected position")
+        self.pushButton_clear_all = QPushButton("Clear All", self)
+        self.pushButton_clear_all.setToolTip("Delete all saved positions")
+        
+        # Position info label
+        self.label_position_info = QLabel("No positions saved", self)
+        self.label_position_info.setStyleSheet("QLabel { color: #666666; font-size: 10px; }")
+        self.label_position_info.setWordWrap(True)
+        
+        # Create the layout
+        layout = QGridLayout()
+        layout.addWidget(self.label_header, 0, 0, 1, 3)
+        layout.addWidget(self.label_positions, 1, 0)
+        layout.addWidget(self.comboBox_positions, 1, 1, 1, 2)
+        layout.addWidget(self.pushButton_goto_position, 2, 0)
+        layout.addWidget(self.pushButton_delete_position, 2, 1)
+        layout.addWidget(self.pushButton_clear_all, 2, 2)
+        layout.addWidget(self.label_position_info, 3, 0, 1, 3)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+
+        # Connect signals
+        self.comboBox_positions.currentIndexChanged.connect(self._on_position_selected)
+        self.pushButton_goto_position.clicked.connect(self._goto_selected_position)
+        self.pushButton_delete_position.clicked.connect(self._delete_selected_position)
+        self.pushButton_clear_all.clicked.connect(self._clear_all_positions)
+        
+        # Set initial button states
+        self._update_widget_state()
+        
+        # Set button styles
+        self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+
+    def update_positions(self, positions: List[FMStagePosition]):
+        """Update the combobox with current saved positions."""
+        # Store current selection
+        current_text = self.comboBox_positions.currentText()
+        
+        # Clear and repopulate combobox
+        self.comboBox_positions.clear()
+        
+        if not positions:
+            self.comboBox_positions.addItem("No positions saved")
+            self.label_position_info.setText("No positions saved")
+        else:
+            for i, pos in enumerate(positions):
+                display_text = pos.name  # FMStagePosition.name is required
+                self.comboBox_positions.addItem(display_text)
+            
+            # Try to restore previous selection
+            current_index = self.comboBox_positions.findText(current_text)
+            if current_index >= 0:
+                self.comboBox_positions.setCurrentIndex(current_index)
+            
+            # Update info for currently selected position
+            self._update_position_info()
+        
+        self._update_widget_state()
+
+    def _update_widget_state(self):
+        """Update button enabled/disabled state based on available positions."""
+        has_positions = self.parent_widget and len(self.parent_widget.stage_positions) > 0
+        
+        self.pushButton_goto_position.setEnabled(has_positions)
+        self.pushButton_delete_position.setEnabled(has_positions)
+        self.pushButton_clear_all.setEnabled(has_positions)
+        self.comboBox_positions.setEnabled(has_positions)
+        
+        if not has_positions:
+            self.pushButton_goto_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_delete_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_clear_all.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        else:
+            self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
+            self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+
+    def _update_position_info(self):
+        """Update the position info label with details of the selected position."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            self.label_position_info.setText("No positions saved")
+            return
+        
+        current_index = self.comboBox_positions.currentIndex()
+        if 0 <= current_index < len(self.parent_widget.stage_positions):
+            fm_pos = self.parent_widget.stage_positions[current_index]
+            info_text = fm_pos.format_position_info()
+            self.label_position_info.setText(info_text)
+        else:
+            self.label_position_info.setText("Invalid selection")
+
+    def _on_position_selected(self, index: int):
+        """Handle position selection in combobox."""
+        self._update_position_info()
+        if index >= 0:
+            self.position_selected.emit(index)
+            # Update crosshairs to highlight selected position
+            if self.parent_widget:
+                self.parent_widget.draw_stage_position_crosshairs()
+
+    def _goto_selected_position(self):
+        """Move stage to the selected position."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return
+        
+        current_index = self.comboBox_positions.currentIndex()
+        if 0 <= current_index < len(self.parent_widget.stage_positions):
+            fm_position = self.parent_widget.stage_positions[current_index]
+            stage_position = fm_position.stage_position
+            
+            if self.parent_widget.fm.parent:
+                try:
+                    logging.info(f"Moving to saved position: {fm_position.name} at {stage_position}")
+                    self.parent_widget.fm.parent.move_stage_absolute(stage_position)
+                    
+                    # Also move objective to saved position
+                    logging.info(f"Moving objective to: {fm_position.objective_position*1e3:.2f} mm")
+                    self.parent_widget.fm.objective.move_absolute(fm_position.objective_position)
+                    
+                    self.parent_widget.display_stage_position_overlay()
+                    self.parent_widget.objectiveControlWidget.update_objective_position_labels()
+                except Exception as e:
+                    logging.error(f"Error moving to position: {e}")
+            else:
+                logging.error("No parent microscope available for stage movement")
+
+    def _delete_selected_position(self):
+        """Delete the selected position."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return
+        
+        current_index = self.comboBox_positions.currentIndex()
+        if 0 <= current_index < len(self.parent_widget.stage_positions):
+            position = self.parent_widget.stage_positions[current_index]
+            
+            # Confirmation dialog
+            from fibsem.ui.utils import message_box_ui
+            ret = message_box_ui(
+                title="Delete Position",
+                text=f"Are you sure you want to delete position '{position.name}'?",
+                parent=self
+            )
+            if ret:
+                # Remove from parent's list
+                del self.parent_widget.stage_positions[current_index]
+                
+                # Update displays
+                self.update_positions(self.parent_widget.stage_positions)
+                self.parent_widget.draw_stage_position_crosshairs()
+                self.parent_widget._update_positions_button()
+                
+                # Emit signal
+                self.position_deleted.emit(current_index)
+                
+                logging.info(f"Deleted saved position: {position.name}")
+
+    def _clear_all_positions(self):
+        """Clear all saved positions."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return
+        
+        # Confirmation dialog
+        from fibsem.ui.utils import message_box_ui
+        ret = message_box_ui(
+            title="Clear All Positions",
+            text=f"Are you sure you want to delete all {len(self.parent_widget.stage_positions)} saved positions?",
+            parent=self
+        )
+        if ret:
+            # Clear parent's list
+            self.parent_widget.stage_positions.clear()
+            
+            # Update displays
+            self.update_positions(self.parent_widget.stage_positions)
+            self.parent_widget.draw_stage_position_crosshairs()
+            self.parent_widget._update_positions_button()
+            
+            logging.info("Cleared all saved positions")
