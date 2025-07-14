@@ -273,6 +273,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
         self.pushButton_cancel_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_cancel_acquisition.hide()  # Hide by default, show when acquisition starts
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
         
@@ -285,14 +286,12 @@ class FMAcquisitionWidget(QWidget):
 
     def on_mouse_wheel(self, viewer, event):
         """Handle mouse wheel events in the napari viewer."""
-        
+
         # Prevent objective movement during acquisitions
         if self.is_acquisition_active:
             logging.info("Objective movement disabled during acquisition")
             event.handled = True
             return
-        
-        # NOTE: scroll wheel events don't seem connected until there is an image layer?
 
         # Check for Ctrl key to control objective position
         if 'Shift' in event.modifiers:
@@ -929,6 +928,7 @@ class FMAcquisitionWidget(QWidget):
         logging.info(f"Starting acquisition at {len(self.stage_positions)} saved positions")
         self.pushButton_acquire_at_positions.setEnabled(False)
         self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_cancel_acquisition.show()  # Show cancel button
         
         # Set positions acquisition flag to prevent FOV updates
         self._is_positions_acquiring = True
@@ -997,6 +997,9 @@ class FMAcquisitionWidget(QWidget):
         self._update_positions_button()
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
+        
+        # Hide cancel button if no acquisitions are running
+        self._update_cancel_button_visibility()
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -1010,10 +1013,10 @@ class FMAcquisitionWidget(QWidget):
         # Convert structured metadata to dictionary for napari compatibility
         metadata_dict = image.metadata.to_dict() if image.metadata else {}
 
-        channel_name = image.metadata.channels[0].name # QUERY: is this
+        channel_name = image.metadata.channels[0].name
         wavelength = image.metadata.channels[0].excitation_wavelength
         emission_wavelength = image.metadata.channels[0].emission_wavelength
-        logging.info(f"Updating image layer with channel name: {channel_name}, wavelength: {wavelength} nm")
+        logging.info(f"Updating image channel: {channel_name}, acq_date: {acq_date}, wavelength: {wavelength} nm")
 
         stage_position = image.metadata.stage_position
 
@@ -1184,6 +1187,7 @@ class FMAcquisitionWidget(QWidget):
         logging.info("Starting Z-stack acquisition")
         self.pushButton_acquire_zstack.setEnabled(False)
         self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_cancel_acquisition.show()  # Show cancel button
         
         # Set z-stack acquisition flag
         self._is_zstack_acquiring = True
@@ -1254,6 +1258,16 @@ class FMAcquisitionWidget(QWidget):
         
         # Clear z-stack acquisition flag
         self._is_zstack_acquiring = False
+        
+        # Hide cancel button if no acquisitions are running
+        self._update_cancel_button_visibility()
+
+    def _update_cancel_button_visibility(self):
+        """Show/hide cancel button based on whether any acquisitions are running."""
+        if self.is_acquisition_active:
+            self.pushButton_cancel_acquisition.show()
+        else:
+            self.pushButton_cancel_acquisition.hide()
 
     def acquire_overview(self):
         """Start threaded overview acquisition using the current channel settings."""
@@ -1268,6 +1282,7 @@ class FMAcquisitionWidget(QWidget):
         logging.info("Starting overview acquisition")
         self.pushButton_acquire_overview.setEnabled(False)
         self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_cancel_acquisition.show()  # Show cancel button
         
         # Set overview acquisition flag to prevent bounding box updates
         self._is_overview_acquiring = True
@@ -1359,6 +1374,9 @@ class FMAcquisitionWidget(QWidget):
         self._is_overview_acquiring = False
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
+        
+        # Hide cancel button if no acquisitions are running
+        self._update_cancel_button_visibility()
 
     # update methods for live updates
     def _update_exposure_time(self, value: float):
@@ -1454,6 +1472,7 @@ class FMAcquisitionWidget(QWidget):
         logging.info("Starting auto-focus")
         self.pushButton_run_autofocus.setEnabled(False)
         self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_cancel_acquisition.show()  # Show cancel button
         
         # Set auto-focus running flag
         self._is_autofocus_running = True
@@ -1511,6 +1530,9 @@ class FMAcquisitionWidget(QWidget):
         
         # Update objective position display
         self.objectiveControlWidget.update_objective_position_labels()
+        
+        # Hide cancel button if no acquisitions are running
+        self._update_cancel_button_visibility()
 
 def main():
 
