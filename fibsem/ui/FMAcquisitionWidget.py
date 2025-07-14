@@ -331,31 +331,22 @@ class FMAcquisitionWidget(QWidget):
         logging.info(f"Mouse clicked at {event.position} in viewer {viewer}")
         logging.info(f"Stage position clicked: {stage_position}")
 
-        # add to saved positions
-
-        # give it a petname
-        import petname
-        num = len(self.stage_positions) + 1
-        name = f"{num:02d}-{petname.generate(2)}"
-        
-        # Get current objective position
+        # Get current objective position and create FMStagePosition
         current_objective_position = self.fm.objective.position
-        stage_position.name = name
         
-        # Create FMStagePosition with stage position and objective position
-        fm_stage_position = FMStagePosition(
-            name=name,
+        # Create FMStagePosition with automatic name generation
+        fm_stage_position = FMStagePosition.create_from_current_position(
             stage_position=stage_position,
-            objective_position=current_objective_position
+            objective_position=current_objective_position,
+            num=len(self.stage_positions) + 1
         )
         self.stage_positions.append(fm_stage_position)
 
-        logging.info(f"Stage position saved: {stage_position}")
-        # add crosshair at clicked position
-        self.draw_stage_position_crosshairs()
+        logging.info(f"Stage position saved: {stage_position}. Objective position: {current_objective_position}")
         # Update positions button and widget
-        self._update_positions_button()
         self.savedPositionsWidget.update_positions(self.stage_positions)
+        self.draw_stage_position_crosshairs()
+        self._update_positions_button()
 
     def on_mouse_double_click(self, viewer, event):
         """Handle double-click events in the napari viewer."""

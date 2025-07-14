@@ -84,6 +84,31 @@ class FMStagePosition:
         info_text += f", Obj: {self.objective_position*1e3:.3f} mm"
         return info_text
 
+    @classmethod
+    def create_from_current_position(cls, 
+                                   stage_position: FibsemStagePosition, 
+                                   objective_position: float,
+                                   num: int = 0) -> "FMStagePosition":
+        """Create FMStagePosition with automatic name generation if needed.
+        
+        Args:
+            stage_position: The stage position coordinates
+            objective_position: Current objective z-position in meters
+            num: Optional index to use for name generation (default: 0)
+           
+        Returns:
+            FMStagePosition: New position with generated or provided name
+        """
+        # Generate petname-style name with index
+        import petname
+        name = f"{num:02d}-{petname.generate(2)}"
+
+        return cls(
+            name=name,
+            stage_position=stage_position,
+            objective_position=objective_position
+        )
+
 @dataclass
 class ChannelSettings:
     name: str
