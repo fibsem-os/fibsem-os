@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import yaml
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -285,6 +286,9 @@ class FMAcquisitionWidget(QWidget):
         
         # Initialize positions button state
         self._update_positions_button()
+        
+        # Load saved positions from YAML file if it exists
+        self._load_positions_from_yaml()
 
         # draw scale bar
         self.viewer.scale_bar.visible = True
@@ -351,6 +355,9 @@ class FMAcquisitionWidget(QWidget):
             self.stage_positions.append(fm_stage_position)
             logging.info(f"New stage position saved: {stage_position}. Objective position: {current_objective_position}")
             
+            # Save positions to YAML file
+            self._save_positions_to_yaml()
+            
         elif 'Shift' in event.modifiers:
             # Update existing position
             current_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
@@ -374,6 +381,9 @@ class FMAcquisitionWidget(QWidget):
                     # Update only the stage position, keep name and objective position
                     self.stage_positions[current_index].stage_position = stage_position
                     logging.info(f"Updated position '{current_position.name}' to new stage coordinates: {stage_position}")
+                    
+                    # Save positions to YAML file
+                    self._save_positions_to_yaml()
                 else:
                     logging.info(f"Position update cancelled for '{current_position.name}'")
                     event.handled = True  # Prevent further processing
@@ -1329,6 +1339,67 @@ class FMAcquisitionWidget(QWidget):
                 
             self.pushButton_run_autofocus.setEnabled(True)
             self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+
+    def _save_positions_to_yaml(self):
+        """Save current stage positions to positions.yaml in the experiment directory."""
+        if not hasattr(self, 'experiment_path') or not self.experiment_path:
+            logging.warning("No experiment path set, cannot save positions")
+            return
+            
+        positions_file = os.path.join(self.experiment_path, "positions.yaml")
+        
+        try:
+            # Convert positions to dictionary format for YAML serialization
+            positions_data = {
+                'positions': [pos.to_dict() for pos in self.stage_positions],
+                'created_date': datetime.now().isoformat(),
+                'num_positions': len(self.stage_positions)
+            }
+            
+            with open(positions_file, 'w') as f:
+                yaml.dump(positions_data, f, default_flow_style=False, indent=2)
+                
+            logging.info(f"Saved {len(self.stage_positions)} positions to {positions_file}")
+            
+        except Exception as e:
+            logging.error(f"Failed to save positions to {positions_file}: {e}")
+    
+    def _load_positions_from_yaml(self):
+        """Load stage positions from positions.yaml in the experiment directory."""
+        if not hasattr(self, 'experiment_path') or not self.experiment_path:
+            return
+            
+        positions_file = os.path.join(self.experiment_path, "positions.yaml")
+        
+        if not os.path.exists(positions_file):
+            return
+            
+        try:
+            with open(positions_file, 'r') as f:
+                positions_data = yaml.safe_load(f)
+                
+            if positions_data and 'positions' in positions_data:
+                # Clear existing positions and load from file
+                self.stage_positions.clear()
+                
+                for pos_dict in positions_data['positions']:
+                    try:
+                        fm_position = FMStagePosition.from_dict(pos_dict)
+                        self.stage_positions.append(fm_position)
+                    except Exception as e:
+                        logging.warning(f"Failed to load position from YAML: {e}")
+                        continue
+                
+                # Update UI to reflect loaded positions
+                self.savedPositionsWidget.update_positions(self.stage_positions)
+                self.draw_stage_position_crosshairs()
+                self._update_positions_button()
+                self._update_acquisition_button_states()
+                
+                logging.info(f"Loaded {len(self.stage_positions)} positions from {positions_file}")
+                
+        except Exception as e:
+            logging.error(f"Failed to load positions from {positions_file}: {e}")
 
     def acquire_overview(self):
         """Start threaded overview acquisition using the current channel settings."""

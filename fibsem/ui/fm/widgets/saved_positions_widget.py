@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QGridLayout,
     QLabel,
     QPushButton,
@@ -14,6 +15,7 @@ from fibsem.fm.structures import FMStagePosition
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     GRAY_PUSHBUTTON_STYLE,
+    GREEN_PUSHBUTTON_STYLE,
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
 )
@@ -46,6 +48,8 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_delete_position.setToolTip("Delete the selected position")
         self.pushButton_clear_all = QPushButton("Clear All", self)
         self.pushButton_clear_all.setToolTip("Delete all saved positions")
+        self.pushButton_load_positions = QPushButton("Load File", self)
+        self.pushButton_load_positions.setToolTip("Load positions from a YAML file")
         
         # Position info label
         self.label_position_info = QLabel("No positions saved", self)
@@ -60,7 +64,8 @@ class SavedPositionsWidget(QWidget):
         layout.addWidget(self.pushButton_goto_position, 2, 0)
         layout.addWidget(self.pushButton_delete_position, 2, 1)
         layout.addWidget(self.pushButton_clear_all, 2, 2)
-        layout.addWidget(self.label_position_info, 3, 0, 1, 3)
+        layout.addWidget(self.pushButton_load_positions, 3, 0, 1, 3)
+        layout.addWidget(self.label_position_info, 4, 0, 1, 3)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
@@ -69,6 +74,7 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_goto_position.clicked.connect(self._goto_selected_position)
         self.pushButton_delete_position.clicked.connect(self._delete_selected_position)
         self.pushButton_clear_all.clicked.connect(self._clear_all_positions)
+        self.pushButton_load_positions.clicked.connect(self._load_positions_from_file)
         
         # Set initial button states
         self._update_widget_state()
@@ -77,6 +83,7 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        self.pushButton_load_positions.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
     def update_positions(self, positions: List[FMStagePosition]):
         """Update the combobox with current saved positions."""
@@ -112,6 +119,8 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_delete_position.setEnabled(has_positions)
         self.pushButton_clear_all.setEnabled(has_positions)
         self.comboBox_positions.setEnabled(has_positions)
+        # Load button is always enabled
+        self.pushButton_load_positions.setEnabled(True)
         
         if not has_positions:
             self.pushButton_goto_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
@@ -121,6 +130,9 @@ class SavedPositionsWidget(QWidget):
             self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
             self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
             self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        
+        # Load button always keeps green style
+        self.pushButton_load_positions.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
     def _update_position_info(self):
         """Update the position info label with details of the selected position."""
@@ -196,6 +208,9 @@ class SavedPositionsWidget(QWidget):
                 self.parent_widget.draw_stage_position_crosshairs()
                 self.parent_widget._update_positions_button()
                 
+                # Save updated positions to YAML file
+                self.parent_widget._save_positions_to_yaml()
+                
                 # Emit signal
                 self.position_deleted.emit(current_index)
                 
@@ -222,4 +237,79 @@ class SavedPositionsWidget(QWidget):
             self.parent_widget.draw_stage_position_crosshairs()
             self.parent_widget._update_positions_button()
             
+            # Save updated positions to YAML file
+            self.parent_widget._save_positions_to_yaml()
+            
             logging.info("Cleared all saved positions")
+
+    def _load_positions_from_file(self):
+        """Load positions from a user-selected YAML file."""
+        if not self.parent_widget:
+            return
+        
+        # Open file dialog to select positions file
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Positions File",
+            "",
+            "YAML Files (*.yaml *.yml);;All Files (*)"
+        )
+        
+        if not file_path:
+            return  # User cancelled
+        
+        try:
+            import yaml
+            
+            with open(file_path, 'r') as f:
+                positions_data = yaml.safe_load(f)
+            
+            if not positions_data or 'positions' not in positions_data:
+                from fibsem.ui.utils import message_box_ui
+                message_box_ui(
+                    title="Invalid File",
+                    text="The selected file does not contain valid position data.",
+                    parent=self
+                )
+                return
+            
+            # Confirmation dialog showing what will be loaded
+            num_positions = len(positions_data['positions'])
+            from fibsem.ui.utils import message_box_ui
+            ret = message_box_ui(
+                title="Load Positions",
+                text=f"Load {num_positions} positions from file? This will replace current positions.",
+                parent=self
+            )
+            
+            if ret:
+                # Clear existing positions
+                self.parent_widget.stage_positions.clear()
+                
+                # Load positions from file
+                for pos_dict in positions_data['positions']:
+                    try:
+                        fm_position = FMStagePosition.from_dict(pos_dict)
+                        self.parent_widget.stage_positions.append(fm_position)
+                    except Exception as e:
+                        logging.warning(f"Failed to load position from file: {e}")
+                        continue
+                
+                # Update UI
+                self.update_positions(self.parent_widget.stage_positions)
+                self.parent_widget.draw_stage_position_crosshairs()
+                self.parent_widget._update_positions_button()
+                
+                # Save to current experiment's positions.yaml
+                self.parent_widget._save_positions_to_yaml()
+                
+                logging.info(f"Loaded {len(self.parent_widget.stage_positions)} positions from {file_path}")
+                
+        except Exception as e:
+            from fibsem.ui.utils import message_box_ui
+            message_box_ui(
+                title="Error Loading File",
+                text=f"Failed to load positions from file:\n{str(e)}",
+                parent=self
+            )
+            logging.error(f"Error loading positions from {file_path}: {e}")
