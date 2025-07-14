@@ -950,13 +950,10 @@ class FMAcquisitionWidget(QWidget):
                 logging.error("FluorescenceMicroscope parent is None. Cannot acquire at positions.")
                 return
             
-            # Extract FibsemStagePosition objects from FMStagePosition objects
-            stage_positions = [fm_pos.stage_position for fm_pos in self.stage_positions]
-            
-            # Acquire images at all saved positions
+            # Acquire images at all saved positions (using FMStagePosition directly)
             images = acquire_at_positions(
                 microscope=self.fm.parent,
-                positions=stage_positions,
+                positions=self.stage_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
                 use_autofocus=False,

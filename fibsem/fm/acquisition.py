@@ -11,7 +11,7 @@ import matplotlib.patches as patches
 
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
+from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters, FMStagePosition
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 
@@ -95,36 +95,36 @@ def acquire_image(microscope: FluorescenceMicroscope,
 
 def acquire_at_positions(
     microscope: FibsemMicroscope,
-    positions: List[FibsemStagePosition],
+    positions: List[FMStagePosition],
     channel_settings: Union[ChannelSettings, List[ChannelSettings]], 
     zparams: Optional[ZParameters] = None,
     use_autofocus: bool = False,
     save_directory: Optional[str] = None,
     ) -> List[FluorescenceImage]:
-    """Acquire fluorescence images at specified stage positions.
-    This function moves the stage to each specified position and acquires images
-    for the given channel settings. If zparams is provided, a Z-stack will be acquired
-    at each position.
+    """Acquire fluorescence images at specified FMStagePosition locations.
+    This function moves both the stage and objective to each specified position and 
+    acquires images for the given channel settings. If zparams is provided, a Z-stack 
+    will be acquired at each position.
     Args:
         microscope: The fluorescence microscope instance
-        positions: List of FibsemStagePosition objects defining where to acquire images
+        positions: List of FMStagePosition objects defining where to acquire images
         channel_settings: Single channel or list of channels to acquire
         zparams: ZParameters for Z-stack acquisition (optional)
         use_autofocus: Whether to run autofocus at each position (default: False)
-        save: Whether to save images to disk (default: False)
-        save_directory: Directory to save images in. If provided with save=True, 
+        save_directory: Directory to save images in. If provided, 
                        creates subdirectories for each position (default: None)
     Returns:
         List of FluorescenceImage objects containing the acquired images
     Raises:
         ValueError: If positions is empty or contains invalid stage positions
     Example:
-        >>> positions = [FibsemStagePosition(x=0, y=0, z=0, name="pos1"),
-        ...             FibsemStagePosition(x=10e-6, y=0, z=0, name="pos2")]
+        >>> stage_pos = FibsemStagePosition(x=0, y=0, z=0, name="pos1")
+        >>> fm_pos = FMStagePosition(name="Position-01", stage_position=stage_pos, objective_position=0.012)
+        >>> positions = [fm_pos]
         >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365, 
-        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
+        ...                          emission_wavelength=450, power=0.5, exposure_time=0.1)
         >>> images = acquire_at_positions(microscope, positions, channel, 
-        ...                              save=True, save_directory="/data/experiment")
+        ...                              save_directory="/data/experiment")
     """ 
     if not positions:
         raise ValueError("Positions list cannot be empty")
@@ -132,24 +132,31 @@ def acquire_at_positions(
         channel_settings = [channel_settings]
 
     images: List[FluorescenceImage] = []
-    for i, pos in enumerate(positions):
-        logging.info(f"Moving to position {i+1}/{len(positions)}: {pos}")
-        microscope.safe_absolute_stage_movement(pos)
+    for i, fm_pos in enumerate(positions):
+        logging.info(f"Moving to position {i+1}/{len(positions)}: {fm_pos.name}")
+        
+        # Move stage to the saved stage position
+        logging.info(f"Moving stage to: {fm_pos.stage_position}")
+        microscope.safe_absolute_stage_movement(fm_pos.stage_position)
+        
+        # Move objective to the saved objective position
+        logging.info(f"Moving objective to: {fm_pos.objective_position*1e3:.2f} mm")
+        microscope.fm.objective.move_absolute(fm_pos.objective_position)
         
         # Run autofocus if requested
         if use_autofocus:
-            logging.info(f"Running autofocus at position: {pos}")
+            logging.info(f"Running autofocus at position: {fm_pos.name}")
             run_autofocus(microscope.fm, channel_settings[0])
             logging.info("Running autofocus")
 
         # Acquire image(s) at the current position
         image = acquire_image(microscope.fm, channel_settings, zparams)
-        image.metadata.description = f"{pos.name}-{image.metadata.acquisition_date}"
+        image.metadata.description = f"{fm_pos.name}-{image.metadata.acquisition_date}"
         
         # Save image if requested
         if save_directory is not None:
             # Create position-specific subdirectory
-            position_name = pos.name or f"position_{i+1:03d}"
+            position_name = fm_pos.name or f"position_{i+1:03d}"
             position_dir = os.path.join(save_directory, position_name)
             os.makedirs(position_dir, exist_ok=True)
             
@@ -162,12 +169,12 @@ def acquire_at_positions(
             image.metadata.filename = filename
             try:
                 image.save(filepath)
-                logging.info(f"Saved image for position {pos.name} to {filepath}")
+                logging.info(f"Saved image for position {fm_pos.name} to {filepath}")
             except Exception as e:
-                logging.error(f"Failed to save image for position {pos.name}: {e}")
+                logging.error(f"Failed to save image for position {fm_pos.name}: {e}")
         
         images.append(image)
-        logging.info(f"Acquired image at position: {pos}")
+        logging.info(f"Acquired image at position: {fm_pos.name}")
 
     return images
 
