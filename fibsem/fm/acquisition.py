@@ -176,7 +176,8 @@ def run_tileset_autofocus(
     microscope: FibsemMicroscope, 
     channel_settings: Optional[ChannelSettings], 
     z_parameters: Optional[ZParameters],
-    context: str
+    context: str, 
+    method: str = 'laplacian'
 ) -> None:
     """Run autofocus during tileset acquisition with error handling and logging.
     
@@ -185,6 +186,7 @@ def run_tileset_autofocus(
         channel_settings: Channel settings for autofocus
         z_parameters: Z parameters for autofocus range
         context: Description of the autofocus context for logging
+        method: Autofocus method to use (default: 'laplacian')
     """
     logging.info(f"Performing auto-focus {context}")
     try:
@@ -192,7 +194,7 @@ def run_tileset_autofocus(
             microscope=microscope.fm,
             channel_settings=channel_settings,
             z_parameters=z_parameters,
-            method='laplacian'
+            method=method
         )
         logging.info(f"Auto-focus completed {context}")
     except Exception as e:
