@@ -14,7 +14,7 @@ from fibsem.structures import (
     FibsemRectangle,
 )
 
-def create_pattern_mask(stage: FibsemMillingStage, image: FibsemImage, include_exclusions: bool = False) -> np.ndarray:
+def create_pattern_mask(stage: FibsemMillingStage, image_shape: Tuple[int, int], pixelsize: float, include_exclusions: bool = False) -> np.ndarray:
     """Create a binary mask for a single milling stage pattern.
     
     Args:
@@ -25,11 +25,13 @@ def create_pattern_mask(stage: FibsemMillingStage, image: FibsemImage, include_e
     Returns:
         Binary mask as numpy array with same shape as image.
     """
-    image_shape = image.data.shape
     stage_mask = np.zeros(image_shape, dtype=bool)
     
     try:
         shapes = stage.pattern.define()
+        
+        # Sort shapes so exclusions are processed last (exclusions take precedence)
+        shapes.sort(key=lambda s: hasattr(s, 'is_exclusion') and s.is_exclusion)
         
         for shape in shapes:
             # Skip exclusion patterns unless explicitly requested
@@ -38,7 +40,7 @@ def create_pattern_mask(stage: FibsemMillingStage, image: FibsemImage, include_e
             
             # Import here to avoid circular import
             from .plotting import draw_pattern_shape
-            drawn_pattern = draw_pattern_shape(shape, image)
+            drawn_pattern = draw_pattern_shape(shape, image_shape, pixelsize)
             shape_mask = np.zeros(image_shape, dtype=bool)
             
             # Place the pattern in the image mask
@@ -55,7 +57,11 @@ def create_pattern_mask(stage: FibsemMillingStage, image: FibsemImage, include_e
                 shape_mask[ymin:ymin+pattern_h, xmin:xmin+pattern_w] = \
                     drawn_pattern.pattern[:pattern_h, :pattern_w].astype(bool)
             
-            stage_mask |= shape_mask
+            # If this is an exclusion shape, zero out the region instead of adding it
+            if hasattr(shape, 'is_exclusion') and shape.is_exclusion:
+                stage_mask &= ~shape_mask
+            else:
+                stage_mask |= shape_mask
         
     except Exception as e:
         logging.debug(f"Failed to create mask for pattern {stage.pattern.name}: {e}")
@@ -77,7 +83,7 @@ def get_pattern_bounding_box(stage: FibsemMillingStage, image: FibsemImage, expa
     """
     try:
         # Create mask for the pattern
-        mask = create_pattern_mask(stage, image, include_exclusions=False)
+        mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=False)
         
         # Find coordinates where mask is True
         coords = np.where(mask)

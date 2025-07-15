@@ -28,6 +28,7 @@ from fibsem.structures import (
     Point,
     calculate_fiducial_area_v2,
 )
+from fibsem.milling.patterning.utils import create_pattern_mask
 
 # colour wheel
 COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
@@ -255,6 +256,24 @@ def draw_milling_patterns_in_napari(
     # base image properties
     image_shape = image_layer.data.shape
     translation = image_layer.translate
+
+    # draw milling patterns as labels
+    # mask = np.zeros(image_shape, dtype=np.uint8)
+    # colormap = {0: 'black'}
+    # for i, stage in enumerate(deepcopy(milling_stages)):
+    #     m = create_pattern_mask(stage, image_shape, pixelsize, include_exclusions=True)
+    #     mask[m > 0] = i + 1
+    #     colormap[i + 1] = COLOURS[i % len(COLOURS)]
+
+    # name = "Milling Patterns"
+    # # viewer = napari.Viewer()
+    # if name in viewer.layers:
+    #     viewer.layers[name].data = mask
+    #     viewer.layers[name].colormap = colormap
+    # else:
+    #     viewer.add_labels(mask, name=name, colormap=colormap, translate=translation, blending='additive', opacity=0.9)
+
+    # return [name]
 
     all_napari_shapes: List[np.ndarray] = []
     all_shape_types: List[np.ndarray] = []
