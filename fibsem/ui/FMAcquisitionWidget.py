@@ -367,7 +367,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_cancel_acquisition.hide()  # Hide by default, show when acquisition starts
         self.pushButton_start_acquisition.setEnabled(True)
         self.pushButton_stop_acquisition.setEnabled(False)
-        
+
         # Explicitly enable acquisition buttons initially (disabled only during live acquisition)
         self.pushButton_acquire_zstack.setEnabled(True)
         self.pushButton_acquire_overview.setEnabled(True)
@@ -506,6 +506,10 @@ class FMAcquisitionWidget(QWidget):
         if self.is_acquisition_active:
             logging.info("Stage movement disabled during acquisition")
             event.handled = True
+            return
+        
+        if self.fm.parent is None:
+            logging.warning("FluorescenceMicroscope parent is None, cannot move stage.")
             return
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")

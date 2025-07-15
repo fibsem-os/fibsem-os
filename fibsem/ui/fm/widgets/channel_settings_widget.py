@@ -1,4 +1,5 @@
 
+import logging
 from typing import Dict, List, Optional, Tuple, Union
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
@@ -15,18 +16,20 @@ from fibsem.fm.structures import ChannelSettings
 
 
 class ChannelSettingsWidget(QWidget):
-    def __init__(self, fm: FluorescenceMicroscope, channel_settings: ChannelSettings, parent=None):
+    def __init__(self,
+                 fm: FluorescenceMicroscope,
+                 channel_settings: ChannelSettings,
+                 parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.channel_settings = channel_settings
         self.fm = fm
         self.initUI()
 
-        self.setContentsMargins(0, 0, 0, 0)
-
     def initUI(self):
+        """Initialize the UI components for the channel settings widget."""
+        self.setContentsMargins(0, 0, 0, 0)
         layout = QGridLayout()
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
-
+        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
         # add grid layout
@@ -55,6 +58,7 @@ class ChannelSettingsWidget(QWidget):
         self.power_input = QDoubleSpinBox()
         self.power_input.setRange(0.0, 1.0)
         self.power_input.setSingleStep(0.01)
+        self.power_input.setDecimals(3)
         self.power_input.setSuffix(" W")
 
         layout.addWidget(self.power_input, 3, 1)
@@ -63,6 +67,7 @@ class ChannelSettingsWidget(QWidget):
         self.exposure_time_input = QDoubleSpinBox()
         self.exposure_time_input.setRange(0.01, 10.0)
         self.exposure_time_input.setSingleStep(0.01)
+        self.exposure_time_input.setDecimals(3)
         self.exposure_time_input.setSuffix(" s")
         layout.addWidget(self.exposure_time_input, 4, 1)
 
@@ -84,7 +89,7 @@ class ChannelSettingsWidget(QWidget):
         self.power_input.setValue(self.channel_settings.power)
         self.exposure_time_input.setValue(self.channel_settings.exposure_time)
 
-                # get the closest wavelength to the current channel setting
+        # get the closest wavelength to the current channel setting
         if self.channel_settings.excitation_wavelength in self.fm.filter_set.available_excitation_wavelengths:
             idx = self.fm.filter_set.available_excitation_wavelengths.index(self.channel_settings.excitation_wavelength)
             self.excitation_wavelength_input.setCurrentIndex(idx)
@@ -104,25 +109,25 @@ class ChannelSettingsWidget(QWidget):
     def update_excitation_wavelength(self, idx: int):
         wavelength = self.excitation_wavelength_input.itemData(idx)
         self.channel_settings.excitation_wavelength = wavelength
-        print(f"Excitation wavelength updated to: {wavelength} nm")
+        logging.info(f"Excitation wavelength updated to: {wavelength} nm")
 
     @pyqtSlot(int)      
     def update_emission_wavelength(self, idx: int):
         wavelength = self.emission_wavelength_input.itemData(idx)
         self.channel_settings.emission_wavelength = wavelength
-        print(f"Emission wavelength updated to: {wavelength} nm")
+        logging.info(f"Emission wavelength updated to: {wavelength} nm")
 
     @pyqtSlot(float)
     def update_power(self, value: float):
         self.channel_settings.power = value
-        print(f"Power updated to: {value} W")
+        logging.info(f"Power updated to: {value} W")
 
     @pyqtSlot(float)
     def update_exposure_time(self, value: float):
         self.channel_settings.exposure_time = value
-        print(f"Exposure time updated to: {value} s") 
+        logging.info(f"Exposure time updated to: {value} s") 
     
     @pyqtSlot()
     def update_channel_name(self):
         self.channel_settings.name = self.channel_name_input.text()
-        print(f"Channel name updated to: {self.channel_settings.name}")
+        logging.info(f"Channel name updated to: {self.channel_settings.name}")
