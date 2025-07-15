@@ -8,13 +8,14 @@ from typing import Dict, List, Optional, Tuple, Union
 import napari
 import numpy as np
 from napari.layers import Image as NapariImageLayer
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QShortcut,
     QVBoxLayout,
     QWidget,
@@ -153,7 +154,15 @@ class FMAcquisitionWidget(QWidget):
                 self._is_autofocus_running)
 
     def initUI(self):
-        layout = QVBoxLayout()
+        # Main layout for the widget
+        main_layout = QVBoxLayout()
+        
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)        
+
 
         self.label = QLabel("FM Acquisition Widget", self)
 
@@ -202,6 +211,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
+        layout = QVBoxLayout()
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveControlWidget)
         layout.addWidget(self.zParametersWidget)
@@ -221,7 +231,13 @@ class FMAcquisitionWidget(QWidget):
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
-        self.setLayout(layout)
+        # set layout -> content -> scroll area -> main layout
+        content_widget = QWidget(self)
+        layout = QVBoxLayout()
+        content_widget.setLayout(layout)
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)        
+        self.setLayout(main_layout)
 
         # connect signals
         self.channelSettingsWidget.exposure_time_input.valueChanged.connect(self._update_exposure_time)
