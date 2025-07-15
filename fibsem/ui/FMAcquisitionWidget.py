@@ -33,8 +33,9 @@ from fibsem.fm.acquisition import (
     acquire_z_stack,
     calculate_grid_coverage_area,
 )
+from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters
+from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
 from fibsem.structures import FibsemStagePosition, Point
 from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.fm.widgets import (
@@ -169,6 +170,46 @@ def napari_world_coordinate_to_stage_position(napari_coordinate: Point) -> Fibse
         raise ValueError("Napari coordinate must have valid x and y coordinates.")
     return FibsemStagePosition(x=napari_coordinate.x, y=-napari_coordinate.y)
 
+def _image_metadata_to_napari_image_layer(metadata: FluorescenceImageMetadata, 
+                                          image_shape: Tuple[int, int]) -> dict:
+    """Convert FluorescenceImageMetadata to a dictionary compatible with napari image layer.
+    This function extracts relevant metadata from the FluorescenceImageMetadata object
+    and formats it into a dictionary that can be used to create a napari image layer.
+    Args:
+        metadata: FluorescenceImageMetadata object containing image metadata
+        image_shape: Shape of the image (height, width)
+    Returns:
+        A dictionary containing the metadata formatted for napari image layer.
+    Raises:
+        ValueError: If metadata is None or does not contain required fields.
+    """
+    # Convert structured metadata to dictionary for napari compatibility
+    metadata_dict = metadata.to_dict() if metadata else {}
+
+    channel_name = metadata.channels[0].name
+    wavelength = metadata.channels[0].excitation_wavelength
+    emission_wavelength = metadata.channels[0].emission_wavelength
+    stage_position = metadata.stage_position
+
+    pos = stage_position_to_napari_image_coordinate(image_shape, 
+                                                    stage_position, 
+                                                    metadata.pixel_size_x)
+
+    colormap = "gray"
+    if emission_wavelength is not None:
+        colormap = wavelength_to_color(wavelength)
+
+    return {
+        "name": channel_name,
+        "description": metadata.description or channel_name,
+        "metadata": metadata_dict,
+        "colormap": colormap,
+        "scale": (metadata.pixel_size_y, metadata.pixel_size_x),  # yx order for napari
+        "translate": (pos.y, pos.x),  # Translate to stage position
+        "blending": "additive",
+    }
+
+
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
 
 z_parameters = ZParameters(
@@ -194,6 +235,8 @@ channel_settings=ChannelSettings(
 # TODO: enforce stage limits in the UI
 # TODO: menu function to load images
 # TODO: add a conveince NapariShapeFoV or similar, NapariShapeCrossHair
+# TODO: extract ui properties into a config file
+# TODO: integrate with milling workflow
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
@@ -206,7 +249,6 @@ class FMAcquisitionWidget(QWidget):
     def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, experiment_path: str, parent=None):
         super().__init__(parent)
 
-        self.channel_name: str
         self.fm = fm
         self.viewer = viewer
         self.image_layer: Optional[NapariImageLayer] = None
@@ -318,6 +360,8 @@ class FMAcquisitionWidget(QWidget):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)        
         self.setLayout(main_layout)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_area.setContentsMargins(0, 0, 0, 0)
 
         # connect signals
         self.overviewParametersWidget.spinBox_rows.valueChanged.connect(self._update_overview_bounding_box)
@@ -970,33 +1014,24 @@ class FMAcquisitionWidget(QWidget):
         if self.fm.is_acquiring:
             logging.warning("Cannot acquire at positions while live acquisition is running. Stop acquisition first.")
             return
-        
+
         if not self.stage_positions:
             logging.warning("No saved positions available for acquisition.")
             return
-        
+
         if self._positions_thread and self._positions_thread.is_alive():
             logging.warning("Positions acquisition is already in progress.")
             return
-        
+
         logging.info(f"Starting acquisition at {len(self.stage_positions)} saved positions")
-        self.pushButton_acquire_at_positions.setEnabled(False)
-        self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_cancel_acquisition.show()  # Show cancel button
-        
-        # Set positions acquisition flag to prevent FOV updates
         self._is_positions_acquiring = True
-        
-        # Update all acquisition button states
         self._update_acquisition_button_states()
-        
-        # Clear stop event
         self._positions_stop_event.clear()
-        
+
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
-        z_parameters = self.zParametersWidget.z_parameters if hasattr(self, 'zParametersWidget') else None
-        
+        z_parameters = self.zParametersWidget.z_parameters
+
         # Start acquisition thread
         self._positions_thread = threading.Thread(
             target=self._positions_worker,
@@ -1057,99 +1092,64 @@ class FMAcquisitionWidget(QWidget):
         
         # Update all button states now that acquisition is finished
         self._update_acquisition_button_states()
-        self._update_cancel_button_visibility()
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
-        
-        acq_date = image.metadata.acquisition_date
-        self.label.setText(f"Acquisition Signal Received: {acq_date}")
+        """Update the napari image layer with the given image data and metadata. (Live images)"""
+
+        # acq_date = image.metadata.acquisition_date
+        # self.label.setText(f"Acquisition Signal Received: {acq_date}")
         # logging.info(f"Image updated with shape: {image.data.shape}, Objective position: {self.fm.objective.position*1e3:.2f} mm")
         # logging.info(f"Metadata: {image.metadata.channels[0].to_dict()}")
 
-        # Convert structured metadata to dictionary for napari compatibility
-        metadata_dict = image.metadata.to_dict() if image.metadata else {}
+        # Convert metadata to napari image layer format
+        image_height, image_width = image.data.shape[-2:]
+        metadata_dict = _image_metadata_to_napari_image_layer(image.metadata, (image_height, image_width))
+        channel_name = metadata_dict["name"]
+        logging.info(f"Updating image layer: {channel_name}, shape: {image.data.shape}, acquisition date: {image.metadata.acquisition_date}")
 
-        channel_name = image.metadata.channels[0].name
-        wavelength = image.metadata.channels[0].excitation_wavelength
-        emission_wavelength = image.metadata.channels[0].emission_wavelength
-        logging.info(f"Updating image channel: {channel_name}, wavelength: {wavelength} nm, acq_date: {acq_date}")
-
-        stage_position = image.metadata.stage_position
-
-        pos = stage_position_to_napari_image_coordinate(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
-
-        if emission_wavelength is not None:
-            colormap = wavelength_to_color(wavelength)
-        else:
-            colormap = "gray"
-
-        if channel_name in self.viewer.layers:
-            # If the layer already exists, update it
-            self.viewer.layers[channel_name].data = image.data
-            self.viewer.layers[channel_name].metadata = metadata_dict
-            self.viewer.layers[channel_name].colormap = colormap
-            self.viewer.layers[channel_name].translate = (pos.y, pos.x)  # Translate to stage position
-        else:
-            # If the layer does not exist, create a new one
-            self.image_layer = self.viewer.add_image(
-                data=image.data,
-                name=channel_name,
-                metadata=metadata_dict,
-                colormap=colormap,
-                scale=(image.metadata.pixel_size_y, image.metadata.pixel_size_x),
-                translate=(pos.y, pos.x),  # Translate to stage position,
-                blending="additive",
-            )
-        
-        self.channel_name = channel_name
-
+        self._update_napari_image_layer(channel_name, image, metadata_dict)
         self.display_stage_position_overlay()
 
     @pyqtSlot(FluorescenceImage)
     def update_persistent_image(self, image: FluorescenceImage):
+        """Update or create a napari image layer with the given image data and metadata. (Persistent images)"""
         
-        acq_date = image.metadata.acquisition_date
-       
         # Convert structured metadata to dictionary for napari compatibility
-        metadata_dict = image.metadata.to_dict() if image.metadata else {}
+        image_height, image_width = image.data.shape[-2:]
+        metadata_dict = _image_metadata_to_napari_image_layer(image.metadata, (image_height, image_width))
+        self._update_napari_image_layer(metadata_dict["description"], image, metadata_dict)
 
-        channel_name = image.metadata.channels[0].name
-        wavelength = image.metadata.channels[0].excitation_wavelength
-        emission_wavelength = image.metadata.channels[0].emission_wavelength
+    def _update_napari_image_layer(self, layer_name: str, image: FluorescenceImage, metadata_dict: dict):
+        """Update or create a napari image layer with the given metadata.
+        Args:
+            layer_name: Name of the napari image layer
+            image: FluorescenceImage object containing the image data and metadata
+            metadata_dict: Dictionary containing metadata for the image layer
+        Returns:
+            None
+        """
 
-        stage_position = image.metadata.stage_position
-        pos = stage_position_to_napari_image_coordinate(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
-
-        layer_name = image.metadata.description
-        if not layer_name:
-            layer_name = f"{channel_name}-{acq_date}"
-
-        scale = (image.metadata.pixel_size_y, image.metadata.pixel_size_x)  # yx order for napari
-        if image.data.ndim == 3:
-            scale = (1, *scale)  # Add a singleton dimension for time if needed
-
-        if emission_wavelength is not None:
-            colormap = wavelength_to_color(wavelength)
-        else:
-            colormap = "gray"
-
+        # Add a singleton dimension for z if needed
+        if image.data.ndim == 3 and len(metadata_dict["scale"]) == 2:
+            metadata_dict["scale"] = (1, *metadata_dict["scale"]) 
+        
         if layer_name in self.viewer.layers:
             # If the layer already exists, update it
             self.viewer.layers[layer_name].data = image.data
-            self.viewer.layers[layer_name].metadata = metadata_dict
-            self.viewer.layers[layer_name].colormap = colormap
-            self.viewer.layers[layer_name].translate = (pos.y, pos.x)  # Translate to stage position
+            self.viewer.layers[layer_name].metadata = metadata_dict["metadata"]
+            self.viewer.layers[layer_name].colormap = metadata_dict["colormap"]
+            self.viewer.layers[layer_name].translate = metadata_dict["translate"]
         else:
             # If the layer does not exist, create a new one
             self.viewer.add_image(
                 data=image.data,
                 name=layer_name,
-                metadata=metadata_dict,
-                colormap=colormap,
-                scale=scale,
-                translate=(pos.y, pos.x),  # Translate to stage position
+                metadata=metadata_dict["metadata"],
+                colormap=metadata_dict["colormap"],
+                scale=metadata_dict["scale"],
+                translate=metadata_dict["translate"],
                 blending="additive",
             )
 
@@ -1158,76 +1158,51 @@ class FMAcquisitionWidget(QWidget):
         if self.fm.is_acquiring:
             logging.warning("Acquisition is already running.")
             return
-        
-        logging.info("Acquisition started")
-        self.pushButton_start_acquisition.setEnabled(False)
-        self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_stop_acquisition.setEnabled(True)
-        
+
         # TODO: handle case where acquisition fails...
 
         channel_settings = self.channelSettingsWidget.channel_settings
         logging.info(f"Starting acquisition with channel settings: {channel_settings}")
 
         self.fm.start_acquisition(channel_settings=channel_settings)
-        
-        # Update acquisition button states after live acquisition starts
         self._update_acquisition_button_states()
 
     def stop_acquisition(self):
         """Stop the fluorescence acquisition."""
 
         logging.info("Acquisition stopped")
-        self.pushButton_stop_acquisition.setEnabled(False)
-        self.pushButton_stop_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_start_acquisition.setEnabled(True)
-        self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
         self.fm.stop_acquisition()
-        
-        # Update acquisition button states after live acquisition stops
         self._update_acquisition_button_states()
 
     def cancel_acquisition(self):
         """Cancel all ongoing acquisitions (z-stack, overview, positions, autofocus)."""
         logging.info("Cancelling all acquisitions")
-        
+
         # Cancel z-stack acquisition
         if self._zstack_thread and self._zstack_thread.is_alive():
             logging.info("Cancelling z-stack acquisition")
             self._zstack_stop_event.set()
-            self._zstack_thread.join(timeout=5)  # Wait up to 5 seconds
-            self._is_zstack_acquiring = False
-            self.pushButton_acquire_zstack.setEnabled(True)
-            self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        
+            self._zstack_thread.join(timeout=5)
+
         # Cancel overview acquisition
         if self._overview_thread and self._overview_thread.is_alive():
             logging.info("Cancelling overview acquisition")
             self._overview_stop_event.set()
-            self._overview_thread.join(timeout=5)  # Wait up to 5 seconds
-            self._is_overview_acquiring = False
-            self.pushButton_acquire_overview.setEnabled(True)
-            self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        
+            self._overview_thread.join(timeout=5)
+
         # Cancel positions acquisition
         if self._positions_thread and self._positions_thread.is_alive():
             logging.info("Cancelling positions acquisition")
             self._positions_stop_event.set()
-            self._positions_thread.join(timeout=5)  # Wait up to 5 seconds
-            self._is_positions_acquiring = False
-            self.pushButton_acquire_at_positions.setEnabled(True)
-            self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        
+            self._positions_thread.join(timeout=5)
+
         # Cancel autofocus
         if self._autofocus_thread and self._autofocus_thread.is_alive():
             logging.info("Cancelling autofocus")
             self._autofocus_stop_event.set()
-            self._autofocus_thread.join(timeout=5)  # Wait up to 5 seconds
-            self._is_autofocus_running = False
-            self.pushButton_run_autofocus.setEnabled(True)
-            self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
-        
+            self._autofocus_thread.join(timeout=5)
+
         logging.info("All acquisitions cancelled")
 
     def toggle_acquisition(self):
@@ -1244,29 +1219,20 @@ class FMAcquisitionWidget(QWidget):
         if self.fm.is_acquiring:
             logging.warning("Cannot acquire Z-stack while live acquisition is running. Stop acquisition first.")
             return
-        
+
         if self._zstack_thread and self._zstack_thread.is_alive():
             logging.warning("Z-stack acquisition is already in progress.")
             return
-        
+
         logging.info("Starting Z-stack acquisition")
-        self.pushButton_acquire_zstack.setEnabled(False)
-        self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_cancel_acquisition.show()  # Show cancel button
-        
-        # Set z-stack acquisition flag
         self._is_zstack_acquiring = True
-        
-        # Update all acquisition button states
         self._update_acquisition_button_states()
-        
-        # Clear stop event
         self._zstack_stop_event.clear()
-        
+
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
         z_parameters = self.zParametersWidget.z_parameters
-        
+
         # Start acquisition thread
         self._zstack_thread = threading.Thread(
             target=self._zstack_worker,
@@ -1280,7 +1246,7 @@ class FMAcquisitionWidget(QWidget):
         try:
             logging.info(f"Acquiring Z-stack with {len(z_parameters.generate_positions(self.fm.objective.position))} planes")
             logging.info(f"Z parameters: {z_parameters.to_dict()}")
-            
+
             # Acquire z-stack with cancellation support
             zstack_image = acquire_z_stack(
                 microscope=self.fm,
@@ -1288,7 +1254,7 @@ class FMAcquisitionWidget(QWidget):
                 zparams=z_parameters,
                 stop_event=self._zstack_stop_event
             )
-            
+
             # Check if acquisition was cancelled
             if self._zstack_stop_event.is_set() or zstack_image is None:
                 logging.info("Z-stack acquisition was cancelled")
@@ -1299,7 +1265,7 @@ class FMAcquisitionWidget(QWidget):
             filename = f"z-stack-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
             zstack_image.metadata.description = filename.removesuffix(".ome.tiff")
-            
+
             try:
                 zstack_image.save(filepath)
                 logging.info(f"Z-stack saved to: {filepath}")
@@ -1326,38 +1292,29 @@ class FMAcquisitionWidget(QWidget):
         
         # Update all button states now that acquisition is finished
         self._update_acquisition_button_states()
-        self._update_cancel_button_visibility()
-
-    def _update_cancel_button_visibility(self):
-        """Show/hide cancel button based on whether any acquisitions are running."""
-        if self.is_acquisition_active:
-            self.pushButton_cancel_acquisition.show()
-        else:
-            self.pushButton_cancel_acquisition.hide()
     
     def _update_acquisition_button_states(self):
         """Update acquisition button states based on live acquisition or specific acquisition status."""
         # Check if any acquisition is active (live or specific acquisitions)
         any_acquisition_active = self.fm.is_acquiring or self.is_acquisition_active
         
+        # show cancel button if any acquisition task is active
+        self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
+        self.pushButton_stop_acquisition.setEnabled(bool(self.fm.is_acquiring))
+
         if any_acquisition_active:
-            # Disable start acquisition button during any acquisition
+            # Disable acquisition buttons during any acquisition
             self.pushButton_start_acquisition.setEnabled(False)
             self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            
-            # Disable specific acquisition buttons that aren't currently running
-            if not self._is_zstack_acquiring:
-                self.pushButton_acquire_zstack.setEnabled(False)
-                self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            if not self._is_overview_acquiring:
-                self.pushButton_acquire_overview.setEnabled(False)
-                self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            if not self._is_positions_acquiring:
-                self.pushButton_acquire_at_positions.setEnabled(False)
-                self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            if not self._is_autofocus_running:
-                self.pushButton_run_autofocus.setEnabled(False)
-                self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_zstack.setEnabled(False)
+            self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_overview.setEnabled(False)
+            self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_at_positions.setEnabled(False)
+            self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_run_autofocus.setEnabled(False)
+            self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+
         else:
             # Enable all acquisition buttons when no acquisitions are running
             self.pushButton_start_acquisition.setEnabled(True)
@@ -1366,7 +1323,7 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
             self.pushButton_acquire_overview.setEnabled(True)
             self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            
+
             # Only enable positions button if there are saved positions
             if self.stage_positions:
                 self.pushButton_acquire_at_positions.setEnabled(True)
@@ -1374,18 +1331,18 @@ class FMAcquisitionWidget(QWidget):
             else:
                 self.pushButton_acquire_at_positions.setEnabled(False)
                 self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-                
+
             self.pushButton_run_autofocus.setEnabled(True)
             self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
 
     def _save_positions_to_yaml(self):
         """Save current stage positions to positions.yaml in the experiment directory."""
-        if not hasattr(self, 'experiment_path') or not self.experiment_path:
+        if not self.experiment_path:
             logging.warning("No experiment path set, cannot save positions")
             return
-            
+
         positions_file = os.path.join(self.experiment_path, "positions.yaml")
-        
+
         try:
             # Convert positions to dictionary format for YAML serialization
             positions_data = {
@@ -1393,37 +1350,29 @@ class FMAcquisitionWidget(QWidget):
                 'created_date': datetime.now().isoformat(),
                 'num_positions': len(self.stage_positions)
             }
-            
+
             with open(positions_file, 'w') as f:
                 yaml.dump(positions_data, f, default_flow_style=False, indent=2)
-                
+
             logging.info(f"Saved {len(self.stage_positions)} positions to {positions_file}")
-            
+
         except Exception as e:
             logging.error(f"Failed to save positions to {positions_file}: {e}")
-    
+
     def acquire_overview(self):
         """Start threaded overview acquisition using the current channel settings."""
         if self.fm.is_acquiring:
             logging.warning("Cannot acquire overview while live acquisition is running. Stop acquisition first.")
             return
-        
+
         if self._overview_thread and self._overview_thread.is_alive():
             logging.warning("Overview acquisition is already in progress.")
             return
-        
+
         logging.info("Starting overview acquisition")
-        self.pushButton_acquire_overview.setEnabled(False)
-        self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_cancel_acquisition.show()  # Show cancel button
-        
-        # Set overview acquisition flag to prevent bounding box updates
+
         self._is_overview_acquiring = True
-        
-        # Update all acquisition button states
         self._update_acquisition_button_states()
-        
-        # Clear stop event
         self._overview_stop_event.clear()
         
         # Get current settings
@@ -1442,7 +1391,12 @@ class FMAcquisitionWidget(QWidget):
         )
         self._overview_thread.start()
     
-    def _overview_worker(self, channel_settings: ChannelSettings, grid_size: tuple[int, int], tile_overlap: float, z_parameters: Optional[ZParameters], autofocus_mode: AutofocusMode):
+    def _overview_worker(self,
+                         channel_settings: ChannelSettings,
+                         grid_size: tuple[int, int],
+                         tile_overlap: float,
+                         z_parameters: Optional[ZParameters],
+                         autofocus_mode: AutofocusMode):
         """Worker thread for overview acquisition."""
         try:
             info_parts = [f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap"]
@@ -1451,17 +1405,17 @@ class FMAcquisitionWidget(QWidget):
             if autofocus_mode != AutofocusMode.NONE:
                 info_parts.append(f"with auto-focus mode: {autofocus_mode.value}")
             logging.info(", ".join(info_parts))
-            
+
             # Get the parent microscope for tileset acquisition
             if self.fm.parent is None:
                 logging.error("FluorescenceMicroscope parent is None. Cannot acquire overview.")
                 return
-            
-            # Create timestamp and subdirectory for tiles
+
+            # Create timestamp and subdirectory for tiles # TODO: move this inside func
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             tiles_directory = os.path.join(self.experiment_path, f"overview-{timestamp}")
             os.makedirs(tiles_directory, exist_ok=True)
-            
+
             # Acquire and stitch tileset
             overview_image = acquire_and_stitch_tileset(
                 microscope=self.fm.parent,
@@ -1473,47 +1427,46 @@ class FMAcquisitionWidget(QWidget):
                 save_directory=tiles_directory,
                 stop_event=self._overview_stop_event
             )
-            
+
             # Check if acquisition was cancelled
             if self._overview_stop_event.is_set() or overview_image is None:
                 logging.info("Overview acquisition was cancelled")
                 return
-            
+
             # Save overview to experiment directory
             filename = f"overview-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
             overview_image.metadata.description = filename.removesuffix(".ome.tiff")
-            
+
             try:
                 overview_image.save(filepath)
                 logging.info(f"Overview saved to: {filepath}")
             except Exception as e:
                 logging.error(f"Failed to save overview to {filepath}: {e}")
-            
+
             # Emit the overview image
             self.update_persistent_image_signal.emit(overview_image)
-            
+
             logging.info("Overview acquisition completed successfully")
-            
+
         except Exception as e:
             logging.error(f"Error during overview acquisition: {e}")
             # TODO: Show error message to user
-            
+
         finally:
             # Signal that overview acquisition is finished (thread-safe)
             self.overview_finished_signal.emit()
-    
+
     def _on_overview_finished(self):
         """Handle overview acquisition completion in the main thread."""
         # Clear overview acquisition flag first
         self._is_overview_acquiring = False
-        
+
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
-        
+
         # Update all button states now that acquisition is finished
         self._update_acquisition_button_states()
-        self._update_cancel_button_visibility()
 
     # update methods for live updates
     def _update_exposure_time(self, value: float):
@@ -1587,7 +1540,7 @@ class FMAcquisitionWidget(QWidget):
                 logging.info("Auto-focus stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping auto-focus: {e}")
-        
+
         # Reset acquisition flags
         self._is_overview_acquiring = False
         self._is_positions_acquiring = False
@@ -1601,29 +1554,20 @@ class FMAcquisitionWidget(QWidget):
         if self.fm.is_acquiring:
             logging.warning("Cannot run autofocus while live acquisition is running. Stop acquisition first.")
             return
-        
+
         if self._autofocus_thread and self._autofocus_thread.is_alive():
             logging.warning("Auto-focus is already in progress.")
             return
-        
+
         logging.info("Starting auto-focus")
-        self.pushButton_run_autofocus.setEnabled(False)
-        self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_cancel_acquisition.show()  # Show cancel button
-        
-        # Set auto-focus running flag
         self._is_autofocus_running = True
-        
-        # Update all acquisition button states
         self._update_acquisition_button_states()
-        
-        # Clear stop event
         self._autofocus_stop_event.clear()
-        
+
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
         z_parameters = self.zParametersWidget.z_parameters
-        
+
         # Start auto-focus thread
         self._autofocus_thread = threading.Thread(
             target=self._autofocus_worker,
@@ -1631,13 +1575,11 @@ class FMAcquisitionWidget(QWidget):
             daemon=True
         )
         self._autofocus_thread.start()
-    
+
     def _autofocus_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for auto-focus."""
         try:
             logging.info("Running auto-focus with laplacian method")
-            
-            from fibsem.fm.calibration import run_autofocus
             
             # Run autofocus using laplacian method (default)
             best_z = run_autofocus(
@@ -1647,33 +1589,31 @@ class FMAcquisitionWidget(QWidget):
                 method='laplacian',
                 stop_event=self._autofocus_stop_event
             )
-            
+
             # Check if auto-focus was cancelled
             if best_z is None or self._autofocus_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
-            
+
             logging.info(f"Auto-focus completed successfully. Best focus: {best_z*1e6:.1f} μm")
-            
+
         except Exception as e:
             logging.error(f"Auto-focus failed: {e}")
-            
+
         finally:
             # Signal that auto-focus is finished (thread-safe)
             self.autofocus_finished_signal.emit()
-    
+
     def _on_autofocus_finished(self):
         """Handle auto-focus completion in the main thread."""
         # Clear autofocus running flag first
         self._is_autofocus_running = False
-        
+
         # Update objective position display
         self.objectiveControlWidget.update_objective_position_labels()
-        
+
         # Update all button states now that acquisition is finished
         self._update_acquisition_button_states()
-        self._update_cancel_button_visibility()
-
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
