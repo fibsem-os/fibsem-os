@@ -57,6 +57,9 @@ IFLM_CONFIGURATION = {
 }
 DEFAULT_CONFIGURATION = ARCTIS_CONFIGURATION  # Default to ARCTIS configuration
 
+HFW = 150e-6  # Horizontal field width for ARCTIS (diagonal)
+IFLM_HFW = 500e-6  # Horizontal field width for iFlm
+
 class ThermoFisherObjectiveLens(ObjectiveLens):
     """Thermo Fisher objective lens implementation for fluorescence microscopy.
     
@@ -74,8 +77,6 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         self.parent = parent
         self._magnification = DEFAULT_CONFIGURATION["magnification"]
         self._numerical_aperture = DEFAULT_CONFIGURATION["numerical_aperture"]
-        self._pixel_size = DEFAULT_CONFIGURATION["pixel_size"]
-        self._resolution = DEFAULT_CONFIGURATION["resolution"]
 
     @property
     def magnification(self) -> float:
@@ -135,6 +136,8 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Args:
             position: The target focus position in metres
         """
+        if not self.limits[0] <= position <= self.limits[1]:
+            raise ValueError(f"Position {position} out of limits {self.limits}")
         self.parent.fm_settings.focus.value = position
 
     def insert(self) -> None:
@@ -195,6 +198,8 @@ class ThermoFisherCamera(Camera):
         """
         super().__init__(parent)
         self.parent = parent
+        self._pixel_size = DEFAULT_CONFIGURATION["pixel_size"]
+        self._resolution = DEFAULT_CONFIGURATION["resolution"]
 
     def acquire_image(self) -> np.ndarray:
         """Acquire a single image from the camera.
@@ -212,6 +217,12 @@ class ThermoFisherCamera(Camera):
 
         self.parent.set_active_channel()
         image = self.parent.connection.imaging.grab_frame(frame_settings)
+
+        print(f"Acquire Image: {image.data.shape} pixels, {image.data.dtype} type")
+        print(f"Image Pixel Size: {image.metadata.binary_result.pixel_size}")
+        print(f"APPARENT Pixel Size: {self.pixel_size}")
+        print(f"APPARENT Resolution: {self.resolution}")
+        print(f"APPARENT BINNING: {self.binning}")
 
         return image.data  # AdornedImage.data -> np.ndarray
 
