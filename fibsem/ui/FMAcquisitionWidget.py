@@ -98,6 +98,19 @@ def from_napari_pos(image: np.ndarray, pos: Point, pixelsize: float) -> FibsemSt
 
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
 
+z_parameters = ZParameters(
+    zmin=-5e-6,     # -5 µm
+    zmax=5e-6,      # +5 µm
+    zstep=1e-6      # 1 µm step
+)
+channel_settings=ChannelSettings(
+        name="Channel-01",
+        excitation_wavelength=450,      # Example wavelength in nm
+        emission_wavelength=None,       # Example wavelength in nm
+        power=0.1,                      # Example power in W
+        exposure_time=0.25,             # Example exposure time in seconds
+)
+
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
@@ -154,15 +167,7 @@ class FMAcquisitionWidget(QWidget):
                 self._is_autofocus_running)
 
     def initUI(self):
-        # Main layout for the widget
-        main_layout = QVBoxLayout()
-        
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)        
-
+        """Initialize the user interface for the FMAcquisitionWidget."""
 
         self.label = QLabel("FM Acquisition Widget", self)
 
@@ -171,11 +176,7 @@ class FMAcquisitionWidget(QWidget):
         self.objectiveControlWidget.setContentsMargins(0, 0, 0, 0)
 
         # create z parameters widget
-        z_parameters = ZParameters(
-            zmin=-5e-6,     # -5 µm
-            zmax=5e-6,      # +5 µm
-            zstep=1e-6      # 1 µm step
-        )
+
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
         
         # create overview parameters widget
@@ -190,13 +191,6 @@ class FMAcquisitionWidget(QWidget):
         self.savedPositionsWidget = SavedPositionsWidget(parent=self)
 
         # create channel settings widget
-        channel_settings=ChannelSettings(
-                name="Channel-01",
-                excitation_wavelength=450,      # Example wavelength in nm
-                emission_wavelength=None,       # Example wavelength in nm
-                power=0.1,                      # Example power in W
-                exposure_time=0.25,             # Example exposure time in seconds
-        )
         self.channelSettingsWidget = ChannelSettingsWidget(
             fm=self.fm,
             channel_settings=channel_settings,
@@ -223,17 +217,21 @@ class FMAcquisitionWidget(QWidget):
         button_layout = QGridLayout()
         button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
         button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)  # Span 2 columns
-        button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)  # Span 2 columns
-        button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)  # Span 2 columns
-        button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)  # Span 2 columns
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)  # Span 2 columns
+        button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
         layout.addLayout(button_layout)
 
         # set layout -> content -> scroll area -> main layout
+        main_layout = QVBoxLayout()
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         content_widget = QWidget(self)
-        layout = QVBoxLayout()
         content_widget.setLayout(layout)
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)        
@@ -294,9 +292,6 @@ class FMAcquisitionWidget(QWidget):
         # Initialize positions button state
         self._update_positions_button()
         
-        # Load saved positions from YAML file if it exists
-        self._load_positions_from_yaml()
-
         # add file menu
         self.menubar = QMenuBar(self)
         self.file_menu = self.menubar.addMenu("File")
@@ -1380,43 +1375,6 @@ class FMAcquisitionWidget(QWidget):
         except Exception as e:
             logging.error(f"Failed to save positions to {positions_file}: {e}")
     
-    def _load_positions_from_yaml(self):
-        """Load stage positions from positions.yaml in the experiment directory."""
-        if not hasattr(self, 'experiment_path') or not self.experiment_path:
-            return
-            
-        positions_file = os.path.join(self.experiment_path, "positions.yaml")
-        
-        if not os.path.exists(positions_file):
-            return
-            
-        try:
-            with open(positions_file, 'r') as f:
-                positions_data = yaml.safe_load(f)
-                
-            if positions_data and 'positions' in positions_data:
-                # Clear existing positions and load from file
-                self.stage_positions.clear()
-                
-                for pos_dict in positions_data['positions']:
-                    try:
-                        fm_position = FMStagePosition.from_dict(pos_dict)
-                        self.stage_positions.append(fm_position)
-                    except Exception as e:
-                        logging.warning(f"Failed to load position from YAML: {e}")
-                        continue
-                
-                # Update UI to reflect loaded positions
-                self.savedPositionsWidget.update_positions(self.stage_positions)
-                self.draw_stage_position_crosshairs()
-                self._update_positions_button()
-                self._update_acquisition_button_states()
-                
-                logging.info(f"Loaded {len(self.stage_positions)} positions from {positions_file}")
-                
-        except Exception as e:
-            logging.error(f"Failed to load positions from {positions_file}: {e}")
-
     def acquire_overview(self):
         """Start threaded overview acquisition using the current channel settings."""
         if self.fm.is_acquiring:
