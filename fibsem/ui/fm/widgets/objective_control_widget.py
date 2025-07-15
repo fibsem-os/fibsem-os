@@ -37,7 +37,7 @@ class ObjectiveControlWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        
+        self.setContentsMargins(0, 0, 0, 0)
         self.label_header = QLabel("Objective", self)
         self.pushButton_insert_objective = QPushButton("Insert Objective", self)
         self.pushButton_retract_objective = QPushButton("Retract Objective", self)

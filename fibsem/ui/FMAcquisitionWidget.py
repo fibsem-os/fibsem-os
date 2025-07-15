@@ -35,7 +35,7 @@ from fibsem.fm.acquisition import (
 )
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters
-from fibsem.structures import BeamType, FibsemStagePosition, Point
+from fibsem.structures import FibsemStagePosition, Point
 from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.fm.widgets import (
     ChannelSettingsWidget,
@@ -79,22 +79,95 @@ def wavelength_to_color(wavelength: Union[int, float]) -> str:
     else:
         return "gray"
 
-# napari coordinate is y down, x right, based at top left
-# need to offset ssp, by half image size, and invert y
-def to_napari_pos(image_shape, pos: FibsemStagePosition, pixelsize: float) -> Point:
-    """Convert a sample-stage coordinate to a napari image coordinate"""
-    pos2 = Point(
+def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int], Tuple[int, ...]], pos: Optional[FibsemStagePosition], pixelsize: float) -> Point:
+    """Convert a sample-stage coordinate to a napari image layer coordinate.
+    
+    This handles the offset and scaling for positioning images within napari layers,
+    accounting for image dimensions and pixel size.
+    
+    Args:
+        image_shape: Shape of the image (height, width)
+        pos: Stage position in meters
+        pixelsize: Pixel size in meters
+        
+    Returns:
+        Point in napari image layer coordinates
+    """
+    if pos is None or pos.x is None or pos.y is None:
+        raise ValueError("Stage position must have valid x and y coordinates.")
+
+    p = Point(
         x = pos.x - image_shape[1] * pixelsize / 2,
                 y = -pos.y - image_shape[0] * pixelsize / 2)
-    return pos2
+    return p
 
-def from_napari_pos(image: np.ndarray, pos: Point, pixelsize: float) -> FibsemStagePosition:
-    """Convert a napari image coordinate to a sample-stage coordinate"""
+def napari_image_coordinate_to_stage_position(image_shape: Tuple[int, int], pos: Point, pixelsize: float) -> FibsemStagePosition:
+    """Convert a napari image layer coordinate to a sample-stage coordinate.
+    
+    This handles the reverse conversion from napari image coordinates back to
+    stage coordinates, accounting for image dimensions and pixel size.
+    
+    Args:
+        image_shape: Shape of the image (height, width)
+        pos: Point in napari image coordinates
+        pixelsize: Pixel size in meters
+        
+    Returns:
+        FibsemStagePosition in stage coordinates (meters)
+    """
+    if pos.x is None or pos.y is None:
+        raise ValueError("Stage position must have valid x and y coordinates.")
+
     p = FibsemStagePosition(
-        x = pos.x + image.shape[1] * pixelsize / 2,
-        y = -pos.y - image.shape[0] * pixelsize / 2)
+        x = pos.x + image_shape[1] * pixelsize / 2,
+        y = -pos.y - image_shape[0] * pixelsize / 2)
 
     return p
+
+def stage_position_to_napari_world_coordinate(stage_position: FibsemStagePosition) -> Point:
+    """Convert from stage coordinates to napari world coordinates.
+    
+    This performs a simple coordinate system conversion for direct interaction
+    with the napari viewer (mouse clicks, overlays, etc.). The conversion
+    only involves inverting the Y coordinate to match napari's coordinate system.
+    
+    Args:
+        stage_position: Position in stage coordinates (meters)
+        
+    Returns:
+        Point in napari world coordinates (meters)
+        
+    Note:
+        - X coordinate remains unchanged
+        - Y coordinate is inverted (stage_y → -napari_y)
+        - Used for mouse interactions and drawing overlays
+    """
+    if stage_position.x is None or stage_position.y is None:
+        raise ValueError("Stage position must have valid x and y coordinates.")
+
+    return Point(stage_position.x, -stage_position.y)
+
+def napari_world_coordinate_to_stage_position(napari_coordinate: Point) -> FibsemStagePosition:
+    """Convert from napari world coordinates to stage coordinates.
+    
+    This performs the reverse conversion from napari viewer coordinates back
+    to stage coordinates. Used for processing mouse click events and converting
+    viewer interactions back to stage movements.
+    
+    Args:
+        napari_coordinate: Point in napari world coordinates (meters)
+        
+    Returns:
+        FibsemStagePosition in stage coordinates (meters)
+        
+    Note:
+        - X coordinate remains unchanged  
+        - Y coordinate is inverted (napari_y → -stage_y)
+        - Used for mouse click processing and stage movement commands
+    """
+    if napari_coordinate.x is None or napari_coordinate.y is None:
+        raise ValueError("Napari coordinate must have valid x and y coordinates.")
+    return FibsemStagePosition(x=napari_coordinate.x, y=-napari_coordinate.y)
 
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
 
@@ -111,6 +184,17 @@ channel_settings=ChannelSettings(
         exposure_time=0.25,             # Example exposure time in seconds
 )
 
+# TODO: consolidate the threads, and signals into a single acquisition manager
+# TODO: add a progress bar for each acquisition
+# TODO: confirm live-acqisition updates/setting change work on microscope
+# TODO: add user-preferences for display settings
+# TODO: consolidate update image extraction into a single method
+# TODO: add user defined experiment directory + save/load images
+# TODO: add user defined protocol (channel, z-stack parameters, overview parameters, etc.)
+# TODO: enforce stage limits in the UI
+# TODO: menu function to load images
+# TODO: add a conveince NapariShapeFoV or similar, NapariShapeCrossHair
+
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
@@ -125,34 +209,39 @@ class FMAcquisitionWidget(QWidget):
         self.channel_name: str
         self.fm = fm
         self.viewer = viewer
-        self.image_layer: Optional[NapariImageLayer] = None  # Placeholder for the image layer
-        self.stage_positions: List[FMStagePosition] = []  # List to store stage positions
-        
-        self.experiment_path = experiment_path  # Path to the experiment directory
+        self.image_layer: Optional[NapariImageLayer] = None
+        self.stage_positions: List[FMStagePosition] = []
+        self.experiment_path = experiment_path
+
+        # widgets
+        self.channelSettingsWidget: ChannelSettingsWidget
+        self.objectiveControlWidget: ObjectiveControlWidget
+        self.zParametersWidget: ZParametersWidget
+        self.overviewParametersWidget: OverviewParametersWidget
+        self.savedPositionsWidget: SavedPositionsWidget
 
         # Z-stack acquisition threading
         self._zstack_thread: Optional[threading.Thread] = None
         self._zstack_stop_event = threading.Event()
         self._is_zstack_acquiring = False
-        
+
         # Overview acquisition threading
         self._overview_thread: Optional[threading.Thread] = None
         self._overview_stop_event = threading.Event()
         self._is_overview_acquiring = False
-        
+
         # Positions acquisition threading
         self._positions_thread: Optional[threading.Thread] = None
         self._positions_stop_event = threading.Event()
         self._is_positions_acquiring = False
-        
+
         # Auto-focus threading
         self._autofocus_thread: Optional[threading.Thread] = None
         self._autofocus_stop_event = threading.Event()
         self._is_autofocus_running = False
 
         self.initUI()
-        self.draw_stage_position_crosshairs()
-        self.update_text_overlay()
+        self.display_stage_position_overlay()
 
     @property
     def is_acquisition_active(self) -> bool:
@@ -173,20 +262,13 @@ class FMAcquisitionWidget(QWidget):
 
         # Add objective control widget
         self.objectiveControlWidget = ObjectiveControlWidget(fm=self.fm, parent=self)
-        self.objectiveControlWidget.setContentsMargins(0, 0, 0, 0)
 
         # create z parameters widget
-
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
-        
+
         # create overview parameters widget
         self.overviewParametersWidget = OverviewParametersWidget(parent=self)
-        
-        # Connect overview parameter changes to bounding box updates
-        self.overviewParametersWidget.spinBox_rows.valueChanged.connect(self._update_overview_bounding_box)
-        self.overviewParametersWidget.spinBox_cols.valueChanged.connect(self._update_overview_bounding_box)
-        self.overviewParametersWidget.doubleSpinBox_overlap.valueChanged.connect(self._update_overview_bounding_box)
-        
+
         # create saved positions widget
         self.savedPositionsWidget = SavedPositionsWidget(parent=self)
 
@@ -196,7 +278,7 @@ class FMAcquisitionWidget(QWidget):
             channel_settings=channel_settings,
             parent=self
         )
-    
+
         self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
@@ -222,7 +304,7 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)
         button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)
         button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
-        button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the button layout
+        button_layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(button_layout)
 
         # set layout -> content -> scroll area -> main layout
@@ -238,6 +320,9 @@ class FMAcquisitionWidget(QWidget):
         self.setLayout(main_layout)
 
         # connect signals
+        self.overviewParametersWidget.spinBox_rows.valueChanged.connect(self._update_overview_bounding_box)
+        self.overviewParametersWidget.spinBox_cols.valueChanged.connect(self._update_overview_bounding_box)
+        self.overviewParametersWidget.doubleSpinBox_overlap.valueChanged.connect(self._update_overview_bounding_box)
         self.channelSettingsWidget.exposure_time_input.valueChanged.connect(self._update_exposure_time)
         self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
         self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)
@@ -258,11 +343,11 @@ class FMAcquisitionWidget(QWidget):
         self.overview_finished_signal.connect(self._on_overview_finished)
         self.positions_acquisition_finished_signal.connect(self._on_positions_finished)
         self.autofocus_finished_signal.connect(self._on_autofocus_finished)
-        
+
         # Setup keyboard shortcuts
         self.f6_shortcut = QShortcut(QKeySequence("F6"), self)
         self.f6_shortcut.activated.connect(self.toggle_acquisition)
-        
+
         self.f7_shortcut = QShortcut(QKeySequence("F7"), self)
         self.f7_shortcut.activated.connect(self.run_autofocus)
 
@@ -291,14 +376,13 @@ class FMAcquisitionWidget(QWidget):
         
         # Initialize positions button state
         self._update_positions_button()
-        
+
         # add file menu
         self.menubar = QMenuBar(self)
         self.file_menu = self.menubar.addMenu("File")
         load_action = QAction("Load Positions", self)
         load_action.triggered.connect(self.savedPositionsWidget._load_positions_from_file)
         self.file_menu.addAction(load_action)
-
         self.layout().setMenuBar(self.menubar)
 
         # draw scale bar
@@ -311,7 +395,7 @@ class FMAcquisitionWidget(QWidget):
         if 'Shift' not in event.modifiers:
             event.handled = False  # Let napari handle zooming if Shift is not pressed
             return
-        
+
         # Prevent objective movement during acquisitions
         if self.is_acquisition_active:
             logging.info("Objective movement disabled during acquisition")
@@ -322,41 +406,46 @@ class FMAcquisitionWidget(QWidget):
         objective_step_size = self.objectiveControlWidget.doubleSpinBox_objective_step_size.value() * 1e-3 # convert from um to mm    
         step_mm = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE, MAX_OBJECTIVE_STEP_SIZE)  # Adjust sensitivity as needed
         # delta ~= 1
-        
+
         logging.info(f"Mouse wheel event detected with delta: {event.delta}, step size: {step_mm:.4f} mm")
 
         # Get current position in mm
         current_pos = self.fm.objective.position * METRE_TO_MILLIMETRE
         new_pos = current_pos + step_mm
-        
+
         # Move objective
         logging.info(f"Moving objective by {step_mm:.4f} mm to {new_pos:.4f} mm")
         self.objectiveControlWidget.doubleSpinBox_objective_position.setValue(new_pos)
-        
+
         # Consume the event to prevent default napari behavior
         event.handled = True
 
     def on_mouse_click(self, viewer, event):
         """Handle mouse click events in the napari viewer."""
 
-        # only left clicks
-        if event.button != 1:  # Left mouse button
+        # only left mouse button
+        if event.button != 1:
             return
-        
+
         # Check for modifier keys - Alt to add new position, Shift to update existing
         if 'Alt' not in event.modifiers and 'Shift' not in event.modifiers:
             return
-        
+
+        # Prevent stage movement during acquisitions
+        if self.is_acquisition_active:
+            logging.info("Stage movement disabled during acquisition")
+            event.handled = True
+            return
+
         # get event position in world coordinates, convert to stage coordinates
         position_clicked = event.position[-2:]  # yx required
-        stage_position = FibsemStagePosition(x=position_clicked[1], y=-position_clicked[0])  # yx required
-        logging.info(f"Mouse clicked at {event.position} in viewer {viewer}")
-        logging.info(f"Stage position clicked: {stage_position}")
+        stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))
+        logging.info(f"Mouse clicked at {event.position}. Stage position: {stage_position}")
 
         if 'Alt' in event.modifiers:
             # Add new position
             current_objective_position = self.fm.objective.position
-            
+
             # Create FMStagePosition with automatic name generation
             fm_stage_position = FMStagePosition.create_from_current_position(
                 stage_position=stage_position,
@@ -364,46 +453,43 @@ class FMAcquisitionWidget(QWidget):
                 num=len(self.stage_positions) + 1
             )
             self.stage_positions.append(fm_stage_position)
-            logging.info(f"New stage position saved: {stage_position}. Objective position: {current_objective_position}")
-            
-            # Save positions to YAML file
-            self._save_positions_to_yaml()
-            
+            logging.info(f"New stage position saved: {fm_stage_position}")
+
         elif 'Shift' in event.modifiers:
             # Update existing position
             current_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
-            if 0 <= current_index < len(self.stage_positions):
-                current_position = self.stage_positions[current_index]
-                
-                # Show confirmation dialog
-                reply = QMessageBox.question(
-                    self,
-                    "Update Position",
-                    f"Update position '{current_position.name}' to new coordinates?\n\n"
-                    f"Current: X={current_position.stage_position.x*1e6:.1f} μm, "
-                    f"Y={current_position.stage_position.y*1e6:.1f} μm\n"
-                    f"New: X={stage_position.x*1e6:.1f} μm, "
-                    f"Y={stage_position.y*1e6:.1f} μm",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
-                )
-                
-                if reply == QMessageBox.Yes:
-                    # Update only the stage position, keep name and objective position
-                    self.stage_positions[current_index].stage_position = stage_position
-                    logging.info(f"Updated position '{current_position.name}' to new stage coordinates: {stage_position}")
-                    
-                    # Save positions to YAML file
-                    self._save_positions_to_yaml()
-                else:
-                    logging.info(f"Position update cancelled for '{current_position.name}'")
-                    event.handled = True  # Prevent further processing
-                    return
-            else:
+
+            if current_index < 0 or current_index >= len(self.stage_positions):
                 logging.warning("No position selected to update. Please select a position first.")
+                event.handled = True
                 return
 
+            current_position = self.stage_positions[current_index]
+            
+            # Show confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Update Position",
+                f"Update position '{current_position.name}' to new coordinates?\n\n"
+                f"Current: X={current_position.stage_position.x*1e6:.1f} μm, "
+                f"Y={current_position.stage_position.y*1e6:.1f} μm\n"
+                f"New: X={stage_position.x*1e6:.1f} μm, "
+                f"Y={stage_position.y*1e6:.1f} μm",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.No:
+                logging.info(f"Position update cancelled for '{current_position.name}'")
+                event.handled = True  # Prevent further processing
+                return
+
+            # Update only the stage position, keep name and objective position
+            self.stage_positions[current_index].stage_position = stage_position
+            logging.info(f"Updated position '{current_position.name}' to new stage coordinates: {stage_position}")
+
         # Update positions button and widget
+        self._save_positions_to_yaml()
         self.savedPositionsWidget.update_positions(self.stage_positions)
         self.draw_stage_position_crosshairs()
         self._update_positions_button()
@@ -412,12 +498,8 @@ class FMAcquisitionWidget(QWidget):
     def on_mouse_double_click(self, viewer, event):
         """Handle double-click events in the napari viewer."""
 
-        # no image layer available yet
-        # if self.image_layer is None:
-            # return
-
         # only left clicks
-        if event.button != 1:  # Left mouse button
+        if event.button != 1:
             return
 
         # Prevent stage movement during acquisitions
@@ -430,7 +512,7 @@ class FMAcquisitionWidget(QWidget):
         # coords = self.image_layer.world_to_data(event.position)  # PIXEL COORDINATES
         logging.info("-" * 40)
         position_clicked = event.position[-2:]  # yx required
-        stage_position = FibsemStagePosition(x=position_clicked[1], y=-position_clicked[0])  # yx required
+        stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))  # yx required
 
         self.fm.parent.move_stage_absolute(stage_position) # TODO: support absolute stable-move
 
@@ -439,48 +521,6 @@ class FMAcquisitionWidget(QWidget):
 
         self.display_stage_position_overlay()
         return
-        self.image_layer = self.viewer.layers[self.channel_name]
-
-        # NOTE: this doesn't matter, as long as the image layer is present
-        # TODO: remove this limitation once tested. We should still put a max range?
-        # if not is_position_inside_layer(event.position, self.image_layer):
-        #     logging.warning("Click position is outside the image layer.")
-        #     return
-
-        # changed by binning...
-        # resolution = self.fm.camera.resolution
-        # pixelsize = self.fm.camera.pixel_size[0]
-        resolution = self.image_layer.data.shape[-2:]
-        pixelsize = self.image_layer.scale[-1] if len(self.image_layer.scale) > 0 else self.fm.camera.pixel_size[0]
-        # NOTE: this doesn't work with overview images as they are composited of multiple images
-
-        # convert from image coordinates to microscope coordinates
-        coords = self.image_layer.world_to_data(event.position)
-        point_clicked = conversions.image_to_microscope_image_coordinates(
-            coord=Point(x=coords[1], y=coords[0]), # yx required
-            image=np.zeros((resolution[1], resolution[0])),  # dummy image for shape
-            pixelsize=pixelsize,
-        )
-        logging.info(f"Mouse double-clicked at coordinates: {point_clicked}")
-
-        # NOTE: this assumes the stage is always at the center of the image... may to not be true
-        # need infinite plane -> use absolute coordinates
-        if self.fm.parent is None:
-            logging.error("FluorescenceMicroscope parent is None. Cannot move stage.")
-            return
-
-        # move the stage to the clicked position
-        # TODO: we need to handle this better as scan rotation is not handled here
-        # TODO: handle for the arctis? -> BeamType.ELECTRON?
-        # TODO: create a FM version of this method accounting for these differences
-        is_compustage = self.fm.parent.stage_is_compustage
-        beam_type = BeamType.ELECTRON if is_compustage else BeamType.ION
-
-        self.fm.parent.stable_move(dx=point_clicked.x, dy=point_clicked.y,beam_type=beam_type)
-        logging.info(f"Microscope position: {self.fm.parent.get_stage_position()}")
-        # TODO: multi-channels?
-
-        self.display_stage_position_overlay()
 
     def update_text_overlay(self):
         """Update the text overlay with current stage position and objective information."""
@@ -534,19 +574,18 @@ class FMAcquisitionWidget(QWidget):
         try:
             CROSSHAIR_SIZE = 50
             LAYER_NAME = "stage-position"
-            
+
             # Get coordinate conversion scale from camera pixel size
             layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
-            
+
             # Collect all positions to display
             positions_data = self._collect_stage_positions()
-            
+
             # Generate crosshair line data for all positions
             crosshair_lines = []
             for position in positions_data["positions"]:
                 lines = create_crosshair_shape(position, CROSSHAIR_SIZE, layer_scale)
                 crosshair_lines.extend(lines)
-            
             
             # Prepare text properties for labels
             text_properties = {
@@ -660,32 +699,30 @@ class FMAcquisitionWidget(QWidget):
         # Add current position single image FOV (magenta)
         if self.fm.parent:
             current_pos = self.fm.parent.get_stage_position()
-            if current_pos:
-                center_point = Point(x=current_pos.x, y=-current_pos.y)
-                fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-                rectangles.append(fov_rect)
-                colors.append("magenta")
-                labels.append("Current FOV")
-        
-        # Add overview acquisition area (orange, only if not acquiring)
-        if not self._is_overview_acquiring and not self._is_positions_acquiring and self.fm.parent and hasattr(self, 'overviewParametersWidget'):
-            current_pos = self.fm.parent.get_stage_position()
-            if current_pos:
+            center_point = stage_position_to_napari_world_coordinate(current_pos)
+
+            fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+            rectangles.append(fov_rect)
+            colors.append("magenta")
+            labels.append("Current FOV")
+
+            # Add overview acquisition area (orange, only if not acquiring)
+            if not self._is_overview_acquiring and not self._is_positions_acquiring:
+
                 # Get overview parameters and calculate total area
                 grid_size = self.overviewParametersWidget.get_grid_size()
                 overlap = self.overviewParametersWidget.get_overlap()
-                
+
                 total_width, total_height = calculate_grid_coverage_area(
                     ncols=grid_size[1], nrows=grid_size[0],
                     fov_x=fov_x, fov_y=fov_y, overlap=overlap
                 )
-                
-                center_point = Point(x=current_pos.x, y=-current_pos.y)
+
                 overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
                 rectangles.append(overview_rect)
                 colors.append("orange")
                 labels.append(f"Overview {grid_size[0]}×{grid_size[1]}")
-        
+
         # Add 1mm bounding box around origin (yellow)
         origin_point = Point(x=0, y=0)
         origin_size = 0.8e-3  # 0.8mm in meters
@@ -693,58 +730,54 @@ class FMAcquisitionWidget(QWidget):
         rectangles.append(origin_rect)
         colors.append("yellow")
         labels.append("Stage Limits")
-        
-        # Add saved positions FOV (cyan/lime based on selection)
-        # Get currently selected position index from the SavedPositionsWidget
+
+        # Add saved positions FOVs
         selected_index = -1
-        if hasattr(self, 'savedPositionsWidget') and self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
+        if self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
             selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
         
         for i, saved_pos in enumerate(self.stage_positions):
-            center_point = Point(x=saved_pos.stage_position.x, y=-saved_pos.stage_position.y)
+            center_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
             fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
             rectangles.append(fov_rect)
-            
+
             # Use lime for selected position, cyan for others
             if i == selected_index:
-                colors.append("lime")  # Lime for selected position
+                colors.append("lime")
             else:
-                colors.append("cyan")  # Cyan for other saved positions
-            
-            # Add label with position name
-            pos_name = saved_pos.name
-            labels.append(pos_name)
-        
+                colors.append("cyan")
+            labels.append(saved_pos.name)
+
         return {
             "rectangles": rectangles,
             "colors": colors,
             "labels": labels
         }
-    
+
     def _update_overview_bounding_box(self):
         """Update the FOV boxes when parameters change."""
         # Don't update bounding box during overview or position acquisition
         if self._is_overview_acquiring or self._is_positions_acquiring:
             return
-            
+
         try:
             layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
             self._draw_fov_boxes(layer_scale)
         except Exception as e:
             logging.warning(f"Error updating FOV boxes: {e}")
-    
+
     def _draw_circle_overlays(self, layer_scale: Tuple[float, float]):
         """Draw circle overlays on a single layer.
-        
+
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
         """
         LAYER_NAME = "circle-overlays"
-        
+
         try:
             # Collect all circle overlays and their colors
             circle_data = self._collect_circle_overlays(layer_scale)
-            
+
             # Update or create the circle layer
             if not circle_data["circles"]:
                 # Hide layer if no circles to display
@@ -809,14 +842,14 @@ class FMAcquisitionWidget(QWidget):
         circles = []
         colors = []
         labels = []
-        
+
         # Example: Add a circle at origin with 100μm radius
         origin_point = Point(x=0, y=0)
         origin_radius = 1000e-6  # 100μm in meters
         origin_circle = create_circle_shape(origin_point, origin_radius, layer_scale)
         circles.append(origin_circle)
         colors.append("red")
-        labels.append("Origin Circle")
+        labels.append("Grid Boundary")
         
         # You can add more circles here by following the same pattern
         # Example: Add circles at saved positions
@@ -836,7 +869,7 @@ class FMAcquisitionWidget(QWidget):
     
     def _collect_stage_positions(self) -> Dict[str, List]:
         """Collect all stage positions with their associated colors and labels.
-        
+
         Returns:
             Dictionary containing:
             - positions: List of Point objects in stage coordinates
@@ -846,41 +879,31 @@ class FMAcquisitionWidget(QWidget):
         positions = []
         colors = []
         labels = []
-        
-        # Get currently selected position index from the SavedPositionsWidget
-        selected_index = -1
-        if hasattr(self, 'savedPositionsWidget') and self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
-            selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
-        
+
         # Add origin position (0,0)
         positions.append(Point(x=0, y=0))
         colors.extend(["red", "red"])  # Red for origin crosshair
         labels.extend(["origin", ""])  # Label with spacing
-        
+    
         # Add current stage position if available
         if self.fm.parent:
-            try:
-                current_pos = self.fm.parent.get_stage_position()
-                if current_pos:
-                    # Convert to napari coordinate convention (y inverted)
-                    positions.append(Point(x=current_pos.x, y=-current_pos.y))
-                    colors.extend(["yellow", "yellow"])  # Yellow for current position
-                    labels.extend(["stage-position", ""])
-            except Exception as e:
-                logging.warning(f"Could not get current stage position: {e}")
-        
-        # Add saved positions from user clicks
-        for i, saved_pos in enumerate(self.stage_positions):
             # Convert to napari coordinate convention (y inverted)
-            positions.append(Point(x=saved_pos.stage_position.x, y=-saved_pos.stage_position.y))
-            
-            # Use lime for selected position, cyan for others
+            current_pos = self.fm.parent.get_stage_position()
+            positions.append(stage_position_to_napari_world_coordinate(current_pos))
+            colors.extend(["yellow", "yellow"])  # Yellow for current position
+            labels.extend(["stage-position", ""])
+
+        # Add saved positions
+        selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
+        for i, saved_pos in enumerate(self.stage_positions):
+
+            positions.append(stage_position_to_napari_world_coordinate(saved_pos.stage_position))
+
             if i == selected_index:
-                colors.extend(["lime", "lime"])  # Lime for selected position
+                colors.extend(["lime", "lime"])
             else:
-                colors.extend(["cyan", "cyan"])  # Cyan for other saved positions
-                
-            # labels.extend([saved_pos.name or "saved", ""])  # Use position name or default
+                colors.extend(["cyan", "cyan"])
+
             labels.extend(["", ""])
         return {
             "positions": positions,
@@ -1051,7 +1074,7 @@ class FMAcquisitionWidget(QWidget):
 
         stage_position = image.metadata.stage_position
 
-        pos = to_napari_pos(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
+        pos = stage_position_to_napari_image_coordinate(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
 
         if emission_wavelength is not None:
             colormap = wavelength_to_color(wavelength)
@@ -1093,7 +1116,7 @@ class FMAcquisitionWidget(QWidget):
         emission_wavelength = image.metadata.channels[0].emission_wavelength
 
         stage_position = image.metadata.stage_position
-        pos = to_napari_pos(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
+        pos = stage_position_to_napari_image_coordinate(image.data.shape[-2:], stage_position, image.metadata.pixel_size_x)
 
         layer_name = image.metadata.description
         if not layer_name:
@@ -1652,9 +1675,7 @@ class FMAcquisitionWidget(QWidget):
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
     
     microscope, settings = utils.setup_session()
-    from fibsem.structures import BeamType
     from fibsem.microscopes.simulator import DemoMicroscope
-    # microscope.move_flat_to_beam(BeamType.ELECTRON)
     if isinstance(microscope, DemoMicroscope):
         microscope.move_to_microscope("FM")
 
@@ -1689,8 +1710,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # main2()
-
-
-
 
