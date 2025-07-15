@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
     QShortcut,
     QVBoxLayout,
     QWidget,
+    QMenuBar,
+    QAction,
 )
 
 from fibsem import conversions, utils
@@ -103,7 +105,7 @@ class FMAcquisitionWidget(QWidget):
     positions_acquisition_finished_signal = pyqtSignal()
     autofocus_finished_signal = pyqtSignal()
 
-    def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, parent=None):
+    def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, experiment_path: str, parent=None):
         super().__init__(parent)
 
         self.channel_name: str
@@ -112,18 +114,7 @@ class FMAcquisitionWidget(QWidget):
         self.image_layer: Optional[NapariImageLayer] = None  # Placeholder for the image layer
         self.stage_positions: List[FMStagePosition] = []  # List to store stage positions
         
-        # Create experiment path with current directory + datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.experiment_path = os.path.join(LOG_PATH, f"fibsem_experiment_{timestamp}")
-        
-        # Create the experiment directory
-        try:
-            os.makedirs(self.experiment_path, exist_ok=True)
-            logging.info(f"Created experiment directory: {self.experiment_path}")
-        except Exception as e:
-            logging.error(f"Failed to create experiment directory: {e}")
-            # Fallback to current directory
-            self.experiment_path = os.getcwd()
+        self.experiment_path = experiment_path  # Path to the experiment directory
 
         # Z-stack acquisition threading
         self._zstack_thread: Optional[threading.Thread] = None
@@ -289,6 +280,15 @@ class FMAcquisitionWidget(QWidget):
         
         # Load saved positions from YAML file if it exists
         self._load_positions_from_yaml()
+
+        # add file menu
+        self.menubar = QMenuBar(self)
+        self.file_menu = self.menubar.addMenu("File")
+        load_action = QAction("Load Positions", self)
+        load_action.triggered.connect(self.savedPositionsWidget._load_positions_from_file)
+        self.file_menu.addAction(load_action)
+
+        self.layout().setMenuBar(self.menubar)
 
         # draw scale bar
         self.viewer.scale_bar.visible = True
@@ -1673,15 +1673,40 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
         self._update_cancel_button_visibility()
 
-def main():
 
+
+def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
+    
     microscope, settings = utils.setup_session()
     from fibsem.structures import BeamType
+    from fibsem.microscopes.simulator import DemoMicroscope
     # microscope.move_flat_to_beam(BeamType.ELECTRON)
-    microscope.move_to_microscope("FM")
+    if isinstance(microscope, DemoMicroscope):
+        microscope.move_to_microscope("FM")
+
+    # Create experiment path with current directory + datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_path = os.path.join(LOG_PATH, f"fibsem_experiment_{timestamp}")
     
+    # Create the experiment directory
+    try:
+        os.makedirs(experiment_path, exist_ok=True)
+        logging.info(f"Created experiment directory: {experiment_path}")
+    except Exception as e:
+        logging.error(f"Failed to create experiment directory: {e}")
+        # Fallback to current directory
+        experiment_path = os.getcwd()
+    
+    widget = FMAcquisitionWidget(fm=microscope.fm,
+                                 viewer=viewer,
+                                 experiment_path=experiment_path, parent=None)
+
+    return widget
+
+def main():
+
     viewer = napari.Viewer()
-    widget = FMAcquisitionWidget(fm=microscope.fm, viewer=viewer)
+    widget = create_widget(viewer)    
     viewer.window.add_dock_widget(widget, area="right")
     napari.run()
 

@@ -48,8 +48,6 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_delete_position.setToolTip("Delete the selected position")
         self.pushButton_clear_all = QPushButton("Clear All", self)
         self.pushButton_clear_all.setToolTip("Delete all saved positions")
-        self.pushButton_load_positions = QPushButton("Load File", self)
-        self.pushButton_load_positions.setToolTip("Load positions from a YAML file")
         
         # Position info label
         self.label_position_info = QLabel("No positions saved", self)
@@ -64,8 +62,7 @@ class SavedPositionsWidget(QWidget):
         layout.addWidget(self.pushButton_goto_position, 2, 0)
         layout.addWidget(self.pushButton_delete_position, 2, 1)
         layout.addWidget(self.pushButton_clear_all, 2, 2)
-        layout.addWidget(self.pushButton_load_positions, 3, 0, 1, 3)
-        layout.addWidget(self.label_position_info, 4, 0, 1, 3)
+        layout.addWidget(self.label_position_info, 3, 0, 1, 3)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
@@ -74,7 +71,6 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_goto_position.clicked.connect(self._goto_selected_position)
         self.pushButton_delete_position.clicked.connect(self._delete_selected_position)
         self.pushButton_clear_all.clicked.connect(self._clear_all_positions)
-        self.pushButton_load_positions.clicked.connect(self._load_positions_from_file)
         
         # Set initial button states
         self._update_widget_state()
@@ -83,7 +79,6 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
-        self.pushButton_load_positions.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
     def update_positions(self, positions: List[FMStagePosition]):
         """Update the combobox with current saved positions."""
@@ -119,9 +114,7 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_delete_position.setEnabled(has_positions)
         self.pushButton_clear_all.setEnabled(has_positions)
         self.comboBox_positions.setEnabled(has_positions)
-        # Load button is always enabled
-        self.pushButton_load_positions.setEnabled(True)
-        
+
         if not has_positions:
             self.pushButton_goto_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
             self.pushButton_delete_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
@@ -131,9 +124,6 @@ class SavedPositionsWidget(QWidget):
             self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
             self.pushButton_clear_all.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
         
-        # Load button always keeps green style
-        self.pushButton_load_positions.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-
     def _update_position_info(self):
         """Update the position info label with details of the selected position."""
         if not self.parent_widget or not self.parent_widget.stage_positions:
@@ -251,7 +241,7 @@ class SavedPositionsWidget(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Positions File",
-            "",
+            self.parent_widget.experiment_path,
             "YAML Files (*.yaml *.yml);;All Files (*)"
         )
         
