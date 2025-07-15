@@ -131,7 +131,7 @@ class FibsemMicroscope(ABC):
     _acquisition_thread: threading.Thread = None
 
     # fluorescence
-    fm: FluorescenceMicroscope
+    fm: Optional[FluorescenceMicroscope]
 
     @abstractmethod
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
@@ -1051,6 +1051,9 @@ class FibsemMicroscope(ABC):
         if self.stage_is_compustage:
             self.move_to_microscope_compustage(target)
             return
+        
+        if not self.fm:
+            raise ValueError("FM module is not available. Cannot move to FM position.")
 
         stage_position = self.get_stage_position()
 
@@ -1093,6 +1096,9 @@ class FibsemMicroscope(ABC):
         if not self.stage_is_compustage:
             raise ValueError("This method is only available for Compustage microscopes.")
         
+        if not self.fm:
+            raise ValueError("FM module is not available. Cannot move to FM position.")
+
         self.fm.objective.retract()  # retract objective (safety precaution)
 
         if target == "FIBSEM":
@@ -1308,6 +1314,14 @@ class ThermoMicroscope(FibsemMicroscope):
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
+
+        try:
+            from fibsem.fm.thermo_fisher import ThermoFisherFluorescenceMicroscope
+            self.fm = ThermoFisherFluorescenceMicroscope(self.connection)
+            logging.info("Thermo Fisher Fluorescence Microscope initialized successfully.")
+        except Exception as e:
+            logging.error(f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}")
+            self.fm = None
 
     def set_channel(self, channel: BeamType) -> None:
         """

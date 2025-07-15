@@ -1679,6 +1679,11 @@ class FMAcquisitionWidget(QWidget):
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
     
     microscope, settings = utils.setup_session()
+
+    if microscope.fm is None:
+        logging.error("FluorescenceMicroscope is not initialized. Cannot create FMAcquisitionWidget.")
+        raise RuntimeError("FluorescenceMicroscope is not initialized.")
+
     from fibsem.microscopes.simulator import DemoMicroscope
     if isinstance(microscope, DemoMicroscope):
         microscope.move_to_microscope("FM")
