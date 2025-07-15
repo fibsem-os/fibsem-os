@@ -27,6 +27,7 @@ class ZParametersWidget(QWidget):
     def initUI(self):
         
         self.label_header = QLabel("Z-Stack Parameters", self)
+        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
         
         # Z minimum
         self.label_zmin = QLabel("Z Min", self)

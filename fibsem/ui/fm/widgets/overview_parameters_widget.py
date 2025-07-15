@@ -1,24 +1,13 @@
-import logging
-import os
-import threading
-from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
-import napari
-import numpy as np
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QKeySequence
+from typing import TYPE_CHECKING, Optional
+
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
     QLabel,
-    QLineEdit,
-    QPushButton,
-    QShortcut,
     QSpinBox,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -29,14 +18,13 @@ if TYPE_CHECKING:
 
 OVERVIEW_PARAMETERS_CONFIG = {
     "min_grid_size": 1,
-    "max_grid_size": 10,
+    "max_grid_size": 15,
     "default_rows": 3,
     "default_cols": 3,
     "default_overlap": 0.1,
     "overlap_step": 0.01,
     "overlap_decimals": 2,
 }
-
 
 class OverviewParametersWidget(QWidget):
     def __init__(self, parent: Optional['FMAcquisitionWidget'] = None):
@@ -55,6 +43,7 @@ class OverviewParametersWidget(QWidget):
     def initUI(self):
         
         self.label_header = QLabel("Overview Parameters", self)
+        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
         
         # Number of rows
         self.label_rows = QLabel("Rows", self)

@@ -35,6 +35,7 @@ class SavedPositionsWidget(QWidget):
 
     def initUI(self):
         self.label_header = QLabel("Saved Positions", self)
+        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
         
         # Combobox for selecting saved positions
         self.label_positions = QLabel("Select Position", self)

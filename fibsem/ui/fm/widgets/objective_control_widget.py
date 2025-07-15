@@ -39,6 +39,7 @@ class ObjectiveControlWidget(QWidget):
     def initUI(self):
         self.setContentsMargins(0, 0, 0, 0)
         self.label_header = QLabel("Objective", self)
+        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
         self.pushButton_insert_objective = QPushButton("Insert Objective", self)
         self.pushButton_retract_objective = QPushButton("Retract Objective", self)
 
@@ -61,8 +62,6 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_step_size.setToolTip("Step size for objective movement in microns")
         self.doubleSpinBox_objective_step_size.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
 
-        # Add a label to display the current objective position
-        self.label_objective_position = QLabel(f"Current Objective Position: {self.fm.objective.position*METRE_TO_MILLIMETRE:.2f} mm", self)
 
         # Create the layout
         layout = QGridLayout()
@@ -73,7 +72,6 @@ class ObjectiveControlWidget(QWidget):
         layout.addWidget(self.doubleSpinBox_objective_position, 2, 1) 
         layout.addWidget(self.label_objective_step_size, 3, 0)
         layout.addWidget(self.doubleSpinBox_objective_step_size, 3, 1)
-        layout.addWidget(self.label_objective_position, 4, 0, 1, 2)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 
@@ -127,7 +125,6 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.blockSignals(True)  # Block signals to prevent recursion
         self.doubleSpinBox_objective_position.setValue(objective_position)  # Convert m to mm
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
-        self.label_objective_position.setText(f"Current Objective Position: {objective_position:.2f} mm")
         
         if self.parent_widget is not None:
             self.parent_widget.display_stage_position_overlay()  # Update the stage position overlay in the parent widget
