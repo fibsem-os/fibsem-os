@@ -308,33 +308,33 @@ class FMAcquisitionWidget(QWidget):
     def on_mouse_wheel(self, viewer, event):
         """Handle mouse wheel events in the napari viewer."""
 
+        if 'Shift' not in event.modifiers:
+            event.handled = False  # Let napari handle zooming if Shift is not pressed
+            return
+        
         # Prevent objective movement during acquisitions
         if self.is_acquisition_active:
             logging.info("Objective movement disabled during acquisition")
             event.handled = True
             return
 
-        # Check for Ctrl key to control objective position
-        if 'Shift' in event.modifiers:
-            # TODO: add shift key to change step size?
+        # Calculate step size based on wheel delta
+        objective_step_size = self.objectiveControlWidget.doubleSpinBox_objective_step_size.value() * 1e-3 # convert from um to mm    
+        step_mm = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE, MAX_OBJECTIVE_STEP_SIZE)  # Adjust sensitivity as needed
+        # delta ~= 1
+        
+        logging.info(f"Mouse wheel event detected with delta: {event.delta}, step size: {step_mm:.4f} mm")
 
-            # Calculate step size based on wheel delta
-            objective_step_size = self.objectiveControlWidget.doubleSpinBox_objective_step_size.value() * 1e-3 # convert from um to mm    
-            step_mm = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE, MAX_OBJECTIVE_STEP_SIZE)  # Adjust sensitivity as needed
-            # delta ~= 1
-            
-            logging.info(f"Mouse wheel event detected with delta: {event.delta}, step size: {step_mm:.4f} mm")
-
-            # Get current position in mm
-            current_pos = self.fm.objective.position * METRE_TO_MILLIMETRE
-            new_pos = current_pos + step_mm
-            
-            # Move objective
-            logging.info(f"Moving objective by {step_mm:.4f} mm to {new_pos:.4f} mm")
-            self.objectiveControlWidget.doubleSpinBox_objective_position.setValue(new_pos)
-            
-            # Consume the event to prevent default napari behavior
-            event.handled = True
+        # Get current position in mm
+        current_pos = self.fm.objective.position * METRE_TO_MILLIMETRE
+        new_pos = current_pos + step_mm
+        
+        # Move objective
+        logging.info(f"Moving objective by {step_mm:.4f} mm to {new_pos:.4f} mm")
+        self.objectiveControlWidget.doubleSpinBox_objective_position.setValue(new_pos)
+        
+        # Consume the event to prevent default napari behavior
+        event.handled = True
 
     def on_mouse_click(self, viewer, event):
         """Handle mouse click events in the napari viewer."""
