@@ -65,7 +65,7 @@ class ChannelSettingsWidget(QWidget):
         
         layout.addWidget(QLabel("Exposure Time"), 4, 0)
         self.exposure_time_input = QDoubleSpinBox()
-        self.exposure_time_input.setRange(0.01, 10.0)
+        self.exposure_time_input.setRange(0.001, 1)
         self.exposure_time_input.setSingleStep(0.01)
         self.exposure_time_input.setDecimals(3)
         self.exposure_time_input.setSuffix(" s")

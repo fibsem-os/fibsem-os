@@ -1617,16 +1617,18 @@ class FMAcquisitionWidget(QWidget):
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
-    
-    microscope, settings = utils.setup_session()
+    CONFIG_PATH = r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
+    microscope, settings = utils.setup_session(config_path=CONFIG_PATH)
 
     if microscope.fm is None:
         logging.error("FluorescenceMicroscope is not initialized. Cannot create FMAcquisitionWidget.")
         raise RuntimeError("FluorescenceMicroscope is not initialized.")
 
     from fibsem.microscopes.simulator import DemoMicroscope
-    if isinstance(microscope, DemoMicroscope):
-        microscope.move_to_microscope("FM")
+    # if isinstance(microscope, DemoMicroscope):
+        # microscope.move_to_microscope("FM")
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope.stage_is_compustage = True
 
     # Create experiment path with current directory + datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
