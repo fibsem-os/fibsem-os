@@ -30,6 +30,7 @@ from fibsem.fm.acquisition import (
     AutofocusMode,
     acquire_and_stitch_tileset,
     acquire_at_positions,
+    acquire_image,
     acquire_z_stack,
     calculate_grid_coverage_area,
 )
@@ -237,12 +238,12 @@ channel_settings=ChannelSettings(
 # TODO: add a convenience NapariShapeFoV or similar, NapariShapeCrossHair
 # TODO: extract ui properties into a config file
 # TODO: integrate with milling workflow
-# TODO: single image acquisition
 # TODO: multi-overview acquisition
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
+    single_image_finished_signal = pyqtSignal()
     zstack_finished_signal = pyqtSignal()
     overview_finished_signal = pyqtSignal()
     positions_acquisition_finished_signal = pyqtSignal()
@@ -263,6 +264,11 @@ class FMAcquisitionWidget(QWidget):
         self.zParametersWidget: ZParametersWidget
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
+
+        # Single image acquisition threading
+        self._single_image_thread: Optional[threading.Thread] = None
+        self._single_image_stop_event = threading.Event()
+        self._is_single_image_acquiring = False
 
         # Z-stack acquisition threading
         self._zstack_thread: Optional[threading.Thread] = None
@@ -298,9 +304,10 @@ class FMAcquisitionWidget(QWidget):
         """Check if any acquisition or operation is currently running.
 
         Returns:
-            True if any acquisition (overview, z-stack, positions) or autofocus is active
+            True if any acquisition (single image, overview, z-stack, positions) or autofocus is active
         """
-        return (self._is_overview_acquiring or 
+        return (self._is_single_image_acquiring or
+                self._is_overview_acquiring or 
                 self._is_zstack_acquiring or 
                 self._is_positions_acquiring or 
                 self._is_autofocus_running)
@@ -331,6 +338,7 @@ class FMAcquisitionWidget(QWidget):
 
         self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
+        self.pushButton_acquire_single_image = QPushButton("Acquire Single Image", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
         self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
@@ -349,11 +357,12 @@ class FMAcquisitionWidget(QWidget):
         button_layout = QGridLayout()
         button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
         button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 1, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_single_image, 1, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 2, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_overview, 3, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_at_positions, 4, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 5, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 6, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(button_layout)
 
@@ -381,6 +390,7 @@ class FMAcquisitionWidget(QWidget):
         self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
         self.pushButton_start_acquisition.clicked.connect(self.start_acquisition)
         self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
+        self.pushButton_acquire_single_image.clicked.connect(self.acquire_single_image)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_zstack)
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
         self.pushButton_acquire_at_positions.clicked.connect(self.acquire_at_positions)
@@ -391,6 +401,7 @@ class FMAcquisitionWidget(QWidget):
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
         self.update_image_signal.connect(self.update_image)
         self.update_persistent_image_signal.connect(self.update_persistent_image)
+        self.single_image_finished_signal.connect(self._on_single_image_finished)
         self.zstack_finished_signal.connect(self._on_zstack_finished)
         self.overview_finished_signal.connect(self._on_overview_finished)
         self.positions_acquisition_finished_signal.connect(self._on_positions_finished)
@@ -411,6 +422,7 @@ class FMAcquisitionWidget(QWidget):
         # stylesheets
         self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_acquire_single_image.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
@@ -421,6 +433,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_stop_acquisition.setEnabled(False)
 
         # Explicitly enable acquisition buttons initially (disabled only during live acquisition)
+        self.pushButton_acquire_single_image.setEnabled(True)
         self.pushButton_acquire_zstack.setEnabled(True)
         self.pushButton_acquire_overview.setEnabled(True)
         self.pushButton_acquire_at_positions.setEnabled(True)
@@ -1194,8 +1207,14 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
 
     def cancel_acquisition(self):
-        """Cancel all ongoing acquisitions (z-stack, overview, positions, autofocus)."""
+        """Cancel all ongoing acquisitions (single image, z-stack, overview, positions, autofocus)."""
         logging.info("Cancelling all acquisitions")
+
+        # Cancel single image acquisition
+        if self._single_image_thread and self._single_image_thread.is_alive():
+            logging.info("Cancelling single image acquisition")
+            self._single_image_stop_event.set()
+            self._single_image_thread.join(timeout=5)
 
         # Cancel z-stack acquisition
         if self._zstack_thread and self._zstack_thread.is_alive():
@@ -1232,6 +1251,32 @@ class FMAcquisitionWidget(QWidget):
             logging.info("F6 pressed: Starting acquisition")
             self.start_acquisition()
 
+    def acquire_single_image(self):
+        """Start threaded single image acquisition using the current channel settings."""
+        if self.fm.is_acquiring:
+            logging.warning("Cannot acquire single image while live acquisition is running. Stop acquisition first.")
+            return
+
+        if self._single_image_thread and self._single_image_thread.is_alive():
+            logging.warning("Single image acquisition is already in progress.")
+            return
+
+        logging.info("Starting single image acquisition")
+        self._is_single_image_acquiring = True
+        self._update_acquisition_button_states()
+        self._single_image_stop_event.clear()
+
+        # Get current settings
+        channel_settings = self.channelSettingsWidget.channel_settings
+
+        # Start acquisition thread
+        self._single_image_thread = threading.Thread(
+            target=self._single_image_worker,
+            args=(channel_settings,),
+            daemon=True
+        )
+        self._single_image_thread.start()
+
     def acquire_zstack(self):
         """Start threaded Z-stack acquisition using the current Z parameters and channel settings."""
         if self.fm.is_acquiring:
@@ -1259,6 +1304,49 @@ class FMAcquisitionWidget(QWidget):
         )
         self._zstack_thread.start()
     
+    def _single_image_worker(self, channel_settings: ChannelSettings):
+        """Worker thread for single image acquisition."""
+        try:
+            logging.info("Acquiring single image")
+
+            # Acquire single image with cancellation support
+            single_image = acquire_image(
+                microscope=self.fm,
+                channel_settings=channel_settings,
+                zparams=None,  # No z-stack parameters for single image
+                stop_event=self._single_image_stop_event
+            )
+
+            # Check if acquisition was cancelled
+            if self._single_image_stop_event.is_set() or single_image is None:
+                logging.info("Single image acquisition was cancelled")
+                return
+            
+            # Save image to experiment directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"image-{timestamp}.ome.tiff"
+            filepath = os.path.join(self.experiment_path, filename)
+            single_image.metadata.description = filename.removesuffix(".ome.tiff")
+
+            try:
+                single_image.save(filepath)
+                logging.info(f"Single image saved to: {filepath}")
+            except Exception as e:
+                logging.error(f"Failed to save single image to {filepath}: {e}")
+            
+            # Emit the single image
+            self.update_persistent_image_signal.emit(single_image)
+            
+            logging.info("Single image acquisition completed successfully")
+            
+        except Exception as e:
+            logging.error(f"Error during single image acquisition: {e}")
+            # TODO: Show error message to user
+            
+        finally:
+            # Signal that single image acquisition is finished (thread-safe)
+            self.single_image_finished_signal.emit()
+    
     def _zstack_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for Z-stack acquisition."""
         try:
@@ -1266,7 +1354,7 @@ class FMAcquisitionWidget(QWidget):
             logging.info(f"Z parameters: {z_parameters.to_dict()}")
 
             # Acquire z-stack with cancellation support
-            zstack_image = acquire_z_stack(
+            zstack_image = acquire_image(
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
@@ -1303,6 +1391,14 @@ class FMAcquisitionWidget(QWidget):
             # Signal that Z-stack acquisition is finished (thread-safe)
             self.zstack_finished_signal.emit()
     
+    def _on_single_image_finished(self):
+        """Handle single image acquisition completion in the main thread."""
+        # Clear single image acquisition flag first
+        self._is_single_image_acquiring = False
+        
+        # Update all button states now that acquisition is finished
+        self._update_acquisition_button_states()
+    
     def _on_zstack_finished(self):
         """Handle Z-stack acquisition completion in the main thread."""
         # Clear z-stack acquisition flag first
@@ -1324,6 +1420,8 @@ class FMAcquisitionWidget(QWidget):
             # Disable acquisition buttons during any acquisition
             self.pushButton_start_acquisition.setEnabled(False)
             self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_single_image.setEnabled(False)
+            self.pushButton_acquire_single_image.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
             self.pushButton_acquire_zstack.setEnabled(False)
             self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
             self.pushButton_acquire_overview.setEnabled(False)
@@ -1337,6 +1435,8 @@ class FMAcquisitionWidget(QWidget):
             # Enable all acquisition buttons when no acquisitions are running
             self.pushButton_start_acquisition.setEnabled(True)
             self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+            self.pushButton_acquire_single_image.setEnabled(True)
+            self.pushButton_acquire_single_image.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
             self.pushButton_acquire_zstack.setEnabled(True)
             self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
             self.pushButton_acquire_overview.setEnabled(True)
@@ -1523,6 +1623,15 @@ class FMAcquisitionWidget(QWidget):
             finally:
                 print("Acquisition stopped due to widget close.")
         
+        # Stop single image acquisition
+        if self._single_image_thread and self._single_image_thread.is_alive():
+            try:
+                self._single_image_stop_event.set()
+                self._single_image_thread.join(timeout=5)  # Wait up to 5 seconds
+                logging.info("Single image acquisition stopped due to widget close.")
+            except Exception as e:
+                logging.error(f"Error stopping single image acquisition: {e}")
+        
         # Stop Z-stack acquisition
         if self._zstack_thread and self._zstack_thread.is_alive():
             try:
@@ -1560,6 +1669,7 @@ class FMAcquisitionWidget(QWidget):
                 logging.error(f"Error stopping auto-focus: {e}")
 
         # Reset acquisition flags
+        self._is_single_image_acquiring = False
         self._is_overview_acquiring = False
         self._is_positions_acquiring = False
         self._is_zstack_acquiring = False
