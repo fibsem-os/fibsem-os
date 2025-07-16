@@ -240,9 +240,10 @@ channel_settings=ChannelSettings(
 # TODO: integrate with milling workflow
 # TODO: multi-overview acquisition
 # TODO: disable all controls during acquisition
+# TODO: allow user to set objective position for each position 
 
 # REFACTORING TODO: Extract common acquisition start pattern from acquire_image(), acquire_at_positions(), acquire_overview(), run_autofocus()
-# REFACTORING TODO: Simplify button state management in _update_acquisition_button_states() using data-driven approach
+# REFACTORING TODO: Simplify button state management in _update_acquisition_button_states() using data-driven approach [COMPLETED]
 # REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
 # REFACTORING TODO: Create _get_current_settings() method to eliminate duplicate settings retrieval
 # REFACTORING TODO: Extract common microscope parent validation to shared method [COMPLETED]
@@ -336,6 +337,15 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
+
+        # Define button configurations for data-driven state management
+        self.button_configs = [
+            (self.pushButton_start_acquisition, GREEN_PUSHBUTTON_STYLE),
+            (self.pushButton_acquire_single_image, BLUE_PUSHBUTTON_STYLE),
+            (self.pushButton_acquire_zstack, BLUE_PUSHBUTTON_STYLE),
+            (self.pushButton_acquire_overview, BLUE_PUSHBUTTON_STYLE),
+            (self.pushButton_run_autofocus, ORANGE_PUSHBUTTON_STYLE),
+        ]
 
         layout = QVBoxLayout()
         layout.addWidget(self.label)
@@ -1289,46 +1299,30 @@ class FMAcquisitionWidget(QWidget):
         # Check if any acquisition is active (live or specific acquisitions)
         any_acquisition_active = self.fm.is_acquiring or self.is_acquisition_active
         
-        # show cancel button if any acquisition task is active
+        # Special case buttons with unique behavior
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
         self.pushButton_stop_acquisition.setEnabled(bool(self.fm.is_acquiring))
 
+        # Update standard buttons using configuration from initUI
+        for button, normal_style in self.button_configs:
+            if any_acquisition_active:
+                button.setEnabled(False)
+                button.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+            else:
+                button.setEnabled(True)
+                button.setStyleSheet(normal_style)
+
+        # Special handling for positions button (depends on saved positions)
         if any_acquisition_active:
-            # Disable acquisition buttons during any acquisition
-            self.pushButton_start_acquisition.setEnabled(False)
-            self.pushButton_start_acquisition.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_acquire_single_image.setEnabled(False)
-            self.pushButton_acquire_single_image.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_acquire_zstack.setEnabled(False)
-            self.pushButton_acquire_zstack.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_acquire_overview.setEnabled(False)
-            self.pushButton_acquire_overview.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
             self.pushButton_acquire_at_positions.setEnabled(False)
             self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_run_autofocus.setEnabled(False)
-            self.pushButton_run_autofocus.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-
         else:
-            # Enable all acquisition buttons when no acquisitions are running
-            self.pushButton_start_acquisition.setEnabled(True)
-            self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-            self.pushButton_acquire_single_image.setEnabled(True)
-            self.pushButton_acquire_single_image.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_acquire_zstack.setEnabled(True)
-            self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_acquire_overview.setEnabled(True)
-            self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-
             # Only enable positions button if there are saved positions
-            if self.stage_positions:
-                self.pushButton_acquire_at_positions.setEnabled(True)
-                self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            else:
-                self.pushButton_acquire_at_positions.setEnabled(False)
-                self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-
-            self.pushButton_run_autofocus.setEnabled(True)
-            self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+            positions_available = bool(self.stage_positions)
+            self.pushButton_acquire_at_positions.setEnabled(positions_available)
+            self.pushButton_acquire_at_positions.setStyleSheet(
+                BLUE_PUSHBUTTON_STYLE if positions_available else GRAY_PUSHBUTTON_STYLE
+            )
 
     def _save_positions_to_yaml(self):
         """Save current stage positions to positions.yaml in the experiment directory."""
