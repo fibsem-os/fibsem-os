@@ -43,6 +43,22 @@ class ObjectiveControlWidget(QWidget):
         self.pushButton_insert_objective = QPushButton("Insert Objective", self)
         self.pushButton_retract_objective = QPushButton("Retract Objective", self)
 
+        # add focus position controls
+        self.label_focus_position = QLabel("Focus Position", self)
+        self.doubleSpinBox_focus_position = QDoubleSpinBox(self)
+        self.doubleSpinBox_focus_position.setRange(self.fm.objective.limits[0] * METRE_TO_MILLIMETRE,
+                                                   self.fm.objective.limits[1] * METRE_TO_MILLIMETRE)
+        # Set initial value from objective's focus position if available
+        if self.fm.objective.focus_position is not None:
+            self.doubleSpinBox_focus_position.setValue(self.fm.objective.focus_position * METRE_TO_MILLIMETRE)
+        else:
+            self.doubleSpinBox_focus_position.setValue(0.0)
+        self.doubleSpinBox_focus_position.setSingleStep(OBJECTIVE_CONFIG["step_size"])
+        self.doubleSpinBox_focus_position.setDecimals(OBJECTIVE_CONFIG["decimals"])
+        self.doubleSpinBox_focus_position.setSuffix(OBJECTIVE_CONFIG["suffix"])
+        self.doubleSpinBox_focus_position.setKeyboardTracking(False)
+        self.pushButton_move_to_focus = QPushButton("Move to Focus", self)
+
         # add double spin box for objective position
         self.label_objective_control = QLabel("Position", self)
         self.label_objective_step_size = QLabel("Step Size", self)
@@ -62,28 +78,33 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_step_size.setToolTip("Step size for objective movement in microns")
         self.doubleSpinBox_objective_step_size.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
 
-
         # Create the layout
         layout = QGridLayout()
         layout.addWidget(self.label_header, 0, 0, 1, 2)
         layout.addWidget(self.pushButton_insert_objective, 1, 0)
         layout.addWidget(self.pushButton_retract_objective, 1, 1)
-        layout.addWidget(self.label_objective_control, 2, 0)
-        layout.addWidget(self.doubleSpinBox_objective_position, 2, 1) 
-        layout.addWidget(self.label_objective_step_size, 3, 0)
-        layout.addWidget(self.doubleSpinBox_objective_step_size, 3, 1)
+        layout.addWidget(self.label_focus_position, 2, 0)
+        layout.addWidget(self.doubleSpinBox_focus_position, 2, 1)
+        layout.addWidget(self.pushButton_move_to_focus, 3, 0, 1, 2)
+        layout.addWidget(self.label_objective_control, 4, 0)
+        layout.addWidget(self.doubleSpinBox_objective_position, 4, 1) 
+        layout.addWidget(self.label_objective_step_size, 5, 0)
+        layout.addWidget(self.doubleSpinBox_objective_step_size, 5, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 
         # connect signals
         self.pushButton_insert_objective.clicked.connect(self.insert_objective)
         self.pushButton_retract_objective.clicked.connect(self.retract_objective)
+        self.doubleSpinBox_focus_position.valueChanged.connect(self.on_focus_position_changed)
+        self.pushButton_move_to_focus.clicked.connect(self.move_to_focus_position)
         self.doubleSpinBox_objective_position.valueChanged.connect(self.on_objective_position_changed)
         self.doubleSpinBox_objective_step_size.valueChanged.connect(lambda value: self.doubleSpinBox_objective_position.setSingleStep(value * 1e-3))  # Convert from um to mm
 
         # set stylesheets
         self.pushButton_insert_objective.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_retract_objective.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_move_to_focus.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
 
     def insert_objective(self):
         """Insert the objective."""
@@ -153,5 +174,40 @@ class ObjectiveControlWidget(QWidget):
         self.fm.objective.move_absolute(position * MILLIMETRE_TO_METRE)
         logging.info(f"Objective moved to position: {position:.2f} mm")
 
+        # Update the objective position label
+        self.update_objective_position_labels()
+
+    @pyqtSlot(float)
+    def on_focus_position_changed(self, position: float):
+        """Handle changes to the focus position setting."""
+        logging.info(f"Focus position updated to: {position:.3f} mm")
+        self.fm.objective.focus_position = position * MILLIMETRE_TO_METRE  # Convert mm to m
+
+    def move_to_focus_position(self):
+        """Move the objective to the stored focus position."""
+        if self.fm.objective.focus_position is None:
+            logging.warning("No focus position has been set")
+            return
+
+        focus_position_mm = self.fm.objective.focus_position * METRE_TO_MILLIMETRE
+        
+        # confirmation dialog for large movements
+        current_position_mm = self.fm.objective.position * METRE_TO_MILLIMETRE
+        is_large_change = abs(current_position_mm - focus_position_mm) > 1e-3  # 1 mm threshold
+        
+        if is_large_change:
+            ret = message_box_ui(
+                title="Move to Focus Position",
+                text=f"Move objective to focus position {focus_position_mm:.3f} mm?",
+                parent=self
+            )
+            if ret is False:
+                logging.info("Move to focus position cancelled by user.")
+                return
+
+        logging.info(f"Moving objective to focus position: {focus_position_mm:.3f} mm")
+        self.fm.objective.move_absolute(self.fm.objective.focus_position)
+        logging.info(f"Objective moved to focus position: {focus_position_mm:.3f} mm")
+        
         # Update the objective position label
         self.update_objective_position_labels()
