@@ -321,6 +321,7 @@ def acquire_tileset(
 
     # Store initial position to return to later
     initial_position = microscope.get_stage_position()
+    initial_objective_position = microscope.fm.objective.position
 
     # Calculate the physical field of view from metadata
     pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
@@ -382,7 +383,9 @@ def acquire_tileset(
                 if stop_event and stop_event.is_set():
                     logging.info("Tileset acquisition cancelled")
                     return tileset  # Return partial results
-                    
+                
+                microscope.fm.objective.move_absolute(initial_objective_position)
+
                 # Perform auto-focus at each tile
                 if autofocus_mode == AutofocusMode.EACH_TILE:
                     autofocus_success = run_tileset_autofocus(microscope, autofocus_channel, autofocus_zparams, f"for tile [{row+1}/{rows}][{col+1}/{cols}]", stop_event=stop_event)
@@ -437,6 +440,7 @@ def acquire_tileset(
         # Return to initial position
         logging.info("Returning to initial position")
         microscope.safe_absolute_stage_movement(initial_position)
+        microscope.fm.objective.move_absolute(initial_objective_position)
 
     logging.info(f"Tileset acquisition complete: {rows}x{cols} tiles acquired")
     return tileset

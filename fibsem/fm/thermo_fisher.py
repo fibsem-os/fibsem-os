@@ -16,10 +16,10 @@ from fibsem.fm.microscope import (
 from fibsem.microscope import SdbMicroscopeClient
 
 COLOR_TO_WAVELENGTH = {
-    CameraEmissionType.VIOLET: 365,
-    CameraEmissionType.BLUE: 450,
-    CameraEmissionType.GREEN_YELLOW: 550,
-    CameraEmissionType.RED: 635,
+    CameraEmissionType.BLUE: 365,
+    CameraEmissionType.GREEN_YELLOW: 450,
+    CameraEmissionType.RED: 550,
+    CameraEmissionType.VIOLET: 635,
 }
 # TODO: migrate to using the enumeration from autoscript_sdb_microscope_client
 WAVELENGTH_TO_COLOR = {v: k for k, v in COLOR_TO_WAVELENGTH.items()}
@@ -44,17 +44,19 @@ ARCTIS_CONFIGURATION = {
     "magnification": 100.0,
     "numerical_aperture": 0.75,
     "working_distance": 4e-3,
-    "pixel_size": (100e-9, 100e-9),
-    "resolution": (1024, 1024),
+    "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
+    "resolution": (4512, 4512),
 }
 
 IFLM_CONFIGURATION = {
     "magnification": 20.0,
     "numerical_aperture": 0.7,
     "working_distance": 1.3e-3,
-    "pixel_size": (100e-9, 100e-9),
-    "resolution": (1024, 1024),
+    "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
+    "resolution": (4512, 4512),
 }
+
+# 2.74822695035461e-08
 DEFAULT_CONFIGURATION = ARCTIS_CONFIGURATION  # Default to ARCTIS configuration
 
 HFW = 150e-6  # Horizontal field width for ARCTIS (diagonal)
@@ -215,14 +217,16 @@ class ThermoFisherCamera(Camera):
         frame_settings = GrabFrameSettings(emission_type=emission_type)
         # Uses current camera settings for binning and exposure time
 
+        print(f"EMISSION: {emission_type}, {frame_settings.emission_type}")
+
         self.parent.set_active_channel()
         image = self.parent.connection.imaging.grab_frame(frame_settings)
 
-        print(f"Acquire Image: {image.data.shape} pixels, {image.data.dtype} type")
-        print(f"Image Pixel Size: {image.metadata.binary_result.pixel_size}")
-        print(f"APPARENT Pixel Size: {self.pixel_size}")
-        print(f"APPARENT Resolution: {self.resolution}")
-        print(f"APPARENT BINNING: {self.binning}")
+        # print(f"Acquire Image: {image.data.shape} pixels, {image.data.dtype} type")
+        # print(f"Image Pixel Size: {image.metadata.binary_result.pixel_size}")
+        # print(f"APPARENT Pixel Size: {self.pixel_size}")
+        # print(f"APPARENT Resolution: {self.resolution}")
+        # print(f"APPARENT BINNING: {self.binning}")
 
         return image.data  # AdornedImage.data -> np.ndarray
 
@@ -402,7 +406,7 @@ class ThermoFisherFilterSet(FilterSet):
             A tuple of available emission wavelengths in nanometers
             Same as excitation wavelengths for this system
         """
-        return tuple(sorted(AVAILABLE_FM_WAVELENGTHS))
+        return (None, AVAILABLE_FM_WAVELENGTHS[0])
 
     @property
     def excitation_wavelength(self) -> float:
@@ -497,14 +501,14 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
     camera: ThermoFisherCamera
     light_source: ThermoFisherLightSource
 
-    def __init__(self, connection: Optional[SdbMicroscopeClient] = None):
+    def __init__(self, parent: Optional['FibsemMicroscope'] = None, connection: Optional[SdbMicroscopeClient] = None):
         """Initialize the Thermo Fisher fluorescence microscope.
         
         Args:
             connection: Optional SDB microscope client connection.
                        If None, a new connection will be created.
         """
-        super().__init__()
+        super().__init__(parent=parent)
 
         if connection is None:
             connection = SdbMicroscopeClient()

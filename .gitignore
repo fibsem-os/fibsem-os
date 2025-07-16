@@ -63,3 +63,4 @@ scripts/dev-notebook2.ipynb
 scripts/launch-autolamella.sh
 fibsem/applications/autolamella/log/*
 CLAUDE.md
+fibsem/fm/*.ome.tiff

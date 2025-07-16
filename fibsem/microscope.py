@@ -1317,7 +1317,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         try:
             from fibsem.fm.thermo_fisher import ThermoFisherFluorescenceMicroscope
-            self.fm = ThermoFisherFluorescenceMicroscope(self.connection)
+            self.fm = ThermoFisherFluorescenceMicroscope(self, self.connection)
             logging.info("Thermo Fisher Fluorescence Microscope initialized successfully.")
         except Exception as e:
             logging.error(f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}")
@@ -1723,6 +1723,10 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # convert to autoscript position
         autoscript_position = position.to_autoscript_position(compustage=self.stage_is_compustage)
+
+        if self.get_stage_orientation() == "FM":
+            autoscript_position.z = None
+            autoscript_position.r = None
 
         logging.info(f"Moving stage to {position}.")
         self.stage.absolute_move(autoscript_position, MoveSettings(rotate_compucentric=True)) # TODO: This needs at least an optional safe move to prevent collision?
