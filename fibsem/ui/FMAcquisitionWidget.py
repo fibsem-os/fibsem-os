@@ -314,7 +314,7 @@ class FMAcquisitionWidget(QWidget):
 
         self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
-        self.pushButton_acquire_single_image = QPushButton("Acquire Single Image", self)
+        self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
         self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
@@ -333,12 +333,12 @@ class FMAcquisitionWidget(QWidget):
         button_layout = QGridLayout()
         button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
         button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
-        button_layout.addWidget(self.pushButton_acquire_single_image, 1, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 2, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_overview, 3, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_at_positions, 4, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_run_autofocus, 5, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 6, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_single_image, 1, 0)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 1, 1)
+        button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(button_layout)
 
@@ -366,8 +366,8 @@ class FMAcquisitionWidget(QWidget):
         self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
         self.pushButton_start_acquisition.clicked.connect(self.start_acquisition)
         self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
-        self.pushButton_acquire_single_image.clicked.connect(self.acquire_single_image)
-        self.pushButton_acquire_zstack.clicked.connect(self.acquire_zstack)
+        self.pushButton_acquire_single_image.clicked.connect(self.acquire_image)
+        self.pushButton_acquire_zstack.clicked.connect(self.acquire_image)
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
         self.pushButton_acquire_at_positions.clicked.connect(self.acquire_at_positions)
         self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
@@ -1207,110 +1207,42 @@ class FMAcquisitionWidget(QWidget):
             logging.info("F6 pressed: Starting acquisition")
             self.start_acquisition()
 
-    def acquire_single_image(self):
-        """Start threaded single image acquisition using the current channel settings."""
+    def acquire_image(self):
+        """Start threaded image acquisition using the current Z parameters and channel settings."""
         if self.fm.is_acquiring:
-            logging.warning("Cannot acquire single image while live acquisition is running. Stop acquisition first.")
+            logging.warning("Cannot acquire image while live acquisition is running. Stop acquisition first.")
             return
 
         if self._acquisition_thread and self._acquisition_thread.is_alive():
             logging.warning("Another acquisition is already in progress.")
             return
 
-        logging.info("Starting single image acquisition")
-        self._current_acquisition_type = "single"
+        logging.info("Starting image acquisition")
+        self._current_acquisition_type = "image"
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
 
-        # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._single_image_worker,
-            args=(channel_settings,),
-            daemon=True
-        )
-        self._acquisition_thread.start()
-
-    def acquire_zstack(self):
-        """Start threaded Z-stack acquisition using the current Z parameters and channel settings."""
-        if self.fm.is_acquiring:
-            logging.warning("Cannot acquire Z-stack while live acquisition is running. Stop acquisition first.")
-            return
-
-        if self._acquisition_thread and self._acquisition_thread.is_alive():
-            logging.warning("Another acquisition is already in progress.")
-            return
-
-        logging.info("Starting Z-stack acquisition")
-        self._current_acquisition_type = "zstack"
-        self._update_acquisition_button_states()
-        self._acquisition_stop_event.clear()
-
-        # Get current settings
-        channel_settings = self.channelSettingsWidget.channel_settings
-        z_parameters = self.zParametersWidget.z_parameters
+        z_parameters = None
+        if self.sender() is self.pushButton_acquire_zstack:
+            z_parameters = self.zParametersWidget.z_parameters
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
-            target=self._zstack_worker,
+            target=self._image_acquistion_worker,
             args=(channel_settings, z_parameters),
             daemon=True
         )
         self._acquisition_thread.start()
     
-    def _single_image_worker(self, channel_settings: ChannelSettings):
+    def _image_acquistion_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for single image acquisition."""
         try:
-            logging.info("Acquiring single image")
-
+            
             # Acquire single image with cancellation support
-            single_image = acquire_image(
-                microscope=self.fm,
-                channel_settings=channel_settings,
-                zparams=None,  # No z-stack parameters for single image
-                stop_event=self._acquisition_stop_event
-            )
-
-            # Check if acquisition was cancelled
-            if self._acquisition_stop_event.is_set() or single_image is None:
-                logging.info("Single image acquisition was cancelled")
-                return
-            
-            # Save image to experiment directory
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"image-{timestamp}.ome.tiff"
-            filepath = os.path.join(self.experiment_path, filename)
-            single_image.metadata.description = filename.removesuffix(".ome.tiff")
-
-            try:
-                single_image.save(filepath)
-                logging.info(f"Single image saved to: {filepath}")
-            except Exception as e:
-                logging.error(f"Failed to save single image to {filepath}: {e}")
-            
-            # Emit the single image
-            self.update_persistent_image_signal.emit(single_image)
-            
-            logging.info("Single image acquisition completed successfully")
-            
-        except Exception as e:
-            logging.error(f"Error during single image acquisition: {e}")
-            # TODO: Show error message to user
-            
-        finally:
-            # Signal that single image acquisition is finished (thread-safe)
-            self.acquisition_finished_signal.emit()
-    
-    def _zstack_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
-        """Worker thread for Z-stack acquisition."""
-        try:
-            logging.info(f"Acquiring Z-stack with {len(z_parameters.generate_positions(self.fm.objective.position))} planes")
-            logging.info(f"Z parameters: {z_parameters.to_dict()}")
-
-            # Acquire z-stack with cancellation support
-            zstack_image = acquire_image(
+            image = acquire_image(
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
@@ -1318,33 +1250,34 @@ class FMAcquisitionWidget(QWidget):
             )
 
             # Check if acquisition was cancelled
-            if self._acquisition_stop_event.is_set() or zstack_image is None:
-                logging.info("Z-stack acquisition was cancelled")
+            if self._acquisition_stop_event.is_set() or image is None:
+                logging.info("image acquisition was cancelled")
                 return
-            
-            # Save z-stack to experiment directory
+
+            # Save image to experiment directory
+            name = "z-stack" if z_parameters is not None else "image"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"z-stack-{timestamp}.ome.tiff"
+            filename = f"{name}-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
-            zstack_image.metadata.description = filename.removesuffix(".ome.tiff")
+            image.metadata.description = filename.removesuffix(".ome.tiff")
 
             try:
-                zstack_image.save(filepath)
-                logging.info(f"Z-stack saved to: {filepath}")
+                image.save(filepath)
+                logging.info(f"{name} saved to: {filepath}")
             except Exception as e:
-                logging.error(f"Failed to save Z-stack to {filepath}: {e}")
-            
-            # Emit the z-stack image
-            self.update_persistent_image_signal.emit(zstack_image)
-            
-            logging.info("Z-stack acquisition completed successfully")
+                logging.error(f"Failed to save {name} to {filepath}: {e}")
+
+            # Emit the image
+            self.update_persistent_image_signal.emit(image)
+
+            logging.info("single image acquisition completed successfully")
             
         except Exception as e:
-            logging.error(f"Error during Z-stack acquisition: {e}")
+            logging.error(f"Error during single image acquisition: {e}")
             # TODO: Show error message to user
             
         finally:
-            # Signal that Z-stack acquisition is finished (thread-safe)
+            # Signal that single image acquisition is finished (thread-safe)
             self.acquisition_finished_signal.emit()
         
     def _update_acquisition_button_states(self):
