@@ -11,6 +11,8 @@ from napari.layers import Image as NapariImageLayer
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
+    QCheckBox,
+    QDialog,
     QGridLayout,
     QLabel,
     QMessageBox,
@@ -80,6 +82,73 @@ def wavelength_to_color(wavelength: Union[int, float]) -> str:
         return "red"
     else:
         return "gray"
+
+
+class DisplayOptionsDialog(QDialog):
+    """Dialog for configuring display overlay options."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.setWindowTitle("Display Options")
+        self.setModal(True)
+        self.initUI()
+    
+    def initUI(self):
+        """Initialize the dialog UI."""
+        layout = QVBoxLayout()
+        
+        # Header
+        header_label = QLabel("Overlay Display Options")
+        header_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
+        layout.addWidget(header_label)
+        
+        # Checkboxes for each display option
+        self.checkbox_current_fov = QCheckBox("Show Current FOV")
+        self.checkbox_current_fov.setChecked(self.parent_widget.show_current_fov)
+        layout.addWidget(self.checkbox_current_fov)
+        
+        self.checkbox_overview_fov = QCheckBox("Show Overview FOV")
+        self.checkbox_overview_fov.setChecked(self.parent_widget.show_overview_fov)
+        layout.addWidget(self.checkbox_overview_fov)
+        
+        self.checkbox_saved_positions_fov = QCheckBox("Show Saved Positions FOV")
+        self.checkbox_saved_positions_fov.setChecked(self.parent_widget.show_saved_positions_fov)
+        layout.addWidget(self.checkbox_saved_positions_fov)
+        
+        self.checkbox_stage_limits = QCheckBox("Show Stage Limits")
+        self.checkbox_stage_limits.setChecked(self.parent_widget.show_stage_limits)
+        layout.addWidget(self.checkbox_stage_limits)
+        
+        self.checkbox_circle_overlays = QCheckBox("Show Circle Overlays")
+        self.checkbox_circle_overlays.setChecked(self.parent_widget.show_circle_overlays)
+        layout.addWidget(self.checkbox_circle_overlays)
+        
+        # Buttons
+        button_layout = QGridLayout()
+        
+        self.button_ok = QPushButton("OK")
+        self.button_ok.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_ok.clicked.connect(self.accept)
+        button_layout.addWidget(self.button_ok, 0, 0)
+        
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.button_cancel.clicked.connect(self.reject)
+        button_layout.addWidget(self.button_cancel, 0, 1)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+    
+    def get_display_options(self) -> dict:
+        """Get the selected display options."""
+        return {
+            'show_current_fov': self.checkbox_current_fov.isChecked(),
+            'show_overview_fov': self.checkbox_overview_fov.isChecked(),
+            'show_saved_positions_fov': self.checkbox_saved_positions_fov.isChecked(),
+            'show_stage_limits': self.checkbox_stage_limits.isChecked(),
+            'show_circle_overlays': self.checkbox_circle_overlays.isChecked(),
+        }
 
 def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int], Tuple[int, ...]], pos: Optional[FibsemStagePosition], pixelsize: float) -> Point:
     """Convert a sample-stage coordinate to a napari image layer coordinate.
@@ -282,6 +351,13 @@ class FMAcquisitionWidget(QWidget):
         if isinstance(self.fm.parent, DemoMicroscope):
             self.max_update_interval = 0.11  # faster updates for demo mode
 
+        # Display flags for overlay controls
+        self.show_current_fov = True
+        self.show_overview_fov = True
+        self.show_saved_positions_fov = True
+        self.show_stage_limits = True
+        self.show_circle_overlays = True
+
         self.initUI()
         self.display_stage_position_overlay()
 
@@ -461,6 +537,13 @@ class FMAcquisitionWidget(QWidget):
         load_action = QAction("Load Positions", self)
         load_action.triggered.connect(self.savedPositionsWidget._load_positions_from_file)
         self.file_menu.addAction(load_action)
+        
+        # Add separator and display options
+        self.file_menu.addSeparator()
+        display_options_action = QAction("Display Options...", self)
+        display_options_action.triggered.connect(self.show_display_options_dialog)
+        self.file_menu.addAction(display_options_action)
+        
         self.layout().setMenuBar(self.menubar)
 
         # draw scale bar
@@ -628,6 +711,25 @@ class FMAcquisitionWidget(QWidget):
         self.update_text_overlay()
         self.draw_stage_position_crosshairs()
 
+    def show_display_options_dialog(self):
+        """Show the display options dialog and apply changes."""
+        dialog = DisplayOptionsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Get the new display options
+            options = dialog.get_display_options()
+            
+            # Apply the options
+            self.show_current_fov = options['show_current_fov']
+            self.show_overview_fov = options['show_overview_fov']
+            self.show_saved_positions_fov = options['show_saved_positions_fov']
+            self.show_stage_limits = options['show_stage_limits']
+            self.show_circle_overlays = options['show_circle_overlays']
+            
+            # Refresh the display
+            self.display_stage_position_overlay()
+            
+            logging.info("Display options updated successfully")
+
     def draw_stage_position_crosshairs(self):
         """Draw multiple crosshairs showing various stage positions on a single layer.
 
@@ -782,13 +884,16 @@ class FMAcquisitionWidget(QWidget):
             current_pos = self.fm.parent.get_stage_position()
             center_point = stage_position_to_napari_world_coordinate(current_pos)
 
-            fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-            rectangles.append(fov_rect)
-            colors.append("magenta")
-            labels.append("Current FOV")
+            if self.show_current_fov:
+                fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+                rectangles.append(fov_rect)
+                colors.append("magenta")
+                labels.append("Current FOV")
 
             # Add overview acquisition area (orange, only if not acquiring)
-            if self._current_acquisition_type != "overview" and self._current_acquisition_type != "positions":
+            if (self.show_overview_fov and 
+                self._current_acquisition_type != "overview" and 
+                self._current_acquisition_type != "positions"):
 
                 # Get overview parameters and calculate total area
                 settings = self._get_current_settings()
@@ -806,29 +911,31 @@ class FMAcquisitionWidget(QWidget):
                 labels.append(f"Overview {grid_size[0]}x{grid_size[1]}")
 
         # Add 1mm bounding box around origin (yellow)
-        origin_point = Point(x=0, y=0)
-        origin_size = 0.8e-3  # 0.8mm in meters
-        origin_rect = create_rectangle_shape(origin_point, origin_size, origin_size, layer_scale)
-        rectangles.append(origin_rect)
-        colors.append("yellow")
-        labels.append("Stage Limits")
+        if self.show_stage_limits:
+            origin_point = Point(x=0, y=0)
+            origin_size = 0.8e-3  # 0.8mm in meters
+            origin_rect = create_rectangle_shape(origin_point, origin_size, origin_size, layer_scale)
+            rectangles.append(origin_rect)
+            colors.append("yellow")
+            labels.append("Stage Limits")
 
         # Add saved positions FOVs
-        selected_index = -1
-        if self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
-            selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
-        
-        for i, saved_pos in enumerate(self.stage_positions):
-            center_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
-            fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-            rectangles.append(fov_rect)
+        if self.show_saved_positions_fov:
+            selected_index = -1
+            if self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
+                selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
+            
+            for i, saved_pos in enumerate(self.stage_positions):
+                center_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
+                fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+                rectangles.append(fov_rect)
 
-            # Use lime for selected position, cyan for others
-            if i == selected_index:
-                colors.append("lime")
-            else:
-                colors.append("cyan")
-            labels.append(saved_pos.name)
+                # Use lime for selected position, cyan for others
+                if i == selected_index:
+                    colors.append("lime")
+                else:
+                    colors.append("cyan")
+                labels.append(saved_pos.name)
 
         return {
             "rectangles": rectangles,
@@ -925,13 +1032,14 @@ class FMAcquisitionWidget(QWidget):
         colors = []
         labels = []
 
-        # Example: Add a circle at origin with 100μm radius
-        origin_point = Point(x=0, y=0)
-        origin_radius = 1000e-6  # 100μm in meters
-        origin_circle = create_circle_shape(origin_point, origin_radius, layer_scale)
-        circles.append(origin_circle)
-        colors.append("red")
-        labels.append("Grid Boundary")
+        if self.show_circle_overlays:
+            # Example: Add a circle at origin with 100μm radius
+            origin_point = Point(x=0, y=0)
+            origin_radius = 1000e-6  # 100μm in meters
+            origin_circle = create_circle_shape(origin_point, origin_radius, layer_scale)
+            circles.append(origin_circle)
+            colors.append("red")
+            labels.append("Grid Boundary")
 
         # You can add more circles here by following the same pattern
         # Example: Add circles at saved positions
@@ -986,7 +1094,11 @@ class FMAcquisitionWidget(QWidget):
             else:
                 colors.extend(["cyan", "cyan"])
 
-            labels.extend(["", ""])
+            # Show position name on crosshair if saved position FOV is disabled
+            if not self.show_saved_positions_fov:
+                labels.extend([saved_pos.name, ""])
+            else:
+                labels.extend(["", ""])
         return {
             "positions": positions,
             "colors": colors,
