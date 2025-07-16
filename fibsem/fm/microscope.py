@@ -90,6 +90,25 @@ class ObjectiveLens(ABC):
         """
         return self._position
 
+    @property
+    def focus_position(self) -> Optional[float]:
+        """Get the focus position of the objective lens.
+        
+        Returns:
+            The focus position in meters, or None if not set
+        """
+        return self._focus_position
+    
+    @focus_position.setter
+    def focus_position(self, position: float):
+        """Set the focus position of the objective lens.
+        
+        Args:
+            position: The focus position in meters
+        """
+        self._focus_position = position
+        logging.info(f"Objective focus position set to: {self._focus_position}")
+
     def move_relative(self, delta: float):
         """Move the objective lens by a relative distance.
         

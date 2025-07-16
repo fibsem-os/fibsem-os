@@ -228,16 +228,17 @@ channel_settings=ChannelSettings(
 
 # TODO: consolidate the threads, and signals into a single acquisition manager
 # TODO: add a progress bar for each acquisition
-# TODO: confirm live-acqisition updates/setting change work on microscope
+# TODO: confirm live-acquisition updates/setting change work on microscope
 # TODO: add user-preferences for display settings
-# TODO: consolidate update image extraction into a single method
 # TODO: add user defined experiment directory + save/load images
 # TODO: add user defined protocol (channel, z-stack parameters, overview parameters, etc.)
 # TODO: enforce stage limits in the UI
 # TODO: menu function to load images
-# TODO: add a conveince NapariShapeFoV or similar, NapariShapeCrossHair
+# TODO: add a convenience NapariShapeFoV or similar, NapariShapeCrossHair
 # TODO: extract ui properties into a config file
 # TODO: integrate with milling workflow
+# TODO: single image acquisition
+# TODO: multi-overview acquisition
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
@@ -776,7 +777,7 @@ class FMAcquisitionWidget(QWidget):
                 overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
                 rectangles.append(overview_rect)
                 colors.append("orange")
-                labels.append(f"Overview {grid_size[0]}×{grid_size[1]}")
+                labels.append(f"Overview {grid_size[0]}x{grid_size[1]}")
 
         # Add 1mm bounding box around origin (yellow)
         origin_point = Point(x=0, y=0)

@@ -46,6 +46,7 @@ ARCTIS_CONFIGURATION = {
     "working_distance": 4e-3,
     "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
     "resolution": (4512, 4512),
+    "focus_position": 7.6e-3,  # 7600 microns
 }
 
 IFLM_CONFIGURATION = {
@@ -79,6 +80,8 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         self.parent = parent
         self._magnification = DEFAULT_CONFIGURATION["magnification"]
         self._numerical_aperture = DEFAULT_CONFIGURATION["numerical_aperture"]
+        self._working_distance = DEFAULT_CONFIGURATION["working_distance"]
+        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     @property
     def magnification(self) -> float:

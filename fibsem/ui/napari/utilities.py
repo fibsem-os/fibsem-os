@@ -376,7 +376,7 @@ def create_rectangle_shape(
         >>> center = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y center
         >>> scale = (1e-6, 1e-6)  # 1μm per pixel
         >>> rect = create_rectangle_shape(center, 20e-6, 15e-6, scale)
-        >>> # Returns 4×2 array of corner coordinates for 20×15 μm rectangle
+        >>> # Returns 4x2 array of corner coordinates for 20x15 μm rectangle
     """
     if scale is None:
         scale = (1.0, 1.0)

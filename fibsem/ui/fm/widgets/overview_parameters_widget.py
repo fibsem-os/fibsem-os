@@ -137,7 +137,7 @@ class OverviewParametersWidget(QWidget):
             width_um = total_width * 1e6
             height_um = total_height * 1e6
             
-            return f"{width_um:.1f} × {height_um:.1f} μm"
+            return f"{width_um:.1f} x {height_um:.1f} μm"
             
         except (ValueError, TypeError, AttributeError) as e:
             return f"Error: {str(e)}"

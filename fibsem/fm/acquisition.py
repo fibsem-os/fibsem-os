@@ -759,15 +759,15 @@ def calculate_grid_size_for_area(
         ValueError: If area dimensions, FOV, or overlap are invalid
         
     Example:
-        >>> # Cover a 100×80 μm area with 10×8 μm FOV and 10% overlap
+        >>> # Cover a 100x80 μm area with 10x8 μm FOV and 10% overlap
         >>> ncols, nrows = calculate_grid_size_for_area(100e-6, 80e-6, 10e-6, 8e-6, 0.1)
-        >>> print(f"Need {ncols}×{nrows} grid")
-        Need 12×11 grid
+        >>> print(f"Need {ncols}x{nrows} grid")
+        Need 12x11 grid
         
-        >>> # Cover a 50×50 μm area with 20×20 μm FOV and no overlap
+        >>> # Cover a 50x50 μm area with 20x20 μm FOV and no overlap
         >>> ncols, nrows = calculate_grid_size_for_area(50e-6, 50e-6, 20e-6, 20e-6, 0.0)
-        >>> print(f"Need {ncols}×{nrows} grid")
-        Need 3×3 grid
+        >>> print(f"Need {ncols}x{nrows} grid")
+        Need 3x3 grid
     """
     # Validate inputs
     if area_width <= 0 or area_height <= 0:
@@ -828,15 +828,15 @@ def calculate_grid_coverage_area(
         ValueError: If grid dimensions, FOV, or overlap are invalid
         
     Example:
-        >>> # Calculate area covered by 3×4 grid with 10×8 μm FOV and 10% overlap
+        >>> # Calculate area covered by 3x4 grid with 10x8 μm FOV and 10% overlap
         >>> width, height = calculate_grid_coverage_area(3, 4, 10e-6, 8e-6, 0.1)
-        >>> print(f"Covers {width*1e6:.1f}×{height*1e6:.1f} μm")
-        Covers 28.0×30.4 μm
+        >>> print(f"Covers {width*1e6:.1f}x{height*1e6:.1f} μm")
+        Covers 28.0x30.4 μm
         
-        >>> # Calculate area covered by 2×2 grid with 20×20 μm FOV and no overlap
+        >>> # Calculate area covered by 2x2 grid with 20x20 μm FOV and no overlap
         >>> width, height = calculate_grid_coverage_area(2, 2, 20e-6, 20e-6, 0.0)
-        >>> print(f"Covers {width*1e6:.1f}×{height*1e6:.1f} μm")
-        Covers 40.0×40.0 μm
+        >>> print(f"Covers {width*1e6:.1f}x{height*1e6:.1f} μm")
+        Covers 40.0x40.0 μm
     """
     # Validate inputs
     if ncols <= 0 or nrows <= 0:
@@ -882,8 +882,8 @@ def calculate_grid_dimensions(positions: List[Tuple[float, float]]) -> Tuple[int
     Example:
         >>> positions = generate_grid_positions(3, 4, 10e-6, 8e-6, 0.1)
         >>> ncols, nrows = calculate_grid_dimensions(positions)
-        >>> print(f"Grid: {ncols}×{nrows}")
-        Grid: 3×4
+        >>> print(f"Grid: {ncols}x{nrows}")
+        Grid: 3x4
     """
     if not positions:
         return 0, 0
@@ -1086,15 +1086,15 @@ def plot_grid_positions(
     # Add text annotation with grid info
     ncols, nrows = calculate_grid_dimensions(positions)
     if ncols > 0 and nrows > 0:
-        info_text = f"Grid: {ncols}×{nrows}\nFOV: {fov_x*1e6:.1f}×{fov_y*1e6:.1f} μm"
+        info_text = f"Grid: {ncols}x{nrows}\nFOV: {fov_x*1e6:.1f}x{fov_y*1e6:.1f} μm"
         
         # Calculate and add total grid area
         overlap_x, overlap_y = calculate_grid_overlap(positions, fov_x, fov_y) if show_overlap_info and len(positions) > 1 else (0.0, 0.0)
         overlap = max(overlap_x, overlap_y)
         total_width, total_height = calculate_grid_coverage_area(ncols, nrows, fov_x, fov_y, overlap)
-        info_text += f"\nArea: {total_width*1e6:.1f}×{total_height*1e6:.1f} μm"
+        info_text += f"\nArea: {total_width*1e6:.1f}x{total_height*1e6:.1f} μm"
     else:
-        info_text = f"Positions: {len(positions)}\nFOV: {fov_x*1e6:.1f}×{fov_y*1e6:.1f} μm"
+        info_text = f"Positions: {len(positions)}\nFOV: {fov_x*1e6:.1f}x{fov_y*1e6:.1f} μm"
     
     # Optionally add overlap information
     if show_overlap_info and len(positions) > 1:
