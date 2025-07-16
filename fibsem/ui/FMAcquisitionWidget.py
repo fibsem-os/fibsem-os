@@ -245,7 +245,7 @@ channel_settings=ChannelSettings(
 # REFACTORING TODO: Extract common acquisition start pattern from acquire_image(), acquire_at_positions(), acquire_overview(), run_autofocus()
 # REFACTORING TODO: Simplify button state management in _update_acquisition_button_states() using data-driven approach [COMPLETED]
 # REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
-# REFACTORING TODO: Create _get_current_settings() method to eliminate duplicate settings retrieval
+# REFACTORING TODO: Create _get_current_settings() method to eliminate duplicate settings retrieval [COMPLETED]
 # REFACTORING TODO: Extract common microscope parent validation to shared method [COMPLETED]
 # REFACTORING TODO: Replace acquisition type magic strings with enum
 # REFACTORING TODO: Address repeated "TODO: Show error message to user" comments
@@ -304,6 +304,21 @@ class FMAcquisitionWidget(QWidget):
             logging.error("FluorescenceMicroscope parent is None. Cannot perform operation.")
             return False
         return True
+
+    def _get_current_settings(self):
+        """Get current settings from all widgets for acquisition operations.
+        
+        Returns:
+            Dictionary containing all current settings for acquisitions
+        """
+        return {
+            'channel_settings': self.channelSettingsWidget.channel_settings,
+            'z_parameters': self.zParametersWidget.z_parameters,
+            'overview_grid_size': self.overviewParametersWidget.get_grid_size(),
+            'overview_overlap': self.overviewParametersWidget.get_overlap(),
+            'overview_use_zstack': self.overviewParametersWidget.get_use_zstack(),
+            'overview_autofocus_mode': self.overviewParametersWidget.get_autofocus_mode(),
+        }
 
     def initUI(self):
         """Initialize the user interface for the FMAcquisitionWidget."""
@@ -776,8 +791,9 @@ class FMAcquisitionWidget(QWidget):
             if self._current_acquisition_type != "overview" and self._current_acquisition_type != "positions":
 
                 # Get overview parameters and calculate total area
-                grid_size = self.overviewParametersWidget.get_grid_size()
-                overlap = self.overviewParametersWidget.get_overlap()
+                settings = self._get_current_settings()
+                grid_size = settings['overview_grid_size']
+                overlap = settings['overview_overlap']
 
                 total_width, total_height = calculate_grid_coverage_area(
                     ncols=grid_size[1], nrows=grid_size[0],
@@ -1047,8 +1063,9 @@ class FMAcquisitionWidget(QWidget):
         self._acquisition_stop_event.clear()
 
         # Get current settings
-        channel_settings = self.channelSettingsWidget.channel_settings
-        z_parameters = self.zParametersWidget.z_parameters
+        settings = self._get_current_settings()
+        channel_settings = settings['channel_settings']
+        z_parameters = settings['z_parameters']
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
@@ -1244,11 +1261,12 @@ class FMAcquisitionWidget(QWidget):
         self._acquisition_stop_event.clear()
 
         # Get current settings
-        channel_settings = self.channelSettingsWidget.channel_settings
+        settings = self._get_current_settings()
+        channel_settings = settings['channel_settings']
 
         z_parameters = None
         if self.sender() is self.pushButton_acquire_zstack:
-            z_parameters = self.zParametersWidget.z_parameters
+            z_parameters = settings['z_parameters']
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
@@ -1365,12 +1383,13 @@ class FMAcquisitionWidget(QWidget):
         self._acquisition_stop_event.clear()
 
         # Get current settings
-        channel_settings = self.channelSettingsWidget.channel_settings
-        grid_size = self.overviewParametersWidget.get_grid_size()
-        tile_overlap = self.overviewParametersWidget.get_overlap()
-        use_zstack = self.overviewParametersWidget.get_use_zstack()
-        z_parameters = self.zParametersWidget.z_parameters if use_zstack else None
-        autofocus_mode = self.overviewParametersWidget.get_autofocus_mode()
+        settings = self._get_current_settings()
+        channel_settings = settings['channel_settings']
+        grid_size = settings['overview_grid_size']
+        tile_overlap = settings['overview_overlap']
+        use_zstack = settings['overview_use_zstack']
+        z_parameters = settings['z_parameters'] if use_zstack else None
+        autofocus_mode = settings['overview_autofocus_mode']
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
@@ -1493,8 +1512,9 @@ class FMAcquisitionWidget(QWidget):
         self._acquisition_stop_event.clear()
 
         # Get current settings
-        channel_settings = self.channelSettingsWidget.channel_settings
-        z_parameters = self.zParametersWidget.z_parameters
+        settings = self._get_current_settings()
+        channel_settings = settings['channel_settings']
+        z_parameters = settings['z_parameters']
 
         # Start auto-focus thread
         self._acquisition_thread = threading.Thread(
