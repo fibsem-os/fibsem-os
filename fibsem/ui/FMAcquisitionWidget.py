@@ -241,6 +241,14 @@ channel_settings=ChannelSettings(
 # TODO: multi-overview acquisition
 # TODO: disable all controls during acquisition
 
+# REFACTORING TODO: Extract common acquisition start pattern from acquire_image(), acquire_at_positions(), acquire_overview(), run_autofocus()
+# REFACTORING TODO: Simplify button state management in _update_acquisition_button_states() using data-driven approach
+# REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
+# REFACTORING TODO: Create _get_current_settings() method to eliminate duplicate settings retrieval
+# REFACTORING TODO: Extract common microscope parent validation to shared method [COMPLETED]
+# REFACTORING TODO: Replace acquisition type magic strings with enum
+# REFACTORING TODO: Address repeated "TODO: Show error message to user" comments
+
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
@@ -284,6 +292,17 @@ class FMAcquisitionWidget(QWidget):
             True if any acquisition (single image, overview, z-stack, positions) or autofocus is active
         """
         return self._current_acquisition_type is not None
+
+    def _validate_parent_microscope(self) -> bool:
+        """Validate that the parent microscope is available for operations requiring stage control.
+        
+        Returns:
+            True if parent microscope is available, False otherwise
+        """
+        if self.fm.parent is None:
+            logging.error("FluorescenceMicroscope parent is None. Cannot perform operation.")
+            return False
+        return True
 
     def initUI(self):
         """Initialize the user interface for the FMAcquisitionWidget."""
@@ -542,8 +561,7 @@ class FMAcquisitionWidget(QWidget):
             event.handled = True
             return
         
-        if self.fm.parent is None:
-            logging.warning("FluorescenceMicroscope parent is None, cannot move stage.")
+        if not self._validate_parent_microscope():
             return
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
@@ -1036,8 +1054,7 @@ class FMAcquisitionWidget(QWidget):
             logging.info(f"Acquiring at {len(self.stage_positions)} saved positions")
             
             # Get the parent microscope for stage movement
-            if self.fm.parent is None:
-                logging.error("FluorescenceMicroscope parent is None. Cannot acquire at positions.")
+            if not self._validate_parent_microscope():
                 return
             
             # Acquire images at all saved positions (using FMStagePosition directly)
@@ -1378,8 +1395,7 @@ class FMAcquisitionWidget(QWidget):
         """Worker thread for overview acquisition."""
         try:
             # Get the parent microscope for tileset acquisition
-            if self.fm.parent is None:
-                logging.error("FluorescenceMicroscope parent is None. Cannot acquire overview.")
+            if not self._validate_parent_microscope():
                 return
 
             # Acquire and stitch tileset
