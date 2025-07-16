@@ -243,11 +243,7 @@ channel_settings=ChannelSettings(
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
-    single_image_finished_signal = pyqtSignal()
-    zstack_finished_signal = pyqtSignal()
-    overview_finished_signal = pyqtSignal()
-    positions_acquisition_finished_signal = pyqtSignal()
-    autofocus_finished_signal = pyqtSignal()
+    acquisition_finished_signal = pyqtSignal()
 
     def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, experiment_path: str, parent=None):
         super().__init__(parent)
@@ -265,30 +261,14 @@ class FMAcquisitionWidget(QWidget):
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
 
-        # Single image acquisition threading
-        self._single_image_thread: Optional[threading.Thread] = None
-        self._single_image_stop_event = threading.Event()
-        self._is_single_image_acquiring = False
+        # Consolidated acquisition threading
+        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_stop_event = threading.Event()
+        self._current_acquisition_type: Optional[str] = None
 
-        # Z-stack acquisition threading
-        self._zstack_thread: Optional[threading.Thread] = None
-        self._zstack_stop_event = threading.Event()
-        self._is_zstack_acquiring = False
 
-        # Overview acquisition threading
-        self._overview_thread: Optional[threading.Thread] = None
-        self._overview_stop_event = threading.Event()
-        self._is_overview_acquiring = False
 
-        # Positions acquisition threading
-        self._positions_thread: Optional[threading.Thread] = None
-        self._positions_stop_event = threading.Event()
-        self._is_positions_acquiring = False
 
-        # Auto-focus threading
-        self._autofocus_thread: Optional[threading.Thread] = None
-        self._autofocus_stop_event = threading.Event()
-        self._is_autofocus_running = False
 
         # Rate limiting for update_image
         self._last_updated_at = None
@@ -306,11 +286,7 @@ class FMAcquisitionWidget(QWidget):
         Returns:
             True if any acquisition (single image, overview, z-stack, positions) or autofocus is active
         """
-        return (self._is_single_image_acquiring or
-                self._is_overview_acquiring or 
-                self._is_zstack_acquiring or 
-                self._is_positions_acquiring or 
-                self._is_autofocus_running)
+        return self._current_acquisition_type is not None
 
     def initUI(self):
         """Initialize the user interface for the FMAcquisitionWidget."""
@@ -401,11 +377,7 @@ class FMAcquisitionWidget(QWidget):
         self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
         self.update_image_signal.connect(self.update_image)
         self.update_persistent_image_signal.connect(self.update_persistent_image)
-        self.single_image_finished_signal.connect(self._on_single_image_finished)
-        self.zstack_finished_signal.connect(self._on_zstack_finished)
-        self.overview_finished_signal.connect(self._on_overview_finished)
-        self.positions_acquisition_finished_signal.connect(self._on_positions_finished)
-        self.autofocus_finished_signal.connect(self._on_autofocus_finished)
+        self.acquisition_finished_signal.connect(self._on_acquisition_finished)
 
         # Setup keyboard shortcuts
         self.f6_shortcut = QShortcut(QKeySequence("F6"), self)
@@ -776,7 +748,7 @@ class FMAcquisitionWidget(QWidget):
             labels.append("Current FOV")
 
             # Add overview acquisition area (orange, only if not acquiring)
-            if not self._is_overview_acquiring and not self._is_positions_acquiring:
+            if self._current_acquisition_type != "overview" and self._current_acquisition_type != "positions":
 
                 # Get overview parameters and calculate total area
                 grid_size = self.overviewParametersWidget.get_grid_size()
@@ -826,7 +798,7 @@ class FMAcquisitionWidget(QWidget):
     def _update_overview_bounding_box(self):
         """Update the FOV boxes when parameters change."""
         # Don't update bounding box during overview or position acquisition
-        if self._is_overview_acquiring or self._is_positions_acquiring:
+        if self._current_acquisition_type == "overview" or self._current_acquisition_type == "positions":
             return
 
         try:
@@ -1040,26 +1012,26 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("No saved positions available for acquisition.")
             return
 
-        if self._positions_thread and self._positions_thread.is_alive():
-            logging.warning("Positions acquisition is already in progress.")
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            logging.warning("Another acquisition is already in progress.")
             return
 
         logging.info(f"Starting acquisition at {len(self.stage_positions)} saved positions")
-        self._is_positions_acquiring = True
+        self._current_acquisition_type = "positions"
         self._update_acquisition_button_states()
-        self._positions_stop_event.clear()
+        self._acquisition_stop_event.clear()
 
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
         z_parameters = self.zParametersWidget.z_parameters
 
         # Start acquisition thread
-        self._positions_thread = threading.Thread(
+        self._acquisition_thread = threading.Thread(
             target=self._positions_worker,
             args=(channel_settings, z_parameters),
             daemon=True
         )
-        self._positions_thread.start()
+        self._acquisition_thread.start()
     
     def _positions_worker(self, channel_settings: ChannelSettings, z_parameters: Optional[ZParameters]):
         """Worker thread for positions acquisition."""
@@ -1077,13 +1049,13 @@ class FMAcquisitionWidget(QWidget):
                 positions=self.stage_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
-                stop_event=self._positions_stop_event,
+                stop_event=self._acquisition_stop_event,
                 use_autofocus=False,
                 save_directory=self.experiment_path,
             )
             
             # Check if acquisition was cancelled
-            if self._positions_stop_event.is_set():
+            if self._acquisition_stop_event.is_set():
                 logging.info("Positions acquisition was cancelled")
                 return
             
@@ -1099,19 +1071,24 @@ class FMAcquisitionWidget(QWidget):
             
         finally:
             # Signal that positions acquisition is finished (thread-safe)
-            self.positions_acquisition_finished_signal.emit()
+            self.acquisition_finished_signal.emit()
     
-    def _on_positions_finished(self):
-        """Handle positions acquisition completion in the main thread."""
-        # Clear positions acquisition flag first
-        self._is_positions_acquiring = False
+    def _on_acquisition_finished(self):
+        """Handle consolidated acquisition completion in the main thread."""
+
+        # Clear acquisition state
+        self._current_acquisition_type = None
         
         # Update button text in case positions were modified during acquisition
         self._update_positions_button()
+
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
-        
-        # Update all button states now that acquisition is finished
+
+        # Update objective position display
+        self.objectiveControlWidget.update_objective_position_labels()
+
+        # Update all button states
         self._update_acquisition_button_states()
 
     # NOTE: not in main thread, so we need to handle signals properly
@@ -1210,35 +1187,14 @@ class FMAcquisitionWidget(QWidget):
         """Cancel all ongoing acquisitions (single image, z-stack, overview, positions, autofocus)."""
         logging.info("Cancelling all acquisitions")
 
-        # Cancel single image acquisition
-        if self._single_image_thread and self._single_image_thread.is_alive():
-            logging.info("Cancelling single image acquisition")
-            self._single_image_stop_event.set()
-            self._single_image_thread.join(timeout=5)
+        # Cancel consolidated acquisition (single image or future consolidated types)
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            logging.info(f"Cancelling {self._current_acquisition_type} acquisition")
+            self._acquisition_stop_event.set()
+            self._acquisition_thread.join(timeout=5)
 
-        # Cancel z-stack acquisition
-        if self._zstack_thread and self._zstack_thread.is_alive():
-            logging.info("Cancelling z-stack acquisition")
-            self._zstack_stop_event.set()
-            self._zstack_thread.join(timeout=5)
 
-        # Cancel overview acquisition
-        if self._overview_thread and self._overview_thread.is_alive():
-            logging.info("Cancelling overview acquisition")
-            self._overview_stop_event.set()
-            self._overview_thread.join(timeout=5)
 
-        # Cancel positions acquisition
-        if self._positions_thread and self._positions_thread.is_alive():
-            logging.info("Cancelling positions acquisition")
-            self._positions_stop_event.set()
-            self._positions_thread.join(timeout=5)
-
-        # Cancel autofocus
-        if self._autofocus_thread and self._autofocus_thread.is_alive():
-            logging.info("Cancelling autofocus")
-            self._autofocus_stop_event.set()
-            self._autofocus_thread.join(timeout=5)
 
         logging.info("All acquisitions cancelled")
 
@@ -1257,25 +1213,25 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("Cannot acquire single image while live acquisition is running. Stop acquisition first.")
             return
 
-        if self._single_image_thread and self._single_image_thread.is_alive():
-            logging.warning("Single image acquisition is already in progress.")
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            logging.warning("Another acquisition is already in progress.")
             return
 
         logging.info("Starting single image acquisition")
-        self._is_single_image_acquiring = True
+        self._current_acquisition_type = "single"
         self._update_acquisition_button_states()
-        self._single_image_stop_event.clear()
+        self._acquisition_stop_event.clear()
 
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
 
         # Start acquisition thread
-        self._single_image_thread = threading.Thread(
+        self._acquisition_thread = threading.Thread(
             target=self._single_image_worker,
             args=(channel_settings,),
             daemon=True
         )
-        self._single_image_thread.start()
+        self._acquisition_thread.start()
 
     def acquire_zstack(self):
         """Start threaded Z-stack acquisition using the current Z parameters and channel settings."""
@@ -1283,26 +1239,26 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("Cannot acquire Z-stack while live acquisition is running. Stop acquisition first.")
             return
 
-        if self._zstack_thread and self._zstack_thread.is_alive():
-            logging.warning("Z-stack acquisition is already in progress.")
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            logging.warning("Another acquisition is already in progress.")
             return
 
         logging.info("Starting Z-stack acquisition")
-        self._is_zstack_acquiring = True
+        self._current_acquisition_type = "zstack"
         self._update_acquisition_button_states()
-        self._zstack_stop_event.clear()
+        self._acquisition_stop_event.clear()
 
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
         z_parameters = self.zParametersWidget.z_parameters
 
         # Start acquisition thread
-        self._zstack_thread = threading.Thread(
+        self._acquisition_thread = threading.Thread(
             target=self._zstack_worker,
             args=(channel_settings, z_parameters),
             daemon=True
         )
-        self._zstack_thread.start()
+        self._acquisition_thread.start()
     
     def _single_image_worker(self, channel_settings: ChannelSettings):
         """Worker thread for single image acquisition."""
@@ -1314,11 +1270,11 @@ class FMAcquisitionWidget(QWidget):
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 zparams=None,  # No z-stack parameters for single image
-                stop_event=self._single_image_stop_event
+                stop_event=self._acquisition_stop_event
             )
 
             # Check if acquisition was cancelled
-            if self._single_image_stop_event.is_set() or single_image is None:
+            if self._acquisition_stop_event.is_set() or single_image is None:
                 logging.info("Single image acquisition was cancelled")
                 return
             
@@ -1345,7 +1301,7 @@ class FMAcquisitionWidget(QWidget):
             
         finally:
             # Signal that single image acquisition is finished (thread-safe)
-            self.single_image_finished_signal.emit()
+            self.acquisition_finished_signal.emit()
     
     def _zstack_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for Z-stack acquisition."""
@@ -1358,11 +1314,11 @@ class FMAcquisitionWidget(QWidget):
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
-                stop_event=self._zstack_stop_event
+                stop_event=self._acquisition_stop_event
             )
 
             # Check if acquisition was cancelled
-            if self._zstack_stop_event.is_set() or zstack_image is None:
+            if self._acquisition_stop_event.is_set() or zstack_image is None:
                 logging.info("Z-stack acquisition was cancelled")
                 return
             
@@ -1389,24 +1345,8 @@ class FMAcquisitionWidget(QWidget):
             
         finally:
             # Signal that Z-stack acquisition is finished (thread-safe)
-            self.zstack_finished_signal.emit()
-    
-    def _on_single_image_finished(self):
-        """Handle single image acquisition completion in the main thread."""
-        # Clear single image acquisition flag first
-        self._is_single_image_acquiring = False
+            self.acquisition_finished_signal.emit()
         
-        # Update all button states now that acquisition is finished
-        self._update_acquisition_button_states()
-    
-    def _on_zstack_finished(self):
-        """Handle Z-stack acquisition completion in the main thread."""
-        # Clear z-stack acquisition flag first
-        self._is_zstack_acquiring = False
-        
-        # Update all button states now that acquisition is finished
-        self._update_acquisition_button_states()
-    
     def _update_acquisition_button_states(self):
         """Update acquisition button states based on live acquisition or specific acquisition status."""
         # Check if any acquisition is active (live or specific acquisitions)
@@ -1483,15 +1423,15 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("Cannot acquire overview while live acquisition is running. Stop acquisition first.")
             return
 
-        if self._overview_thread and self._overview_thread.is_alive():
-            logging.warning("Overview acquisition is already in progress.")
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            logging.warning("Another acquisition is already in progress.")
             return
 
         logging.info("Starting overview acquisition")
 
-        self._is_overview_acquiring = True
+        self._current_acquisition_type = "overview"
         self._update_acquisition_button_states()
-        self._overview_stop_event.clear()
+        self._acquisition_stop_event.clear()
         
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
@@ -1502,12 +1442,12 @@ class FMAcquisitionWidget(QWidget):
         autofocus_mode = self.overviewParametersWidget.get_autofocus_mode()
         
         # Start acquisition thread
-        self._overview_thread = threading.Thread(
+        self._acquisition_thread = threading.Thread(
             target=self._overview_worker,
             args=(channel_settings, grid_size, tile_overlap, z_parameters, autofocus_mode),
             daemon=True
         )
-        self._overview_thread.start()
+        self._acquisition_thread.start()
     
     def _overview_worker(self,
                          channel_settings: ChannelSettings,
@@ -1543,11 +1483,11 @@ class FMAcquisitionWidget(QWidget):
                 zparams=z_parameters,
                 autofocus_mode=autofocus_mode,
                 save_directory=tiles_directory,
-                stop_event=self._overview_stop_event
+                stop_event=self._acquisition_stop_event
             )
 
             # Check if acquisition was cancelled
-            if self._overview_stop_event.is_set() or overview_image is None:
+            if self._acquisition_stop_event.is_set() or overview_image is None:
                 logging.info("Overview acquisition was cancelled")
                 return
 
@@ -1573,18 +1513,7 @@ class FMAcquisitionWidget(QWidget):
 
         finally:
             # Signal that overview acquisition is finished (thread-safe)
-            self.overview_finished_signal.emit()
-
-    def _on_overview_finished(self):
-        """Handle overview acquisition completion in the main thread."""
-        # Clear overview acquisition flag first
-        self._is_overview_acquiring = False
-
-        # Re-display overview FOV now that acquisition is complete
-        self._update_overview_bounding_box()
-
-        # Update all button states now that acquisition is finished
-        self._update_acquisition_button_states()
+            self.acquisition_finished_signal.emit()
 
     # update methods for live updates
     def _update_exposure_time(self, value: float):
@@ -1623,57 +1552,21 @@ class FMAcquisitionWidget(QWidget):
             finally:
                 print("Acquisition stopped due to widget close.")
         
-        # Stop single image acquisition
-        if self._single_image_thread and self._single_image_thread.is_alive():
+        # Stop consolidated acquisition
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
             try:
-                self._single_image_stop_event.set()
-                self._single_image_thread.join(timeout=5)  # Wait up to 5 seconds
-                logging.info("Single image acquisition stopped due to widget close.")
+                self._acquisition_stop_event.set()
+                self._acquisition_thread.join(timeout=5)  # Wait up to 5 seconds
+                logging.info(f"{self._current_acquisition_type} acquisition stopped due to widget close.")
             except Exception as e:
-                logging.error(f"Error stopping single image acquisition: {e}")
+                logging.error(f"Error stopping {self._current_acquisition_type} acquisition: {e}")
         
-        # Stop Z-stack acquisition
-        if self._zstack_thread and self._zstack_thread.is_alive():
-            try:
-                self._zstack_stop_event.set()
-                self._zstack_thread.join(timeout=5)  # Wait up to 5 seconds
-                logging.info("Z-stack acquisition stopped due to widget close.")
-            except Exception as e:
-                logging.error(f"Error stopping Z-stack acquisition: {e}")
         
-        # Stop overview acquisition
-        if self._overview_thread and self._overview_thread.is_alive():
-            try:
-                self._overview_stop_event.set()
-                self._overview_thread.join(timeout=5)  # Wait up to 5 seconds
-                logging.info("Overview acquisition stopped due to widget close.")
-            except Exception as e:
-                logging.error(f"Error stopping overview acquisition: {e}")
         
-        # Stop positions acquisition
-        if self._positions_thread and self._positions_thread.is_alive():
-            try:
-                self._positions_stop_event.set()
-                self._positions_thread.join(timeout=5)  # Wait up to 5 seconds
-                logging.info("Positions acquisition stopped due to widget close.")
-            except Exception as e:
-                logging.error(f"Error stopping positions acquisition: {e}")
         
-        # Stop auto-focus
-        if self._autofocus_thread and self._autofocus_thread.is_alive():
-            try:
-                self._autofocus_stop_event.set()
-                self._autofocus_thread.join(timeout=5)  # Wait up to 5 seconds
-                logging.info("Auto-focus stopped due to widget close.")
-            except Exception as e:
-                logging.error(f"Error stopping auto-focus: {e}")
 
         # Reset acquisition flags
-        self._is_single_image_acquiring = False
-        self._is_overview_acquiring = False
-        self._is_positions_acquiring = False
-        self._is_zstack_acquiring = False
-        self._is_autofocus_running = False
+        self._current_acquisition_type = None
 
         event.accept()
 
@@ -1683,26 +1576,26 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("Cannot run autofocus while live acquisition is running. Stop acquisition first.")
             return
 
-        if self._autofocus_thread and self._autofocus_thread.is_alive():
-            logging.warning("Auto-focus is already in progress.")
+        if self._current_acquisition_type is not None:
+            logging.warning("Another acquisition is already in progress.")
             return
 
         logging.info("Starting auto-focus")
-        self._is_autofocus_running = True
+        self._current_acquisition_type = "autofocus"
         self._update_acquisition_button_states()
-        self._autofocus_stop_event.clear()
+        self._acquisition_stop_event.clear()
 
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
         z_parameters = self.zParametersWidget.z_parameters
 
         # Start auto-focus thread
-        self._autofocus_thread = threading.Thread(
+        self._acquisition_thread = threading.Thread(
             target=self._autofocus_worker,
             args=(channel_settings, z_parameters),
             daemon=True
         )
-        self._autofocus_thread.start()
+        self._acquisition_thread.start()
 
     def _autofocus_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for auto-focus."""
@@ -1715,11 +1608,11 @@ class FMAcquisitionWidget(QWidget):
                 channel_settings=channel_settings,
                 # z_parameters=z_parameters,
                 method='laplacian',
-                stop_event=self._autofocus_stop_event
+                stop_event=self._acquisition_stop_event
             )
 
             # Check if auto-focus was cancelled
-            if best_z is None or self._autofocus_stop_event.is_set():
+            if best_z is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
 
@@ -1730,18 +1623,7 @@ class FMAcquisitionWidget(QWidget):
 
         finally:
             # Signal that auto-focus is finished (thread-safe)
-            self.autofocus_finished_signal.emit()
-
-    def _on_autofocus_finished(self):
-        """Handle auto-focus completion in the main thread."""
-        # Clear autofocus running flag first
-        self._is_autofocus_running = False
-
-        # Update objective position display
-        self.objectiveControlWidget.update_objective_position_labels()
-
-        # Update all button states now that acquisition is finished
-        self._update_acquisition_button_states()
+            self.acquisition_finished_signal.emit()
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
