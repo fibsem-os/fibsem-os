@@ -24,9 +24,10 @@ EMISSION_WAVELENGTHS = [365, 450, 550, 635, None]  # in nm, example wavelengths
 
 SIM_OBJECTIVE_MAGNIFICATION = 100.0  # placeholder for simulation
 SIM_OBJECTIVE_NA = 0.8
-SIM_OBJECTIVE_INSERT_POSITION = 0.0  # z-axis position for inserting the objective lens
+SIM_OBJECTIVE_INSERT_POSITION = 6.0e-3  # z-axis position for inserting the objective lens
 SIM_OBJECTIVE_RETRACT_POSITION = -10e-3  # z-axis position for retracting the objective lens
-SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 5e-3)  # z-axis limits for the objective lens
+SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 10e-3)  # z-axis limits for the objective lens
+SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
 
 
 SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
@@ -34,7 +35,7 @@ SIM_CAMERA_BINNING = 1
 SIM_CAMERA_GAIN = 1.0
 SIM_CAMERA_OFFSET = 0.0
 SIM_CAMERA_PIXEL_SIZE = (100e-9, 100e-9)  # in meters (100 nm)
-SIM_CAMERA_RESOLUTION = (512, 512)  # default resolution
+SIM_CAMERA_RESOLUTION = (1024, 1024)  # default resolution
 # TODO: test with asymetric resolution
 
 class ObjectiveLens(ABC):
@@ -60,6 +61,7 @@ class ObjectiveLens(ABC):
         self._numerical_aperture = SIM_OBJECTIVE_NA
         self._insert_position = SIM_OBJECTIVE_INSERT_POSITION
         self._retract_position = SIM_OBJECTIVE_RETRACT_POSITION
+        self._focus_position: Optional[float] = SIM_OBJECTIVE_FOCUS_POSITION
 
     @property
     def magnification(self) -> float:

@@ -65,10 +65,10 @@ class ChannelSettingsWidget(QWidget):
         
         layout.addWidget(QLabel("Exposure Time"), 4, 0)
         self.exposure_time_input = QDoubleSpinBox()
-        self.exposure_time_input.setRange(0.001, 1)
-        self.exposure_time_input.setSingleStep(0.01)
-        self.exposure_time_input.setDecimals(3)
-        self.exposure_time_input.setSuffix(" s")
+        self.exposure_time_input.setRange(1.0, 1000.0)  # 1ms to 1000ms
+        self.exposure_time_input.setSingleStep(1.0)
+        self.exposure_time_input.setDecimals(1)
+        self.exposure_time_input.setSuffix(" ms")
         layout.addWidget(self.exposure_time_input, 4, 1)
 
         # Set column stretch factors to make widgets expand properly
@@ -87,7 +87,7 @@ class ChannelSettingsWidget(QWidget):
         self.exposure_time_input.setKeyboardTracking(False)
 
         self.power_input.setValue(self.channel_settings.power)
-        self.exposure_time_input.setValue(self.channel_settings.exposure_time)
+        self.exposure_time_input.setValue(self.channel_settings.exposure_time * 1000)  # Convert seconds to milliseconds
 
         # get the closest wavelength to the current channel setting
         if self.channel_settings.excitation_wavelength in self.fm.filter_set.available_excitation_wavelengths:
@@ -124,8 +124,9 @@ class ChannelSettingsWidget(QWidget):
 
     @pyqtSlot(float)
     def update_exposure_time(self, value: float):
-        self.channel_settings.exposure_time = value
-        logging.info(f"Exposure time updated to: {value} s") 
+        # Convert milliseconds to seconds for internal storage
+        self.channel_settings.exposure_time = value / 1000
+        logging.info(f"Exposure time updated to: {value} ms ({value/1000:.3f} s)") 
     
     @pyqtSlot()
     def update_channel_name(self):

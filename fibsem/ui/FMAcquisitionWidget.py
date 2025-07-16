@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 import yaml
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union
 
 import napari
@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
     QMenuBar,
     QAction,
 )
-
+from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem import conversions, utils
 from fibsem.config import LOG_PATH
 from fibsem.constants import METRE_TO_MILLIMETRE
@@ -211,6 +211,7 @@ def _image_metadata_to_napari_image_layer(metadata: FluorescenceImageMetadata,
 
 
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
+LIVE_IMAGING_RATE_LIMIT_SECONDS = 0.25  # seconds
 
 z_parameters = ZParameters(
     zmin=-5e-6,     # -5 µm
@@ -219,10 +220,10 @@ z_parameters = ZParameters(
 )
 channel_settings=ChannelSettings(
         name="Channel-01",
-        excitation_wavelength=450,      # Example wavelength in nm
+        excitation_wavelength=550,      # Example wavelength in nm
         emission_wavelength=None,       # Example wavelength in nm
-        power=0.1,                      # Example power in W
-        exposure_time=0.25,             # Example exposure time in seconds
+        power=0.03,                      # Example power in W
+        exposure_time=0.005,             # Example exposure time in seconds
 )
 
 # TODO: consolidate the threads, and signals into a single acquisition manager
@@ -282,13 +283,19 @@ class FMAcquisitionWidget(QWidget):
         self._autofocus_stop_event = threading.Event()
         self._is_autofocus_running = False
 
+        # Rate limiting for update_image
+        self._last_updated_at = None
+        self.max_update_interval = LIVE_IMAGING_RATE_LIMIT_SECONDS  # seconds
+        if isinstance(self.fm.parent, DemoMicroscope):
+            self.max_update_interval = 0.11  # faster updates for demo mode
+
         self.initUI()
         self.display_stage_position_overlay()
 
     @property
     def is_acquisition_active(self) -> bool:
         """Check if any acquisition or operation is currently running.
-        
+
         Returns:
             True if any acquisition (overview, z-stack, positions) or autofocus is active
         """
@@ -417,7 +424,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_overview.setEnabled(True)
         self.pushButton_acquire_at_positions.setEnabled(True)
         self.pushButton_run_autofocus.setEnabled(True)
-        
+
         # Initialize positions button state
         self._update_positions_button()
 
@@ -509,7 +516,7 @@ class FMAcquisitionWidget(QWidget):
                 return
 
             current_position = self.stage_positions[current_index]
-            
+
             # Show confirmation dialog
             reply = QMessageBox.question(
                 self,
@@ -575,7 +582,7 @@ class FMAcquisitionWidget(QWidget):
         try:
             pos = self.fm.parent.get_stage_position()
             orientation = self.fm.parent.get_stage_orientation()
-            
+
             # Create combined text for overlay
             overlay_text = (
                 f"STAGE: {to_pretty_string_short(pos)} [{orientation}]\n"
@@ -584,12 +591,12 @@ class FMAcquisitionWidget(QWidget):
             self.viewer.text_overlay.visible = True
             self.viewer.text_overlay.position = "bottom_left"
             self.viewer.text_overlay.text = overlay_text
-            
+
         except Exception as e:
             logging.warning(f"Error updating text overlay: {e}")
             # Fallback text if stage position unavailable
             self.viewer.text_overlay.text = "Fluorescence Acquisition Widget"
-    
+
     def display_stage_position_overlay(self):
         """Legacy method for compatibility - redirects to update_text_overlay."""
         self.update_text_overlay()
@@ -597,22 +604,22 @@ class FMAcquisitionWidget(QWidget):
 
     def draw_stage_position_crosshairs(self):
         """Draw multiple crosshairs showing various stage positions on a single layer.
-        
+
         Creates crosshair overlays in the napari viewer showing:
         - Origin crosshair (red) at stage coordinates (0,0) 
         - Current stage position crosshair (yellow)
         - Saved stage positions crosshairs (cyan) from self.stage_positions list
-        
+
         Each crosshair consists of horizontal and vertical lines intersecting at the 
         respective stage position, with text labels for identification.
-        
+
         Features:
             - All crosshairs combined on single "stage-position" layer
             - Color-coded: red (origin), yellow (current), cyan (saved positions)
             - Text labels showing position names ("origin", "stage-position", custom names)
             - Automatic coordinate conversion from stage to pixel coordinates
             - Updates existing layer or creates new one if it doesn't exist
-                   
+
         Note:
             - Crosshair size is fixed at 50 pixels in each direction
             - Uses stage coordinate system converted to pixel coordinates via camera pixel size
@@ -661,20 +668,20 @@ class FMAcquisitionWidget(QWidget):
 
         except Exception as e:
             logging.warning(f"Error drawing stage position crosshairs: {e}")
-    
+
     def _draw_fov_boxes(self, layer_scale: Tuple[float, float]):
         """Draw all FOV bounding boxes on a single layer.
-        
+
         Creates rectangle overlays for:
         - Current position single image FOV (magenta)
         - Overview acquisition area (orange, only if not acquiring)
         - Saved positions FOV (cyan)
-        
+
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
         """
         LAYER_NAME = "fov-boxes"
-        
+
         try:
             # Collect all FOV rectangles and their colors
             fov_data = self._collect_fov_rectangles(layer_scale)
@@ -869,18 +876,18 @@ class FMAcquisitionWidget(QWidget):
                     opacity=0.7,
                     text=text_properties,
                 )
-                
+
         except Exception as e:
             logging.warning(f"Error drawing circle overlays: {e}")
             if LAYER_NAME in self.viewer.layers:
                 self.viewer.layers[LAYER_NAME].visible = False
-    
+
     def _collect_circle_overlays(self, layer_scale: Tuple[float, float]) -> Dict[str, List]:
         """Collect all circle overlays with their associated colors and labels.
-        
+
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
-            
+
         Returns:
             Dictionary containing:
             - circles: List of circle arrays
@@ -898,7 +905,7 @@ class FMAcquisitionWidget(QWidget):
         circles.append(origin_circle)
         colors.append("red")
         labels.append("Grid Boundary")
-        
+
         # You can add more circles here by following the same pattern
         # Example: Add circles at saved positions
         # for i, saved_pos in enumerate(self.stage_positions):
@@ -908,13 +915,13 @@ class FMAcquisitionWidget(QWidget):
         #     circles.append(circle_shape)
         #     colors.append("blue")
         #     labels.append(f"Circle {i+1}")
-        
+
         return {
             "circles": circles,
             "colors": colors,
             "labels": labels
         }
-    
+
     def _collect_stage_positions(self) -> Dict[str, List]:
         """Collect all stage positions with their associated colors and labels.
 
@@ -932,7 +939,7 @@ class FMAcquisitionWidget(QWidget):
         positions.append(Point(x=0, y=0))
         colors.extend(["red", "red"])  # Red for origin crosshair
         labels.extend(["origin", ""])  # Label with spacing
-    
+
         # Add current stage position if available
         if self.fm.parent:
             # Convert to napari coordinate convention (y inverted)
@@ -958,7 +965,7 @@ class FMAcquisitionWidget(QWidget):
             "colors": colors,
             "labels": labels
         }
-    
+
     def _update_crosshair_layer(self, layer_name: str, crosshair_lines: List, 
                                colors: List[str], text_properties: Dict, 
                                layer_scale: Tuple[float, float]):
@@ -1097,6 +1104,16 @@ class FMAcquisitionWidget(QWidget):
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
         """Update the napari image layer with the given image data and metadata. (Live images)"""
+
+        # Rate limiting: only update if enough time has passed since last update
+        now = datetime.now()
+
+        if self._last_updated_at is not None:
+            time_since_last_update = now - self._last_updated_at
+            if time_since_last_update < timedelta(seconds=self.max_update_interval):
+                return  # Early return if not enough time has passed
+
+        self._last_updated_at = now
 
         # acq_date = image.metadata.acquisition_date
         # self.label.setText(f"Acquisition Signal Received: {acq_date}")
@@ -1471,7 +1488,7 @@ class FMAcquisitionWidget(QWidget):
     # update methods for live updates
     def _update_exposure_time(self, value: float):
         if self.fm.is_acquiring:
-            self.fm.set_exposure_time(value)
+            self.fm.set_exposure_time(value * 1e-3)  # Convert ms to seconds
 
     def _update_power(self, value: float):
         if self.fm.is_acquiring:
@@ -1617,7 +1634,7 @@ class FMAcquisitionWidget(QWidget):
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
-    CONFIG_PATH = r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
+    CONFIG_PATH = None#r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
     microscope, settings = utils.setup_session(config_path=CONFIG_PATH)
 
     if microscope.fm is None:
@@ -1625,10 +1642,12 @@ def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
         raise RuntimeError("FluorescenceMicroscope is not initialized.")
 
     from fibsem.microscopes.simulator import DemoMicroscope
-    # if isinstance(microscope, DemoMicroscope):
-        # microscope.move_to_microscope("FM")
-    microscope.system.stage.shuttle_pre_tilt = 0
-    microscope.stage_is_compustage = True
+    if isinstance(microscope, DemoMicroscope):
+        microscope.move_to_microscope("FM")
+
+    # ensure compustage configuration
+    assert microscope.system.stage.shuttle_pre_tilt == 0
+    assert microscope.stage_is_compustage is True
 
     # Create experiment path with current directory + datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
