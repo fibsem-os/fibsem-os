@@ -239,6 +239,7 @@ channel_settings=ChannelSettings(
 # TODO: extract ui properties into a config file
 # TODO: integrate with milling workflow
 # TODO: multi-overview acquisition
+# TODO: disable all controls during acquisition
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
@@ -1365,7 +1366,7 @@ class FMAcquisitionWidget(QWidget):
         self._current_acquisition_type = "overview"
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
-        
+
         # Get current settings
         channel_settings = self.channelSettingsWidget.channel_settings
         grid_size = self.overviewParametersWidget.get_grid_size()
@@ -1373,7 +1374,7 @@ class FMAcquisitionWidget(QWidget):
         use_zstack = self.overviewParametersWidget.get_use_zstack()
         z_parameters = self.zParametersWidget.z_parameters if use_zstack else None
         autofocus_mode = self.overviewParametersWidget.get_autofocus_mode()
-        
+
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
             target=self._overview_worker,
@@ -1381,7 +1382,7 @@ class FMAcquisitionWidget(QWidget):
             daemon=True
         )
         self._acquisition_thread.start()
-    
+
     def _overview_worker(self,
                          channel_settings: ChannelSettings,
                          grid_size: tuple[int, int],
@@ -1390,22 +1391,10 @@ class FMAcquisitionWidget(QWidget):
                          autofocus_mode: AutofocusMode):
         """Worker thread for overview acquisition."""
         try:
-            info_parts = [f"Acquiring overview with {grid_size[0]}x{grid_size[1]} grid, {tile_overlap:.1%} overlap"]
-            if z_parameters:
-                info_parts.append("with z-stacks")
-            if autofocus_mode != AutofocusMode.NONE:
-                info_parts.append(f"with auto-focus mode: {autofocus_mode.value}")
-            logging.info(", ".join(info_parts))
-
             # Get the parent microscope for tileset acquisition
             if self.fm.parent is None:
                 logging.error("FluorescenceMicroscope parent is None. Cannot acquire overview.")
                 return
-
-            # Create timestamp and subdirectory for tiles # TODO: move this inside func
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            tiles_directory = os.path.join(self.experiment_path, f"overview-{timestamp}")
-            os.makedirs(tiles_directory, exist_ok=True)
 
             # Acquire and stitch tileset
             overview_image = acquire_and_stitch_tileset(
@@ -1415,7 +1404,7 @@ class FMAcquisitionWidget(QWidget):
                 tile_overlap=tile_overlap,
                 zparams=z_parameters,
                 autofocus_mode=autofocus_mode,
-                save_directory=tiles_directory,
+                save_directory=self.experiment_path,
                 stop_event=self._acquisition_stop_event
             )
 
@@ -1423,17 +1412,6 @@ class FMAcquisitionWidget(QWidget):
             if self._acquisition_stop_event.is_set() or overview_image is None:
                 logging.info("Overview acquisition was cancelled")
                 return
-
-            # Save overview to experiment directory
-            filename = f"overview-{timestamp}.ome.tiff"
-            filepath = os.path.join(self.experiment_path, filename)
-            overview_image.metadata.description = filename.removesuffix(".ome.tiff")
-
-            try:
-                overview_image.save(filepath)
-                logging.info(f"Overview saved to: {filepath}")
-            except Exception as e:
-                logging.error(f"Failed to save overview to {filepath}: {e}")
 
             # Emit the overview image
             self.update_persistent_image_signal.emit(overview_image)

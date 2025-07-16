@@ -625,6 +625,13 @@ def acquire_and_stitch_tileset(
     if isinstance(channel_settings, list):
         raise ValueError("Channel settings must be a single ChannelSettings instance for tileset acquisition")
 
+    # Create timestamp and subdirectory for tiles
+    if save_directory is not None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        basename = f"overview-{timestamp}"
+        tiles_directory = os.path.join(save_directory, basename)
+        os.makedirs(tiles_directory, exist_ok=True)
+
     tileset = acquire_tileset(
         microscope=microscope,
         channel_settings=channel_settings,
@@ -635,7 +642,7 @@ def acquire_and_stitch_tileset(
         autofocus_mode=autofocus_mode,
         autofocus_channel=autofocus_channel,
         autofocus_zparams=autofocus_zparams,
-        save_directory=save_directory,
+        save_directory=tiles_directory if save_directory else None,
         stop_event=stop_event,
     )
     
@@ -644,7 +651,20 @@ def acquire_and_stitch_tileset(
         logging.info("Tileset acquisition was cancelled, cannot stitch")
         return None
     
-    return stitch_tileset(tileset, tile_overlap)
+    overview_image = stitch_tileset(tileset, tile_overlap)
+
+    # Save overview to experiment directory
+    if save_directory is not None:
+        filepath = os.path.join(save_directory, f"{basename}.ome.tiff")
+        overview_image.metadata.description = basename
+
+        try:
+            overview_image.save(filepath)
+            logging.info(f"Overview saved to: {filepath}")
+        except Exception as e:
+            logging.error(f"Failed to save overview to {filepath}: {e}")
+
+    return overview_image
 
 
 def generate_grid_positions(ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1) -> List[Tuple[float, float]]:
