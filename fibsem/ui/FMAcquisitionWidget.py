@@ -267,10 +267,6 @@ class FMAcquisitionWidget(QWidget):
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
-
-
-
-
         # Rate limiting for update_image
         self._last_updated_at = None
         self.max_update_interval = LIVE_IMAGING_RATE_LIMIT_SECONDS  # seconds
@@ -1194,9 +1190,6 @@ class FMAcquisitionWidget(QWidget):
             self._acquisition_stop_event.set()
             self._acquisition_thread.join(timeout=5)
 
-
-
-
         logging.info("All acquisitions cancelled")
 
     def toggle_acquisition(self):
@@ -1241,13 +1234,19 @@ class FMAcquisitionWidget(QWidget):
     def _image_acquistion_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for single image acquisition."""
         try:
+            # Generate filename for saving
+            name = "z-stack" if z_parameters is not None else "image"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{name}-{timestamp}.ome.tiff"
+            filepath = os.path.join(self.experiment_path, filename)
             
-            # Acquire single image with cancellation support
+            # Acquire image with cancellation support and automatic saving
             image = acquire_image(
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
-                stop_event=self._acquisition_stop_event
+                stop_event=self._acquisition_stop_event,
+                filename=filepath
             )
 
             # Check if acquisition was cancelled
@@ -1255,30 +1254,17 @@ class FMAcquisitionWidget(QWidget):
                 logging.info("image acquisition was cancelled")
                 return
 
-            # Save image to experiment directory
-            name = "z-stack" if z_parameters is not None else "image"
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{name}-{timestamp}.ome.tiff"
-            filepath = os.path.join(self.experiment_path, filename)
-            image.metadata.description = filename.removesuffix(".ome.tiff")
-
-            try:
-                image.save(filepath)
-                logging.info(f"{name} saved to: {filepath}")
-            except Exception as e:
-                logging.error(f"Failed to save {name} to {filepath}: {e}")
-
             # Emit the image
             self.update_persistent_image_signal.emit(image)
 
-            logging.info("single image acquisition completed successfully")
+            logging.info("Image acquisition completed successfully")
             
         except Exception as e:
-            logging.error(f"Error during single image acquisition: {e}")
+            logging.error(f"Error during image acquisition: {e}")
             # TODO: Show error message to user
             
         finally:
-            # Signal that single image acquisition is finished (thread-safe)
+            # Signal that image acquisition is finished (thread-safe)
             self.acquisition_finished_signal.emit()
         
     def _update_acquisition_button_states(self):

@@ -94,22 +94,39 @@ def acquire_z_stack(
 def acquire_image(microscope: FluorescenceMicroscope,
                   channel_settings: Union[ChannelSettings, List[ChannelSettings]], 
                   zparams: Optional[ZParameters] = None,
-                  stop_event: Optional[threading.Event] = None) -> Optional[FluorescenceImage]:
+                  stop_event: Optional[threading.Event] = None,
+                  filename: Optional[str] = None) -> Optional[FluorescenceImage]:
     """Acquire a fluroescence image for a single channel or multiple channels.
     If zparams is provided, a Z-stack will be acquired instead.
     Args:
         microscope: The fluorescence microscope instance
         channel_settings: Single channel or list of channels to acquire
         zparams: ZParameters for Z-stack acquisition (optional)
+        stop_event: Threading event for cancellation (optional)
+        filename: Full file path to save the image (optional)
     Returns:
             FluorescenceImage object containing the acquired image(s)"""
     
     if zparams is not None:
         # Acquire Z-stack if zparams is provided
-        return acquire_z_stack(microscope, channel_settings, zparams, stop_event)
+        image = acquire_z_stack(microscope, channel_settings, zparams, stop_event)
+    else:
+        # Acquire single image(s) for specified channel(s)
+        image = acquire_channels(microscope, channel_settings, stop_event)
     
-    # Acquire single image(s) for specified channel(s)
-    return acquire_channels(microscope, channel_settings, stop_event)
+    # Save image if filename is provided and acquisition was successful
+    if image is not None and filename is not None:
+        try:
+            # Set description from filename (without extension)
+            image.metadata.description = os.path.basename(filename).removesuffix('.ome.tiff')
+            image.save(filename)
+            image_type = "z-stack" if zparams is not None else "image"
+            logging.info(f"{image_type.capitalize()} saved to: {filename}")
+        except Exception as e:
+            image_type = "z-stack" if zparams is not None else "image"
+            logging.error(f"Failed to save {image_type} to {filename}: {e}")
+    
+    return image
 
 # Autofocus functions have been moved to fibsem.fm.calibration
 
