@@ -1,0 +1,118 @@
+milling:
+    fiducial:
+    -   milling:
+            application_file: Si
+            hfw: 8.0e-05
+            milling_current: 2.0e-09
+            preset: 30 keV; 20 nA
+        name: Fiducial
+        pattern:
+            depth: 1.0e-06
+            height: 1.0e-05
+            name: Fiducial
+            passes: null
+            rotation: 45
+            width: 1.0e-06
+            point: {"x": 25.0e-6, "y": 0.0e-6}
+        strategy: {}
+    microexpansion:
+    -   milling:
+            application_file: Si
+            hfw: 80.0e-6
+            milling_current: 2.0e-09
+            preset: 30 keV; 2.5 nA
+        name: MicroExpansion
+        pattern:
+            depth: 1.0e-06
+            distance: 1.0e-05
+            height: 1.8e-05
+            name: MicroExpansion
+            width: 5.0e-07
+        strategy: {}
+    mill_polishing:
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 6.0e-11
+            patterning_mode: Serial
+        name: Polishing Mill 01
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 4.0e-07
+            lower_trench_height: 7.0e-07
+            name: Trench
+            spacing: 4.5e-07
+            upper_trench_height: 7.0e-07
+            width: 9.0e-06
+        strategy: {}
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 6.0e-11
+            patterning_mode: Serial
+        name: Polishing Mill 02
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 4.0e-07
+            lower_trench_height: 2.5e-07
+            name: Trench
+            spacing: 3.0e-07
+            upper_trench_height: 2.5e-07
+            width: 9.0e-06
+        strategy: {}
+    mill_rough:
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 7.4e-10
+        name: Rough Mill 01
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 6.5e-07
+            lower_trench_height: 3.5e-06
+            name: Trench
+            spacing: 4.6e-06
+            upper_trench_height: 3.5e-06
+            width: 1.0e-05
+        strategy: {}
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 2.0e-10
+            patterning_mode: Serial
+        name: Rough Mill 02
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 6.5e-07
+            lower_trench_height: 2.0e-06
+            name: Trench
+            spacing: 1.6e-06
+            upper_trench_height: 2.0e-06
+            width: 9.5e-06
+        strategy: {}
+options:
+    alignment_at_milling_current: false
+    alignment_attempts: 3.0
+    checkpoint: autolamella-mega-20240107.pt
+    high_quality_image:
+        dwell_time: 2.0e-06
+        enabled: false
+        frame_integration: 2
+        hfw: 5.0e-05
+        resolution:
+        - 3072
+        - 2048
+    lamella_tilt_angle: 18.0
+    method: autolamella-on-grid
+    name: autolamella-on-grid-baseline
+    supervise:
+        mill_polishing: true
+        mill_rough: true
+        setup_lamella: true
+        trench: false
+        undercut: true
+    take_final_overview_image: true
+    take_final_reference_images: true
+    use_fiducial: true
+    use_microexpansion: true
+    use_notch: false
