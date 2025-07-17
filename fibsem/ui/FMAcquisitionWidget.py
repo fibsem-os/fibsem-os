@@ -537,7 +537,10 @@ class FMAcquisitionWidget(QWidget):
         self.f6_shortcut.activated.connect(self.toggle_acquisition)
 
         self.f7_shortcut = QShortcut(QKeySequence("F7"), self)
-        self.f7_shortcut.activated.connect(self.run_autofocus)
+        self.f7_shortcut.activated.connect(self.acquire_image)
+
+        self.f8_shortcut = QShortcut(QKeySequence("F8"), self)
+        self.f8_shortcut.activated.connect(self.run_autofocus)
 
         # movement controls
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
