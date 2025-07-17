@@ -1302,9 +1302,6 @@ class FMAcquisitionWidget(QWidget):
         # Clear acquisition state
         self._current_acquisition_type = None
         
-        # Update button text in case positions were modified during acquisition
-        self._update_positions_button()
-
         # Re-display overview FOV now that acquisition is complete
         self._update_overview_bounding_box()
 
@@ -1540,12 +1537,7 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_acquire_at_positions.setEnabled(False)
             self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         else:
-            # Only enable positions button if there are saved positions
-            positions_available = bool(self.stage_positions)
-            self.pushButton_acquire_at_positions.setEnabled(positions_available)
-            self.pushButton_acquire_at_positions.setStyleSheet(
-                BLUE_PUSHBUTTON_STYLE if positions_available else GRAY_PUSHBUTTON_STYLE
-            )
+            self._update_positions_button()
 
         # Disable control widgets during acquisition
         self.objectiveControlWidget.setEnabled(not any_acquisition_active)
