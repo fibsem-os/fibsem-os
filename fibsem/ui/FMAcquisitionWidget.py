@@ -43,6 +43,7 @@ from fibsem.structures import FibsemStagePosition, Point
 from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.fm.widgets import (
     ChannelSettingsWidget,
+    HistogramWidget,
     ObjectiveControlWidget,
     OverviewParametersWidget,
     SavedPositionsWidget,
@@ -124,6 +125,10 @@ class DisplayOptionsDialog(QDialog):
         self.checkbox_circle_overlays.setChecked(self.parent_widget.show_circle_overlays)
         layout.addWidget(self.checkbox_circle_overlays)
         
+        self.checkbox_histogram = QCheckBox("Show Image Histogram")
+        self.checkbox_histogram.setChecked(self.parent_widget.show_histogram)
+        layout.addWidget(self.checkbox_histogram)
+        
         # Buttons
         button_layout = QGridLayout()
         
@@ -148,6 +153,7 @@ class DisplayOptionsDialog(QDialog):
             'show_saved_positions_fov': self.checkbox_saved_positions_fov.isChecked(),
             'show_stage_limits': self.checkbox_stage_limits.isChecked(),
             'show_circle_overlays': self.checkbox_circle_overlays.isChecked(),
+            'show_histogram': self.checkbox_histogram.isChecked(),
         }
 
 def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int], Tuple[int, ...]], pos: Optional[FibsemStagePosition], pixelsize: float) -> Point:
@@ -338,6 +344,7 @@ class FMAcquisitionWidget(QWidget):
         self.zParametersWidget: ZParametersWidget
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
+        self.histogramWidget: HistogramWidget
 
         # Consolidated acquisition threading
         self._acquisition_thread: Optional[threading.Thread] = None
@@ -356,6 +363,7 @@ class FMAcquisitionWidget(QWidget):
         self.show_saved_positions_fov = True
         self.show_stage_limits = True
         self.show_circle_overlays = True
+        self.show_histogram = True
 
         self.initUI()
         self.display_stage_position_overlay()
@@ -418,6 +426,13 @@ class FMAcquisitionWidget(QWidget):
             channel_settings=channel_settings,
             parent=self
         )
+
+        # create histogram widget
+        self.histogramWidget = HistogramWidget(parent=self)
+        self.histogram_dock = self.viewer.window.add_dock_widget(self.histogramWidget, name="Image Histogram", area='left')
+        
+        # Set initial histogram visibility based on display option
+        self.histogram_dock.setVisible(self.show_histogram)
 
         self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
@@ -507,6 +522,9 @@ class FMAcquisitionWidget(QWidget):
         self.viewer.mouse_wheel_callbacks.append(self.on_mouse_wheel)
         self.viewer.mouse_drag_callbacks.append(self.on_mouse_click)
 
+        # Connect layer selection to histogram updates
+        self.viewer.layers.selection.events.changed.connect(self._on_layer_selection_changed)
+
         # stylesheets
         self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
@@ -548,6 +566,22 @@ class FMAcquisitionWidget(QWidget):
         # draw scale bar
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = "m"
+
+    def _on_layer_selection_changed(self, event):
+        """Handle napari layer selection changes to update histogram."""
+        try:
+            added_layers = list(event.added)
+            if not added_layers:
+                return
+            layer = added_layers[0]
+
+            # Check if it's an image layer
+            if isinstance(layer.data, np.ndarray) and layer.data.ndim in (2, 3, 4):
+                self.histogramWidget.update_histogram(layer.data, layer.name)
+                
+        except Exception as e:
+            logging.warning(f"Error updating histogram from layer selection: {e}")
+            self.histogramWidget.clear_histogram()
 
     def on_mouse_wheel(self, viewer, event):
         """Handle mouse wheel events in the napari viewer."""
@@ -723,11 +757,23 @@ class FMAcquisitionWidget(QWidget):
             self.show_saved_positions_fov = options['show_saved_positions_fov']
             self.show_stage_limits = options['show_stage_limits']
             self.show_circle_overlays = options['show_circle_overlays']
+            self.show_histogram = options['show_histogram']
+            
+            # Apply histogram visibility
+            self._update_histogram_visibility()
             
             # Refresh the display
             self.display_stage_position_overlay()
             
             logging.info("Display options updated successfully")
+
+    def _update_histogram_visibility(self):
+        """Update the visibility of the histogram dock widget."""
+        try:
+            if hasattr(self, 'histogram_dock'):
+                self.histogram_dock.setVisible(self.show_histogram)
+        except Exception as e:
+            logging.warning(f"Could not update histogram visibility: {e}")
 
     def draw_stage_position_crosshairs(self):
         """Draw multiple crosshairs showing various stage positions on a single layer.
@@ -1242,6 +1288,17 @@ class FMAcquisitionWidget(QWidget):
 
         # Update all button states
         self._update_acquisition_button_states()
+        
+        # Update histogram with current selected layer after acquisition ends
+        try:
+            selected_layers = list(self.viewer.layers.selection)
+            if selected_layers:
+                layer = selected_layers[0]
+                if hasattr(layer, 'data') and layer.data is not None:
+                    layer_name = getattr(layer, 'name', 'Unknown Layer')
+                    self.histogramWidget.update_histogram(layer.data, layer_name)
+        except Exception as e:
+            logging.debug(f"Could not update histogram after acquisition: {e}")
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
@@ -1312,6 +1369,8 @@ class FMAcquisitionWidget(QWidget):
                 translate=metadata_dict["translate"],
                 blending="additive",
             )
+        # Update histogram (widget handles visibility checking internally)
+        self.histogramWidget.update_histogram(image.data, layer_name)
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""

@@ -10,11 +10,13 @@ from .overview_parameters_widget import OverviewParametersWidget
 from .saved_positions_widget import SavedPositionsWidget
 from .objective_control_widget import ObjectiveControlWidget
 from .channel_settings_widget import ChannelSettingsWidget
+from .histogram_widget import HistogramWidget
 
 __all__ = [
     'ZParametersWidget',
     'OverviewParametersWidget', 
     'SavedPositionsWidget',
     'ObjectiveControlWidget',
-    'ChannelSettingsWidget'
+    'ChannelSettingsWidget',
+    'HistogramWidget'
 ]
