@@ -454,8 +454,7 @@ class FMAcquisitionWidget(QWidget):
         # Set initial histogram visibility based on display option
         self.histogram_dock.setVisible(self.show_histogram)
 
-        self.pushButton_start_acquisition = QPushButton("Start Acquisition", self)
-        self.pushButton_stop_acquisition = QPushButton("Stop Acquisition", self)
+        self.pushButton_toggle_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
@@ -465,7 +464,7 @@ class FMAcquisitionWidget(QWidget):
 
         # Define button configurations for data-driven state management
         self.button_configs = [
-            (self.pushButton_start_acquisition, GREEN_PUSHBUTTON_STYLE),
+            (self.pushButton_toggle_acquisition, GREEN_PUSHBUTTON_STYLE),
             (self.pushButton_acquire_single_image, BLUE_PUSHBUTTON_STYLE),
             (self.pushButton_acquire_zstack, BLUE_PUSHBUTTON_STYLE),
             (self.pushButton_acquire_overview, BLUE_PUSHBUTTON_STYLE),
@@ -483,13 +482,12 @@ class FMAcquisitionWidget(QWidget):
 
         # create grid layout for buttons
         button_layout = QGridLayout()
-        button_layout.addWidget(self.pushButton_start_acquisition, 0, 0)
-        button_layout.addWidget(self.pushButton_stop_acquisition, 0, 1)
-        button_layout.addWidget(self.pushButton_acquire_single_image, 1, 0)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 1, 1)
-        button_layout.addWidget(self.pushButton_acquire_overview, 2, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_at_positions, 3, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_run_autofocus, 4, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_toggle_acquisition, 0, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 1, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_single_image, 2, 0)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 2, 1)
+        button_layout.addWidget(self.pushButton_acquire_overview, 3, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_at_positions, 4, 0, 1, 2)
         button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(button_layout)
@@ -517,8 +515,7 @@ class FMAcquisitionWidget(QWidget):
         self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
         self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)
         self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
-        self.pushButton_start_acquisition.clicked.connect(self.start_acquisition)
-        self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
+        self.pushButton_toggle_acquisition.clicked.connect(self.toggle_acquisition)
         self.pushButton_acquire_single_image.clicked.connect(self.acquire_image)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_image)
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
@@ -551,8 +548,7 @@ class FMAcquisitionWidget(QWidget):
         self.viewer.layers.selection.events.changed.connect(self._on_layer_selection_changed)
 
         # stylesheets
-        self.pushButton_start_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_stop_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_toggle_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_acquire_single_image.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
@@ -560,8 +556,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
         self.pushButton_cancel_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_cancel_acquisition.hide()  # Hide by default, show when acquisition starts
-        self.pushButton_start_acquisition.setEnabled(True)
-        self.pushButton_stop_acquisition.setEnabled(False)
+        self.pushButton_toggle_acquisition.setEnabled(True)
 
         # Explicitly enable acquisition buttons initially (disabled only during live acquisition)
         self.pushButton_acquire_single_image.setEnabled(True)
@@ -1514,10 +1509,20 @@ class FMAcquisitionWidget(QWidget):
         
         # Special case buttons with unique behavior
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
-        self.pushButton_stop_acquisition.setEnabled(bool(self.fm.is_acquiring))
+        
+        # Update toggle acquisition button text and style based on state
+        if self.fm.is_acquiring:
+            self.pushButton_toggle_acquisition.setText("Stop Acquisition")
+            self.pushButton_toggle_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        else:
+            self.pushButton_toggle_acquisition.setText("Start Acquisition")
+            self.pushButton_toggle_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
-        # Update standard buttons using configuration from initUI
+        # Update standard buttons using configuration from initUI (excluding toggle button)
         for button, normal_style in self.button_configs:
+            if button == self.pushButton_toggle_acquisition:
+                # Toggle button is always enabled, handled separately above
+                continue
             if any_acquisition_active:
                 button.setEnabled(False)
                 button.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
