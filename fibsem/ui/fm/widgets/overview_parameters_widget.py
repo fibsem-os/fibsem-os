@@ -42,9 +42,6 @@ class OverviewParametersWidget(QWidget):
 
     def initUI(self):
         
-        self.label_header = QLabel("Overview Parameters", self)
-        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
-        
         # Number of rows
         self.label_rows = QLabel("Rows", self)
         self.spinBox_rows = QSpinBox(self)
@@ -93,18 +90,17 @@ class OverviewParametersWidget(QWidget):
         
         # Create the layout
         layout = QGridLayout()
-        layout.addWidget(self.label_header, 0, 0, 1, 2)
-        layout.addWidget(self.label_rows, 1, 0)
-        layout.addWidget(self.spinBox_rows, 1, 1)
-        layout.addWidget(self.label_cols, 2, 0)
-        layout.addWidget(self.spinBox_cols, 2, 1)
-        layout.addWidget(self.label_overlap, 3, 0)
-        layout.addWidget(self.doubleSpinBox_overlap, 3, 1)
-        layout.addWidget(self.checkBox_use_zstack, 4, 0, 1, 2)  # Span both columns
-        layout.addWidget(self.label_autofocus_mode, 5, 0)
-        layout.addWidget(self.comboBox_autofocus_mode, 5, 1)
-        layout.addWidget(self.label_total_area, 6, 0)
-        layout.addWidget(self.label_total_area_value, 6, 1)
+        layout.addWidget(self.label_rows, 0, 0)
+        layout.addWidget(self.spinBox_rows, 0, 1)
+        layout.addWidget(self.label_cols, 1, 0)
+        layout.addWidget(self.spinBox_cols, 1, 1)
+        layout.addWidget(self.label_overlap, 2, 0)
+        layout.addWidget(self.doubleSpinBox_overlap, 2, 1)
+        layout.addWidget(self.checkBox_use_zstack, 3, 0, 1, 2)  # Span both columns
+        layout.addWidget(self.label_autofocus_mode, 4, 0)
+        layout.addWidget(self.comboBox_autofocus_mode, 4, 1)
+        layout.addWidget(self.label_total_area, 5, 0)
+        layout.addWidget(self.label_total_area_value, 5, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 

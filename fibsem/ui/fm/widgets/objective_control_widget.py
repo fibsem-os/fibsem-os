@@ -38,8 +38,6 @@ class ObjectiveControlWidget(QWidget):
 
     def initUI(self):
         self.setContentsMargins(0, 0, 0, 0)
-        self.label_header = QLabel("Objective", self)
-        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
         self.pushButton_insert_objective = QPushButton("Insert Objective", self)
         self.pushButton_retract_objective = QPushButton("Retract Objective", self)
 
@@ -80,16 +78,15 @@ class ObjectiveControlWidget(QWidget):
 
         # Create the layout
         layout = QGridLayout()
-        layout.addWidget(self.label_header, 0, 0, 1, 2)
-        layout.addWidget(self.pushButton_insert_objective, 1, 0)
-        layout.addWidget(self.pushButton_retract_objective, 1, 1)
-        layout.addWidget(self.label_focus_position, 2, 0)
-        layout.addWidget(self.doubleSpinBox_focus_position, 2, 1)
-        layout.addWidget(self.pushButton_move_to_focus, 3, 0, 1, 2)
-        layout.addWidget(self.label_objective_control, 4, 0)
-        layout.addWidget(self.doubleSpinBox_objective_position, 4, 1) 
-        layout.addWidget(self.label_objective_step_size, 5, 0)
-        layout.addWidget(self.doubleSpinBox_objective_step_size, 5, 1)
+        layout.addWidget(self.pushButton_insert_objective, 0, 0)
+        layout.addWidget(self.pushButton_retract_objective, 0, 1)
+        layout.addWidget(self.label_focus_position, 1, 0)
+        layout.addWidget(self.doubleSpinBox_focus_position, 1, 1)
+        layout.addWidget(self.pushButton_move_to_focus, 2, 0, 1, 2)
+        layout.addWidget(self.label_objective_control, 3, 0)
+        layout.addWidget(self.doubleSpinBox_objective_position, 3, 1) 
+        layout.addWidget(self.label_objective_step_size, 4, 0)
+        layout.addWidget(self.doubleSpinBox_objective_step_size, 4, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 

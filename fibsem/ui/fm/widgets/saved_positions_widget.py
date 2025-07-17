@@ -33,9 +33,6 @@ class SavedPositionsWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.label_header = QLabel("Saved Positions", self)
-        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
-        
         # Combobox for selecting saved positions
         self.label_positions = QLabel("Select Position", self)
         self.comboBox_positions = QComboBox(self)
@@ -62,14 +59,13 @@ class SavedPositionsWidget(QWidget):
         
         # Create the layout
         layout = QGridLayout()
-        layout.addWidget(self.label_header, 0, 0, 1, 2)
-        layout.addWidget(self.label_positions, 1, 0)
-        layout.addWidget(self.comboBox_positions, 1, 1)
-        layout.addWidget(self.pushButton_goto_position, 2, 0)
-        layout.addWidget(self.pushButton_delete_position, 2, 1)
-        layout.addWidget(self.comboBox_objective_source, 3, 0)
-        layout.addWidget(self.pushButton_set_objective, 3, 1)
-        layout.addWidget(self.label_position_info, 4, 0, 1, 2)
+        layout.addWidget(self.label_positions, 0, 0)
+        layout.addWidget(self.comboBox_positions, 0, 1)
+        layout.addWidget(self.pushButton_goto_position, 1, 0)
+        layout.addWidget(self.pushButton_delete_position, 1, 1)
+        layout.addWidget(self.comboBox_objective_source, 2, 0)
+        layout.addWidget(self.pushButton_set_objective, 2, 1)
+        layout.addWidget(self.label_position_info, 3, 0, 1, 2)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 

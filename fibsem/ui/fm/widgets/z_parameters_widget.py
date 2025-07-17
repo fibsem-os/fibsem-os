@@ -26,9 +26,6 @@ class ZParametersWidget(QWidget):
 
     def initUI(self):
         
-        self.label_header = QLabel("Z-Stack Parameters", self)
-        self.label_header.setStyleSheet("font-weight: bold; font-size: 12px;")
-        
         # Z minimum
         self.label_zmin = QLabel("Z Min", self)
         self.doubleSpinBox_zmin = QDoubleSpinBox(self)
@@ -69,15 +66,14 @@ class ZParametersWidget(QWidget):
         
         # Create the layout
         layout = QGridLayout()
-        layout.addWidget(self.label_header, 0, 0, 1, 2)
-        layout.addWidget(self.label_zmin, 1, 0)
-        layout.addWidget(self.doubleSpinBox_zmin, 1, 1)
-        layout.addWidget(self.label_zmax, 2, 0)
-        layout.addWidget(self.doubleSpinBox_zmax, 2, 1)
-        layout.addWidget(self.label_zstep, 3, 0)
-        layout.addWidget(self.doubleSpinBox_zstep, 3, 1)
-        layout.addWidget(self.label_num_planes, 4, 0)
-        layout.addWidget(self.label_num_planes_value, 4, 1)
+        layout.addWidget(self.label_zmin, 0, 0)
+        layout.addWidget(self.doubleSpinBox_zmin, 0, 1)
+        layout.addWidget(self.label_zmax, 1, 0)
+        layout.addWidget(self.doubleSpinBox_zmax, 1, 1)
+        layout.addWidget(self.label_zstep, 2, 0)
+        layout.addWidget(self.doubleSpinBox_zstep, 2, 1)
+        layout.addWidget(self.label_num_planes, 3, 0)
+        layout.addWidget(self.label_num_planes_value, 3, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 

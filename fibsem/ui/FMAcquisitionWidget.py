@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QMenuBar,
     QAction,
 )
+from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem import conversions, utils
 from fibsem.config import LOG_PATH
@@ -314,13 +315,8 @@ channel_settings=ChannelSettings(
 # TODO: multi-overview acquisition
 # TODO: disable all controls during acquisition
 # TODO: allow user to set objective position for each position 
-# TODO: create a histogram of the current image to show intensity distribution
 
-# REFACTORING TODO: Extract common acquisition start pattern from acquire_image(), acquire_at_positions(), acquire_overview(), run_autofocus()
-# REFACTORING TODO: Simplify button state management in _update_acquisition_button_states() using data-driven approach [COMPLETED]
 # REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
-# REFACTORING TODO: Create _get_current_settings() method to eliminate duplicate settings retrieval [COMPLETED]
-# REFACTORING TODO: Extract common microscope parent validation to shared method [COMPLETED]
 # REFACTORING TODO: Replace acquisition type magic strings with enum
 # REFACTORING TODO: Address repeated "TODO: Show error message to user" comments
 
@@ -410,15 +406,23 @@ class FMAcquisitionWidget(QWidget):
 
         # Add objective control widget
         self.objectiveControlWidget = ObjectiveControlWidget(fm=self.fm, parent=self)
+        self.objectiveCollapsible = QCollapsible("Objective Control", self)
+        self.objectiveCollapsible.addWidget(self.objectiveControlWidget)
 
         # create z parameters widget
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
+        self.zParametersCollapsible = QCollapsible("Z-Stack Parameters", self)
+        self.zParametersCollapsible.addWidget(self.zParametersWidget)
 
         # create overview parameters widget
         self.overviewParametersWidget = OverviewParametersWidget(parent=self)
+        self.overviewCollapsible = QCollapsible("Overview Parameters", self)
+        self.overviewCollapsible.addWidget(self.overviewParametersWidget)
 
         # create saved positions widget
         self.savedPositionsWidget = SavedPositionsWidget(parent=self)
+        self.positionsCollapsible = QCollapsible("Saved Positions", self)
+        self.positionsCollapsible.addWidget(self.savedPositionsWidget)
 
         # create channel settings widget
         self.channelSettingsWidget = ChannelSettingsWidget(
@@ -426,6 +430,22 @@ class FMAcquisitionWidget(QWidget):
             channel_settings=channel_settings,
             parent=self
         )
+        self.channelCollapsible = QCollapsible("Channel Settings", self)
+        self.channelCollapsible.addWidget(self.channelSettingsWidget)
+
+        # Set initial expanded state for all collapsible widgets
+        self.objectiveCollapsible.expand(animate=False)
+        self.zParametersCollapsible.expand(animate=False)
+        self.overviewCollapsible.expand(animate=False)
+        self.positionsCollapsible.expand(animate=False)
+        self.channelCollapsible.expand(animate=False)
+
+        # Set content margins to 0 for all collapsible widgets
+        self.objectiveCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.zParametersCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.overviewCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.positionsCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.channelCollapsible.setContentsMargins(0, 0, 0, 0)
 
         # create histogram widget
         self.histogramWidget = HistogramWidget(parent=self)
@@ -454,11 +474,12 @@ class FMAcquisitionWidget(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.label)
-        layout.addWidget(self.objectiveControlWidget)
-        layout.addWidget(self.zParametersWidget)
-        layout.addWidget(self.overviewParametersWidget)
-        layout.addWidget(self.savedPositionsWidget)
-        layout.addWidget(self.channelSettingsWidget)
+        layout.addWidget(self.objectiveCollapsible)
+        layout.addWidget(self.zParametersCollapsible)
+        layout.addWidget(self.overviewCollapsible)
+        layout.addWidget(self.positionsCollapsible)
+        layout.addWidget(self.channelCollapsible)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # create grid layout for buttons
         button_layout = QGridLayout()
@@ -484,6 +505,7 @@ class FMAcquisitionWidget(QWidget):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)        
         self.setLayout(main_layout)
+        scroll_area.setContentsMargins(0, 0, 0, 0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         scroll_area.setContentsMargins(0, 0, 0, 0)
 
