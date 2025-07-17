@@ -23,8 +23,18 @@ OVERVIEW_PARAMETERS_CONFIG = {
     "default_rows": 3,
     "default_cols": 3,
     "default_overlap": 0.1,
+    "default_use_zstack": False,
+    "default_autofocus_mode": AutofocusMode.NONE,
+    "overlap_range": (0.0, 0.9),
     "overlap_step": 0.01,
     "overlap_decimals": 2,
+    "tooltips": {
+        "rows": "Number of rows in the overview grid",
+        "cols": "Number of columns in the overview grid",
+        "overlap": "Fraction of overlap between adjacent tiles",
+        "use_zstack": "Acquire z-stacks at each tile position using current Z parameters",
+        "autofocus_mode": "Select when to perform auto-focus during tileset acquisition",
+    },
 }
 
 class OverviewParametersWidget(QWidget):
@@ -36,8 +46,8 @@ class OverviewParametersWidget(QWidget):
         self.rows = OVERVIEW_PARAMETERS_CONFIG["default_rows"]
         self.cols = OVERVIEW_PARAMETERS_CONFIG["default_cols"]
         self.overlap = OVERVIEW_PARAMETERS_CONFIG["default_overlap"]
-        self.use_zstack = False
-        self.autofocus_mode = AutofocusMode.NONE
+        self.use_zstack = OVERVIEW_PARAMETERS_CONFIG["default_use_zstack"]
+        self.autofocus_mode = OVERVIEW_PARAMETERS_CONFIG["default_autofocus_mode"]
         
         self.initUI()
 
@@ -49,7 +59,7 @@ class OverviewParametersWidget(QWidget):
         self.spinBox_rows.setRange(OVERVIEW_PARAMETERS_CONFIG["min_grid_size"], 
                                    OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
         self.spinBox_rows.setValue(self.rows)
-        self.spinBox_rows.setToolTip("Number of rows in the overview grid")
+        self.spinBox_rows.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["rows"])
         
         # Number of columns
         self.label_cols = QLabel("Columns", self)
@@ -57,22 +67,22 @@ class OverviewParametersWidget(QWidget):
         self.spinBox_cols.setRange(OVERVIEW_PARAMETERS_CONFIG["min_grid_size"], 
                                    OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
         self.spinBox_cols.setValue(self.cols)
-        self.spinBox_cols.setToolTip("Number of columns in the overview grid")
+        self.spinBox_cols.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["cols"])
         
         # Tile overlap
         self.label_overlap = QLabel("Overlap", self)
         self.doubleSpinBox_overlap = QDoubleSpinBox(self)
-        self.doubleSpinBox_overlap.setRange(0.0, 0.9)
+        self.doubleSpinBox_overlap.setRange(*OVERVIEW_PARAMETERS_CONFIG["overlap_range"])
         self.doubleSpinBox_overlap.setValue(self.overlap)
         self.doubleSpinBox_overlap.setSingleStep(OVERVIEW_PARAMETERS_CONFIG["overlap_step"])
         self.doubleSpinBox_overlap.setDecimals(OVERVIEW_PARAMETERS_CONFIG["overlap_decimals"])
-        self.doubleSpinBox_overlap.setToolTip("Fraction of overlap between adjacent tiles")
+        self.doubleSpinBox_overlap.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["overlap"])
         self.doubleSpinBox_overlap.setKeyboardTracking(False)
         
         # Z-stack checkbox
         self.checkBox_use_zstack = QCheckBox("Use Z-Stack", self)
         self.checkBox_use_zstack.setChecked(self.use_zstack)
-        self.checkBox_use_zstack.setToolTip("Acquire z-stacks at each tile position using current Z parameters")
+        self.checkBox_use_zstack.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["use_zstack"])
         
         # Z-stack planes info (shown when z-stack is enabled)
         self.label_zstack_planes_value = QLabel(self._calculate_zstack_planes(), self)
@@ -86,8 +96,14 @@ class OverviewParametersWidget(QWidget):
         self.comboBox_autofocus_mode.addItem("Auto-Focus Once", AutofocusMode.ONCE)
         self.comboBox_autofocus_mode.addItem("Auto-Focus Each Row", AutofocusMode.EACH_ROW)
         self.comboBox_autofocus_mode.addItem("Auto-Focus Each Tile", AutofocusMode.EACH_TILE)
-        self.comboBox_autofocus_mode.setCurrentIndex(0)  # Default to NONE
-        self.comboBox_autofocus_mode.setToolTip("Select when to perform auto-focus during tileset acquisition")
+        
+        # Set default autofocus mode from config
+        default_mode = OVERVIEW_PARAMETERS_CONFIG["default_autofocus_mode"]
+        for i in range(self.comboBox_autofocus_mode.count()):
+            if self.comboBox_autofocus_mode.itemData(i) == default_mode:
+                self.comboBox_autofocus_mode.setCurrentIndex(i)
+                break
+        self.comboBox_autofocus_mode.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["autofocus_mode"])
         
         # Total area (calculated, read-only)
         self.label_total_area = QLabel("Total Area", self)

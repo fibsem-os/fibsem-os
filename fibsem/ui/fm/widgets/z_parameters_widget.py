@@ -14,6 +14,11 @@ Z_PARAMETERS_CONFIG = {
     "step_size": 0.1,  # µm
     "decimals": 2,  # number of decimal places
     "suffix": " µm",  # unit suffix
+    "tooltips": {
+        "zmin": "Minimum Z position relative to current position",
+        "zmax": "Maximum Z position relative to current position", 
+        "zstep": "Step size between Z positions",
+    },
 }
 
 
@@ -34,7 +39,7 @@ class ZParametersWidget(QWidget):
         self.doubleSpinBox_zmin.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
         self.doubleSpinBox_zmin.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
         self.doubleSpinBox_zmin.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
-        self.doubleSpinBox_zmin.setToolTip("Minimum Z position relative to current position")
+        self.doubleSpinBox_zmin.setToolTip(Z_PARAMETERS_CONFIG["tooltips"]["zmin"])
         self.doubleSpinBox_zmin.setKeyboardTracking(False)
         
         # Z maximum
@@ -45,7 +50,7 @@ class ZParametersWidget(QWidget):
         self.doubleSpinBox_zmax.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
         self.doubleSpinBox_zmax.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
         self.doubleSpinBox_zmax.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
-        self.doubleSpinBox_zmax.setToolTip("Maximum Z position relative to current position")
+        self.doubleSpinBox_zmax.setToolTip(Z_PARAMETERS_CONFIG["tooltips"]["zmax"])
         self.doubleSpinBox_zmax.setKeyboardTracking(False)
         
         # Z step
@@ -56,7 +61,7 @@ class ZParametersWidget(QWidget):
         self.doubleSpinBox_zstep.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
         self.doubleSpinBox_zstep.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
         self.doubleSpinBox_zstep.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
-        self.doubleSpinBox_zstep.setToolTip("Step size between Z positions")
+        self.doubleSpinBox_zstep.setToolTip(Z_PARAMETERS_CONFIG["tooltips"]["zstep"])
         self.doubleSpinBox_zstep.setKeyboardTracking(False)
         
         # Number of planes (calculated, read-only)

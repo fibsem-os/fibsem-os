@@ -14,6 +14,23 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 
+CHANNEL_SETTINGS_CONFIG = {
+    "power": {
+        "range": (0.0, 1.0),
+        "step": 0.01,
+        "decimals": 3,
+        "suffix": " W",
+        "tooltip": "Laser power in watts (0.0 to 1.0)",
+    },
+    "exposure_time": {
+        "range": (1.0, 1000.0),  # 1ms to 1000ms
+        "step": 1.0,
+        "decimals": 1,
+        "suffix": " ms",
+        "tooltip": "Camera exposure time in milliseconds",
+    },
+}
+
 
 class ChannelSettingsWidget(QWidget):
     def __init__(self,
@@ -56,19 +73,21 @@ class ChannelSettingsWidget(QWidget):
         
         layout.addWidget(QLabel("Power"), 3, 0)
         self.power_input = QDoubleSpinBox()
-        self.power_input.setRange(0.0, 1.0)
-        self.power_input.setSingleStep(0.01)
-        self.power_input.setDecimals(3)
-        self.power_input.setSuffix(" W")
+        self.power_input.setRange(*CHANNEL_SETTINGS_CONFIG["power"]["range"])
+        self.power_input.setSingleStep(CHANNEL_SETTINGS_CONFIG["power"]["step"])
+        self.power_input.setDecimals(CHANNEL_SETTINGS_CONFIG["power"]["decimals"])
+        self.power_input.setSuffix(CHANNEL_SETTINGS_CONFIG["power"]["suffix"])
+        self.power_input.setToolTip(CHANNEL_SETTINGS_CONFIG["power"]["tooltip"])
 
         layout.addWidget(self.power_input, 3, 1)
         
         layout.addWidget(QLabel("Exposure Time"), 4, 0)
         self.exposure_time_input = QDoubleSpinBox()
-        self.exposure_time_input.setRange(1.0, 1000.0)  # 1ms to 1000ms
-        self.exposure_time_input.setSingleStep(1.0)
-        self.exposure_time_input.setDecimals(1)
-        self.exposure_time_input.setSuffix(" ms")
+        self.exposure_time_input.setRange(*CHANNEL_SETTINGS_CONFIG["exposure_time"]["range"])
+        self.exposure_time_input.setSingleStep(CHANNEL_SETTINGS_CONFIG["exposure_time"]["step"])
+        self.exposure_time_input.setDecimals(CHANNEL_SETTINGS_CONFIG["exposure_time"]["decimals"])
+        self.exposure_time_input.setSuffix(CHANNEL_SETTINGS_CONFIG["exposure_time"]["suffix"])
+        self.exposure_time_input.setToolTip(CHANNEL_SETTINGS_CONFIG["exposure_time"]["tooltip"])
         layout.addWidget(self.exposure_time_input, 4, 1)
 
         # Set column stretch factors to make widgets expand properly

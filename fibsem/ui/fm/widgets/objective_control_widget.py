@@ -22,9 +22,20 @@ if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
 OBJECTIVE_CONFIG = {
-    "step_size": 0.001,  # mm
-    "decimals": 3,  # number of decimal places
-    "suffix": " mm",  # unit suffix
+    "position": {
+        "step_size": 0.001,  # mm
+        "decimals": 3,  # number of decimal places
+        "suffix": " mm",  # unit suffix
+        "tooltip": "Objective position in millimeters relative to current position",
+    },
+    "step_size_control": {
+        "range": (1.0, 50.0),  # µm
+        "step": 0.1,  # µm
+        "default": 1.0,  # µm
+        "decimals": 1,  # number of decimal places
+        "suffix": " µm",  # unit suffix
+        "tooltip": "Step size for objective movement in microns",
+    },
 }
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
 
@@ -51,9 +62,10 @@ class ObjectiveControlWidget(QWidget):
             self.doubleSpinBox_focus_position.setValue(self.fm.objective.focus_position * METRE_TO_MILLIMETRE)
         else:
             self.doubleSpinBox_focus_position.setValue(0.0)
-        self.doubleSpinBox_focus_position.setSingleStep(OBJECTIVE_CONFIG["step_size"])
-        self.doubleSpinBox_focus_position.setDecimals(OBJECTIVE_CONFIG["decimals"])
-        self.doubleSpinBox_focus_position.setSuffix(OBJECTIVE_CONFIG["suffix"])
+        self.doubleSpinBox_focus_position.setSingleStep(OBJECTIVE_CONFIG["position"]["step_size"])
+        self.doubleSpinBox_focus_position.setDecimals(OBJECTIVE_CONFIG["position"]["decimals"])
+        self.doubleSpinBox_focus_position.setSuffix(OBJECTIVE_CONFIG["position"]["suffix"])
+        self.doubleSpinBox_focus_position.setToolTip("Focus position in millimeters - set and move to autofocus position")
         self.doubleSpinBox_focus_position.setKeyboardTracking(False)
         self.pushButton_move_to_focus = QPushButton("Move to Focus", self)
 
@@ -64,16 +76,18 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setRange(self.fm.objective.limits[0] * METRE_TO_MILLIMETRE,
                                                         self.fm.objective.limits[1] * METRE_TO_MILLIMETRE)
         self.doubleSpinBox_objective_position.setValue(self.fm.objective.position * METRE_TO_MILLIMETRE)  # Convert m to mm
-        self.doubleSpinBox_objective_position.setSingleStep(OBJECTIVE_CONFIG["step_size"])
-        self.doubleSpinBox_objective_position.setDecimals(OBJECTIVE_CONFIG["decimals"])
-        self.doubleSpinBox_objective_position.setSuffix(OBJECTIVE_CONFIG["suffix"])
+        self.doubleSpinBox_objective_position.setSingleStep(OBJECTIVE_CONFIG["position"]["step_size"])
+        self.doubleSpinBox_objective_position.setDecimals(OBJECTIVE_CONFIG["position"]["decimals"])
+        self.doubleSpinBox_objective_position.setSuffix(OBJECTIVE_CONFIG["position"]["suffix"])
+        self.doubleSpinBox_objective_position.setToolTip(OBJECTIVE_CONFIG["position"]["tooltip"])
         self.doubleSpinBox_objective_position.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
         self.doubleSpinBox_objective_step_size = QDoubleSpinBox(self)
-        self.doubleSpinBox_objective_step_size.setRange(1.0, 50.0)      # Set a reasonable range for step size
-        self.doubleSpinBox_objective_step_size.setSingleStep(0.1)       # Set step size for the spin box
-        self.doubleSpinBox_objective_step_size.setValue(1.0)            # Default step size (1.0 µm)
-        self.doubleSpinBox_objective_step_size.setSuffix(" µm")
-        self.doubleSpinBox_objective_step_size.setToolTip("Step size for objective movement in microns")
+        self.doubleSpinBox_objective_step_size.setRange(*OBJECTIVE_CONFIG["step_size_control"]["range"])
+        self.doubleSpinBox_objective_step_size.setSingleStep(OBJECTIVE_CONFIG["step_size_control"]["step"])
+        self.doubleSpinBox_objective_step_size.setValue(OBJECTIVE_CONFIG["step_size_control"]["default"])
+        self.doubleSpinBox_objective_step_size.setDecimals(OBJECTIVE_CONFIG["step_size_control"]["decimals"])
+        self.doubleSpinBox_objective_step_size.setSuffix(OBJECTIVE_CONFIG["step_size_control"]["suffix"])
+        self.doubleSpinBox_objective_step_size.setToolTip(OBJECTIVE_CONFIG["step_size_control"]["tooltip"])
         self.doubleSpinBox_objective_step_size.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
 
         # Create the layout
