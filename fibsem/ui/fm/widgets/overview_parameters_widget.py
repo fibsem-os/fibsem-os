@@ -1,6 +1,7 @@
 
 from typing import TYPE_CHECKING, Optional
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -73,6 +74,11 @@ class OverviewParametersWidget(QWidget):
         self.checkBox_use_zstack.setChecked(self.use_zstack)
         self.checkBox_use_zstack.setToolTip("Acquire z-stacks at each tile position using current Z parameters")
         
+        # Z-stack planes info (shown when z-stack is enabled)
+        self.label_zstack_planes_value = QLabel(self._calculate_zstack_planes(), self)
+        self.label_zstack_planes_value.setStyleSheet("QLabel { color: #666666; }")
+        self.label_zstack_planes_value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
         # Auto-focus mode selection
         self.label_autofocus_mode = QLabel("Auto-Focus Mode", self)
         self.comboBox_autofocus_mode = QComboBox(self)
@@ -96,7 +102,8 @@ class OverviewParametersWidget(QWidget):
         layout.addWidget(self.spinBox_cols, 1, 1)
         layout.addWidget(self.label_overlap, 2, 0)
         layout.addWidget(self.doubleSpinBox_overlap, 2, 1)
-        layout.addWidget(self.checkBox_use_zstack, 3, 0, 1, 2)  # Span both columns
+        layout.addWidget(self.checkBox_use_zstack, 3, 0)
+        layout.addWidget(self.label_zstack_planes_value, 3, 1)
         layout.addWidget(self.label_autofocus_mode, 4, 0)
         layout.addWidget(self.comboBox_autofocus_mode, 4, 1)
         layout.addWidget(self.label_total_area, 5, 0)
@@ -110,6 +117,9 @@ class OverviewParametersWidget(QWidget):
         self.doubleSpinBox_overlap.valueChanged.connect(self._on_overlap_changed)
         self.checkBox_use_zstack.stateChanged.connect(self._on_zstack_changed)
         self.comboBox_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_mode_changed)
+        
+        # Set initial z-stack planes visibility
+        self._update_zstack_planes_visibility()
 
     def _calculate_total_area(self) -> str:
         """Calculate the total area of the overview grid."""
@@ -176,7 +186,35 @@ class OverviewParametersWidget(QWidget):
     def _on_zstack_changed(self, state: int):
         """Handle z-stack checkbox change."""
         self.use_zstack = state == 2  # Qt.Checked
+        self._update_zstack_planes_visibility()
     
     def _on_autofocus_mode_changed(self, index: int):
         """Handle auto-focus mode change."""
         self.autofocus_mode = self.comboBox_autofocus_mode.itemData(index)
+    
+    def _calculate_zstack_planes(self) -> str:
+        """Calculate the number of z-stack planes based on current Z parameters."""
+        try:
+            # Get Z parameters from parent widget
+            if self.parent_widget and hasattr(self.parent_widget, 'zParametersWidget'):
+                z_params = self.parent_widget.zParametersWidget.z_parameters
+                if z_params:
+                    # Use the convenient property
+                    num_planes = z_params.num_planes
+                    if num_planes <= 0:
+                        return "Invalid"
+                    return f"{num_planes} planes"
+            return "N/A"
+        except (ValueError, TypeError, AttributeError, ZeroDivisionError):
+            return "N/A"
+    
+    def _update_zstack_planes_visibility(self):
+        """Update visibility of z-stack planes info based on checkbox state."""
+        is_visible = self.use_zstack
+        self.label_zstack_planes_value.setVisible(is_visible)
+        
+        # Update the plane count if visible
+        if is_visible:
+            self.label_zstack_planes_value.setText(self._calculate_zstack_planes())
+        else:
+            self.label_zstack_planes_value.setText("")

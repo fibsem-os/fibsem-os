@@ -511,6 +511,11 @@ class FMAcquisitionWidget(QWidget):
         self.overviewParametersWidget.spinBox_rows.valueChanged.connect(self._update_overview_bounding_box)
         self.overviewParametersWidget.spinBox_cols.valueChanged.connect(self._update_overview_bounding_box)
         self.overviewParametersWidget.doubleSpinBox_overlap.valueChanged.connect(self._update_overview_bounding_box)
+        
+        # Connect Z parameter changes to update overview z-stack planes display
+        self.zParametersWidget.doubleSpinBox_zmin.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
+        self.zParametersWidget.doubleSpinBox_zmax.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
+        self.zParametersWidget.doubleSpinBox_zstep.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.channelSettingsWidget.exposure_time_input.valueChanged.connect(self._update_exposure_time)
         self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
         self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)

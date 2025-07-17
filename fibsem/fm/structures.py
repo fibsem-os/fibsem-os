@@ -157,6 +157,20 @@ class ZParameters:
 
         logging.debug(f"Generated z positions: {z_positions}")
         return z_positions.tolist()
+    
+    @property
+    def num_planes(self) -> int:
+        """Calculate and return the number of z-stack planes.
+        
+        Returns:
+            int: Number of planes in the z-stack based on zmin, zmax, and zstep.
+                 Returns 0 if zstep is invalid (<=0).
+        """
+        if self.zstep <= 0:
+            return 0
+        
+        z_range = self.zmax - self.zmin
+        return int(z_range / self.zstep) + 1
 
 
 # QUERY: add AcquisitionSettings class to handle acquisition settings?

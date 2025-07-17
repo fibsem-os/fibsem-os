@@ -12,7 +12,7 @@ from fibsem.fm.structures import  ZParameters
 
 Z_PARAMETERS_CONFIG = {
     "step_size": 0.1,  # µm
-    "decimals": 1,  # number of decimal places
+    "decimals": 2,  # number of decimal places
     "suffix": " µm",  # unit suffix
 }
 
@@ -29,7 +29,7 @@ class ZParametersWidget(QWidget):
         # Z minimum
         self.label_zmin = QLabel("Z Min", self)
         self.doubleSpinBox_zmin = QDoubleSpinBox(self)
-        self.doubleSpinBox_zmin.setRange(-100.0, -0.5)  # ±100 µm range
+        self.doubleSpinBox_zmin.setRange(-100.0, -0.25)  # ±100 µm range
         self.doubleSpinBox_zmin.setValue(self.z_parameters.zmin * 1e6)  # Convert m to µm
         self.doubleSpinBox_zmin.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
         self.doubleSpinBox_zmin.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
@@ -40,7 +40,7 @@ class ZParametersWidget(QWidget):
         # Z maximum
         self.label_zmax = QLabel("Z Max", self)
         self.doubleSpinBox_zmax = QDoubleSpinBox(self)
-        self.doubleSpinBox_zmax.setRange(0.5, 100.0)  # ±100 µm range
+        self.doubleSpinBox_zmax.setRange(0.25, 100.0)  # ±100 µm range
         self.doubleSpinBox_zmax.setValue(self.z_parameters.zmax * 1e6)  # Convert m to µm
         self.doubleSpinBox_zmax.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
         self.doubleSpinBox_zmax.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
@@ -85,10 +85,9 @@ class ZParametersWidget(QWidget):
     def _calculate_num_planes(self) -> str:
         """Calculate the number of planes based on current parameters."""
         try:
-            z_range = self.z_parameters.zmax - self.z_parameters.zmin
-            if self.z_parameters.zstep <= 0:
+            num_planes = self.z_parameters.num_planes
+            if num_planes <= 0:
                 return "Invalid"
-            num_planes = int(z_range / self.z_parameters.zstep) + 1
             return f"{num_planes}"
         except (ValueError, ZeroDivisionError):
             return "Invalid"
