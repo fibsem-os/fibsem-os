@@ -296,9 +296,7 @@ channel_settings=ChannelSettings(
         exposure_time=0.005,             # Example exposure time in seconds
 )
 
-# TODO: consolidate the threads, and signals into a single acquisition manager
 # TODO: add a progress bar for each acquisition
-# TODO: confirm live-acquisition updates/setting change work on microscope
 # TODO: add user-preferences for display settings
 # TODO: add user defined experiment directory + save/load images
 # TODO: add user defined protocol (channel, z-stack parameters, overview parameters, etc.)
@@ -310,6 +308,7 @@ channel_settings=ChannelSettings(
 # TODO: multi-overview acquisition
 # TODO: disable all controls during acquisition
 # TODO: allow user to set objective position for each position 
+# TODO: create a histogram of the current image to show intensity distribution
 
 # REFACTORING TODO: Extract common acquisition start pattern from acquire_image(), acquire_at_positions(), acquire_overview(), run_autofocus()
 # REFACTORING TODO: Simplify button state management in _update_acquisition_button_states() using data-driven approach [COMPLETED]
@@ -1425,7 +1424,7 @@ class FMAcquisitionWidget(QWidget):
             self.acquisition_finished_signal.emit()
         
     def _update_acquisition_button_states(self):
-        """Update acquisition button states based on live acquisition or specific acquisition status."""
+        """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
         # Check if any acquisition is active (live or specific acquisitions)
         any_acquisition_active = self.fm.is_acquiring or self.is_acquisition_active
         
@@ -1453,6 +1452,15 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_acquire_at_positions.setStyleSheet(
                 BLUE_PUSHBUTTON_STYLE if positions_available else GRAY_PUSHBUTTON_STYLE
             )
+
+        # Disable control widgets during acquisition
+        self.objectiveControlWidget.setEnabled(not any_acquisition_active)
+        self.zParametersWidget.setEnabled(not any_acquisition_active)
+        self.overviewParametersWidget.setEnabled(not any_acquisition_active)
+        self.savedPositionsWidget.setEnabled(not any_acquisition_active)
+        
+        # Disable channel settings during specific acquisitions (but allow during live imaging)
+        self.channelSettingsWidget.setEnabled(not self.is_acquisition_active)
 
     def _save_positions_to_yaml(self):
         """Save current stage positions to positions.yaml in the experiment directory."""
