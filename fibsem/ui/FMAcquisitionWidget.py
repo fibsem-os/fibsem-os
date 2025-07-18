@@ -390,8 +390,11 @@ class FMAcquisitionWidget(QWidget):
         Returns:
             Dictionary containing all current settings for acquisitions
         """
+        # Get channel settings (always a list now)
+        channel_settings = self.channelSettingsWidget.channel_settings
+        
         return {
-            'channel_settings': self.channelSettingsWidget.channel_settings,
+            'channel_settings': channel_settings,
             'z_parameters': self.zParametersWidget.z_parameters,
             'overview_grid_size': self.overviewParametersWidget.get_grid_size(),
             'overview_overlap': self.overviewParametersWidget.get_overlap(),
@@ -500,6 +503,7 @@ class FMAcquisitionWidget(QWidget):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         content_widget = QWidget(self)
         content_widget.setLayout(layout)
+        layout.addStretch()
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)        
         self.setLayout(main_layout)
@@ -516,10 +520,15 @@ class FMAcquisitionWidget(QWidget):
         self.zParametersWidget.doubleSpinBox_zmin.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.zParametersWidget.doubleSpinBox_zmax.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.zParametersWidget.doubleSpinBox_zstep.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
-        self.channelSettingsWidget.exposure_time_input.valueChanged.connect(self._update_exposure_time)
-        self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
-        self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)
-        self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
+        # Connect to first channel inputs for backward compatibility during live acquisition
+        if self.channelSettingsWidget.exposure_time_input:
+            self.channelSettingsWidget.exposure_time_input.valueChanged.connect(self._update_exposure_time)
+        if self.channelSettingsWidget.power_input:
+            self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
+        if self.channelSettingsWidget.excitation_wavelength_input:
+            self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)
+        if self.channelSettingsWidget.emission_wavelength_input:
+            self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
         self.pushButton_toggle_acquisition.clicked.connect(self.toggle_acquisition)
         self.pushButton_acquire_single_image.clicked.connect(self.acquire_image)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_image)
@@ -1257,7 +1266,7 @@ class FMAcquisitionWidget(QWidget):
         )
         self._acquisition_thread.start()
     
-    def _positions_worker(self, channel_settings: ChannelSettings, z_parameters: Optional[ZParameters]):
+    def _positions_worker(self, channel_settings: List[ChannelSettings], z_parameters: Optional[ZParameters]):
         """Worker thread for positions acquisition."""
         try:
             logging.info(f"Acquiring at {len(self.stage_positions)} saved positions")
@@ -1402,10 +1411,16 @@ class FMAcquisitionWidget(QWidget):
 
         # TODO: handle case where acquisition fails...
 
-        channel_settings = self.channelSettingsWidget.channel_settings
-        logging.info(f"Starting acquisition with channel settings: {channel_settings}")
+        # Get selected channel for live acquisition
+        selected_channel_settings = self.channelSettingsWidget.selected_channel
 
-        self.fm.start_acquisition(channel_settings=channel_settings)
+        if selected_channel_settings is None:
+            logging.warning("No channel selected for live acquisition")
+            return
+
+        logging.info(f"Starting acquisition with channel settings: {selected_channel_settings}")
+
+        self.fm.start_acquisition(channel_settings=selected_channel_settings)
         self._update_acquisition_button_states()
 
     def stop_acquisition(self):
@@ -1468,7 +1483,7 @@ class FMAcquisitionWidget(QWidget):
         )
         self._acquisition_thread.start()
     
-    def _image_acquistion_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
+    def _image_acquistion_worker(self, channel_settings: List[ChannelSettings], z_parameters: ZParameters):
         """Worker thread for single image acquisition."""
         try:
             # Generate filename for saving
@@ -1606,7 +1621,7 @@ class FMAcquisitionWidget(QWidget):
         self._acquisition_thread.start()
 
     def _overview_worker(self,
-                         channel_settings: ChannelSettings,
+                         channel_settings: List[ChannelSettings],
                          grid_size: tuple[int, int],
                          tile_overlap: float,
                          z_parameters: Optional[ZParameters],
@@ -1657,13 +1672,13 @@ class FMAcquisitionWidget(QWidget):
             self.fm.set_power(value)
 
     def _update_excitation_wavelength(self, idx: int):
-        if self.fm.is_acquiring:
+        if self.fm.is_acquiring and self.channelSettingsWidget.excitation_wavelength_input:
             wavelength = self.channelSettingsWidget.excitation_wavelength_input.itemData(idx)
             logging.info(f"Updating excitation wavelength to: {wavelength} nm")
             self.fm.filter_set.excitation_wavelength = wavelength
 
     def _update_emission_wavelength(self, idx: int):
-        if self.fm.is_acquiring:
+        if self.fm.is_acquiring and self.channelSettingsWidget.emission_wavelength_input:
             wavelength = self.channelSettingsWidget.emission_wavelength_input.itemData(idx)
             logging.info(f"Updating emission wavelength to: {wavelength} nm")
             self.fm.filter_set.emission_wavelength = wavelength
@@ -1730,15 +1745,21 @@ class FMAcquisitionWidget(QWidget):
         )
         self._acquisition_thread.start()
 
-    def _autofocus_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
+    def _autofocus_worker(self, channel_settings: List[ChannelSettings], z_parameters: ZParameters):
         """Worker thread for auto-focus."""
         try:
             logging.info("Running auto-focus with laplacian method")
             
             # Run autofocus using laplacian method (default)
+            # Use first channel for autofocus
+            first_channel = channel_settings[0] if channel_settings else None
+            if not first_channel:
+                logging.error("No channel settings available for autofocus")
+                return
+                
             best_z = run_autofocus(
                 microscope=self.fm,
-                channel_settings=channel_settings,
+                channel_settings=first_channel,
                 # z_parameters=z_parameters,
                 method='laplacian',
                 stop_event=self._acquisition_stop_event
