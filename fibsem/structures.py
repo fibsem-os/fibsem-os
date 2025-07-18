@@ -290,6 +290,36 @@ class FibsemStagePosition:
                 (abs(self.t - pos2.t) < tol) and 
                 (abs(self.r - pos2.r) < tol))
 
+    def is_close2(self, pos2: 'FibsemStagePosition', tol: float = 1e-6, axes: Optional[List[str]] = None) -> bool:
+        """Check if two positions are close to each other."""
+        VALID_AXES = ['x', 'y', 'z', 't', 'r']
+        if axes is None:
+            axes = VALID_AXES
+
+        if any(axis not in VALID_AXES for axis in axes):
+            raise ValueError(f"Invalid axes: {axes}. Must be one of: {VALID_AXES}")
+        for axis in axes:
+            pos1_val = getattr(self, axis)
+            pos2_val = getattr(pos2, axis)
+
+            if pos1_val is None or pos2_val is None:
+                return False
+
+            if abs(pos1_val - pos2_val) >= tol:
+                return False
+
+        return True
+
+    @property
+    def pretty_string(self) -> str:
+        """Returns a pretty string representation of the stage position."""
+        from fibsem import constants
+        xstr = f"X:{self.x*constants.METRE_TO_MILLIMETRE:.2f}" if self.x is not None else "X:None"
+        ystr = f"Y:{self.y*constants.METRE_TO_MILLIMETRE:.2f}" if self.y is not None else "Y:None"
+        zstr = f"Z:{self.z*constants.METRE_TO_MILLIMETRE:.2f}" if self.z is not None else "Z:None"
+        rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}" if self.r is not None else "R:None"
+        tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}" if self.t is not None else "T:None"
+        return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
 
 @dataclass
 class FibsemManipulatorPosition:
