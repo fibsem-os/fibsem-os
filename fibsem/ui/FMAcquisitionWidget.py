@@ -893,6 +893,7 @@ class FMAcquisitionWidget(QWidget):
                 
             # Draw all overlay shapes (FOV boxes and circles) on single layer
             self._draw_overlay_shapes(layer_scale)
+            self._draw_crosshair_overlay(layer_scale)
 
         except Exception as e:
             logging.warning(f"Error drawing stage position crosshairs: {e}")
