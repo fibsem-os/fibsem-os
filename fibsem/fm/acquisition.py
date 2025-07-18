@@ -324,6 +324,9 @@ def acquire_tileset(
         >>> tileset = acquire_tileset(microscope, channel, grid_size=(3, 3), tile_overlap=0.1)
         >>> print(f"Acquired {len(tileset)}x{len(tileset[0])} tiles")
     """
+    if microscope.fm is None:
+        raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
+
     if not isinstance(channel_settings, list):
         channel_settings = [channel_settings]
 
@@ -435,6 +438,7 @@ def acquire_tileset(
                 # max intensity projection if zparams is provided
                 if zparams is not None:
                     tile_image = tile_image.max_intensity_projection()
+                    # tile_image = tile_image.focus_stack() # TODO: support focus stacking
                 
                 row_images.append(tile_image)
 
@@ -465,10 +469,12 @@ def acquire_tileset(
 
 def stitch_tileset(tileset: List[List[FluorescenceImage]], 
                    tile_overlap: float = 0.1) -> FluorescenceImage:
-    """Stitch a tileset of 2D fluorescence images into a single mosaic image.
+    """Stitch a tileset of fluorescence images into a single mosaic image.
     
-    Simple concatenation stitching for 2D images (YX format). Overlapping regions
-    are handled by taking pixels from the rightmost/bottommost tile.
+    Supports both single-channel and multi-channel images. For multi-channel images,
+    each channel is stitched separately and combined into a single mosaic with
+    dimensions (nc_channel, 1, ny, nx). Overlapping regions are handled by taking
+    pixels from the rightmost/bottommost tile.
     
     Args:
         tileset: List of lists containing FluorescenceImage objects [row][col]
@@ -500,7 +506,22 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
 
     # Get reference tile for dimensions
     ref_tile = tileset[0][0]
-    tile_height, tile_width = ref_tile.data.shape[-2:]
+    
+    # Handle both 2D and multi-dimensional data
+    if ref_tile.data.ndim == 2:
+        # 2D data (Y, X)
+        tile_height, tile_width = ref_tile.data.shape
+        nc_channels = 1
+        nz_planes = 1
+    elif ref_tile.data.ndim == 3:
+        # 3D data (Z, Y, X) or (C, Y, X)
+        nz_planes, tile_height, tile_width = ref_tile.data.shape
+        nc_channels = 1
+    elif ref_tile.data.ndim == 4:
+        # 4D data (C, Z, Y, X)
+        nc_channels, nz_planes, tile_height, tile_width = ref_tile.data.shape
+    else:
+        raise ValueError(f"Unsupported data dimensions: {ref_tile.data.ndim}")
 
     # Calculate overlap in pixels
     overlap_pixels_x = int(tile_width * tile_overlap)
@@ -515,9 +536,10 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
 
     logging.info(f"Tile size: {tile_height}x{tile_width}")
     logging.info(f"Mosaic size: {mosaic_height}x{mosaic_width}")
+    logging.info(f"Channels: {nc_channels}, Z-planes: {nz_planes}")
 
-    # Initialize mosaic array
-    mosaic_data = np.zeros((mosaic_height, mosaic_width), dtype=ref_tile.data.dtype)
+    # Initialize mosaic array with proper dimensions (C, Z, Y, X)
+    mosaic_data = np.zeros((nc_channels, 1, mosaic_height, mosaic_width), dtype=ref_tile.data.dtype)
 
     # Place each tile
     for row in range(rows):
@@ -538,9 +560,29 @@ def stitch_tileset(tileset: List[List[FluorescenceImage]],
             tile_y_end = y_end - y_start
             tile_x_end = x_end - x_start
             
-            # Place tile data (assumes 2D YX format)
-            tile_data = tile.data[:tile_y_end, :tile_x_end]
-            mosaic_data[y_start:y_end, x_start:x_end] = tile_data
+            # Normalize tile data to CZYX format for consistent processing
+            if tile.data.ndim == 2:
+                # 2D data (Y, X) -> (1, 1, Y, X)
+                tile_data = tile.data[np.newaxis, np.newaxis, :tile_y_end, :tile_x_end]
+            elif tile.data.ndim == 3:
+                # 3D data (Z, Y, X) -> (1, Z, Y, X) or (C, Y, X) -> (C, 1, Y, X)
+                if nz_planes > 1:  # Z-stack
+                    tile_data = tile.data[np.newaxis, :, :tile_y_end, :tile_x_end]
+                else:  # Multi-channel
+                    tile_data = tile.data[:, np.newaxis, :tile_y_end, :tile_x_end]
+            elif tile.data.ndim == 4:
+                # 4D data (C, Z, Y, X) - already in correct format
+                tile_data = tile.data[:, :, :tile_y_end, :tile_x_end]
+            else:
+                raise ValueError(f"Unsupported tile data dimensions: {tile.data.ndim}")
+            
+            # For multi-channel and/or z-stack, we take max intensity projection along Z
+            # to create the final mosaic with dimensions (C, 1, Y, X)
+            if tile_data.shape[1] > 1:  # Multiple Z planes
+                tile_data = np.max(tile_data, axis=1, keepdims=True)
+            
+            # Place tile data for each channel
+            mosaic_data[:, 0, y_start:y_end, x_start:x_end] = tile_data[:, 0, :, :]
     
     # Create updated metadata for stitched image
     stitched_metadata = deepcopy(ref_tile.metadata)
@@ -622,7 +664,7 @@ def acquire_and_stitch_tileset(
     
     Args:
         microscope: The fluorescence microscope instance
-        channel_settings: Single channel settings to acquire (multi-channel not yet supported)
+        channel_settings: Single channel or list of channels to acquire
         grid_size: Tuple of (rows, cols) defining the grid dimensions
         tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
         zparams: Optional Z parameters for z-stack acquisition
@@ -633,14 +675,14 @@ def acquire_and_stitch_tileset(
         save_directory: Optional directory path to save individual tile images (default: None)
         
     Returns:
-        Single stitched FluorescenceImage
+        Single stitched FluorescenceImage with dimensions (nc_channel, 1, ny, nx)
     """
 
-    # TODO: support multi-channel tilesets
     # TODO: support different projection methods (e.g. max intensity, focus stacking)
-
-    if isinstance(channel_settings, list):
-        raise ValueError("Channel settings must be a single ChannelSettings instance for tileset acquisition")
+    
+    # Auto-convert channel_settings to list for consistent processing
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
 
     # Create timestamp and subdirectory for tiles
     if save_directory is not None:
@@ -664,7 +706,7 @@ def acquire_and_stitch_tileset(
     )
     
     # Check if acquisition was cancelled (empty or incomplete tileset)
-    if not tileset or any(None in row for row in tileset):
+    if not tileset or any(tile is None for row in tileset for tile in row):
         logging.info("Tileset acquisition was cancelled, cannot stitch")
         return None
     

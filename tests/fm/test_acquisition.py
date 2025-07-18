@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from unittest.mock import Mock, patch, call
 
-from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area, acquire_at_positions, acquire_channels, acquire_z_stack, acquire_image
+from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area, acquire_at_positions, acquire_channels, acquire_z_stack, acquire_image, stitch_tileset, acquire_and_stitch_tileset
 from fibsem.fm.structures import FMStagePosition, ChannelSettings, ZParameters, FluorescenceImage
 from fibsem.structures import FibsemStagePosition
 
@@ -700,7 +700,6 @@ def test_acquire_channels():
     # Check that acquisition date is set
     assert result.metadata.acquisition_date is not None
 
-
 def test_acquire_z_stack():
     """Test acquire_z_stack with Z-stack parameters using demo microscope."""
     from fibsem import utils
@@ -754,7 +753,6 @@ def test_acquire_z_stack():
     # Check that acquisition date is set
     assert result.metadata.acquisition_date is not None
 
-
 def test_acquire_image():
     """Test acquire_image function using demo microscope."""
     from fibsem import utils
@@ -798,3 +796,117 @@ def test_acquire_image():
 
     # Check that acquisition date is set
     assert result.metadata.acquisition_date is not None
+
+
+def test_acquire_and_stitch_tileset():
+    """Test acquire_and_stitch_tileset auto-converts single channel to list."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0.0
+    microscope.move_to_microscope("FM")
+    
+    # Create single test channel (not in a list)
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=358,
+        emission_wavelength=461,
+        power=0.1,
+        exposure_time=0.1
+    )
+    
+    # Test with 2x2 grid
+    grid_size = (2, 2)
+    tile_overlap = 0.1
+    
+    # Call function with single channel (should auto-convert to list)
+    result = acquire_and_stitch_tileset(
+        microscope=microscope,
+        channel_settings=channel,  # Single channel, not list
+        grid_size=grid_size,
+        tile_overlap=tile_overlap
+    )
+    
+    # Verify result
+    assert isinstance(result, FluorescenceImage)
+    
+    # Check dimensions: should be (nc_channel=1, nz=1, ny, nx)
+    assert len(result.data.shape) == 4
+    assert result.data.shape[0] == 1  # 1 channel
+    assert result.data.shape[1] == 1  # 1 z-plane
+    
+    # Check metadata
+    assert len(result.metadata.channels) == 1
+    assert result.metadata.channels[0].name == "DAPI"
+
+    # Create multiple test channels
+    channel_settings = [
+        ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=358,
+            emission_wavelength=461,
+            power=0.1,
+            exposure_time=0.1
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=488,
+            emission_wavelength=509,
+            power=0.2,
+            exposure_time=0.1
+        )
+    ]
+    
+    # Test with 3x3 grid
+    grid_size = (3, 3)
+    tile_overlap = 0.1
+    
+    # Call function with single channel (should auto-convert to list)
+    result = acquire_and_stitch_tileset(
+        microscope=microscope,
+        channel_settings=channel_settings,  # List of channels
+        grid_size=grid_size,
+        tile_overlap=tile_overlap
+    )
+    
+    # Verify result
+    assert isinstance(result, FluorescenceImage)
+    
+    # Check dimensions: should be (nc_channel=1, nz=1, ny, nx)
+    assert len(result.data.shape) == 4
+    assert result.data.shape[0] == 2  # 2 channels
+    assert result.data.shape[1] == 1  # 1 z-plane
+    
+    # Check metadata
+    assert len(result.metadata.channels) == 2
+    assert result.metadata.channels[0].name == "DAPI"
+    assert result.metadata.channels[1].name == "GFP"
+
+    # z-stack parameters
+    z_params = ZParameters(
+        zmin=-0.005,
+        zmax=0.005,
+        zstep=0.001
+    )
+    result = acquire_and_stitch_tileset(
+        microscope=microscope,
+        channel_settings=channel_settings,  # List of channels
+        grid_size=grid_size,
+        tile_overlap=tile_overlap,
+        zparams=z_params
+    )
+    
+    # Verify result
+    assert isinstance(result, FluorescenceImage)
+    
+    # Check dimensions: should be (nc_channel=1, nz=1, ny, nx)
+    assert len(result.data.shape) == 4
+    assert result.data.shape[0] == 2  # 2 channels
+    assert result.data.shape[1] == 1  # 1 z-plane
+    
+    # Check metadata
+    assert len(result.metadata.channels) == 2
+    assert result.metadata.channels[0].name == "DAPI"
+    assert result.metadata.channels[1].name == "GFP"
