@@ -1109,6 +1109,22 @@ class FibsemMicroscope(ABC):
             self.move_stage_absolute(fm_orientation)
             self.fm.objective.insert()  # insert objective
 
+    @property
+    def current_grid(self) -> Optional[str]:
+        """Get the current grid name."""
+        if not self.stage_is_compustage:
+            return None
+        
+        self.grids: Dict[str, FibsemStagePosition] = {}
+        self.grids["GRID-01"] = FibsemStagePosition(x=0, y=0)  # example grid position
+
+        GRID_RADIUS = 1e-3  # 1mm tolerance
+
+        # loop through the grids and find the one that matches the current position
+        for name, position in self.grids.items():
+            if position.is_close2(self.get_stage_position(), tol=GRID_RADIUS, axes=["x", "y"]):  # 1mm tolerance
+                return name
+
 class ThermoMicroscope(FibsemMicroscope):
     """
     A class representing a Thermo Fisher FIB-SEM microscope.

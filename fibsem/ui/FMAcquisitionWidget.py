@@ -809,12 +809,16 @@ class FMAcquisitionWidget(QWidget):
     def update_text_overlay(self):
         """Update the text overlay with current stage position and objective information."""
         try:
+            if self.fm.parent is None:
+                logging.warning("FluorescenceMicroscope parent is None. Cannot update text overlay.")
+                return
             pos = self.fm.parent.get_stage_position()
             orientation = self.fm.parent.get_stage_orientation()
+            current_grid = self.fm.parent.current_grid
 
             # Create combined text for overlay
             overlay_text = (
-                f"STAGE: {to_pretty_string_short(pos)} [{orientation}]\n"
+                f"STAGE: {pos.pretty_string} [{orientation}] [{current_grid}]\n"
                 f"OBJECTIVE: {self.fm.objective.position*1e3:.3f} mm"
             )
             self.viewer.text_overlay.visible = True
