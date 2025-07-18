@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from unittest.mock import Mock, patch, call
 
-from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area, acquire_at_positions, acquire_channels, acquire_z_stack, acquire_image, stitch_tileset, acquire_and_stitch_tileset
+from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area, acquire_at_positions, acquire_channels, acquire_z_stack, acquire_image, stitch_tileset, acquire_and_stitch_tileset, acquire_multiple_overviews
 from fibsem.fm.structures import FMStagePosition, ChannelSettings, ZParameters, FluorescenceImage
 from fibsem.structures import FibsemStagePosition
 
@@ -910,3 +910,101 @@ def test_acquire_and_stitch_tileset():
     assert len(result.metadata.channels) == 2
     assert result.metadata.channels[0].name == "DAPI"
     assert result.metadata.channels[1].name == "GFP"
+
+def test_acquire_multiple_overviews():
+    """Test acquire_multiple_overviews function with multiple FM positions."""
+    from fibsem import utils
+    
+    # Setup demo microscope
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0.0
+    microscope.move_to_microscope("FM")
+    
+    # Create test positions
+    positions = [
+        FMStagePosition(
+            name="Region1",
+            stage_position=FibsemStagePosition(x=0.001, y=0.002, z=0.003),
+            objective_position=0.012
+        ),
+        FMStagePosition(
+            name="Region2",
+            stage_position=FibsemStagePosition(x=0.004, y=0.005, z=0.006),
+            objective_position=0.015
+        ),
+        FMStagePosition(
+            name="Region3",
+            stage_position=FibsemStagePosition(x=0.007, y=0.008, z=0.009),
+            objective_position=0.018
+        )
+    ]
+    
+    # Create test channel
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=358,
+        emission_wavelength=461,
+        power=0.1,
+        exposure_time=0.1
+    )
+    
+    # Test with 2x2 grid
+    grid_size = (2, 2)
+    tile_overlap = 0.1
+    
+    # Call function
+    result = acquire_multiple_overviews(
+        microscope=microscope,
+        positions=positions,
+        channel_settings=channel,
+        grid_size=grid_size,
+        tile_overlap=tile_overlap
+    )
+    
+    # Verify result
+    assert len(result) == 3  # Should have 3 overview images
+    
+    for i, overview in enumerate(result):
+        assert isinstance(overview, FluorescenceImage)
+        
+        # Check dimensions: should be (nc_channel=1, nz=1, ny, nx)
+        assert len(overview.data.shape) == 4
+        assert overview.data.shape[0] == 1  # 1 channel
+        assert overview.data.shape[1] == 1  # 1 z-plane
+        
+        # Check metadata
+        if overview.metadata is None:
+            raise ValueError("Overview metadata is None")
+        assert len(overview.metadata.channels) == 1
+        assert overview.metadata.channels[0].name == "DAPI"
+        
+        # Check that description contains position name
+        assert positions[i].name in overview.metadata.description
+
+        # Check that stage position is set correctly using isclose
+        assert overview.metadata.stage_position is not None
+        assert np.isclose(overview.metadata.stage_position.x, positions[i].stage_position.x, atol=1e-6)
+        assert np.isclose(overview.metadata.stage_position.y, positions[i].stage_position.y, atol=1e-6)
+
+
+    # Call function with empty positions list should raise ValueError
+    with pytest.raises(ValueError, match="Positions list cannot be empty"):
+        acquire_multiple_overviews(
+            microscope=microscope,
+            positions=[],  # Empty list
+            channel_settings=channel,
+            grid_size=grid_size,
+            tile_overlap=tile_overlap
+        )
+
+    # Call function without FM microscope should raise ValueError
+    with pytest.raises(ValueError, match="Fluorescence microscope not initialized"):
+        microscope.fm = None # Remove FM microscope
+        acquire_multiple_overviews(
+            microscope=microscope,
+            positions=positions,
+            channel_settings=channel,
+            grid_size=grid_size,
+            tile_overlap=tile_overlap
+        )

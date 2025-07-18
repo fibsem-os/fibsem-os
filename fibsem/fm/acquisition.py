@@ -128,7 +128,6 @@ def acquire_image(microscope: FluorescenceMicroscope,
     
     return image
 
-# Autofocus functions have been moved to fibsem.fm.calibration
 
 def acquire_at_positions(
     microscope: FibsemMicroscope,
@@ -277,8 +276,6 @@ def run_tileset_autofocus(
         return False
 
 
-
-# TODO: handle multiple channels properly
 def acquire_tileset(
     microscope: FibsemMicroscope,
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
@@ -729,6 +726,141 @@ def acquire_and_stitch_tileset(
             logging.error(f"Failed to save overview to {filepath}: {e}")
 
     return overview_image
+
+
+def acquire_multiple_overviews(
+    microscope: FibsemMicroscope,
+    positions: List[FMStagePosition],
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    grid_size: Tuple[int, int],
+    tile_overlap: float = 0.1,
+    zparams: Optional[ZParameters] = None,
+    beam_type: BeamType = BeamType.ELECTRON,
+    autofocus_mode: AutofocusMode = AutofocusMode.NONE,
+    autofocus_channel: Optional[ChannelSettings] = None,
+    autofocus_zparams: Optional[ZParameters] = None,
+    save_directory: Optional[str] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> List[Optional[FluorescenceImage]]:
+    """Acquire multiple overview images at different fluorescence microscopy positions.
+    
+    This function moves to each specified FMStagePosition (both stage and objective)
+    and acquires a stitched overview image using the same parameters as 
+    acquire_and_stitch_tileset.
+    
+    Args:
+        microscope: The FIBSEM microscope instance with fluorescence microscope
+        positions: List of FMStagePosition objects defining where to acquire overviews
+        channel_settings: Single channel or list of channels to acquire
+        grid_size: Tuple of (rows, cols) defining the grid dimensions
+        tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        zparams: Optional Z parameters for z-stack acquisition
+        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        autofocus_mode: Auto-focus mode for tileset acquisition (default: NONE)
+        autofocus_channel: Channel settings to use for auto-focus (uses main channel if None)
+        autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
+        save_directory: Optional directory path to save overview images. Creates subdirectories
+                       for each position (default: None)
+        stop_event: Threading event to signal cancellation (optional)
+        
+    Returns:
+        List of stitched FluorescenceImage objects (or None if acquisition was cancelled)
+        corresponding to each position
+        
+    Raises:
+        ValueError: If positions is empty or microscope.fm is None
+        
+    Example:
+        >>> # Define positions 
+        >>> pos1 = FMStagePosition(name="Region1", stage_position=stage_pos1, objective_position=0.012)
+        >>> pos2 = FMStagePosition(name="Region2", stage_position=stage_pos2, objective_position=0.013) 
+        >>> positions = [pos1, pos2]
+        >>> 
+        >>> # Define channel settings
+        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365, 
+        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
+        >>> 
+        >>> # Acquire 3x3 overview grids at each position
+        >>> overviews = acquire_multiple_overviews(microscope, positions, channel, 
+        ...                                       grid_size=(3, 3), tile_overlap=0.1,
+        ...                                       save_directory="/data/experiment")
+        >>> print(f"Acquired {len(overviews)} overview images")
+    """
+    if microscope.fm is None:
+        raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
+    if not positions:
+        raise ValueError("Positions list cannot be empty")
+    
+    # Store initial positions to restore later
+    initial_stage_position = microscope.get_stage_position()
+    initial_objective_position = microscope.fm.objective.position
+    
+    overview_images: List[Optional[FluorescenceImage]] = []
+    
+    try:
+        for i, fm_pos in enumerate(positions):
+            # Check for cancellation before each position
+            if stop_event and stop_event.is_set():
+                logging.info("Multiple overview acquisition cancelled")
+                return overview_images  # Return images acquired so far
+            
+            logging.info(f"Acquiring overview at position {i+1}/{len(positions)}: {fm_pos.name}")
+            
+            # Move stage to the specified position
+            logging.info(f"Moving stage to: {fm_pos.stage_position}")
+            microscope.safe_absolute_stage_movement(fm_pos.stage_position)
+            
+            # Move objective to the specified position
+            logging.info(f"Moving objective to: {fm_pos.objective_position*1e3:.2f} mm")
+            microscope.fm.objective.move_absolute(fm_pos.objective_position)
+            
+            # Create position-specific save directory if requested
+            position_save_directory = None
+            if save_directory is not None:
+                position_name = fm_pos.name or f"position_{i+1:03d}"
+                position_save_directory = os.path.join(save_directory, position_name)
+                os.makedirs(position_save_directory, exist_ok=True)
+            
+            # Acquire overview at current position
+            overview_image = acquire_and_stitch_tileset(
+                microscope=microscope,
+                channel_settings=channel_settings,
+                grid_size=grid_size,
+                tile_overlap=tile_overlap,
+                zparams=zparams,
+                beam_type=beam_type,
+                autofocus_mode=autofocus_mode,
+                autofocus_channel=autofocus_channel,
+                autofocus_zparams=autofocus_zparams,
+                save_directory=position_save_directory,
+                stop_event=stop_event,
+            )
+            
+            # Check if acquisition was cancelled
+            if overview_image is None:
+                logging.info("Overview acquisition cancelled")
+                overview_images.append(None)
+                return overview_images  # Return images acquired so far
+            
+            # Update metadata with position information
+            if overview_image is not None:
+                overview_image.metadata.description = f"{fm_pos.name}-overview-{overview_image.metadata.acquisition_date}"
+                logging.info(f"Acquired overview at position: {fm_pos.name}")
+                
+            overview_images.append(overview_image)
+            
+    except Exception as e:
+        logging.error(f"Error during multiple overview acquisition: {e}")
+        raise
+        
+    finally:
+        # Return to initial positions
+        logging.info("Returning to initial positions")
+        microscope.safe_absolute_stage_movement(initial_stage_position)
+        microscope.fm.objective.move_absolute(initial_objective_position)
+    
+    logging.info(f"Multiple overview acquisition complete: {len(overview_images)} overviews acquired")
+    return overview_images
 
 
 def generate_grid_positions(ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1) -> List[Tuple[float, float]]:

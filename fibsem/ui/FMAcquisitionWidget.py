@@ -1596,26 +1596,57 @@ class FMAcquisitionWidget(QWidget):
         use_zstack = settings['overview_use_zstack']
         z_parameters = settings['z_parameters'] if use_zstack else None
         autofocus_mode = settings['overview_autofocus_mode']
+        # TODO: support positions, autofocus channel and autofocus z parameters
+        # TODO: allow setting different sized overviews for each position
+        positions = None #self.stage_positions
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
             target=self._overview_worker,
-            args=(channel_settings, grid_size, tile_overlap, z_parameters, autofocus_mode),
+            args=(channel_settings, grid_size, tile_overlap, z_parameters, autofocus_mode, positions),
             daemon=True
         )
         self._acquisition_thread.start()
 
     def _overview_worker(self,
-                         channel_settings: List[ChannelSettings],
-                         grid_size: tuple[int, int],
-                         tile_overlap: float,
-                         z_parameters: Optional[ZParameters],
-                         autofocus_mode: AutofocusMode):
+                        channel_settings: List[ChannelSettings],
+                        grid_size: tuple[int, int],
+                        tile_overlap: float,
+                        z_parameters: Optional[ZParameters],
+                        autofocus_mode: AutofocusMode, 
+                        positions: Optional[List[FMStagePosition]] = None):
         """Worker thread for overview acquisition."""
         try:
             # Get the parent microscope for tileset acquisition
             if not self._validate_parent_microscope():
                 return
+            if positions is None:
+                positions = []
+
+            # if positions:
+            #     logging.info(f"Acquiring overview at {len(positions)} saved positions")
+            #     from fibsem.fm.acquisition import acquire_multiple_overviews
+
+            #     overview_images = acquire_multiple_overviews(
+            #         microscope=self.fm.parent,
+            #         positions=self.stage_positions,
+            #         channel_settings=channel_settings,
+            #         grid_size=grid_size,
+            #         tile_overlap=tile_overlap,
+            #         zparams=z_parameters,
+            #         autofocus_mode=autofocus_mode,
+            #         save_directory=self.experiment_path,
+            #         stop_event=self._acquisition_stop_event
+            #     )
+            #     # Check if acquisition was cancelled
+            #     if self._acquisition_stop_event.is_set() or overview_images is None:
+            #         logging.info("Overview acquisition was cancelled")
+            #         return
+
+            #     # Process the acquired overview images
+            #     for img in overview_images:
+            #         self.update_persistent_image_signal.emit(img)
+            #     return
 
             # Acquire and stitch tileset
             overview_image = acquire_and_stitch_tileset(
