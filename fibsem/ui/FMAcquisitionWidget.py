@@ -43,7 +43,7 @@ from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, 
 from fibsem.structures import FibsemStagePosition, Point
 from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.fm.widgets import (
-    ChannelSettingsWidget,
+    MultiChannelSettingsWidget,
     HistogramWidget,
     ObjectiveControlWidget,
     OverviewParametersWidget,
@@ -335,7 +335,7 @@ class FMAcquisitionWidget(QWidget):
         self.experiment_path = experiment_path
 
         # widgets
-        self.channelSettingsWidget: ChannelSettingsWidget
+        self.channelSettingsWidget: MultiChannelSettingsWidget
         self.objectiveControlWidget: ObjectiveControlWidget
         self.zParametersWidget: ZParametersWidget
         self.overviewParametersWidget: OverviewParametersWidget
@@ -428,7 +428,7 @@ class FMAcquisitionWidget(QWidget):
         self.positionsCollapsible.addWidget(self.savedPositionsWidget)
 
         # create channel settings widget
-        self.channelSettingsWidget = ChannelSettingsWidget(
+        self.channelSettingsWidget = MultiChannelSettingsWidget(
             fm=self.fm,
             channel_settings=channel_settings,
             parent=self
@@ -520,15 +520,7 @@ class FMAcquisitionWidget(QWidget):
         self.zParametersWidget.doubleSpinBox_zmin.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.zParametersWidget.doubleSpinBox_zmax.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.zParametersWidget.doubleSpinBox_zstep.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
-        # Connect to first channel inputs for backward compatibility during live acquisition
-        if self.channelSettingsWidget.exposure_time_input:
-            self.channelSettingsWidget.exposure_time_input.valueChanged.connect(self._update_exposure_time)
-        if self.channelSettingsWidget.power_input:
-            self.channelSettingsWidget.power_input.valueChanged.connect(self._update_power)
-        if self.channelSettingsWidget.excitation_wavelength_input:
-            self.channelSettingsWidget.excitation_wavelength_input.currentIndexChanged.connect(self._update_excitation_wavelength)
-        if self.channelSettingsWidget.emission_wavelength_input:
-            self.channelSettingsWidget.emission_wavelength_input.currentIndexChanged.connect(self._update_emission_wavelength)
+        # Initial channel inputs for live acquisition are now handled by the widget itself
         self.pushButton_toggle_acquisition.clicked.connect(self.toggle_acquisition)
         self.pushButton_acquire_single_image.clicked.connect(self.acquire_image)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_image)
@@ -1562,6 +1554,9 @@ class FMAcquisitionWidget(QWidget):
         
         # Disable channel settings during specific acquisitions (but allow during live imaging)
         self.channelSettingsWidget.setEnabled(not self.is_acquisition_active)
+        
+        # Disable channel list selection during any acquisition to prevent switching channels mid-acquisition
+        self.channelSettingsWidget.channel_list.setEnabled(not any_acquisition_active)
 
     def _save_positions_to_yaml(self):
         """Save current stage positions to positions.yaml in the experiment directory."""
@@ -1672,16 +1667,23 @@ class FMAcquisitionWidget(QWidget):
             self.fm.set_power(value)
 
     def _update_excitation_wavelength(self, idx: int):
-        if self.fm.is_acquiring and self.channelSettingsWidget.excitation_wavelength_input:
-            wavelength = self.channelSettingsWidget.excitation_wavelength_input.itemData(idx)
-            logging.info(f"Updating excitation wavelength to: {wavelength} nm")
-            self.fm.filter_set.excitation_wavelength = wavelength
+        if self.fm.is_acquiring:
+            # Get the selected channel widget to retrieve the wavelength value
+            selected_widget = self.channelSettingsWidget._get_selected_channel_widget()
+            if selected_widget and selected_widget.excitation_wavelength_input:
+                wavelength = selected_widget.excitation_wavelength_input.itemData(idx)
+                logging.info(f"Updating excitation wavelength to: {wavelength} nm")
+                self.fm.filter_set.excitation_wavelength = wavelength
 
     def _update_emission_wavelength(self, idx: int):
-        if self.fm.is_acquiring and self.channelSettingsWidget.emission_wavelength_input:
-            wavelength = self.channelSettingsWidget.emission_wavelength_input.itemData(idx)
-            logging.info(f"Updating emission wavelength to: {wavelength} nm")
-            self.fm.filter_set.emission_wavelength = wavelength
+        if self.fm.is_acquiring:
+            # Get the selected channel widget to retrieve the wavelength value
+            selected_widget = self.channelSettingsWidget._get_selected_channel_widget()
+            if selected_widget and selected_widget.emission_wavelength_input:
+                wavelength = selected_widget.emission_wavelength_input.itemData(idx)
+                logging.info(f"Updating emission wavelength to: {wavelength} nm")
+                self.fm.filter_set.emission_wavelength = wavelength
+
 
     # override closeEvent to stop acquisition when the widget is closed
     def closeEvent(self, event: QEvent):

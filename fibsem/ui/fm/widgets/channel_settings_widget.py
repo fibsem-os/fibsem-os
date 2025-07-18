@@ -1,6 +1,6 @@
 
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -23,8 +23,11 @@ from fibsem.fm.structures import ChannelSettings
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
-    GRAY_PUSHBUTTON_STYLE,
 )
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
 CHANNEL_SETTINGS_CONFIG = {
     "power": {
@@ -44,64 +47,6 @@ CHANNEL_SETTINGS_CONFIG = {
 }
 
 
-class ChannelSettingsWidget(QWidget):
-    """Main channel settings widget that wraps MultiChannelSettingsWidget for backward compatibility."""
-    
-    def __init__(self,
-                 fm: FluorescenceMicroscope,
-                 channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-                 parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.fm = fm
-        
-        # Create the main layout
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(layout)
-        
-        # Create and add the multi-channel widget
-        self._multi_channel_widget = MultiChannelSettingsWidget(
-            fm=fm,
-            channel_settings=channel_settings,
-            parent=self
-        )
-        layout.addWidget(self._multi_channel_widget)
-    
-    @property
-    def channel_settings(self) -> List[ChannelSettings]:
-        """Get channel settings - always returns a list of ChannelSettings."""
-        return self._multi_channel_widget.channel_settings
-    
-    @channel_settings.setter
-    def channel_settings(self, value: Union[ChannelSettings, List[ChannelSettings]]):
-        """Set channel settings."""
-        self._multi_channel_widget.channel_settings = value
-    
-    # Delegate properties to the multi-channel widget for backward compatibility
-    @property
-    def channel_name_input(self):
-        return self._multi_channel_widget.channel_name_input
-    
-    @property
-    def excitation_wavelength_input(self):
-        return self._multi_channel_widget.excitation_wavelength_input
-    
-    @property
-    def emission_wavelength_input(self):
-        return self._multi_channel_widget.emission_wavelength_input
-    
-    @property
-    def power_input(self):
-        return self._multi_channel_widget.power_input
-    
-    @property
-    def exposure_time_input(self):
-        return self._multi_channel_widget.exposure_time_input
-
-    @property
-    def selected_channel(self) -> Optional[ChannelSettings]:
-        """Get the currently selected channel for live acquisition."""
-        return self._multi_channel_widget.selected_channel
 
 
 class SingleChannelWidget(QWidget):
@@ -122,14 +67,14 @@ class SingleChannelWidget(QWidget):
 
     def initUI(self):
         """Initialize the UI components for the single channel widget."""
-        self.setContentsMargins(5, 5, 5, 5)
+        self.setContentsMargins(0, 0, 0, 0)
         
         # Create a frame to group the channel settings
         frame = QFrame()
         frame.setFrameStyle(QFrame.Box)
         frame.setLineWidth(1)
         frame_layout = QGridLayout()
-        frame_layout.setContentsMargins(10, 10, 10, 10)
+        frame_layout.setContentsMargins(0, 0, 0, 0)
         frame.setLayout(frame_layout)
         
         main_layout = QVBoxLayout()
@@ -140,22 +85,24 @@ class SingleChannelWidget(QWidget):
         layout = frame_layout
 
         # Channel name with optional remove button
-        channel_header_layout = QHBoxLayout()
+        channel_header_layout = QGridLayout()
         channel_header_layout.setContentsMargins(0, 0, 0, 0)
         
         self.channel_name_input = QLineEdit(self.channel_settings.name, self)
         self.channel_name_input.setPlaceholderText("Enter channel name")
-        channel_header_layout.addWidget(QLabel("Channel:"))
-        channel_header_layout.addWidget(self.channel_name_input)
-        
+        channel_header_layout.addWidget(QLabel("Channel:"), 0, 0)
+        channel_header_layout.addWidget(self.channel_name_input, 0, 1)
+
         if self.show_remove_button:
             self.remove_button = QPushButton("✕")
             self.remove_button.setStyleSheet(RED_PUSHBUTTON_STYLE)
             self.remove_button.setMaximumWidth(30)
             self.remove_button.setToolTip("Remove this channel")
             self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
-            channel_header_layout.addWidget(self.remove_button)
-        
+            channel_header_layout.addWidget(self.remove_button, 0, 2)
+        channel_header_layout.setColumnStretch(0, 1)  # Labels column - expandable
+        channel_header_layout.setColumnStretch(1, 1)  # Input widgets column - expandable
+
         # Convert layout to widget and add to grid
         channel_header_widget = QWidget()
         channel_header_widget.setLayout(channel_header_layout)
@@ -276,20 +223,24 @@ class MultiChannelSettingsWidget(QWidget):
     def __init__(self,
                  fm: FluorescenceMicroscope,
                  channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-                 parent: Optional[QWidget] = None):
+                 parent: Optional['FMAcquisitionWidget'] = None):
         super().__init__(parent)
         self.fm = fm
-        
+        self.parent_widget = parent
+
         # Convert single channel to list for consistent handling
         if isinstance(channel_settings, ChannelSettings):
-            self._channel_settings_list = [channel_settings]
-        else:
-            self._channel_settings_list = channel_settings.copy() if channel_settings else []
+            channel_settings = [channel_settings]
+        self._channel_settings_list = channel_settings.copy()
         
         self.channel_widgets: List[SingleChannelWidget] = []
         self.initUI()
         self._create_channel_widgets()
         self._update_channel_list()
+        
+        # Connect channel selection changes
+        self.channel_list.currentRowChanged.connect(self._on_channel_selection_changed)
+        self._connect_live_acquisition_signals()
     
     @property
     def channel_settings(self) -> List[ChannelSettings]:
@@ -544,3 +495,77 @@ class MultiChannelSettingsWidget(QWidget):
         """Get the selected channel's exposure time input."""
         selected_widget = self._get_selected_channel_widget()
         return selected_widget.exposure_time_input if selected_widget else None
+    
+    def _on_channel_selection_changed(self, current_row: int):
+        """Handle channel selection changes to update live acquisition connections."""
+        # Prevent channel switching during any acquisition for safety
+        if self.parent_widget:
+            if self.parent_widget.fm.is_acquiring or self.parent_widget.is_acquisition_active:
+                logging.warning("Channel selection cannot be changed during acquisition")
+                return
+            
+        if current_row >= 0:
+            logging.debug(f"Channel selection changed to row {current_row}")
+            # Reconnect live acquisition signals to the newly selected channel
+            self._connect_live_acquisition_signals()
+    
+    def _connect_live_acquisition_signals(self):
+        """Connect live acquisition parameter update signals to the currently selected channel."""
+        # Disconnect any existing connections to avoid duplicate signals
+        self._disconnect_live_acquisition_signals()
+        
+        # Get the currently selected channel widget
+        selected_widget = self._get_selected_channel_widget()       
+        if selected_widget:
+            if self.parent_widget:
+                # Connect to the selected channel's input widgets
+                selected_widget.exposure_time_input.valueChanged.connect(self.parent_widget._update_exposure_time)
+                selected_widget.power_input.valueChanged.connect(self.parent_widget._update_power) 
+                selected_widget.excitation_wavelength_input.currentIndexChanged.connect(self.parent_widget._update_excitation_wavelength)
+                selected_widget.emission_wavelength_input.currentIndexChanged.connect(self.parent_widget._update_emission_wavelength)
+
+                logging.info(f"Connected live acquisition signals to channel: {selected_widget.channel_settings.name}")
+    
+    def _disconnect_live_acquisition_signals(self):
+        """Disconnect live acquisition parameter update signals from all channels."""
+        if not self.parent_widget:
+            return
+
+            
+        # Disconnect from all channel widgets to avoid stale connections
+        for channel_widget in self.channel_widgets:
+            try:
+                channel_widget.exposure_time_input.valueChanged.disconnect(self.parent_widget._update_exposure_time)
+            except (TypeError, AttributeError):
+                pass  # Signal wasn't connected or widget doesn't exist
+            try:
+                channel_widget.power_input.valueChanged.disconnect(self.parent_widget._update_power)
+            except (TypeError, AttributeError):
+                pass
+            try:
+                channel_widget.excitation_wavelength_input.currentIndexChanged.disconnect(self.parent_widget._update_excitation_wavelength)
+            except (TypeError, AttributeError):
+                pass
+            try:
+                channel_widget.emission_wavelength_input.currentIndexChanged.disconnect(self.parent_widget._update_emission_wavelength)
+            except (TypeError, AttributeError):
+                pass
+
+
+# ChannelSettingsWidget has been removed - use MultiChannelSettingsWidget directly
+# This maintains backward compatibility by aliasing the class name
+ChannelSettingsWidget = MultiChannelSettingsWidget
+
+
+
+if __name__ == "__main__":
+    # Example usage
+    from fibsem.fm.microscope import FluorescenceMicroscope
+    fm = FluorescenceMicroscope()
+    channel_settings = ChannelSettings(name="Example Channel", excitation_wavelength=488, emission_wavelength=520, power=0.05, exposure_time=0.01)
+    
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication([])
+    widget = MultiChannelSettingsWidget(fm=fm, channel_settings=channel_settings)
+    widget.show()
+    app.exec_()
