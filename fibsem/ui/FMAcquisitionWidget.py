@@ -248,13 +248,14 @@ def napari_world_coordinate_to_stage_position(napari_coordinate: Point) -> Fibse
     return FibsemStagePosition(x=napari_coordinate.x, y=-napari_coordinate.y)
 
 def _image_metadata_to_napari_image_layer(metadata: FluorescenceImageMetadata, 
-                                          image_shape: Tuple[int, int]) -> dict:
+                                          image_shape: Tuple[int, int], channel_index: int = 0) -> dict:
     """Convert FluorescenceImageMetadata to a dictionary compatible with napari image layer.
     This function extracts relevant metadata from the FluorescenceImageMetadata object
     and formats it into a dictionary that can be used to create a napari image layer.
     Args:
         metadata: FluorescenceImageMetadata object containing image metadata
         image_shape: Shape of the image (height, width)
+        channel_index: Index of the channel to extract metadata for (default is 0)
     Returns:
         A dictionary containing the metadata formatted for napari image layer.
     Raises:
@@ -263,9 +264,9 @@ def _image_metadata_to_napari_image_layer(metadata: FluorescenceImageMetadata,
     # Convert structured metadata to dictionary for napari compatibility
     metadata_dict = metadata.to_dict() if metadata else {}
 
-    channel_name = metadata.channels[0].name
-    wavelength = metadata.channels[0].excitation_wavelength
-    emission_wavelength = metadata.channels[0].emission_wavelength
+    channel_name = metadata.channels[channel_index].name
+    wavelength = metadata.channels[channel_index].excitation_wavelength
+    emission_wavelength = metadata.channels[channel_index].emission_wavelength
     stage_position = metadata.stage_position
 
     pos = stage_position_to_napari_image_coordinate(image_shape, 
@@ -393,8 +394,12 @@ class FMAcquisitionWidget(QWidget):
         # Get channel settings (always a list now)
         channel_settings = self.channelSettingsWidget.channel_settings
         
+        # Get selected channel for live acquisition
+        selected_channel_settings = self.channelSettingsWidget.selected_channel
+        
         return {
             'channel_settings': channel_settings,
+            'selected_channel_settings': selected_channel_settings,
             'z_parameters': self.zParametersWidget.z_parameters,
             'overview_grid_size': self.overviewParametersWidget.get_grid_size(),
             'overview_overlap': self.overviewParametersWidget.get_overlap(),
@@ -1349,7 +1354,7 @@ class FMAcquisitionWidget(QWidget):
         channel_name = metadata_dict["name"]
         logging.info(f"Updating image layer: {channel_name}, shape: {image.data.shape}, acquisition date: {image.metadata.acquisition_date}")
 
-        self._update_napari_image_layer(channel_name, image, metadata_dict)
+        self._update_napari_image_layer(channel_name, image.data, metadata_dict)
         self.display_stage_position_overlay()
 
     @pyqtSlot(FluorescenceImage)
@@ -1358,10 +1363,12 @@ class FMAcquisitionWidget(QWidget):
         
         # Convert structured metadata to dictionary for napari compatibility
         image_height, image_width = image.data.shape[-2:]
-        metadata_dict = _image_metadata_to_napari_image_layer(image.metadata, (image_height, image_width))
-        self._update_napari_image_layer(metadata_dict["description"], image, metadata_dict)
+        for channel_index in range(image.data.shape[0]):
+            metadata_dict = _image_metadata_to_napari_image_layer(image.metadata, (image_height, image_width), channel_index=channel_index)
+            layer_name = f"{metadata_dict['description']}-{metadata_dict['name']}"
+            self._update_napari_image_layer(layer_name, image.data[channel_index], metadata_dict)
 
-    def _update_napari_image_layer(self, layer_name: str, image: FluorescenceImage, metadata_dict: dict):
+    def _update_napari_image_layer(self, layer_name: str, image: np.ndarray, metadata_dict: dict):
         """Update or create a napari image layer with the given metadata.
         Args:
             layer_name: Name of the napari image layer
@@ -1372,19 +1379,19 @@ class FMAcquisitionWidget(QWidget):
         """
 
         # Add a singleton dimension for z if needed
-        if image.data.ndim == 3 and len(metadata_dict["scale"]) == 2:
-            metadata_dict["scale"] = (1, *metadata_dict["scale"]) 
-        
+        if image.ndim == 3 and len(metadata_dict["scale"]) == 2:
+            metadata_dict["scale"] = (1, *metadata_dict["scale"])
+
         if layer_name in self.viewer.layers:
             # If the layer already exists, update it
-            self.viewer.layers[layer_name].data = image.data
+            self.viewer.layers[layer_name].data = image
             self.viewer.layers[layer_name].metadata = metadata_dict["metadata"]
             self.viewer.layers[layer_name].colormap = metadata_dict["colormap"]
             self.viewer.layers[layer_name].translate = metadata_dict["translate"]
         else:
             # If the layer does not exist, create a new one
             self.viewer.add_image(
-                data=image.data,
+                data=image,
                 name=layer_name,
                 metadata=metadata_dict["metadata"],
                 colormap=metadata_dict["colormap"],
@@ -1393,7 +1400,7 @@ class FMAcquisitionWidget(QWidget):
                 blending="additive",
             )
         # Update histogram (widget handles visibility checking internally)
-        self.histogramWidget.update_histogram(image.data, layer_name)
+        self.histogramWidget.update_histogram(image, layer_name)
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
@@ -1403,8 +1410,9 @@ class FMAcquisitionWidget(QWidget):
 
         # TODO: handle case where acquisition fails...
 
-        # Get selected channel for live acquisition
-        selected_channel_settings = self.channelSettingsWidget.selected_channel
+        # Get current settings
+        settings = self._get_current_settings()
+        selected_channel_settings = settings['selected_channel_settings']
 
         if selected_channel_settings is None:
             logging.warning("No channel selected for live acquisition")
@@ -1684,7 +1692,6 @@ class FMAcquisitionWidget(QWidget):
                 logging.info(f"Updating emission wavelength to: {wavelength} nm")
                 self.fm.filter_set.emission_wavelength = wavelength
 
-
     # override closeEvent to stop acquisition when the widget is closed
     def closeEvent(self, event: QEvent):
         """Handle the close event to stop acquisition."""
@@ -1709,10 +1716,6 @@ class FMAcquisitionWidget(QWidget):
                 logging.info(f"{self._current_acquisition_type} acquisition stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping {self._current_acquisition_type} acquisition: {e}")
-        
-        
-        
-        
 
         # Reset acquisition flags
         self._current_acquisition_type = None

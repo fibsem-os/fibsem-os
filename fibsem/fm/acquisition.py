@@ -165,6 +165,8 @@ def acquire_at_positions(
         >>> images = acquire_at_positions(microscope, positions, channel, 
         ...                              save_directory="/data/experiment")
     """ 
+    if microscope.fm is None:
+        raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
     if not positions:
         raise ValueError("Positions list cannot be empty")
     if not isinstance(channel_settings, list):
@@ -253,6 +255,9 @@ def run_tileset_autofocus(
     Returns:
         True if autofocus completed successfully, False if cancelled
     """
+    if microscope.fm is None:
+        logging.error("Fluorescence microscope not initialized in the FibsemMicroscope instance")
+        return False
     logging.info(f"Performing auto-focus {context}")
     try:
         result = run_autofocus(
@@ -710,7 +715,7 @@ def acquire_and_stitch_tileset(
         logging.info("Tileset acquisition was cancelled, cannot stitch")
         return None
     
-    overview_image = stitch_tileset(tileset, tile_overlap)
+    overview_image = stitch_tileset(tileset, tile_overlap)  # type: ignore
 
     # Save overview to experiment directory
     if save_directory is not None:
