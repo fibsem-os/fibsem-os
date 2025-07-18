@@ -445,12 +445,12 @@ def create_circle_shape(
     # Convert radius to pixels
     radius_px = radius / scale[0]  # Assume square pixels for simplicity
     
-    # Generate circle points
-    angles = np.linspace(0, 2*np.pi, num_points, endpoint=False)
-    x_points = center_x + radius_px * np.cos(angles)
-    y_points = center_y + radius_px * np.sin(angles)
+    # Calculate bounding box for ellipse
+    xmin = center_x - radius_px
+    xmax = center_x + radius_px
+    ymin = center_y - radius_px
+    ymax = center_y + radius_px
     
-    # Create circle points in napari format (y, x)
-    circle_points = np.column_stack([y_points, x_points])
-    
-    return circle_points
+    # create circle
+    shape = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]
+    return np.array(shape)

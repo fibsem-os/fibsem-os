@@ -2,12 +2,13 @@ import logging
 import os
 import threading
 import yaml
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union
 
 import napari
 import numpy as np
-from napari.layers import Image as NapariImageLayer
+from napari.layers import Image as NapariImageLayer, Shapes as NapariShapesLayer
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
@@ -50,6 +51,7 @@ from fibsem.ui.fm.widgets import (
     SavedPositionsWidget,
     ZParametersWidget,
 )
+
 from fibsem.ui.napari.utilities import (
     create_circle_shape,
     create_crosshair_shape,
@@ -62,6 +64,64 @@ from fibsem.ui.stylesheets import (
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
 )
+
+
+@dataclass
+class NapariShapeOverlay:
+    """Represents a shape overlay for napari with its properties."""
+    shape: np.ndarray
+    color: str
+    label: str
+    shape_type: str  # "rectangle", "ellipse", or "line"
+    
+    def __post_init__(self):
+        """Validate shape type."""
+        if self.shape_type not in ["rectangle", "ellipse", "line"]:
+            raise ValueError(f"Invalid shape_type: {self.shape_type}. Must be 'rectangle', 'ellipse', or 'line'")
+
+# Overlay layer configuration constants
+OVERLAY_CONFIG = {
+    "layer_name": "overlay-shapes",
+    "text_properties": {
+        "color": "white",
+        "font_size": 50,
+        "anchor": "upper_left",
+        "translation": (5, 5),
+    },
+    "rectangle_style": {
+        "edge_width": 30,
+        "face_color": "transparent",
+        "opacity": 0.7,
+    },
+    "circle_style": {
+        "edge_width": 40,
+        "face_color": "transparent", 
+        "opacity": 0.7,
+    },
+}
+
+# Crosshair layer configuration constants
+CROSSHAIR_CONFIG = {
+    "layer_name": "stage-position",
+    "crosshair_size": 50,
+    "text_properties": {
+        "color": "white",
+        "font_size": 50,
+        "anchor": "lower_left",
+        "translation": (5, 55),
+    },
+    "line_style": {
+        "edge_width": 12,
+        "face_color": "transparent",
+    },
+    "colors": {
+        "origin": "red",
+        "current": "yellow",
+        "saved_selected": "lime",
+        "saved_unselected": "cyan",
+    },
+}
+
 
 # TODO: allow the user to select the colormap
 def wavelength_to_color(wavelength: Union[int, float]) -> str:
@@ -305,17 +365,13 @@ channel_settings=ChannelSettings(
 )
 
 # TODO: add a progress bar for each acquisition
-# TODO: add user-preferences for display settings
 # TODO: add user defined experiment directory + save/load images
 # TODO: add user defined protocol (channel, z-stack parameters, overview parameters, etc.)
 # TODO: enforce stage limits in the UI
 # TODO: menu function to load images
-# TODO: add a convenience NapariShapeFoV or similar, NapariShapeCrossHair
-# TODO: extract ui properties into a config file
 # TODO: integrate with milling workflow
 # TODO: multi-overview acquisition
-# TODO: disable all controls during acquisition
-# TODO: allow user to set objective position for each position 
+# TODO: disable all controls during acquisition. FIX: can add positions during acquisition
 
 # REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
 # REFACTORING TODO: Replace acquisition type magic strings with enum
@@ -828,129 +884,98 @@ class FMAcquisitionWidget(QWidget):
             - Crosshair size is fixed at 50 pixels in each direction
             - Uses stage coordinate system converted to pixel coordinates via camera pixel size
             - Handles multiple positions dynamically based on self.stage_positions list
-            - Uses create_crosshair_shape() utility function for coordinate conversion
+            - Uses NapariShapeOverlay dataclass for type safety
         """
         try:
-            CROSSHAIR_SIZE = 50
-            LAYER_NAME = "stage-position"
 
             # Get coordinate conversion scale from camera pixel size
             layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
-
-            # Collect all positions to display
-            positions_data = self._collect_stage_positions()
-
-            # Generate crosshair line data for all positions
-            crosshair_lines = []
-            for position in positions_data["positions"]:
-                lines = create_crosshair_shape(position, CROSSHAIR_SIZE, layer_scale)
-                crosshair_lines.extend(lines)
-            
-            # Prepare text properties for labels
-            text_properties = {
-                "string": positions_data["labels"],
-                "color": "white",
-                "font_size": 50,
-                "anchor": "lower_left",
-                "translation": (5, 55),
-            }
-            
-            # Update or create the napari layer
-            self._update_crosshair_layer(
-                layer_name=LAYER_NAME,
-                crosshair_lines=crosshair_lines,
-                colors=positions_data["colors"],
-                text_properties=text_properties,
-                layer_scale=layer_scale
-            )
-            
-            # Draw all FOV bounding boxes on single layer
-            self._draw_fov_boxes(layer_scale)
-            
-            # Draw all circle overlays on single layer
-            self._draw_circle_overlays(layer_scale)
+                
+            # Draw all overlay shapes (FOV boxes and circles) on single layer
+            self._draw_overlay_shapes(layer_scale)
 
         except Exception as e:
             logging.warning(f"Error drawing stage position crosshairs: {e}")
 
-    def _draw_fov_boxes(self, layer_scale: Tuple[float, float]):
-        """Draw all FOV bounding boxes on a single layer.
+    def _draw_overlay_shapes(self, layer_scale: Tuple[float, float]):
+        """Draw all overlay shapes (FOV boxes and circles) on a single layer.
 
-        Creates rectangle overlays for:
-        - Current position single image FOV (magenta)
-        - Overview acquisition area (orange, only if not acquiring)
-        - Saved positions FOV (cyan)
+        Creates overlays for:
+        - Current position single image FOV (magenta rectangles)
+        - Overview acquisition area (orange rectangles, only if not acquiring)
+        - Saved positions FOV (cyan rectangles)
+        - Circle overlays (various colors based on configuration)
 
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
         """
-        LAYER_NAME = "fov-boxes"
+        layer_name = OVERLAY_CONFIG["layer_name"]
 
         try:
-            # Collect all FOV rectangles and their colors
-            fov_data = self._collect_fov_rectangles(layer_scale)
+            # Collect all overlay shapes
+            overlays = self._collect_all_overlays(layer_scale)
             
-            # Update or create the FOV layer
-            if not fov_data["rectangles"]:
-                # Hide layer if no rectangles to display
-                if LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers[LAYER_NAME].visible = False
+            # Update or create the layer
+            if not overlays:
+                # Hide layer if no shapes to display
+                if layer_name in self.viewer.layers:
+                    self.viewer.layers[layer_name].visible = False
                 return
+            
+            # Extract data for napari
+            all_shapes = [overlay.shape for overlay in overlays]
+            all_colors = [overlay.color for overlay in overlays]
+            all_labels = [overlay.label for overlay in overlays]
+            all_shape_types = [overlay.shape_type for overlay in overlays]
             
             # Prepare text properties for labels
             text_properties = {
-                "string": fov_data["labels"],
-                "color": "white",
-                "font_size": 50,
-                "anchor": "upper_left",
-                "translation": (5, 5),
+                "string": all_labels,
+                **OVERLAY_CONFIG["text_properties"]
             }
             
-            if LAYER_NAME in self.viewer.layers:
+            if layer_name in self.viewer.layers:
                 # Update existing layer
-                layer = self.viewer.layers[LAYER_NAME]
-                layer.data = fov_data["rectangles"]
-                layer.edge_color = fov_data["colors"]
-                layer.edge_width = 30
-                layer.face_color = "transparent"
-                layer.opacity = 0.7
+                layer: NapariShapesLayer = self.viewer.layers[layer_name]
+                layer.data = [] # clear to reset shape type
+                layer.data = all_shapes
+                layer.shape_type = all_shape_types
+                layer.edge_color = all_colors
+                layer.edge_width = OVERLAY_CONFIG["rectangle_style"]["edge_width"]
+                layer.face_color = OVERLAY_CONFIG["rectangle_style"]["face_color"]
+                layer.opacity = OVERLAY_CONFIG["rectangle_style"]["opacity"]
                 layer.visible = True
                 # Try to update text properties
                 try:
                     layer.text = text_properties
                 except AttributeError:
-                    logging.debug("Could not update text properties for FOV layer")
+                    logging.debug("Could not update text properties for overlay layer")
             else:
-                # Create new layer
+                # Create new layer with mixed shape types
                 self.viewer.add_shapes(
-                    data=fov_data["rectangles"],
-                    name=LAYER_NAME,
-                    shape_type="rectangle",
-                    edge_color=fov_data["colors"],
-                    edge_width=30,
-                    face_color="transparent",
+                    data=all_shapes,
+                    name=layer_name,
+                    shape_type=all_shape_types,
+                    edge_color=all_colors,
+                    edge_width=OVERLAY_CONFIG["rectangle_style"]["edge_width"],
+                    face_color=OVERLAY_CONFIG["rectangle_style"]["face_color"],
                     scale=layer_scale,
-                    opacity=0.7,
+                    opacity=OVERLAY_CONFIG["rectangle_style"]["opacity"],
                     text=text_properties,
                 )
                 
         except Exception as e:
-            logging.warning(f"Error drawing FOV boxes: {e}")
-            if LAYER_NAME in self.viewer.layers:
-                self.viewer.layers[LAYER_NAME].visible = False
+            logging.warning(f"Error drawing overlay shapes: {e}")
+            if layer_name in self.viewer.layers:
+                self.viewer.layers[layer_name].visible = False
     
-    def _collect_fov_rectangles(self, layer_scale: Tuple[float, float]) -> Dict[str, List]:
-        """Collect all FOV rectangles with their associated colors.
+    def _collect_all_overlays(self, layer_scale: Tuple[float, float]) -> List[NapariShapeOverlay]:
+        """Collect all overlay shapes (FOV rectangles and circles).
         
         Returns:
-            Dictionary containing:
-            - rectangles: List of rectangle arrays for FOV areas
-            - colors: List of color strings for each rectangle
-            - labels: List of text labels for each rectangle
+            List of NapariShapeOverlay objects for all overlay shapes
         """
-        rectangles = []
-        colors = []
-        labels = []
+        overlays = []
         
         # Get camera FOV once for all calculations
         fov_x, fov_y = self.fm.camera.field_of_view
@@ -962,9 +987,12 @@ class FMAcquisitionWidget(QWidget):
 
             if self.show_current_fov:
                 fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-                rectangles.append(fov_rect)
-                colors.append("magenta")
-                labels.append("Current FOV")
+                overlays.append(NapariShapeOverlay(
+                    shape=fov_rect,
+                    color="magenta",
+                    label="Current FOV",
+                    shape_type="rectangle"
+                ))
 
             # Add overview acquisition area (orange, only if not acquiring)
             if (self.show_overview_fov and 
@@ -982,18 +1010,24 @@ class FMAcquisitionWidget(QWidget):
                 )
 
                 overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
-                rectangles.append(overview_rect)
-                colors.append("orange")
-                labels.append(f"Overview {grid_size[0]}x{grid_size[1]}")
+                overlays.append(NapariShapeOverlay(
+                    shape=overview_rect,
+                    color="orange",
+                    label=f"Overview {grid_size[0]}x{grid_size[1]}",
+                    shape_type="rectangle"
+                ))
 
         # Add 1mm bounding box around origin (yellow)
         if self.show_stage_limits:
             origin_point = Point(x=0, y=0)
             origin_size = 0.8e-3  # 0.8mm in meters
             origin_rect = create_rectangle_shape(origin_point, origin_size, origin_size, layer_scale)
-            rectangles.append(origin_rect)
-            colors.append("yellow")
-            labels.append("Stage Limits")
+            overlays.append(NapariShapeOverlay(
+                shape=origin_rect,
+                color="yellow",
+                label="Stage Limits",
+                shape_type="rectangle"
+            ))
 
         # Add saved positions FOVs
         if self.show_saved_positions_fov:
@@ -1004,20 +1038,43 @@ class FMAcquisitionWidget(QWidget):
             for i, saved_pos in enumerate(self.stage_positions):
                 center_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
                 fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-                rectangles.append(fov_rect)
 
                 # Use lime for selected position, cyan for others
-                if i == selected_index:
-                    colors.append("lime")
-                else:
-                    colors.append("cyan")
-                labels.append(saved_pos.name)
+                color = "lime" if i == selected_index else "cyan"
+                overlays.append(NapariShapeOverlay(
+                    shape=fov_rect,
+                    color=color,
+                    label=saved_pos.name,
+                    shape_type="rectangle"
+                ))
 
-        return {
-            "rectangles": rectangles,
-            "colors": colors,
-            "labels": labels
-        }
+        # Add circle overlays
+        if self.show_circle_overlays:
+            # grid boundary circle (red)
+            origin_point = Point(x=0, y=0)
+            origin_radius = 1000e-6  # 1000μm in meters
+            origin_circle = create_circle_shape(origin_point, origin_radius, layer_scale)
+            overlays.append(NapariShapeOverlay(
+                shape=origin_circle,
+                color="red",
+                label="Grid Boundary",
+                shape_type="ellipse"
+            ))
+
+        # You can add more circles here by following the same pattern
+        # Example: Add circles at saved positions
+        # for i, saved_pos in enumerate(self.stage_positions):
+        #     circle_point = Point(x=saved_pos.x, y=-saved_pos.y)
+        #     circle_radius = 50e-6  # 50μm radius
+        #     circle_shape = create_circle_shape(circle_point, circle_radius, layer_scale)
+        #     overlays.append(NapariShapeOverlay(
+        #         shape=circle_shape,
+        #         color="blue",
+        #         label=f"Circle {i+1}",
+        #         shape_type="ellipse"
+        #     ))
+
+        return overlays
 
     def _update_overview_bounding_box(self):
         """Update the FOV boxes when parameters change."""
@@ -1027,172 +1084,38 @@ class FMAcquisitionWidget(QWidget):
 
         try:
             layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
-            self._draw_fov_boxes(layer_scale)
+            self._draw_overlay_shapes(layer_scale)
         except Exception as e:
-            logging.warning(f"Error updating FOV boxes: {e}")
+            logging.warning(f"Error updating overlay shapes: {e}")
 
-    def _draw_circle_overlays(self, layer_scale: Tuple[float, float]):
-        """Draw circle overlays on a single layer.
+
+    def _draw_crosshair_overlay(self, layer_scale: Tuple[float, float]):
+        """Draw all crosshair overlays on a single layer.
+
+        Creates crosshair overlays for:
+        - Origin crosshair (red) at stage coordinates (0,0) 
+        - Current stage position crosshair (yellow)
+        - Saved stage positions crosshairs (lime for selected, cyan for others)
 
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
         """
-        LAYER_NAME = "circle-overlays"
-
-        try:
-            # Collect all circle overlays and their colors
-            circle_data = self._collect_circle_overlays(layer_scale)
-
-            # Update or create the circle layer
-            if not circle_data["circles"]:
-                # Hide layer if no circles to display
-                if LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers[LAYER_NAME].visible = False
-                return
-            
-            # Prepare text properties for labels
-            text_properties = {
-                "string": circle_data["labels"],
-                "color": "white",
-                "font_size": 50,
-                "anchor": "upper_left",
-                "translation": (5, 5),
-            }
-            
-            if LAYER_NAME in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[LAYER_NAME]
-                layer.data = circle_data["circles"]
-                layer.edge_color = circle_data["colors"]
-                layer.edge_width = 40
-                layer.face_color = "transparent"
-                layer.opacity = 0.7
-                layer.visible = True
-                # Try to update text properties
-                try:
-                    layer.text = text_properties
-                except AttributeError:
-                    logging.debug("Could not update text properties for circle layer")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=circle_data["circles"],
-                    name=LAYER_NAME,
-                    shape_type="polygon",
-                    edge_color=circle_data["colors"],
-                    edge_width=40,
-                    face_color="transparent",
-                    scale=layer_scale,
-                    opacity=0.7,
-                    text=text_properties,
-                )
-
-        except Exception as e:
-            logging.warning(f"Error drawing circle overlays: {e}")
-            if LAYER_NAME in self.viewer.layers:
-                self.viewer.layers[LAYER_NAME].visible = False
-
-    def _collect_circle_overlays(self, layer_scale: Tuple[float, float]) -> Dict[str, List]:
-        """Collect all circle overlays with their associated colors and labels.
-
-        Args:
-            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
-
-        Returns:
-            Dictionary containing:
-            - circles: List of circle arrays
-            - colors: List of color strings for each circle
-            - labels: List of text labels for each circle
-        """
-        circles = []
-        colors = []
-        labels = []
-
-        if self.show_circle_overlays:
-            # Example: Add a circle at origin with 100μm radius
-            origin_point = Point(x=0, y=0)
-            origin_radius = 1000e-6  # 100μm in meters
-            origin_circle = create_circle_shape(origin_point, origin_radius, layer_scale)
-            circles.append(origin_circle)
-            colors.append("red")
-            labels.append("Grid Boundary")
-
-        # You can add more circles here by following the same pattern
-        # Example: Add circles at saved positions
-        # for i, saved_pos in enumerate(self.stage_positions):
-        #     circle_point = Point(x=saved_pos.x, y=-saved_pos.y)
-        #     circle_radius = 50e-6  # 50μm radius
-        #     circle_shape = create_circle_shape(circle_point, circle_radius, layer_scale)
-        #     circles.append(circle_shape)
-        #     colors.append("blue")
-        #     labels.append(f"Circle {i+1}")
-
-        return {
-            "circles": circles,
-            "colors": colors,
-            "labels": labels
-        }
-
-    def _collect_stage_positions(self) -> Dict[str, List]:
-        """Collect all stage positions with their associated colors and labels.
-
-        Returns:
-            Dictionary containing:
-            - positions: List of Point objects in stage coordinates
-            - colors: List of color strings (2 per position for horizontal/vertical lines)
-            - labels: List of label strings (2 per position, with empty string for spacing)
-        """
-        positions = []
-        colors = []
-        labels = []
-
-        # Add origin position (0,0)
-        positions.append(Point(x=0, y=0))
-        colors.extend(["red", "red"])  # Red for origin crosshair
-        labels.extend(["origin", ""])  # Label with spacing
-
-        # Add current stage position if available
-        if self.fm.parent:
-            # Convert to napari coordinate convention (y inverted)
-            current_pos = self.fm.parent.get_stage_position()
-            positions.append(stage_position_to_napari_world_coordinate(current_pos))
-            colors.extend(["yellow", "yellow"])  # Yellow for current position
-            labels.extend(["stage-position", ""])
-
-        # Add saved positions
-        selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
-        for i, saved_pos in enumerate(self.stage_positions):
-
-            positions.append(stage_position_to_napari_world_coordinate(saved_pos.stage_position))
-
-            if i == selected_index:
-                colors.extend(["lime", "lime"])
-            else:
-                colors.extend(["cyan", "cyan"])
-
-            # Show position name on crosshair if saved position FOV is disabled
-            if not self.show_saved_positions_fov:
-                labels.extend([saved_pos.name, ""])
-            else:
-                labels.extend(["", ""])
-        return {
-            "positions": positions,
-            "colors": colors,
-            "labels": labels
-        }
-
-    def _update_crosshair_layer(self, layer_name: str, crosshair_lines: List, 
-                               colors: List[str], text_properties: Dict, 
-                               layer_scale: Tuple[float, float]):
-        """Update or create the crosshair layer in napari viewer.
+        # Collect all crosshair overlays
+        layer_name = CROSSHAIR_CONFIG["layer_name"]
+        crosshair_overlays = self._collect_crosshair_overlays(layer_scale)
         
-        Args:
-            layer_name: Name of the napari layer
-            crosshair_lines: List of line arrays for crosshair shapes
-            colors: List of color strings for each line
-            text_properties: Dictionary of text styling properties
-            layer_scale: Tuple of (x_scale, y_scale) for coordinate conversion
-        """
+        # Extract data for napari
+        crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
+        colors = [overlay.color for overlay in crosshair_overlays]
+        labels = [overlay.label for overlay in crosshair_overlays]
+        
+        # Prepare text properties for labels
+        text_properties = {
+            "string": labels,
+            **CROSSHAIR_CONFIG["text_properties"]
+        }
+        
+        # Update or create the napari layer
         if layer_name in self.viewer.layers:
             # Update existing layer
             layer = self.viewer.layers[layer_name]
@@ -1200,7 +1123,7 @@ class FMAcquisitionWidget(QWidget):
             # Note: edge_color and text updates may not work with all napari versions
             try:
                 layer.edge_color = colors
-                layer.edge_width = 12
+                layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
                 layer.text = text_properties
             except AttributeError:
                 logging.debug("Could not update layer properties directly")
@@ -1211,11 +1134,69 @@ class FMAcquisitionWidget(QWidget):
                 name=layer_name,
                 shape_type="line",
                 edge_color=colors,
-                edge_width=12,
-                face_color="transparent",
+                edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
+                face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
                 scale=layer_scale,
                 text=text_properties,
             )
+
+    def _collect_crosshair_overlays(self, layer_scale: Tuple[float, float]) -> List[NapariShapeOverlay]:
+        """Collect all crosshair overlays for stage positions.
+
+        Args:
+            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
+
+        Returns:
+            List of NapariShapeOverlay objects for crosshair lines
+        """
+        overlays = []
+        crosshair_size = CROSSHAIR_CONFIG["crosshair_size"]
+
+        # Add origin position (0,0)
+        origin_point = Point(x=0, y=0)
+        origin_lines = create_crosshair_shape(origin_point, crosshair_size, layer_scale)
+        for line, txt in zip(origin_lines, ["origin", ""]):
+            overlays.append(NapariShapeOverlay(
+                shape=line,
+                color=CROSSHAIR_CONFIG["colors"]["origin"],
+                label=txt,
+                shape_type="line"
+            ))
+
+        # Add current stage position if available
+        if self.fm.parent:
+            current_pos = self.fm.parent.get_stage_position()
+            current_point = stage_position_to_napari_world_coordinate(current_pos)
+            current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)
+            for line, txt in zip(current_lines, ["stage-position", ""]):
+                overlays.append(NapariShapeOverlay(
+                    shape=line,
+                    color=CROSSHAIR_CONFIG["colors"]["current"],
+                    label=txt,
+                    shape_type="line"
+                ))
+
+        # Add saved positions
+        selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
+        for i, saved_pos in enumerate(self.stage_positions):
+            saved_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
+            saved_lines = create_crosshair_shape(saved_point, crosshair_size, layer_scale)
+            
+            # Use lime for selected position, cyan for others
+            color = CROSSHAIR_CONFIG["colors"]["saved_selected"] if i == selected_index else CROSSHAIR_CONFIG["colors"]["saved_unselected"]
+            
+            # Show position name on crosshair if saved position FOV is disabled
+            label = saved_pos.name if not self.show_saved_positions_fov else ""
+            
+            for line, txt in zip(saved_lines, [label, ""]):
+                overlays.append(NapariShapeOverlay(
+                    shape=line,
+                    color=color,
+                    label=txt,
+                    shape_type="line"
+                ))
+
+        return overlays
 
     def _update_positions_button(self):
         """Update the positions acquisition button text and state based on saved positions."""
