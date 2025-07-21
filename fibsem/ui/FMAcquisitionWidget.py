@@ -14,16 +14,21 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
+    QFileDialog,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QShortcut,
     QVBoxLayout,
     QWidget,
     QMenuBar,
     QAction,
+    QToolButton,
 )
 from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
@@ -35,14 +40,12 @@ from fibsem.fm.acquisition import (
     acquire_and_stitch_tileset,
     acquire_at_positions,
     acquire_image,
-    acquire_z_stack,
     calculate_grid_coverage_area,
 )
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
 from fibsem.structures import FibsemStagePosition, Point
-from fibsem.ui.FibsemMovementWidget import to_pretty_string_short
 from fibsem.ui.fm.widgets import (
     MultiChannelSettingsWidget,
     HistogramWidget,
@@ -224,7 +227,7 @@ class OverviewConfirmationDialog(QDialog):
 class AcquisitionSummaryDialog(QDialog):
     """Dialog showing a summary of the acquisition before it starts."""
 
-    def __init__(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: ZParameters, parent=None):
+    def __init__(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: ZParameters, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.checked_positions = checked_positions
         self.channel_settings = channel_settings
@@ -295,8 +298,8 @@ class AcquisitionSummaryDialog(QDialog):
 
 class DisplayOptionsDialog(QDialog):
     """Dialog for configuring display overlay options."""
-    
-    def __init__(self, parent=None):
+
+    def __init__(self, parent: 'FMAcquisitionWidget'):
         super().__init__(parent)
         self.parent_widget = parent
         self.setWindowTitle("Display Options")
@@ -306,12 +309,7 @@ class DisplayOptionsDialog(QDialog):
     def initUI(self):
         """Initialize the dialog UI."""
         layout = QVBoxLayout()
-        
-        # Header
-        header_label = QLabel("Overlay Display Options")
-        header_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
-        layout.addWidget(header_label)
-        
+
         # Checkboxes for each display option
         self.checkbox_current_fov = QCheckBox("Show Current FOV")
         self.checkbox_current_fov.setChecked(self.parent_widget.show_current_fov)
@@ -363,6 +361,257 @@ class DisplayOptionsDialog(QDialog):
             'show_circle_overlays': self.checkbox_circle_overlays.isChecked(),
             'show_histogram': self.checkbox_histogram.isChecked(),
         }
+
+
+class ExperimentCreationDialog(QDialog):
+    """Dialog for creating a new experiment or loading an existing one."""
+
+    def __init__(self, initial_directory: str, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.selected_directory = initial_directory
+        self.experiment_name = ""
+        self.positions_file_path = ""
+        self.setWindowTitle("Experiment Setup")
+        self.setModal(True)
+        self.initUI()
+
+    def initUI(self):
+        """Initialize the dialog UI."""
+        layout = QVBoxLayout()
+
+        # Radio buttons for mode selection
+        mode_layout = QVBoxLayout()
+        self.radio_create = QRadioButton("Create New Experiment")
+        self.radio_load = QRadioButton("Load Existing Experiment")
+        self.radio_create.setChecked(True)  # Default to create mode
+
+        mode_layout.addWidget(self.radio_create)
+        mode_layout.addWidget(self.radio_load)
+        layout.addLayout(mode_layout)
+        layout.addWidget(QLabel())
+
+        # Create experiment section
+        self.create_section = QWidget()
+        create_layout = QVBoxLayout()
+
+        # Directory selection for creating
+        dir_layout = QHBoxLayout()
+        dir_label = QLabel("Directory:")
+        dir_layout.addWidget(dir_label)
+
+        self.dir_line_edit = QLineEdit(self.selected_directory)
+        self.dir_line_edit.setReadOnly(True)
+        dir_layout.addWidget(self.dir_line_edit)
+
+        self.browse_dir_button = QToolButton()
+        self.browse_dir_button.setText("...")
+        self.browse_dir_button.clicked.connect(self.browse_directory)
+        dir_layout.addWidget(self.browse_dir_button)
+        create_layout.addLayout(dir_layout)
+
+        # Experiment name input
+        name_layout = QHBoxLayout()
+        name_label = QLabel("Name:")
+        name_layout.addWidget(name_label)
+
+        # Generate default name with timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
+        default_name = f"AutoLamella-{timestamp}"
+
+        self.name_line_edit = QLineEdit(default_name)
+        self.name_line_edit.selectAll()
+        name_layout.addWidget(self.name_line_edit)
+        create_layout.addLayout(name_layout)
+
+        # Path preview for create mode
+        self.path_preview_label = QLabel()
+        self.path_preview_label.setStyleSheet("font-size: 10px; color: #666666; margin: 10px 0;")
+        self.update_path_preview()
+        create_layout.addWidget(self.path_preview_label)
+        
+        self.create_section.setLayout(create_layout)
+        layout.addWidget(self.create_section)
+
+        # Load experiment section
+        self.load_section = QWidget()
+        load_layout = QVBoxLayout()
+        
+        # Positions file selection
+        positions_layout = QHBoxLayout()
+        positions_label = QLabel("Positions File:")
+        positions_layout.addWidget(positions_label)
+
+        self.positions_file_edit = QLineEdit()
+        self.positions_file_edit.setReadOnly(True)
+        self.positions_file_edit.setPlaceholderText("Select positions.yaml file...")
+        positions_layout.addWidget(self.positions_file_edit)
+
+        self.browse_positions_button = QToolButton()
+        self.browse_positions_button.setText("...")
+        self.browse_positions_button.clicked.connect(self.browse_positions_file)
+        positions_layout.addWidget(self.browse_positions_button)
+        load_layout.addLayout(positions_layout)
+
+        # Experiment info display for load mode
+        self.experiment_info_label = QLabel()
+        self.experiment_info_label.setStyleSheet("font-size: 10px; color: #666666; margin: 10px 0;")
+        load_layout.addWidget(self.experiment_info_label)
+        
+        self.load_section.setLayout(load_layout)
+        self.load_section.setVisible(False)  # Hidden by default
+        layout.addWidget(self.load_section)
+
+        # Connect radio button signals
+        self.radio_create.toggled.connect(self.on_mode_changed)
+        self.radio_load.toggled.connect(self.on_mode_changed)
+        
+        # Connect signals for live preview update and validation
+        self.name_line_edit.textChanged.connect(self.update_path_preview)
+        self.name_line_edit.textChanged.connect(self.validate_input)
+
+        layout.addStretch()
+
+        # Buttons
+        button_layout = QGridLayout()
+        self.button_ok = QPushButton("OK")
+        self.button_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.button_ok.clicked.connect(self.accept)
+        button_layout.addWidget(self.button_ok, 0, 0)
+
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.button_cancel.clicked.connect(self.reject)
+        button_layout.addWidget(self.button_cancel, 0, 1)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+        # Perform initial validation
+        self.validate_input()
+
+    def browse_directory(self):
+        """Open directory browser dialog."""
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Experiment Directory",
+            self.selected_directory
+        )
+
+        if selected_dir:
+            self.selected_directory = selected_dir
+            self.dir_line_edit.setText(selected_dir)
+            self.update_path_preview()
+
+    def update_path_preview(self):
+        """Update the full path preview label."""
+        experiment_name = self.name_line_edit.text().strip()
+        if experiment_name:
+            full_path = os.path.join(self.selected_directory, experiment_name)
+            self.path_preview_label.setText(f"Full path: {full_path}")
+        else:
+            self.path_preview_label.setText("Full path: ")
+    
+    def on_mode_changed(self):
+        """Handle radio button mode changes."""
+        if self.radio_create.isChecked():
+            self.create_section.setVisible(True)
+            self.load_section.setVisible(False)
+        else:
+            self.create_section.setVisible(False)
+            self.load_section.setVisible(True)
+        
+        self.validate_input()
+    
+    def browse_positions_file(self):
+        """Open file dialog to select positions.yaml file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Positions File",
+            "",
+            "YAML files (*.yaml *.yml);;All files (*.*)"
+        )
+        
+        if file_path:
+            self.positions_file_path = file_path
+            self.positions_file_edit.setText(file_path)
+            self.update_experiment_info()
+            self.validate_input()
+
+    def update_experiment_info(self):
+        """Update experiment info display when a positions file is selected."""
+        if not self.positions_file_path:
+            self.experiment_info_label.setText("")
+            return
+        
+        try:
+            # Get experiment directory from positions file path
+            experiment_dir = os.path.dirname(self.positions_file_path)
+            
+            # Try to load and parse the positions file
+            with open(self.positions_file_path, 'r') as f:
+                positions_data = yaml.safe_load(f)
+            
+            num_positions = positions_data.get('num_positions', 0)
+            created_date = positions_data.get('created_date', 'Unknown')
+            
+            info_text = f"Experiment: {os.path.basename(experiment_dir)}\n"
+            info_text += f"Positions: {num_positions}\n"
+            info_text += f"Created: {created_date}"
+            
+            self.experiment_info_label.setText(info_text)
+            
+        except Exception as e:
+            self.experiment_info_label.setText(f"Error reading file: {str(e)}")
+    
+    def validate_input(self):
+        """Validate input based on current mode and enable/disable OK button."""
+        is_valid = False
+        
+        if self.radio_create.isChecked():
+            # Validate experiment name for create mode
+            experiment_name = self.name_line_edit.text().strip()
+            is_valid = bool(experiment_name) and experiment_name not in ['.', '..']
+            
+            # Additional validation for invalid filename characters
+            if is_valid:
+                invalid_chars = '<>:"/\\|?*'
+                is_valid = not any(char in experiment_name for char in invalid_chars)
+        
+        else:
+            # Validate positions file for load mode
+            is_valid = bool(self.positions_file_path) and os.path.exists(self.positions_file_path)
+        
+        # Enable/disable the OK button
+        self.button_ok.setEnabled(is_valid)
+        
+        # Update button style based on validity
+        if is_valid:
+            self.button_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        else:
+            self.button_ok.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+    
+    def get_experiment_info(self) -> dict:
+        """Get the experiment information based on current mode."""
+        if self.radio_create.isChecked():
+            # Create mode - return new experiment info
+            experiment_name = self.name_line_edit.text().strip()
+            return {
+                'mode': 'create',
+                'directory': self.selected_directory,
+                'name': experiment_name,
+                'full_path': os.path.join(self.selected_directory, experiment_name) if experiment_name else ""
+            }
+        else:
+            # Load mode - return existing experiment info
+            experiment_dir = os.path.dirname(self.positions_file_path) if self.positions_file_path else ""
+            return {
+                'mode': 'load',
+                'positions_file': self.positions_file_path,
+                'directory': experiment_dir,
+                'name': os.path.basename(experiment_dir) if experiment_dir else "",
+                'full_path': experiment_dir
+            }
+
 
 def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int], Tuple[int, ...]], pos: Optional[FibsemStagePosition], pixelsize: float) -> Point:
     """Convert a sample-stage coordinate to a napari image layer coordinate.
@@ -512,13 +761,11 @@ channel_settings=ChannelSettings(
 )
 
 # TODO: add a progress bar for each acquisition
-# TODO: add user defined experiment directory + save/load images
+# TODO: save/load images
 # TODO: add user defined protocol (channel, z-stack parameters, overview parameters, etc.)
 # TODO: enforce stage limits in the UI
 # TODO: menu function to load images
 # TODO: integrate with milling workflow
-# TODO: multi-overview acquisition
-# TODO: disable all controls during acquisition. FIX: can add positions during acquisition
 
 # REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
 # REFACTORING TODO: Replace acquisition type magic strings with enum
@@ -529,7 +776,7 @@ class FMAcquisitionWidget(QWidget):
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
     acquisition_finished_signal = pyqtSignal()
 
-    def __init__(self, microscope: FibsemMicroscope, viewer: napari.Viewer, experiment_path: str, parent=None):
+    def __init__(self, microscope: FibsemMicroscope, viewer: napari.Viewer, parent=None):
         super().__init__(parent)
 
         if microscope.fm is None:
@@ -540,7 +787,6 @@ class FMAcquisitionWidget(QWidget):
         self.viewer = viewer
         self.image_layer: Optional[NapariImageLayer] = None
         self.stage_positions: List[FMStagePosition] = []
-        self.experiment_path = experiment_path
 
         # widgets
         self.channelSettingsWidget: MultiChannelSettingsWidget
@@ -571,7 +817,7 @@ class FMAcquisitionWidget(QWidget):
 
         self.initUI()
         self.display_stage_position_overlay()
-
+        
     @property
     def is_acquisition_active(self) -> bool:
         """Check if any acquisition or operation is currently running.
@@ -606,8 +852,6 @@ class FMAcquisitionWidget(QWidget):
 
     def initUI(self):
         """Initialize the user interface for the FMAcquisitionWidget."""
-
-        self.label = QLabel("FM Acquisition Widget", self)
 
         # Add objective control widget
         self.objectiveControlWidget = ObjectiveControlWidget(fm=self.fm, parent=self)
@@ -655,7 +899,7 @@ class FMAcquisitionWidget(QWidget):
         # create histogram widget
         self.histogramWidget = HistogramWidget(parent=self)
         self.histogram_dock = self.viewer.window.add_dock_widget(self.histogramWidget, name="Image Histogram", area='left')
-        
+
         # Set initial histogram visibility based on display option
         self.histogram_dock.setVisible(self.show_histogram)
 
@@ -677,7 +921,6 @@ class FMAcquisitionWidget(QWidget):
         ]
 
         layout = QVBoxLayout()
-        layout.addWidget(self.label)
         layout.addWidget(self.objectiveCollapsible)
         layout.addWidget(self.channelCollapsible)
         layout.addWidget(self.zParametersCollapsible)
@@ -780,10 +1023,18 @@ class FMAcquisitionWidget(QWidget):
         # add file menu
         self.menubar = QMenuBar(self)
         self.file_menu = self.menubar.addMenu("File")
-        load_action = QAction("Load Positions", self)
-        load_action.triggered.connect(self.savedPositionsWidget._load_positions_from_file)
-        self.file_menu.addAction(load_action)
         
+        # Experiment creation
+        new_experiment_action = QAction("New Experiment...", self)
+        new_experiment_action.triggered.connect(self.show_new_experiment_dialog)
+        self.file_menu.addAction(new_experiment_action)
+        
+        self.file_menu.addSeparator()
+        
+        # load_action = QAction("Load Positions", self)
+        # load_action.triggered.connect(self.savedPositionsWidget._load_positions_from_file)
+        # self.file_menu.addAction(load_action)
+
         # Add separator and display options
         self.file_menu.addSeparator()
         display_options_action = QAction("Display Options...", self)
@@ -802,7 +1053,7 @@ class FMAcquisitionWidget(QWidget):
             added_layers = list(event.added)
             if not added_layers:
                 return
-            layer = added_layers[0]
+            layer: NapariImageLayer = added_layers[0]
 
             # Check if it's an image layer
             if isinstance(layer.data, np.ndarray) and layer.data.ndim in (2, 3, 4):
@@ -971,6 +1222,85 @@ class FMAcquisitionWidget(QWidget):
         """Legacy method for compatibility - redirects to update_text_overlay."""
         self.update_text_overlay()
         self.draw_stage_position_crosshairs()
+
+    def show_new_experiment_dialog(self):
+        """Show the experiment setup dialog for creating or loading experiments."""
+        dialog = ExperimentCreationDialog(initial_directory=LOG_PATH, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            experiment_info = dialog.get_experiment_info()
+
+            if experiment_info['mode'] == 'create':
+                self._handle_create_experiment(experiment_info)
+            else:
+                self._handle_load_experiment(experiment_info)
+
+    def _handle_create_experiment(self, experiment_info):
+        """Handle creating a new experiment."""
+        experiment_name = experiment_info['name']
+
+        if not experiment_name:
+            QMessageBox.warning(self, "Invalid Name", "Please enter a valid experiment name.")
+            return
+
+        new_experiment_path = experiment_info['full_path']
+
+        # Create the experiment directory
+        try:
+            os.makedirs(new_experiment_path, exist_ok=True)
+            self.experiment_path = new_experiment_path
+            logging.info(f"Created new experiment directory: {new_experiment_path}")
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Error Creating Experiment", 
+                f"Failed to create experiment directory:\n{str(e)}"
+            )
+            logging.error(f"Failed to create experiment directory: {e}")
+
+    def _handle_load_experiment(self, experiment_info):
+        """Handle loading an existing experiment."""
+        positions_file = experiment_info['positions_file']
+        experiment_path = experiment_info['full_path']
+
+        try:
+            # Load positions from the YAML file
+            with open(positions_file, 'r') as f:
+                positions_data = yaml.safe_load(f)
+
+            # Convert positions back to FMStagePosition objects
+            loaded_positions = []
+            for pos_dict in positions_data.get('positions', []):
+                try:
+                    fm_position = FMStagePosition.from_dict(pos_dict)
+                    loaded_positions.append(fm_position)
+                except Exception as e:
+                    logging.warning(f"Failed to load position {pos_dict}: {e}")
+
+            # Update the widget state
+            self.experiment_path = experiment_path
+            self.stage_positions = loaded_positions
+
+            # Update the saved positions widget
+            self.savedPositionsWidget.update_positions(self.stage_positions)
+            self._update_positions_button()
+            self.draw_stage_position_crosshairs()
+
+            # Show success message
+            QMessageBox.information(
+                self,
+                "Experiment Loaded",
+                f"Loaded experiment '{os.path.basename(experiment_path)}' with {len(loaded_positions)} positions.\n\nPath: {experiment_path}"
+            )
+
+            logging.info(f"Loaded experiment from {experiment_path} with {len(loaded_positions)} positions")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Loading Experiment",
+                f"Failed to load experiment:\n{str(e)}"
+            )
+            logging.error(f"Failed to load experiment from {positions_file}: {e}")
 
     def show_display_options_dialog(self):
         """Show the display options dialog and apply changes."""
@@ -1980,22 +2310,11 @@ def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
 
-    # Create experiment path with current directory + datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_path = os.path.join(LOG_PATH, f"fibsem_experiment_{timestamp}")
-    
-    # Create the experiment directory
-    try:
-        os.makedirs(experiment_path, exist_ok=True)
-        logging.info(f"Created experiment directory: {experiment_path}")
-    except Exception as e:
-        logging.error(f"Failed to create experiment directory: {e}")
-        # Fallback to current directory
-        experiment_path = os.getcwd()
+
 
     widget = FMAcquisitionWidget(microscope=microscope,
                                  viewer=viewer,
-                                 experiment_path=experiment_path, parent=None)
+                                 parent=None)
 
     return widget
 
@@ -2004,6 +2323,7 @@ def main():
     viewer = napari.Viewer()
     widget = create_widget(viewer)    
     viewer.window.add_dock_widget(widget, area="right")
+    widget.show_new_experiment_dialog()  # Show experiment creation dialog on startup
     napari.run()
 
     return
