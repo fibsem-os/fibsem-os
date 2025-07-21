@@ -14,6 +14,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -34,7 +35,7 @@ from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
 from fibsem import conversions, utils
 from fibsem.config import LOG_PATH
-from fibsem.constants import METRE_TO_MILLIMETRE
+from fibsem.constants import METRE_TO_MILLIMETRE, RADIANS_TO_DEGREES, DEGREE_SYMBOL
 from fibsem.fm.acquisition import (
     AutofocusMode,
     acquire_and_stitch_tileset,
@@ -45,7 +46,7 @@ from fibsem.fm.acquisition import (
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
-from fibsem.structures import FibsemStagePosition, Point
+from fibsem.structures import BeamType, FibsemStagePosition, Point
 from fibsem.ui.fm.widgets import (
     MultiChannelSettingsWidget,
     HistogramWidget,
@@ -361,6 +362,166 @@ class DisplayOptionsDialog(QDialog):
             'show_circle_overlays': self.checkbox_circle_overlays.isChecked(),
             'show_histogram': self.checkbox_histogram.isChecked(),
         }
+
+
+class StagePositionControlWidget(QWidget):
+    """Widget for controlling stage positions and orientations."""
+
+    def __init__(self, microscope: FibsemMicroscope, parent: 'FMAcquisitionWidget'):
+        super().__init__(parent)
+        self.microscope = microscope
+        self.parent_widget = parent
+        self.initUI()
+
+    def initUI(self):
+        """Initialize the stage position control UI."""
+        layout = QVBoxLayout()
+
+        # Orientation buttons
+        orientation_layout = QGridLayout()
+
+        self.button_sem_orientation = QPushButton("Move to SEM Orientation")
+        self.button_sem_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_sem_orientation.clicked.connect(self.move_to_sem_orientation)
+        orientation_layout.addWidget(self.button_sem_orientation, 0, 0)
+
+        self.button_fm_orientation = QPushButton("Move to FM Orientation")
+        self.button_fm_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_fm_orientation.clicked.connect(self.move_to_fm_orientation)
+        orientation_layout.addWidget(self.button_fm_orientation, 0, 1)
+
+        # Milling angle controls    
+        self.milling_angle_spinbox = QDoubleSpinBox()
+        self.milling_angle_spinbox.setRange(0, 45)
+        self.milling_angle_spinbox.setValue(self.microscope.system.stage.milling_angle)
+        self.milling_angle_spinbox.setSuffix("°")
+        self.milling_angle_spinbox.setDecimals(1)
+        self.milling_angle_spinbox.setSingleStep(1.0)
+        self.milling_angle_spinbox.valueChanged.connect(self.update_milling_angle)
+        orientation_layout.addWidget(self.milling_angle_spinbox, 1, 0)
+
+        self.button_move_to_milling = QPushButton("Move to Milling Angle")
+        self.button_move_to_milling.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_move_to_milling.clicked.connect(self.move_to_milling_angle)
+        orientation_layout.addWidget(self.button_move_to_milling, 1, 1)
+
+        layout.addLayout(orientation_layout)
+        self.setLayout(layout)
+        
+        # Set tooltips with orientation information
+        self.set_orientation_tooltips()
+    
+    def update_milling_angle(self, value):
+        """Update the stored milling angle value."""
+        self.microscope.system.stage.milling_angle = value
+        # Update tooltip with new milling angle
+        self.update_milling_tooltip()
+    
+    def set_orientation_tooltips(self):
+        """Set tooltips for orientation buttons showing rotation and tilt angles."""
+        try:
+            # Get orientation information from microscope
+            sem = self.microscope.get_orientation("SEM")
+            fm = self.microscope.get_orientation("FM")
+
+            # Set tooltips for orientation buttons
+            self.button_sem_orientation.setToolTip(sem.pretty_orientation)
+            self.button_fm_orientation.setToolTip(fm.pretty_orientation)
+
+            # Set initial milling angle tooltip
+            self.update_milling_tooltip()
+            
+            # Set tooltip for milling angle spinbox
+            self.milling_angle_spinbox.setToolTip("The milling angle is the difference between the stage and the fib viewing angle.")
+            
+        except Exception as e:
+            logging.warning(f"Could not set orientation tooltips: {e}")
+
+    def update_milling_tooltip(self):
+        """Update the milling angle button tooltip with current orientation."""
+        try:
+            milling = self.microscope.get_orientation("MILLING")
+            self.button_move_to_milling.setToolTip(milling.pretty_orientation)
+        except Exception as e:
+            logging.warning(f"Could not update milling tooltip: {e}")
+
+    def move_to_sem_orientation(self):
+        """Move stage to SEM (electron beam) orientation."""
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            "Confirm Movement",
+            "Move stage to SEM orientation?\n\nThis will change the stage position to the electron beam viewing angle.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            logging.info("SEM orientation movement cancelled by user")
+            return
+        
+        try:
+            self.microscope.move_to_microscope("FIBSEM")
+            logging.info("Moved to SEM orientation")
+        except Exception as e:
+            logging.error(f"Failed to move to SEM orientation: {e}")
+            QMessageBox.warning(self, "Movement Error", f"Failed to move to SEM orientation:\n{str(e)}")
+
+        self.parent_widget.display_stage_position_overlay()
+
+    def move_to_fm_orientation(self):
+        """Move stage to FM (fluorescence microscopy) orientation."""
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            "Confirm Movement",
+            "Move stage to FM orientation?\n\nThis will change the stage position to the fluorescence microscopy viewing angle.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            logging.info("FM orientation movement cancelled by user")
+            return
+        
+        try:
+            # For FM orientation, typically use electron beam flat position
+            self.microscope.move_to_microscope("FM")
+            logging.info("Moved to FM orientation")
+        except Exception as e:
+            logging.error(f"Failed to move to FM orientation: {e}")
+            QMessageBox.warning(self, "Movement Error", f"Failed to move to FM orientation:\n{str(e)}")
+
+        self.parent_widget.display_stage_position_overlay()
+
+    def move_to_milling_angle(self):
+        """Move stage to the specified milling angle."""
+        # Get current milling angle for display
+        milling_angle = self.milling_angle_spinbox.value()
+        
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            "Confirm Movement", 
+            f"Move stage to milling angle ({milling_angle}°)?\n\nThis will change the stage position to the specified milling orientation.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            logging.info(f"Milling angle movement to {milling_angle}° cancelled by user")
+            return
+        
+        try:
+            mill_orientation = self.microscope.get_orientation("MILLING")
+            self.microscope.move_stage_absolute(mill_orientation)
+            logging.info(f"Moved to milling angle: {milling_angle}°")
+        except Exception as e:
+            logging.error(f"Failed to move to milling angle: {e}")
+            QMessageBox.warning(self, "Movement Error", f"Failed to move to milling angle:\n{str(e)}")
+
+        self.parent_widget.display_stage_position_overlay()
+
 
 
 class ExperimentCreationDialog(QDialog):
@@ -790,6 +951,7 @@ class FMAcquisitionWidget(QWidget):
         # widgets
         self.channelSettingsWidget: MultiChannelSettingsWidget
         self.objectiveControlWidget: ObjectiveControlWidget
+        self.stagePositionControlWidget: StagePositionControlWidget
         self.zParametersWidget: ZParametersWidget
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
@@ -857,6 +1019,11 @@ class FMAcquisitionWidget(QWidget):
         self.objectiveCollapsible = QCollapsible("Objective Control", self)
         self.objectiveCollapsible.addWidget(self.objectiveControlWidget)
 
+        # Add stage position control widget
+        self.stagePositionControlWidget = StagePositionControlWidget(microscope=self.microscope, parent=self)
+        self.stagePositionCollapsible = QCollapsible("Stage Position Control", self)
+        self.stagePositionCollapsible.addWidget(self.stagePositionControlWidget)
+
         # create z parameters widget
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
         self.zParametersCollapsible = QCollapsible("Z-Stack Parameters", self)
@@ -883,6 +1050,7 @@ class FMAcquisitionWidget(QWidget):
 
         # Set initial expanded state for all collapsible widgets
         self.objectiveCollapsible.expand(animate=False)
+        self.stagePositionCollapsible.expand(animate=False)
         self.zParametersCollapsible.expand(animate=False)
         self.overviewCollapsible.expand(animate=False)
         self.positionsCollapsible.expand(animate=False)
@@ -890,6 +1058,7 @@ class FMAcquisitionWidget(QWidget):
 
         # Set content margins to 0 for all collapsible widgets
         self.objectiveCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.stagePositionCollapsible.setContentsMargins(0, 0, 0, 0)
         self.zParametersCollapsible.setContentsMargins(0, 0, 0, 0)
         self.overviewCollapsible.setContentsMargins(0, 0, 0, 0)
         self.positionsCollapsible.setContentsMargins(0, 0, 0, 0)
@@ -920,6 +1089,7 @@ class FMAcquisitionWidget(QWidget):
         ]
 
         layout = QVBoxLayout()
+        layout.addWidget(self.stagePositionCollapsible)
         layout.addWidget(self.objectiveCollapsible)
         layout.addWidget(self.channelCollapsible)
         layout.addWidget(self.zParametersCollapsible)
@@ -2022,6 +2192,7 @@ class FMAcquisitionWidget(QWidget):
 
         # Disable control widgets during acquisition
         self.objectiveControlWidget.setEnabled(not any_acquisition_active)
+        self.stagePositionControlWidget.setEnabled(not any_acquisition_active)
         self.zParametersWidget.setEnabled(not any_acquisition_active)
         self.overviewParametersWidget.setEnabled(not any_acquisition_active)
         self.savedPositionsWidget.setEnabled(not any_acquisition_active)
