@@ -46,6 +46,7 @@ class OdemisObjectiveLens(ObjectiveLens):
         # Cache metadata on initialization
         self._metadata_cache = {}
         self._cache_metadata()
+        self._focus_position = self.active_position
 
     def _cache_metadata(self):
         """Cache frequently accessed metadata for improved performance.
