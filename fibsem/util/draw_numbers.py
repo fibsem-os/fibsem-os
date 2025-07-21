@@ -125,6 +125,209 @@ def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, 
     
     return img
 
+def draw_letter(letter: str, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Draw an alphabetical character as a numpy array.
+    
+    Args:
+        letter: Letter to draw (A-Z, case insensitive)
+        size: (height, width) of the letter itself
+        thickness: Line thickness for drawing
+        image_shape: (height, width) of the output image. If None, uses size.
+        
+    Returns:
+        np.ndarray: Binary array with the letter drawn (1 = foreground, 0 = background)
+    """
+    letter = letter.upper()
+    if not letter.isalpha() or len(letter) != 1:
+        raise ValueError("Letter must be a single alphabetical character")
+    
+    # If no image_shape specified, use the letter size
+    if image_shape is None:
+        image_shape = size
+    
+    img_height, img_width = image_shape
+    letter_height, letter_width = size
+    
+    # Create the full image
+    img = np.zeros((img_height, img_width), dtype=np.uint8)
+    
+    # Calculate offset to center the letter
+    offset_y = (img_height - letter_height) // 2
+    offset_x = (img_width - letter_width) // 2
+    
+    # Create a temporary image for the letter
+    letter_img = np.zeros((letter_height, letter_width), dtype=np.uint8)
+    
+    # Define letter patterns as coordinate lists
+    # Each pattern is defined relative to a normalized coordinate system
+    patterns = {
+        'A': [
+            # Left vertical, right vertical, top horizontal, middle horizontal
+            [(0.2, 0.9), (0.2, 0.3), (0.5, 0.1), (0.8, 0.3), (0.8, 0.9)],
+            [(0.3, 0.5), (0.7, 0.5)]
+        ],
+        'B': [
+            # Left vertical, top horizontal, middle horizontal, bottom horizontal, top right vertical, bottom right vertical
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.1), (0.7, 0.1), (0.7, 0.5), (0.2, 0.5)],
+            [(0.2, 0.5), (0.7, 0.5), (0.7, 0.9), (0.2, 0.9)]
+        ],
+        'C': [
+            # Top horizontal, left vertical, bottom horizontal
+            [(0.7, 0.1), (0.3, 0.1), (0.2, 0.2), (0.2, 0.8), (0.3, 0.9), (0.7, 0.9)]
+        ],
+        'D': [
+            # Left vertical, top horizontal with curve, bottom horizontal with curve
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.1), (0.6, 0.1), (0.8, 0.3), (0.8, 0.7), (0.6, 0.9), (0.2, 0.9)]
+        ],
+        'E': [
+            # Left vertical, top horizontal, middle horizontal, bottom horizontal
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.1), (0.8, 0.1)],
+            [(0.2, 0.5), (0.6, 0.5)],
+            [(0.2, 0.9), (0.8, 0.9)]
+        ],
+        'F': [
+            # Left vertical, top horizontal, middle horizontal
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.1), (0.8, 0.1)],
+            [(0.2, 0.5), (0.6, 0.5)]
+        ],
+        'G': [
+            # Like C but with horizontal line at middle right
+            [(0.7, 0.1), (0.3, 0.1), (0.2, 0.2), (0.2, 0.8), (0.3, 0.9), (0.7, 0.9)],
+            [(0.5, 0.5), (0.8, 0.5), (0.8, 0.9)]
+        ],
+        'H': [
+            # Left vertical, right vertical, middle horizontal
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.8, 0.1), (0.8, 0.9)],
+            [(0.2, 0.5), (0.8, 0.5)]
+        ],
+        'I': [
+            # Top horizontal, middle vertical, bottom horizontal
+            [(0.3, 0.1), (0.7, 0.1)],
+            [(0.5, 0.1), (0.5, 0.9)],
+            [(0.3, 0.9), (0.7, 0.9)]
+        ],
+        'J': [
+            # Top horizontal, right vertical, bottom curve
+            [(0.3, 0.1), (0.8, 0.1)],
+            [(0.7, 0.1), (0.7, 0.7), (0.5, 0.9), (0.3, 0.9), (0.2, 0.8)]
+        ],
+        'K': [
+            # Left vertical, diagonal up, diagonal down
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.5), (0.8, 0.1)],
+            [(0.2, 0.5), (0.8, 0.9)]
+        ],
+        'L': [
+            # Left vertical, bottom horizontal
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.9), (0.8, 0.9)]
+        ],
+        'M': [
+            # Left vertical, right vertical, left diagonal, right diagonal
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.8, 0.1), (0.8, 0.9)],
+            [(0.2, 0.1), (0.5, 0.4)],
+            [(0.8, 0.1), (0.5, 0.4)]
+        ],
+        'N': [
+            # Left vertical, right vertical, diagonal
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.8, 0.1), (0.8, 0.9)],
+            [(0.2, 0.1), (0.8, 0.9)]
+        ],
+        'O': [
+            # Oval/rectangle
+            [(0.3, 0.1), (0.7, 0.1), (0.8, 0.2), (0.8, 0.8), (0.7, 0.9), (0.3, 0.9), (0.2, 0.8), (0.2, 0.2), (0.3, 0.1)]
+        ],
+        'P': [
+            # Left vertical, top horizontal, middle horizontal, top right vertical
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.1), (0.7, 0.1), (0.8, 0.2), (0.8, 0.4), (0.7, 0.5), (0.2, 0.5)]
+        ],
+        'Q': [
+            # Like O but with diagonal tail
+            [(0.3, 0.1), (0.7, 0.1), (0.8, 0.2), (0.8, 0.8), (0.7, 0.9), (0.3, 0.9), (0.2, 0.8), (0.2, 0.2), (0.3, 0.1)],
+            [(0.6, 0.6), (0.8, 0.9)]
+        ],
+        'R': [
+            # Like P but with diagonal leg
+            [(0.2, 0.1), (0.2, 0.9)],
+            [(0.2, 0.1), (0.7, 0.1), (0.8, 0.2), (0.8, 0.4), (0.7, 0.5), (0.2, 0.5)],
+            [(0.5, 0.5), (0.8, 0.9)]
+        ],
+        'S': [
+            # S curve
+            [(0.8, 0.2), (0.7, 0.1), (0.3, 0.1), (0.2, 0.2), (0.2, 0.4), (0.3, 0.5), (0.7, 0.5), (0.8, 0.6), (0.8, 0.8), (0.7, 0.9), (0.3, 0.9), (0.2, 0.8)]
+        ],
+        'T': [
+            # Top horizontal, middle vertical
+            [(0.2, 0.1), (0.8, 0.1)],
+            [(0.5, 0.1), (0.5, 0.9)]
+        ],
+        'U': [
+            # Left vertical, bottom horizontal, right vertical
+            [(0.2, 0.1), (0.2, 0.8), (0.3, 0.9), (0.7, 0.9), (0.8, 0.8), (0.8, 0.1)]
+        ],
+        'V': [
+            # Two diagonals meeting at bottom
+            [(0.2, 0.1), (0.5, 0.9)],
+            [(0.8, 0.1), (0.5, 0.9)]
+        ],
+        'W': [
+            # Like inverted V with middle peak
+            [(0.2, 0.1), (0.3, 0.9), (0.5, 0.6), (0.7, 0.9), (0.8, 0.1)]
+        ],
+        'X': [
+            # Two diagonals crossing
+            [(0.2, 0.1), (0.8, 0.9)],
+            [(0.8, 0.1), (0.2, 0.9)]
+        ],
+        'Y': [
+            # Two diagonals meeting, then vertical down
+            [(0.2, 0.1), (0.5, 0.5)],
+            [(0.8, 0.1), (0.5, 0.5)],
+            [(0.5, 0.5), (0.5, 0.9)]
+        ],
+        'Z': [
+            # Top horizontal, diagonal, bottom horizontal
+            [(0.2, 0.1), (0.8, 0.1)],
+            [(0.8, 0.1), (0.2, 0.9)],
+            [(0.2, 0.9), (0.8, 0.9)]
+        ]
+    }
+    
+    if letter not in patterns:
+        raise ValueError(f"Letter '{letter}' is not supported")
+    
+    # Draw the pattern on the letter image
+    for line_segments in patterns[letter]:
+        if len(line_segments) >= 2:
+            for i in range(len(line_segments) - 1):
+                x1, y1 = line_segments[i]
+                x2, y2 = line_segments[i + 1]
+                
+                # Convert normalized coordinates to pixel coordinates
+                px1, py1 = int(x1 * letter_width), int(y1 * letter_height)
+                px2, py2 = int(x2 * letter_width), int(y2 * letter_height)
+                
+                # Draw line on letter image
+                draw_line(letter_img, px1, py1, px2, py2, thickness)
+    
+    # Place the letter in the center of the main image
+    end_y = min(offset_y + letter_height, img_height)
+    end_x = min(offset_x + letter_width, img_width)
+    letter_end_y = end_y - offset_y
+    letter_end_x = end_x - offset_x
+    
+    img[offset_y:end_y, offset_x:end_x] = letter_img[:letter_end_y, :letter_end_x]
+    
+    return img
+
 def draw_line(img: np.ndarray, x1: int, y1: int, x2: int, y2: int, thickness: int = 1):
     """Draw a line on the image using Bresenham's algorithm with thickness."""
     height, width = img.shape
@@ -199,6 +402,58 @@ def draw_multi_digit_number(num: int, size: Tuple[int, int] = (32, 24), spacing:
     
     return result
 
+def draw_text(text: str, size: Tuple[int, int] = (32, 24), spacing: int = 4, thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Draw a text string (letters and numbers) as a numpy array.
+    
+    Args:
+        text: Text to draw (letters A-Z and numbers 0-9, case insensitive)
+        size: (height, width) of each character
+        spacing: Pixels between characters
+        thickness: Line thickness for drawing
+        image_shape: (height, width) of the output image. If None, fits text exactly.
+        
+    Returns:
+        np.ndarray: Binary array with the text drawn
+    """
+    # Convert to uppercase and filter valid characters
+    text = text.upper()
+    valid_chars = [char for char in text if char.isalnum()]
+    
+    if not valid_chars:
+        raise ValueError("Text must contain at least one alphanumeric character")
+    
+    height, char_width = size
+    total_width = len(valid_chars) * char_width + (len(valid_chars) - 1) * spacing
+    
+    # If no image_shape specified, use the exact size needed
+    if image_shape is None:
+        image_shape = (height, total_width)
+    
+    img_height, img_width = image_shape
+    result = np.zeros((img_height, img_width), dtype=np.uint8)
+    
+    # Calculate offset to center the text sequence
+    offset_y = (img_height - height) // 2
+    offset_x = (img_width - total_width) // 2
+    
+    for i, char in enumerate(valid_chars):
+        # Draw either letter or number
+        if char.isalpha():
+            char_img = draw_letter(char, size, thickness)
+        else:  # char.isdigit()
+            char_img = draw_number(int(char), size, thickness)
+        
+        start_col = offset_x + i * (char_width + spacing)
+        end_col = start_col + char_width
+        start_row = offset_y
+        end_row = start_row + height
+        
+        # Ensure we don't go out of bounds
+        if start_col >= 0 and end_col <= img_width and start_row >= 0 and end_row <= img_height:
+            result[start_row:end_row, start_col:end_col] = char_img
+    
+    return result
+
 # Example usage and test function
 def test_draw_numbers():
     """Test the number drawing functions."""
@@ -252,6 +507,54 @@ def test_draw_numbers():
     
     return multi_img
 
+def test_draw_letters():
+    """Test the letter drawing functions."""
+    import matplotlib.pyplot as plt
+    
+    # Test all letters A-Z
+    _, axes = plt.subplots(4, 7, figsize=(21, 12))
+    axes = axes.flatten()
+    
+    for i, letter in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ'):
+        img = draw_letter(letter, size=(32, 24), thickness=2)
+        axes[i].imshow(img, cmap='gray')
+        axes[i].set_title(f'Letter {letter}')
+        axes[i].axis('off')
+    
+    # Hide unused subplots
+    for i in range(26, len(axes)):
+        axes[i].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Test text drawing with mixed letters and numbers
+    _, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    # Simple word
+    img1 = draw_text("HELLO", size=(32, 24), spacing=4, thickness=2)
+    axes[0].imshow(img1, cmap='gray')
+    axes[0].set_title('Text: HELLO')
+    axes[0].axis('off')
+    
+    # Mixed letters and numbers
+    img2 = draw_text("ABC123", size=(32, 24), spacing=4, thickness=2)
+    axes[1].imshow(img2, cmap='gray')
+    axes[1].set_title('Mixed: ABC123')
+    axes[1].axis('off')
+    
+    # Centered in larger image
+    img3 = draw_text("FIBSEM", size=(24, 18), spacing=3, thickness=2, image_shape=(64, 150))
+    axes[2].imshow(img3, cmap='gray')
+    axes[2].set_title('Centered: FIBSEM')
+    axes[2].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    return img1, img2, img3
+
 if __name__ == "__main__":
     # Test the functions
     test_draw_numbers()
+    test_draw_letters()
