@@ -123,7 +123,17 @@ class ChannelSettings:
     @classmethod
     def from_dict(cls, ddict: dict) -> "ChannelSettings":
         return cls(**ddict)
+    
+    @property
+    def pretty_name(self) -> str:
+        """Generate a pretty name for the channel based on its properties."""
 
+        if self.emission_wavelength is None:
+            emission_str = "Reflection"
+        else:
+            emission_str = f"{self.emission_wavelength}nm"
+
+        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {emission_str}) P:{self.power:.2f} W, EXP:{self.exposure_time*1000:.1f}ms"
 
 @dataclass
 class ZParameters:
@@ -171,6 +181,18 @@ class ZParameters:
         
         z_range = self.zmax - self.zmin
         return int(z_range / self.zstep) + 1
+
+    @property
+    def pretty_name(self) -> str:
+        """Generate a pretty name for the z parameters."""
+        if self.zstep <= 0:
+            return "Z-Stack: Disabled"
+        
+        num_planes = self.num_planes
+        if num_planes <= 1:
+            return "Z-Stack: Single plane acquisition"
+        
+        return f"Z-Stack: {num_planes} planes ({self.zmin*1e6:.1f}μm to {self.zmax*1e6:.1f}μm, step {self.zstep*1e6:.1f}μm)"
 
 
 # QUERY: add AcquisitionSettings class to handle acquisition settings?

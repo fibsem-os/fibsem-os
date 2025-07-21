@@ -1,12 +1,14 @@
 import logging
 from typing import TYPE_CHECKING, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QComboBox,
     QFileDialog,
     QGridLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QWidget,
 )
@@ -38,6 +40,12 @@ class SavedPositionsWidget(QWidget):
         self.comboBox_positions = QComboBox(self)
         self.comboBox_positions.setToolTip("Select a saved position from the list")
         
+        # Checkbox list for selecting multiple positions
+        self.label_checkbox_list = QLabel("Select Positions", self)
+        self.listWidget_positions = QListWidget(self)
+        self.listWidget_positions.setToolTip("Check/uncheck positions for selection")
+        self.listWidget_positions.setMaximumHeight(120)  # Limit height to keep widget compact
+        
         # Buttons for managing positions
         self.pushButton_goto_position = QPushButton("Go To", self)
         self.pushButton_goto_position.setToolTip("Move stage to the selected position")
@@ -66,11 +74,15 @@ class SavedPositionsWidget(QWidget):
         layout.addWidget(self.comboBox_objective_source, 2, 0)
         layout.addWidget(self.pushButton_set_objective, 2, 1)
         layout.addWidget(self.label_position_info, 3, 0, 1, 2)
+        layout.addWidget(self.label_checkbox_list, 4, 0, 1, 2)
+        layout.addWidget(self.listWidget_positions, 5, 0, 1, 2)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
         # Connect signals
         self.comboBox_positions.currentIndexChanged.connect(self._on_position_selected)
+        self.listWidget_positions.itemChanged.connect(self._on_checkbox_changed)
+        self.listWidget_positions.currentItemChanged.connect(self._on_list_item_selected)
         self.pushButton_goto_position.clicked.connect(self._goto_selected_position)
         self.pushButton_delete_position.clicked.connect(self._delete_selected_position)
         self.pushButton_set_objective.clicked.connect(self._set_objective_position)
@@ -84,12 +96,15 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_set_objective.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
     def update_positions(self, positions: List[FMStagePosition]):
-        """Update the combobox with current saved positions."""
+        """Update the combobox and checkbox list with current saved positions."""
         # Store current selection
         current_text = self.comboBox_positions.currentText()
         
         # Clear and repopulate combobox
         self.comboBox_positions.clear()
+        
+        # Clear and repopulate checkbox list
+        self.listWidget_positions.clear()
         
         if not positions:
             self.comboBox_positions.addItem("No positions saved")
@@ -98,11 +113,19 @@ class SavedPositionsWidget(QWidget):
             for i, pos in enumerate(positions):
                 display_text = pos.name  # FMStagePosition.name is required
                 self.comboBox_positions.addItem(display_text)
+                
+                # Add item to checkbox list
+                item = QListWidgetItem(display_text)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)  # Default to checked
+                self.listWidget_positions.addItem(item)
             
             # Try to restore previous selection
             current_index = self.comboBox_positions.findText(current_text)
             if current_index >= 0:
                 self.comboBox_positions.setCurrentIndex(current_index)
+                # Sync checkbox list selection
+                self.listWidget_positions.setCurrentRow(current_index)
             
             # Update info for currently selected position
             self._update_position_info()
@@ -146,10 +169,41 @@ class SavedPositionsWidget(QWidget):
         """Handle position selection in combobox."""
         self._update_position_info()
         if index >= 0:
+            # Sync checkbox list selection
+            self.listWidget_positions.setCurrentRow(index)
             self.position_selected.emit(index)
             # Update crosshairs to highlight selected position
             if self.parent_widget:
                 self.parent_widget.draw_stage_position_crosshairs()
+    
+    def _on_list_item_selected(self, current_item, previous_item):
+        """Handle selection change in checkbox list."""
+        if current_item is not None:
+            # Get the index of the selected item
+            index = self.listWidget_positions.row(current_item)
+            # Sync combobox selection
+            if 0 <= index < self.comboBox_positions.count():
+                self.comboBox_positions.setCurrentIndex(index)
+    
+    def _on_checkbox_changed(self, item):
+        """Handle checkbox state change in list widget."""
+        # Update the positions button in the parent widget when checkboxes change
+        if self.parent_widget:
+            self.parent_widget._update_positions_button()
+    
+    def get_checked_positions(self) -> List[FMStagePosition]:
+        """Return a list of positions that are currently checked in the checkbox list."""
+        if not self.parent_widget or not self.parent_widget.stage_positions:
+            return []
+        
+        checked_positions = []
+        for i in range(self.listWidget_positions.count()):
+            item = self.listWidget_positions.item(i)
+            if item.checkState() == Qt.Checked:
+                if i < len(self.parent_widget.stage_positions):
+                    checked_positions.append(self.parent_widget.stage_positions[i])
+        
+        return checked_positions
 
     def _goto_selected_position(self):
         """Move stage to the selected position."""

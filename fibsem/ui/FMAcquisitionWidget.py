@@ -146,6 +146,85 @@ def wavelength_to_color(wavelength: Union[int, float]) -> str:
         return "gray"
 
 
+class AcquisitionSummaryDialog(QDialog):
+    """Dialog showing a summary of the acquisition before it starts."""
+
+    def __init__(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: ZParameters, parent=None):
+        super().__init__(parent)
+        self.checked_positions = checked_positions
+        self.channel_settings = channel_settings
+        self.z_parameters = z_parameters
+        self.setWindowTitle("Acquisition Summary")
+        self.setModal(True)
+        self.initUI()
+        self.setContentsMargins(0, 0, 0, 0)
+    
+    def initUI(self):
+        """Initialize the dialog UI."""
+        layout = QVBoxLayout()
+            
+        # Position information
+        num_positions = len(self.checked_positions)
+        position_label = QLabel(f"Acquire at {num_positions} Position{'s' if num_positions != 1 else ''}:")
+        position_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 5px 0;")
+        layout.addWidget(position_label)
+        
+        # List position names
+        position_names = [pos.name for pos in self.checked_positions]
+        position_list_text = "\n".join([f"  • {name}" for name in position_names[:10]])  # Limit to first 10
+        if len(position_names) > 10:
+            position_list_text += f"\n  • ... and {len(position_names) - 10} more"
+        
+        position_details = QLabel(position_list_text)
+        position_details.setStyleSheet("font-size: 10px; color: #666666;")
+        layout.addWidget(position_details)
+        
+        # Channel information
+        channel_label = QLabel(f"Channels ({len(self.channel_settings)}):")
+        channel_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 10px 0 5px 0;")
+        layout.addWidget(channel_label)
+        
+        for i, channel in enumerate(self.channel_settings):
+            channel_details = QLabel(channel.pretty_name)
+            channel_details.setStyleSheet("font-size: 10px; color: #666666;")
+            layout.addWidget(channel_details)
+        
+        # Z-stack information
+        if self.z_parameters:
+            num_planes = self.z_parameters.num_planes
+            z_details = QLabel(self.z_parameters.pretty_name)
+        else:
+            num_planes = 1
+            z_details = QLabel("No Z-Stack")
+        z_details.setStyleSheet("font-size: 10px; color: #666666;")
+        layout.addWidget(z_details)
+        
+        # Total images estimate
+        total_images = num_positions * len(self.channel_settings)
+        if self.z_parameters:
+            total_images *= num_planes
+
+        total_label = QLabel(f"Total Images: ~{total_images}")
+        total_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 10px 0; color: #0066cc;")
+        layout.addWidget(total_label)
+        
+        # Buttons
+        button_layout = QGridLayout()
+        
+        self.button_start = QPushButton("Start Acquisition")
+        self.button_start.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.button_start.clicked.connect(self.accept)
+        button_layout.addWidget(self.button_start, 0, 0)
+        
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.button_cancel.clicked.connect(self.reject)
+        button_layout.addWidget(self.button_cancel, 0, 1)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+
 class DisplayOptionsDialog(QDialog):
     """Dialog for configuring display overlay options."""
     
@@ -522,7 +601,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
-        self.pushButton_acquire_at_positions = QPushButton("Acquire at Saved Positions (0)", self)
+        self.pushButton_acquire_at_positions = QPushButton("Acquire at Positions (0/0)", self)
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
@@ -1204,13 +1283,14 @@ class FMAcquisitionWidget(QWidget):
         return overlays
 
     def _update_positions_button(self):
-        """Update the positions acquisition button text and state based on saved positions."""
-        num_positions = len(self.stage_positions)
-        button_text = f"Acquire at Saved Positions ({num_positions})"
+        """Update the positions acquisition button text and state based on checked positions."""
+        num_total_positions = len(self.stage_positions)
+        num_checked_positions = len(self.savedPositionsWidget.get_checked_positions()) if hasattr(self, 'savedPositionsWidget') else 0
+        button_text = f"Acquire at Positions ({num_checked_positions}/{num_total_positions})"
         self.pushButton_acquire_at_positions.setText(button_text)
         
-        # Enable/disable button based on whether positions exist
-        if num_positions == 0:
+        # Enable/disable button based on whether checked positions exist
+        if num_checked_positions == 0:
             self.pushButton_acquire_at_positions.setEnabled(False)
             self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         else:
@@ -1218,7 +1298,7 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
 
     def acquire_at_positions(self):
-        """Start threaded acquisition at all saved positions."""
+        """Start threaded acquisition at all checked saved positions."""
         if self.fm.is_acquiring:
             logging.warning("Cannot acquire at positions while live acquisition is running. Stop acquisition first.")
             return
@@ -1227,41 +1307,60 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("No saved positions available for acquisition.")
             return
 
+        # Get only checked positions from the saved positions widget
+        checked_positions = self.savedPositionsWidget.get_checked_positions()
+        if not checked_positions:
+            logging.warning("No positions are checked for acquisition. Please check at least one position.")
+            return
+
         if self._acquisition_thread and self._acquisition_thread.is_alive():
             logging.warning("Another acquisition is already in progress.")
             return
-
-        logging.info(f"Starting acquisition at {len(self.stage_positions)} saved positions")
-        self._current_acquisition_type = "positions"
-        self._update_acquisition_button_states()
-        self._acquisition_stop_event.clear()
 
         # Get current settings
         settings = self._get_current_settings()
         channel_settings = settings['channel_settings']
         z_parameters = settings['z_parameters']
 
+        # Show acquisition summary dialog
+        summary_dialog = AcquisitionSummaryDialog(
+            checked_positions=checked_positions,
+            channel_settings=channel_settings,
+            z_parameters=z_parameters,
+            parent=self
+        )
+        
+        # Only proceed if user confirms
+        if summary_dialog.exec_() != QDialog.Accepted:
+            logging.info("Acquisition cancelled by user")
+            return
+
+        logging.info(f"Starting acquisition at {len(checked_positions)} checked positions")
+        self._current_acquisition_type = "positions"
+        self._update_acquisition_button_states()
+        self._acquisition_stop_event.clear()
+
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
             target=self._positions_worker,
-            args=(channel_settings, z_parameters),
+            args=(checked_positions, channel_settings, z_parameters),
             daemon=True
         )
         self._acquisition_thread.start()
     
-    def _positions_worker(self, channel_settings: List[ChannelSettings], z_parameters: Optional[ZParameters]):
+    def _positions_worker(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: Optional[ZParameters]):
         """Worker thread for positions acquisition."""
         try:
-            logging.info(f"Acquiring at {len(self.stage_positions)} saved positions")
+            logging.info(f"Acquiring at {len(checked_positions)} checked positions")
             
             # Get the parent microscope for stage movement
             if not self._validate_parent_microscope():
                 return
             
-            # Acquire images at all saved positions (using FMStagePosition directly)
+            # Acquire images at only the checked positions
             images = acquire_at_positions(
                 microscope=self.fm.parent,
-                positions=self.stage_positions,
+                positions=checked_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
                 stop_event=self._acquisition_stop_event,
