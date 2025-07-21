@@ -1,51 +1,53 @@
 import numpy as np
 from typing import Tuple, Optional
 
-def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
-    """Draw a number character as a numpy array.
+def draw_character(char: str, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Draw any alphanumeric character as a numpy array.
     
     Args:
-        num: Number to draw (0-9)
-        size: (height, width) of the digit itself
+        char: Character to draw (A-Z, 0-9, case insensitive)
+        size: (height, width) of the character itself
         thickness: Line thickness for drawing
         image_shape: (height, width) of the output image. If None, uses size.
         
     Returns:
-        np.ndarray: Binary array with the number drawn (1 = foreground, 0 = background)
+        np.ndarray: Binary array with the character drawn (1 = foreground, 0 = background)
     """
-    if not 0 <= num <= 9:
-        raise ValueError("Number must be between 0 and 9")
+    char = char.upper()
+    if not char.isalnum() or len(char) != 1:
+        raise ValueError("Character must be a single alphanumeric character (A-Z, 0-9)")
     
-    # If no image_shape specified, use the digit size
+    # If no image_shape specified, use the character size
     if image_shape is None:
         image_shape = size
     
     img_height, img_width = image_shape
-    digit_height, digit_width = size
+    char_height, char_width = size
     
     # Create the full image
     img = np.zeros((img_height, img_width), dtype=np.uint8)
     
-    # Calculate offset to center the digit
-    offset_y = (img_height - digit_height) // 2
-    offset_x = (img_width - digit_width) // 2
+    # Calculate offset to center the character
+    offset_y = (img_height - char_height) // 2
+    offset_x = (img_width - char_width) // 2
     
-    # Create a temporary image for the digit
-    digit_img = np.zeros((digit_height, digit_width), dtype=np.uint8)
+    # Create a temporary image for the character
+    char_img = np.zeros((char_height, char_width), dtype=np.uint8)
     
-    # Define number patterns as coordinate lists
+    # Define all character patterns as coordinate lists
     # Each pattern is defined relative to a normalized coordinate system
     patterns = {
-        0: [
+        # Numbers 0-9
+        '0': [
             # Outer rectangle
             [(0.2, 0.1), (0.8, 0.1), (0.8, 0.9), (0.2, 0.9), (0.2, 0.1)]
         ],
-        1: [
+        '1': [
             # Vertical line and top stroke
             [(0.5, 0.1), (0.5, 0.9)],
             [(0.3, 0.2), (0.5, 0.1)]
         ],
-        2: [
+        '2': [
             # Top horizontal, right vertical, middle horizontal, left vertical, bottom horizontal
             [(0.2, 0.1), (0.8, 0.1)],
             [(0.8, 0.1), (0.8, 0.5)], 
@@ -53,7 +55,7 @@ def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, 
             [(0.2, 0.5), (0.2, 0.9)],
             [(0.2, 0.9), (0.8, 0.9)]
         ],
-        3: [
+        '3': [
             # Top horizontal, right vertical, middle horizontal, right vertical, bottom horizontal
             [(0.2, 0.1), (0.8, 0.1)],
             [(0.8, 0.1), (0.8, 0.5)],
@@ -61,13 +63,13 @@ def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, 
             [(0.8, 0.5), (0.8, 0.9)],
             [(0.2, 0.9), (0.8, 0.9)]
         ],
-        4: [
+        '4': [
             # Left vertical (top half), horizontal, right vertical
             [(0.2, 0.1), (0.2, 0.5)],
             [(0.2, 0.5), (0.8, 0.5)],
             [(0.8, 0.1), (0.8, 0.9)]
         ],
-        5: [
+        '5': [
             # Top horizontal, left vertical, middle horizontal, right vertical, bottom horizontal
             [(0.2, 0.1), (0.8, 0.1)],
             [(0.2, 0.1), (0.2, 0.5)],
@@ -75,7 +77,7 @@ def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, 
             [(0.8, 0.5), (0.8, 0.9)],
             [(0.2, 0.9), (0.8, 0.9)]
         ],
-        6: [
+        '6': [
             # Top horizontal, left vertical, middle horizontal, left vertical (bottom), right vertical (bottom), bottom horizontal
             [(0.2, 0.1), (0.8, 0.1)],
             [(0.2, 0.1), (0.2, 0.9)],
@@ -83,84 +85,23 @@ def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, 
             [(0.8, 0.5), (0.8, 0.9)],
             [(0.2, 0.9), (0.8, 0.9)]
         ],
-        7: [
+        '7': [
             # Top horizontal, right vertical
             [(0.2, 0.1), (0.8, 0.1)],
             [(0.8, 0.1), (0.8, 0.9)]
         ],
-        8: [
+        '8': [
             # Full rectangle outline with middle horizontal
             [(0.2, 0.1), (0.8, 0.1), (0.8, 0.9), (0.2, 0.9), (0.2, 0.1)],
             [(0.2, 0.5), (0.8, 0.5)]
         ],
-        9: [
+        '9': [
             # Top rectangle and right vertical to bottom
             [(0.2, 0.1), (0.8, 0.1), (0.8, 0.5), (0.2, 0.5), (0.2, 0.1)],
             [(0.8, 0.5), (0.8, 0.9)],
             [(0.2, 0.9), (0.8, 0.9)]
-        ]
-    }
-    
-    # Draw the pattern on the digit image
-    for line_segments in patterns[num]:
-        if len(line_segments) >= 2:
-            for i in range(len(line_segments) - 1):
-                x1, y1 = line_segments[i]
-                x2, y2 = line_segments[i + 1]
-                
-                # Convert normalized coordinates to pixel coordinates
-                px1, py1 = int(x1 * digit_width), int(y1 * digit_height)
-                px2, py2 = int(x2 * digit_width), int(y2 * digit_height)
-                
-                # Draw line on digit image
-                draw_line(digit_img, px1, py1, px2, py2, thickness)
-    
-    # Place the digit in the center of the main image
-    end_y = min(offset_y + digit_height, img_height)
-    end_x = min(offset_x + digit_width, img_width)
-    digit_end_y = end_y - offset_y
-    digit_end_x = end_x - offset_x
-    
-    img[offset_y:end_y, offset_x:end_x] = digit_img[:digit_end_y, :digit_end_x]
-    
-    return img
-
-def draw_letter(letter: str, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
-    """Draw an alphabetical character as a numpy array.
-    
-    Args:
-        letter: Letter to draw (A-Z, case insensitive)
-        size: (height, width) of the letter itself
-        thickness: Line thickness for drawing
-        image_shape: (height, width) of the output image. If None, uses size.
-        
-    Returns:
-        np.ndarray: Binary array with the letter drawn (1 = foreground, 0 = background)
-    """
-    letter = letter.upper()
-    if not letter.isalpha() or len(letter) != 1:
-        raise ValueError("Letter must be a single alphabetical character")
-    
-    # If no image_shape specified, use the letter size
-    if image_shape is None:
-        image_shape = size
-    
-    img_height, img_width = image_shape
-    letter_height, letter_width = size
-    
-    # Create the full image
-    img = np.zeros((img_height, img_width), dtype=np.uint8)
-    
-    # Calculate offset to center the letter
-    offset_y = (img_height - letter_height) // 2
-    offset_x = (img_width - letter_width) // 2
-    
-    # Create a temporary image for the letter
-    letter_img = np.zeros((letter_height, letter_width), dtype=np.uint8)
-    
-    # Define letter patterns as coordinate lists
-    # Each pattern is defined relative to a normalized coordinate system
-    patterns = {
+        ],
+        # Letters A-Z
         'A': [
             # Left vertical, right vertical, top horizontal, middle horizontal
             [(0.2, 0.9), (0.2, 0.3), (0.5, 0.1), (0.8, 0.3), (0.8, 0.9)],
@@ -301,32 +242,71 @@ def draw_letter(letter: str, size: Tuple[int, int] = (32, 24), thickness: int = 
         ]
     }
     
-    if letter not in patterns:
-        raise ValueError(f"Letter '{letter}' is not supported")
+    if char not in patterns:
+        raise ValueError(f"Character '{char}' is not supported")
     
-    # Draw the pattern on the letter image
-    for line_segments in patterns[letter]:
+    # Draw the pattern on the character image
+    for line_segments in patterns[char]:
         if len(line_segments) >= 2:
             for i in range(len(line_segments) - 1):
                 x1, y1 = line_segments[i]
                 x2, y2 = line_segments[i + 1]
                 
                 # Convert normalized coordinates to pixel coordinates
-                px1, py1 = int(x1 * letter_width), int(y1 * letter_height)
-                px2, py2 = int(x2 * letter_width), int(y2 * letter_height)
+                px1, py1 = int(x1 * char_width), int(y1 * char_height)
+                px2, py2 = int(x2 * char_width), int(y2 * char_height)
                 
-                # Draw line on letter image
-                draw_line(letter_img, px1, py1, px2, py2, thickness)
+                # Draw line on character image
+                draw_line(char_img, px1, py1, px2, py2, thickness)
     
-    # Place the letter in the center of the main image
-    end_y = min(offset_y + letter_height, img_height)
-    end_x = min(offset_x + letter_width, img_width)
-    letter_end_y = end_y - offset_y
-    letter_end_x = end_x - offset_x
+    # Place the character in the center of the main image
+    end_y = min(offset_y + char_height, img_height)
+    end_x = min(offset_x + char_width, img_width)
+    char_end_y = end_y - offset_y
+    char_end_x = end_x - offset_x
     
-    img[offset_y:end_y, offset_x:end_x] = letter_img[:letter_end_y, :letter_end_x]
+    img[offset_y:end_y, offset_x:end_x] = char_img[:char_end_y, :char_end_x]
     
     return img
+
+def draw_number(num: int, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Draw a number character as a numpy array.
+    
+    DEPRECATED: Use draw_character() instead for unified alphanumeric support.
+    
+    Args:
+        num: Number to draw (0-9)
+        size: (height, width) of the digit itself
+        thickness: Line thickness for drawing
+        image_shape: (height, width) of the output image. If None, uses size.
+        
+    Returns:
+        np.ndarray: Binary array with the number drawn (1 = foreground, 0 = background)
+    """
+    if not 0 <= num <= 9:
+        raise ValueError("Number must be between 0 and 9")
+    
+    return draw_character(str(num), size, thickness, image_shape)
+
+def draw_letter(letter: str, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Draw an alphabetical character as a numpy array.
+    
+    DEPRECATED: Use draw_character() instead for unified alphanumeric support.
+    
+    Args:
+        letter: Letter to draw (A-Z, case insensitive)
+        size: (height, width) of the letter itself
+        thickness: Line thickness for drawing
+        image_shape: (height, width) of the output image. If None, uses size.
+        
+    Returns:
+        np.ndarray: Binary array with the letter drawn (1 = foreground, 0 = background)
+    """
+    letter = letter.upper()
+    if not letter.isalpha() or len(letter) != 1:
+        raise ValueError("Letter must be a single alphabetical character")
+    
+    return draw_character(letter, size, thickness, image_shape)
 
 def draw_line(img: np.ndarray, x1: int, y1: int, x2: int, y2: int, thickness: int = 1):
     """Draw a line on the image using Bresenham's algorithm with thickness."""
@@ -437,11 +417,8 @@ def draw_text(text: str, size: Tuple[int, int] = (32, 24), spacing: int = 4, thi
     offset_x = (img_width - total_width) // 2
     
     for i, char in enumerate(valid_chars):
-        # Draw either letter or number
-        if char.isalpha():
-            char_img = draw_letter(char, size, thickness)
-        else:  # char.isdigit()
-            char_img = draw_number(int(char), size, thickness)
+        # Draw any alphanumeric character
+        char_img = draw_character(char, size, thickness)
         
         start_col = offset_x + i * (char_width + spacing)
         end_col = start_col + char_width

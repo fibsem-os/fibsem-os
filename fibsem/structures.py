@@ -756,8 +756,8 @@ class BeamSettings:
             isinstance(self.hfw, (float, int)) or self.hfw is None
         ), f"horizontal field width (HFW) must be float or int, currently is {type(self.hfw)}"
         assert (
-            isinstance(self.resolution, list) or self.resolution is None
-        ), f"resolution must be a list, currently is {type(self.resolution)}"
+            isinstance(self.resolution, (list, tuple)) or self.resolution is None
+        ), f"resolution must be a list or tuple, currently is {type(self.resolution)}"
         assert (
             isinstance(self.dwell_time, (float, int)) or self.dwell_time is None
         ), f"dwell_time must be float or int, currently is {type(self.dwell_time)}"
@@ -781,7 +781,7 @@ class BeamSettings:
             "beam_current": self.beam_current,
             "voltage": self.voltage,
             "hfw": self.hfw,
-            "resolution": self.resolution,
+            "resolution": list(self.resolution),
             "dwell_time": self.dwell_time,
             "stigmation": self.stigmation.to_dict()
             if self.stigmation is not None
