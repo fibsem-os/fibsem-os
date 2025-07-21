@@ -107,6 +107,9 @@ def acquire_image(microscope: FluorescenceMicroscope,
     Returns:
             FluorescenceImage object containing the acquired image(s)"""
     
+    if microscope.parent.get_stage_orientation() != "FM":
+        raise ValueError("Stage is not in FM orientation. Cannot start acquisition.")
+
     if zparams is not None:
         # Acquire Z-stack if zparams is provided
         image = acquire_z_stack(microscope, channel_settings, zparams, stop_event)
@@ -166,6 +169,9 @@ def acquire_at_positions(
     """ 
     if microscope.fm is None:
         raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
+    if microscope.get_stage_orientation() != "FM":
+        raise ValueError("Stage is not in FM orientation. Cannot start acquisition.")
+
     if not positions:
         raise ValueError("Positions list cannot be empty")
     if not isinstance(channel_settings, list):
@@ -328,6 +334,9 @@ def acquire_tileset(
     """
     if microscope.fm is None:
         raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
+
+    if microscope.get_stage_orientation() != "FM":
+        raise ValueError("Stage is not in FM orientation. Cannot start acquisition.")
 
     if not isinstance(channel_settings, list):
         channel_settings = [channel_settings]

@@ -655,7 +655,10 @@ def run_autofocus(
         >>> best_z = run_autofocus(microscope, channel, z_params, method='sobel')
     """
     from fibsem.fm.structures import ZParameters
-    
+
+    if microscope.parent.get_stage_orientation() != "FM":
+        raise ValueError("Autofocus can only be run on a FluorescenceMicroscope with FM stage orientation")
+
     # Set up default z parameters if not provided
     if z_parameters is None:
         z_parameters = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=2.5e-6)
