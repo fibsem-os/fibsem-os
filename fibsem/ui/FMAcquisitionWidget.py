@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
     QAction,
 )
 from superqt import QCollapsible
-from fibsem.microscopes.simulator import DemoMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
 from fibsem import conversions, utils
 from fibsem.config import LOG_PATH
 from fibsem.constants import METRE_TO_MILLIMETRE
@@ -529,10 +529,14 @@ class FMAcquisitionWidget(QWidget):
     update_persistent_image_signal = pyqtSignal(FluorescenceImage)
     acquisition_finished_signal = pyqtSignal()
 
-    def __init__(self, fm: FluorescenceMicroscope, viewer: napari.Viewer, experiment_path: str, parent=None):
+    def __init__(self, microscope: FibsemMicroscope, viewer: napari.Viewer, experiment_path: str, parent=None):
         super().__init__(parent)
 
-        self.fm = fm
+        if microscope.fm is None:
+            raise ValueError("FluorescenceMicroscope (fm) must be initialized in the FibsemMicroscope.")
+
+        self.microscope = microscope
+        self.fm: FluorescenceMicroscope = microscope.fm
         self.viewer = viewer
         self.image_layer: Optional[NapariImageLayer] = None
         self.stage_positions: List[FMStagePosition] = []
@@ -554,7 +558,7 @@ class FMAcquisitionWidget(QWidget):
         # Rate limiting for update_image
         self._last_updated_at = None
         self.max_update_interval = LIVE_IMAGING_RATE_LIMIT_SECONDS  # seconds
-        if isinstance(self.fm.parent, DemoMicroscope):
+        if isinstance(self.microscope, DemoMicroscope):
             self.max_update_interval = 0.11  # faster updates for demo mode
 
         # Display flags for overlay controls
@@ -577,16 +581,6 @@ class FMAcquisitionWidget(QWidget):
         """
         return self._current_acquisition_type is not None
 
-    def _validate_parent_microscope(self) -> bool:
-        """Validate that the parent microscope is available for operations requiring stage control.
-        
-        Returns:
-            True if parent microscope is available, False otherwise
-        """
-        if self.fm.parent is None:
-            logging.error("FluorescenceMicroscope parent is None. Cannot perform operation.")
-            return False
-        return True
 
     def _get_current_settings(self):
         """Get current settings from all widgets for acquisition operations.
@@ -936,9 +930,7 @@ class FMAcquisitionWidget(QWidget):
             logging.info("Stage movement disabled during acquisition")
             event.handled = True
             return
-        
-        if not self._validate_parent_microscope():
-            return
+
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
         # coords = self.image_layer.world_to_data(event.position)  # PIXEL COORDINATES
@@ -946,9 +938,9 @@ class FMAcquisitionWidget(QWidget):
         position_clicked = event.position[-2:]  # yx required
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))  # yx required
 
-        self.fm.parent.move_stage_absolute(stage_position) # TODO: support absolute stable-move
+        self.microscope.move_stage_absolute(stage_position) # TODO: support absolute stable-move
 
-        stage_position = self.fm.parent.get_stage_position()
+        stage_position = self.microscope.get_stage_position()
         logging.info(f"Stage position after move: {stage_position}")
 
         self.display_stage_position_overlay()
@@ -957,12 +949,9 @@ class FMAcquisitionWidget(QWidget):
     def update_text_overlay(self):
         """Update the text overlay with current stage position and objective information."""
         try:
-            if self.fm.parent is None:
-                logging.warning("FluorescenceMicroscope parent is None. Cannot update text overlay.")
-                return
-            pos = self.fm.parent.get_stage_position()
-            orientation = self.fm.parent.get_stage_orientation()
-            current_grid = self.fm.parent.current_grid
+            pos = self.microscope.get_stage_position()
+            orientation = self.microscope.get_stage_orientation()
+            current_grid = self.microscope.current_grid
 
             # Create combined text for overlay
             overlay_text = (
@@ -1134,41 +1123,40 @@ class FMAcquisitionWidget(QWidget):
         fov_x, fov_y = self.fm.camera.field_of_view
         
         # Add current position single image FOV (magenta)
-        if self.fm.parent:
-            current_pos = self.fm.parent.get_stage_position()
-            center_point = stage_position_to_napari_world_coordinate(current_pos)
+        current_pos = self.microscope.get_stage_position()
+        center_point = stage_position_to_napari_world_coordinate(current_pos)
 
-            if self.show_current_fov:
-                fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-                overlays.append(NapariShapeOverlay(
-                    shape=fov_rect,
-                    color="magenta",
-                    label="Current FOV",
-                    shape_type="rectangle"
-                ))
+        if self.show_current_fov:
+            fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+            overlays.append(NapariShapeOverlay(
+                shape=fov_rect,
+                color="magenta",
+                label="Current FOV",
+                shape_type="rectangle"
+            ))
 
-            # Add overview acquisition area (orange, only if not acquiring)
-            if (self.show_overview_fov and 
-                self._current_acquisition_type != "overview" and 
-                self._current_acquisition_type != "positions"):
+        # Add overview acquisition area (orange, only if not acquiring)
+        if (self.show_overview_fov and 
+            self._current_acquisition_type != "overview" and 
+            self._current_acquisition_type != "positions"):
 
-                # Get overview parameters and calculate total area
-                settings = self._get_current_settings()
-                grid_size = settings['overview_grid_size']
-                overlap = settings['overview_overlap']
+            # Get overview parameters and calculate total area
+            settings = self._get_current_settings()
+            grid_size = settings['overview_grid_size']
+            overlap = settings['overview_overlap']
 
-                total_width, total_height = calculate_grid_coverage_area(
-                    ncols=grid_size[1], nrows=grid_size[0],
-                    fov_x=fov_x, fov_y=fov_y, overlap=overlap
-                )
+            total_width, total_height = calculate_grid_coverage_area(
+                ncols=grid_size[1], nrows=grid_size[0],
+                fov_x=fov_x, fov_y=fov_y, overlap=overlap
+            )
 
-                overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
-                overlays.append(NapariShapeOverlay(
-                    shape=overview_rect,
-                    color="orange",
-                    label=f"Overview {grid_size[0]}x{grid_size[1]}",
-                    shape_type="rectangle"
-                ))
+            overview_rect = create_rectangle_shape(center_point, total_width, total_height, layer_scale)
+            overlays.append(NapariShapeOverlay(
+                shape=overview_rect,
+                color="orange",
+                label=f"Overview {grid_size[0]}x{grid_size[1]}",
+                shape_type="rectangle"
+            ))
 
         # Add 1mm bounding box around origin (yellow)
         if self.show_stage_limits:
@@ -1317,17 +1305,16 @@ class FMAcquisitionWidget(QWidget):
             ))
 
         # Add current stage position if available
-        if self.fm.parent:
-            current_pos = self.fm.parent.get_stage_position()
-            current_point = stage_position_to_napari_world_coordinate(current_pos)
-            current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)
-            for line, txt in zip(current_lines, ["stage-position", ""]):
-                overlays.append(NapariShapeOverlay(
-                    shape=line,
-                    color=CROSSHAIR_CONFIG["colors"]["current"],
-                    label=txt,
-                    shape_type="line"
-                ))
+        current_pos = self.microscope.get_stage_position()
+        current_point = stage_position_to_napari_world_coordinate(current_pos)
+        current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)
+        for line, txt in zip(current_lines, ["stage-position", ""]):
+            overlays.append(NapariShapeOverlay(
+                shape=line,
+                color=CROSSHAIR_CONFIG["colors"]["current"],
+                label=txt,
+                shape_type="line"
+            ))
 
         # Add saved positions
         selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
@@ -1422,13 +1409,9 @@ class FMAcquisitionWidget(QWidget):
         try:
             logging.info(f"Acquiring at {len(checked_positions)} checked positions")
             
-            # Get the parent microscope for stage movement
-            if not self._validate_parent_microscope():
-                return
-            
             # Acquire images at only the checked positions
             images = acquire_at_positions(
-                microscope=self.fm.parent,
+                microscope=self.microscope,
                 positions=checked_positions,
                 channel_settings=channel_settings,
                 zparams=z_parameters,
@@ -1803,9 +1786,6 @@ class FMAcquisitionWidget(QWidget):
                         positions: Optional[List[FMStagePosition]] = None):
         """Worker thread for overview acquisition."""
         try:
-            # Get the parent microscope for tileset acquisition
-            if not self._validate_parent_microscope():
-                return
             if positions is None:
                 positions = []
 
@@ -1814,7 +1794,7 @@ class FMAcquisitionWidget(QWidget):
             #     from fibsem.fm.acquisition import acquire_multiple_overviews
 
             #     overview_images = acquire_multiple_overviews(
-            #         microscope=self.fm.parent,
+            #         microscope=self.microscope,
             #         positions=self.stage_positions,
             #         channel_settings=channel_settings,
             #         grid_size=grid_size,
@@ -1836,7 +1816,7 @@ class FMAcquisitionWidget(QWidget):
 
             # Acquire and stitch tileset
             overview_image = acquire_and_stitch_tileset(
-                microscope=self.fm.parent,
+                microscope=self.microscope,
                 channel_settings=channel_settings,
                 grid_size=grid_size,
                 tile_overlap=tile_overlap,
@@ -2012,8 +1992,8 @@ def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
         logging.error(f"Failed to create experiment directory: {e}")
         # Fallback to current directory
         experiment_path = os.getcwd()
-    
-    widget = FMAcquisitionWidget(fm=microscope.fm,
+
+    widget = FMAcquisitionWidget(microscope=microscope,
                                  viewer=viewer,
                                  experiment_path=experiment_path, parent=None)
 
