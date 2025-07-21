@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QComboBox,
     QShortcut,
     QVBoxLayout,
     QWidget,
@@ -33,9 +34,9 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
-from fibsem import conversions, utils
-from fibsem.config import LOG_PATH
-from fibsem.constants import METRE_TO_MILLIMETRE, RADIANS_TO_DEGREES, DEGREE_SYMBOL
+from fibsem import utils
+from fibsem.config import LOG_PATH, SQUARE_RESOLUTIONS
+from fibsem.constants import METRE_TO_MILLIMETRE
 from fibsem.fm.acquisition import (
     AutofocusMode,
     acquire_and_stitch_tileset,
@@ -46,7 +47,7 @@ from fibsem.fm.acquisition import (
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
-from fibsem.structures import BeamType, FibsemStagePosition, Point
+from fibsem.structures import BeamType, ImageSettings, FibsemStagePosition, Point
 from fibsem.ui.fm.widgets import (
     MultiChannelSettingsWidget,
     HistogramWidget,
@@ -524,6 +525,124 @@ class StagePositionControlWidget(QWidget):
 
 
 
+class SEMAcquisitionWidget(QWidget):
+
+    """Widget for acquiring images and managing image layers in napari."""
+    
+    def __init__(self, microscope: FibsemMicroscope, parent: 'FMAcquisitionWidget'):
+        super().__init__(parent)
+        self.microscope = microscope
+        self.image_settings = ImageSettings(resolution=(2048, 2048), 
+                                            dwell_time=1e-6, 
+                                            hfw=500e-6, 
+                                            beam_type=BeamType.ELECTRON)
+        self.parent_widget = parent
+        self.initUI()
+    
+    def initUI(self):
+        """Initialize the image acquisition UI."""
+        layout = QGridLayout()
+
+        # field of view, dwell time
+        self.fov_label = QLabel("Field of View (FOV)")
+        self.fov_spinbox = QDoubleSpinBox()
+        self.fov_spinbox.setRange(100.0, 2000.0)
+        self.fov_spinbox.setValue(500.0)
+        self.fov_spinbox.setSuffix(" μm")
+        self.fov_spinbox.setSingleStep(10.0)
+        self.fov_spinbox.setDecimals(1)
+
+        self.dwell_time_label = QLabel("Dwell Time")
+        self.dwell_time_spinbox = QDoubleSpinBox()
+        self.dwell_time_spinbox.setRange(0.2, 10.0)
+        self.dwell_time_spinbox.setValue(1.0)
+        self.dwell_time_spinbox.setSuffix(" ms")
+        self.dwell_time_spinbox.setSingleStep(0.1)
+        self.dwell_time_spinbox.setDecimals(1)
+
+        self.label_resolution = QLabel("Resolution")
+        self.combobox_resolution = QComboBox()
+        for res in SQUARE_RESOLUTIONS:
+            rstr = res.split("x")
+            self.combobox_resolution.addItem(f"{rstr[0]}x{rstr[1]}", userData=res)
+        self.combobox_resolution.setCurrentIndex(3)
+
+        layout.addWidget(self.fov_label, 0, 0)
+        layout.addWidget(self.fov_spinbox, 0, 1)
+        layout.addWidget(self.dwell_time_label, 1, 0)
+        layout.addWidget(self.dwell_time_spinbox, 1, 1)
+        layout.addWidget(self.label_resolution, 2, 0)
+        layout.addWidget(self.combobox_resolution, 2, 1)
+
+        # Image acquisition controls
+        self.button_acquire_image = QPushButton("Acquire Image")
+        self.button_acquire_image.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.button_acquire_image.clicked.connect(self.acquire_image)
+        layout.addWidget(self.button_acquire_image, 3, 0, 1, 2)
+
+        self.fov_spinbox.valueChanged.connect(self.update_fov)
+        self.dwell_time_spinbox.valueChanged.connect(self.update_dwell_time)
+        self.combobox_resolution.currentIndexChanged.connect(self.update_resolution)
+
+        # Add more controls as needed...
+
+        self.setLayout(layout)
+
+
+    def update_fov(self, value: float) -> None:
+        """Update the field of view based on the spinbox value."""
+        self.image_settings.hfw = value * 1e-6
+
+    def update_dwell_time(self, value: float) -> None:
+        """Update the dwell time based on the spinbox value."""
+        self.image_settings.dwell_time = value * 1e-6
+
+    def update_resolution(self, index: int) -> None:
+        """Update the image resolution based on the combobox selection."""
+        resolution = self.combobox_resolution.currentData()
+        if resolution:
+            self.image_settings.resolution = resolution
+        else:
+            logging.warning("No valid resolution selected in combobox.")
+
+    def acquire_image(self) -> None:
+        """Acquire an SEM Overview Image"""
+        try:
+            
+            if self.microscope.get_stage_orientation() != "SEM":
+                QMessageBox.warning(self, "Orientation Error", "Please switch to SEM orientation before acquiring an image.")
+                return
+
+            image = self.microscope.acquire_image(image_settings=self.image_settings)
+            if image is not None:
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                image.save(os.path.join(self.parent_widget.experiment_path, f"overview-{timestamp}.tif"))
+
+                pos = stage_position_to_napari_image_coordinate(image.data.shape, 
+                                                    image.metadata.stage_position, 
+                                                    image.metadata.pixel_size.x)
+                # Add the image to the napari viewer
+                self.parent_widget.viewer.add_image(
+                    data=image.data,
+                    name=f"SEM Overview {timestamp}",
+                    scale=(image.metadata.pixel_size.y, image.metadata.pixel_size.x),
+                    translate=(pos.y, pos.x),
+                    blending='additive',
+                    colormap='gray',
+                    opacity=0.8,
+                    metadata={
+                        "timestamp": timestamp,
+                        "resolution": self.image_settings.resolution,
+                        "hfw": self.image_settings.hfw,
+                        "dwell_time": self.image_settings.dwell_time,
+                        "beam_type": self.image_settings.beam_type.name
+                    })
+            # self.parent_widget.display_image(image)
+        except Exception as e:
+            logging.error(f"Failed to acquire image: {e}")
+            QMessageBox.warning(self, "Acquisition Error", f"Failed to acquire image:\n{str(e)}")
+
+
 class ExperimentCreationDialog(QDialog):
     """Dialog for creating a new experiment or loading an existing one."""
 
@@ -978,7 +1097,23 @@ class FMAcquisitionWidget(QWidget):
 
         self.initUI()
         self.display_stage_position_overlay()
-        
+
+    def toggle_widgets(self):
+        """Toggle widgets based on current stage orientation."""
+
+        is_fm_enabled = self.microscope.get_stage_orientation() == "FM"
+        is_sem_enabled = self.microscope.get_stage_orientation() == "SEM"
+
+        self.objectiveControlWidget.setEnabled(is_fm_enabled)
+        self.zParametersWidget.setEnabled(is_fm_enabled)
+        self.channelSettingsWidget.setEnabled(is_fm_enabled)
+        self.savedPositionsWidget.setEnabled(is_fm_enabled)
+        self.overviewParametersWidget.setEnabled(is_fm_enabled)
+        self.semAcquisitionWidget.setEnabled(is_sem_enabled)
+        # toggle acquisition buttons based on orientation
+        for btn, _ in self.button_configs:
+            btn.setEnabled(is_fm_enabled)
+
     @property
     def is_acquisition_active(self) -> bool:
         """Check if any acquisition or operation is currently running.
@@ -1024,6 +1159,11 @@ class FMAcquisitionWidget(QWidget):
         self.stagePositionCollapsible = QCollapsible("Stage Position Control", self)
         self.stagePositionCollapsible.addWidget(self.stagePositionControlWidget)
 
+        # add SEM image acquisition widget
+        self.semAcquisitionWidget = SEMAcquisitionWidget(microscope=self.microscope, parent=self)
+        self.semAcquisitionCollapsible = QCollapsible("SEM Image Acquisition", self)
+        self.semAcquisitionCollapsible.addWidget(self.semAcquisitionWidget)
+
         # create z parameters widget
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
         self.zParametersCollapsible = QCollapsible("Z-Stack Parameters", self)
@@ -1051,6 +1191,7 @@ class FMAcquisitionWidget(QWidget):
         # Set initial expanded state for all collapsible widgets
         self.objectiveCollapsible.expand(animate=False)
         self.stagePositionCollapsible.expand(animate=False)
+        self.semAcquisitionCollapsible.expand(animate=False)
         self.zParametersCollapsible.expand(animate=False)
         self.overviewCollapsible.expand(animate=False)
         self.positionsCollapsible.expand(animate=False)
@@ -1059,6 +1200,7 @@ class FMAcquisitionWidget(QWidget):
         # Set content margins to 0 for all collapsible widgets
         self.objectiveCollapsible.setContentsMargins(0, 0, 0, 0)
         self.stagePositionCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.semAcquisitionCollapsible.setContentsMargins(0, 0, 0, 0)
         self.zParametersCollapsible.setContentsMargins(0, 0, 0, 0)
         self.overviewCollapsible.setContentsMargins(0, 0, 0, 0)
         self.positionsCollapsible.setContentsMargins(0, 0, 0, 0)
@@ -1090,6 +1232,7 @@ class FMAcquisitionWidget(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.stagePositionCollapsible)
+        layout.addWidget(self.semAcquisitionCollapsible)
         layout.addWidget(self.objectiveCollapsible)
         layout.addWidget(self.channelCollapsible)
         layout.addWidget(self.zParametersCollapsible)
@@ -1107,7 +1250,6 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_acquire_at_positions, 4, 0, 1, 2)
         button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)
-        # layout.addLayout(button_layout)
 
         # set layout -> content -> scroll area -> main layout
         main_layout = QVBoxLayout()
@@ -1280,6 +1422,11 @@ class FMAcquisitionWidget(QWidget):
             event.handled = True
             return
 
+        if self.microscope.get_stage_orientation() != "FM":
+            logging.warning("Stage orientation is not set to 'FM'. Cannot handle mouse click.")
+            event.handled = True
+            return
+
         # get event position in world coordinates, convert to stage coordinates
         position_clicked = event.position[-2:]  # yx required
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))
@@ -1351,7 +1498,6 @@ class FMAcquisitionWidget(QWidget):
             event.handled = True
             return
 
-
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
         # coords = self.image_layer.world_to_data(event.position)  # PIXEL COORDINATES
         logging.info("-" * 40)
@@ -1391,6 +1537,7 @@ class FMAcquisitionWidget(QWidget):
         """Legacy method for compatibility - redirects to update_text_overlay."""
         self.update_text_overlay()
         self.draw_stage_position_crosshairs()
+        self.toggle_widgets()
 
     def show_new_experiment_dialog(self):
         """Show the experiment setup dialog for creating or loading experiments."""
@@ -2043,6 +2190,10 @@ class FMAcquisitionWidget(QWidget):
         if self.fm.is_acquiring:
             logging.warning("Acquisition is already running.")
             return
+        
+        if self.microscope.get_stage_orientation() != "FM":
+            logging.warning("Stage is not in FM orientation. Cannot start acquisition.")
+            return
 
         # TODO: handle case where acquisition fails...
 
@@ -2157,6 +2308,15 @@ class FMAcquisitionWidget(QWidget):
         
     def _update_acquisition_button_states(self):
         """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
+        if self.microscope.get_stage_orientation() != "FM":
+            # If not in FM orientation, disable all acquisition buttons
+            self.pushButton_toggle_acquisition.setEnabled(False)
+            self.pushButton_acquire_zstack.setEnabled(False)
+            self.pushButton_acquire_overview.setEnabled(False)
+            self.pushButton_acquire_at_positions.setEnabled(False)
+            self.pushButton_cancel_acquisition.setEnabled(False)
+            return
+        
         # Check if any acquisition is active (live or specific acquisitions)
         any_acquisition_active = self.fm.is_acquiring or self.is_acquisition_active
         
