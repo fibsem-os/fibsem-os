@@ -35,7 +35,7 @@ from PyQt5.QtWidgets import (
 from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
 from fibsem import utils
-from fibsem.config import LOG_PATH, SQUARE_RESOLUTIONS
+from fibsem.config import LOG_PATH, SQUARE_RESOLUTIONS_LIST
 from fibsem.constants import METRE_TO_MILLIMETRE
 from fibsem.fm.acquisition import (
     AutofocusMode,
@@ -486,7 +486,6 @@ class StagePositionControlWidget(QWidget):
             return
         
         try:
-            # For FM orientation, typically use electron beam flat position
             self.microscope.move_to_microscope("FM")
             logging.info("Moved to FM orientation")
         except Exception as e:
@@ -524,7 +523,6 @@ class StagePositionControlWidget(QWidget):
         self.parent_widget.display_stage_position_overlay()
 
 
-
 class SEMAcquisitionWidget(QWidget):
 
     """Widget for acquiring images and managing image layers in napari."""
@@ -556,15 +554,14 @@ class SEMAcquisitionWidget(QWidget):
         self.dwell_time_spinbox = QDoubleSpinBox()
         self.dwell_time_spinbox.setRange(0.2, 10.0)
         self.dwell_time_spinbox.setValue(1.0)
-        self.dwell_time_spinbox.setSuffix(" ms")
+        self.dwell_time_spinbox.setSuffix(" μs")
         self.dwell_time_spinbox.setSingleStep(0.1)
         self.dwell_time_spinbox.setDecimals(1)
 
         self.label_resolution = QLabel("Resolution")
         self.combobox_resolution = QComboBox()
-        for res in SQUARE_RESOLUTIONS:
-            rstr = res.split("x")
-            self.combobox_resolution.addItem(f"{rstr[0]}x{rstr[1]}", userData=res)
+        for res in SQUARE_RESOLUTIONS_LIST:
+            self.combobox_resolution.addItem(f"{res[0]}x{res[1]}", userData=res)
         self.combobox_resolution.setCurrentIndex(3)
 
         layout.addWidget(self.fov_label, 0, 0)
@@ -584,14 +581,12 @@ class SEMAcquisitionWidget(QWidget):
         self.dwell_time_spinbox.valueChanged.connect(self.update_dwell_time)
         self.combobox_resolution.currentIndexChanged.connect(self.update_resolution)
 
-        # Add more controls as needed...
-
         self.setLayout(layout)
-
 
     def update_fov(self, value: float) -> None:
         """Update the field of view based on the spinbox value."""
         self.image_settings.hfw = value * 1e-6
+        self.parent_widget.display_stage_position_overlay()
 
     def update_dwell_time(self, value: float) -> None:
         """Update the dwell time based on the spinbox value."""
@@ -1770,21 +1765,29 @@ class FMAcquisitionWidget(QWidget):
         
         # Add current position single image FOV (magenta)
         current_pos = self.microscope.get_stage_position()
+        current_orientation = self.microscope.get_stage_orientation()
         center_point = stage_position_to_napari_world_coordinate(current_pos)
 
         if self.show_current_fov:
-            fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-            overlays.append(NapariShapeOverlay(
-                shape=fov_rect,
-                color="magenta",
-                label="Current FOV",
-                shape_type="rectangle"
-            ))
+            fov_rect = None
+            if current_orientation == "FM":
+                fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
+            elif current_orientation == "SEM":
+                fov = self.semAcquisitionWidget.image_settings.hfw  # square fov
+                fov_rect = create_rectangle_shape(center_point, fov, fov, layer_scale)
+            if fov_rect is not None:
+                overlays.append(NapariShapeOverlay(
+                    shape=fov_rect,
+                    color="magenta",
+                    label=f"Current FOV ({current_orientation})",
+                    shape_type="rectangle"
+                ))
 
         # Add overview acquisition area (orange, only if not acquiring)
         if (self.show_overview_fov and 
             self._current_acquisition_type != "overview" and 
-            self._current_acquisition_type != "positions"):
+            self._current_acquisition_type != "positions" and
+            current_orientation == "FM"):
 
             # Get overview parameters and calculate total area
             settings = self._get_current_settings()
@@ -1874,7 +1877,6 @@ class FMAcquisitionWidget(QWidget):
             self._draw_overlay_shapes(layer_scale)
         except Exception as e:
             logging.warning(f"Error updating overlay shapes: {e}")
-
 
     def _draw_crosshair_overlay(self, layer_scale: Tuple[float, float]):
         """Draw all crosshair overlays on a single layer.
