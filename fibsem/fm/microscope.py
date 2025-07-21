@@ -14,7 +14,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.util.draw_numbers import draw_number
+from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -210,8 +210,8 @@ class Camera(ABC):
         # Cache the draw_number image by mod and resolution
         cache_key = (mod, self.resolution)
         if cache_key not in self._number_cache:
-            self._number_cache[cache_key] = draw_number(mod, size=(256, 256), thickness=64, image_shape=self.resolution[::-1])
-        
+            self._number_cache[cache_key] = draw_text(f"FM{mod}", size=(256, 256), thickness=64, image_shape=self.resolution[::-1])
+
         image = self._number_cache[cache_key]
         self._index += 1  # increment index for next image
         # use the image as an inverse mask for the noise
