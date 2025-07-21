@@ -617,10 +617,10 @@ class FMAcquisitionWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.label)
         layout.addWidget(self.objectiveCollapsible)
-        layout.addWidget(self.zParametersCollapsible)
-        layout.addWidget(self.overviewCollapsible)
-        layout.addWidget(self.positionsCollapsible)
         layout.addWidget(self.channelCollapsible)
+        layout.addWidget(self.zParametersCollapsible)
+        layout.addWidget(self.positionsCollapsible)
+        layout.addWidget(self.overviewCollapsible)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # create grid layout for buttons

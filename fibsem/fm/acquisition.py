@@ -355,9 +355,7 @@ def acquire_tileset(
     step_x = fov_x * (1.0 - tile_overlap)
     step_y = fov_y * (1.0 - tile_overlap)
 
-    logging.info(f"Field of view: {fov_x*1e6:.1f} x {fov_y*1e6:.1f} μm")
-    logging.info(f"Step size: {step_x*1e6:.1f} x {step_y*1e6:.1f} μm")
-
+    logging.info(f"Field of view: {fov_x*1e6:.1f} x {fov_y*1e6:.1f} μm, Step size: {step_x*1e6:.1f} x {step_y*1e6:.1f} μm")
     # Set up auto-focus parameters
     if autofocus_mode != AutofocusMode.NONE:
         if autofocus_channel is None:

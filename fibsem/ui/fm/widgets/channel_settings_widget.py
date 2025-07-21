@@ -46,6 +46,9 @@ CHANNEL_SETTINGS_CONFIG = {
     },
 }
 
+# Maximum number of channels allowed
+MAX_CHANNELS = 4
+
 
 
 
@@ -57,12 +60,10 @@ class SingleChannelWidget(QWidget):
     def __init__(self,
                  fm: FluorescenceMicroscope,
                  channel_settings: ChannelSettings,
-                 show_remove_button: bool = True,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.channel_settings = channel_settings
         self.fm = fm
-        self.show_remove_button = show_remove_button
         self.initUI()
 
     def initUI(self):
@@ -93,13 +94,7 @@ class SingleChannelWidget(QWidget):
         channel_header_layout.addWidget(QLabel("Channel:"), 0, 0)
         channel_header_layout.addWidget(self.channel_name_input, 0, 1)
 
-        if self.show_remove_button:
-            self.remove_button = QPushButton("✕")
-            self.remove_button.setStyleSheet(RED_PUSHBUTTON_STYLE)
-            self.remove_button.setMaximumWidth(30)
-            self.remove_button.setToolTip("Remove this channel")
-            self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
-            channel_header_layout.addWidget(self.remove_button, 0, 2)
+        # Remove buttons are now handled at the parent widget level
         channel_header_layout.setColumnStretch(0, 1)  # Labels column - expandable
         channel_header_layout.setColumnStretch(1, 1)  # Input widgets column - expandable
 
@@ -237,6 +232,7 @@ class MultiChannelSettingsWidget(QWidget):
         self.initUI()
         self._create_channel_widgets()
         self._update_channel_list()
+        self._update_button_states()
         
         # Connect channel selection changes
         self.channel_list.currentRowChanged.connect(self._on_channel_selection_changed)
@@ -274,10 +270,15 @@ class MultiChannelSettingsWidget(QWidget):
         
         header_layout.addStretch()
         
-        self.add_channel_button = QPushButton("+ Add Channel")
+        self.add_channel_button = QPushButton("Add Channel")
         self.add_channel_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.add_channel_button.clicked.connect(self.add_channel)
         header_layout.addWidget(self.add_channel_button)
+        
+        self.remove_channel_button = QPushButton("Remove Channel")
+        self.remove_channel_button.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.remove_channel_button.clicked.connect(self.remove_selected_channel)
+        header_layout.addWidget(self.remove_channel_button)
         
         header_widget = QWidget()
         header_widget.setLayout(header_layout)
@@ -330,17 +331,12 @@ class MultiChannelSettingsWidget(QWidget):
     def _create_channel_widgets(self):
         """Create SingleChannelWidget instances for each channel setting."""
         for i, channel_setting in enumerate(self._channel_settings_list):
-            # Show remove button only if there's more than one channel
-            show_remove = len(self._channel_settings_list) > 1
-            
             channel_widget = SingleChannelWidget(
                 fm=self.fm,
                 channel_settings=channel_setting,
-                show_remove_button=show_remove,
                 parent=self
             )
             
-            channel_widget.remove_requested.connect(self.remove_channel)
             self.channel_widgets.append(channel_widget)
             self.channels_layout.addWidget(channel_widget)
         
@@ -364,11 +360,16 @@ class MultiChannelSettingsWidget(QWidget):
         
         # Create new widgets
         self._create_channel_widgets()
-        self._update_remove_buttons()
+        self._update_button_states()
         self._update_channel_list()
     
     def add_channel(self):
         """Add a new channel with default settings."""
+        # Check if we've reached the maximum number of channels
+        if len(self._channel_settings_list) >= MAX_CHANNELS:
+            logging.warning(f"Cannot add more channels. Maximum limit is {MAX_CHANNELS} channels.")
+            return
+            
         # Create default channel settings
         new_channel = ChannelSettings(
             name=f"Channel-{len(self._channel_settings_list) + 1:02d}",
@@ -384,52 +385,71 @@ class MultiChannelSettingsWidget(QWidget):
         channel_widget = SingleChannelWidget(
             fm=self.fm,
             channel_settings=new_channel,
-            show_remove_button=True,
             parent=self
         )
         
-        channel_widget.remove_requested.connect(self.remove_channel)
         self.channel_widgets.append(channel_widget)
         
         # Insert before the stretch
         self.channels_layout.insertWidget(len(self.channel_widgets) - 1, channel_widget)
         
-        self._update_remove_buttons()
+        self._update_button_states()
         self._update_channel_list()
         logging.info(f"Added new channel: {new_channel.name}")
     
-    def remove_channel(self, channel_widget: SingleChannelWidget):
-        """Remove a channel widget and its corresponding settings."""
+    def remove_selected_channel(self):
+        """Remove the currently selected channel."""
         if len(self._channel_settings_list) <= 1:
             logging.warning("Cannot remove the last channel")
             return
-        
-        # Find the index of the widget
-        try:
-            index = self.channel_widgets.index(channel_widget)
-        except ValueError:
-            logging.error("Channel widget not found in list")
+            
+        # Get the currently selected channel index
+        current_index = self.channel_list.currentRow()
+        if current_index < 0 or current_index >= len(self.channel_widgets):
+            logging.warning("No channel selected for removal")
+            return
+            
+        self.remove_channel_by_index(current_index)
+    
+    def remove_channel_by_index(self, index: int):
+        """Remove a channel by its index."""
+        if len(self._channel_settings_list) <= 1:
+            logging.warning("Cannot remove the last channel")
+            return
+            
+        if index < 0 or index >= len(self.channel_widgets):
+            logging.error(f"Invalid channel index: {index}")
             return
         
         # Remove from settings list
         removed_channel = self._channel_settings_list.pop(index)
         
         # Remove widget
-        self.channel_widgets.remove(channel_widget)
+        channel_widget = self.channel_widgets.pop(index)
         channel_widget.setParent(None)
         channel_widget.deleteLater()
         
-        self._update_remove_buttons()
+        self._update_button_states()
         self._update_channel_list()
         logging.info(f"Removed channel: {removed_channel.name}")
     
-    def _update_remove_buttons(self):
-        """Update visibility of remove buttons based on number of channels."""
-        show_remove = len(self.channel_widgets) > 1
+    def remove_channel(self, channel_widget: SingleChannelWidget):
+        """Remove a channel widget and its corresponding settings (legacy method for compatibility)."""
+        try:
+            index = self.channel_widgets.index(channel_widget)
+            self.remove_channel_by_index(index)
+        except ValueError:
+            logging.error("Channel widget not found in list")
+    
+    def _update_button_states(self):
+        """Update the enabled state of add and remove buttons based on number of channels."""
+        num_channels = len(self.channel_widgets)
         
-        for widget in self.channel_widgets:
-            if hasattr(widget, 'remove_button'):
-                widget.remove_button.setVisible(show_remove)
+        # Remove button: enabled only if more than 1 channel
+        self.remove_channel_button.setEnabled(num_channels > 1)
+        
+        # Add button: enabled only if less than MAX_CHANNELS
+        self.add_channel_button.setEnabled(num_channels < MAX_CHANNELS)
     
     def _update_channel_list(self):
         """Update the channel list widget with current channel names."""
