@@ -633,7 +633,7 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_acquire_at_positions, 4, 0, 1, 2)
         button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(button_layout)
+        # layout.addLayout(button_layout)
 
         # set layout -> content -> scroll area -> main layout
         main_layout = QVBoxLayout()
@@ -645,7 +645,8 @@ class FMAcquisitionWidget(QWidget):
         content_widget.setLayout(layout)
         layout.addStretch()
         scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area)        
+        main_layout.addWidget(scroll_area)
+        main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
         scroll_area.setContentsMargins(0, 0, 0, 0)
         main_layout.setContentsMargins(0, 0, 0, 0)
