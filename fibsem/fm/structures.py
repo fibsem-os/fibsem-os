@@ -83,6 +83,11 @@ class FMStagePosition:
             info_text += f", Z: {self.stage_position.z*1e6:.1f} μm"
         info_text += f", Obj: {self.objective_position*1e3:.3f} mm"
         return info_text
+    
+    @property
+    def pretty_name(self) -> str:
+        """Generate a pretty name for the stage position."""
+        return f"{self.name} ({self.stage_position.x*1e6:.1f}μm, {self.stage_position.y*1e6:.1f}μm, {self.objective_position*1e3:.3f}mm)"
 
     @classmethod
     def create_from_current_position(cls, 

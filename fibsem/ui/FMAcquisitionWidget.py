@@ -146,6 +146,81 @@ def wavelength_to_color(wavelength: Union[int, float]) -> str:
         return "gray"
 
 
+class OverviewConfirmationDialog(QDialog):
+    """Small confirmation dialog showing overview acquisition parameters."""
+    
+    def __init__(self, settings: dict, fm: FluorescenceMicroscope, parent=None):
+        super().__init__(parent)
+        self.settings = settings
+        self.fm = fm
+        self.setWindowTitle("Overview Acquisition")
+        self.setModal(True)
+        self.initUI()
+    
+    def initUI(self):
+        """Initialize the confirmation dialog UI."""
+        layout = QVBoxLayout()
+
+        # Parameters display
+        params_layout = QVBoxLayout()
+    
+        # Grid size and total area
+        grid_size: Tuple[int, int] = self.settings['overview_grid_size']
+        try:
+            fov_x, fov_y = self.fm.camera.field_of_view
+            from fibsem.fm.acquisition import calculate_grid_coverage_area
+            total_width, total_height = calculate_grid_coverage_area(
+                ncols=grid_size[1], nrows=grid_size[0],
+                fov_x=fov_x, fov_y=fov_y, overlap=self.settings['overview_overlap']
+            )
+            total_area = f"{total_width*1e6:.1f} x {total_height*1e6:.1f} μm"
+        except Exception:
+            total_area = "N/A"
+
+        grid_label = QLabel(f"Grid Size: {grid_size[0]} x {grid_size[1]}. (Area: {total_area})")
+        params_layout.addWidget(grid_label)
+
+        # Channels
+        channel_settings: List[ChannelSettings] = self.settings['channel_settings']
+        channels_label = QLabel(f"Channels: {len(channel_settings)}")
+        params_layout.addWidget(channels_label)
+
+        for i, channel in enumerate(channel_settings):  # Show all channels
+            channel_info = QLabel(f"  • {channel.pretty_name}")
+            channel_info.setStyleSheet("font-size: 10px; color: #666666;")
+            params_layout.addWidget(channel_info)
+
+        # Z-stack parameters
+        use_zstack = self.settings['overview_use_zstack']
+        if use_zstack and self.settings['z_parameters']:
+            z_params: ZParameters = self.settings['z_parameters']
+            z_label = QLabel(f"{z_params.pretty_name}")
+            params_layout.addWidget(z_label)
+
+        # Auto-focus
+        autofocus_mode: AutofocusMode = self.settings['overview_autofocus_mode']
+        af_label = QLabel(f"Auto-Focus: {autofocus_mode.name.replace('_', ' ').title()}")
+        params_layout.addWidget(af_label)
+                
+        layout.addLayout(params_layout)
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QGridLayout()
+        self.button_start = QPushButton("Start Acquisition")
+        self.button_start.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.button_start.clicked.connect(self.accept)
+        button_layout.addWidget(self.button_start, 0, 0)
+        
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.button_cancel.clicked.connect(self.reject)
+        button_layout.addWidget(self.button_cancel, 0, 1)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+
 class AcquisitionSummaryDialog(QDialog):
     """Dialog showing a summary of the acquisition before it starts."""
 
@@ -158,37 +233,37 @@ class AcquisitionSummaryDialog(QDialog):
         self.setModal(True)
         self.initUI()
         self.setContentsMargins(0, 0, 0, 0)
-    
+
     def initUI(self):
         """Initialize the dialog UI."""
         layout = QVBoxLayout()
-            
+
         # Position information
         num_positions = len(self.checked_positions)
-        position_label = QLabel(f"Acquire at {num_positions} Position{'s' if num_positions != 1 else ''}:")
-        position_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 5px 0;")
+        position_label = QLabel(f"Positions: {num_positions}")
+        position_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         layout.addWidget(position_label)
-        
+
         # List position names
-        position_names = [pos.name for pos in self.checked_positions]
+        position_names = [pos.pretty_name for pos in self.checked_positions]
         position_list_text = "\n".join([f"  • {name}" for name in position_names[:10]])  # Limit to first 10
         if len(position_names) > 10:
             position_list_text += f"\n  • ... and {len(position_names) - 10} more"
-        
+
         position_details = QLabel(position_list_text)
         position_details.setStyleSheet("font-size: 10px; color: #666666;")
         layout.addWidget(position_details)
-        
+
         # Channel information
-        channel_label = QLabel(f"Channels ({len(self.channel_settings)}):")
-        channel_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 10px 0 5px 0;")
+        channel_label = QLabel(f"Channels: {len(self.channel_settings)}")
+        channel_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         layout.addWidget(channel_label)
-        
+
         for i, channel in enumerate(self.channel_settings):
             channel_details = QLabel(channel.pretty_name)
             channel_details.setStyleSheet("font-size: 10px; color: #666666;")
             layout.addWidget(channel_details)
-        
+
         # Z-stack information
         if self.z_parameters:
             num_planes = self.z_parameters.num_planes
@@ -196,31 +271,24 @@ class AcquisitionSummaryDialog(QDialog):
         else:
             num_planes = 1
             z_details = QLabel("No Z-Stack")
+        zlabel = QLabel("Z-Stack: " + str(num_planes) + " planes")
+        zlabel.setStyleSheet("font-weight: bold; font-size: 12px;")
         z_details.setStyleSheet("font-size: 10px; color: #666666;")
+        layout.addWidget(zlabel)
         layout.addWidget(z_details)
-        
-        # Total images estimate
-        total_images = num_positions * len(self.channel_settings)
-        if self.z_parameters:
-            total_images *= num_planes
 
-        total_label = QLabel(f"Total Images: ~{total_images}")
-        total_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 10px 0; color: #0066cc;")
-        layout.addWidget(total_label)
-        
         # Buttons
         button_layout = QGridLayout()
-        
         self.button_start = QPushButton("Start Acquisition")
         self.button_start.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.button_start.clicked.connect(self.accept)
         button_layout.addWidget(self.button_start, 0, 0)
-        
+
         self.button_cancel = QPushButton("Cancel")
         self.button_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.button_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.button_cancel, 0, 1)
-        
+
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
@@ -1686,14 +1754,28 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("Another acquisition is already in progress.")
             return
 
+        # Get current settings and show confirmation dialog
+        settings = self._get_current_settings()
+        
+        # Show overview confirmation dialog
+        confirmation_dialog = OverviewConfirmationDialog(
+            settings=settings,
+            fm=self.fm,
+            parent=self
+        )
+        
+        # Only proceed if user confirms
+        if confirmation_dialog.exec_() != QDialog.Accepted:
+            logging.info("Overview acquisition cancelled by user")
+            return
+
         logging.info("Starting overview acquisition")
 
         self._current_acquisition_type = "overview"
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
-        # Get current settings
-        settings = self._get_current_settings()
+        # Use confirmed settings from dialog
         channel_settings = settings['channel_settings']
         grid_size = settings['overview_grid_size']
         tile_overlap = settings['overview_overlap']

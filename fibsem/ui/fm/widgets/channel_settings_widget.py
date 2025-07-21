@@ -484,38 +484,38 @@ class MultiChannelSettingsWidget(QWidget):
         if 0 <= channel_index < len(self.channel_widgets):
             return self.channel_widgets[channel_index]
         return None
-    
+
     # Properties for backward compatibility with single-channel interface
     @property
     def channel_name_input(self):
         """Get the selected channel's name input."""
         selected_widget = self._get_selected_channel_widget()
         return selected_widget.channel_name_input if selected_widget else None
-    
+
     @property
     def excitation_wavelength_input(self):
         """Get the selected channel's excitation wavelength input."""
         selected_widget = self._get_selected_channel_widget()
         return selected_widget.excitation_wavelength_input if selected_widget else None
-    
+
     @property
     def emission_wavelength_input(self):
         """Get the selected channel's emission wavelength input."""
         selected_widget = self._get_selected_channel_widget()
         return selected_widget.emission_wavelength_input if selected_widget else None
-    
+
     @property
     def power_input(self):
         """Get the selected channel's power input."""
         selected_widget = self._get_selected_channel_widget()
         return selected_widget.power_input if selected_widget else None
-    
+
     @property
     def exposure_time_input(self):
         """Get the selected channel's exposure time input."""
         selected_widget = self._get_selected_channel_widget()
         return selected_widget.exposure_time_input if selected_widget else None
-    
+
     def _on_channel_selection_changed(self, current_row: int):
         """Handle channel selection changes to update live acquisition connections."""
         # Prevent channel switching during any acquisition for safety
@@ -523,35 +523,33 @@ class MultiChannelSettingsWidget(QWidget):
             if self.parent_widget.fm.is_acquiring or self.parent_widget.is_acquisition_active:
                 logging.warning("Channel selection cannot be changed during acquisition")
                 return
-            
+
         if current_row >= 0:
             logging.debug(f"Channel selection changed to row {current_row}")
             # Reconnect live acquisition signals to the newly selected channel
             self._connect_live_acquisition_signals()
-    
+
     def _connect_live_acquisition_signals(self):
         """Connect live acquisition parameter update signals to the currently selected channel."""
         # Disconnect any existing connections to avoid duplicate signals
         self._disconnect_live_acquisition_signals()
-        
-        # Get the currently selected channel widget
-        selected_widget = self._get_selected_channel_widget()       
-        if selected_widget:
-            if self.parent_widget:
-                # Connect to the selected channel's input widgets
-                selected_widget.exposure_time_input.valueChanged.connect(self.parent_widget._update_exposure_time)
-                selected_widget.power_input.valueChanged.connect(self.parent_widget._update_power) 
-                selected_widget.excitation_wavelength_input.currentIndexChanged.connect(self.parent_widget._update_excitation_wavelength)
-                selected_widget.emission_wavelength_input.currentIndexChanged.connect(self.parent_widget._update_emission_wavelength)
 
-                logging.info(f"Connected live acquisition signals to channel: {selected_widget.channel_settings.name}")
-    
+        # Get the currently selected channel widget
+        selected_widget = self._get_selected_channel_widget()
+        if selected_widget and self.parent_widget:
+            # Connect to the selected channel's input widgets
+            selected_widget.exposure_time_input.valueChanged.connect(self.parent_widget._update_exposure_time)
+            selected_widget.power_input.valueChanged.connect(self.parent_widget._update_power)
+            selected_widget.excitation_wavelength_input.currentIndexChanged.connect(self.parent_widget._update_excitation_wavelength)
+            selected_widget.emission_wavelength_input.currentIndexChanged.connect(self.parent_widget._update_emission_wavelength)
+            logging.info(f"Connected live acquisition signals to channel: {selected_widget.channel_settings.name}")
+
     def _disconnect_live_acquisition_signals(self):
         """Disconnect live acquisition parameter update signals from all channels."""
         if not self.parent_widget:
             return
 
-            
+
         # Disconnect from all channel widgets to avoid stale connections
         for channel_widget in self.channel_widgets:
             try:
@@ -571,12 +569,9 @@ class MultiChannelSettingsWidget(QWidget):
             except (TypeError, AttributeError):
                 pass
 
-
 # ChannelSettingsWidget has been removed - use MultiChannelSettingsWidget directly
 # This maintains backward compatibility by aliasing the class name
 ChannelSettingsWidget = MultiChannelSettingsWidget
-
-
 
 if __name__ == "__main__":
     # Example usage
