@@ -1417,11 +1417,7 @@ class FMAcquisitionWidget(QWidget):
             event.handled = True
             return
 
-        if self.microscope.get_stage_orientation() != "FM":
-            logging.warning("Stage orientation is not set to 'FM'. Cannot handle mouse click.")
-            event.handled = True
-            return
-
+        current_orientation = self.microscope.get_stage_orientation()
         # get event position in world coordinates, convert to stage coordinates
         position_clicked = event.position[-2:]  # yx required
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))
@@ -1429,12 +1425,15 @@ class FMAcquisitionWidget(QWidget):
 
         if 'Alt' in event.modifiers:
             # Add new position
-            current_objective_position = self.fm.objective.position
+            if current_orientation == "FM":
+                objective_position = self.fm.objective.position
+            if current_orientation == "SEM":
+                objective_position = self.fm.objective.focus_position
 
             # Create FMStagePosition with automatic name generation
             fm_stage_position = FMStagePosition.create_from_current_position(
                 stage_position=stage_position,
-                objective_position=current_objective_position,
+                objective_position=objective_position,
                 num=len(self.stage_positions) + 1
             )
             self.stage_positions.append(fm_stage_position)
