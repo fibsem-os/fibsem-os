@@ -428,14 +428,14 @@ class ExperimentCreationDialog(QDialog):
         self.path_preview_label.setStyleSheet("font-size: 10px; color: #666666; margin: 10px 0;")
         self.update_path_preview()
         create_layout.addWidget(self.path_preview_label)
-        
+
         self.create_section.setLayout(create_layout)
         layout.addWidget(self.create_section)
 
         # Load experiment section
         self.load_section = QWidget()
         load_layout = QVBoxLayout()
-        
+
         # Positions file selection
         positions_layout = QHBoxLayout()
         positions_label = QLabel("Positions File:")
@@ -456,7 +456,7 @@ class ExperimentCreationDialog(QDialog):
         self.experiment_info_label = QLabel()
         self.experiment_info_label.setStyleSheet("font-size: 10px; color: #666666; margin: 10px 0;")
         load_layout.addWidget(self.experiment_info_label)
-        
+
         self.load_section.setLayout(load_layout)
         self.load_section.setVisible(False)  # Hidden by default
         layout.addWidget(self.load_section)
@@ -464,11 +464,10 @@ class ExperimentCreationDialog(QDialog):
         # Connect radio button signals
         self.radio_create.toggled.connect(self.on_mode_changed)
         self.radio_load.toggled.connect(self.on_mode_changed)
-        
+
         # Connect signals for live preview update and validation
         self.name_line_edit.textChanged.connect(self.update_path_preview)
         self.name_line_edit.textChanged.connect(self.validate_input)
-
         layout.addStretch()
 
         # Buttons
@@ -1827,7 +1826,7 @@ class FMAcquisitionWidget(QWidget):
     @pyqtSlot(FluorescenceImage)
     def update_persistent_image(self, image: FluorescenceImage):
         """Update or create a napari image layer with the given image data and metadata. (Persistent images)"""
-        
+
         # Convert structured metadata to dictionary for napari compatibility
         image_height, image_width = image.data.shape[-2:]
         for channel_index in range(image.data.shape[0]):
@@ -2302,14 +2301,12 @@ def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
         logging.error("FluorescenceMicroscope is not initialized. Cannot create FMAcquisitionWidget.")
         raise RuntimeError("FluorescenceMicroscope is not initialized.")
 
-    from fibsem.microscopes.simulator import DemoMicroscope
     if isinstance(microscope, DemoMicroscope):
         microscope.move_to_microscope("FM")
 
     # ensure compustage configuration
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
-
 
 
     widget = FMAcquisitionWidget(microscope=microscope,
