@@ -321,6 +321,14 @@ class FibsemStagePosition:
         tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}" if self.t is not None else "T:None"
         return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
 
+    @property
+    def pretty_orientation(self) -> str:
+        """Returns a pretty string representation of the stage orientation."""
+        from fibsem import constants
+        rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}" if self.r is not None else "R:None"
+        tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}" if self.t is not None else "T:None"
+        return f"{rstr}, {tstr}"
+
 @dataclass
 class FibsemManipulatorPosition:
     """Data class for storing manipulator position data.

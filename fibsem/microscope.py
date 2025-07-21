@@ -2000,7 +2000,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
         is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-        is_milling_tilt = np.isclose(stage_tilt, milling.t, atol=0.1)
+        is_milling_tilt = -45 < stage_tilt < sem.t
         is_fm_tilt = np.isclose(stage_tilt, fm.t, atol=0.1)
 
         if is_sem_rotation and is_sem_tilt:
