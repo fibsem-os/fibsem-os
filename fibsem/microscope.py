@@ -142,7 +142,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def acquire_image(self, image_settings:ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         pass
 
     @abstractmethod
