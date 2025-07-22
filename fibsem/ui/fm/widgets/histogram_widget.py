@@ -27,6 +27,14 @@ class HistogramWidget(QWidget):
         self.current_data = None
         self.last_update_time = 0
         self.update_interval = 0.5  # 500ms rate limiting
+        
+        # Blitting optimization variables
+        self.background = None
+        self.histogram_patches = None
+        self.mean_line_artist = None
+        self.axes_setup_complete = False
+        self.last_data_range = None
+        self.n_bins = 64  # Fixed number of bins for consistent blitting
 
         self.initUI()
     
@@ -85,6 +93,7 @@ class HistogramWidget(QWidget):
         self.ax.set_title('Image Histogram')
         self.figure.tight_layout()
         self.canvas.draw()
+        self.axes_setup_complete = False
     
     def _apply_dark_theme(self):
         """Apply napari-style dark theme to the axes."""
@@ -100,6 +109,45 @@ class HistogramWidget(QWidget):
         self.ax.xaxis.label.set_color('white')
         self.ax.yaxis.label.set_color('white')
         self.ax.title.set_color('white')
+
+    def _setup_axes_for_blitting(self, data_range):
+        """Set up the axes with static elements for blitting optimization."""
+        if not MATPLOTLIB_AVAILABLE:
+            return
+            
+        self.ax.clear()
+        self._apply_dark_theme()
+        
+        # Set up static elements
+        self.ax.set_xlabel('Intensity')
+        self.ax.set_ylabel('Frequency')
+        self.ax.set_title('Image Histogram')
+        
+        # Set fixed x-axis limits based on data range
+        self.ax.set_xlim(data_range[0], data_range[1])
+        self.ax.set_ylim(0, 1)  # Will be updated dynamically
+        
+        # Create empty histogram patches for blitting
+        bin_edges = np.linspace(data_range[0], data_range[1], self.n_bins + 1)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bin_width = bin_edges[1] - bin_edges[0]
+        
+        # Create empty bars (will be updated with data)
+        self.histogram_patches = self.ax.bar(bin_centers, np.zeros(self.n_bins), 
+                                           width=bin_width, alpha=0.8, color='#0f7aad', 
+                                           edgecolor='#ffffff', animated=True)
+        
+        # Create mean line artist
+        self.mean_line_artist = self.ax.axvline(0, color='#ff6600', linestyle='--', 
+                                               alpha=0.9, animated=True)
+        
+        self.figure.tight_layout()
+        self.canvas.draw()
+        
+        # Save background for blitting
+        self.background = self.canvas.copy_from_bbox(self.ax.bbox)
+        self.axes_setup_complete = True
+        self.last_data_range = data_range
     
     def update_histogram(self, image_data: Optional[np.ndarray], layer_name: str = ""):
         """Update the histogram with new image data using 1-second rate limiting.
@@ -125,7 +173,7 @@ class HistogramWidget(QWidget):
         self._update_histogram_internal(image_data, layer_name)
 
     def _update_histogram_internal(self, image_data: Optional[np.ndarray], layer_name: str = ""):
-        """Internal method to actually update the histogram display."""
+        """Internal method to actually update the histogram display using blitting."""
         if image_data is None or image_data.size == 0:
             self._plot_empty_histogram()
             self.label_stats.setText("No image data available")
@@ -164,33 +212,52 @@ class HistogramWidget(QWidget):
             min_val = np.min(valid_data)
             max_val = np.max(valid_data)
             
-            # Clear and plot histogram
-            self.ax.clear()
-            self._apply_dark_theme()
+            # Determine data range for axes setup
+            data_range = (min_val, max_val)
             
-            # Calculate number of bins (max 64 for performance during live imaging)
-            n_bins = min(64, int(np.sqrt(valid_data.size)))
-            n_bins = max(16, n_bins)  # At least 16 bins
+            # Set up axes for blitting if not done yet or if data range changed significantly
+            range_changed = (self.last_data_range is None or 
+                           abs(self.last_data_range[0] - data_range[0]) > abs(data_range[0]) * 0.1 or
+                           abs(self.last_data_range[1] - data_range[1]) > abs(data_range[1]) * 0.1)
             
-            self.ax.hist(valid_data.flatten(), bins=n_bins, 
-                        alpha=0.8, color='#0f7aad', edgecolor='#ffffff')
+            if not self.axes_setup_complete or range_changed:
+                self._setup_axes_for_blitting(data_range)
             
-            # Set labels and title
-            self.ax.set_xlabel('Intensity')
-            self.ax.set_ylabel('Frequency')
-            title = f'Histogram: {layer_name}' if layer_name else 'Image Histogram'
-            self.ax.set_title(title, fontsize=10)
+            # Calculate histogram data with fixed bin edges
+            bin_edges = np.linspace(data_range[0], data_range[1], self.n_bins + 1)
+            counts, _ = np.histogram(valid_data.flatten(), bins=bin_edges)
             
-            # Add mean line
-            self.ax.axvline(float(mean_val), color='#ff6600', linestyle='--', alpha=0.9, label=f'Mean: {mean_val:.2f}')
-            legend = self.ax.legend(fontsize=8)
-            legend.get_frame().set_facecolor('#262930')
-            legend.get_frame().set_edgecolor('white')
-            for text in legend.get_texts():
-                text.set_color('white')
+            # Update y-axis limits if needed
+            max_count = np.max(counts)
+            y_margin = max_count * 0.1
+            new_ylim = (0, max_count + y_margin)
             
-            self.figure.tight_layout()
-            self.canvas.draw()
+            if self.ax.get_ylim() != new_ylim:
+                self.ax.set_ylim(new_ylim)
+                self.canvas.draw()
+                self.background = self.canvas.copy_from_bbox(self.ax.bbox)
+
+            # Restore background
+            self.canvas.restore_region(self.background)
+
+            # Update histogram bar heights (with safety checks)
+            if self.histogram_patches is not None:
+                for patch, count in zip(self.histogram_patches, counts):
+                    patch.set_height(count)
+            
+            # Update mean line position
+            if self.mean_line_artist is not None:
+                self.mean_line_artist.set_xdata([mean_val, mean_val])
+
+            # Draw artists
+            if self.histogram_patches is not None:
+                for patch in self.histogram_patches:
+                    self.ax.draw_artist(patch)
+            if self.mean_line_artist is not None:
+                self.ax.draw_artist(self.mean_line_artist)
+
+            # Blit the updated artists
+            self.canvas.blit(self.ax.bbox)
             
             # Update statistics label
             stats_text = (f"Min: {min_val:.2f} | Max: {max_val:.2f}\n"
@@ -203,11 +270,18 @@ class HistogramWidget(QWidget):
             
         except Exception as e:
             logging.error(f"Error updating histogram: {e}")
+            # Fall back to non-blitted mode on error
+            self.axes_setup_complete = False
             self._plot_empty_histogram()
             self.label_stats.setText(f"Error: {str(e)}")
     
     def clear_histogram(self):
         """Clear the histogram display."""
+        self.axes_setup_complete = False
+        self.background = None
+        self.histogram_patches = None
+        self.mean_line_artist = None
+        self.last_data_range = None
         if MATPLOTLIB_AVAILABLE:
             self._plot_empty_histogram()
         self.label_stats.setText("No image selected")
