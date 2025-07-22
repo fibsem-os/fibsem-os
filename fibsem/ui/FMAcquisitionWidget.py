@@ -47,9 +47,9 @@ from fibsem.fm.acquisition import (
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
-from fibsem.structures import BeamType, ImageSettings, FibsemStagePosition, Point
+from fibsem.structures import BeamType, ImageSettings, FibsemStagePosition, Point, FibsemImage, FibsemImageMetadata
 from fibsem.ui.fm.widgets import (
-    MultiChannelSettingsWidget,
+    ChannelSettingsWidget,
     HistogramWidget,
     ObjectiveControlWidget,
     OverviewParametersWidget,
@@ -133,7 +133,7 @@ def wavelength_to_color(wavelength: Union[int, float]) -> str:
     """Convert a wavelength in nm to a color string."""
     if wavelength is None:
         return "gray"
-    
+
     # Simple mapping of wavelengths to colors (this can be extended)
     if wavelength < 400:
         return "violet"
@@ -153,7 +153,7 @@ def wavelength_to_color(wavelength: Union[int, float]) -> str:
 
 class OverviewConfirmationDialog(QDialog):
     """Small confirmation dialog showing overview acquisition parameters."""
-    
+
     def __init__(self, settings: dict, fm: FluorescenceMicroscope, parent=None):
         super().__init__(parent)
         self.settings = settings
@@ -161,14 +161,14 @@ class OverviewConfirmationDialog(QDialog):
         self.setWindowTitle("Overview Acquisition")
         self.setModal(True)
         self.initUI()
-    
+
     def initUI(self):
         """Initialize the confirmation dialog UI."""
         layout = QVBoxLayout()
 
         # Parameters display
         params_layout = QVBoxLayout()
-    
+
         # Grid size and total area
         grid_size: Tuple[int, int] = self.settings['overview_grid_size']
         try:
@@ -206,22 +206,22 @@ class OverviewConfirmationDialog(QDialog):
         autofocus_mode: AutofocusMode = self.settings['overview_autofocus_mode']
         af_label = QLabel(f"Auto-Focus: {autofocus_mode.name.replace('_', ' ').title()}")
         params_layout.addWidget(af_label)
-                
+
         layout.addLayout(params_layout)
         layout.addStretch()
-        
+
         # Buttons
         button_layout = QGridLayout()
         self.button_start = QPushButton("Start Acquisition")
         self.button_start.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.button_start.clicked.connect(self.accept)
         button_layout.addWidget(self.button_start, 0, 0)
-        
+
         self.button_cancel = QPushButton("Cancel")
         self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.button_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.button_cancel, 0, 1)
-        
+
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
@@ -307,7 +307,7 @@ class DisplayOptionsDialog(QDialog):
         self.setWindowTitle("Display Options")
         self.setModal(True)
         self.initUI()
-    
+
     def initUI(self):
         """Initialize the dialog UI."""
         layout = QVBoxLayout()
@@ -316,43 +316,43 @@ class DisplayOptionsDialog(QDialog):
         self.checkbox_current_fov = QCheckBox("Show Current FOV")
         self.checkbox_current_fov.setChecked(self.parent_widget.show_current_fov)
         layout.addWidget(self.checkbox_current_fov)
-        
+
         self.checkbox_overview_fov = QCheckBox("Show Overview FOV")
         self.checkbox_overview_fov.setChecked(self.parent_widget.show_overview_fov)
         layout.addWidget(self.checkbox_overview_fov)
-        
+
         self.checkbox_saved_positions_fov = QCheckBox("Show Saved Positions FOV")
         self.checkbox_saved_positions_fov.setChecked(self.parent_widget.show_saved_positions_fov)
         layout.addWidget(self.checkbox_saved_positions_fov)
-        
+
         self.checkbox_stage_limits = QCheckBox("Show Stage Limits")
         self.checkbox_stage_limits.setChecked(self.parent_widget.show_stage_limits)
         layout.addWidget(self.checkbox_stage_limits)
-        
+
         self.checkbox_circle_overlays = QCheckBox("Show Circle Overlays")
         self.checkbox_circle_overlays.setChecked(self.parent_widget.show_circle_overlays)
         layout.addWidget(self.checkbox_circle_overlays)
-        
+
         self.checkbox_histogram = QCheckBox("Show Image Histogram")
         self.checkbox_histogram.setChecked(self.parent_widget.show_histogram)
         layout.addWidget(self.checkbox_histogram)
-        
+
         # Buttons
         button_layout = QGridLayout()
-        
+
         self.button_ok = QPushButton("OK")
         self.button_ok.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.button_ok.clicked.connect(self.accept)
         button_layout.addWidget(self.button_ok, 0, 0)
-        
+
         self.button_cancel = QPushButton("Cancel")
         self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.button_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.button_cancel, 0, 1)
-        
+
         layout.addLayout(button_layout)
         self.setLayout(layout)
-    
+
     def get_display_options(self) -> dict:
         """Get the selected display options."""
         return {
@@ -376,52 +376,54 @@ class StagePositionControlWidget(QWidget):
 
     def initUI(self):
         """Initialize the stage position control UI."""
-        layout = QVBoxLayout()
 
-        # Orientation buttons
-        orientation_layout = QGridLayout()
 
-        self.button_sem_orientation = QPushButton("Move to SEM Orientation")
+
+        self.button_sem_orientation = QPushButton("Move to SEM Orientation", self)
         self.button_sem_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.button_sem_orientation.clicked.connect(self.move_to_sem_orientation)
-        orientation_layout.addWidget(self.button_sem_orientation, 0, 0)
 
-        self.button_fm_orientation = QPushButton("Move to FM Orientation")
+        self.button_fm_orientation = QPushButton("Move to FM Orientation", self)
         self.button_fm_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.button_fm_orientation.clicked.connect(self.move_to_fm_orientation)
-        orientation_layout.addWidget(self.button_fm_orientation, 0, 1)
 
         # Milling angle controls    
-        self.milling_angle_spinbox = QDoubleSpinBox()
+        self.milling_angle_spinbox = QDoubleSpinBox(self)
         self.milling_angle_spinbox.setRange(0, 45)
         self.milling_angle_spinbox.setValue(self.microscope.system.stage.milling_angle)
         self.milling_angle_spinbox.setSuffix("°")
         self.milling_angle_spinbox.setDecimals(1)
         self.milling_angle_spinbox.setSingleStep(1.0)
         self.milling_angle_spinbox.valueChanged.connect(self.update_milling_angle)
-        orientation_layout.addWidget(self.milling_angle_spinbox, 1, 0)
 
-        self.button_move_to_milling = QPushButton("Move to Milling Angle")
+        self.button_move_to_milling = QPushButton("Move to Milling Angle", self)
         self.button_move_to_milling.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.button_move_to_milling.clicked.connect(self.move_to_milling_angle)
-        orientation_layout.addWidget(self.button_move_to_milling, 1, 1)
 
+        orientation_layout = QGridLayout()
+        orientation_layout.addWidget(self.button_sem_orientation, 0, 0)
+        orientation_layout.addWidget(self.button_fm_orientation, 0, 1)
+        orientation_layout.addWidget(self.milling_angle_spinbox, 1, 0)
+        orientation_layout.addWidget(self.button_move_to_milling, 1, 1)
+        layout = QVBoxLayout(self)
         layout.addLayout(orientation_layout)
         self.setLayout(layout)
-        
-        # Set tooltips with orientation information
+
+        orientation_layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         self.set_orientation_tooltips()
-    
+
     def update_milling_angle(self, value):
         """Update the stored milling angle value."""
         self.microscope.system.stage.milling_angle = value
         # Update tooltip with new milling angle
         self.update_milling_tooltip()
-    
+
     def set_orientation_tooltips(self):
         """Set tooltips for orientation buttons showing rotation and tilt angles."""
         try:
-            # Get orientation information from microscope
+            
             sem = self.microscope.get_orientation("SEM")
             fm = self.microscope.get_orientation("FM")
 
@@ -429,12 +431,11 @@ class StagePositionControlWidget(QWidget):
             self.button_sem_orientation.setToolTip(sem.pretty_orientation)
             self.button_fm_orientation.setToolTip(fm.pretty_orientation)
 
-            # Set initial milling angle tooltip
+            self.milling_angle_spinbox.setToolTip("The milling angle is the difference between the stage and the fib viewing angle.")
+
             self.update_milling_tooltip()
             
-            # Set tooltip for milling angle spinbox
-            self.milling_angle_spinbox.setToolTip("The milling angle is the difference between the stage and the fib viewing angle.")
-            
+
         except Exception as e:
             logging.warning(f"Could not set orientation tooltips: {e}")
 
@@ -456,11 +457,11 @@ class StagePositionControlWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if reply != QMessageBox.Yes:
             logging.info("SEM orientation movement cancelled by user")
             return
-        
+
         try:
             self.microscope.move_to_microscope("FIBSEM")
             logging.info("Moved to SEM orientation")
@@ -480,11 +481,11 @@ class StagePositionControlWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if reply != QMessageBox.Yes:
             logging.info("FM orientation movement cancelled by user")
             return
-        
+
         try:
             self.microscope.move_to_microscope("FM")
             logging.info("Moved to FM orientation")
@@ -498,7 +499,7 @@ class StagePositionControlWidget(QWidget):
         """Move stage to the specified milling angle."""
         # Get current milling angle for display
         milling_angle = self.milling_angle_spinbox.value()
-        
+
         # Show confirmation dialog
         reply = QMessageBox.question(
             self,
@@ -507,11 +508,11 @@ class StagePositionControlWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if reply != QMessageBox.Yes:
             logging.info(f"Milling angle movement to {milling_angle}° cancelled by user")
             return
-        
+
         try:
             mill_orientation = self.microscope.get_orientation("MILLING")
             self.microscope.move_stage_absolute(mill_orientation)
@@ -536,7 +537,7 @@ class SEMAcquisitionWidget(QWidget):
                                             beam_type=BeamType.ELECTRON)
         self.parent_widget = parent
         self.initUI()
-    
+
     def initUI(self):
         """Initialize the image acquisition UI."""
         layout = QGridLayout()
@@ -564,6 +565,11 @@ class SEMAcquisitionWidget(QWidget):
             self.combobox_resolution.addItem(f"{res[0]}x{res[1]}", userData=res)
         self.combobox_resolution.setCurrentIndex(3)
 
+        # Image acquisition controls
+        self.button_acquire_image = QPushButton("Acquire Image")
+        self.button_acquire_image.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.button_acquire_image.clicked.connect(self.acquire_image)
+
         layout.addWidget(self.fov_label, 0, 0)
         layout.addWidget(self.fov_spinbox, 0, 1)
         layout.addWidget(self.dwell_time_label, 1, 0)
@@ -571,10 +577,6 @@ class SEMAcquisitionWidget(QWidget):
         layout.addWidget(self.label_resolution, 2, 0)
         layout.addWidget(self.combobox_resolution, 2, 1)
 
-        # Image acquisition controls
-        self.button_acquire_image = QPushButton("Acquire Image")
-        self.button_acquire_image.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.button_acquire_image.clicked.connect(self.acquire_image)
         layout.addWidget(self.button_acquire_image, 3, 0, 1, 2)
 
         self.fov_spinbox.valueChanged.connect(self.update_fov)
@@ -582,6 +584,7 @@ class SEMAcquisitionWidget(QWidget):
         self.combobox_resolution.currentIndexChanged.connect(self.update_resolution)
 
         self.setLayout(layout)
+        layout.setContentsMargins(0, 0, 0, 0)
 
     def update_fov(self, value: float) -> None:
         """Update the field of view based on the spinbox value."""
@@ -603,39 +606,21 @@ class SEMAcquisitionWidget(QWidget):
     def acquire_image(self) -> None:
         """Acquire an SEM Overview Image"""
         try:
-            
+
             if self.microscope.get_stage_orientation() != "SEM":
                 QMessageBox.warning(self, "Orientation Error", "Please switch to SEM orientation before acquiring an image.")
                 return
 
             image = self.microscope.acquire_image(image_settings=self.image_settings)
-            if image is not None:
-                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                image.save(os.path.join(self.parent_widget.experiment_path, f"overview-{timestamp}.tif"))
+            if image is None:
+                return
 
-                pos = stage_position_to_napari_image_coordinate(image.data.shape, 
-                                                    image.metadata.stage_position, 
-                                                    image.metadata.pixel_size.x)
-                # Add the image to the napari viewer
-                self.parent_widget.viewer.add_image(
-                    data=image.data,
-                    name=f"SEM Overview {timestamp}",
-                    scale=(image.metadata.pixel_size.y, image.metadata.pixel_size.x),
-                    translate=(pos.y, pos.x),
-                    blending='additive',
-                    colormap='gray',
-                    opacity=0.8,
-                    metadata={
-                        "timestamp": timestamp,
-                        "resolution": self.image_settings.resolution,
-                        "hfw": self.image_settings.hfw,
-                        "dwell_time": self.image_settings.dwell_time,
-                        "beam_type": self.image_settings.beam_type.name
-                    })
-            # self.parent_widget.display_image(image)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            image.save(os.path.join(self.parent_widget.experiment_path, f"overview-{timestamp}.tif"))
+
+            self.parent_widget.update_persistent_image_signal.emit(image)
         except Exception as e:
             logging.error(f"Failed to acquire image: {e}")
-            QMessageBox.warning(self, "Acquisition Error", f"Failed to acquire image:\n{str(e)}")
 
 
 class ExperimentCreationDialog(QDialog):
@@ -784,7 +769,7 @@ class ExperimentCreationDialog(QDialog):
             self.path_preview_label.setText(f"Full path: {full_path}")
         else:
             self.path_preview_label.setText("Full path: ")
-    
+
     def on_mode_changed(self):
         """Handle radio button mode changes."""
         if self.radio_create.isChecked():
@@ -795,7 +780,7 @@ class ExperimentCreationDialog(QDialog):
             self.load_section.setVisible(True)
         
         self.validate_input()
-    
+
     def browse_positions_file(self):
         """Open file dialog to select positions.yaml file."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -804,7 +789,7 @@ class ExperimentCreationDialog(QDialog):
             "",
             "YAML files (*.yaml *.yml);;All files (*.*)"
         )
-        
+
         if file_path:
             self.positions_file_path = file_path
             self.positions_file_edit.setText(file_path)
@@ -816,54 +801,54 @@ class ExperimentCreationDialog(QDialog):
         if not self.positions_file_path:
             self.experiment_info_label.setText("")
             return
-        
+
         try:
             # Get experiment directory from positions file path
             experiment_dir = os.path.dirname(self.positions_file_path)
-            
+
             # Try to load and parse the positions file
             with open(self.positions_file_path, 'r') as f:
                 positions_data = yaml.safe_load(f)
-            
+
             num_positions = positions_data.get('num_positions', 0)
             created_date = positions_data.get('created_date', 'Unknown')
-            
+
             info_text = f"Experiment: {os.path.basename(experiment_dir)}\n"
             info_text += f"Positions: {num_positions}\n"
             info_text += f"Created: {created_date}"
-            
+
             self.experiment_info_label.setText(info_text)
-            
+
         except Exception as e:
             self.experiment_info_label.setText(f"Error reading file: {str(e)}")
-    
+
     def validate_input(self):
         """Validate input based on current mode and enable/disable OK button."""
         is_valid = False
-        
+
         if self.radio_create.isChecked():
             # Validate experiment name for create mode
             experiment_name = self.name_line_edit.text().strip()
             is_valid = bool(experiment_name) and experiment_name not in ['.', '..']
-            
+
             # Additional validation for invalid filename characters
             if is_valid:
                 invalid_chars = '<>:"/\\|?*'
                 is_valid = not any(char in experiment_name for char in invalid_chars)
-        
+
         else:
             # Validate positions file for load mode
             is_valid = bool(self.positions_file_path) and os.path.exists(self.positions_file_path)
-        
+
         # Enable/disable the OK button
         self.button_ok.setEnabled(is_valid)
-        
+
         # Update button style based on validity
         if is_valid:
             self.button_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         else:
             self.button_ok.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-    
+
     def get_experiment_info(self) -> dict:
         """Get the experiment information based on current mode."""
         if self.radio_create.isChecked():
@@ -889,15 +874,15 @@ class ExperimentCreationDialog(QDialog):
 
 def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int], Tuple[int, ...]], pos: Optional[FibsemStagePosition], pixelsize: float) -> Point:
     """Convert a sample-stage coordinate to a napari image layer coordinate.
-    
+
     This handles the offset and scaling for positioning images within napari layers,
     accounting for image dimensions and pixel size.
-    
+
     Args:
         image_shape: Shape of the image (height, width)
         pos: Stage position in meters
         pixelsize: Pixel size in meters
-        
+
     Returns:
         Point in napari image layer coordinates
     """
@@ -911,15 +896,15 @@ def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int]
 
 def napari_image_coordinate_to_stage_position(image_shape: Tuple[int, int], pos: Point, pixelsize: float) -> FibsemStagePosition:
     """Convert a napari image layer coordinate to a sample-stage coordinate.
-    
+
     This handles the reverse conversion from napari image coordinates back to
     stage coordinates, accounting for image dimensions and pixel size.
-    
+
     Args:
         image_shape: Shape of the image (height, width)
         pos: Point in napari image coordinates
         pixelsize: Pixel size in meters
-        
+
     Returns:
         FibsemStagePosition in stage coordinates (meters)
     """
@@ -934,17 +919,17 @@ def napari_image_coordinate_to_stage_position(image_shape: Tuple[int, int], pos:
 
 def stage_position_to_napari_world_coordinate(stage_position: FibsemStagePosition) -> Point:
     """Convert from stage coordinates to napari world coordinates.
-    
+
     This performs a simple coordinate system conversion for direct interaction
     with the napari viewer (mouse clicks, overlays, etc.). The conversion
     only involves inverting the Y coordinate to match napari's coordinate system.
-    
+
     Args:
         stage_position: Position in stage coordinates (meters)
-        
+
     Returns:
         Point in napari world coordinates (meters)
-        
+
     Note:
         - X coordinate remains unchanged
         - Y coordinate is inverted (stage_y → -napari_y)
@@ -957,17 +942,17 @@ def stage_position_to_napari_world_coordinate(stage_position: FibsemStagePositio
 
 def napari_world_coordinate_to_stage_position(napari_coordinate: Point) -> FibsemStagePosition:
     """Convert from napari world coordinates to stage coordinates.
-    
+
     This performs the reverse conversion from napari viewer coordinates back
     to stage coordinates. Used for processing mouse click events and converting
     viewer interactions back to stage movements.
-    
+
     Args:
         napari_coordinate: Point in napari world coordinates (meters)
-        
+
     Returns:
         FibsemStagePosition in stage coordinates (meters)
-        
+
     Note:
         - X coordinate remains unchanged  
         - Y coordinate is inverted (napari_y → -stage_y)
@@ -1017,6 +1002,25 @@ def _image_metadata_to_napari_image_layer(metadata: FluorescenceImageMetadata,
         "blending": "additive",
     }
 
+def _fibsem_image_metadata_to_napari_image_layer(metadata: FibsemImageMetadata, shape: Tuple[int, int]) -> dict:
+    """Convert FibsemImageMetadata to a dictionary suitable for napari image layer."""
+    pos = stage_position_to_napari_image_coordinate(shape, metadata.stage_position, metadata.pixel_size.x)
+    acq_date = datetime.fromtimestamp(metadata.microscope_state.timestamp).strftime('%Y-%m-%d-%H-%M-%S')
+    return {
+        "name": f"SEM Overview - {acq_date}",
+        "description": "SEM Overview Image",
+        "scale": (metadata.pixel_size.y, metadata.pixel_size.x),
+        "translate": (pos.y, pos.x),
+        "colormap": "gray",
+        "metadata": {
+            "timestamp": metadata.microscope_state.timestamp,
+            "resolution": metadata.image_settings.resolution,
+            "hfw": metadata.image_settings.hfw,
+            "dwell_time": metadata.image_settings.dwell_time,
+            "beam_type": metadata.beam_type.name
+        }
+    }
+
 
 MAX_OBJECTIVE_STEP_SIZE = 0.05  # mm
 LIVE_IMAGING_RATE_LIMIT_SECONDS = 0.25  # seconds
@@ -1040,14 +1044,12 @@ channel_settings=ChannelSettings(
 # TODO: enforce stage limits in the UI
 # TODO: menu function to load images
 # TODO: integrate with milling workflow
-
-# REFACTORING TODO: Extract common worker exception handling pattern and worker decorator
-# REFACTORING TODO: Replace acquisition type magic strings with enum
-# REFACTORING TODO: Address repeated "TODO: Show error message to user" comments
+# TODO: Extract common worker exception handling pattern and worker decorator
+# TODO: Replace acquisition type magic strings with enum
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
-    update_persistent_image_signal = pyqtSignal(FluorescenceImage)
+    update_persistent_image_signal = pyqtSignal(object)  # Union[FluorescenceImage, FibsemImage]
     acquisition_finished_signal = pyqtSignal()
 
     def __init__(self, microscope: FibsemMicroscope, viewer: napari.Viewer, parent=None):
@@ -1063,7 +1065,7 @@ class FMAcquisitionWidget(QWidget):
         self.stage_positions: List[FMStagePosition] = []
 
         # widgets
-        self.channelSettingsWidget: MultiChannelSettingsWidget
+        self.channelSettingsWidget: ChannelSettingsWidget
         self.objectiveControlWidget: ObjectiveControlWidget
         self.stagePositionControlWidget: StagePositionControlWidget
         self.zParametersWidget: ZParametersWidget
@@ -1118,19 +1120,18 @@ class FMAcquisitionWidget(QWidget):
         """
         return self._current_acquisition_type is not None
 
-
     def _get_current_settings(self):
         """Get current settings from all widgets for acquisition operations.
-        
+
         Returns:
             Dictionary containing all current settings for acquisitions
         """
         # Get channel settings (always a list now)
         channel_settings = self.channelSettingsWidget.channel_settings
-        
+
         # Get selected channel for live acquisition
         selected_channel_settings = self.channelSettingsWidget.selected_channel
-        
+
         return {
             'channel_settings': channel_settings,
             'selected_channel_settings': selected_channel_settings,
@@ -1175,7 +1176,7 @@ class FMAcquisitionWidget(QWidget):
         self.positionsCollapsible.addWidget(self.savedPositionsWidget)
 
         # create channel settings widget
-        self.channelSettingsWidget = MultiChannelSettingsWidget(
+        self.channelSettingsWidget = ChannelSettingsWidget(
             fm=self.fm,
             channel_settings=channel_settings,
             parent=self
@@ -1267,12 +1268,11 @@ class FMAcquisitionWidget(QWidget):
         self.overviewParametersWidget.spinBox_rows.valueChanged.connect(self._update_overview_bounding_box)
         self.overviewParametersWidget.spinBox_cols.valueChanged.connect(self._update_overview_bounding_box)
         self.overviewParametersWidget.doubleSpinBox_overlap.valueChanged.connect(self._update_overview_bounding_box)
-        
-        # Connect Z parameter changes to update overview z-stack planes display
+
         self.zParametersWidget.doubleSpinBox_zmin.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.zParametersWidget.doubleSpinBox_zmax.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
         self.zParametersWidget.doubleSpinBox_zstep.valueChanged.connect(self.overviewParametersWidget._update_zstack_planes_visibility)
-        # Initial channel inputs for live acquisition are now handled by the widget itself
+
         self.pushButton_toggle_acquisition.clicked.connect(self.toggle_acquisition)
         self.pushButton_acquire_single_image.clicked.connect(self.acquire_image)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_image)
@@ -1287,7 +1287,7 @@ class FMAcquisitionWidget(QWidget):
         self.update_persistent_image_signal.connect(self.update_persistent_image)
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
 
-        # Setup keyboard shortcuts
+        # keyboard shortcuts
         self.f6_shortcut = QShortcut(QKeySequence("F6"), self)
         self.f6_shortcut.activated.connect(self.toggle_acquisition)
 
@@ -1301,6 +1301,10 @@ class FMAcquisitionWidget(QWidget):
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
         self.viewer.mouse_wheel_callbacks.append(self.on_mouse_wheel)
         self.viewer.mouse_drag_callbacks.append(self.on_mouse_click)
+
+        # draw scale bar
+        self.viewer.scale_bar.visible = True
+        self.viewer.scale_bar.unit = "m"
 
         # Connect layer selection to histogram updates
         self.viewer.layers.selection.events.changed.connect(self._on_layer_selection_changed)
@@ -1329,29 +1333,17 @@ class FMAcquisitionWidget(QWidget):
         # add file menu
         self.menubar = QMenuBar(self)
         self.file_menu = self.menubar.addMenu("File")
-        
+
         # Experiment creation
         new_experiment_action = QAction("New Experiment...", self)
         new_experiment_action.triggered.connect(self.show_new_experiment_dialog)
-        self.file_menu.addAction(new_experiment_action)
-        
-        self.file_menu.addSeparator()
-        
-        # load_action = QAction("Load Positions", self)
-        # load_action.triggered.connect(self.savedPositionsWidget._load_positions_from_file)
-        # self.file_menu.addAction(load_action)
-
-        # Add separator and display options
-        self.file_menu.addSeparator()
         display_options_action = QAction("Display Options...", self)
         display_options_action.triggered.connect(self.show_display_options_dialog)
+        self.file_menu.addAction(new_experiment_action)
+        self.file_menu.addSeparator()
         self.file_menu.addAction(display_options_action)
-        
         self.layout().setMenuBar(self.menubar)
 
-        # draw scale bar
-        self.viewer.scale_bar.visible = True
-        self.viewer.scale_bar.unit = "m"
 
     def _on_layer_selection_changed(self, event):
         """Handle napari layer selection changes to update histogram."""
@@ -1364,7 +1356,7 @@ class FMAcquisitionWidget(QWidget):
             # Check if it's an image layer
             if isinstance(layer.data, np.ndarray) and layer.data.ndim in (2, 3, 4):
                 self.histogramWidget.update_histogram(layer.data, layer.name)
-                
+
         except Exception as e:
             logging.warning(f"Error updating histogram from layer selection: {e}")
             self.histogramWidget.clear_histogram()
@@ -1384,7 +1376,7 @@ class FMAcquisitionWidget(QWidget):
 
         # Calculate step size based on wheel delta
         objective_step_size = self.objectiveControlWidget.doubleSpinBox_objective_step_size.value() * 1e-3 # convert from um to mm    
-        step_mm = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE, MAX_OBJECTIVE_STEP_SIZE)  # Adjust sensitivity as needed
+        step_mm = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE, MAX_OBJECTIVE_STEP_SIZE)
         # delta ~= 1
 
         logging.info(f"Mouse wheel event detected with delta: {event.delta}, step size: {step_mm:.4f} mm")
@@ -1396,8 +1388,6 @@ class FMAcquisitionWidget(QWidget):
         # Move objective
         logging.info(f"Moving objective by {step_mm:.4f} mm to {new_pos:.4f} mm")
         self.objectiveControlWidget.doubleSpinBox_objective_position.setValue(new_pos)
-
-        # Consume the event to prevent default napari behavior
         event.handled = True
 
     def on_mouse_click(self, viewer, event):
@@ -1422,6 +1412,8 @@ class FMAcquisitionWidget(QWidget):
         position_clicked = event.position[-2:]  # yx required
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))
         logging.info(f"Mouse clicked at {event.position}. Stage position: {stage_position}")
+
+        # TODO: QUERY: Does the position need to be flipped when in SEM orientation?
 
         if 'Alt' in event.modifiers:
             # Add new position
@@ -1477,7 +1469,7 @@ class FMAcquisitionWidget(QWidget):
         self.savedPositionsWidget.update_positions(self.stage_positions)
         self.draw_stage_position_crosshairs()
         self._update_positions_button()
-        event.handled = True  # Prevent further processing by napari
+        event.handled = True
 
     def on_mouse_double_click(self, viewer, event):
         """Handle double-click events in the napari viewer."""
@@ -1618,7 +1610,7 @@ class FMAcquisitionWidget(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             # Get the new display options
             options = dialog.get_display_options()
-            
+
             # Apply the options
             self.show_current_fov = options['show_current_fov']
             self.show_overview_fov = options['show_overview_fov']
@@ -1626,13 +1618,13 @@ class FMAcquisitionWidget(QWidget):
             self.show_stage_limits = options['show_stage_limits']
             self.show_circle_overlays = options['show_circle_overlays']
             self.show_histogram = options['show_histogram']
-            
+
             # Apply histogram visibility
             self._update_histogram_visibility()
-            
+
             # Refresh the display
             self.display_stage_position_overlay()
-            
+
             logging.info("Display options updated successfully")
 
     def _update_histogram_visibility(self):
@@ -1671,7 +1663,7 @@ class FMAcquisitionWidget(QWidget):
 
             # Get coordinate conversion scale from camera pixel size
             layer_scale = (self.fm.camera.pixel_size[0], self.fm.camera.pixel_size[1])
-                
+
             # Draw all overlay shapes (FOV boxes and circles) on single layer
             self._draw_overlay_shapes(layer_scale)
             self._draw_crosshair_overlay(layer_scale)
@@ -1696,26 +1688,26 @@ class FMAcquisitionWidget(QWidget):
         try:
             # Collect all overlay shapes
             overlays = self._collect_all_overlays(layer_scale)
-            
+
             # Update or create the layer
             if not overlays:
                 # Hide layer if no shapes to display
                 if layer_name in self.viewer.layers:
                     self.viewer.layers[layer_name].visible = False
                 return
-            
+
             # Extract data for napari
             all_shapes = [overlay.shape for overlay in overlays]
             all_colors = [overlay.color for overlay in overlays]
             all_labels = [overlay.label for overlay in overlays]
             all_shape_types = [overlay.shape_type for overlay in overlays]
-            
+
             # Prepare text properties for labels
             text_properties = {
                 "string": all_labels,
                 **OVERLAY_CONFIG["text_properties"]
             }
-            
+
             if layer_name in self.viewer.layers:
                 # Update existing layer
                 layer: NapariShapesLayer = self.viewer.layers[layer_name]
@@ -1745,23 +1737,23 @@ class FMAcquisitionWidget(QWidget):
                     opacity=OVERLAY_CONFIG["rectangle_style"]["opacity"],
                     text=text_properties,
                 )
-                
+
         except Exception as e:
             logging.warning(f"Error drawing overlay shapes: {e}")
             if layer_name in self.viewer.layers:
                 self.viewer.layers[layer_name].visible = False
-    
+
     def _collect_all_overlays(self, layer_scale: Tuple[float, float]) -> List[NapariShapeOverlay]:
         """Collect all overlay shapes (FOV rectangles and circles).
-        
+
         Returns:
             List of NapariShapeOverlay objects for all overlay shapes
         """
         overlays = []
-        
+
         # Get camera FOV once for all calculations
         fov_x, fov_y = self.fm.camera.field_of_view
-        
+
         # Add current position single image FOV (magenta)
         current_pos = self.microscope.get_stage_position()
         current_orientation = self.microscope.get_stage_orientation()
@@ -1823,7 +1815,7 @@ class FMAcquisitionWidget(QWidget):
             selected_index = -1
             if self.savedPositionsWidget.comboBox_positions.currentIndex() >= 0:
                 selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
-            
+
             for i, saved_pos in enumerate(self.stage_positions):
                 center_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
                 fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
@@ -1891,18 +1883,18 @@ class FMAcquisitionWidget(QWidget):
         # Collect all crosshair overlays
         layer_name = CROSSHAIR_CONFIG["layer_name"]
         crosshair_overlays = self._collect_crosshair_overlays(layer_scale)
-        
+
         # Extract data for napari
         crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
         colors = [overlay.color for overlay in crosshair_overlays]
         labels = [overlay.label for overlay in crosshair_overlays]
-        
+
         # Prepare text properties for labels
         text_properties = {
             "string": labels,
             **CROSSHAIR_CONFIG["text_properties"]
         }
-        
+
         # Update or create the napari layer
         if layer_name in self.viewer.layers:
             # Update existing layer
@@ -1968,13 +1960,13 @@ class FMAcquisitionWidget(QWidget):
         for i, saved_pos in enumerate(self.stage_positions):
             saved_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position)
             saved_lines = create_crosshair_shape(saved_point, crosshair_size, layer_scale)
-            
+
             # Use lime for selected position, cyan for others
             color = CROSSHAIR_CONFIG["colors"]["saved_selected"] if i == selected_index else CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-            
+
             # Show position name on crosshair if saved position FOV is disabled
             label = saved_pos.name if not self.show_saved_positions_fov else ""
-            
+
             for line, txt in zip(saved_lines, [label, ""]):
                 overlays.append(NapariShapeOverlay(
                     shape=line,
@@ -1991,7 +1983,7 @@ class FMAcquisitionWidget(QWidget):
         num_checked_positions = len(self.savedPositionsWidget.get_checked_positions()) if hasattr(self, 'savedPositionsWidget') else 0
         button_text = f"Acquire at Positions ({num_checked_positions}/{num_total_positions})"
         self.pushButton_acquire_at_positions.setText(button_text)
-        
+
         # Enable/disable button based on whether checked positions exist
         if num_checked_positions == 0:
             self.pushButton_acquire_at_positions.setEnabled(False)
@@ -2032,7 +2024,7 @@ class FMAcquisitionWidget(QWidget):
             z_parameters=z_parameters,
             parent=self
         )
-        
+
         # Only proceed if user confirms
         if summary_dialog.exec_() != QDialog.Accepted:
             logging.info("Acquisition cancelled by user")
@@ -2050,13 +2042,13 @@ class FMAcquisitionWidget(QWidget):
             daemon=True
         )
         self._acquisition_thread.start()
-    
+
     def _positions_worker(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: Optional[ZParameters]):
         """Worker thread for positions acquisition."""
         try:
             logging.info(f"Acquiring at {len(checked_positions)} checked positions")
-            
-            # Acquire images at only the checked positions
+
+            # acquire images at only the checked positions
             images = acquire_at_positions(
                 microscope=self.microscope,
                 positions=checked_positions,
@@ -2066,73 +2058,50 @@ class FMAcquisitionWidget(QWidget):
                 use_autofocus=False,
                 save_directory=self.experiment_path,
             )
-            
-            # Check if acquisition was cancelled
+
             if self._acquisition_stop_event.is_set():
                 logging.info("Positions acquisition was cancelled")
                 return
-            
+
             # Emit each acquired image
             for image in images:
                 self.update_persistent_image_signal.emit(image)
-            
+
             logging.info(f"Positions acquisition completed successfully. Acquired {len(images)} images.")
-            
+
         except Exception as e:
             logging.error(f"Error during positions acquisition: {e}")
-            # TODO: Show error message to user
-            
+
         finally:
-            # Signal that positions acquisition is finished (thread-safe)
             self.acquisition_finished_signal.emit()
     
     def _on_acquisition_finished(self):
         """Handle consolidated acquisition completion in the main thread."""
 
-        # Clear acquisition state
+        # clear acquisition state
         self._current_acquisition_type = None
-        
-        # Re-display overview FOV now that acquisition is complete
-        self._update_overview_bounding_box()
 
-        # Update objective position display
+        # refresh overview bbox, objective widget, and button states
+        self._update_overview_bounding_box()
         self.objectiveControlWidget.update_objective_position_labels()
 
-        # Update all button states
         self._update_acquisition_button_states()
-        
-        # Update histogram with current selected layer after acquisition ends
-        try:
-            selected_layers = list(self.viewer.layers.selection)
-            if selected_layers:
-                layer = selected_layers[0]
-                if hasattr(layer, 'data') and layer.data is not None:
-                    layer_name = getattr(layer, 'name', 'Unknown Layer')
-                    self.histogramWidget.update_histogram(layer.data, layer_name)
-        except Exception as e:
-            logging.debug(f"Could not update histogram after acquisition: {e}")
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
         """Update the napari image layer with the given image data and metadata. (Live images)"""
 
-        # Rate limiting: only update if enough time has passed since last update
+        # rate limiting: only update if enough time has passed since last update
         now = datetime.now()
-
         if self._last_updated_at is not None:
             time_since_last_update = now - self._last_updated_at
             if time_since_last_update < timedelta(seconds=self.max_update_interval):
-                return  # Early return if not enough time has passed
-
+                return  # early return if not enough time has passed
         self._last_updated_at = now
 
-        # acq_date = image.metadata.acquisition_date
-        # self.label.setText(f"Acquisition Signal Received: {acq_date}")
-        # logging.info(f"Image updated with shape: {image.data.shape}, Objective position: {self.fm.objective.position*1e3:.2f} mm")
-        # logging.info(f"Metadata: {image.metadata.channels[0].to_dict()}")
 
-        # Convert metadata to napari image layer format
+        # convert metadata to napari image layer format
         image_height, image_width = image.data.shape[-2:]
         metadata_dict = _image_metadata_to_napari_image_layer(image.metadata, (image_height, image_width))
         channel_name = metadata_dict["name"]
@@ -2142,8 +2111,12 @@ class FMAcquisitionWidget(QWidget):
         self.display_stage_position_overlay()
 
     @pyqtSlot(FluorescenceImage)
-    def update_persistent_image(self, image: FluorescenceImage):
+    def update_persistent_image(self, image: Union[FibsemImage, FluorescenceImage]):
         """Update or create a napari image layer with the given image data and metadata. (Persistent images)"""
+
+        if isinstance(image, FibsemImage):
+            self._update_fibsem_image(image)
+            return
 
         # Convert structured metadata to dictionary for napari compatibility
         image_height, image_width = image.data.shape[-2:]
@@ -2186,17 +2159,24 @@ class FMAcquisitionWidget(QWidget):
         # Update histogram (widget handles visibility checking internally)
         self.histogramWidget.update_histogram(image, layer_name)
 
+    def _update_fibsem_image(self, image: FibsemImage):
+        """Update the napari image layer with the given FibsemImage data and metadata."""
+        metadata_dict = _fibsem_image_metadata_to_napari_image_layer(image.metadata, image.data.shape)
+        self._update_napari_image_layer(metadata_dict['name'], image.data, metadata_dict)
+
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
         if self.fm.is_acquiring:
             logging.warning("Acquisition is already running.")
             return
-        
+
         if self.microscope.get_stage_orientation() != "FM":
             logging.warning("Stage is not in FM orientation. Cannot start acquisition.")
             return
-
-        # TODO: handle case where acquisition fails...
+        
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            logging.warning("Another acquisition is already in progress.")
+            return
 
         # Get current settings
         settings = self._get_current_settings()
@@ -2207,7 +2187,6 @@ class FMAcquisitionWidget(QWidget):
             return
 
         logging.info(f"Starting acquisition with channel settings: {selected_channel_settings}")
-
         self.fm.start_acquisition(channel_settings=selected_channel_settings)
         self._update_acquisition_button_states()
 
@@ -2221,7 +2200,6 @@ class FMAcquisitionWidget(QWidget):
 
     def cancel_acquisition(self):
         """Cancel all ongoing acquisitions (single image, z-stack, overview, positions, autofocus)."""
-        logging.info("Cancelling all acquisitions")
 
         # Cancel consolidated acquisition (single image or future consolidated types)
         if self._acquisition_thread and self._acquisition_thread.is_alive():
@@ -2255,7 +2233,7 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
-        # Get current settings
+
         settings = self._get_current_settings()
         channel_settings = settings['channel_settings']
 
@@ -2270,17 +2248,16 @@ class FMAcquisitionWidget(QWidget):
             daemon=True
         )
         self._acquisition_thread.start()
-    
+
     def _image_acquistion_worker(self, channel_settings: List[ChannelSettings], z_parameters: ZParameters):
         """Worker thread for single image acquisition."""
         try:
-            # Generate filename for saving
+            # generate filename for saving
             name = "z-stack" if z_parameters is not None else "image"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{name}-{timestamp}.ome.tiff"
             filepath = os.path.join(self.experiment_path, filename)
-            
-            # Acquire image with cancellation support and automatic saving
+
             image = acquire_image(
                 microscope=self.fm,
                 channel_settings=channel_settings,
@@ -2289,22 +2266,18 @@ class FMAcquisitionWidget(QWidget):
                 filename=filepath
             )
 
-            # Check if acquisition was cancelled
             if self._acquisition_stop_event.is_set() or image is None:
                 logging.info("image acquisition was cancelled")
                 return
 
             # Emit the image
             self.update_persistent_image_signal.emit(image)
-
             logging.info("Image acquisition completed successfully")
-            
+
         except Exception as e:
             logging.error(f"Error during image acquisition: {e}")
-            # TODO: Show error message to user
             
         finally:
-            # Signal that image acquisition is finished (thread-safe)
             self.acquisition_finished_signal.emit()
         
     def _update_acquisition_button_states(self):
@@ -2317,13 +2290,13 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_acquire_at_positions.setEnabled(False)
             self.pushButton_cancel_acquisition.setEnabled(False)
             return
-        
+
         # Check if any acquisition is active (live or specific acquisitions)
         any_acquisition_active = self.fm.is_acquiring or self.is_acquisition_active
-        
+
         # Special case buttons with unique behavior
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
-        
+
         # Update toggle acquisition button text and style based on state
         if self.fm.is_acquiring:
             self.pushButton_toggle_acquisition.setText("Stop Acquisition")
@@ -2357,10 +2330,10 @@ class FMAcquisitionWidget(QWidget):
         self.zParametersWidget.setEnabled(not any_acquisition_active)
         self.overviewParametersWidget.setEnabled(not any_acquisition_active)
         self.savedPositionsWidget.setEnabled(not any_acquisition_active)
-        
+
         # Disable channel settings during specific acquisitions (but allow during live imaging)
         self.channelSettingsWidget.setEnabled(not self.is_acquisition_active)
-        
+
         # Disable channel list selection during any acquisition to prevent switching channels mid-acquisition
         self.channelSettingsWidget.channel_list.setEnabled(not any_acquisition_active)
 
@@ -2398,16 +2371,14 @@ class FMAcquisitionWidget(QWidget):
             logging.warning("Another acquisition is already in progress.")
             return
 
-        # Get current settings and show confirmation dialog
+        # show overview confirmation dialog
         settings = self._get_current_settings()
-        
-        # Show overview confirmation dialog
         confirmation_dialog = OverviewConfirmationDialog(
             settings=settings,
             fm=self.fm,
             parent=self
         )
-        
+
         # Only proceed if user confirms
         if confirmation_dialog.exec_() != QDialog.Accepted:
             logging.info("Overview acquisition cancelled by user")
@@ -2419,7 +2390,6 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
-        # Use confirmed settings from dialog
         channel_settings = settings['channel_settings']
         grid_size = settings['overview_grid_size']
         tile_overlap = settings['overview_overlap']
@@ -2487,7 +2457,6 @@ class FMAcquisitionWidget(QWidget):
                 stop_event=self._acquisition_stop_event
             )
 
-            # Check if acquisition was cancelled
             if self._acquisition_stop_event.is_set() or overview_image is None:
                 logging.info("Overview acquisition was cancelled")
                 return
@@ -2499,10 +2468,8 @@ class FMAcquisitionWidget(QWidget):
 
         except Exception as e:
             logging.error(f"Error during overview acquisition: {e}")
-            # TODO: Show error message to user
 
         finally:
-            # Signal that overview acquisition is finished (thread-safe)
             self.acquisition_finished_signal.emit()
 
     # update methods for live updates
@@ -2516,43 +2483,37 @@ class FMAcquisitionWidget(QWidget):
 
     def _update_excitation_wavelength(self, idx: int):
         if self.fm.is_acquiring:
-            # Get the selected channel widget to retrieve the wavelength value
             selected_widget = self.channelSettingsWidget._get_selected_channel_widget()
             if selected_widget and selected_widget.excitation_wavelength_input:
                 wavelength = selected_widget.excitation_wavelength_input.itemData(idx)
-                logging.info(f"Updating excitation wavelength to: {wavelength} nm")
                 self.fm.filter_set.excitation_wavelength = wavelength
 
     def _update_emission_wavelength(self, idx: int):
         if self.fm.is_acquiring:
-            # Get the selected channel widget to retrieve the wavelength value
             selected_widget = self.channelSettingsWidget._get_selected_channel_widget()
             if selected_widget and selected_widget.emission_wavelength_input:
                 wavelength = selected_widget.emission_wavelength_input.itemData(idx)
-                logging.info(f"Updating emission wavelength to: {wavelength} nm")
                 self.fm.filter_set.emission_wavelength = wavelength
 
-    # override closeEvent to stop acquisition when the widget is closed
     def closeEvent(self, event: QEvent):
         """Handle the close event to stop acquisition."""
         logging.info("Closing FMAcquisitionWidget, stopping acquisition if running.")
-        
+
         # Stop live acquisition
         if self.fm.is_acquiring:
             try:
                 self.fm.acquisition_signal.disconnect()
                 self.stop_acquisition()
-                print("Acquisition stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping acquisition: {e}")
             finally:
-                print("Acquisition stopped due to widget close.")
-        
-        # Stop consolidated acquisition
+                logging.warning("Acquisition stopped due to widget close.")
+
+        # Stop acquisition worker thread if it is running
         if self._acquisition_thread and self._acquisition_thread.is_alive():
             try:
                 self._acquisition_stop_event.set()
-                self._acquisition_thread.join(timeout=5)  # Wait up to 5 seconds
+                self._acquisition_thread.join(timeout=5)
                 logging.info(f"{self._current_acquisition_type} acquisition stopped due to widget close.")
             except Exception as e:
                 logging.error(f"Error stopping {self._current_acquisition_type} acquisition: {e}")
@@ -2579,7 +2540,7 @@ class FMAcquisitionWidget(QWidget):
 
         # Get current settings
         settings = self._get_current_settings()
-        channel_settings = settings['channel_settings']
+        channel_settings = settings['selected_channel_settings']
         z_parameters = settings['z_parameters']
 
         # Start auto-focus thread
@@ -2590,27 +2551,20 @@ class FMAcquisitionWidget(QWidget):
         )
         self._acquisition_thread.start()
 
-    def _autofocus_worker(self, channel_settings: List[ChannelSettings], z_parameters: ZParameters):
+    def _autofocus_worker(self, channel_settings: ChannelSettings, z_parameters: ZParameters):
         """Worker thread for auto-focus."""
         try:
             logging.info("Running auto-focus with laplacian method")
-            
-            # Run autofocus using laplacian method (default)
-            # Use first channel for autofocus
-            first_channel = channel_settings[0] if channel_settings else None
-            if not first_channel:
-                logging.error("No channel settings available for autofocus")
-                return
-                
+
+  
             best_z = run_autofocus(
                 microscope=self.fm,
-                channel_settings=first_channel,
+                channel_settings=channel_settings,
                 # z_parameters=z_parameters,
                 method='laplacian',
                 stop_event=self._acquisition_stop_event
             )
 
-            # Check if auto-focus was cancelled
             if best_z is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
@@ -2619,9 +2573,7 @@ class FMAcquisitionWidget(QWidget):
 
         except Exception as e:
             logging.error(f"Auto-focus failed: {e}")
-
         finally:
-            # Signal that auto-focus is finished (thread-safe)
             self.acquisition_finished_signal.emit()
 
 

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 CHANNEL_SETTINGS_CONFIG = {
     "power": {
         "range": (0.0, 1.0),
-        "step": 0.01,
+        "step": 0.001,
         "decimals": 3,
         "suffix": " W",
         "tooltip": "Laser power in watts (0.0 to 1.0)",
@@ -46,17 +46,11 @@ CHANNEL_SETTINGS_CONFIG = {
     },
 }
 
-# Maximum number of channels allowed
 MAX_CHANNELS = 4
-
-
-
 
 class SingleChannelWidget(QWidget):
     """Widget for a single channel's settings."""
-    
-    remove_requested = pyqtSignal(object)  # Signal to request removal of this channel
-    
+
     def __init__(self,
                  fm: FluorescenceMicroscope,
                  channel_settings: ChannelSettings,
@@ -69,7 +63,7 @@ class SingleChannelWidget(QWidget):
     def initUI(self):
         """Initialize the UI components for the single channel widget."""
         self.setContentsMargins(0, 0, 0, 0)
-        
+
         # Create a frame to group the channel settings
         frame = QFrame()
         frame.setFrameStyle(QFrame.Box)
@@ -77,7 +71,7 @@ class SingleChannelWidget(QWidget):
         frame_layout = QGridLayout()
         frame_layout.setContentsMargins(0, 0, 0, 0)
         frame.setLayout(frame_layout)
-        
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(frame)
@@ -88,7 +82,7 @@ class SingleChannelWidget(QWidget):
         # Channel name with optional remove button
         channel_header_layout = QGridLayout()
         channel_header_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.channel_name_input = QLineEdit(self.channel_settings.name, self)
         self.channel_name_input.setPlaceholderText("Enter channel name")
         channel_header_layout.addWidget(QLabel("Channel:"), 0, 0)
@@ -118,7 +112,7 @@ class SingleChannelWidget(QWidget):
             self.emission_wavelength_input.addItem(f"{int(wavelength)} nm", wavelength)
 
         layout.addWidget(self.emission_wavelength_input, 2, 1)
-        
+
         layout.addWidget(QLabel("Power"), 3, 0)
         self.power_input = QDoubleSpinBox()
         self.power_input.setRange(*CHANNEL_SETTINGS_CONFIG["power"]["range"])
@@ -128,7 +122,7 @@ class SingleChannelWidget(QWidget):
         self.power_input.setToolTip(CHANNEL_SETTINGS_CONFIG["power"]["tooltip"])
 
         layout.addWidget(self.power_input, 3, 1)
-        
+
         layout.addWidget(QLabel("Exposure Time"), 4, 0)
         self.exposure_time_input = QDoubleSpinBox()
         self.exposure_time_input.setRange(*CHANNEL_SETTINGS_CONFIG["exposure_time"]["range"])
@@ -139,8 +133,8 @@ class SingleChannelWidget(QWidget):
         layout.addWidget(self.exposure_time_input, 4, 1)
 
         # Set column stretch factors to make widgets expand properly
-        layout.setColumnStretch(0, 1)  # Labels column - expandable
-        layout.setColumnStretch(1, 1)  # Input widgets column - expandable
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 1)
 
         # connect signals to slots
         self.channel_name_input.textChanged.connect(self.update_channel_name)
@@ -203,18 +197,18 @@ class SingleChannelWidget(QWidget):
     
     def _notify_parent_of_name_change(self):
         """Notify parent widget that channel name has changed."""
-        # Find the parent MultiChannelSettingsWidget and update the channel list
+        # Find the parent ChannelSettingsWidget and update the channel list
         parent = self.parent()
         while parent:
-            if isinstance(parent, MultiChannelSettingsWidget):
+            if isinstance(parent, ChannelSettingsWidget):
                 parent._update_channel_list()
                 break
             parent = parent.parent()
 
 
-class MultiChannelSettingsWidget(QWidget):
+class ChannelSettingsWidget(QWidget):
     """Multi-channel settings widget that manages multiple SingleChannelWidget instances."""
-    
+
     def __init__(self,
                  fm: FluorescenceMicroscope,
                  channel_settings: Union[ChannelSettings, List[ChannelSettings]],
@@ -233,16 +227,16 @@ class MultiChannelSettingsWidget(QWidget):
         self._create_channel_widgets()
         self._update_channel_list()
         self._update_button_states()
-        
+
         # Connect channel selection changes
         self.channel_list.currentRowChanged.connect(self._on_channel_selection_changed)
         self._connect_live_acquisition_signals()
-    
+
     @property
     def channel_settings(self) -> List[ChannelSettings]:
         """Get the list of channel settings."""
         return self._channel_settings_list
-    
+
     @channel_settings.setter
     def channel_settings(self, value: Union[ChannelSettings, List[ChannelSettings]]):
         """Set the channel settings (for backward compatibility)."""
@@ -251,58 +245,57 @@ class MultiChannelSettingsWidget(QWidget):
         else:
             self._channel_settings_list = value.copy() if value else []
         self._recreate_channel_widgets()
-    
+
     def initUI(self):
         """Initialize the UI components for the multi-channel settings widget."""
         self.setContentsMargins(0, 0, 0, 0)
-        
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(main_layout)
-        
+
         # Header with add channel button
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 5)
-        
+
         header_label = QLabel("Channels")
         header_label.setStyleSheet("font-weight: bold; color: #FFFFFF;")
         header_layout.addWidget(header_label)
-        
         header_layout.addStretch()
-        
+
         self.add_channel_button = QPushButton("Add Channel")
         self.add_channel_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.add_channel_button.clicked.connect(self.add_channel)
         header_layout.addWidget(self.add_channel_button)
-        
+
         self.remove_channel_button = QPushButton("Remove Channel")
         self.remove_channel_button.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.remove_channel_button.clicked.connect(self.remove_selected_channel)
         header_layout.addWidget(self.remove_channel_button)
-        
+
         header_widget = QWidget()
         header_widget.setLayout(header_layout)
         main_layout.addWidget(header_widget)
-        
+
         # Scroll area for channel widgets
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setVerticalScrollBarPolicy(2)  # AsNeeded
         self.scroll_area.setHorizontalScrollBarPolicy(1)  # AlwaysOff
-        
+
         self.channels_container = QWidget()
         self.channels_layout = QVBoxLayout()
         self.channels_layout.setContentsMargins(0, 0, 0, 0)
         self.channels_container.setLayout(self.channels_layout)
-        
+
         self.scroll_area.setWidget(self.channels_container)
         main_layout.addWidget(self.scroll_area)
-        
+
         # Channel list for live acquisition selection
         list_header_label = QLabel("Live Acquisition Channel")
         list_header_label.setStyleSheet("font-weight: bold; margin-top: 10px; color: #FFFFFF;")
         main_layout.addWidget(list_header_label)
-        
+
         self.channel_list = QListWidget(self)
         self.channel_list.setMaximumHeight(80)
         self.channel_list.setStyleSheet("""
@@ -327,7 +320,7 @@ class MultiChannelSettingsWidget(QWidget):
             }
         """)
         main_layout.addWidget(self.channel_list)
-    
+
     def _create_channel_widgets(self):
         """Create SingleChannelWidget instances for each channel setting."""
         for i, channel_setting in enumerate(self._channel_settings_list):
@@ -336,40 +329,40 @@ class MultiChannelSettingsWidget(QWidget):
                 channel_settings=channel_setting,
                 parent=self
             )
-            
+
             self.channel_widgets.append(channel_widget)
             self.channels_layout.addWidget(channel_widget)
-        
+
         # Add stretch to push everything to the top
         self.channels_layout.addStretch()
-    
+
     def _recreate_channel_widgets(self):
         """Remove all existing channel widgets and create new ones."""
         # Clear existing widgets
         for widget in self.channel_widgets:
             widget.setParent(None)
             widget.deleteLater()
-        
+
         self.channel_widgets.clear()
-        
+
         # Remove all items from layout
         while self.channels_layout.count():
             item = self.channels_layout.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
-        
+
         # Create new widgets
         self._create_channel_widgets()
         self._update_button_states()
         self._update_channel_list()
-    
+
     def add_channel(self):
         """Add a new channel with default settings."""
         # Check if we've reached the maximum number of channels
         if len(self._channel_settings_list) >= MAX_CHANNELS:
             logging.warning(f"Cannot add more channels. Maximum limit is {MAX_CHANNELS} channels.")
             return
-            
+
         # Create default channel settings
         new_channel = ChannelSettings(
             name=f"Channel-{len(self._channel_settings_list) + 1:02d}",
@@ -378,57 +371,57 @@ class MultiChannelSettingsWidget(QWidget):
             power=0.03,
             exposure_time=0.005
         )
-        
+
         self._channel_settings_list.append(new_channel)
-        
+
         # Create new widget
         channel_widget = SingleChannelWidget(
             fm=self.fm,
             channel_settings=new_channel,
             parent=self
         )
-        
+
         self.channel_widgets.append(channel_widget)
-        
+
         # Insert before the stretch
         self.channels_layout.insertWidget(len(self.channel_widgets) - 1, channel_widget)
-        
+    
         self._update_button_states()
         self._update_channel_list()
         logging.info(f"Added new channel: {new_channel.name}")
-    
+
     def remove_selected_channel(self):
         """Remove the currently selected channel."""
         if len(self._channel_settings_list) <= 1:
             logging.warning("Cannot remove the last channel")
             return
-            
+
         # Get the currently selected channel index
         current_index = self.channel_list.currentRow()
         if current_index < 0 or current_index >= len(self.channel_widgets):
             logging.warning("No channel selected for removal")
             return
-            
+
         self.remove_channel_by_index(current_index)
-    
+
     def remove_channel_by_index(self, index: int):
         """Remove a channel by its index."""
         if len(self._channel_settings_list) <= 1:
             logging.warning("Cannot remove the last channel")
             return
-            
+
         if index < 0 or index >= len(self.channel_widgets):
             logging.error(f"Invalid channel index: {index}")
             return
-        
+
         # Remove from settings list
         removed_channel = self._channel_settings_list.pop(index)
-        
+
         # Remove widget
         channel_widget = self.channel_widgets.pop(index)
         channel_widget.setParent(None)
         channel_widget.deleteLater()
-        
+
         self._update_button_states()
         self._update_channel_list()
         logging.info(f"Removed channel: {removed_channel.name}")
@@ -444,32 +437,26 @@ class MultiChannelSettingsWidget(QWidget):
     def _update_button_states(self):
         """Update the enabled state of add and remove buttons based on number of channels."""
         num_channels = len(self.channel_widgets)
-        
+
         # Remove button: enabled only if more than 1 channel
         self.remove_channel_button.setEnabled(num_channels > 1)
-        
+
         # Add button: enabled only if less than MAX_CHANNELS
         self.add_channel_button.setEnabled(num_channels < MAX_CHANNELS)
-    
+
     def _update_channel_list(self):
         """Update the channel list widget with current channel names."""
         self.channel_list.clear()
-        
+
         for i, channel_setting in enumerate(self._channel_settings_list):
-            # Ensure channel name is properly displayed
-            channel_name = channel_setting.name if channel_setting.name else f"Channel-{i+1:02d}"
-            item = QListWidgetItem(channel_name, self.channel_list)
-            # item.setData(0, channel_name)  # Store channel name for retrieval
-            item.setToolTip(f"Excitation: {channel_setting.excitation_wavelength}nm, "
-                           f"Emission: {channel_setting.emission_wavelength}nm, "
-                           f"Power: {channel_setting.power}W")
-            logging.debug(f"Added channel to list: {channel_name} (index {i})")
-        
+            item = QListWidgetItem(channel_setting.name, self.channel_list)
+            logging.debug(f"Added channel to list: {channel_setting.name} (index {i})")
+
         # Select first channel by default
         if self.channel_list.count() > 0:
             self.channel_list.setCurrentRow(0)
-            logging.debug(f"Selected first channel for live acquisition")
-    
+            logging.debug("Selected first channel for live acquisition")
+
     @property
     def selected_channel(self) -> Optional[ChannelSettings]:
         """Get the currently selected channel for live acquisition."""
@@ -477,7 +464,7 @@ class MultiChannelSettingsWidget(QWidget):
         if channel_index < 0 or channel_index >= len(self._channel_settings_list):
             return None
         return self._channel_settings_list[channel_index]
-    
+
     def _get_selected_channel_widget(self) -> Optional['SingleChannelWidget']:
         """Get the widget for the currently selected channel."""
         channel_index = self.channel_list.currentRow()
@@ -549,7 +536,6 @@ class MultiChannelSettingsWidget(QWidget):
         if not self.parent_widget:
             return
 
-
         # Disconnect from all channel widgets to avoid stale connections
         for channel_widget in self.channel_widgets:
             try:
@@ -569,18 +555,18 @@ class MultiChannelSettingsWidget(QWidget):
             except (TypeError, AttributeError):
                 pass
 
-# ChannelSettingsWidget has been removed - use MultiChannelSettingsWidget directly
-# This maintains backward compatibility by aliasing the class name
-ChannelSettingsWidget = MultiChannelSettingsWidget
-
 if __name__ == "__main__":
     # Example usage
     from fibsem.fm.microscope import FluorescenceMicroscope
-    fm = FluorescenceMicroscope()
-    channel_settings = ChannelSettings(name="Example Channel", excitation_wavelength=488, emission_wavelength=520, power=0.05, exposure_time=0.01)
-    
     from PyQt5.QtWidgets import QApplication
+    fm = FluorescenceMicroscope()
+    channel_settings = ChannelSettings(name="Example Channel",
+                                       excitation_wavelength=488,
+                                       emission_wavelength=520,
+                                       power=0.05,
+                                       exposure_time=0.01)
+
     app = QApplication([])
-    widget = MultiChannelSettingsWidget(fm=fm, channel_settings=channel_settings)
+    widget = ChannelSettingsWidget(fm=fm, channel_settings=channel_settings)
     widget.show()
     app.exec_()

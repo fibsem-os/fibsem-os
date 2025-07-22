@@ -29,14 +29,12 @@ SIM_OBJECTIVE_RETRACT_POSITION = -10e-3  # z-axis position for retracting the ob
 SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 10e-3)  # z-axis limits for the objective lens
 SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
 
-
 SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
 SIM_CAMERA_BINNING = 1
 SIM_CAMERA_GAIN = 1.0
 SIM_CAMERA_OFFSET = 0.0
 SIM_CAMERA_PIXEL_SIZE = (100e-9, 100e-9)  # in meters (100 nm)
 SIM_CAMERA_RESOLUTION = (1024, 1024)  # default resolution
-# TODO: test with asymetric resolution
 
 class ObjectiveLens(ABC):
     """Abstract base class for objective lens control in fluorescence microscopy.
@@ -107,7 +105,7 @@ class ObjectiveLens(ABC):
             position: The focus position in meters
         """
         self._focus_position = position
-        logging.info(f"Objective focus position set to: {self._focus_position}")
+        logging.info(f"Objective focus position set to: {self._focus_position * 1e3} mm")
 
     def move_relative(self, delta: float):
         """Move the objective lens by a relative distance.
@@ -116,7 +114,7 @@ class ObjectiveLens(ABC):
             delta: The distance to move in meters (positive = towards sample)
         """
         self._position += delta
-        logging.info(f"Objective moved to new position: {self._position} (delta: {delta})")
+        logging.info(f"Objective moved to new position: {self._position * 1e3} mm (delta: {delta * 1e3} mm)")
 
     def move_absolute(self, position: float):
         """Move the objective lens to an absolute z-axis position.
@@ -125,7 +123,7 @@ class ObjectiveLens(ABC):
             position: The target position in meters
         """
         self._position = position
-        logging.info(f"Objective moved to absolute position: {self._position}")
+        logging.info(f"Objective moved to absolute position: {self._position * 1e3} mm")
 
     def insert(self):
         """Insert the objective lens into the working position for imaging.
@@ -514,6 +512,8 @@ class FluorescenceMicroscope(ABC):
         Returns:
             True if live acquisition is active, False otherwise
         """
+        if not self._acquisition_thread:
+            return False
         return self._acquisition_thread and self._acquisition_thread.is_alive()
 
     def set_channel(self, channel_settings: ChannelSettings):
