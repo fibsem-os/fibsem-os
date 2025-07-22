@@ -11,6 +11,7 @@ from .saved_positions_widget import SavedPositionsWidget
 from .objective_control_widget import ObjectiveControlWidget
 from .channel_settings_widget import ChannelSettingsWidget
 from .histogram_widget import HistogramWidget
+from .line_plot_widget import LinePlotWidget
 
 __all__ = [
     'ZParametersWidget',
@@ -18,5 +19,6 @@ __all__ = [
     'SavedPositionsWidget',
     'ObjectiveControlWidget',
     'ChannelSettingsWidget',
-    'HistogramWidget'
+    'HistogramWidget',
+    'LinePlotWidget'
 ]

@@ -55,6 +55,7 @@ from fibsem.ui.fm.widgets import (
     OverviewParametersWidget,
     SavedPositionsWidget,
     ZParametersWidget,
+    LinePlotWidget,
 )
 
 from fibsem.ui.napari.utilities import (
@@ -423,7 +424,6 @@ class StagePositionControlWidget(QWidget):
     def set_orientation_tooltips(self):
         """Set tooltips for orientation buttons showing rotation and tilt angles."""
         try:
-            
             sem = self.microscope.get_orientation("SEM")
             fm = self.microscope.get_orientation("FM")
 
@@ -434,7 +434,6 @@ class StagePositionControlWidget(QWidget):
             self.milling_angle_spinbox.setToolTip("The milling angle is the difference between the stage and the fib viewing angle.")
 
             self.update_milling_tooltip()
-            
 
         except Exception as e:
             logging.warning(f"Could not set orientation tooltips: {e}")
@@ -1072,6 +1071,7 @@ class FMAcquisitionWidget(QWidget):
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
         self.histogramWidget: HistogramWidget
+        self.line_plot_widget: LinePlotWidget
 
         # Consolidated acquisition threading
         self._acquisition_thread: Optional[threading.Thread] = None
@@ -1204,7 +1204,9 @@ class FMAcquisitionWidget(QWidget):
 
         # create histogram widget
         self.histogramWidget = HistogramWidget(parent=self)
+        self.line_plot_widget = LinePlotWidget(parent=self)
         self.histogram_dock = self.viewer.window.add_dock_widget(self.histogramWidget, name="Image Histogram", area='left')
+        self.line_plot_dock = self.viewer.window.add_dock_widget(self.line_plot_widget, name="Line Plot", area='left', tabify=True)
 
         # Set initial histogram visibility based on display option
         self.histogram_dock.setVisible(self.show_histogram)
@@ -2158,6 +2160,7 @@ class FMAcquisitionWidget(QWidget):
             )
         # Update histogram (widget handles visibility checking internally)
         self.histogramWidget.update_histogram(image, layer_name)
+        self.line_plot_widget.append_value(float(np.mean(image)), layer_name)
 
     def _update_fibsem_image(self, image: FibsemImage):
         """Update the napari image layer with the given FibsemImage data and metadata."""
