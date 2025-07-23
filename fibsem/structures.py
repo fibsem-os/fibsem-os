@@ -789,7 +789,7 @@ class BeamSettings:
             "beam_current": self.beam_current,
             "voltage": self.voltage,
             "hfw": self.hfw,
-            "resolution": list(self.resolution),
+            "resolution": self.resolution,
             "dwell_time": self.dwell_time,
             "stigmation": self.stigmation.to_dict()
             if self.stigmation is not None

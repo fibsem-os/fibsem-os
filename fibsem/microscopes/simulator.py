@@ -352,7 +352,7 @@ class DemoMicroscope(FibsemMicroscope):
                                                     dtype=image.data.dtype)
         else:
             char = "SEM" if effective_beam_type == BeamType.ELECTRON else "FIB"
-            resolution = effective_image_settings.resolution[1], effective_image_settings.resolution[0]  # (height, width) for skimage
+            resolution = effective_image_settings.resolution[1], effective_image_settings.resolution[0]
             cache_key = (char, resolution)
             if cache_key not in self._image_cache:
                 self._image_cache[cache_key] = draw_text(char, size=(256, 256), thickness=48, image_shape=resolution)
@@ -360,7 +360,7 @@ class DemoMicroscope(FibsemMicroscope):
             num_image = self._image_cache[cache_key]
             # use the image as an inverse mask for the noise
             image.data = np.where(num_image > 0, num_image, image.data)
-    
+
         # add additional metadata
         image.metadata.image_settings = effective_image_settings
         image.metadata.microscope_state = microscope_state
