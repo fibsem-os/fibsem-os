@@ -1,0 +1,67 @@
+info:
+    name: sim-tfs-arctis-configuration               
+    ip_address: 192.168.0.1                                 
+    manufacturer: Demo                                              
+stage:
+    enabled:                    true                        
+    rotation:                   true                        
+    tilt:                       true                        
+    rotation_reference:         0                           
+    rotation_180:               180                         
+    shuttle_pre_tilt:           0                        
+    manipulator_height_limit:   0.0037                      
+electron:                                              
+    enabled:                    true                        
+    column_tilt:                0                           
+    eucentric_height:           7.0e-3                      
+    voltage:                    2000                        
+    current:                    50.0e-12                    
+    resolution:                 [1536, 1024]                
+    hfw:                        150.0e-6                    
+    dwell_time:                 1.0e-06                    
+    detector_mode:              SecondaryElectrons          
+    detector_type:              ETD                         
+ion:
+    enabled:                    true                        
+    column_tilt:                52                         
+    eucentric_height:           16.5e-3                     
+    plasma:                     false                       
+    plasma_gas:                 None                        
+    voltage:                    30000                       
+    current:                    2.0e-11                     
+    resolution:                 [1536, 1024]                
+    hfw:                        150.0e-6                   
+    dwell_time:                 1.0e-06                     
+    detector_mode:              SecondaryElectrons          
+    detector_type:              ETD                         
+fm:
+  enabled: true
+manipulator:
+    enabled:                    false                        
+    rotation:                   false                       
+    tilt:                       false                       
+gis:
+    enabled:                    true                        
+    multichem:                  false                       
+    sputter_coater:             false                                             
+imaging:
+    beam_type:                  ELECTRON                    
+    resolution:                 [1536, 1024]               
+    hfw:                        150.0e-6                    
+    dwell_time:                 1.0e-06                     
+    imaging_current:            2.0e-11                     
+    autocontrast:               true                        
+    autogamma:                  false                       
+    save:                       false                       
+milling:
+    milling_voltage:            30000                       
+    milling_current:            2.0e-09                        
+    dwell_time:                 1.0e-06                     
+    rate:                       3.4e-09                     
+    spot_size:                  5.4e-08                     
+    preset:                     "30 keV; 20 nA"             
+sim:
+    sem: null # "/path/to/sem/image/data"                   
+    fib: null # "/path/to/fib/image/data"                   
+    use_cycle: true                                         
+    is_compustage: true                                   
