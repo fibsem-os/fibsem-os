@@ -509,6 +509,27 @@ class FibsemRectangle:
     def is_valid_reduced_area(self) -> bool:
         return _is_valid_reduced_area(self)
 
+    def to_pixel_coordinates(self, image_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
+        """Convert FibsemRectangle (normalized coordinates 0-1) to image pixel coordinates.
+        
+        Args:
+            image_shape: (height, width) tuple of the image shape
+            
+        Returns:
+            Tuple of (x, y, width, height) in pixel coordinates where:
+            - x, y are the top-left corner pixel coordinates
+            - width, height are the dimensions in pixels
+        """
+        height, width = image_shape
+        
+        # Convert normalized coordinates to pixel coordinates
+        x = int(self.left * width)
+        y = int(self.top * height)
+        pixel_width = int(self.width * width)
+        pixel_height = int(self.height * height)
+        
+        return (x, y, pixel_width, pixel_height)
+
 def _is_valid_reduced_area(reduced_area: FibsemRectangle) -> bool:
     """Check whether the reduced area is valid. 
     Left and top must be between 0 and 1, and width and height must be between 0 and 1.
