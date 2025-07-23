@@ -346,7 +346,11 @@ class FibsemMicroscope(ABC):
 
     @abstractmethod
     def stop_milling(self) -> None:
-        return 
+        return
+
+    @abstractmethod
+    def start_milling(self) -> None:
+        pass
 
     @abstractmethod
     def pause_milling(self) -> None:

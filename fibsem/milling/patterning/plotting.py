@@ -1,7 +1,8 @@
+from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
+from typing import List, Tuple, Optional, overload
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -59,14 +60,14 @@ OVERLAP_PROPERTIES = {
 
 def _rect_pattern_to_image_pixels(
     pattern: FibsemRectangleSettings, pixel_size: float, image_shape: Tuple[int, int]
-) -> Tuple[int, int, int, int]:
+) -> Tuple[float, float, float, float]:
     """Convert rectangle pattern to image pixel coordinates.
     Args:
         pattern: FibsemRectangleSettings: Rectangle pattern to convert.
         pixel_size: float: Pixel size of the image.
         image_shape: Tuple[int, int]: Shape of the image.
     Returns:
-        Tuple[int, int, int, int]: Parameters (center_x, center_y, width, height) in image pixel coordinates.
+        Tuple[float, float, float, float]: Parameters (center_x, center_y, width, height) in image pixel coordinates.
     """
     # get pattern parameters
     width = pattern.width
@@ -89,14 +90,14 @@ def _rect_pattern_to_image_pixels(
 
 def _circle_pattern_to_image_pixels(
     pattern: FibsemCircleSettings, pixel_size: float, image_shape: Tuple[int, int]
-) -> Tuple[int, int, float, float, float, float]:
+) -> Tuple[float, float, float, float, float, float]:
     """Convert circle pattern to image pixel coordinates.
     Args:
         pattern: FibsemCircleSettings: Circle pattern to convert.
         pixel_size: float: Pixel size of the image.
         image_shape: Tuple[int, int]: Shape of the image.
     Returns:
-        Tuple[int, int, float, float, float, float]: Parameters (center_x, center_y, radius, inner_radius, start_angle, end_angle) in image pixel coordinates.
+        Tuple[float, float, float, float, float, float]: Parameters (center_x, center_y, radius, inner_radius, start_angle, end_angle) in image pixel coordinates.
     """
     # get pattern parameters
     radius = pattern.radius
@@ -121,7 +122,7 @@ def _circle_pattern_to_image_pixels(
 
 def _line_pattern_to_image_pixels(
     pattern: FibsemLineSettings, pixel_size: float, image_shape: Tuple[int, int]
-) -> Tuple[int, int, int, int]:
+) -> Tuple[float, float, float, float]:
     """Convert line pattern to image pixel coordinates.
     Args:
         pattern: FibsemLineSettings: Line pattern to convert.
@@ -139,7 +140,7 @@ def _line_pattern_to_image_pixels(
     end_px, end_py = end_x / pixel_size, end_y / pixel_size
 
     # convert to image coordinates
-    cy, cx = image_shape[0] // 2, image_shape[1] // 2
+    cy, cx = image_shape[0] / 2, image_shape[1] / 2
     start_pixel_x = cx + start_px
     start_pixel_y = cy - start_py
     end_pixel_x = cx + end_px
@@ -294,6 +295,37 @@ def _detect_pattern_overlaps(milling_stages: List[FibsemMillingStage], image: Fi
     
     return overlap_patches
 
+
+@overload
+def draw_milling_patterns(
+    image: FibsemImage,
+    milling_stages: List[FibsemMillingStage],
+    crosshair: bool = ...,
+    scalebar: bool = ...,
+    title: str = ...,
+    show_current: bool = ...,
+    show_preset: bool = ...,
+    show_depth: bool = ...,
+    highlight_overlaps: bool = ...,
+    ax: plt.Axes = ...,
+) -> Tuple[None, plt.Axes]: ...
+
+
+@overload
+def draw_milling_patterns(
+    image: FibsemImage,
+    milling_stages: List[FibsemMillingStage],
+    crosshair: bool = ...,
+    scalebar: bool = ...,
+    title: str = ...,
+    show_current: bool = ...,
+    show_preset: bool = ...,
+    show_depth: bool = ...,
+    highlight_overlaps: bool = ...,
+    ax: None = ...,
+) -> Tuple[plt.Figure, plt.Axes]: ...
+
+
 def draw_milling_patterns(
     image: FibsemImage,
     milling_stages: List[FibsemMillingStage],
@@ -304,7 +336,8 @@ def draw_milling_patterns(
     show_preset: bool = False,
     show_depth: bool = False,
     highlight_overlaps: bool = False,
-) -> plt.Figure:
+    ax: Optional[plt.Axes] = None,
+) -> Tuple[Optional[plt.Figure], plt.Axes]:
     """
     Draw milling patterns on an image. Supports patterns composed of multiple shape types.
     Args:
@@ -317,12 +350,13 @@ def draw_milling_patterns(
         show_preset: bool: Show preset name in legend.
         show_depth: bool: Show pattern depth in microns in legend.
         highlight_overlaps: bool: Highlight overlapping pattern regions.
+        ax: Optional[plt.Axes]: Axis that patterns will be plotted on. If no axis is given, a figure and axis will be created.
     Returns:
-        plt.Figure: Figure with patterns drawn.
+        Tuple[Optional[plt.Figure], plt.Axes]: Figure (if ax is None) and axis with pattern drawn.
     """
-    fig: plt.Figure
-    ax: plt.Axes    
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    fig: Optional[plt.Figure] = None
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     ax.imshow(image.data, cmap="gray")
 
     patches = []
@@ -530,11 +564,45 @@ def draw_rectangle_shape(pattern_settings: FibsemRectangleSettings, image_shape:
 
     return DrawnPattern(pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion)
 
+
+def draw_line_shape(
+    pattern_settings: FibsemLineSettings,
+    image_shape: Tuple[int, int],
+    pixelsize: float,
+) -> DrawnPattern:
+    from skimage.draw import line_aa
+
+    start_pixel_x, start_pixel_y, end_pixel_x, end_pixel_y = (
+        _line_pattern_to_image_pixels(
+            pattern_settings, pixelsize, (image_shape[0], image_shape[1])
+        )
+    )
+
+    array_max = (
+        int(round(end_pixel_y - start_pixel_y)),
+        int(round(end_pixel_x - start_pixel_x)),
+    )
+
+    shape = np.zeros((array_max[0] + 1, array_max[1] + 1), dtype=float)
+
+    rr, cc, val = line_aa(0, 0, array_max[0], array_max[1])
+    shape[rr, cc] = val
+
+    cx = int(round((start_pixel_x + end_pixel_x) / 2))
+    cy = int(round((start_pixel_y + end_pixel_y) / 2))
+
+    pos = Point(x=cx, y=cy)
+
+    return DrawnPattern(pattern=shape, position=pos, is_exclusion=False)
+
+
 def draw_pattern_shape(ps: FibsemPatternSettings, image_shape: Tuple[int, int], pixelsize: float) -> DrawnPattern:
     if isinstance(ps, FibsemCircleSettings):
         return draw_annulus_shape(ps, image_shape, pixelsize)
     elif isinstance(ps, FibsemRectangleSettings):
         return draw_rectangle_shape(ps, image_shape, pixelsize)
+    elif isinstance(ps, FibsemLineSettings):
+        return draw_line_shape(ps, image_shape, pixelsize)
     else:
         raise ValueError(f"Unsupported shape type {type(ps)}")
 
