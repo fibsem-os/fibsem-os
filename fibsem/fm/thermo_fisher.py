@@ -1,10 +1,14 @@
+import logging
 from typing import Tuple, Optional, Union, Dict, Any
 
 import numpy as np
 from autoscript_sdb_microscope_client.structures import (
-    GrabFrameSettings,
+    GrabFrameSettings, GetImageSettings
 )
-from autoscript_sdb_microscope_client.enumerations import CameraEmissionType, CameraFilterType, ImagingDevice
+from autoscript_sdb_microscope_client.enumerations import (CameraEmissionType, 
+                                                           CameraFilterType, 
+                                                           ImagingDevice, 
+                                                           ImagingState)
 
 from fibsem.fm.microscope import (
     Camera,
@@ -220,18 +224,48 @@ class ThermoFisherCamera(Camera):
         frame_settings = GrabFrameSettings(emission_type=emission_type)
         # Uses current camera settings for binning and exposure time
 
-        print(f"EMISSION: {emission_type}, {frame_settings.emission_type}")
-
         self.parent.set_active_channel()
         image = self.parent.connection.imaging.grab_frame(frame_settings)
 
-        # print(f"Acquire Image: {image.data.shape} pixels, {image.data.dtype} type")
-        # print(f"Image Pixel Size: {image.metadata.binary_result.pixel_size}")
-        # print(f"APPARENT Pixel Size: {self.pixel_size}")
-        # print(f"APPARENT Resolution: {self.resolution}")
-        # print(f"APPARENT BINNING: {self.binning}")
-
         return image.data  # AdornedImage.data -> np.ndarray
+
+    def _start_fast_acquisition(self):
+        try:
+            self.parent.set_active_channel()
+            emission_color = self.parent.connection.detector.camera_settings.emission.type.value
+            self.parent.light_source.start_emission(emission_type=emission_color)
+            self.start_acquisition()
+
+            while self.parent.connection.imaging.state == ImagingState.ACQUIRING:
+
+                if self.parent._stop_acquisition_event.is_set():
+                    break
+                image = self.parent.connection.imaging.get_image(GetImageSettings(wait_for_frame=True))
+                self.parent._construct_image(image.data)
+
+        except Exception as e:
+            logging.error(f"Exception occurred during fast acquisition: {e}")
+        finally:
+            self.parent.light_source.stop_emission()
+            self.stop_acquisition()
+
+    def start_acquisition(self) -> None:
+        """Start the camera acquisition process.
+        
+        Begins image acquisition using the current camera settings.
+        This method is typically used for continuous imaging or live view.
+        """
+        self.parent.set_active_channel()
+        self.parent.connection.imaging.start_acquisition()
+
+    def stop_acquisition(self) -> None:
+        """Stop the camera acquisition process.
+        
+        Halts any ongoing image acquisition and releases resources.
+        This is typically used to end continuous imaging or live view.
+        """
+        self.parent.set_active_channel()
+        self.parent.connection.imaging.stop_acquisition()
 
     @property
     def exposure_time(self)  -> float:
@@ -358,13 +392,13 @@ class ThermoFisherLightSource(LightSource):
         self.parent.set_active_channel()
         return self.parent.connection.detector.camera_settings.emission.is_on
 
-    def start_emission(self) -> None:
+    def start_emission(self, emission_type: CameraEmissionType) -> None:
         """Start the light source emission.
         
         Begins light emission from the active light source for imaging.
         """
         self.parent.set_active_channel()
-        self.parent.connection.detector.camera_settings.emission.start()
+        self.parent.connection.detector.camera_settings.emission.start(emission_type=emission_type)
 
     def stop_emission(self) -> None:
         """Stop the light source emission.

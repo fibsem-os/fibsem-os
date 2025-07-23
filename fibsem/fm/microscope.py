@@ -597,22 +597,27 @@ class FluorescenceMicroscope(ABC):
         self, channel_settings: Optional[ChannelSettings] = None
     ) -> FluorescenceImage:
         """Acquire a single fluorescence image.
-        
+
         Args:
             channel_settings: Optional channel configuration. If provided,
                             the microscope will be reconfigured before acquisition.
-                            
+
         Returns:
             A FluorescenceImage object containing the image data and metadata
         """
         if channel_settings is not None:
             self.set_channel(channel_settings)
         data = self.camera.acquire_image()
+        img = self._construct_image(data)
+        return img
+
+    def _construct_image(self, data: np.ndarray) -> FluorescenceImage:
+        """Construct a FluorescenceImage from raw data with associated metadata."""
         md = self.get_metadata()
         img = FluorescenceImage(data=data, metadata=md)
         self.acquisition_signal.emit(img)  # Emit the acquired image signal
         return img
-    
+
     def get_metadata(self) -> FluorescenceImageMetadata:
         """Generate comprehensive metadata for the current microscope state.
         
