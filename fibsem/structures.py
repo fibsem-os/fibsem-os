@@ -509,6 +509,11 @@ class FibsemRectangle:
     def is_valid_reduced_area(self) -> bool:
         return _is_valid_reduced_area(self)
 
+    @property
+    def pretty_string(self) -> str:
+        """Returns a pretty string representation of the rectangle."""
+        return f"Left: {self.left:.2f}, Top: {self.top:.2f}, Width: {self.width:.2f}, Height: {self.height:.2f}"
+
     def to_pixel_coordinates(self, image_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
         """Convert FibsemRectangle (normalized coordinates 0-1) to image pixel coordinates.
         

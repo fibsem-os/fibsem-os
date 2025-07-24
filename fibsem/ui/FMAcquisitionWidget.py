@@ -1208,8 +1208,6 @@ class FMAcquisitionWidget(QWidget):
         self.line_plot_widget = LinePlotWidget(parent=self)
         self.histogram_dock = self.viewer.window.add_dock_widget(self.histogramWidget, name="Image Histogram", area='left')
         self.line_plot_dock = self.viewer.window.add_dock_widget(self.line_plot_widget, name="Line Plot", area='left', tabify=True)
-
-        # Set initial histogram visibility based on display option
         self.histogram_dock.setVisible(self.show_histogram)
 
         self.pushButton_toggle_acquisition = QPushButton("Start Acquisition", self)
@@ -1335,18 +1333,29 @@ class FMAcquisitionWidget(QWidget):
 
         # add file menu
         self.menubar = QMenuBar(self)
-        self.file_menu = self.menubar.addMenu("File")
 
         # Experiment creation
         new_experiment_action = QAction("New Experiment...", self)
         new_experiment_action.triggered.connect(self.show_new_experiment_dialog)
         display_options_action = QAction("Display Options...", self)
         display_options_action.triggered.connect(self.show_display_options_dialog)
-        self.file_menu.addAction(new_experiment_action)
-        self.file_menu.addSeparator()
-        self.file_menu.addAction(display_options_action)
-        self.layout().setMenuBar(self.menubar)
+        run_coincidence_action = QAction("Open Coincidence Milling...", self)
+        run_coincidence_action.triggered.connect(self.run_coincidence)
+        self.file_menu = self.menubar.addMenu("File")
+        if self.file_menu is not None:
+            self.file_menu.addAction(new_experiment_action)
+            self.file_menu.addSeparator()
+            self.file_menu.addAction(display_options_action)
+            self.file_menu.addAction(run_coincidence_action)
+        main_layout.setMenuBar(self.menubar)
 
+    def run_coincidence(self):
+        from fibsem.ui.FMCoincidenceMillingWidget import create_widget, milling_stage
+        viewer = napari.Viewer(title="Coincidence Milling")
+        widget = create_widget(self.microscope, viewer, [milling_stage])
+
+        viewer.window.add_dock_widget(widget, name="Coincidence Milling", area="right")
+        napari.run(max_loop_level=2)
 
     def _on_layer_selection_changed(self, event):
         """Handle napari layer selection changes to update histogram."""

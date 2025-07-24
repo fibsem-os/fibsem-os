@@ -5,7 +5,6 @@ from pprint import pprint
 from typing import List, Optional, Union
 
 import napari
-import numpy as np
 from napari.layers import Shapes as NapariShapesLayer
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
@@ -16,7 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import acquire, conversions, utils
+from fibsem import acquire, utils
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.microscope import FluorescenceImage
 from fibsem.fm.structures import ChannelSettings
@@ -31,7 +30,6 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     ImageSettings,
-    Point,
 )
 from fibsem.ui.FibsemMillingStageEditorWidget import FibsemMillingStageEditorWidget
 from fibsem.ui.fm.widgets import LinePlotWidget
@@ -39,6 +37,7 @@ from fibsem.ui.napari.patterns import (
     convert_reduced_area_to_napari_shape,
     convert_shape_to_image_area,
 )
+from fibsem.ui.napari.utilities import update_text_overlay
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     GREEN_PUSHBUTTON_STYLE,
@@ -54,26 +53,25 @@ milling_stage.alignment.enabled = False
 
 class FMCoincidenceMillingWidget(QWidget):
     """Widget for FM Coincidence Milling with FIB image acquisition, FM image acquisition, and start/stop milling controls."""
-    
     fib_image_acquired_signal = pyqtSignal(FibsemImage)
     image_acquired_signal = pyqtSignal(FluorescenceImage)
-    milling_state_changed_signal = pyqtSignal(bool)  # True when milling starts, False when stops
+    milling_state_changed_signal = pyqtSignal(bool)
     bbox_updated_signal = pyqtSignal(FibsemRectangle)
-    update_line_plot_signal = pyqtSignal(float)  # Signal to update the line plot with mean intensity
-    
-    def __init__(self, microscope: FibsemMicroscope, 
+    update_line_plot_signal = pyqtSignal(float)
+
+    def __init__(self, microscope: FibsemMicroscope,
                  milling_stages: Union[FibsemMillingStage, List[FibsemMillingStage]],
-                 viewer: napari.Viewer, 
+                 viewer: napari.Viewer,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
-        
+
         self.microscope = microscope
         self.viewer = viewer
         self._lock = threading.RLock()  # Lock for thread safety
-        
+
         if microscope.fm is None:
             raise ValueError("FluorescenceMicroscope (fm) must be initialized in the FibsemMicroscope.")
-        
+
         self.fm_resolution = self.microscope.fm.camera.resolution
         self.field_of_view = microscope.fm.camera.field_of_view
 
@@ -84,7 +82,7 @@ class FMCoincidenceMillingWidget(QWidget):
             hfw=self.field_of_view[0],
             beam_type=BeamType.ION
         )
-        
+
         self.channel_settings = ChannelSettings(
             name="Channel-01",
             excitation_wavelength=550,
@@ -107,12 +105,13 @@ class FMCoincidenceMillingWidget(QWidget):
         self._milling_thread: Optional[threading.Thread] = None
         self._milling_stop_event = threading.Event()
 
-        self.initUI()
-        self.connect_signals()
-
         self.line_plot_widget = LinePlotWidget(parent=self)
         self.line_plot_dock = self.viewer.window.add_dock_widget(self.line_plot_widget, name="Line Plot", area='left', tabify=True)
 
+        self.initUI()
+        self.connect_signals()
+
+        update_text_overlay(self.viewer, self.microscope)
 
     def initUI(self):
         """Initialize the user interface."""
@@ -128,7 +127,7 @@ class FMCoincidenceMillingWidget(QWidget):
         self.acquire_fm_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.acquire_fm_button.clicked.connect(self.acquire_fm_image)
 
-        self.show_fm_bbox_button = QPushButton("Show FM Alignment Area")
+        self.show_fm_bbox_button = QPushButton("Show FM Region of Interest")
         self.show_fm_bbox_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.show_fm_bbox_button.clicked.connect(lambda: self.set_alignment_layer(editable=True))
         
@@ -152,10 +151,10 @@ class FMCoincidenceMillingWidget(QWidget):
         self.label_milling_state.setEnabled(False)
         self.label_milling_state.setStyleSheet("color: black;")
 
-        self.label_fm_bbox = QLabel("FM Alignment Area:")
-        self.label_fm_bbox.setStyleSheet("font-weight: bold; color: black;")
-
+        self.label_fm_bbox = QLabel("FM Region of Interest:")
         self.bbox_updated_signal.connect(self.on_bbox_update)
+        self.label_fm_intensity = QLabel("Intensity Drop Threshold: 0.75")
+        self.label_fm_bbox.setStyleSheet("color: white;")
 
         # Create button layout
         button_layout = QGridLayout()
@@ -168,10 +167,11 @@ class FMCoincidenceMillingWidget(QWidget):
         button_layout.addWidget(self.resume_milling_button, 3, 1)
         button_layout.addWidget(self.label_milling_state, 4, 0, 1, 2)
         button_layout.addWidget(self.label_fm_bbox, 5, 0, 1, 2)
+        button_layout.addWidget(self.label_fm_intensity, 6, 0, 1, 2)
         layout.addWidget(self.milling_stage_editor)
         layout.addLayout(button_layout)
         self.setLayout(layout)
-    
+
     def connect_signals(self):
         """Connect internal signals."""
         self.microscope.fm.acquisition_signal.connect(lambda image: self.image_acquired_signal.emit(image)) 
@@ -184,30 +184,13 @@ class FMCoincidenceMillingWidget(QWidget):
         """Check if milling is currently running."""
         return self._milling_thread is not None and self._milling_thread.is_alive()
 
-    def update_line_plot(self, value: float):
-        """Update the line plot with the mean intensity."""
-        print(f"Updating line plot with value: {value}")
-        if self.line_plot_widget is not None:
-            self.line_plot_widget.append_value(value)
-        else:
-            logging.warning("Line plot widget is not initialized. Cannot update line plot.")
-
     def update_image(self, image: Union[FibsemImage, FluorescenceImage]):
 
         if isinstance(image, FluorescenceImage):
             # Add to napari viewer
             layer_name = f"FM Image {self.channel_settings.name}"
             colormap = "green"
-            translation = (0, 0)  # No translation for FM images
-            # if self.is_milling:
-            #     # crop to the bounding box if available
-            #     bbox = self.get_alignment_area()
-            #     if bbox is not None:
-            #         x, y, width, height = bbox.to_pixel_coordinates(self.microscope.fm.camera.resolution)
-            #         data = image.data[y:y+height, x:x+width]
-            #     else:
-            #         data = image.data
-            #     self.line_plot_widget.append_value(float(np.mean(data)))
+            translation = (0, 0)
 
         elif isinstance(image, FibsemImage):
             # Add to napari viewer
@@ -239,28 +222,27 @@ class FMCoincidenceMillingWidget(QWidget):
         """Acquire a FIB image."""
         try:
             self.acquire_fib_button.setEnabled(False)
-            
+
             # Acquire FIB image
             self.fib_image = acquire.acquire_image(
                 microscope=self.microscope,
                 settings=self.fib_image_settings
             )
             self.fib_image_acquired_signal.emit(self.fib_image)
-            logging.info("FIB image acquired successfully")
         except Exception as e:
             logging.error(f"Error acquiring FIB image: {e}")
         finally:
             self.acquire_fib_button.setEnabled(True)
-    
+
     @pyqtSlot()
     def acquire_fm_image(self):
         """Acquire a fluorescence microscopy image."""
         try:
             self.acquire_fm_button.setEnabled(False)
-            
+
             if self.microscope.fm is None:
                 raise ValueError("Fluorescence microscope is not available")
-            
+
             # Acquire FM image
             self.fm_image = acquire_image(
                 microscope=self.microscope.fm,
@@ -268,8 +250,6 @@ class FMCoincidenceMillingWidget(QWidget):
             )
             self.image_acquired_signal.emit(self.fm_image)
 
-            logging.info("FM image acquired successfully")
-            
         except Exception as e:
             logging.error(f"Error acquiring FM image: {e}")
         finally:
@@ -359,22 +339,8 @@ class FMCoincidenceMillingWidget(QWidget):
             )
         except Exception as e:
             logging.error(f"Error running milling strategy: {e}")
+
     
-    def set_fib_image_settings(self, settings: ImageSettings):
-        """Set the FIB image acquisition settings."""
-        self.fib_image_settings = settings
-    
-    def set_channel_settings(self, settings: ChannelSettings):
-        """Set the FM channel settings."""
-        self.channel_settings = settings
-    
-    def get_fib_image_settings(self) -> ImageSettings:
-        """Get the current FIB image settings."""
-        return self.fib_image_settings
-    
-    def get_channel_settings(self) -> ChannelSettings:
-        """Get the current FM channel settings."""
-        return self.channel_settings
 
     def set_alignment_layer(self, reduced_area: FibsemRectangle = FibsemRectangle(0.25, 0.25, 0.5, 0.5), 
                             editable: bool = True):
@@ -405,32 +371,39 @@ class FMCoincidenceMillingWidget(QWidget):
             self.alignment_layer.mode = "select"
         # TODO: prevent rotation of rectangles?  
         self.alignment_layer.events.data.connect(self.update_alignment) # type: ignore
+        self.update_alignment(None)  # Initial update to validate the area
 
     def update_alignment(self, event):
         """Validate the alignment area, and update the parent ui."""
-        reduced_area = self.get_alignment_area()
-        is_valid = reduced_area.is_valid_reduced_area
-
-        logging.info(f"Updated alignment area: {reduced_area}, valid: {is_valid}")
-
         try:
-            msg = "Edit Alignment Area. Press Continue when done." 
-            if not is_valid:
-                msg = "Invalid Alignment Area. Please adjust inside FM Image."
-            self.label_fm_bbox.setWordWrap(True)
-            self.label_fm_bbox.setText(f"reduced_area: ({reduced_area.left:.2f}, {reduced_area.top:.2f}, {reduced_area.width:.2f}, {reduced_area.height:.2f})\n{msg}")
+            reduced_area = self.get_alignment_area()
 
-            if is_valid:
-                self.bbox_updated_signal.emit(reduced_area)
+            if reduced_area is None:
+                return
+            is_valid = reduced_area.is_valid_reduced_area
+            logging.info(f"Updated alignment area: {reduced_area}, valid: {is_valid}")
+            if not is_valid:
+                self.label_fm_bbox.setStyleSheet("color: red;")
+                self.label_fm_bbox.setText("ROI: Invalid Alignment Area. Please adjust inside FM Image.")
+                return
+
+            self.label_fm_bbox.setWordWrap(True)
+            self.label_fm_bbox.setStyleSheet("color: white;")
+            self.label_fm_bbox.setText(f"ROI: {reduced_area.pretty_string}")
+
+            self.bbox_updated_signal.emit(reduced_area)
 
         except Exception as e:
             logging.info(f"Error updating alignment area: {e}")
 
-        return reduced_area, is_valid
-
-    def get_alignment_area(self) -> FibsemRectangle:
+    def get_alignment_area(self) -> Optional[FibsemRectangle]:
         """Get the alignment area from the alignment layer."""
         with self._lock:
+
+            if self.alignment_layer is None or not isinstance(self.alignment_layer, NapariShapesLayer):
+                logging.warning("Alignment layer is not set or not a Shapes layer.")
+                return None
+
             data = self.alignment_layer.data
             if data is None or self.fm_resolution is None:
                 return None
@@ -443,25 +416,35 @@ class FMCoincidenceMillingWidget(QWidget):
 
     def on_intensity_drop_signal(self, ddict: dict):
         """Handle intensity drop signal."""
-        logging.info('-'*80)
-        logging.info(f"Intensity Drop Signal Received: {ddict}")
-        logging.info('-'*80)
+        # logging.info('-'*80)
+        # logging.info(f"Intensity Drop Signal Received: {ddict}")
+        # logging.info('-'*80)
 
         # self.stop_milling()  # stop milling if intensity drop is detected
 
-        # self.label_fm_bbox.setText(f"Intensity Drop Detected: Mean Intensity: {ddict['mean_intensity']:.2f}, "
-        #                                 f"Rolling Mean: {ddict['rolling_mean']:.2f}, "
-        #                                 f"Average Mean: {ddict['average_mean']:.2f}, "
-        #                                 f"Threshold: {ddict['intensity_drop_threshold']:.2f}")
-        
+        self.label_fm_intensity.setText(f"Intensity Drop Detected: Mean Intensity: {ddict['mean_intensity']:.2f}")
+        self.label_fm_intensity.setStyleSheet("color: orange;")
 
-
-
-def create_widget(viewer: napari.Viewer) -> FMCoincidenceMillingWidget:
+def create_widget(microscope: FibsemMicroscope,
+                  viewer: napari.Viewer,
+                  milling_stages: List[FibsemMillingStage],
+                  parent: Optional[QWidget] = None) -> FMCoincidenceMillingWidget:
     """Create the FMCoincidenceMillingWidget with a demo microscope."""
-    CONFIG_PATH = None  # Use default config
-    microscope, settings = utils.setup_session(config_path=CONFIG_PATH)
-    
+
+    widget = FMCoincidenceMillingWidget(
+        microscope=microscope,
+        milling_stages=milling_stages,
+        viewer=viewer,
+        parent=parent
+    )
+    return widget
+
+
+def main():
+    """Main function to run the widget standalone."""
+
+    microscope, settings = utils.setup_session()
+
     if microscope.fm is None:
         logging.error("FluorescenceMicroscope is not initialized. Cannot create FMCoincidenceMillingWidget.")
         raise RuntimeError("FluorescenceMicroscope is not initialized.")
@@ -473,19 +456,8 @@ def create_widget(viewer: napari.Viewer) -> FMCoincidenceMillingWidget:
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
     
-    widget = FMCoincidenceMillingWidget(
-        microscope=microscope,
-        milling_stages=[milling_stage],
-        viewer=viewer,
-        parent=None
-    )
-    return widget
-
-
-def main():
-    """Main function to run the widget standalone."""
     viewer = napari.Viewer()
-    widget = create_widget(viewer)
+    widget = create_widget(microscope, viewer, milling_stages=[milling_stage])
     viewer.window.add_dock_widget(widget, area="right")
     napari.run()
     return
