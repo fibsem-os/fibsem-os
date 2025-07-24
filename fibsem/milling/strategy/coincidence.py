@@ -100,7 +100,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         max_end_time = start_time + self.config.timeout
         SLEEP_DURATION = 1  # seconds
         while True:
-            if self.parent_ui:
+            if self.parent_ui and hasattr(self.parent_ui, "get_alignment_area"):
                 self.config.bbox = self.parent_ui.get_alignment_area() # TODO: properly use the signal instead of polling
             if microscope.get_milling_state() == MillingState.RUNNING:
                 logging.info(f"Milling is running... {estimated_end_time-time.time():.2f} seconds remaining.")
@@ -141,9 +141,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
     def on_fm_acquisition_signal(self, image: FluorescenceImage):
         logging.info(f"FM Acquisition Signal Received! Acquisition Date: {image.metadata.acquisition_date}")
         logging.info(f"Image shape: {image.data.shape}, Milling State: {self.microscope.get_milling_state()}")
-        # TODO: handle feedback here...
-
-        # self.intensity_drop_signal.emit({"hello": "world"})  # for testing purposes
 
         # crop to bounding box if specified
         if self.config.bbox is not None:
@@ -164,7 +161,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         average_mean = sum(self.intensities) / len(self.intensities) if self.intensities else 0
         logging.info(f"Mean Intensity: {mean_intensity:.2f}, Rolling Mean ({n_rolling}): {rolling_mean:.2f}, Average Mean: {average_mean:.2f}")
 
-        if self.parent_ui:
+        if self.parent_ui and hasattr(self.parent_ui, "update_line_plot_signal"):
             self.parent_ui.update_line_plot_signal.emit(mean_intensity)
 
         # check if the rolling mean intensity has dropped by 25%
