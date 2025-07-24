@@ -62,6 +62,7 @@ from fibsem.ui.napari.utilities import (
     create_circle_shape,
     create_crosshair_shape,
     create_rectangle_shape,
+    update_text_overlay,
 )
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
@@ -606,8 +607,8 @@ class SEMAcquisitionWidget(QWidget):
         """Acquire an SEM Overview Image"""
         try:
 
-            if self.microscope.get_stage_orientation() != "SEM":
-                QMessageBox.warning(self, "Orientation Error", "Please switch to SEM orientation before acquiring an image.")
+            if self.microscope.get_stage_orientation() != "FM":  # NOTE: refactor once able to use at T=0
+                QMessageBox.warning(self, "Orientation Error", "Please switch to FM orientation before acquiring an image.")
                 return
 
             image = self.microscope.acquire_image(image_settings=self.image_settings)
@@ -1106,7 +1107,7 @@ class FMAcquisitionWidget(QWidget):
         self.channelSettingsWidget.setEnabled(is_fm_enabled)
         self.savedPositionsWidget.setEnabled(is_fm_enabled)
         self.overviewParametersWidget.setEnabled(is_fm_enabled)
-        self.semAcquisitionWidget.setEnabled(is_sem_enabled)
+        self.semAcquisitionWidget.setEnabled(is_fm_enabled)
         # toggle acquisition buttons based on orientation
         for btn, _ in self.button_configs:
             btn.setEnabled(is_fm_enabled)
@@ -1500,30 +1501,10 @@ class FMAcquisitionWidget(QWidget):
         self.display_stage_position_overlay()
         return
 
-    def update_text_overlay(self):
-        """Update the text overlay with current stage position and objective information."""
-        try:
-            pos = self.microscope.get_stage_position()
-            orientation = self.microscope.get_stage_orientation()
-            current_grid = self.microscope.current_grid
-
-            # Create combined text for overlay
-            overlay_text = (
-                f"STAGE: {pos.pretty_string} [{orientation}] [{current_grid}]\n"
-                f"OBJECTIVE: {self.fm.objective.position*1e3:.3f} mm"
-            )
-            self.viewer.text_overlay.visible = True
-            self.viewer.text_overlay.position = "bottom_left"
-            self.viewer.text_overlay.text = overlay_text
-
-        except Exception as e:
-            logging.warning(f"Error updating text overlay: {e}")
-            # Fallback text if stage position unavailable
-            self.viewer.text_overlay.text = "Fluorescence Acquisition Widget"
 
     def display_stage_position_overlay(self):
         """Legacy method for compatibility - redirects to update_text_overlay."""
-        self.update_text_overlay()
+        update_text_overlay(self.viewer, self.microscope)
         self.draw_stage_position_crosshairs()
         self.toggle_widgets()
 

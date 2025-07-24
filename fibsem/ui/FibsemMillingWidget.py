@@ -149,7 +149,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.milling_pattern_layers: List[Layer] = []
 
         self.pattern_attribute_widgets: Dict[str, Tuple[QtWidgets.QLabel, QtWidgets.QWidget]] = {}
-        self.strategy_config_widgets: Dict[str, QtWidgets.QWidget] = {}
+        self.strategy_config_widgets: Dict[str, Tuple[QtWidgets.QLabel, QtWidgets.QWidget]] = {}
 
         self.setup_connections()
         # TODO: migrate to MILLING_WORKFLOWS: Dict[str, List[FibsemMillingStage]]
@@ -469,6 +469,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
 
             # default None
             val = getattr(strategy.config, key, None)
+            control_widget: Optional[QtWidgets.QWidget] = None
 
             if isinstance(val, (int, float)) and not isinstance(val, bool):
                 # limits
@@ -498,6 +499,9 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
                     control_widget.addItems(cfg.STANDARD_RESOLUTIONS)
                     control_widget.setCurrentText(f"{val[0]}x{val[1]}") # TODO: check if in list
 
+            if control_widget is None:
+                logging.warning(f"Could not create control widget for {key} with value {val}.")
+                continue
             # TODO: add support for scaling, str, bool, etc.
             # TODO: attached events
 

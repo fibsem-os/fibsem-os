@@ -213,43 +213,9 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         """Display the stage position as text overlay on the image widget"""
         if isinstance(self.microscope, TescanMicroscope):
             return  # Tescan systems do not support stage position display yet
-        
-        try:
-            # NOTE: this crashes for tescan systems?
-            pos = self.microscope.get_stage_position()
-            orientation = self.microscope.get_stage_orientation()
-            milling_angle = self.microscope.get_current_milling_angle()
-        except Exception as e:
-            logging.warning(f"Error getting stage position: {e}")
-            return
 
-        # add text layer, showing the stage position in cyan
-        points = np.array([
-            [self.image_widget.eb_layer.data.shape[0] + 50, 500],
-            [self.image_widget.eb_layer.data.shape[0] + 50, self.image_widget.ib_layer.translate[1] + 150]
-            ])
-        text = {
-            "string": [
-                f"STAGE: {to_pretty_string_short(pos)} [{orientation}]",
-                f"MILLING ANGLE: {milling_angle:.1f} {DEGREE_SYMBOL}"
-                ],
-            "color": "cyan",
-            "font_size": 20,
-        }
-        try:
-            self.viewer.layers['stage_position'].data = points
-            self.viewer.layers['stage_position'].text = text
-        except KeyError:    
-            self.viewer.add_points(
-                data=points,
-                name="stage_position",
-                size=20,
-                text=text,
-                edge_width=7,
-                edge_width_is_relative=False,
-                edge_color="transparent",
-                face_color="transparent",
-            )   
+        from fibsem.ui.napari.utilities import update_text_overlay
+        update_text_overlay(self.viewer, self.microscope)
 
     def handle_acquisition_update(self, ddict: dict):
         """Handle acquisition updates from the image widget"""
