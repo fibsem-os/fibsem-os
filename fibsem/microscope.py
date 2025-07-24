@@ -1018,7 +1018,7 @@ class FibsemMicroscope(ABC):
             self.orientations["FIB"].t -= np.radians(180)
 
             self.orientations["FM"] = FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_reference),
+                r=np.radians(0),
                 t=np.radians(-180),
             )
         else:
@@ -1039,9 +1039,18 @@ class FibsemMicroscope(ABC):
         if self.get_stage_orientation() == "FIB":
             return 90  # stage-tilt + pre-tilt + 90 - column-tilt
 
+        stage_tilt = self.get_stage_position().t
+
+        if stage_tilt is None:
+            raise ValueError("Stage tilt is not available. Cannot calculate milling angle.")
+        
+        if self.stage_is_compustage and stage_tilt < np.radians(-90):
+            # Compustage stage tilt is inverted, so we need to adjust the angle
+            stage_tilt += np.radians(180)
+
         # Calculate the milling angle from the stage tilt
         milling_angle = convert_stage_tilt_to_milling_angle(
-            stage_tilt=self.get_stage_position().t, 
+            stage_tilt=stage_tilt, 
             pretilt=np.radians(self.system.stage.shuttle_pre_tilt), 
             column_tilt=np.radians(self.system.ion.column_tilt)
         )
