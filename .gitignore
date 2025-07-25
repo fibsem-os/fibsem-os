@@ -66,3 +66,4 @@ CLAUDE.md
 fibsem/fm/*.ome.tiff
 notes.md
 fibsem/ui/test-ndv.py
+!fibsem/config/sim-arctis-configuration.yaml

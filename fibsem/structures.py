@@ -289,7 +289,7 @@ class FibsemStagePosition:
                 (abs(self.z - pos2.z) < tol) and 
                 (abs(self.t - pos2.t) < tol) and 
                 (abs(self.r - pos2.r) < tol))
-   
+
     def is_close2(self, pos2: 'FibsemStagePosition', tol: float = 1e-6, axes: Optional[List[str]] = None) -> bool:
         """Check if two positions are close to each other."""
         VALID_AXES = ['x', 'y', 'z', 't', 'r']
@@ -508,6 +508,32 @@ class FibsemRectangle:
     @property
     def is_valid_reduced_area(self) -> bool:
         return _is_valid_reduced_area(self)
+
+    @property
+    def pretty_string(self) -> str:
+        """Returns a pretty string representation of the rectangle."""
+        return f"Left: {self.left:.2f}, Top: {self.top:.2f}, Width: {self.width:.2f}, Height: {self.height:.2f}"
+
+    def to_pixel_coordinates(self, image_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
+        """Convert FibsemRectangle (normalized coordinates 0-1) to image pixel coordinates.
+        
+        Args:
+            image_shape: (height, width) tuple of the image shape
+            
+        Returns:
+            Tuple of (x, y, width, height) in pixel coordinates where:
+            - x, y are the top-left corner pixel coordinates
+            - width, height are the dimensions in pixels
+        """
+        height, width = image_shape
+        
+        # Convert normalized coordinates to pixel coordinates
+        x = int(self.left * width)
+        y = int(self.top * height)
+        pixel_width = int(self.width * width)
+        pixel_height = int(self.height * height)
+        
+        return (x, y, pixel_width, pixel_height)
 
 def _is_valid_reduced_area(reduced_area: FibsemRectangle) -> bool:
     """Check whether the reduced area is valid. 

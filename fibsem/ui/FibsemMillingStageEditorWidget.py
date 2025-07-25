@@ -249,8 +249,31 @@ MILLING_STRATEGY_GUI_CONFIG = {
         "label": "Resolution",
         "type": List[int],
         "items": cfg.STANDARD_RESOLUTIONS_LIST,
-        "tooltip": "The imaging resolution for the milling strategy.",}
-    }
+        "tooltip": "The imaging resolution for the milling strategy.",
+        },
+    "timeout": {
+        "label": "Timeout",
+        "type": float,
+        "units": "s",
+        "scale": None,
+        "minimum": 0.0,
+        "maximum": 60.0,
+        "step": 1.0,
+        "decimals": 2,
+        "tooltip": "The timeout for the milling strategy.",
+    },
+    "intensity_drop_threshold": {
+        "label": "Intensity Drop Threshold",
+        "type": float,
+        "units": "",
+        "scale": None,
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "step": 0.01,
+        "decimals": 2,
+        "tooltip": "The threshold for rolling mean intensity drop during milling.",
+    },
+}
 
 MILLING_ALIGNMENT_GUI_CONFIG = {
     "enabled": {
@@ -288,7 +311,7 @@ MILLING_IMAGING_GUI_CONFIG = {
     },
 }
 
-DEFAULT_PARAMETERS: Dict[str, any] = {
+DEFAULT_PARAMETERS: Dict[str, Any] = {
     "type": float,
     "units": "µm",
     "scale": 1e6,
@@ -1079,7 +1102,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             self.milling_pattern_layers = []
             return
 
-        logging.info(f"Selected milling stages:, {[stage.name for stage in milling_stages]}")
+        logging.info(f"Selected milling stages: {[stage.name for stage in milling_stages]}")
 
         if self.image is None:
             image = FibsemImage.generate_blank_image(hfw=milling_stages[0].milling.hfw)

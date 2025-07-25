@@ -48,6 +48,8 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
+
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.util.draw_numbers import draw_text
 
 ######################## SIMULATOR ########################
@@ -190,7 +192,7 @@ class DemoMicroscope(FibsemMicroscope):
                 beam_current=1e-12,
                 voltage=2000,
                 hfw=150e-6,
-                resolution=[1536, 1024],
+                resolution=(1536, 1024),
                 dwell_time=1e-6,
                 stigmation=Point(0, 0),
                 shift=Point(0, 0),
@@ -214,7 +216,7 @@ class DemoMicroscope(FibsemMicroscope):
                 beam_current=20e-12, 
                 voltage=30000,
                 hfw=150e-6,
-                resolution=[1536, 1024],
+                resolution=(1536, 1024),
                 dwell_time=1e-6,
                 stigmation=Point(0, 0),
                 shift=Point(0, 0),
@@ -229,7 +231,7 @@ class DemoMicroscope(FibsemMicroscope):
             scanning_mode="full_frame",
             scanning_mode_value = None,
         )
-        self.stage_is_compustage: bool = False
+        self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
@@ -239,6 +241,9 @@ class DemoMicroscope(FibsemMicroscope):
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
             
+        # fluorescence microscope
+        self.fm = FluorescenceMicroscope(self)
+
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
