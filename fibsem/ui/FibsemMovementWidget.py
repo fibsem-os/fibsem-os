@@ -1,7 +1,7 @@
 
 import logging
 from copy import deepcopy
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import napari
 import napari.utils.notifications
@@ -10,19 +10,16 @@ import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 
-import fibsem.utils as utils
 from fibsem import config as cfg
-from fibsem import constants, conversions
-from fibsem.constants import DEGREE_SYMBOL
-from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem import constants, conversions, utils
+from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     Point,
 )
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+from fibsem.ui.napari.utilities import update_text_overlay
 from fibsem.ui.qtdesigner_files import FibsemMovementWidget as FibsemMovementWidgetUI
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
@@ -39,22 +36,6 @@ from fibsem.ui.utils import (
 )
 
 
-def to_pretty_string(position: FibsemStagePosition) -> str:
-    xstr = f"x={position.x*constants.METRE_TO_MILLIMETRE:.3f}"
-    ystr = f"y={position.y*constants.METRE_TO_MILLIMETRE:.3f}"
-    zstr = f"z={position.z*constants.METRE_TO_MILLIMETRE:.3f}"
-    rstr = f"r={position.r*constants.RADIANS_TO_DEGREES:.1f}"
-    tstr = f"t={position.t*constants.RADIANS_TO_DEGREES:.1f}"
-    return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
-
-def to_pretty_string_short(position: FibsemStagePosition) -> str:
-    xstr = f"X:{position.x*constants.METRE_TO_MILLIMETRE:.2f}"
-    ystr = f"Y:{position.y*constants.METRE_TO_MILLIMETRE:.2f}"
-    zstr = f"Z:{position.z*constants.METRE_TO_MILLIMETRE:.2f}"
-    rstr = f"R:{position.r*constants.RADIANS_TO_DEGREES:.1f}"
-    tstr = f"T:{position.t*constants.RADIANS_TO_DEGREES:.1f}"
-    return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
-
 class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
     movement_progress_signal = QtCore.pyqtSignal(dict) # TODO: consolidate
@@ -63,22 +44,21 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self,
         microscope: FibsemMicroscope,
         viewer: napari.Viewer,
-        parent=None,
+        parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
         self.setupUi(self)
         self.parent = parent
-        
+
+        if not hasattr(parent, 'image_widget') and not isinstance(parent.image_widget, FibsemImageSettingsWidget):
+            raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
+
         self.microscope = microscope
         self.viewer = viewer
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
-
         self.positions: List[FibsemStagePosition] = []
-        
-        autoload_positions: bool = True # TODO: enable this
-        if autoload_positions:
-            self.import_positions(cfg.POSITION_PATH)
 
+        self.import_positions(cfg.POSITION_PATH)
         self.setup_connections()
 
     def setup_connections(self):
@@ -96,7 +76,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         # disable ui elements
         self.label_movement_instructions.setText("Double click to move. Alt + Double Click in the Ion Beam to Move Vertically")
 
-        # positions
+        # saved positions
         self.comboBox_positions.currentIndexChanged.connect(self.current_selected_position_changed)
         self.pushButton_save_position.clicked.connect(self.add_position)
         self.pushButton_remove_position.clicked.connect(self.delete_position)
@@ -111,22 +91,21 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.saved_positions_updated_signal.connect(self.update_saved_positions_ui)
 
         # set custom tilt limits for the compustage
-        if self.microscope is not None and isinstance(self.microscope, (ThermoMicroscope, DemoMicroscope)):
-            if self.microscope.stage_is_compustage:
-                self.doubleSpinBox_movement_stage_tilt.setMinimum(-195.0)
-                self.doubleSpinBox_movement_stage_tilt.setMaximum(15)
+        if self.microscope.stage_is_compustage:
+            self.doubleSpinBox_movement_stage_tilt.setMinimum(-195.0)
+            self.doubleSpinBox_movement_stage_tilt.setMaximum(15)
 
-                # NOTE: these values are expressed in mm in the UI, hence the conversion
-                # set x, y, z step sizes to be 1 um
-                self.doubleSpinBox_movement_stage_x.setSingleStep(1e-6 * constants.SI_TO_MILLI)
-                self.doubleSpinBox_movement_stage_y.setSingleStep(1e-6 * constants.SI_TO_MILLI)
-                self.doubleSpinBox_movement_stage_z.setSingleStep(1e-6 * constants.SI_TO_MILLI)
+            # NOTE: these values are expressed in mm in the UI, hence the conversion
+            # set x, y, z step sizes to be 1 um
+            self.doubleSpinBox_movement_stage_x.setSingleStep(1e-6 * constants.SI_TO_MILLI)
+            self.doubleSpinBox_movement_stage_y.setSingleStep(1e-6 * constants.SI_TO_MILLI)
+            self.doubleSpinBox_movement_stage_z.setSingleStep(1e-6 * constants.SI_TO_MILLI)
 
-                # TODO: get the true limits from the microscope
-                self.doubleSpinBox_movement_stage_x.setMinimum(-999.9e-6 * constants.SI_TO_MILLI)
-                self.doubleSpinBox_movement_stage_x.setMaximum(999.9e-6 * constants.SI_TO_MILLI)
-                self.doubleSpinBox_movement_stage_y.setMinimum(-377.8e-6 * constants.SI_TO_MILLI)
-                self.doubleSpinBox_movement_stage_y.setMaximum(377.8e-6 * constants.SI_TO_MILLI)
+            # TODO: get the true limits from the microscope
+            self.doubleSpinBox_movement_stage_x.setMinimum(-999.9e-6 * constants.SI_TO_MILLI)
+            self.doubleSpinBox_movement_stage_x.setMaximum(999.9e-6 * constants.SI_TO_MILLI)
+            self.doubleSpinBox_movement_stage_y.setMinimum(-377.8e-6 * constants.SI_TO_MILLI)
+            self.doubleSpinBox_movement_stage_y.setMaximum(377.8e-6 * constants.SI_TO_MILLI)
 
         # stylesheets
         self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
@@ -140,23 +119,20 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.pushButton_export.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.pushButton_import.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.pushButton_update_position.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
-        
+
         # display orientation values on tooltips
         self.pushButton_move_flat_electron.setText("Move to SEM Orientation")
         self.pushButton_move_flat_ion.setText("Move to FIB Orientation")
         sem = self.microscope.get_orientation("SEM")
         fib = self.microscope.get_orientation("FIB")
         milling = self.microscope.get_orientation("MILLING")
-        sem_str = f"R:{sem.r*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}, T:{sem.t*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}"
-        fib_str = f"R:{fib.r*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}, T:{fib.t*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}"
-        milling_str = f"R:{milling.r*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}, T:{milling.t*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}"
-        self.pushButton_move_flat_electron.setToolTip(sem_str)
-        self.pushButton_move_flat_ion.setToolTip(fib_str)
-        self.pushButton_move_to_milling_angle.setToolTip(milling_str)
+        self.pushButton_move_flat_electron.setToolTip(sem.pretty_orientation)
+        self.pushButton_move_flat_ion.setToolTip(fib.pretty_orientation)
+        self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
 
         # milling angle controls
         self.doubleSpinBox_milling_angle.setValue(self.microscope.system.stage.milling_angle) # deg
-        self.doubleSpinBox_milling_angle.setSuffix(DEGREE_SYMBOL)
+        self.doubleSpinBox_milling_angle.setSuffix(constants.DEGREE_SYMBOL)
         self.doubleSpinBox_milling_angle.setSingleStep(1.0)
         self.doubleSpinBox_milling_angle.setDecimals(1)
         self.doubleSpinBox_milling_angle.setRange(0, 45)
@@ -165,12 +141,9 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.doubleSpinBox_milling_angle.valueChanged.connect(self._update_milling_angle)
         self.pushButton_move_to_milling_angle.clicked.connect(lambda: self.move_to_orientation("MILLING"))
 
-        self.display_stage_position_overlay()
-
-        # update the UI
         self.update_ui()
 
-    def _toggle_interactions(self, enable: bool, caller: str = None):
+    def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
         self.pushButton_move.setEnabled(enable)
         self.pushButton_move_flat_ion.setEnabled(enable)
@@ -196,7 +169,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
     def handle_movement_progress_update(self, ddict: dict) -> None:
         """Handle movement progress updates from the microscope"""
-        
+
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
@@ -205,51 +178,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         is_finished = ddict.get("finished", False)
         if is_finished:
-            logging.info("Movement finished")
-            # TODO: handle the signals
-            self.display_stage_position_overlay()
-
-    def display_stage_position_overlay(self):
-        """Display the stage position as text overlay on the image widget"""
-        if isinstance(self.microscope, TescanMicroscope):
-            return  # Tescan systems do not support stage position display yet
-        
-        try:
-            # NOTE: this crashes for tescan systems?
-            pos = self.microscope.get_stage_position()
-            orientation = self.microscope.get_stage_orientation()
-            milling_angle = self.microscope.get_current_milling_angle()
-        except Exception as e:
-            logging.warning(f"Error getting stage position: {e}")
-            return
-
-        # add text layer, showing the stage position in cyan
-        points = np.array([
-            [self.image_widget.eb_layer.data.shape[0] + 50, 500],
-            [self.image_widget.eb_layer.data.shape[0] + 50, self.image_widget.ib_layer.translate[1] + 150]
-            ])
-        text = {
-            "string": [
-                f"STAGE: {to_pretty_string_short(pos)} [{orientation}]",
-                f"MILLING ANGLE: {milling_angle:.1f} {DEGREE_SYMBOL}"
-                ],
-            "color": "cyan",
-            "font_size": 20,
-        }
-        try:
-            self.viewer.layers['stage_position'].data = points
-            self.viewer.layers['stage_position'].text = text
-        except KeyError:    
-            self.viewer.add_points(
-                data=points,
-                name="stage_position",
-                size=20,
-                text=text,
-                edge_width=7,
-                edge_width_is_relative=False,
-                edge_color="transparent",
-                face_color="transparent",
-            )   
+            update_text_overlay(self.viewer, self.microscope)
 
     def handle_acquisition_update(self, ddict: dict):
         """Handle acquisition updates from the image widget"""
@@ -267,20 +196,19 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation.setValue(np.degrees(stage_position.r))
         self.doubleSpinBox_movement_stage_tilt.setValue(np.degrees(stage_position.t))
 
-        HAS_SAVED_POSITIONS = bool(len(self.positions))
-        # self.pushButton_save_position.setVisible(HAS_SAVED_POSITIONS) # always visible
-        self.pushButton_remove_position.setEnabled(HAS_SAVED_POSITIONS)
-        self.pushButton_go_to.setVisible(HAS_SAVED_POSITIONS)
-        self.pushButton_update_position.setVisible(HAS_SAVED_POSITIONS)
-        self.pushButton_export.setVisible(HAS_SAVED_POSITIONS)
-        self.comboBox_positions.setVisible(HAS_SAVED_POSITIONS)
-        self.pushButton_import.setVisible(HAS_SAVED_POSITIONS)
-        self.label_saved_positions.setVisible(HAS_SAVED_POSITIONS)
-        self.label_current_position.setVisible(HAS_SAVED_POSITIONS)
-        self.lineEdit_position_name.setVisible(HAS_SAVED_POSITIONS)
+        has_saved_positions = bool(len(self.positions))
+        self.pushButton_remove_position.setEnabled(has_saved_positions)
+        self.pushButton_go_to.setVisible(has_saved_positions)
+        self.pushButton_update_position.setVisible(has_saved_positions)
+        self.pushButton_export.setVisible(has_saved_positions)
+        self.comboBox_positions.setVisible(has_saved_positions)
+        self.pushButton_import.setVisible(has_saved_positions)
+        self.label_saved_positions.setVisible(has_saved_positions)
+        self.label_current_position.setVisible(has_saved_positions)
+        self.lineEdit_position_name.setVisible(has_saved_positions)
 
         # update the current position label
-        self.display_stage_position_overlay()
+        update_text_overlay(self.viewer, self.microscope)
 
     def update_ui_after_movement(self, retake: bool = True): # TODO: PPP Refactor
         # disable taking images after movement here
@@ -304,13 +232,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         milling_angle = self.doubleSpinBox_milling_angle.value() # deg
         self.microscope.system.stage.milling_angle = milling_angle
 
-        # set tooltip (dynamically)
+        # refresh tooltip and overlay
         milling = self.microscope.get_orientation("MILLING")
-        milling_str = f"R:{milling.r*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}, T:{milling.t*constants.RADIANS_TO_DEGREES:.1f} {DEGREE_SYMBOL}"
-        self.pushButton_move_to_milling_angle.setToolTip(milling_str)
-
-        # refresh stage display
-        self.display_stage_position_overlay()
+        self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
+        update_text_overlay(self.viewer, self.microscope)
 
 #### MOVEMENT
 
@@ -369,7 +294,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         """Thread worker for double-click mouse events on the image widget"""
         if event.button != 1 or "Shift" in event.modifiers:
             return
-        
+
         # get coords
         coords = layer.world_to_data(event.position)
 
@@ -400,13 +325,11 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             "dm": point.to_dict(),                      # shift in microscope coordinates
             "coords": {"x": coords[1], "y": coords[0]}, # coords in image coordinates
         })
-        
+
         self.movement_progress_signal.emit({"msg": "Moving stage..."})
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
-            self.microscope.vertical_move(dx=point.x, dy=point.y
-            )
-
+            self.microscope.vertical_move(dx=point.x, dy=point.y)
         else:
             # corrected stage movement
             self.microscope.stable_move(
@@ -458,15 +381,14 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         if current_index == -1:
             return
         position = self.positions[current_index]
-        self.label_current_position.setText(to_pretty_string(position))
+        self.label_current_position.setText(position.pretty_string)
         self.lineEdit_position_name.setText(position.name)
 
     def add_position(self) -> None:
         """Add the current stage position to the saved positions"""
 
         position = self.microscope.get_stage_position()
-        name = f"Position {len(self.positions):02d}"
-        position.name = name
+        position.name = f"Position {len(self.positions):02d}"
         self.positions.append(deepcopy(position))
         self.saved_positions_updated_signal.emit(self.positions)
         logging.info(f"Added position {position.name}")
@@ -513,21 +435,21 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         """Move the stage to the selected saved position"""
         current_index = self.comboBox_positions.currentIndex()
         stage_position = self.positions[current_index]
-        self._move_to_absolute_position(stage_position)
+        self.move_to_position(stage_position)
 
     def export_positions(self):
 
         path = open_save_file_dialog(msg="Select or create file", 
             path=cfg.POSITION_PATH, 
             _filter="YAML Files (*.yaml)")
-        
+
         if path == '':
             napari.utils.notifications.show_info("No file selected, positions not saved")
             return
-        
+
         response = message_box_ui(text="Do you want to overwrite the file ? Click no to append the new positions to the existing file.", 
             title="Overwrite ?", buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-        
+
         # save positions
         utils.save_positions(self.positions, path, overwrite=response)
 

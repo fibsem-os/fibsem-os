@@ -936,7 +936,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         # get the milling current
         current_amps = 20e-12 # default value
-        if isinstance(self.microscope, (ThermoMicroscope, DemoMicroscope)):
+        if not isinstance(self.microscope, TescanMicroscope):
             current_amps = self.comboBox_milling_current.currentData()
 
         milling_settings = FibsemMillingSettings(

@@ -1,10 +1,12 @@
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import napari
 import numpy as np
 
 from fibsem import constants
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     FibsemImage,
     Point,
@@ -289,3 +291,40 @@ def is_position_inside_layer(position: Tuple[float, float], target_layer) -> boo
             return False
 
     return True
+
+def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> None:
+    """Update the text overlay in the napari viewer with current stage position and orientation.
+    Args:
+        viewer: napari viewer object
+        microscope: FibsemMicroscope instance
+    """
+    try:
+
+        if isinstance(microscope, TescanMicroscope):
+            return  # Tescan systems do not support stage position display yet
+
+        pos = microscope.get_stage_position()
+        orientation = microscope.get_stage_orientation()
+        current_grid = microscope.current_grid
+        milling_angle = microscope.get_current_milling_angle()
+        obj_txt = ""
+        if microscope.fm is not None:
+            objective_position = microscope.fm.objective.position
+            obj_txt = f"OBJECTIVE: {objective_position*1e3:.3f} mm"
+
+        # Create combined text for overlay
+        overlay_text = (
+            f"STAGE: {pos.pretty_string} [{orientation}] [{current_grid}]\n"
+            f"MILLING ANGLE: {milling_angle:.1f}°\n"
+            f"{obj_txt}\n"
+        )
+        viewer.text_overlay.visible = True
+        viewer.text_overlay.position = "bottom_left"
+        viewer.text_overlay.text = overlay_text
+
+    except Exception as e:
+        logging.warning(f"Error updating text overlay: {e}")
+        # Fallback text if stage position unavailable
+        viewer.text_overlay.text = "<STAGE POSITION UNAVAILABLE>"
+        viewer.text_overlay.visible = False
+        viewer.text_overlay.position = "bottom_left"

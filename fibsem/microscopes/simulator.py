@@ -48,6 +48,7 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
+from fibsem.util.draw_numbers import draw_text
 
 ######################## SIMULATOR ########################
 
@@ -244,7 +245,8 @@ class DemoMicroscope(FibsemMicroscope):
         self.experiment = FibsemExperiment()
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
-        self.milling_channel: BeamType.ION = BeamType.ION
+        self.milling_channel: BeamType = BeamType.ION
+        self._image_cache: dict = {}
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
 
     def connect_to_microscope(self, ip_address: str, port: int = 8080) -> None:
@@ -343,6 +345,16 @@ class DemoMicroscope(FibsemMicroscope):
             image.data  = self._generate_next_image(beam_type=effective_beam_type, 
                                                     output_shape=image.data.shape, 
                                                     dtype=image.data.dtype)
+        else:
+            char = "SEM" if effective_beam_type == BeamType.ELECTRON else "FIB"
+            resolution = effective_image_settings.resolution[1], effective_image_settings.resolution[0]
+            cache_key = (char, resolution)
+            if cache_key not in self._image_cache:
+                self._image_cache[cache_key] = draw_text(char, size=(256, 256), thickness=48, image_shape=resolution)
+
+            num_image = self._image_cache[cache_key]
+            # use the image as an inverse mask for the noise
+            image.data = np.where(num_image > 0, num_image, image.data)
 
         # add additional metadata
         image.metadata.image_settings = effective_image_settings
@@ -731,6 +743,15 @@ class DemoMicroscope(FibsemMicroscope):
 
     def clear_patterns(self) -> None:
         self.milling_system.patterns = []
+
+    def start_milling(self) -> None:
+        """Start milling by setting the state to RUNNING."""
+        # TODO: support this by properly estimating the end time
+        if self.get_milling_state() is MillingState.IDLE:
+            self.milling_system.state = MillingState.RUNNING
+            logging.info("Milling started.")
+        else:
+            logging.warning("Milling is already running or paused.")
 
     def stop_milling(self) -> None:
         self.milling_system.state = MillingState.IDLE

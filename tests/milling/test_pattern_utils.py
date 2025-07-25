@@ -200,7 +200,7 @@ class TestPatternMask:
         )
         stage = FibsemMillingStage(name="Test Rectangle", pattern=pattern)
         
-        mask = create_pattern_mask(stage, image)
+        mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x)
         
         assert mask.shape == image.data.shape
         assert mask.dtype == bool
@@ -217,7 +217,7 @@ class TestPatternMask:
         )
         stage = FibsemMillingStage(name="Test Circle", pattern=pattern)
         
-        mask = create_pattern_mask(stage, image)
+        mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x)
         
         assert mask.shape == image.data.shape
         assert mask.dtype == bool
@@ -238,8 +238,8 @@ class TestPatternMask:
         stage = FibsemMillingStage(name="Test", pattern=pattern)
         
         # Test both include_exclusions values
-        mask1 = create_pattern_mask(stage, image, include_exclusions=False)
-        mask2 = create_pattern_mask(stage, image, include_exclusions=True)
+        mask1 = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=False)
+        mask2 = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=True)
         
         assert mask1.shape == image.data.shape
         assert mask2.shape == image.data.shape
@@ -254,7 +254,7 @@ class TestPatternMask:
         # Test with different image sizes
         for width, height in [(50, 50), (100, 200), (256, 128)]:
             image = FibsemImage.generate_blank_image(resolution=[width, height], pixel_size=Point(x=1e-9, y=1e-9))
-            mask = create_pattern_mask(stage, image)
+            mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x)
             assert mask.shape == (height, width)
 
 
@@ -272,7 +272,7 @@ class TestUtilityFunctionIntegration:
         stage = FibsemMillingStage(name="Test", pattern=pattern)
         
         # Get both mask and bounding box
-        mask = create_pattern_mask(stage, image)
+        mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x)
         bbox = get_pattern_bounding_box(stage, image)
         
         if bbox != (0, 0, 0, 0):

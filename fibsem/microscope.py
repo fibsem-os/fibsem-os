@@ -130,6 +130,8 @@ class FibsemMicroscope(ABC):
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
 
+    fm: 'FluorescenceMicroscope' = None # type: ignore
+
     @abstractmethod
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
         pass
@@ -139,7 +141,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def acquire_image(self, image_settings:ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         pass
 
     @abstractmethod
@@ -339,7 +341,11 @@ class FibsemMicroscope(ABC):
 
     @abstractmethod
     def stop_milling(self) -> None:
-        return 
+        return
+
+    @abstractmethod
+    def start_milling(self) -> None:
+        pass
 
     @abstractmethod
     def pause_milling(self) -> None:
@@ -1024,6 +1030,9 @@ class FibsemMicroscope(ABC):
         )
         return np.degrees(milling_angle)
 
+    @property
+    def current_grid(self) -> str:
+        return "None"
 
 class ThermoMicroscope(FibsemMicroscope):
     """
@@ -1886,7 +1895,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
         is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-        is_milling_tilt = np.isclose(stage_tilt, milling.t, atol=0.1)
+        is_milling_tilt = np.radians(-45) < stage_tilt  < sem.t
 
         if is_sem_rotation and is_sem_tilt:
             return "SEM"
@@ -1895,7 +1904,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if is_fib_rotation and is_fib_tilt:
             return "FIB"
 
-        return "UNKNOWN"
+        return "NONE"
 
     def _safe_rotation_movement(
         self, stage_position: FibsemStagePosition

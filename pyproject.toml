@@ -58,7 +58,8 @@ ui = [
     "matplotlib_scalebar>=0.8.1",
 ]
 odemis = [
-    "pylibtiff"
+    "pylibtiff",
+    "shapely",
 ]
 
 reporting = [

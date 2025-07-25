@@ -377,7 +377,15 @@ class OdemisMicroscope(FibsemMicroscope):
         self.connection.run_auto_focus(beam_type_to_odemis[beam_type])
 
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
-        self.connection.move_beam_shift(dx, dy, beam_type_to_odemis[beam_type])
+        """Move the beam shift by dx and dy in meters (relative movement).
+        Args:
+            dx (float): The x shift in meters.
+            dy (float): The y shift in meters.
+            beam_type (BeamType): The type of beam to shift (ELECTRON or ION).
+        """
+        current_shift = self.get_beam_shift(beam_type=beam_type)
+        new_shift = Point(x=current_shift.x + dx, y=current_shift.y + dy)
+        self.set_beam_shift(new_shift, beam_type=beam_type)
 
     def _get(self, key: str, beam_type: BeamType = None) -> str:
         if beam_type is not None:
