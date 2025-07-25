@@ -614,12 +614,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.spot_burn_widget), False)
 
             try:
-                from fibsem.microscopes.odemis_microscope import OdemisMicroscope
-                if isinstance(self.microscope, OdemisMicroscope):
-                    logging.info("OdemisMicroscope detected, enabling Odemis specific features.")
+                from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+                if isinstance(self.microscope, OdemisThermoMicroscope):
+                    logging.info("OdemisThermoMicroscope detected, enabling Odemis specific features.")
                     self.actionAdd_Lamella_from_Odemis.setVisible(True)
             except Exception as e:
-                logging.debug(f"OdemisMicroscope not available: {e}")
+                logging.debug(f"OdemisThermoMicroscope not available: {e}")
 
             self.image_widget.acquisition_progress_signal.connect(self.handle_acquisition_update)
         else:

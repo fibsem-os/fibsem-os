@@ -308,8 +308,8 @@ def setup_session(
             ip_address=ip_address, port=8300
         )
     elif manufacturer in ["Odemis"]:
-        from fibsem.microscopes.odemis_microscope import OdemisMicroscope
-        microscope = OdemisMicroscope(settings.system)
+        from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+        microscope = OdemisThermoMicroscope(settings.system)
 
     elif manufacturer == "Demo":
         from fibsem.microscopes.simulator import DemoMicroscope
