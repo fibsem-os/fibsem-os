@@ -841,6 +841,17 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             self.tabWidget.insertTab(-1, self.spot_burn_widget, "Spot Burn")
             self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.spot_burn_widget), False)
 
+            try: 
+                from fibsem.microscopes.odemis_microscope import OdemisMicroscope
+                if isinstance(self.microscope, OdemisMicroscope):
+                    logging.info("OdemisMicroscope detected, enabling Odemis specific features.")
+                    self.actionAdd_Lamella_from_Odemis.setVisible(True)
+                    self.actionRun_Spot_Burn_Workflow.setVisible(True)
+                else:
+                    logging.debug("OdemisMicroscope not detected, disabling Odemis specific features.")
+            except Exception as e:
+                logging.debug(f"OdemisMicroscope not available: {e}")
+
             self.IS_MICROSCOPE_UI_LOADED = True
             self.milling_widget.milling_position_changed.connect(
                 self._update_milling_position
@@ -2004,6 +2015,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
     def _workflow_aborted(self):
         """Handle the abortion of the workflow."""
         logging.info("Workflow aborted.")
+        if self.is_milling:
+            self.milling_widget.stop_milling()
 
         for lamella in self.experiment.positions:
             if lamella.workflow is not lamella.history[-1].stage:

@@ -61,6 +61,7 @@ def update_milling_ui(microscope: FibsemMicroscope,
 
         logging.info("WAITING FOR MILLING TO FINISH... ")
         while parent_ui.is_milling or parent_ui.image_widget.is_acquiring:
+            _check_for_abort(parent_ui=parent_ui)
             time.sleep(1)
 
         update_status_ui(
@@ -228,6 +229,7 @@ def ask_user(
     parent_ui.WAITING_FOR_USER_INTERACTION = True
     logging.info("WAITING_FOR_USER_INTERACTION...")
     while parent_ui.WAITING_FOR_USER_INTERACTION:
+        _check_for_abort(parent_ui=parent_ui)
         time.sleep(1)
 
     INFO = {
@@ -264,6 +266,7 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLam
     parent_ui.WAITING_FOR_USER_INTERACTION = True
     logging.info("WAITING_FOR_USER_INTERACTION...")
     while parent_ui.WAITING_FOR_USER_INTERACTION:
+        _check_for_abort(parent_ui=parent_ui)
         time.sleep(1)
 
     _check_for_abort(parent_ui)

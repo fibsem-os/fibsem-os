@@ -248,7 +248,11 @@ def run_spot_burn_workflow(microscope: FibsemMicroscope,
         # acquire images, set ui
         from fibsem import acquire
         from fibsem.applications.autolamella.workflows.ui import set_images_ui
-        sem_image, fib_image = acquire.take_reference_images(microscope, protocol.configuration.image)
+        image_settings = protocol.configuration.image
+        image_settings.path = position.path
+        image_settings.filename = "ref_spot_burn_start"
+        image_settings.save = True
+        sem_image, fib_image = acquire.take_reference_images(microscope, image_settings)
         set_images_ui(parent_ui, sem_image, fib_image)
 
         # ask the user to select the position/parameters for spot burns
@@ -257,4 +261,10 @@ def run_spot_burn_workflow(microscope: FibsemMicroscope,
 
         if ret is False:
             break
+
+        # acquire final reference images
+        image_settings.filename = "ref_spot_burn_end"
+        image_settings.save = True
+        sem_image, fib_image = acquire.take_reference_images(microscope, image_settings)
+        set_images_ui(parent_ui, sem_image, fib_image)
 
