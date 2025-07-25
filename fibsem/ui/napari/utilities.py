@@ -1,11 +1,12 @@
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import napari
 import numpy as np
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     FibsemImage,
     Point,
@@ -456,10 +457,17 @@ def create_circle_shape(
     shape = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]
     return np.array(shape)
 
-
 def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> None:
-    """Update the text overlay in the napari viewer with current stage position and orientation."""
+    """Update the text overlay in the napari viewer with current stage position and orientation.
+    Args:
+        viewer: napari viewer object
+        microscope: FibsemMicroscope instance
+    """
     try:
+
+        if isinstance(microscope, TescanMicroscope):
+            return  # Tescan systems do not support stage position display yet
+
         pos = microscope.get_stage_position()
         orientation = microscope.get_stage_orientation()
         current_grid = microscope.current_grid
@@ -482,4 +490,6 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> 
     except Exception as e:
         logging.warning(f"Error updating text overlay: {e}")
         # Fallback text if stage position unavailable
-        viewer.text_overlay.text = "Fluorescence Acquisition Widget"
+        viewer.text_overlay.text = "<STAGE POSITION UNAVAILABLE>"
+        viewer.text_overlay.visible = False
+        viewer.text_overlay.position = "bottom_left"

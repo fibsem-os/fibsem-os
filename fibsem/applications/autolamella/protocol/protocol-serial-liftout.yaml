@@ -1,0 +1,385 @@
+milling:
+    fiducial:
+    -   milling:
+            application_file: Si
+            hfw: 8.0e-05
+            milling_current: 7.6e-09
+            preset: 30 keV; 20 nA
+        name: Fiducial
+        pattern:
+            depth: 4.0e-06
+            height: 1.0e-05
+            name: Fiducial
+            rotation: 45
+            width: 1.0e-06
+        strategy: {}
+    flatten:
+    -   milling:
+            application_file: Si
+            hfw: 8.0e-05
+            milling_current: 2.8e-08
+            preset: 30 keV; 20 nA
+        name: Flatten Manipulator
+        pattern:
+            cleaning_cross_section: 1.0
+            depth: 1.0e-05
+            height: 2.5e-05
+            name: Rectangle
+            rotation: 0.0
+            scan_direction: LeftToRight
+            width: 2.0e-06
+        strategy: {}
+    landing-sever:
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.0e-09
+            preset: 30 keV; 20 nA
+        name: Landing Sever
+        pattern:
+            inverted: false
+            name: SerialSection
+            section_depth: 2.0e-05
+            section_thickness: 4.0e-06
+            section_width: 5.0e-05
+            side_depth: 4.0e-05
+            side_height: 1.0e-05
+            side_width: 1.0e-05
+            use_side_patterns: true
+        strategy: {}
+    landing-thin:
+    -   milling:
+            application_file: Si
+            hfw: 8.0e-05
+            milling_current: 1.0e-09
+            preset: 30 keV; 2.5 nA
+        name: Volume Thinning
+        pattern:
+            depth: 1.9e-05
+            height: 2.0e-05
+            name: Rectangle
+            scan_direction: RightToLeft
+            width: 5.0e-06
+        strategy: {}
+    landing-weld:
+    -   milling:
+            application_file: Si-multipass
+            hfw: 8.0e-05
+            milling_current: 1.0e-09
+            preset: 30 keV; 2.5 nA
+        name: Left Weld
+        pattern:
+            cross_section: RegularCrossSection
+            depth: 8.0e-06
+            height: 5.0e-07
+            n_columns: 1
+            n_rows: 7
+            name: ArrayPattern
+            passes: 1.0
+            pitch_horizontal: 0
+            pitch_vertical: 7.5e-07
+            scan_direction: RightToLeft
+            width: 4.0e-06
+        strategy: {}
+    -   milling:
+            application_file: Si-multipass
+            hfw: 8.0e-05
+            milling_current: 1.0e-09
+            preset: 30 keV; 2.5 nA
+        name: Right Weld
+        pattern:
+            cross_section: RegularCrossSection
+            depth: 8.0e-06
+            height: 5.0e-07
+            n_columns: 1
+            n_rows: 7
+            name: ArrayPattern
+            passes: 1.0
+            pitch_horizontal: 0
+            pitch_vertical: 7.5e-07
+            scan_direction: LeftToRight
+            width: 4.0e-06
+        strategy: {}
+    liftout-sever:
+    -   milling:
+            application_file: Si
+            hfw: 0.0004
+            milling_current: 1.0e-09
+            preset: 30 keV; 20 nA
+        name: Liftout Sever
+        pattern:
+            inverted: false
+            name: SerialSection
+            section_depth: 2.0e-05
+            section_thickness: 0.0
+            section_width: 5.0e-05
+            side_depth: 4.0e-05
+            side_height: 1.0e-05
+            side_width: 1.0e-05
+            use_side_patterns: false
+        strategy: {}
+    liftout-weld:
+    -   milling:
+            application_file: Si-multipass
+            hfw: 0.00015
+            milling_current: 3.0e-10
+            milling_voltage: 30000.0
+            preset: 30 keV; 2.5 nA
+        name: Liftout Weld
+        pattern:
+            cross_section: RegularCrossSection
+            depth: 6.0e-06
+            height: 2.5e-06
+            n_columns: 25
+            n_rows: 1
+            name: ArrayPattern
+            passes: 1.0
+            pitch_horizontal: 7.5e-07
+            pitch_vertical: 0.0
+            rotation: 0.0
+            scan_direction: BottomToTop
+            width: 5.0e-07
+        strategy: {}
+    microexpansion:
+    -   milling:
+            application_file: Si
+            hfw: 8.0e-05
+            milling_current: 2.0e-09
+        name: MicroExpansion
+        pattern:
+            depth: 1.0e-06
+            distance: 1.0e-05
+            height: 1.8e-05
+            name: MicroExpansion
+            width: 5.0e-07
+        strategy: {}
+    mill_polishing:
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 6.0e-11
+            preset: 30 keV; 50 pA
+        name: Mill Polishing 01
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 4.0e-07
+            lower_trench_height: 6.0e-07
+            name: Trench
+            spacing: 6.0e-07
+            upper_trench_height: 6.0e-07
+            width: 2.5e-05
+        strategy: {}
+    mill_rough:
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 2.0e-09
+            preset: 30 keV; 2.5 nA
+        name: Rough Milling 01
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 2.0e-06
+            lower_trench_height: 5.0e-06
+            name: Trench
+            spacing: 4.6e-06
+            upper_trench_height: 5.0e-06
+            width: 2.5e-05
+        strategy: {}
+    -   milling:
+            application_file: Si-ccs
+            hfw: 8.0e-05
+            milling_current: 7.4e-10
+            preset: 30 keV; 1 nA
+        name: Rough Milling 02
+        pattern:
+            cross_section: CleaningCrossSection
+            depth: 1.0e-06
+            lower_trench_height: 2.0e-06
+            name: Trench
+            spacing: 1.6e-06
+            upper_trench_height: 2.0e-06
+            width: 2.5e-05
+        strategy: {}
+    notch:
+    -   milling:
+            application_file: Si
+            hfw: 8.0e-05
+            milling_current: 2.0e-09
+            preset: 30 keV; 2.5 nA
+        name: Notch
+        pattern:
+            depth: 2.5e-06
+            distance: 2.0e-06
+            flip: 0
+            hheight: 2.0e-07
+            hwidth: 4.0e-06
+            name: WaffleNotch
+            vheight: 2.0e-06
+            vwidth: 2.0e-07
+        strategy: {}
+    prepare-copper-blocks:
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.8e-08
+            milling_voltage: 30000
+        name: ArrayPattern
+        pattern:
+            depth: 1.0e-05
+            height: 2.0e-05
+            n_columns: 4.0
+            n_rows: 1.0
+            name: ArrayPattern
+            pitch_horizontal: 3.0e-05
+            pitch_vertical: 0.0
+            scan_direction: TopToBottom
+            width: 1.0e-05
+        strategy: {}
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.8e-08
+            milling_voltage: 30000
+        name: Rectangle
+        pattern:
+            depth: 1.0e-05
+            height: 7.5e-06
+            name: Rectangle
+            width: 0.0001
+        strategy: {}
+    prepare-copper-grid:
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.8e-08
+            milling_voltage: 30000
+        name: Rectangle
+        pattern:
+            depth: 3.0e-05
+            height: 5.0e-06
+            name: Rectangle
+            width: 0.0001
+        strategy: {}
+    prepare-copper-release:
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.8e-08
+            milling_voltage: 30000
+        name: ArrayPattern
+        pattern:
+            depth: 1.0e-05
+            height: 2.0e-05
+            n_columns: 2.0
+            n_rows: 1.0
+            name: ArrayPattern
+            pitch_horizontal: 3.0e-05
+            pitch_vertical: 0.0
+            scan_direction: TopToBottom
+            width: 5.0e-06
+        strategy: {}
+    prepare-copper-weld:
+    -   milling:
+            application_file: Si-multipass
+            hfw: 0.00015
+            milling_current: 3.0e-10
+            milling_voltage: 30000.0
+            preset: 30 keV; 2.5 nA
+        name: ArrayPattern
+        pattern:
+            cross_section: RegularCrossSection
+            depth: 4.0e-06
+            height: 2.5e-06
+            n_columns: 15
+            n_rows: 1
+            name: ArrayPattern
+            passes: 1.0
+            pitch_horizontal: 1.0e-06
+            pitch_vertical: 0.0
+            rotation: 0.0
+            scan_direction: TopToBottom
+            width: 5.0e-07
+        strategy: {}
+    prepare-manipulator:
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.8e-08
+            milling_voltage: 30000
+        name: Rectangle
+        pattern:
+            depth: 1.0e-05
+            height: 2.5e-06
+            name: Rectangle
+            width: 2.5e-05
+        strategy: {}
+    trench:
+    -   milling:
+            application_file: Si
+            hfw: 0.0004
+            milling_current: 2.8e-08
+            preset: 30 keV; 20 nA
+        name: Trench
+        pattern:
+            depth: 2.5e-05
+            height: 8.0e-05
+            inverted: true
+            name: HorseshoeVertical
+            rotation: 0.0
+            scan_direction: TopToBottom
+            side_trench_width: 5.0e-06
+            top_trench_height: 3.0e-05
+            width: 4.5e-05
+        strategy: {}
+    undercut:
+    -   milling:
+            application_file: Si
+            hfw: 0.00015
+            milling_current: 2.8e-08
+            preset: 30 keV; 2.5 nA
+        name: Undercut
+        pattern:
+            depth: 1.5e-05
+            height: 5.0e-06
+            name: Rectangle
+            scan_direction: TopToBottom
+            width: 4.5e-05
+        strategy: {}
+options:
+    alignment_at_milling_current: false
+    checkpoint: autolamella-serial-liftout-20240107.pt
+    compucentric_x_offset: 0.0
+    compucentric_y_offset: 0.0
+    high_quality_image:
+        dwell_time: 2.0e-06
+        enabled: false
+        frame_integration: 2
+        hfw: 5.0e-05
+        resolution:
+        - 3072
+        - 2048
+    lamella_tilt_angle: 8.0
+    landing_grid:
+        cols: 10
+        rows: 4
+        x: 6.2e-05
+        y: 0.00025
+    landing_start_position: autoliftout-serial-pre-tilt-35-deg-grid-02-landing
+    method: autolamella-serial-liftout
+    name: autoliftout-serial-protocol
+    supervise:
+        landing: true
+        liftout: true
+        mill_polishing: true
+        mill_rough: true
+        reset: true
+        setup_lamella: true
+        trench: true
+        undercut: true
+    take_final_reference_images: true
+    trench_start_position: autoliftout-serial-pre-tilt-35-deg-grid-01-lamella
+    undercut_required: false
+    undercut_tilt_angle: -10.0
+    use_fiducial: true
+    use_microexpansion: false
+    use_notch: false

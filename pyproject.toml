@@ -58,7 +58,8 @@ ui = [
     "matplotlib_scalebar>=0.8.1",
 ]
 odemis = [
-    "pylibtiff"
+    "pylibtiff",
+    "shapely",
 ]
 
 reporting = [
@@ -72,6 +73,7 @@ fibsem_ui = "fibsem.ui.FibsemUI:main"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
 fibsem-generate-config = "fibsem.configuration:gen_config_cli"
 fibsem-config-ui = "fibsem.ui.FibsemMicroscopeConfigurationWidget:main"
+fibsem-autolamella-ui = "fibsem.applications.autolamella.ui.run_ui:main"
 fm-ui ="fibsem.ui.FMAcquisitionWidget:main"
 
 [tool.setuptools]

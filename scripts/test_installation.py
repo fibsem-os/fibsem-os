@@ -18,7 +18,7 @@ def main():
     
     print(f"Applications:\n")
     try: 
-        import autolamella 
+        from fibsem.applications import autolamella 
         AUTOLAMELLA_AVAILABLE = True
     except ImportError: 
         AUTOLAMELLA_AVAILABLE = False

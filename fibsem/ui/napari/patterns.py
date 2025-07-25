@@ -417,7 +417,7 @@ def convert_reduced_area_to_napari_shape(reduced_area: FibsemRectangle, image_sh
     x1 = x0 + reduced_area.width * image_shape[1]
     y1 = y0 + reduced_area.height * image_shape[0]
     data = [[y0, x0], [y0, x1], [y1, x1], [y1, x0]]
-    return data
+    return np.array(data)
 
 def convert_shape_to_image_area(shape: List[List[int]], image_shape: Tuple[int, int]) -> FibsemRectangle:
     """Convert a napari shape (rectangle) to  a FibsemRectangle expressed as a percentage of the image (reduced area)
