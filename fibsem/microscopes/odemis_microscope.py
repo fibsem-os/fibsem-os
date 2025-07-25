@@ -7,6 +7,7 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
+from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -219,7 +220,9 @@ beam_type_to_odemis = {
 
 # TODO: load default system settings?
 
-class OdemisMicroscope(FibsemMicroscope):
+class OdemisThermoMicroscope(FibsemMicroscope):
+    """TFS integration through Odemis.
+    Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
     milling_progress_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
 
@@ -231,7 +234,7 @@ class OdemisMicroscope(FibsemMicroscope):
         # stage
         self.stage: model.Actuator = model.getComponent(role="stage-bare")
 
-        logging.info("OdemisMicroscope initialized")
+        logging.info("OdemisThermoMicroscope initialized")
 
         # system information # TODO: split this version info properly
         software_version = self.connection.get_software_version()
@@ -980,3 +983,13 @@ class OdemisMicroscope(FibsemMicroscope):
     
     def estimate_milling_time(self) -> float:
         return self.connection.estimate_milling_time()
+
+
+class OdemisTescanMicroscope(TescanMicroscope):
+    """Tescan integration through Odemis.
+    Currently wraps TescanMicroscope; will be extended
+    to support Odemis-specific features (e.g., MicroscopePostureManager)."""
+    def __init__(self, system_settings: SystemSettings):
+        super().__init__(system_settings=system_settings)
+        logging.info("OdemisTescanMicroscope initialized")
+
