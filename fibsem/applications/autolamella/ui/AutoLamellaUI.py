@@ -1375,7 +1375,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         idx = self.comboBox_current_lamella.currentIndex()
         if idx == -1:
             # clear milling patterns
-            self.milling_widget.set_milling_stages([])
+            self.milling_widget.clear_all_milling_stages()
             return
 
         lamella: Lamella = self.experiment.positions[idx]
