@@ -913,6 +913,10 @@ class FMAcquisitionWidget(QWidget):
         # get event position in world coordinates, convert to stage coordinates
         position_clicked = event.position[-2:]  # yx required
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))
+        current_stage_position = self.microscope.get_stage_position()
+        stage_position.r = current_stage_position.r  
+        stage_position.t = current_stage_position.t
+        stage_position.z = current_stage_position.z  # keep current z,r,t
         logging.info(f"Mouse clicked at {event.position}. Stage position: {stage_position}")
 
         # TODO: QUERY: Does the position need to be flipped when in SEM orientation?
