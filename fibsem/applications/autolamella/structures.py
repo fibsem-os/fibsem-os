@@ -62,7 +62,7 @@ class LamellaState:
     microscope_state: MicroscopeState = field(default_factory=MicroscopeState)
     stage: AutoLamellaStage = AutoLamellaStage.Created
     start_timestamp: float = datetime.timestamp(datetime.now())
-    end_timestamp: float = None
+    end_timestamp: Optional[float] = None
 
     @property
     def completed(self) -> str:
@@ -118,6 +118,15 @@ class LamellaState:
             end_timestamp=data["end_timestamp"]
         )
 
+# TODO: 
+# remove number, use petname instead
+# consolidate history, states, and landing_state, states, positions, poses...
+# migrate to Defect structure instead of is_failure, failure_note, failure_timestamp
+
+# QUERY:
+# should objective_position be part of microscope_state?
+# need to be very careful as it could be set to different values in different states
+
 @dataclass
 class Lamella:
     path: Path
@@ -127,14 +136,15 @@ class Lamella:
     protocol: dict
     is_failure: bool = False
     failure_note: str = ""
-    failure_timestamp: float = None
+    failure_timestamp: Optional[float] = None
     alignment_area: FibsemRectangle = field(default_factory=FibsemRectangle)
     landing_selected: bool = False
-    landing_state: MicroscopeState = field(default_factory=MicroscopeState) # TODO: remove
-    history: List[LamellaState] = None
-    milling_workflows: Dict[str, List[FibsemMillingStage]] = None
-    states: Dict[AutoLamellaStage, LamellaState] = None
+    landing_state: Optional[MicroscopeState] = None
+    history: List[LamellaState] = field(default_factory=list)
+    milling_workflows: Optional[Dict[str, List[FibsemMillingStage]]] = None
+    states: Dict[AutoLamellaStage, LamellaState] = field(default_factory=dict)
     _id: str = str(uuid.uuid4())
+    objective_position: Optional[float] = None
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -151,12 +161,8 @@ class Lamella:
                 if stage.get("imaging", {}).get("path", None) is None:
                     stage["imaging"]["path"] = self.path
 
-        if self.history is None:
-            self.history = []
         if self.milling_workflows is None:
             self.milling_workflows = {k: get_milling_stages(k, self.protocol) for k in self.protocol}
-        if self.states is None:
-            self.states = {}
         if self._id is None:
             self._id = str(uuid.uuid4())
         # TODO: add multiple positions for milling, landing, etc. 
@@ -199,6 +205,10 @@ class Lamella:
     def stage_position(self) -> FibsemStagePosition:
         return self.state.microscope_state.stage_position
 
+    @stage_position.setter
+    def stage_position(self, value: FibsemStagePosition):
+        self.state.microscope_state.stage_position = value
+
     def to_dict(self):
         return {
             "petname": self.petname,
@@ -211,10 +221,11 @@ class Lamella:
             "is_failure": self.is_failure,
             "failure_note": self.failure_note,
             "failure_timestamp": self.failure_timestamp,
-            "landing_state": self.landing_state.to_dict(),
+            "landing_state": self.landing_state.to_dict() if self.landing_state is not None else None,
             "landing_selected": self.landing_selected,
             "id": str(self._id),
             "states": {k.name: v.to_dict() for k, v in self.states.items()},
+            "objective_position": self.objective_position,
         }
 
     @property
@@ -261,6 +272,11 @@ class Lamella:
 
             protocol = deepcopy(nprotocol)
 
+        landing_state = None
+        landing_state_ddict = data.get("landing_state", None)
+        if landing_state_ddict is not None:
+            landing_state = MicroscopeState.from_dict(landing_state_ddict)
+
         return cls(
             petname=data["petname"],
             state=state,
@@ -272,10 +288,11 @@ class Lamella:
             is_failure=data.get("is_failure", data.get("is_failure", False)),
             failure_note=data.get("failure_note", ""),
             failure_timestamp=data.get("failure_timestamp", None),
-            landing_state = MicroscopeState.from_dict(data.get("landing_state", MicroscopeState().to_dict())), # tmp solution
-            landing_selected = bool(data.get("landing_selected", False)),
+            landing_state=landing_state,
+            landing_selected=bool(data.get("landing_selected", False)),
             _id=data.get("id", None),
             states=states,
+            objective_position=data.get("objective_position", None),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -443,7 +460,7 @@ class Experiment:
                 "failure_timestamp": lamella.failure_timestamp,
             }
 
-            if self.method.is_liftout:
+            if self.method.is_liftout and lamella.landing_state is not None:
                 ldict.update({
                     "landing.x": lamella.landing_state.stage_position.x,
                     "landing.y": lamella.landing_state.stage_position.y,
