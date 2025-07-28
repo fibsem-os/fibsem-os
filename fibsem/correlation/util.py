@@ -465,6 +465,10 @@ def hole_fitting_FIB(img: np.ndarray,
     xr=popt[1]+x-cutout
     yr=popt[2]+y-cutout
 
+    # clip the coordinates to the image bounds
+    xr = np.clip(xr, cutout, img.shape[1] - cutout)
+    yr = np.clip(yr, cutout, img.shape[0] - cutout)
+
     if show:
         plt.figure()
         plt.imshow(ROI)

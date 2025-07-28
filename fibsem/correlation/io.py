@@ -4,7 +4,7 @@ from typing import Tuple
 
 import numpy as np
 import tifffile as tff
-from ome_types import from_tiff
+from ome_types import from_tiff, from_xml
 from ome_types.model import (
     OME,
     Pixels,
@@ -17,7 +17,7 @@ from ome_types.model import (
     Image as OMEImage,
 )
 from PIL import Image
-
+# TODO: migrate to FluorescenceImage, FibsemImage
 ############# PARSER FUNCTIONS #############
 
 def parse_coordinates(fib_coord_filename: str, fm_coord_filename: str) -> list:
@@ -191,6 +191,30 @@ _unit_map = {
     UnitsLength.METER: 1,
 }
 
+
+def safe_ome_from_tiff(filename: str) -> OME:
+    """Parse OME metadata from TIFF file, handling potential known issues with the OME XML.
+    Args:
+        filename (str): Path to the TIFF file.
+    Returns:
+        OME: Parsed OME metadata object.
+    """
+    try:
+        # Attempt to read OME metadata directly from the TIFF file
+        ome = from_tiff(filename)
+    except Exception as e:
+        if "Filter" in str(e):
+            # read xml description from the file
+            with tff.TiffFile(filename) as tif:
+                ome_xml = tif.pages[0].tags["ImageDescription"].value
+
+                # Filter should be FilterSetRef, drop for now
+                start = ome_xml.find("<Filter")
+                end = ome_xml.find("/>", start) + 2
+                ome_xml = ome_xml[:start] + ome_xml[end:]
+                ome = from_xml(ome_xml)
+    return ome
+
 def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
     image = tff.imread(path)
 
@@ -199,7 +223,9 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
     nc, nz, ny, nx = None, None, None, None
     exposure_times = {}
     try:
-        ome = from_tiff(path)
+        ome = safe_ome_from_tiff(path)
+        if not ome.images:
+            raise ValueError("No images found in OME metadata")
         pixels_md = ome.images[0].pixels
         pixel_size = pixels_md.physical_size_x # assume isotropic
         zstep = pixels_md.physical_size_z

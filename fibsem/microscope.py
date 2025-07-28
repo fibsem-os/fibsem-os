@@ -1958,7 +1958,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         if self.stage_is_compustage:
 
-            if stage_tilt < 0:
+            if stage_tilt <= 0:
                 expected_y *= -1.0
 
             stage_tilt += np.pi

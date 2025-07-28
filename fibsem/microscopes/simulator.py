@@ -933,7 +933,7 @@ class DemoMicroscope(FibsemMicroscope):
         if key == "shift":
             return Point(beam.shift.x, beam.shift.y)
         if key == "scan_rotation":
-            return beam.scan_rotation
+            return float(beam.scan_rotation)
         
         # system properties
         if key == "beam_enabled":
@@ -1056,7 +1056,7 @@ class DemoMicroscope(FibsemMicroscope):
             beam.shift = value
             return
         if key == "scan_rotation":
-            beam.scan_rotation = value
+            beam.scan_rotation = float(value)
             return
         if key == "hfw":
             beam.hfw = value

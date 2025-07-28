@@ -730,7 +730,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
         napari.utils.notifications.show_info(f"Protocol updated using {lamella.name}.")
 
-    def get_protocol(self) -> AutoLamellaProtocol:
+    def get_protocol(self) -> Optional[AutoLamellaProtocol]:
         """Thread-safe getter for the protocol."""
         with self._protocol_lock:
             return self.protocol
@@ -751,8 +751,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             self.settings.image.path = self.experiment.path
 
         # register metadata
-        from fibsem.applications import autolamella  # NB: microscope needs to be connected beforehand
-
         utils._register_metadata(
             microscope=self.microscope,
             application_software="autolamella",
