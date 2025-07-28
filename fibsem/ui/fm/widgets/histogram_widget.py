@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QLabel,
     QVBoxLayout,
@@ -217,8 +217,8 @@ class HistogramWidget(QWidget):
             
             # Set up axes for blitting if not done yet or if data range changed significantly
             range_changed = (self.last_data_range is None or 
-                           abs(self.last_data_range[0] - data_range[0]) > abs(data_range[0]) * 0.1 or
-                           abs(self.last_data_range[1] - data_range[1]) > abs(data_range[1]) * 0.1)
+                           abs(float(self.last_data_range[0]) - float(data_range[0])) > abs(float(data_range[0])) * 0.1 or
+                           abs(float(self.last_data_range[1]) - float(data_range[1])) > abs(float(data_range[1])) * 0.1)
             
             if not self.axes_setup_complete or range_changed:
                 self._setup_axes_for_blitting(data_range)
