@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import pandas as pd
 import petname
@@ -310,11 +310,12 @@ class Lamella:
             self.state = self.states[prev]
 
 
-def create_new_lamella(experiment_path: str, number: int, state: LamellaState, protocol: Dict) -> Lamella:
+def create_new_lamella(experiment_path: str, number: int, state: LamellaState, protocol: Dict, name: Optional[str] = None) -> Lamella:
     """Wrapper function to create a new lamella and configure paths."""
 
     # create the petname and path
-    name = f"{number:02d}-{petname.generate(2)}"
+    if name is None:
+        name = f"{number:02d}-{petname.generate(2)}"
     path = os.path.join(experiment_path, name)
     
     # create the lamella

@@ -540,7 +540,7 @@ class FMAcquisitionWidget(QWidget):
     update_persistent_image_signal = pyqtSignal(object)  # Union[FluorescenceImage, FibsemImage]
     acquisition_finished_signal = pyqtSignal()
 
-    def __init__(self, microscope: FibsemMicroscope, viewer: napari.Viewer, parent=None):
+    def __init__(self, microscope: FibsemMicroscope, viewer: napari.Viewer, experiment: Optional[Experiment] = None, parent=None):
         super().__init__(parent)
 
         if microscope.fm is None:
@@ -550,7 +550,7 @@ class FMAcquisitionWidget(QWidget):
         self.fm: FluorescenceMicroscope = microscope.fm
         self.viewer = viewer
         self.stage_positions: List[FMStagePosition] = []
-        self.experiment: Optional[Experiment] = None
+        self.experiment: Optional[Experiment] = experiment
 
         # widgets
         self.channelSettingsWidget: ChannelSettingsWidget
@@ -2084,7 +2084,8 @@ def main():
     viewer = napari.Viewer()
     widget = create_widget(viewer)    
     viewer.window.add_dock_widget(widget, area="right")
-    widget.show_new_experiment_dialog()  # Show experiment creation dialog on startup
+    if widget.experiment is None:
+        widget.show_new_experiment_dialog()  # Show experiment creation dialog on startup
     napari.run()
 
     return

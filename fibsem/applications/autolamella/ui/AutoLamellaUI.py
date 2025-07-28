@@ -39,6 +39,7 @@ from fibsem.ui import (
     FibsemSpotBurnWidget,
     stylesheets,
 )
+from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 from fibsem.ui import utils as fui
 from fibsem.ui.napari.patterns import remove_all_napari_shapes_layers
 from napari.qt.threading import thread_worker
@@ -48,7 +49,6 @@ from qtpy import QtWidgets
 if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if they are available
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI
 
-from fibsem.applications import autolamella
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.validation import (
     FIDUCIAL_KEY,
@@ -178,6 +178,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.milling_widget: Optional[FibsemMillingWidget] = None
         self.minimap_widget: Optional[FibsemMinimapWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
+        self.fm_widget: Optional[FMAcquisitionWidget] = None
 
         self.WAITING_FOR_USER_INTERACTION: bool = False
         self.USER_RESPONSE: bool = False
@@ -269,6 +270,14 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.menuDevelopment.addAction(self.actionSelectLandingPositions)
 
         self.actionOpenProtocolEditor.setVisible(True)  # TMP: disable until tested
+
+        self.actionOpenFMMinimap = QtWidgets.QAction("Open FM Minimap", self)
+        self.actionOpenFMMinimap.triggered.connect(self.open_fm_minimap_widget)
+        self.menuDevelopment.addAction(self.actionOpenFMMinimap)
+
+        self.actionSyncPositionsFromFMMinimap = QtWidgets.QAction("Sync Positions from FM Minimap", self)
+        self.actionSyncPositionsFromFMMinimap.triggered.connect(self.sync_positions_from_fm_minimap)
+        self.menuDevelopment.addAction(self.actionSyncPositionsFromFMMinimap)
 
         # development
         self.menuDevelopment.setVisible(False)
@@ -970,6 +979,39 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
 #### MINIMAP
 
+    def open_fm_minimap_widget(self):
+        if self.microscope is None:
+            napari.utils.notifications.show_warning(
+                "Please connect to a microscope first... [No Microscope Connected]"
+            )
+            return
+        if self.experiment is None:
+            napari.utils.notifications.show_warning(
+                "Please load an experiment first... [No Experiment Loaded]"
+            )
+            return         
+            
+        viewer = napari.Viewer(title="AutoLamella FM Acquisition Viewer")
+        self.fm_widget = FMAcquisitionWidget(microscope=self.microscope, 
+                                     viewer=viewer, 
+                                     experiment=self.experiment, 
+                                     parent=self)
+        viewer.window.add_dock_widget(self.fm_widget, area="right")
+        napari.run(max_loop_level=2)
+
+    def sync_positions_from_fm_minimap(self):
+        if self.fm_widget is None:
+            napari.utils.notifications.show_warning("No FM widget loaded.")
+            return
+        stage_positions = self.fm_widget.stage_positions
+        if not stage_positions:
+            napari.utils.notifications.show_warning("No stage positions found in FM widget.")
+            return
+        
+        for pos in stage_positions:
+            # extract the stage position, add to experiment
+            self.add_new_lamella(pos.stage_position, pos.name)
+
     def open_minimap_widget(self):
         if self.microscope is None:
             napari.utils.notifications.show_warning(
@@ -1600,7 +1642,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         for pos in stage_positions:
             self.add_new_lamella(pos)
 
-    def add_new_lamella(self, stage_position: Optional[FibsemStagePosition] = None) -> Lamella:
+    def add_new_lamella(self, stage_position: Optional[FibsemStagePosition] = None, name: Optional[str] = None) -> Lamella:
         """Add a lamella to the experiment.
         Args:
             pos: The stage position of the lamella. If None, the current stage position is used.
@@ -1626,7 +1668,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         lamella = create_new_lamella(experiment_path=self.experiment.path, 
                                      number=len(self.experiment.positions) + 1, 
                                      state=state, 
-                                     protocol=tmp_protocol)
+                                     protocol=tmp_protocol, 
+                                     name=name)
 
         from fibsem.applications.autolamella.workflows.core import log_status_message
         log_status_message(lamella, "STARTED")

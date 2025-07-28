@@ -102,7 +102,7 @@ class StagePositionControlWidget(QWidget):
         reply = QMessageBox.question(
             self,
             "Confirm Movement",
-            "Move stage to SEM orientation?\n\nThis will change the stage position to the electron beam viewing angle.",
+            f"Move stage to SEM orientation?\n\nThis will change the stage position to the SEM orientation {self.microscope.get_orientation('SEM').pretty_orientation}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -126,7 +126,7 @@ class StagePositionControlWidget(QWidget):
         reply = QMessageBox.question(
             self,
             "Confirm Movement",
-            "Move stage to FM orientation?\n\nThis will change the stage position to the fluorescence microscopy viewing angle.",
+            f"Move stage to FM orientation?\n\nThis will change the stage position to the fluorescence microscopy orientation. {self.microscope.get_orientation('FM').pretty_orientation}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -153,7 +153,7 @@ class StagePositionControlWidget(QWidget):
         reply = QMessageBox.question(
             self,
             "Confirm Movement", 
-            f"Move stage to milling angle ({milling_angle}°)?\n\nThis will change the stage position to the specified milling orientation.",
+            f"Move stage to milling angle ({milling_angle}°)?\n\nThis will change the stage position to the specified milling orientation. {self.microscope.get_orientation('MILLING').pretty_orientation}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
