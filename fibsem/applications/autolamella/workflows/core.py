@@ -495,9 +495,7 @@ def setup_lamella(
     update_status_ui(parent_ui, f"{lamella.info} Aligning Lamella...")
 
     milling_angle = protocol.options.milling_angle
-    is_close = is_close_to_milling_angle(microscope=microscope, 
-                                        milling_angle=np.radians(milling_angle),
-                                        atol=ATOL_STAGE_TILT * 2)
+    is_close = microscope.is_close_to_milling_angle(milling_angle, atol=2)
 
     if not is_close and validate and method is AutoLamellaMethod.ON_GRID:
         current_milling_angle = microscope.get_current_milling_angle()

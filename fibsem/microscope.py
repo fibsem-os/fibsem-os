@@ -274,6 +274,7 @@ class FibsemMicroscope(ABC):
         # compustage is tilted by 180 degrees for flat to beam, because we image the backside fo the grid,
         # therefore, we need to offset the tilt by 180 degrees
         if self.stage_is_compustage and beam_type is BeamType.ION:
+            rotation = 0
             tilt = -np.pi + tilt
             
         # updated safe rotation move
@@ -1015,6 +1016,7 @@ class FibsemMicroscope(ABC):
         }
 
         if self.stage_is_compustage:
+            self.orientations["FIB"].r = np.radians(0)  # Compustage is always at 0 rotation
             self.orientations["FIB"].t -= np.radians(180)
 
             self.orientations["FM"] = FibsemStagePosition(
@@ -1056,6 +1058,18 @@ class FibsemMicroscope(ABC):
         )
         return np.degrees(milling_angle)
     
+    def is_close_to_milling_angle(self, milling_angle: float, atol: float = 2.0) -> bool:
+        """Check if the current milling angle is close to the specified milling angle.
+        Args:
+            milling_angle (float): The target milling angle in degrees.
+            atol (float): The absolute tolerance for the comparison.
+        Returns:
+            bool: True if the current milling angle is close to the specified milling angle, False otherwise
+        """
+        current_milling_angle = self.get_current_milling_angle() # degrees
+
+        return bool(np.isclose(current_milling_angle, milling_angle, atol=atol))
+
     def move_to_microscope(self, target: str) -> None:
         """Move the stage to the specified microscope (FIBSEM <-> FM)"""
         if target not in ["FIBSEM", "FM"]:
@@ -1332,9 +1346,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
-            self.stage = None
-            self.stage_is_compustage = False
-            logging.warning("No stage is installed on the microscope.")
+            raise Exception("No stage installed. Please check the microscope configuration.")
 
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
@@ -1378,6 +1390,9 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         if beam_type is not None:
             return self.acquire_image3(image_settings=None, beam_type=beam_type)
+
+        if image_settings is None:
+            raise ValueError("Must provide image_settings to acquire a new image if beam_type is not specified.")
 
         # set reduced area settings
         if image_settings.reduced_area is not None:
@@ -1970,6 +1985,10 @@ class ThermoMicroscope(FibsemMicroscope):
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
             PRETILT_SIGN = 1.0
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
+            PRETILT_SIGN = -1.0
+
+        if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
+            expected_y *= -1.0 # use this until rotation_180 is deprecated correctly...
             PRETILT_SIGN = -1.0
 
         # corrected_pretilt_angle = PRETILT_SIGN * stage_tilt_flat_to_electron
