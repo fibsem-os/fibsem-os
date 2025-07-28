@@ -1619,51 +1619,6 @@ class FibsemImageMetadata:
         return metadata
 
 
-
-    def compare_image_settings(self, image_settings: ImageSettings) -> bool:
-        """Compares image settings to the metadata image settings.
-
-        Args:
-            image_settings (ImageSettings): Image settings to compare to.
-
-        Returns:
-            bool: True if the image settings match the metadata image settings.
-        """
-        assert (
-            self.image_settings.resolution[0] == image_settings.resolution[0]
-            and self.image_settings.resolution[1] == image_settings.resolution[1]
-        ), f"resolution: {self.image_settings.resolution} != {image_settings.resolution}"
-        assert (
-            self.image_settings.dwell_time == image_settings.dwell_time
-        ), f"dwell_time: {self.image_settings.dwell_time} != {image_settings.dwell_time}"
-        assert (
-            self.image_settings.hfw == image_settings.hfw
-        ), f"hfw: {self.image_settings.hfw} != {image_settings.hfw}"
-        assert (
-            self.image_settings.autocontrast == image_settings.autocontrast
-        ), f"autocontrast: {self.image_settings.autocontrast} != {image_settings.autocontrast}"
-        assert (
-            self.image_settings.beam_type.value == image_settings.beam_type.value
-        ), f"beam_type: {self.image_settings.beam_type.value} != {image_settings.beam_type.value}"
-        assert (
-            self.image_settings.autogamma == image_settings.autogamma
-        ), f"gamma: {self.image_settings.autogamma} != {image_settings.autogamma}"
-        assert (
-            self.image_settings.save == image_settings.save
-        ), f"save: {self.image_settings.save} != {image_settings.save}"
-        assert (
-            self.image_settings.path == image_settings.path
-        ), f"path: {self.image_settings.path} != {image_settings.path}"
-        assert (
-            self.image_settings.filename == image_settings.filename
-        ), f"filename: {self.image_settings.filename} != {image_settings.filename}"
-        assert (
-            self.image_settings.reduced_area == image_settings.reduced_area
-        ), f"reduced_area: {self.image_settings.reduced_area} != {image_settings.reduced_area}"
-
-        return True
-
-
 class FibsemImage:
 
     """
