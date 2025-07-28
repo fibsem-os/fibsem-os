@@ -1,7 +1,7 @@
 
 import logging
 from typing import List, Optional, Union
-from PyQt5.QtCore import pyqtSlot, pyqtSignal
+from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -449,13 +449,11 @@ class ChannelSettingsWidget(QWidget):
         self.channel_list.clear()
 
         for i, channel_setting in enumerate(self._channel_settings_list):
-            item = QListWidgetItem(channel_setting.name, self.channel_list)
-            logging.debug(f"Added channel to list: {channel_setting.name} (index {i})")
+            QListWidgetItem(channel_setting.name, self.channel_list)
 
         # Select first channel by default
         if self.channel_list.count() > 0:
             self.channel_list.setCurrentRow(0)
-            logging.debug("Selected first channel for live acquisition")
 
     @property
     def selected_channel(self) -> Optional[ChannelSettings]:

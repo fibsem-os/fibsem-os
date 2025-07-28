@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 import threading
 import yaml
 from dataclasses import dataclass
@@ -14,28 +15,21 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
-    QDoubleSpinBox,
-    QFileDialog,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QScrollArea,
-    QComboBox,
     QShortcut,
     QVBoxLayout,
     QWidget,
     QMenuBar,
     QAction,
-    QToolButton,
 )
 from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
 from fibsem import utils
-from fibsem.config import LOG_PATH, SQUARE_RESOLUTIONS_LIST
+from fibsem.config import LOG_PATH
 from fibsem.constants import METRE_TO_MILLIMETRE
 from fibsem.fm.acquisition import (
     AutofocusMode,
@@ -47,7 +41,7 @@ from fibsem.fm.acquisition import (
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
-from fibsem.structures import BeamType, ImageSettings, FibsemStagePosition, Point, FibsemImage, FibsemImageMetadata
+from fibsem.structures import FibsemStagePosition, Point, FibsemImage, FibsemImageMetadata
 from fibsem.ui.fm.widgets import (
     ChannelSettingsWidget,
     HistogramWidget,
@@ -56,8 +50,11 @@ from fibsem.ui.fm.widgets import (
     SavedPositionsWidget,
     ZParametersWidget,
     LinePlotWidget,
+    StagePositionControlWidget,
+    SEMAcquisitionWidget,
+    ExperimentCreationDialog,
 )
-
+from fibsem.applications.autolamella.structures import create_new_experiment, Experiment
 from fibsem.ui.napari.utilities import (
     create_circle_shape,
     create_crosshair_shape,
@@ -80,11 +77,7 @@ class NapariShapeOverlay:
     color: str
     label: str
     shape_type: str  # "rectangle", "ellipse", or "line"
-    
-    def __post_init__(self):
-        """Validate shape type."""
-        if self.shape_type not in ["rectangle", "ellipse", "line"]:
-            raise ValueError(f"Invalid shape_type: {self.shape_type}. Must be 'rectangle', 'ellipse', or 'line'")
+
 
 # Overlay layer configuration constants
 OVERLAY_CONFIG = {
@@ -367,511 +360,6 @@ class DisplayOptionsDialog(QDialog):
         }
 
 
-class StagePositionControlWidget(QWidget):
-    """Widget for controlling stage positions and orientations."""
-
-    def __init__(self, microscope: FibsemMicroscope, parent: 'FMAcquisitionWidget'):
-        super().__init__(parent)
-        self.microscope = microscope
-        self.parent_widget = parent
-        self.initUI()
-
-    def initUI(self):
-        """Initialize the stage position control UI."""
-
-
-
-        self.button_sem_orientation = QPushButton("Move to SEM Orientation", self)
-        self.button_sem_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.button_sem_orientation.clicked.connect(self.move_to_sem_orientation)
-
-        self.button_fm_orientation = QPushButton("Move to FM Orientation", self)
-        self.button_fm_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.button_fm_orientation.clicked.connect(self.move_to_fm_orientation)
-
-        # Milling angle controls    
-        self.milling_angle_spinbox = QDoubleSpinBox(self)
-        self.milling_angle_spinbox.setRange(0, 45)
-        self.milling_angle_spinbox.setValue(self.microscope.system.stage.milling_angle)
-        self.milling_angle_spinbox.setSuffix("°")
-        self.milling_angle_spinbox.setDecimals(1)
-        self.milling_angle_spinbox.setSingleStep(1.0)
-        self.milling_angle_spinbox.valueChanged.connect(self.update_milling_angle)
-
-        self.button_move_to_milling = QPushButton("Move to Milling Angle", self)
-        self.button_move_to_milling.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.button_move_to_milling.clicked.connect(self.move_to_milling_angle)
-
-        orientation_layout = QGridLayout()
-        orientation_layout.addWidget(self.button_sem_orientation, 0, 0)
-        orientation_layout.addWidget(self.button_fm_orientation, 0, 1)
-        orientation_layout.addWidget(self.milling_angle_spinbox, 1, 0)
-        orientation_layout.addWidget(self.button_move_to_milling, 1, 1)
-        layout = QVBoxLayout(self)
-        layout.addLayout(orientation_layout)
-        self.setLayout(layout)
-
-        orientation_layout.setContentsMargins(0, 0, 0, 0)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.set_orientation_tooltips()
-
-    def update_milling_angle(self, value):
-        """Update the stored milling angle value."""
-        self.microscope.system.stage.milling_angle = value
-        # Update tooltip with new milling angle
-        self.update_milling_tooltip()
-
-    def set_orientation_tooltips(self):
-        """Set tooltips for orientation buttons showing rotation and tilt angles."""
-        try:
-            sem = self.microscope.get_orientation("SEM")
-            fm = self.microscope.get_orientation("FM")
-
-            # Set tooltips for orientation buttons
-            self.button_sem_orientation.setToolTip(sem.pretty_orientation)
-            self.button_fm_orientation.setToolTip(fm.pretty_orientation)
-
-            self.milling_angle_spinbox.setToolTip("The milling angle is the difference between the stage and the fib viewing angle.")
-
-            self.update_milling_tooltip()
-
-        except Exception as e:
-            logging.warning(f"Could not set orientation tooltips: {e}")
-
-    def update_milling_tooltip(self):
-        """Update the milling angle button tooltip with current orientation."""
-        try:
-            milling = self.microscope.get_orientation("MILLING")
-            self.button_move_to_milling.setToolTip(milling.pretty_orientation)
-        except Exception as e:
-            logging.warning(f"Could not update milling tooltip: {e}")
-
-    def move_to_sem_orientation(self):
-        """Move stage to SEM (electron beam) orientation."""
-        # Show confirmation dialog
-        reply = QMessageBox.question(
-            self,
-            "Confirm Movement",
-            "Move stage to SEM orientation?\n\nThis will change the stage position to the electron beam viewing angle.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if reply != QMessageBox.Yes:
-            logging.info("SEM orientation movement cancelled by user")
-            return
-
-        try:
-            self.microscope.move_to_microscope("FIBSEM")
-            logging.info("Moved to SEM orientation")
-        except Exception as e:
-            logging.error(f"Failed to move to SEM orientation: {e}")
-            QMessageBox.warning(self, "Movement Error", f"Failed to move to SEM orientation:\n{str(e)}")
-
-        self.parent_widget.display_stage_position_overlay()
-
-    def move_to_fm_orientation(self):
-        """Move stage to FM (fluorescence microscopy) orientation."""
-        # Show confirmation dialog
-        reply = QMessageBox.question(
-            self,
-            "Confirm Movement",
-            "Move stage to FM orientation?\n\nThis will change the stage position to the fluorescence microscopy viewing angle.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if reply != QMessageBox.Yes:
-            logging.info("FM orientation movement cancelled by user")
-            return
-
-        try:
-            self.microscope.move_to_microscope("FM")
-            logging.info("Moved to FM orientation")
-        except Exception as e:
-            logging.error(f"Failed to move to FM orientation: {e}")
-            QMessageBox.warning(self, "Movement Error", f"Failed to move to FM orientation:\n{str(e)}")
-
-        self.parent_widget.display_stage_position_overlay()
-
-    def move_to_milling_angle(self):
-        """Move stage to the specified milling angle."""
-        # Get current milling angle for display
-        milling_angle = self.milling_angle_spinbox.value()
-
-        # Show confirmation dialog
-        reply = QMessageBox.question(
-            self,
-            "Confirm Movement", 
-            f"Move stage to milling angle ({milling_angle}°)?\n\nThis will change the stage position to the specified milling orientation.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if reply != QMessageBox.Yes:
-            logging.info(f"Milling angle movement to {milling_angle}° cancelled by user")
-            return
-
-        try:
-            mill_orientation = self.microscope.get_orientation("MILLING")
-            self.microscope.move_stage_absolute(mill_orientation)
-            logging.info(f"Moved to milling angle: {milling_angle}°")
-        except Exception as e:
-            logging.error(f"Failed to move to milling angle: {e}")
-            QMessageBox.warning(self, "Movement Error", f"Failed to move to milling angle:\n{str(e)}")
-
-        self.parent_widget.display_stage_position_overlay()
-
-
-class SEMAcquisitionWidget(QWidget):
-
-    """Widget for acquiring images and managing image layers in napari."""
-    
-    def __init__(self, microscope: FibsemMicroscope, parent: 'FMAcquisitionWidget'):
-        super().__init__(parent)
-        self.microscope = microscope
-        self.image_settings = ImageSettings(resolution=(2048, 2048), 
-                                            dwell_time=1e-6, 
-                                            hfw=500e-6, 
-                                            beam_type=BeamType.ELECTRON)
-        self.parent_widget = parent
-        self.initUI()
-
-    def initUI(self):
-        """Initialize the image acquisition UI."""
-        layout = QGridLayout()
-
-        # field of view, dwell time
-        self.fov_label = QLabel("Field of View (FOV)")
-        self.fov_spinbox = QDoubleSpinBox()
-        self.fov_spinbox.setRange(100.0, 2000.0)
-        self.fov_spinbox.setValue(500.0)
-        self.fov_spinbox.setSuffix(" μm")
-        self.fov_spinbox.setSingleStep(10.0)
-        self.fov_spinbox.setDecimals(1)
-
-        self.dwell_time_label = QLabel("Dwell Time")
-        self.dwell_time_spinbox = QDoubleSpinBox()
-        self.dwell_time_spinbox.setRange(0.2, 10.0)
-        self.dwell_time_spinbox.setValue(1.0)
-        self.dwell_time_spinbox.setSuffix(" μs")
-        self.dwell_time_spinbox.setSingleStep(0.1)
-        self.dwell_time_spinbox.setDecimals(1)
-
-        self.label_resolution = QLabel("Resolution")
-        self.combobox_resolution = QComboBox()
-        for res in SQUARE_RESOLUTIONS_LIST:
-            self.combobox_resolution.addItem(f"{res[0]}x{res[1]}", userData=res)
-        self.combobox_resolution.setCurrentIndex(3)
-
-        # Image acquisition controls
-        self.button_acquire_image = QPushButton("Acquire Image")
-        self.button_acquire_image.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.button_acquire_image.clicked.connect(self.acquire_image)
-
-        layout.addWidget(self.fov_label, 0, 0)
-        layout.addWidget(self.fov_spinbox, 0, 1)
-        layout.addWidget(self.dwell_time_label, 1, 0)
-        layout.addWidget(self.dwell_time_spinbox, 1, 1)
-        layout.addWidget(self.label_resolution, 2, 0)
-        layout.addWidget(self.combobox_resolution, 2, 1)
-
-        layout.addWidget(self.button_acquire_image, 3, 0, 1, 2)
-
-        self.fov_spinbox.valueChanged.connect(self.update_fov)
-        self.dwell_time_spinbox.valueChanged.connect(self.update_dwell_time)
-        self.combobox_resolution.currentIndexChanged.connect(self.update_resolution)
-
-        self.setLayout(layout)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-    def update_fov(self, value: float) -> None:
-        """Update the field of view based on the spinbox value."""
-        self.image_settings.hfw = value * 1e-6
-        self.parent_widget.display_stage_position_overlay()
-
-    def update_dwell_time(self, value: float) -> None:
-        """Update the dwell time based on the spinbox value."""
-        self.image_settings.dwell_time = value * 1e-6
-
-    def update_resolution(self, index: int) -> None:
-        """Update the image resolution based on the combobox selection."""
-        resolution = self.combobox_resolution.currentData()
-        if resolution:
-            self.image_settings.resolution = resolution
-        else:
-            logging.warning("No valid resolution selected in combobox.")
-
-    def acquire_image(self) -> None:
-        """Acquire an SEM Overview Image"""
-        try:
-
-            if self.microscope.get_stage_orientation() != "FM":  # NOTE: refactor once able to use at T=0
-                QMessageBox.warning(self, "Orientation Error", "Please switch to FM orientation before acquiring an image.")
-                return
-
-            image = self.microscope.acquire_image(image_settings=self.image_settings)
-            if image is None:
-                return
-
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            image.save(os.path.join(self.parent_widget.experiment_path, f"overview-{timestamp}.tif"))
-
-            self.parent_widget.update_persistent_image_signal.emit(image)
-        except Exception as e:
-            logging.error(f"Failed to acquire image: {e}")
-
-
-class ExperimentCreationDialog(QDialog):
-    """Dialog for creating a new experiment or loading an existing one."""
-
-    def __init__(self, initial_directory: str, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.selected_directory = initial_directory
-        self.experiment_name = ""
-        self.positions_file_path = ""
-        self.setWindowTitle("Experiment Setup")
-        self.setModal(True)
-        self.initUI()
-
-    def initUI(self):
-        """Initialize the dialog UI."""
-        layout = QVBoxLayout()
-
-        # Radio buttons for mode selection
-        mode_layout = QVBoxLayout()
-        self.radio_create = QRadioButton("Create New Experiment")
-        self.radio_load = QRadioButton("Load Existing Experiment")
-        self.radio_create.setChecked(True)  # Default to create mode
-
-        mode_layout.addWidget(self.radio_create)
-        mode_layout.addWidget(self.radio_load)
-        layout.addLayout(mode_layout)
-        layout.addWidget(QLabel())
-
-        # Create experiment section
-        self.create_section = QWidget()
-        create_layout = QVBoxLayout()
-
-        # Directory selection for creating
-        dir_layout = QHBoxLayout()
-        dir_label = QLabel("Directory:")
-        dir_layout.addWidget(dir_label)
-
-        self.dir_line_edit = QLineEdit(self.selected_directory)
-        self.dir_line_edit.setReadOnly(True)
-        dir_layout.addWidget(self.dir_line_edit)
-
-        self.browse_dir_button = QToolButton()
-        self.browse_dir_button.setText("...")
-        self.browse_dir_button.clicked.connect(self.browse_directory)
-        dir_layout.addWidget(self.browse_dir_button)
-        create_layout.addLayout(dir_layout)
-
-        # Experiment name input
-        name_layout = QHBoxLayout()
-        name_label = QLabel("Name:")
-        name_layout.addWidget(name_label)
-
-        # Generate default name with timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
-        default_name = f"AutoLamella-{timestamp}"
-
-        self.name_line_edit = QLineEdit(default_name)
-        self.name_line_edit.selectAll()
-        name_layout.addWidget(self.name_line_edit)
-        create_layout.addLayout(name_layout)
-
-        # Path preview for create mode
-        self.path_preview_label = QLabel()
-        self.path_preview_label.setStyleSheet("font-size: 10px; color: #666666; margin: 10px 0;")
-        self.update_path_preview()
-        create_layout.addWidget(self.path_preview_label)
-
-        self.create_section.setLayout(create_layout)
-        layout.addWidget(self.create_section)
-
-        # Load experiment section
-        self.load_section = QWidget()
-        load_layout = QVBoxLayout()
-
-        # Positions file selection
-        positions_layout = QHBoxLayout()
-        positions_label = QLabel("Positions File:")
-        positions_layout.addWidget(positions_label)
-
-        self.positions_file_edit = QLineEdit()
-        self.positions_file_edit.setReadOnly(True)
-        self.positions_file_edit.setPlaceholderText("Select positions.yaml file...")
-        positions_layout.addWidget(self.positions_file_edit)
-
-        self.browse_positions_button = QToolButton()
-        self.browse_positions_button.setText("...")
-        self.browse_positions_button.clicked.connect(self.browse_positions_file)
-        positions_layout.addWidget(self.browse_positions_button)
-        load_layout.addLayout(positions_layout)
-
-        # Experiment info display for load mode
-        self.experiment_info_label = QLabel()
-        self.experiment_info_label.setStyleSheet("font-size: 10px; color: #666666; margin: 10px 0;")
-        load_layout.addWidget(self.experiment_info_label)
-
-        self.load_section.setLayout(load_layout)
-        self.load_section.setVisible(False)  # Hidden by default
-        layout.addWidget(self.load_section)
-
-        # Connect radio button signals
-        self.radio_create.toggled.connect(self.on_mode_changed)
-        self.radio_load.toggled.connect(self.on_mode_changed)
-
-        # Connect signals for live preview update and validation
-        self.name_line_edit.textChanged.connect(self.update_path_preview)
-        self.name_line_edit.textChanged.connect(self.validate_input)
-        layout.addStretch()
-
-        # Buttons
-        button_layout = QGridLayout()
-        self.button_ok = QPushButton("OK")
-        self.button_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.button_ok.clicked.connect(self.accept)
-        button_layout.addWidget(self.button_ok, 0, 0)
-
-        self.button_cancel = QPushButton("Cancel")
-        self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.button_cancel.clicked.connect(self.reject)
-        button_layout.addWidget(self.button_cancel, 0, 1)
-
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
-
-        # Perform initial validation
-        self.validate_input()
-
-    def browse_directory(self):
-        """Open directory browser dialog."""
-        selected_dir = QFileDialog.getExistingDirectory(
-            self,
-            "Select Experiment Directory",
-            self.selected_directory
-        )
-
-        if selected_dir:
-            self.selected_directory = selected_dir
-            self.dir_line_edit.setText(selected_dir)
-            self.update_path_preview()
-
-    def update_path_preview(self):
-        """Update the full path preview label."""
-        experiment_name = self.name_line_edit.text().strip()
-        if experiment_name:
-            full_path = os.path.join(self.selected_directory, experiment_name)
-            self.path_preview_label.setText(f"Full path: {full_path}")
-        else:
-            self.path_preview_label.setText("Full path: ")
-
-    def on_mode_changed(self):
-        """Handle radio button mode changes."""
-        if self.radio_create.isChecked():
-            self.create_section.setVisible(True)
-            self.load_section.setVisible(False)
-        else:
-            self.create_section.setVisible(False)
-            self.load_section.setVisible(True)
-        
-        self.validate_input()
-
-    def browse_positions_file(self):
-        """Open file dialog to select positions.yaml file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Positions File",
-            "",
-            "YAML files (*.yaml *.yml);;All files (*.*)"
-        )
-
-        if file_path:
-            self.positions_file_path = file_path
-            self.positions_file_edit.setText(file_path)
-            self.update_experiment_info()
-            self.validate_input()
-
-    def update_experiment_info(self):
-        """Update experiment info display when a positions file is selected."""
-        if not self.positions_file_path:
-            self.experiment_info_label.setText("")
-            return
-
-        try:
-            # Get experiment directory from positions file path
-            experiment_dir = os.path.dirname(self.positions_file_path)
-
-            # Try to load and parse the positions file
-            with open(self.positions_file_path, 'r') as f:
-                positions_data = yaml.safe_load(f)
-
-            num_positions = positions_data.get('num_positions', 0)
-            created_date = positions_data.get('created_date', 'Unknown')
-
-            info_text = f"Experiment: {os.path.basename(experiment_dir)}\n"
-            info_text += f"Positions: {num_positions}\n"
-            info_text += f"Created: {created_date}"
-
-            self.experiment_info_label.setText(info_text)
-
-        except Exception as e:
-            self.experiment_info_label.setText(f"Error reading file: {str(e)}")
-
-    def validate_input(self):
-        """Validate input based on current mode and enable/disable OK button."""
-        is_valid = False
-
-        if self.radio_create.isChecked():
-            # Validate experiment name for create mode
-            experiment_name = self.name_line_edit.text().strip()
-            is_valid = bool(experiment_name) and experiment_name not in ['.', '..']
-
-            # Additional validation for invalid filename characters
-            if is_valid:
-                invalid_chars = '<>:"/\\|?*'
-                is_valid = not any(char in experiment_name for char in invalid_chars)
-
-        else:
-            # Validate positions file for load mode
-            is_valid = bool(self.positions_file_path) and os.path.exists(self.positions_file_path)
-
-        # Enable/disable the OK button
-        self.button_ok.setEnabled(is_valid)
-
-        # Update button style based on validity
-        if is_valid:
-            self.button_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        else:
-            self.button_ok.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-
-    def get_experiment_info(self) -> dict:
-        """Get the experiment information based on current mode."""
-        if self.radio_create.isChecked():
-            # Create mode - return new experiment info
-            experiment_name = self.name_line_edit.text().strip()
-            return {
-                'mode': 'create',
-                'directory': self.selected_directory,
-                'name': experiment_name,
-                'full_path': os.path.join(self.selected_directory, experiment_name) if experiment_name else ""
-            }
-        else:
-            # Load mode - return existing experiment info
-            experiment_dir = os.path.dirname(self.positions_file_path) if self.positions_file_path else ""
-            return {
-                'mode': 'load',
-                'positions_file': self.positions_file_path,
-                'directory': experiment_dir,
-                'name': os.path.basename(experiment_dir) if experiment_dir else "",
-                'full_path': experiment_dir
-            }
-
-
 def stage_position_to_napari_image_coordinate(image_shape: Union[Tuple[int, int], Tuple[int, ...]], pos: Optional[FibsemStagePosition], pixelsize: float) -> Point:
     """Convert a sample-stage coordinate to a napari image layer coordinate.
 
@@ -1061,8 +549,8 @@ class FMAcquisitionWidget(QWidget):
         self.microscope = microscope
         self.fm: FluorescenceMicroscope = microscope.fm
         self.viewer = viewer
-        self.image_layer: Optional[NapariImageLayer] = None
         self.stage_positions: List[FMStagePosition] = []
+        self.experiment: Optional[Experiment] = None
 
         # widgets
         self.channelSettingsWidget: ChannelSettingsWidget
@@ -1072,7 +560,7 @@ class FMAcquisitionWidget(QWidget):
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
         self.histogramWidget: HistogramWidget
-        self.line_plot_widget: LinePlotWidget
+        # self.line_plot_widget: LinePlotWidget
 
         # Consolidated acquisition threading
         self._acquisition_thread: Optional[threading.Thread] = None
@@ -1205,10 +693,10 @@ class FMAcquisitionWidget(QWidget):
 
         # create histogram widget
         self.histogramWidget = HistogramWidget(parent=self)
-        self.line_plot_widget = LinePlotWidget(parent=self)
         self.histogram_dock = self.viewer.window.add_dock_widget(self.histogramWidget, name="Image Histogram", area='left')
-        self.line_plot_dock = self.viewer.window.add_dock_widget(self.line_plot_widget, name="Line Plot", area='left', tabify=True)
         self.histogram_dock.setVisible(self.show_histogram)
+        # self.line_plot_widget = LinePlotWidget(parent=self)
+        # self.line_plot_dock = self.viewer.window.add_dock_widget(self.line_plot_widget, name="Line Plot", area='left', tabify=True)
 
         self.pushButton_toggle_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
@@ -1347,14 +835,16 @@ class FMAcquisitionWidget(QWidget):
             self.file_menu.addSeparator()
             self.file_menu.addAction(display_options_action)
             self.file_menu.addAction(run_coincidence_action)
+            self.file_menu.addSeparator()
+            self.file_menu.addAction("Exit", self.close)
         main_layout.setMenuBar(self.menubar)
 
     def run_coincidence(self):
         from fibsem.ui.FMCoincidenceMillingWidget import create_widget, milling_stage
         viewer = napari.Viewer(title="Coincidence Milling")
-        widget = create_widget(self.microscope, viewer, [milling_stage])
+        self.coincidence_widget = create_widget(self.microscope, viewer, [milling_stage])
 
-        viewer.window.add_dock_widget(widget, name="Coincidence Milling", area="right")
+        viewer.window.add_dock_widget(self.coincidence_widget, name="Coincidence Milling", area="right")
         napari.run(max_loop_level=2)
 
     def _on_layer_selection_changed(self, event):
@@ -1497,7 +987,7 @@ class FMAcquisitionWidget(QWidget):
             return
 
         logging.info(f"Mouse double-clicked at {event.position} in viewer {viewer}")
-        # coords = self.image_layer.world_to_data(event.position)  # PIXEL COORDINATES
+        # coords = layer.world_to_data(event.position)  # PIXEL COORDINATES
         logging.info("-" * 40)
         position_clicked = event.position[-2:]  # yx required
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]))  # yx required
@@ -1509,7 +999,6 @@ class FMAcquisitionWidget(QWidget):
 
         self.display_stage_position_overlay()
         return
-
 
     def display_stage_position_overlay(self):
         """Legacy method for compatibility - redirects to update_text_overlay."""
@@ -1536,20 +1025,18 @@ class FMAcquisitionWidget(QWidget):
             QMessageBox.warning(self, "Invalid Name", "Please enter a valid experiment name.")
             return
 
-        new_experiment_path = experiment_info['full_path']
-
         # Create the experiment directory
         try:
-            os.makedirs(new_experiment_path, exist_ok=True)
-            self.experiment_path = new_experiment_path
-            logging.info(f"Created new experiment directory: {new_experiment_path}")
+            self.experiment = create_new_experiment(
+                path=experiment_info['directory'],
+                name=experiment_name,
+                )
         except Exception as e:
             QMessageBox.critical(
                 self, 
                 "Error Creating Experiment", 
                 f"Failed to create experiment directory:\n{str(e)}"
             )
-            logging.error(f"Failed to create experiment directory: {e}")
 
     def _handle_load_experiment(self, experiment_info):
         """Handle loading an existing experiment."""
@@ -1571,7 +1058,7 @@ class FMAcquisitionWidget(QWidget):
                     logging.warning(f"Failed to load position {pos_dict}: {e}")
 
             # Update the widget state
-            self.experiment_path = experiment_path
+            self.experiment = Experiment.load(Path(os.path.join(experiment_path, "experiment.yaml")))
             self.stage_positions = loaded_positions
 
             # Update the saved positions widget
@@ -2048,7 +1535,7 @@ class FMAcquisitionWidget(QWidget):
                 zparams=z_parameters,
                 stop_event=self._acquisition_stop_event,
                 use_autofocus=False,
-                save_directory=self.experiment_path,
+                save_directory=self.experiment.path,
             )
 
             if self._acquisition_stop_event.is_set():
@@ -2150,7 +1637,7 @@ class FMAcquisitionWidget(QWidget):
             )
         # Update histogram (widget handles visibility checking internally)
         self.histogramWidget.update_histogram(image, layer_name)
-        self.line_plot_widget.append_value(float(np.mean(image)), layer_name)
+        # self.line_plot_widget.append_value(float(np.mean(image)), layer_name)
 
     def _update_fibsem_image(self, image: FibsemImage):
         """Update the napari image layer with the given FibsemImage data and metadata."""
@@ -2249,7 +1736,7 @@ class FMAcquisitionWidget(QWidget):
             name = "z-stack" if z_parameters is not None else "image"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{name}-{timestamp}.ome.tiff"
-            filepath = os.path.join(self.experiment_path, filename)
+            filepath = os.path.join(self.experiment.path, filename)
 
             image = acquire_image(
                 microscope=self.fm,
@@ -2332,11 +1819,11 @@ class FMAcquisitionWidget(QWidget):
 
     def _save_positions_to_yaml(self):
         """Save current stage positions to positions.yaml in the experiment directory."""
-        if not self.experiment_path:
+        if not self.experiment.path:
             logging.warning("No experiment path set, cannot save positions")
             return
 
-        positions_file = os.path.join(self.experiment_path, "positions.yaml")
+        positions_file = os.path.join(self.experiment.path, "positions.yaml")
 
         try:
             # Convert positions to dictionary format for YAML serialization
@@ -2425,7 +1912,7 @@ class FMAcquisitionWidget(QWidget):
             #         tile_overlap=tile_overlap,
             #         zparams=z_parameters,
             #         autofocus_mode=autofocus_mode,
-            #         save_directory=self.experiment_path,
+            #         save_directory=self.experiment.path,
             #         stop_event=self._acquisition_stop_event
             #     )
             #     # Check if acquisition was cancelled
@@ -2446,7 +1933,7 @@ class FMAcquisitionWidget(QWidget):
                 tile_overlap=tile_overlap,
                 zparams=z_parameters,
                 autofocus_mode=autofocus_mode,
-                save_directory=self.experiment_path,
+                save_directory=self.experiment.path,
                 stop_event=self._acquisition_stop_event
             )
 

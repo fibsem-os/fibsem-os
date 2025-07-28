@@ -12,6 +12,9 @@ from .objective_control_widget import ObjectiveControlWidget
 from .channel_settings_widget import ChannelSettingsWidget
 from .histogram_widget import HistogramWidget
 from .line_plot_widget import LinePlotWidget
+from .stage_position_control_widget import StagePositionControlWidget
+from .experiment_creation_dialog import ExperimentCreationDialog
+from .sem_acquisition_widget import SEMAcquisitionWidget
 
 __all__ = [
     'ZParametersWidget',
@@ -20,5 +23,8 @@ __all__ = [
     'ObjectiveControlWidget',
     'ChannelSettingsWidget',
     'HistogramWidget',
-    'LinePlotWidget'
+    'LinePlotWidget',
+    'StagePositionControlWidget',
+    'ExperimentCreationDialog',
+    'SEMAcquisitionWidget'
 ]

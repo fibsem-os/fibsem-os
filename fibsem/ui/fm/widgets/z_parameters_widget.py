@@ -1,14 +1,13 @@
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtWidgets import (
-
     QDoubleSpinBox,
     QGridLayout,
     QLabel,
     QWidget,
 )
-from fibsem.fm.structures import  ZParameters
+from fibsem.fm.structures import ZParameters
 
 Z_PARAMETERS_CONFIG = {
     "step_size": 0.1,  # µm
@@ -21,6 +20,8 @@ Z_PARAMETERS_CONFIG = {
     },
 }
 
+if TYPE_CHECKING:
+    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
 class ZParametersWidget(QWidget):
     def __init__(self, z_parameters: ZParameters, parent: Optional['FMAcquisitionWidget'] = None):
