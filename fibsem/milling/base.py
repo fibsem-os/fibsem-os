@@ -8,6 +8,7 @@ from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.milling.patterning import get_pattern, DEFAULT_MILLING_PATTERN
 from fibsem.structures import (
+    BeamType,
     FibsemMillingSettings,
     MillingAlignment,
     ImageSettings,
@@ -207,4 +208,186 @@ def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
         stages = [stages]
     return sum([estimate_milling_time(stage.pattern, stage.milling.milling_current) for stage in stages])
 
+@dataclass
+class MillingTaskAcquisitionSettings:
+    """Settings for the acquisition of images during a milling task."""
+    enabled: bool = True
+    imaging: ImageSettings = field(default_factory=ImageSettings)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "imaging": self.imaging.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MillingTaskAcquisitionSettings":
+        imaging = data.get("imaging", {})
+        if imaging == {} or imaging.get("path", None) is None:
+            imaging["path"] = None
+        return cls(
+            enabled=data.get("enabled", True),
+            imaging=ImageSettings.from_dict(imaging),
+        )
+
+@dataclass
+class FibsemMillingTask:
+    name: str = "Milling Task"
+    field_of_view: float = 150e-6
+    milling_channel: BeamType = BeamType.ION
+    alignment: MillingAlignment = field(default_factory=MillingAlignment)
+    acquisition: MillingTaskAcquisitionSettings = field(default_factory=MillingTaskAcquisitionSettings)
+    stages: List[FibsemMillingStage] = field(default_factory=list)
+    reference_image: Optional[FibsemImage] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "field_of_view": self.field_of_view,
+            "milling_channel": self.milling_channel.value,
+            "alignment": self.alignment.to_dict(),
+            "acquisition": self.acquisition.to_dict(),
+            "stages": [stage.to_dict() for stage in self.stages],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FibsemMillingTask":
+        alignment = data.get("alignment", {})
+        acquisition = data.get("acquisition", {})
+        return cls(
+            name=data.get("name", "Milling Task"),
+            field_of_view=data.get("field_of_view", 150e-6),
+            milling_channel=BeamType(data.get("milling_channel", BeamType.ION.value)),
+            alignment=MillingAlignment.from_dict(alignment),
+            acquisition=MillingTaskAcquisitionSettings.from_dict(acquisition),
+            stages=[FibsemMillingStage.from_dict(stage) for stage in data.get("stages", [])],
+        )
+    
+    def run(self, microscope: FibsemMicroscope, parent_ui=None):
+        """Run a list of milling stages, with a progress bar and notifications."""
+        from fibsem.milling.core import get_stage_reference_image, acquire_images_after_milling, finish_milling
+        import logging
+        from fibsem import acquire
+        from pathlib import Path
+        from fibsem import config as fcfg
+        import time
+        from fibsem.utils import current_timestamp_v2
+        try:
+            if hasattr(microscope, "milling_progress_signal"):
+                if parent_ui: # TODO: tmp ladder to handle progress indirectly
+                    def _handle_progress(ddict: dict) -> None:
+                        parent_ui.milling_progress_signal.emit(ddict)
+                else:
+                    def _handle_progress(ddict: dict) -> None:
+                        logging.info(ddict)
+                microscope.milling_progress_signal.connect(_handle_progress)
+
+            initial_beam_shift = microscope.get_beam_shift(beam_type=self.milling_channel)
+            self._acquire_reference_image(microscope)
+
+            for idx, stage in enumerate(self.stages):
+                start_time = time.time()
+                if parent_ui:
+                    if parent_ui.STOP_MILLING:
+                        raise Exception("Milling stopped by user.")
+
+                    msgd =  {"msg": f"Preparing: {stage.name}",
+                            "progress": {"state": "start", 
+                                        "start_time": start_time,
+                                        "current_stage": idx, 
+                                        "total_stages": len(self.stages),
+                                        }}
+                    parent_ui.milling_progress_signal.emit(msgd)
+
+                try:
+                    stage.reference_image = self.reference_image
+                    stage.strategy.run(
+                        microscope=microscope,
+                        stage=stage,
+                        asynch=False,
+                        parent_ui=parent_ui,
+                    )
+
+                    # performance logging
+                    msgd = {"msg": "mill_stages", "idx": idx, "stage": stage.to_dict(), "start_time": start_time, "end_time": time.time()}
+                    logging.debug(f"{msgd}")
+
+                    # optionally acquire images after milling
+                    if self.acquisition.enabled:
+                        self.acquire_images_after_milling(
+                            microscope=microscope,
+                            stage_name=stage.name,
+                            start_time=start_time,
+                        )
+
+                    if parent_ui:
+                        parent_ui.milling_progress_signal.emit({"msg": f"Finished: {stage.name}"})
+                except Exception as e:
+                    logging.error(f"Error running milling stage: {stage.name}, {e}")
+
+            if parent_ui:
+                parent_ui.milling_progress_signal.emit({"msg": f"Finished {len(self.stages)} Milling Stages. Restoring Imaging Conditions..."})
+
+        except Exception as e:
+            if parent_ui:
+                import napari.utils.notifications
+                napari.utils.notifications.show_error(f"Error while milling {e}")
+            logging.error(e)
+        finally:
+            finish_milling(
+                microscope=microscope,
+                imaging_current=microscope.system.ion.beam.beam_current,
+                imaging_voltage=microscope.system.ion.beam.voltage,
+            )
+            # restore initial beam shift
+            if initial_beam_shift:
+                microscope.set_beam_shift(initial_beam_shift, beam_type=self.milling_channel)
+            if hasattr(microscope, "milling_progress_signal"):
+                microscope.milling_progress_signal.disconnect(_handle_progress)
+
+    def _acquire_reference_image(self, microscope: FibsemMicroscope) -> Optional[FibsemImage]:
+        """Acquire a reference image for the milling task."""
+        from fibsem import acquire
+        from pathlib import Path
+        from fibsem import config as fcfg
+        from fibsem.utils import current_timestamp_v2
+        
+        if self.reference_image is not None:
+            return self.reference_image
+        
+        path = self.acquisition.imaging.path
+        if path is None:
+            path = Path(fcfg.DATA_CC_PATH)
+        image_settings = ImageSettings(
+            hfw=self.field_of_view,
+            dwell_time=1e-6,
+            resolution=(1536, 1024),
+            beam_type=self.milling_channel,
+            reduced_area=self.alignment.rect,
+            save=True,
+            path=path,
+            filename=f"ref_{self.name}_initial_alignment_{current_timestamp_v2()}",
+        )
+        self.reference_image =  acquire.acquire_image(microscope, image_settings)
+
+    def acquire_images_after_milling(
+            self,
+        microscope: FibsemMicroscope,
+        stage_name: str,
+        start_time: float,
+    ) -> Tuple[FibsemImage, FibsemImage]:
+        """Acquire images after milling for reference.
+        Args:
+            microscope (FibsemMicroscope): Fibsem microscope instance
+            milling_stage (FibsemMillingStage): Milling Stage
+            start_time (float): Start time of milling (used for filename / tracking)
+        """
+        microscope.finish_milling(microscope.system.ion.beam.beam_current, microscope.system.ion.beam.voltage)
+
+        self.acquisition.imaging.filename = f"ref_milling_{self.name.replace(' ', '-')}_{stage_name}_finished_{str(start_time).replace('.', '_')}"
+
+        # acquire images
+        from fibsem import acquire
+        images = acquire.take_reference_images(microscope, self.acquisition.imaging)
+
+        return images
