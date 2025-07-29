@@ -183,7 +183,7 @@ class CirclePattern(BasePattern[FibsemCircleSettings]):
 @dataclass
 class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettings]]):
     width: float = 10.0e-6
-    depth: float = 2.0e-6
+    depth: float = 1.0e-6
     spacing: float = 5.0e-6
     upper_trench_height: float = 5.0e-6
     lower_trench_height: float = 5.0e-6
@@ -238,7 +238,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
             time = time
         )
 
-        self.shapes = [lower_trench_settings, upper_trench_settings]
+        self.shapes = [upper_trench_settings, lower_trench_settings]
 
         # add fillet to the corners
         if fillet > 0:            
@@ -393,7 +393,7 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
             cross_section=cross_section
         )
 
-        self.shapes = [lower_pattern, upper_pattern, side_pattern]
+        self.shapes = [upper_pattern, lower_pattern, side_pattern]
         return self.shapes
     
 
@@ -455,8 +455,8 @@ class HorseshoePatternVertical(BasePattern):
             scan_direction=scan_direction,
             cross_section=cross_section
         )
-        
-        self.shapes = [left_pattern,right_pattern, upper_pattern]
+
+        self.shapes = [upper_pattern, left_pattern, right_pattern]
         return self.shapes
 
 
