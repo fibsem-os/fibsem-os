@@ -741,9 +741,8 @@ class DemoMicroscope(FibsemMicroscope):
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """Finish milling by restoring the imaging current and voltage."""
-        logging.info(f"Finishing milling: {imaging_current:.2e}")
-        self.set("current", imaging_current, self.milling_channel)
-        self.set("voltage", imaging_voltage, self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
+        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
         self.clear_patterns()
 
     def clear_patterns(self) -> None:

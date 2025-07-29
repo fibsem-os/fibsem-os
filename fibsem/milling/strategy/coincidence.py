@@ -35,7 +35,7 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
 
     channel_settings: ChannelSettings = channel_settings
     zparams: ZParameters = ZParameters(-5e-6, 5e-6, 0.5e-6)
-    timeout: int = 30  # seconds, default timeout for milling
+    timeout: int = 60  # seconds, default timeout for milling
     acquire_z_stack: bool = False  # acquire a z-stack after milling
     acquire_fib_image: bool = False  # acquire a FIB image after milling
     intensity_drop_threshold: float = 0.75  # threshold for intensity drop
@@ -108,22 +108,18 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         microscope.start_milling()
 
         estimated_time = microscope.estimate_milling_time()
+        remaining_time = estimated_time
         start_time = time.time() + self.config.timeout
         estimated_end_time = start_time + estimated_time
         max_end_time = start_time + self.config.timeout
         SLEEP_DURATION = 1  # seconds
         while True:
-            if self.parent_ui and hasattr(self.parent_ui, "get_alignment_area"):
-                self.config.bbox = (
-                    self.parent_ui.get_alignment_area()
-                )  # TODO: properly use the signal instead of polling
-
+            if self.parent_ui and hasattr(self.parent_ui, "get_bounding_box"):
+                self.config.bbox = self.parent_ui.get_bounding_box()
             milling_state = microscope.get_milling_state()
             if milling_state == MillingState.RUNNING:
-                logging.info(
-                    f"Milling is running... {estimated_end_time - time.time():.2f} seconds remaining."
-                )
-                estimated_time -= SLEEP_DURATION
+                logging.info(f"Milling is running... {remaining_time:.2f} seconds remaining.")
+                remaining_time -= SLEEP_DURATION
             elif milling_state == MillingState.PAUSED:
                 # QUERY: should we also stop fm acquisition?
                 logging.info("Milling is paused. Waiting for resume...")
@@ -131,6 +127,15 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 logging.info("Milling is idle. Finishing...")
                 break
             time.sleep(SLEEP_DURATION)
+
+            # update milling progress via signal
+            microscope.milling_progress_signal.emit({"progress": {
+                    "state": "update", 
+                    "start_time": start_time,
+                    "milling_state": milling_state,
+                    "estimated_time": estimated_time, 
+                    "remaining_time": remaining_time}
+                    })
 
             # timeout
             if time.time() >= max_end_time:

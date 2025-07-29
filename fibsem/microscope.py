@@ -123,6 +123,7 @@ class FibsemMicroscope(ABC):
     system: SystemSettings
     _patterns: List
     stage_is_compustage: bool = False
+    milling_channel: BeamType = BeamType.ION
 
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
@@ -342,7 +343,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def start_milling(self) -> None:
+    def clear_patterns(self) -> None:
         pass
 
     @abstractmethod

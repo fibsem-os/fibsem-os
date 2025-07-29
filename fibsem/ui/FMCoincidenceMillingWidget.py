@@ -138,7 +138,7 @@ class FMCoincidenceMillingWidget(QWidget):
 
         self.show_fm_bbox_button = QPushButton("Show FM Region of Interest")
         self.show_fm_bbox_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.show_fm_bbox_button.clicked.connect(lambda: self.set_alignment_layer(editable=True))
+        self.show_fm_bbox_button.clicked.connect(lambda: self.set_bounding_box_layer(editable=True))
         
         # Start/Stop Milling button
         self.milling_button = QPushButton("Start Milling")
@@ -161,7 +161,7 @@ class FMCoincidenceMillingWidget(QWidget):
         self.label_milling_state.setStyleSheet("color: black;")
 
         self.label_fm_bbox = QLabel("FM Region of Interest:")
-        self.bbox_updated_signal.connect(self.on_bbox_update)
+        # self.bbox_updated_signal.connect(self.on_bbox_update)
         self.label_fm_intensity = QLabel("Intensity Drop Threshold: 0.75")
         self.label_fm_bbox.setStyleSheet("color: white;")
 
@@ -183,10 +183,14 @@ class FMCoincidenceMillingWidget(QWidget):
 
     def connect_signals(self):
         """Connect internal signals."""
-        self.microscope.fm.acquisition_signal.connect(self._on_acquisition) 
+        self.microscope.fm.acquisition_signal.connect(self._on_acquisition)
+        self.microscope.milling_progress_signal.connect(self._on_milling_progress_update)
         self.image_acquired_signal.connect(self.update_image)
         self.fib_image_acquired_signal.connect(self.update_image)
         self.update_line_plot_signal.connect(lambda value: self.line_plot_widget.append_value(value))
+
+    def _on_milling_progress_update(self, progress: dict):
+        logging.info(f"Milling Progress: {progress}")
 
     def _on_acquisition(self, image: FluorescenceImage):
         """Handle the acquisition of a fluorescence image."""
@@ -284,7 +288,7 @@ class FMCoincidenceMillingWidget(QWidget):
                 logging.info("Milling started")
 
                 milling_stage = copy.deepcopy(self.milling_stage_editor.get_milling_stages()[0])
-                milling_stage.strategy.config.bbox = self.get_alignment_area()
+                milling_stage.strategy.config.bbox = self.get_bounding_box()
                 pprint(milling_stage.to_dict())
 
                 self._milling_thread = threading.Thread(
@@ -297,6 +301,18 @@ class FMCoincidenceMillingWidget(QWidget):
     
         except Exception as e:
             logging.error(f"Error toggling milling: {e}")
+
+    def _milling_worker(self, milling_stage: FibsemMillingStage):
+        """Worker function to run the milling strategy."""
+        try:
+            milling_stage.strategy.run(
+                microscope=self.microscope,
+                stage=milling_stage,
+                asynch=False,
+                parent_ui=self
+            )
+        except Exception as e:
+            logging.error(f"Error running milling strategy: {e}")
 
     def stop_milling(self):
         """Stop milling."""
@@ -319,7 +335,7 @@ class FMCoincidenceMillingWidget(QWidget):
         if not self.is_milling:
             logging.warning("Milling is not currently running.")
             return
-        
+
         try:
             # Pause milling
             self.microscope.pause_milling()
@@ -345,21 +361,7 @@ class FMCoincidenceMillingWidget(QWidget):
         except Exception as e:
             logging.error(f"Error resuming milling: {e}")
 
-    def _milling_worker(self, milling_stage: FibsemMillingStage):
-        """Worker function to run the milling strategy."""
-        try:
-            milling_stage.strategy.run(
-                microscope=self.microscope,
-                stage=milling_stage,
-                asynch=False,
-                parent_ui=self
-            )
-        except Exception as e:
-            logging.error(f"Error running milling strategy: {e}")
-
-    
-
-    def set_alignment_layer(self, reduced_area: FibsemRectangle = FibsemRectangle(0.25, 0.25, 0.5, 0.5), 
+    def set_bounding_box_layer(self, reduced_area: FibsemRectangle = FibsemRectangle(0.25, 0.25, 0.5, 0.5), 
                             editable: bool = True):
         """Set the alignment area layer in napari."""
         if self.fm_resolution is None:
@@ -367,9 +369,7 @@ class FMCoincidenceMillingWidget(QWidget):
             return
 
         # add alignment area to napari
-        data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area, 
-                                                    image_shape=self.fm_resolution, 
-                                                   )
+        data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area, image_shape=self.fm_resolution)
         if self.alignment_layer is None or "bbox" not in self.viewer.layers:
             self.alignment_layer = self.viewer.add_shapes(data=data, 
                                               name="bbox", 
@@ -386,14 +386,17 @@ class FMCoincidenceMillingWidget(QWidget):
         if editable:
             self.viewer.layers.selection.active = self.alignment_layer
             self.alignment_layer.mode = "select"
-        # TODO: prevent rotation of rectangles?  
-        self.alignment_layer.events.data.connect(self.update_alignment) # type: ignore
+        # TODO: prevent rotation of rectangles?
+        self.alignment_layer.events.data.connect(self.update_alignment)  # type: ignore
         self.update_alignment(None)  # Initial update to validate the area
 
     def update_alignment(self, event):
         """Validate the alignment area, and update the parent ui."""
         try:
-            reduced_area = self.get_alignment_area()
+            if not event.action == "changed":
+                return  
+
+            reduced_area = self.get_bounding_box()
 
             if reduced_area is None:
                 return
@@ -413,8 +416,8 @@ class FMCoincidenceMillingWidget(QWidget):
         except Exception as e:
             logging.info(f"Error updating alignment area: {e}")
 
-    def get_alignment_area(self) -> Optional[FibsemRectangle]:
-        """Get the alignment area from the alignment layer."""
+    def get_bounding_box(self) -> Optional[FibsemRectangle]:
+        """Get the bounding box from the alignment layer."""
         with self._lock:
 
             if self.alignment_layer is None or not isinstance(self.alignment_layer, NapariShapesLayer):
@@ -427,9 +430,9 @@ class FMCoincidenceMillingWidget(QWidget):
             data = data[0]
             return convert_shape_to_image_area(data, self.fm_resolution)
 
-    def on_bbox_update(self, bbox: FibsemRectangle):
-        """Handle updates to the bounding box."""
-        logging.info(f"Bounding Box Updated: {bbox}")
+    # def on_bbox_update(self, bbox: FibsemRectangle):
+    #     """Handle updates to the bounding box."""
+    #     logging.info(f"Bounding Box Updated: {bbox}")
 
     def on_intensity_drop_signal(self, ddict: dict):
         """Handle intensity drop signal."""
