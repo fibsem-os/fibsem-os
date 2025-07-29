@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 
 import napari
 from napari.layers import Shapes as NapariShapesLayer
-from PyQt5.QtCore import pyqtSignal, pyqtSlot
+from PyQt5.QtCore import pyqtSignal, pyqtSlot, QEvent
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
 from fibsem import acquire, utils
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.microscope import FluorescenceImage
@@ -27,6 +26,7 @@ from fibsem.milling.patterning import TrenchPattern
 from fibsem.milling.strategy import CoincidenceMillingStrategy
 from fibsem.structures import (
     BeamType,
+    CrossSectionPattern,
     FibsemImage,
     FibsemRectangle,
     ImageSettings,
@@ -46,10 +46,19 @@ from fibsem.ui.stylesheets import (
 )
 
 milling_stage = FibsemMillingStage(name="Milling Stage",
-                                  milling=FibsemMillingSettings(milling_current=60e-12),
-                                  pattern=TrenchPattern(),
+                                  milling=FibsemMillingSettings(hfw=50e-6, milling_current=60e-12),
+                                  pattern=TrenchPattern(depth=0.5e-6, 
+                                                        width=10e-6, 
+                                                        spacing=0.25e-6, 
+                                                        upper_trench_height=0.5e-6, 
+                                                        lower_trench_height=0.5e-6, 
+                                                        cross_section=CrossSectionPattern.CleaningCrossSection),
                                   strategy=CoincidenceMillingStrategy())
 milling_stage.alignment.enabled = False
+
+# TODO: enable channel settings for FM image acquisition
+# TODO: enable objective control
+# TODO: control trench milling pattern -> run top trench, then bottom trench
 
 class FMCoincidenceMillingWidget(QWidget):
     """Widget for FM Coincidence Milling with FIB image acquisition, FM image acquisition, and start/stop milling controls."""
@@ -60,7 +69,7 @@ class FMCoincidenceMillingWidget(QWidget):
     update_line_plot_signal = pyqtSignal(float)
 
     def __init__(self, microscope: FibsemMicroscope,
-                 milling_stages: Union[FibsemMillingStage, List[FibsemMillingStage]],
+                 milling_stages: List[FibsemMillingStage],
                  viewer: napari.Viewer,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -79,7 +88,7 @@ class FMCoincidenceMillingWidget(QWidget):
         self.fib_image_settings = ImageSettings(
             resolution=(1536, 1024),
             dwell_time=1e-6,
-            hfw=self.field_of_view[0],
+            hfw=milling_stages[0].milling.hfw,
             beam_type=BeamType.ION
         )
 
@@ -174,10 +183,18 @@ class FMCoincidenceMillingWidget(QWidget):
 
     def connect_signals(self):
         """Connect internal signals."""
-        self.microscope.fm.acquisition_signal.connect(lambda image: self.image_acquired_signal.emit(image)) 
+        self.microscope.fm.acquisition_signal.connect(self._on_acquisition) 
         self.image_acquired_signal.connect(self.update_image)
         self.fib_image_acquired_signal.connect(self.update_image)
         self.update_line_plot_signal.connect(lambda value: self.line_plot_widget.append_value(value))
+
+    def _on_acquisition(self, image: FluorescenceImage):
+        """Handle the acquisition of a fluorescence image."""
+        try:
+            self.image_acquired_signal.emit(image)
+        except Exception as e:
+            logging.error(f"Error in _on_acquisition: {e}")
+            self.microscope.fm.acquisition_signal.disconnect(self._on_acquisition)
 
     @property
     def is_milling(self) -> bool:
@@ -424,6 +441,26 @@ class FMCoincidenceMillingWidget(QWidget):
 
         self.label_fm_intensity.setText(f"Intensity Drop Detected: Mean Intensity: {ddict['mean_intensity']:.2f}")
         self.label_fm_intensity.setStyleSheet("color: orange;")
+
+    def closeEvent(self, event: QEvent):
+        """Handle the close event to stop acquisition."""
+        logging.info("Closing FMCoincidenceMillingWidget, stopping acquisition if running.")
+
+        if self.microscope.fm is None:
+            event.accept()
+            return
+
+        # Stop live acquisition
+        self.microscope.fm.acquisition_signal.disconnect(self._on_acquisition)
+        if self.microscope.fm.is_acquiring:
+            try:
+                self.microscope.fm.stop_acquisition()
+            except Exception as e:
+                logging.error(f"Error stopping acquisition: {e}")
+            finally:
+                logging.warning("Acquisition stopped due to widget close.")
+
+        event.accept()
 
 def create_widget(microscope: FibsemMicroscope,
                   viewer: napari.Viewer,

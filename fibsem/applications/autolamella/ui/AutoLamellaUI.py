@@ -989,12 +989,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             napari.utils.notifications.show_warning(
                 "Please load an experiment first... [No Experiment Loaded]"
             )
-            return         
-            
+            return
+
         viewer = napari.Viewer(title="AutoLamella FM Acquisition Viewer")
-        self.fm_widget = FMAcquisitionWidget(microscope=self.microscope, 
-                                     viewer=viewer, 
-                                     experiment=self.experiment, 
+        self.fm_widget = FMAcquisitionWidget(microscope=self.microscope,
+                                     viewer=viewer,
+                                     experiment=self.experiment,
                                      parent=self)
         viewer.window.add_dock_widget(self.fm_widget, area="right")
         napari.run(max_loop_level=2)
