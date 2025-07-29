@@ -359,11 +359,6 @@ PARAMETER_MAPPING = {
 # multi-stages
 # advanced settings display
 
-def pretty_name(milling_stage: FibsemMillingStage) -> str:
-    milling_current = milling_stage.milling.milling_current
-    mc = format_value(val=milling_current, unit="A", precision=1)
-    txt = f"{milling_stage.name} - {milling_stage.pattern.name} ({mc})"
-    return txt
 
 class FibsemMillingStageWidget(QWidget):
     _milling_stage_changed = pyqtSignal(FibsemMillingStage)
@@ -456,6 +451,8 @@ class FibsemMillingStageWidget(QWidget):
         self.gridlayout.addWidget(self.lineEdit_milling_stage_name, 0, 1, 1, 1)
         for widget in self._widgets:
             self.gridlayout.addWidget(widget, self.gridlayout.rowCount(), 0, 1, 2)
+            widget.setContentsMargins(0, 0, 0, 0)
+        self.gridlayout.setContentsMargins(0, 0, 0, 0)
 
     def _initialise_widgets(self):
         """Initialise the widgets with the current milling stage settings."""
@@ -799,7 +796,7 @@ class FibsemMillingStageEditorWidget(QWidget):
                  viewer: napari.Viewer,
                  microscope: FibsemMicroscope,
                  milling_stages: List[FibsemMillingStage],
-                 parent=None):
+                 parent: QWidget = None):
         super().__init__(parent)
 
         self.microscope = microscope
@@ -897,6 +894,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             self.main_layout.addWidget(pushButton_show)
         self.main_layout.addLayout(self._grid_layout_checkboxes)
         self.main_layout.addWidget(self.list_widget_milling_stages)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
 
         # connect signals
         self.list_widget_milling_stages.itemSelectionChanged.connect(self._on_selected_stage_changed)
@@ -1007,7 +1005,7 @@ class FibsemMillingStageEditorWidget(QWidget):
                 item = self.list_widget_milling_stages.item(i)
                 # update the text of the item
                 if item:
-                    item.setText(pretty_name(milling_stage))
+                    item.setText(milling_stage.pretty_name)
 
     def _add_milling_stage(self, milling_stage: FibsemMillingStage = None):
         """Add a new milling stage to the editor."""
@@ -1038,7 +1036,7 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         # create related list widget item
         # TODO: migrate to setData, so we can store the milling stage object directly
-        item = QListWidgetItem(pretty_name(milling_stage))
+        item = QListWidgetItem(milling_stage.pretty_name)
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
         item.setCheckState(Qt.Checked)
         self.list_widget_milling_stages.addItem(item)
