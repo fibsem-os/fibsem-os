@@ -38,6 +38,13 @@ def current_timestamp_v2():
     """
     return str(time.time()).replace(".", "_")
 
+def current_timestamp_v3(timeonly: bool = True) -> str:
+    """Return the current time in a specific string formats: HH-MM-SS or YYYY-MM-DD-HH-MM-SSAM/PM"""
+    now = datetime.datetime.now()
+    if timeonly:
+        return now.strftime("%H-%M-%S")
+    return now.strftime("%Y-%m-%d-%I-%M-%S%p")
+
 def _format_time_seconds(seconds: float) -> str:
     """Format a time delta in seconds to proper string format."""
     return str(datetime.timedelta(seconds=seconds)).split(".")[0]

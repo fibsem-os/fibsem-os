@@ -998,7 +998,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         worker = self.run_milling_step(selected_milling_stages)
         worker.finished.connect(self.run_milling_finished)
         worker.start()
-       
+
     @thread_worker
     def run_milling_step(self, milling_stages: List[FibsemMillingStage]) -> None:
         """Threaded worker to run the milling stages."""
@@ -1006,6 +1006,12 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         mill_stages(microscope=self.microscope, 
                             stages=milling_stages, 
                             parent_ui=self)
+        # task based milling interface
+        # from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+        # task_config = FibsemMillingTaskConfig.from_stages(stages=milling_stages)
+        # run_milling_task(microscope=self.microscope,
+        #                  config=task_config,
+        #                  parent_ui=self)
         return
 
     def run_milling_finished(self):

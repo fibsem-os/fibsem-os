@@ -655,7 +655,7 @@ class ImageSettings:
     def to_dict(self) -> dict:
         settings_dict = {
             "beam_type": self.beam_type.name if self.beam_type is not None else None,
-            "resolution": self.resolution if self.resolution is not None else None,
+            "resolution": list(self.resolution) if self.resolution is not None else None,
             "dwell_time": self.dwell_time if self.dwell_time is not None else None,
             "hfw": self.hfw if self.hfw is not None else None,
             "autocontrast": self.autocontrast
@@ -698,7 +698,8 @@ class ImageSettings:
         from fibsem import utils
 
         image_settings = deepcopy(image.metadata.image_settings)
-        image_settings.filename = utils.current_timestamp()
+        if image_settings.filename is None:
+            image_settings.filename = utils.current_timestamp()
         image_settings.save = True
 
         return image_settings

@@ -14,19 +14,11 @@ from skimage.transform import resize
 from fibsem.microscope import (
     FibsemMicroscope,
     ThermoMicroscope,
-    _check_beam,
-    _check_manipulator,
-    _check_manipulator_movement,
-    _check_sputter,
-    _check_stage,
-    _check_stage_movement,
 )
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,
-    BeamSystemSettings,
     BeamType,
-    CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
@@ -114,7 +106,7 @@ class GasInjectionSystem:
     inserted: bool = False
     heated: bool = False
     opened: bool = False
-    position: str = None
+    position: Optional[str] = None
 
     def insert(self):
         self.inserted = True
@@ -318,7 +310,6 @@ class DemoMicroscope(FibsemMicroscope):
             # If both provided, image_settings takes precedence
             image = microscope.acquire_image(image_settings=settings, beam_type=BeamType.ION)  # Uses settings
         """
-        
         # Validate parameters - at least one must be provided
         if image_settings is None and beam_type is None:
             raise ValueError("Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type).")
@@ -328,10 +319,10 @@ class DemoMicroscope(FibsemMicroscope):
             # Use provided image settings
             effective_beam_type = image_settings.beam_type
             effective_image_settings = image_settings
-        else:
+        elif beam_type is not None:
             # Use current settings for the specified beam type
             effective_beam_type = beam_type
-            effective_image_settings = self.get_imaging_settings(beam_type=beam_type)
+            effective_image_settings = self.get_imaging_settings(beam_type=effective_beam_type)
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
 
@@ -410,16 +401,16 @@ class DemoMicroscope(FibsemMicroscope):
                 raise ValueError(f"No image iterator found for beam type {beam_type.name}")
 
             filename = next(image_iterator)
-            
+
             # check if file still exists
             if not os.path.exists(filename):
                 logging.warning(f"Image file not found: {filename}, falling back to random noise")
                 return np.random.randint(0, 256, output_shape, dtype=dtype)
-            
+
             # load and process the image
             logging.debug(f"Generating image from {filename} for beam type {beam_type.name}")
             img = FibsemImage.load(filename)
-            
+
             # resize the image data to the specified resolution
             image_data = resize(
                 img.data, 
@@ -446,14 +437,14 @@ class DemoMicroscope(FibsemMicroscope):
         Falls back to random noise generation if no simulator configuration is provided.
         """
         self.use_image_sequence = False
-        
+
         if self.system.sim is None:
             logging.debug("No simulator configuration found, using random noise generation")
             return
-            
+
         sem_data_path = self.system.sim.get("sem", None)
         fib_data_path = self.system.sim.get("fib", None)
-        
+
         if sem_data_path is None or fib_data_path is None:
             logging.info("SEM or FIB data path not configured in simulator settings, using random noise generation")
             return
@@ -534,7 +525,7 @@ class DemoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
 
-    def autocontrast(self, beam_type: BeamType, reduced_area: FibsemRectangle = None) -> None:
+    def autocontrast(self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None) -> None:
         if reduced_area is not None:
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
@@ -574,8 +565,7 @@ class DemoMicroscope(FibsemMicroscope):
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> None:
         """Move the stage to the specified position."""
-        _check_stage_movement(self.system, position)
-        
+
         # only assign if not None
         if position.x is not None:
             self.stage_system.position.x = position.x
@@ -587,14 +577,14 @@ class DemoMicroscope(FibsemMicroscope):
             self.stage_system.position.r = position.r
         if position.t is not None:
             self.stage_system.position.t = position.t
-        
+
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
         return self.get_stage_position()
 
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by the specified amount."""
-    
+
         self.stage_system.position += position
 
         logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
@@ -603,7 +593,6 @@ class DemoMicroscope(FibsemMicroscope):
 
     def stable_move(self, dx: float, dy:float, beam_type: BeamType, static_wd: bool=False) -> FibsemStagePosition:
         return ThermoMicroscope.stable_move(self, dx, dy, beam_type, static_wd)
-
 
     def vertical_move(self, dy: float, dx:float = 0.0, static_wd: bool=True) -> FibsemStagePosition:
         """Move the stage vertically by the specified amount."""
@@ -623,7 +612,6 @@ class DemoMicroscope(FibsemMicroscope):
 
     def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         """Insert the manipulator to the specified position."""
-        _check_manipulator(self.system)
 
         logging.info(f"Inserting manipulator to {name}...")
         self.move_manipulator_absolute(FibsemManipulatorPosition(x=0, y=0, z=180e-6, r=0, t=0))
@@ -634,28 +622,24 @@ class DemoMicroscope(FibsemMicroscope):
 
     def retract_manipulator(self):
         """Retract the manipulator."""
-        _check_manipulator(self.system)
         logging.info("Retracting manipulator...")
         self.move_manipulator_absolute(FibsemManipulatorPosition(x=0, y=0, z=0, r=0, t=0))
         self.manipulator_system.inserted = False
         logging.debug({"msg": "retract_manipulator"})
 
     def move_manipulator_relative(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
-        _check_manipulator_movement(self.system, position)
         logging.info(f"Moving manipulator: {position} (Relative)")
         self.manipulator_system.position += position
         logging.debug({"msg": "move_manipulator_relative", "position": position.to_dict()})
         return self.get_manipulator_position()
-    
+
     def move_manipulator_absolute(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
-        _check_manipulator(self.system)
         logging.info(f"Moving manipulator: {position} (Absolute)")
         self.manipulator_system.position = position
         logging.debug({"msg": "move_manipulator_absolute", "position": position.to_dict()})
         return self.get_manipulator_position()
-              
+
     def move_manipulator_corrected(self, dx: float, dy: float, beam_type: BeamType) -> FibsemManipulatorPosition:
-        _check_manipulator(self.system)
         logging.info(f"Moving manipulator: dx={dx:.2e}, dy={dy:.2e}, beam_type = {beam_type.name} (Corrected)")
         self.manipulator_system.position.x += dx
         self.manipulator_system.position.y += dy
@@ -663,19 +647,17 @@ class DemoMicroscope(FibsemMicroscope):
         return self.get_manipulator_position()
 
     def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str = None) -> FibsemManipulatorPosition:
-        _check_manipulator(self.system)
         if name is None:
             name = "EUCENTRIC"
 
         position = self._get_saved_manipulator_position(name)
-        
+
         logging.info(f"Moving manipulator: {offset} to {name}")
         self.move_manipulator_absolute(position + offset)
         logging.debug({"msg": "move_manipulator_to_position_offset", "offset": offset.to_dict(), "name": name})
         return self.get_manipulator_position()
 
     def _get_saved_manipulator_position(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        _check_manipulator(self.system)
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"Unknown manipulator position: {name}")
@@ -687,17 +669,15 @@ class DemoMicroscope(FibsemMicroscope):
     def setup_milling(self, mill_settings: FibsemMillingSettings):
         """Setup the milling parameters."""
 
-        _check_beam(mill_settings.milling_channel, self.system)
         self.milling_system.default_application_file = mill_settings.application_file
         self.milling_channel = mill_settings.milling_channel
         self.set_milling_settings(mill_settings=mill_settings)
         self.clear_patterns()
-    
+
         logging.debug({"msg": "setup_milling", "mill_settings": mill_settings.to_dict()})
 
     def run_milling(self, milling_current: float, milling_voltage: float, asynch: bool = False) -> None:
         """Run milling with the specified current and voltage."""
-        _check_beam(BeamType.ION, self.system)
 
         MILLING_SLEEP_TIME = 1
 
@@ -754,8 +734,6 @@ class DemoMicroscope(FibsemMicroscope):
         if self.get_milling_state() is MillingState.IDLE:
             self.milling_system.state = MillingState.RUNNING
             logging.info("Milling started.")
-        else:
-            logging.warning("Milling is already running or paused.")
 
     def stop_milling(self) -> None:
         self.milling_system.state = MillingState.IDLE
@@ -805,7 +783,6 @@ class DemoMicroscope(FibsemMicroscope):
         self.milling_system.patterns.append(pattern_settings)
 
     def setup_sputter(self, protocol: dict) -> None:
-        _check_sputter(self.system)
         logging.info(f"Setting up sputter: {protocol}")
 
     def draw_sputter_pattern(self, hfw: float, line_pattern_length: float, sputter_time: float):
@@ -854,18 +831,15 @@ class DemoMicroscope(FibsemMicroscope):
         return
             
     def run_sputter(self, **kwargs):
-        _check_sputter(self.system)
         logging.info(f"Running sputter: {kwargs}")
 
     def finish_sputter(self, **kwargs):
-        _check_sputter(self.system)
         logging.info(f"Finishing sputter: {kwargs}")
 
     def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, int, float]]:
         """Get the available values for a given key."""
         values = []
         if key == "current":
-
 
             # return values based on beam type, and plasma gas
             if beam_type is BeamType.ION:
@@ -901,7 +875,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return values
 
-    def _get(self, key, beam_type: BeamType = None) -> Union[float, int, bool, str, list]:
+    def _get(self, key, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list]:
         """Get a value from the microscope."""
         # get beam
         if beam_type is not None:
@@ -1025,15 +999,14 @@ class DemoMicroscope(FibsemMicroscope):
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
 
-    def _set(self, key: str, value, beam_type: BeamType = None) -> None:
+    def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
         """Set a property of the microscope."""
-        
+
         # get beam
         if beam_type is not None:
             beam_system = self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system            
             beam = beam_system.beam
             detector = beam_system.detector
-            _check_beam(beam_type, self.system)
 
         # voltage
         if key == "voltage":
@@ -1232,8 +1205,5 @@ class DemoMicroscope(FibsemMicroscope):
         return False
     
     def home(self):
-        _check_stage(self.system)
-        logging.info("Homing Stage")
         self.stage_system.is_homed = True
-        logging.info("Stage homed.")
         return

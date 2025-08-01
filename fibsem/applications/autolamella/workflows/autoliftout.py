@@ -402,7 +402,9 @@ def land_lamella(
     settings.image.save = False
 
     # move to landing coordinate
-    microscope.set_microscope_state(lamella.landing_state)
+    if lamella.landing_pose is None:
+        raise ValueError(f"Landing pose for {lamella.info} is not set. Please set the landing pose before landing the lamella.")
+    microscope.set_microscope_state(lamella.landing_pose)
 
     # align to ref
     log_status_message(lamella, "ALIGN_REF_LANDING")
@@ -1127,7 +1129,6 @@ def select_landing_sample_positions(
     #     msg=f"Select the landing coordinate for {lamella.petname}.",
     #     pos="Continue",
     # )  # enable movement, imaging
-    # lamella.landing_state = microscope.get_microscope_state()
 
     # mill the landing edge flat
     log_status_message(lamella, "SELECT_LANDING_POSITION")
@@ -1147,7 +1148,7 @@ def select_landing_sample_positions(
     
     lamella.protocol["flatten"] = deepcopy(get_protocol_from_stages(stages))
     lamella.protocol["flatten"]["point"] = stages[0].pattern.point.to_dict()
-    lamella.landing_state = microscope.get_microscope_state()
+    lamella.landing_pose = microscope.get_microscope_state()
 
     # take reference images
     log_status_message(lamella, "LANDING_REFERENCE_IMAGES")

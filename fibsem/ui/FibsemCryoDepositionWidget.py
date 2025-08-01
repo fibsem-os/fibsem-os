@@ -1,23 +1,23 @@
 import logging
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+
 import napari
-import napari.utils.notifications
 from PyQt5 import QtWidgets
+
 from fibsem import config as cfg
-from fibsem import constants, conversions, utils
-from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
-from fibsem.structures import MicroscopeSettings, FibsemGasInjectionSettings
-
-from fibsem.ui.qtdesigner_files import FibsemCryoDepositionWidget
-from fibsem import gis
+from fibsem import gis, utils
+from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import FibsemGasInjectionSettings
+from fibsem.ui.qtdesigner_files import (
+    FibsemCryoDepositionWidget as FibsemCryoDepositionWidgetUI,
+)
 
 
-class FibsemCryoDepositionWidget(FibsemCryoDepositionWidget.Ui_Dialog, QtWidgets.QDialog):
+class FibsemCryoDepositionWidget(FibsemCryoDepositionWidgetUI.Ui_Dialog, QtWidgets.QDialog):
     def __init__(
         self,
-        microscope: FibsemMicroscope = None,
-        settings: MicroscopeSettings = None,
+        microscope: FibsemMicroscope,
         parent=None,
     ):
         super(FibsemCryoDepositionWidget, self).__init__(parent=parent)
@@ -25,7 +25,6 @@ class FibsemCryoDepositionWidget(FibsemCryoDepositionWidget.Ui_Dialog, QtWidgets
         self.setWindowTitle("Cryo Deposition")
 
         self.microscope = microscope
-        self.settings = settings
 
         self.setup_connections()
 
@@ -33,7 +32,7 @@ class FibsemCryoDepositionWidget(FibsemCryoDepositionWidget.Ui_Dialog, QtWidgets
 
         self.pushButton_run_sputter.clicked.connect(self.run_sputter)
 
-        positions = utils.load_yaml(cfg.POSITION_PATH)
+        positions = utils.load_yaml(Path(cfg.POSITION_PATH))
         self.comboBox_stage_position.addItems(["Current Position"] + [p["name"] for p in positions])
         available_ports = self.microscope.get_available_values("gis_ports")
         self.comboBox_port.addItems([str(p) for p in available_ports])
@@ -48,8 +47,8 @@ class FibsemCryoDepositionWidget(FibsemCryoDepositionWidget.Ui_Dialog, QtWidgets
         self.comboBox_port.setVisible(not multichem_available)  # gis only
         self.label_port.setVisible(not multichem_available)     # gis only
 
-    def _get_protocol_from_ui(self):
-        
+    def _get_protocol_from_ui(self) -> Dict[str, Union[str, float]]:
+
         protocol = {
             "port": self.comboBox_port.currentText(),
             "gas": self.lineEdit_gas.text(),
@@ -66,18 +65,19 @@ class FibsemCryoDepositionWidget(FibsemCryoDepositionWidget.Ui_Dialog, QtWidgets
         
         gdict = self._get_protocol_from_ui()
         gis_settings = FibsemGasInjectionSettings.from_dict(gdict)
+        name: Optional[str] = gdict["name"]
 
-        if gdict["name"] == "Current Position":
-            gdict["name"] = None
+        if name == "Current Position":
+            name = None
 
-        gis.cryo_deposition_v2(self.microscope, gis_settings, name=gdict["name"])
+        gis.cryo_deposition_v2(self.microscope, gis_settings, name=name)
 
 
 def main():
 
     viewer = napari.Viewer(ndisplay=2)
     microscope, settings = utils.setup_session()
-    cryo_sputter_widget = FibsemCryoDepositionWidget(microscope, settings)
+    cryo_sputter_widget = FibsemCryoDepositionWidget(microscope)
     viewer.window.add_dock_widget(
         cryo_sputter_widget, area="right", add_vertical_stretch=False
     )
@@ -85,4 +85,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()  

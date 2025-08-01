@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemGasInjectionSettings
@@ -15,7 +16,7 @@ gis_protocol = {
 
 def deposit_platinum(
     microscope: FibsemMicroscope,
-    protocol: dict = None,
+    protocol: Optional[dict] = None,
     default_application_file: str = "Si",
 ):
     """Deposit platinum over the sample.
@@ -52,7 +53,7 @@ def deposit_platinum(
     microscope.finish_sputter(application_file=default_application_file)
 
 
-def cryo_deposition(microscope: FibsemMicroscope, protocol: dict = None, name: str = None):
+def cryo_deposition(microscope: FibsemMicroscope, protocol: Optional[dict] = None, name: Optional[str] = None):
 
     # get current position
     position = microscope.get_microscope_state().stage_position
@@ -81,21 +82,24 @@ def cryo_deposition(microscope: FibsemMicroscope, protocol: dict = None, name: s
     # return to previous position
     microscope.safe_absolute_stage_movement(position)
 
-def cryo_deposition_v2(microscope: FibsemMicroscope, gis_settings: FibsemGasInjectionSettings, name: str = None, move_down: bool = True):
+def cryo_deposition_v2(microscope: FibsemMicroscope,
+                       gis_settings: FibsemGasInjectionSettings,
+                       name: Optional[str] = None,
+                       move_down: bool = True):
 
     # get current position
     position = microscope.get_microscope_state().stage_position
 
     # move to deposition position
     if name is not None:
-        
+
         # move to position
         from fibsem import utils
         deposition_position = utils._get_position(name)
-        
+
         if deposition_position is None:
             raise RuntimeError(f"Position {name} requested but not found")
-        
+
         logging.info(f"Moving to depositon position: {name}")
         microscope.safe_absolute_stage_movement(deposition_position)
 

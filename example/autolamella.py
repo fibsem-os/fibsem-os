@@ -4,31 +4,29 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from pprint import pprint
-
-import numpy as np
-from fibsem import acquire, alignment, milling, utils
-from fibsem.milling.base import get_milling_stages
-from fibsem.structures import BeamType, MicroscopeState,  FibsemImage, FibsemStagePosition
 from typing import List
+
+from fibsem import acquire, alignment, utils
+from fibsem.applications.autolamella.config import PROTOCOL_PATH
+from fibsem.milling.base import get_milling_stages
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemStagePosition,
+    MicroscopeState,
+)
+
 
 @dataclass
 class Lamella:
     state: MicroscopeState
     reference_image: FibsemImage
     path: Path
+    num: int
 
 def main():
-
-    PROTOCOL_PATH = os.path.join(os.path.dirname(__file__), "protocol_autolamella.yaml")
-    microscope, settings = utils.setup_session(protocol_path=PROTOCOL_PATH)
     
-    # move to the milling angle
-    stage_position = FibsemStagePosition(
-        r=np.deg2rad(settings.protocol["stage_rotation"]),
-        t=np.deg2rad(settings.protocol["stage_tilt"])
-    )
-    microscope.move_stage_absolute(stage_position) # do need a safe version?
+    microscope, settings = utils.setup_session(protocol_path=PROTOCOL_PATH)
 
     # take a reference image    
     settings.image.filename = "grid_reference"
@@ -53,13 +51,14 @@ def main():
             # set filepaths
             path = os.path.join(base_path, f"{lamella_no:02d}")
             settings.image.path = path
-            settings.image.filename = f"ref_lamella"
+            settings.image.filename = "ref_lamella"
             acquire.take_reference_images(microscope, settings.image)
 
             lamella = Lamella(
                 state=microscope.get_microscope_state(),
                 reference_image=acquire.new_image(microscope, settings.image),
-                path = path
+                path=path,
+                num=lamella_no
             )
             experiment.append(lamella)
             lamella_no += 1
@@ -68,19 +67,18 @@ def main():
 
     # sanity check
     if len(experiment) == 0:
-        logging.info(f"No lamella positions selected. Exiting.")
+        logging.info("No lamella positions selected. Exiting.")
         return
 
-    # mill (rough, thin, polish)
-    workflow_stages = ["rough", "thin", "polish"]
+    # mill (rough, polish)
+    workflow_stages = ["mill_rough", "mill_polishing"]
     for stage_no, stage_name in enumerate(workflow_stages):
         
         logging.info(f"Starting milling stage {stage_no}")
 
-        lamella: Lamella
-        for lamella_no, lamella in enumerate(experiment):
+        for lamella in experiment:
 
-            logging.info(f"Starting lamella {lamella_no:02d}")
+            logging.info(f"Starting lamella {lamella.num:02d}")
 
             # return to lamella
             microscope.set_microscope_state(lamella.state)
@@ -89,24 +87,26 @@ def main():
             alignment.beam_shift_alignment_v2(microscope, lamella.reference_image)
                        
             if stage_no == 0:
-                microexpansion_stage = get_milling_stages("microexpansion", settings.protocol)
-                milling.mill_stage(microscope, microexpansion_stage[0])
+                microexpansion_stage = get_milling_stages("microexpansion", settings.protocol["milling"])
+                microexpansion_stage[0].run(microscope)
 
             # get trench milling pattern, and mill
-            trench_stage = get_milling_stages("lamella", settings.protocol)[stage_no]
-            milling.mill_stage(microscope, trench_stage)
+            milling_stages = get_milling_stages(stage_name, settings.protocol["milling"])
+            for milling_stage in milling_stages:
+                logging.info(f"Running milling stage {milling_stage.name} for lamella {lamella.num:02d}")
+                milling_stage.run(microscope)
 
             # retake reference image
             settings.image.path = lamella.path
             settings.image.filename = f"ref_mill_stage_{stage_no:02d}"
             lamella.reference_image = acquire.new_image(microscope, settings.image)
 
-            if stage_no == 3:
+            if stage_no == len(workflow_stages) - 1:
                 # take final reference images
-                settings.image.filename = f"ref_final"
+                settings.image.filename = "ref_final"
                 acquire.take_reference_images(microscope, settings.image)
-   
-    logging.info(f"Finished autolamella: {settings.protocol['name']}")
+
+    logging.info(f"Finished autolamella example. {len(experiment)} lamellas processed.")
 
 
 if __name__ == "__main__":

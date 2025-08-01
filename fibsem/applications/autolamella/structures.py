@@ -3,31 +3,16 @@ import os
 import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 import pandas as pd
 import petname
 import yaml
-from fibsem.utils import format_duration
-from fibsem.milling import (
-    FibsemMillingStage,
-    get_milling_stages,
-    get_protocol_from_stages,
-    estimate_total_milling_time,
-)
-from fibsem.structures import (
-    FibsemImage,
-    FibsemRectangle,
-    MicroscopeState,
-    ReferenceImages,
-    MicroscopeSettings,
-    FibsemStagePosition,
-)
-from fibsem.utils import configure_logging
+from psygnal import evented
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.validation import (
@@ -39,6 +24,23 @@ from fibsem.applications.autolamella.protocol.validation import (
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
+from fibsem.milling import (
+    FibsemMillingStage,
+    estimate_total_milling_time,
+    get_milling_stages,
+    get_protocol_from_stages,
+)
+from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.structures import (
+    FibsemImage,
+    FibsemRectangle,
+    FibsemStagePosition,
+    ImageSettings,
+    MicroscopeSettings,
+    MicroscopeState,
+    ReferenceImages,
+)
+from fibsem.utils import configure_logging, format_duration
 
 
 class AutoLamellaStage(Enum):
@@ -118,33 +120,239 @@ class LamellaState:
             end_timestamp=data["end_timestamp"]
         )
 
-# TODO: 
-# remove number, use petname instead
-# consolidate history, states, and landing_state, states, positions, poses...
-# migrate to Defect structure instead of is_failure, failure_note, failure_timestamp
 
-# QUERY:
-# should objective_position be part of microscope_state?
-# need to be very careful as it could be set to different values in different states
 
+
+
+
+@evented
+@dataclass
+class AutoLamellaTaskState:
+    name: str = "NULL"
+    step: str = "NULL"
+    task_id: str = "NULL"
+    lamella_id: str = "NULL"
+    start_timestamp: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+    end_timestamp: Optional[float] = None
+
+    @property
+    def completed(self) -> str:
+        return f"{self.name} ({self.completed_at})"
+
+    @property
+    def completed_at(self) -> str:
+        if self.end_timestamp is None:
+            return "in progress"
+        return datetime.fromtimestamp(self.end_timestamp).strftime('%I:%M%p')
+
+    @property
+    def started_at(self) -> str:
+        return datetime.fromtimestamp(self.start_timestamp).strftime('%I:%M%p')
+
+    @property
+    def duration(self) -> float:
+        if self.end_timestamp is None:
+            return 0
+        return self.end_timestamp - self.start_timestamp
+
+    @property
+    def duration_str(self) -> str:
+        return format_duration(self.duration)
+
+    def to_dict(self) -> dict:
+        """Convert the task state to a dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'AutoLamellaTaskState':
+        """Create a task state from a dictionary."""
+        if data is None:
+            return cls()
+        return cls(**data)
+
+@dataclass
+class AutoLamellaTaskConfig(ABC):
+    """Configuration for AutoLamella tasks."""
+    task_name: ClassVar[str]
+    display_name: ClassVar[str]
+    supervise: bool = True
+    imaging: ImageSettings = field(default_factory=ImageSettings)
+    milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
+    # requires: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Convert configuration to a dictionary."""
+        ddict = asdict(self)
+        ddict["imaging"] = self.imaging.to_dict()
+        ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
+        return ddict
+
+    @classmethod
+    def from_dict(cls, ddict: Dict[str, Any]) -> 'AutoLamellaTaskConfig':
+        kwargs = {}
+
+        for f in fields(cls):
+            if f.name in ddict:
+                kwargs[f.name] = ddict[f.name]
+
+        # unroll the parameters dictionary
+        if "parameters" in ddict and ddict["parameters"] is not None:                
+            for key, value in ddict["parameters"].items():
+                if key in cls.__annotations__:
+                    kwargs[key] = value
+                else:
+                    # QUERY: should we raise an error here or just ignore unknown parameters?
+                    raise ValueError(f"Unknown parameter '{key}' in task configuration.")
+
+        if "imaging" in ddict:
+            kwargs["imaging"] = ImageSettings.from_dict(ddict["imaging"])
+        if "milling" in ddict:
+            kwargs["milling"] = {
+                k: FibsemMillingTaskConfig.from_dict(v) for k, v in ddict["milling"].items()
+            }
+
+        return cls(**kwargs)
+
+@evented
+@dataclass
+class AutoLamellaTaskDescription:
+    name: str
+    supervise: bool
+    required: bool
+    requires: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskDescription':
+        if data is None:
+            return cls(name="", supervise=False, required=False, requires=[])
+        return cls(**data)
+
+@evented
+@dataclass
+class AutoLamellaWorkflowConfig:
+    name: str = ""
+    description: str = ""
+    tasks: List[AutoLamellaTaskDescription] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        ddict = asdict(self)
+        ddict["tasks"] = [task.to_dict() for task in self.tasks]
+        return ddict
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaWorkflowConfig':
+        tasks = [AutoLamellaTaskDescription.from_dict(task) for task in data.get("tasks", [])]
+        return cls(
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            tasks=tasks
+        )
+
+    @property
+    def workflow(self) -> List[str]:
+        return [task.name for task in self.tasks]
+
+    @property
+    def required_tasks(self) -> List[str]:
+        """Get the list of required tasks for this workflow."""
+        return [task.name for task in self.tasks if task.required]
+
+    def requires(self, task_name: str) -> List[str]:
+        for task in self.tasks:
+            if task.name == task_name:
+                return task.requires
+        return []
+
+    def get_completed_tasks(self, lamella: 'Lamella') -> List[str]:
+        """Get the list of completed tasks for a given lamella."""
+        completed_tasks = []
+        for task in lamella.task_history:
+            if task.name in self.workflow:
+                completed_tasks.append(task.name)
+        return completed_tasks
+
+    def get_remaining_tasks(self, lamella: 'Lamella') -> List[str]:
+        """Get the list of remaining tasks for a given lamella."""
+        remaining_tasks = []
+        completed_tasks = self.get_completed_tasks(lamella)
+        for task in self.required_tasks:
+            if task not in completed_tasks:
+                remaining_tasks.append(task)
+        return remaining_tasks
+
+    def is_completed(self, lamella: 'Lamella') -> bool:
+        """Check if all required tasks for the workflow are completed."""
+        completed_tasks = self.get_completed_tasks(lamella)
+        for task in self.required_tasks:
+            if task not in completed_tasks:
+                return False
+        return True
+
+@evented
+@dataclass
+class AutoLamellaTaskProtocol:
+    task_config: Dict[str, AutoLamellaTaskConfig] = field(default_factory=dict)
+    workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
+            "workflow": self.workflow_config.to_dict()
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskProtocol':
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
+        task_config = load_task_config(data.get("tasks", {}))
+        workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
+        return cls(task_config=task_config, workflow_config=workflow_config)
+
+    @classmethod
+    def load(cls, filename: str) -> 'AutoLamellaTaskProtocol':
+        with open(filename, 'r') as file:
+            data = yaml.safe_load(file)
+        return cls.from_dict(data)
+
+
+@dataclass
+class DefectState:
+    has_defect: bool = False
+    description: str = ""
+    updated_at: Optional[float] = None
+
+    def to_dict(self) -> dict:
+        """Convert the defect state to a dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'DefectState':
+        """Create a defect state from a dictionary."""
+        return cls(**data)
+
+@evented
 @dataclass
 class Lamella:
     path: Path
-    state: LamellaState
-    number: int
+    state: LamellaState                                                     # TODO: deprecate, use poses instead
+    number: int                                                             # TODO: deprecate, use petname instead
     petname: str
-    protocol: dict
-    is_failure: bool = False
-    failure_note: str = ""
-    failure_timestamp: Optional[float] = None
+    protocol: dict                                                          # TODO: deprecate, use task_config instead
+    is_failure: bool = False                                                # TODO: deprecate, use DefectState instead
+    failure_note: str = ""                                                  # TODO: deprecate, use DefectState instead
+    failure_timestamp: float = None                                         # TODO: deprecate, use DefectState instead
     alignment_area: FibsemRectangle = field(default_factory=FibsemRectangle)
-    landing_selected: bool = False
-    landing_state: Optional[MicroscopeState] = None
-    history: List[LamellaState] = field(default_factory=list)
-    milling_workflows: Optional[Dict[str, List[FibsemMillingStage]]] = None
-    states: Dict[AutoLamellaStage, LamellaState] = field(default_factory=dict)
+    history: List[LamellaState] = None                                      # TODO: deprecate, use task_history instead
+    milling_workflows: Dict[str, List[FibsemMillingStage]] = None           # TODO: deprecate, use task_config instead
+    states: Dict[AutoLamellaStage, LamellaState] = None                     # TODO: deprecate, use task_history instead
     _id: str = str(uuid.uuid4())
-    objective_position: Optional[float] = None
+    task_config: Dict[str, 'AutoLamellaTaskConfig'] = field(default_factory=dict)
+    poses: Dict[str, MicroscopeState] = field(default_factory=dict)
+    task: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
+    task_history: List['AutoLamellaTaskState'] = field(default_factory=list)
+    defect: DefectState = field(default_factory=DefectState)
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -156,7 +364,7 @@ class Lamella:
             self.protocol = {}
 
         # set imaging paths to be the lamella path unless already set
-        for k, v in self.protocol.items(): # Dict[str, List[Dict]]
+        for k, v in self.protocol.items():  # Dict[str, List[Dict]]
             for stage in v:
                 if stage.get("imaging", {}).get("path", None) is None:
                     stage["imaging"]["path"] = self.path
@@ -168,6 +376,12 @@ class Lamella:
         # TODO: add multiple positions for milling, landing, etc. 
         # rather than explicit states
         # self.positions: Dict[str, MicroscopeState] = {}
+        self.task.lamella_id = self._id
+
+        # assign the imaging path to the task config
+        for task_name, tc in self.task_config.items():
+            for name, milling_task_config in tc.milling.items():
+                milling_task_config.acquisition.imaging.path = self.path
 
     @property
     def finished(self) -> bool:
@@ -205,9 +419,47 @@ class Lamella:
     def stage_position(self) -> FibsemStagePosition:
         return self.state.microscope_state.stage_position
 
-    @stage_position.setter
-    def stage_position(self, value: FibsemStagePosition):
-        self.state.microscope_state.stage_position = value
+    def has_completed_task(self, task_name: str) -> bool:
+        """Check if the lamella has completed a specific task."""
+        return task_name in self.completed_tasks
+
+    @property
+    def completed_tasks(self) -> List[str]:
+        """Return a list of completed task names."""
+        return [task.name for task in self.task_history]
+
+    @property
+    def last_completed_task(self) -> Optional['AutoLamellaTaskState']:
+        """Return the last completed task state."""
+        if self.task_history:
+            return self.task_history[-1]
+        return None
+
+    @property
+    def landing_selected(self) -> bool:
+        return self.landing_pose is not None
+
+    @property
+    def landing_pose(self) -> Optional[MicroscopeState]:
+        return self.poses.get("LANDING", None)
+
+    @landing_pose.setter
+    def landing_pose(self, value: MicroscopeState):
+        """Set the landing pose for the lamella."""
+        if not isinstance(value, MicroscopeState):
+            raise TypeError("Landing pose must be a MicroscopeState instance.")
+        self.poses["LANDING"] = value
+
+    @property
+    def milling_pose(self) -> Optional[MicroscopeState]:
+        return self.poses.get("MILLING", None)
+
+    @milling_pose.setter
+    def milling_pose(self, value: MicroscopeState):
+        """Set the milling pose for the lamella."""
+        if not isinstance(value, MicroscopeState):
+            raise TypeError("Milling pose must be a MicroscopeState instance.")
+        self.poses["MILLING"] = value
 
     def to_dict(self):
         return {
@@ -221,11 +473,13 @@ class Lamella:
             "is_failure": self.is_failure,
             "failure_note": self.failure_note,
             "failure_timestamp": self.failure_timestamp,
-            "landing_state": self.landing_state.to_dict() if self.landing_state is not None else None,
-            "landing_selected": self.landing_selected,
             "id": str(self._id),
             "states": {k.name: v.to_dict() for k, v in self.states.items()},
-            "objective_position": self.objective_position,
+            "poses": {k: v.to_dict() for k, v in self.poses.items()},
+            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
+            "task": self.task.to_dict() if self.task is not None else None,
+            "task_history": [task.to_dict() for task in self.task_history],
+            "defect": self.defect.to_dict() if self.defect is not None else None,
         }
 
     @property
@@ -259,7 +513,9 @@ class Lamella:
 
         # convert old milling protocol to new protocol
         if "lamella" in protocol or "MillRoughCut" in protocol:
-            from fibsem.applications.autolamella.protocol.validation import convert_old_milling_protocol_to_new_protocol
+            from fibsem.applications.autolamella.protocol.validation import (
+                convert_old_milling_protocol_to_new_protocol,
+            )
             nprotocol = convert_old_milling_protocol_to_new_protocol(protocol)
             if "MillRoughCut" in nprotocol:
                 nprotocol[MILL_ROUGH_KEY] = nprotocol.pop("MillRoughCut")
@@ -272,10 +528,7 @@ class Lamella:
 
             protocol = deepcopy(nprotocol)
 
-        landing_state = None
-        landing_state_ddict = data.get("landing_state", None)
-        if landing_state_ddict is not None:
-            landing_state = MicroscopeState.from_dict(landing_state_ddict)
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
 
         return cls(
             petname=data["petname"],
@@ -288,11 +541,13 @@ class Lamella:
             is_failure=data.get("is_failure", data.get("is_failure", False)),
             failure_note=data.get("failure_note", ""),
             failure_timestamp=data.get("failure_timestamp", None),
-            landing_state=landing_state,
-            landing_selected=bool(data.get("landing_selected", False)),
             _id=data.get("id", None),
             states=states,
-            objective_position=data.get("objective_position", None),
+            poses = {k: MicroscopeState.from_dict(v) for k, v in data.get("poses", {}).items()},
+            task_config=load_task_config(data.get("task_config", {})),
+            task=AutoLamellaTaskState.from_dict(data.get("task", {})),
+            task_history=[AutoLamellaTaskState.from_dict(task) for task in data.get("task_history", [])],
+            defect=DefectState.from_dict(data.get("defect", {})),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -368,6 +623,8 @@ def create_new_experiment(path: Path, name: str, method: str = "autolamella-on-g
 
     return experiment
 
+@evented
+@dataclass
 class Experiment: 
     def __init__(self, path: Path, 
                  name: str = cfg.EXPERIMENT_NAME, 
@@ -382,6 +639,7 @@ class Experiment:
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.method: AutoLamellaMethod = get_autolamella_method(method)
+        self.task_protocol: AutoLamellaTaskProtocol
 
     def to_dict(self) -> dict:
 
@@ -396,7 +654,7 @@ class Experiment:
         }
 
         return state_dict
-    
+
     @classmethod
     def from_dict(cls, ddict: dict) -> 'Experiment':
 
@@ -459,18 +717,6 @@ class Experiment:
                 "failure_note": lamella.failure_note,
                 "failure_timestamp": lamella.failure_timestamp,
             }
-
-            if self.method.is_liftout and lamella.landing_state is not None:
-                ldict.update({
-                    "landing.x": lamella.landing_state.stage_position.x,
-                    "landing.y": lamella.landing_state.stage_position.y,
-                    "landing.z": lamella.landing_state.stage_position.z,
-                    "landing.r": lamella.landing_state.stage_position.r,
-                    "landing.t": lamella.landing_state.stage_position.t,
-                    "landing.coordinate_system": lamella.landing_state.stage_position.coordinate_system,
-                    "landing_selected": lamella.landing_selected,
-                    "history: ": len(lamella.history),}
-                )
 
             exp_data.append(ldict)
 
@@ -682,6 +928,77 @@ class Experiment:
 
         self.positions.append(deepcopy(lamella))
         logging.info(f"Added lamella {lamella.name} to experiment {self.name}")
+
+
+###### TASK REFACTORING ##########
+
+    def add_new_lamella(self, state: LamellaState,
+                        task_config: Dict[str, AutoLamellaTaskConfig],
+                        name: Optional[str] = None) -> None:
+        """Create a new lamella and add it to the experiment."""
+        # create the petname and path
+        number = len(self.positions) + 1
+        if name is None:
+            name = f"{number:02d}-{petname.generate(2)}"
+        path = Path(os.path.join(self.path, name))
+
+        # create the lamella
+        lamella = Lamella(petname=name,
+                          path=path,
+                          number=number, 
+                          state=state,
+                          protocol={},
+                          task_config=task_config)
+
+        # create the lamella directory
+        os.makedirs(lamella.path, exist_ok=True)
+
+        logging.info(f"Created new lamella {lamella.name} at {lamella.path}")
+
+        self.add_lamella(lamella)
+
+    def task_history_dataframe(self) -> pd.DataFrame:
+        """Create a dataframe with the history of all tasks."""
+        history: List[dict[Any, Any]] = []
+        for pos in self.positions:
+            name = pos.name
+
+            for task in pos.task_history:
+                ddict = {
+                    "lamella_name": name,
+                    "lamella_id": task.lamella_id,
+                    "task_name": task.name,
+                    "task_id": task.task_id,
+                    "start_timestamp": task.start_timestamp,
+                    "end_timestamp": task.end_timestamp,
+                    "duration": task.duration,
+                }
+                history.append(deepcopy(ddict))
+
+        df_task_history = pd.DataFrame.from_dict(history)
+        return df_task_history
+    
+    def experiment_summary_dataframe(self) -> pd.DataFrame:
+        """Create a summary dataframe of the experiment."""
+        edict = []
+        for p in self.positions:
+            ddict = {
+                "experiment_name": self.name,
+                "experiment_path": self.path,
+                "experiment_created_at": self.created_at,
+                "experiment_id": self._id,
+                "lamella_name": p.name,
+                "lamella_id": p._id,
+                "last_completed": p.last_completed_task.name if p.last_completed_task else None,
+                "last_completed_at": p.last_completed_task.completed_at if p.last_completed_task else None,
+                "is_completed": self.task_protocol.workflow_config.is_completed(p),
+                "is_failure": p.is_failure,
+            }
+            edict.append(deepcopy(ddict))
+
+        df = pd.DataFrame(edict)
+
+        return df
 
 ########## PROTOCOL V2 ##########
 
@@ -1020,7 +1337,9 @@ class AutoLamellaProtocol(FibsemProtocol):
 
         tmp_ddict = deepcopy(ddict)
         try:
-            from fibsem.applications.autolamella.protocol.validation import validate_and_convert_protocol
+            from fibsem.applications.autolamella.protocol.validation import (
+                validate_and_convert_protocol,
+            )
             ddict = validate_and_convert_protocol(ddict)
         except Exception as e:
             logging.debug(f"Error converting protocol: {e}")

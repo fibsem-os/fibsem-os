@@ -82,8 +82,8 @@ def is_close_to_milling_angle(
         milling_angle, pretilt=pretilt, column_tilt=column_tilt
     )
     logging.info(
-        f"The current stage tilt is {np.rad2deg(stage_tilt):.2f} deg, "
-        f"the stage tilt for the milling angle is {np.rad2deg(stage_tilt):.2f} deg"
+        f"The current stage tilt is {np.degrees(current_stage_tilt):.2f} deg, "
+        f"the stage tilt for the milling angle is {np.degrees(stage_tilt):.2f} deg"
     )
     return np.isclose(stage_tilt, current_stage_tilt, atol=atol)
 
@@ -96,7 +96,7 @@ def move_to_milling_angle(
     """Move the stage to the milling angle, based on the current pretilt and column tilt."""
 
     if rotation is None:
-        rotation = microscope.system.stage.rotation_reference
+        rotation = np.radians(microscope.system.stage.rotation_reference)
 
     # calculate the stage tilt from the milling angle
     stage_tilt = get_stage_tilt_from_milling_angle(microscope, milling_angle)

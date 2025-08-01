@@ -75,6 +75,8 @@ MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
 )
 
+# Alignment reference image filename
+REFERENCE_FILENAME = "alignment_reference"
 
 
 os.makedirs(LOG_PATH, exist_ok=True)

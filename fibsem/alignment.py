@@ -1,9 +1,11 @@
 import logging
+import time
 from typing import Optional, Tuple, Union
 
 import numpy as np
 
 from fibsem import acquire, utils, validation
+from fibsem.config import REFERENCE_FILENAME
 from fibsem.imaging import masks
 from fibsem.imaging import utils as image_utils
 from fibsem.microscope import FibsemMicroscope
@@ -15,6 +17,7 @@ from fibsem.structures import (
     MicroscopeSettings,
     ReferenceImages,
 )
+
 
 def auto_eucentric_correction(
     microscope: FibsemMicroscope,
@@ -71,23 +74,31 @@ def beam_shift_alignment_v2(
 
     """
 
-    import time
     time.sleep(2) # threading is too fast?
     image_settings = ImageSettings.fromFibsemImage(ref_image)
     image_settings.autocontrast = use_autocontrast
     image_settings.save = True
-    image_settings.filename = f"beam_shift_alignment_{utils.current_timestamp_v2()}"
+
+    # use the same named prefix for the filename for traceability (if possible)
+    if REFERENCE_FILENAME in image_settings.filename:
+        # get everything before "alignment_reference"
+        prefix = image_settings.filename.split(REFERENCE_FILENAME)[0]
+        image_settings.filename = f"{prefix}beam_shift_alignment_{utils.current_timestamp_v3(timeonly=True)}"
+    else:
+        image_settings.filename = f"beam_shift_alignment_{utils.current_timestamp_v2()}"
 
     # set alignment current
     if alignment_current is not None:
         initial_current = microscope.get("current", image_settings.beam_type)
         microscope.set("current", alignment_current, image_settings.beam_type)
 
-    new_image = acquire.new_image(
-        microscope, settings=image_settings
-    )
+    new_image = acquire.new_image(microscope, settings=image_settings)
     dx, dy, _ = shift_from_crosscorrelation(
-        ref_image, new_image, lowpass=50, highpass=4, sigma=5, use_rect_mask=True
+        ref_image, new_image,
+        lowpass=50,
+        highpass=4,
+        sigma=5,
+        use_rect_mask=True
     )
 
     # adjust beamshift
@@ -485,7 +496,7 @@ def multi_step_alignment_v2(
     microscope: FibsemMicroscope,
     ref_image: FibsemImage,
     beam_type: BeamType,
-    alignment_current: float = None,
+    alignment_current: Optional[float] = None,
     steps: int = 3,
     use_autocontrast: bool = False,
     subsystem: Optional[str] = None,

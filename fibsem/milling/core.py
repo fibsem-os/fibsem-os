@@ -7,12 +7,8 @@ from fibsem import acquire, config as fcfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
-    FibsemBitmapSettings,
-    FibsemCircleSettings,
     FibsemImage,
-    FibsemLineSettings,
     FibsemPatternSettings,
-    FibsemRectangleSettings,
     ImageSettings,
     BeamType,
 )
@@ -68,6 +64,7 @@ def run_milling(
         milling_current (float, optional): ion beam milling current. Defaults to None.
         asynch (bool, optional): flag to run milling asynchronously. Defaults to False.
     """
+    logging.warning("DEPRECATED: run_milling is deprecated, use microscope.run_milling instead.")
     microscope.run_milling(milling_current, milling_voltage, asynch)
 
 def finish_milling(
@@ -76,68 +73,21 @@ def finish_milling(
     """Clear milling patterns, and restore to the imaging current.
 
     Args:
-        microscope (FIbsemMicroscope): Fibsem microscope instance
+        microscope (FibsemMicroscope): Fibsem microscope instance
         imaging_current (float, optional): Imaging Current. Defaults to 20e-12.
         imaging_voltage: Imaging Voltage. Defaults to 30e3.
     """
     # restore imaging current
-    logging.info(f"Changing to Imaging Current: {imaging_current:.2e}")
+    logging.warning("DEPRECATED: finish_milling is deprecated, use microscope.finish_milling instead.")
     microscope.finish_milling(imaging_current=imaging_current, imaging_voltage=imaging_voltage)
-    logging.info("Finished Ion Beam Milling.")
 
 def draw_patterns(microscope: FibsemMicroscope, patterns: List[FibsemPatternSettings]) -> None:
-    """Draw milling patterns on the microscope from the list of settings
-    Args:
-        microscope (FibsemMicroscope): Fibsem microscope instance
-        patterns (List[FibsemPatternSettings]): List of milling patterns
-    """
-    for pattern in patterns:
-        draw_pattern(microscope, pattern)
-
-        
+    logging.warning("DEPRECATED: draw_patterns is deprecated, use microscope.draw_patterns instead.")
+    microscope.draw_patterns(patterns)
+       
 def draw_pattern(microscope: FibsemMicroscope, pattern: FibsemPatternSettings):
-    """Draw a milling pattern from settings
-
-    Args:
-        microscope (FibsemMicroscope): Fibsem microscope instance
-        pattern_settings (FibsemPatternSettings): pattern settings
-    """
-    if isinstance(pattern, FibsemRectangleSettings):
-        microscope.draw_rectangle(pattern)
-
-    elif isinstance(pattern, FibsemLineSettings):
-        microscope.draw_line(pattern)
-
-    elif isinstance(pattern, FibsemCircleSettings):
-        microscope.draw_circle(pattern)
-
-    elif isinstance(pattern, FibsemBitmapSettings):
-        microscope.draw_bitmap_pattern(pattern, pattern.path)
-
-def convert_to_bitmap_format(path):
-    import os
-
-    from PIL import Image
-    img=Image.open(path)
-    a=img.convert("RGB", palette=Image.ADAPTIVE, colors=8)
-    new_path = os.path.join(os.path.dirname(path), "24bit_img.tif")
-    a.save(new_path)
-    return new_path
-
-
-def mill_stage(microscope: FibsemMicroscope, stage: FibsemMillingStage, asynch: bool=False):
-    logging.warning("mill_stage will be deprecated in the next version. Use mill_stages instead.")
-    # set up milling
-    setup_milling(microscope, milling_stage=stage)
-
-    # draw patterns
-    for pattern in stage.pattern.define():
-        draw_pattern(microscope, pattern)
-
-    run_milling(microscope=microscope, 
-        milling_current=stage.milling.milling_current, 
-        milling_voltage=stage.milling.milling_voltage, 
-        asynch=asynch)
+    logging.warning("DEPRECATED: draw_pattern is deprecated, use microscope.draw_pattern instead.")
+    microscope.draw_pattern(pattern)
 
 def mill_stages(
     microscope: FibsemMicroscope,
@@ -166,7 +116,7 @@ def mill_stages(
             microscope=microscope, milling_stage=stages[0]
         )
 
-        initial_beam_shift = microscope.get("shift", beam_type=stages[0].milling.milling_channel)
+        initial_beam_shift = microscope.get_beam_shift(beam_type=stages[0].milling.milling_channel)
 
         # TODO: reset beam shift after aligning at milling current
 
@@ -224,7 +174,7 @@ def mill_stages(
         )
         # restore initial beam shift
         if initial_beam_shift:
-            microscope.set(key="shift", value=initial_beam_shift, beam_type=BeamType.ION)
+            microscope.set_beam_shift(initial_beam_shift, beam_type=BeamType.ION)
         if hasattr(microscope, "milling_progress_signal"):
             microscope.milling_progress_signal.disconnect(_handle_progress)
 

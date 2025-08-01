@@ -851,7 +851,6 @@ def run_serial_liftout_landing(
     # move to landing position
     log_status_message(lamella, "MOVING_TO_LANDING_POSITION")
     update_status_ui(parent_ui, "Moving to Landing Position...")   
-    # microscope.set_microscope_state(lamella.landing_state)
 
     # take images, 
     log_status_message(lamella, "REFERENCE_IMAGES")
@@ -991,14 +990,10 @@ def create_lamella_at_landing(microscope: FibsemMicroscope,
     log_status_message(lamella, "CREATION")
 
     # set state
-    # lamella.state.stage = AutoLamellaStage.LiftoutLamella
-    # lamella.state.microscope_state = microscope.get_microscope_state()
-    # lamella.state.microscope_state.stage_position = deepcopy(positions[land_idx])
-    # lamella.landing_state = deepcopy(lamella.state.microscope_state)
-    lamella.landing_selected = True
+    lamella.landing_pose = deepcopy(lamella.state.microscope_state)
 
     print("LANDING POSITION")
-    pprint(lamella.state.microscope_state.stage_position)
+    pprint(lamella.landing_pose)
     print("---------")
 
     return lamella

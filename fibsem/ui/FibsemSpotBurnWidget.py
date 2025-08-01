@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 
 import napari
 import napari.utils.notifications
@@ -32,8 +32,8 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.worker: FunctionWorker = None
 
         # napari layers
-        self.pts_layer: NapariPointsLayer = None
-        self.image_layer: NapariImageLayer = None
+        self.pts_layer: Optional[NapariPointsLayer] = None
+        self.image_layer: Optional[NapariImageLayer] = None
 
         self.setup_connections()
 
@@ -122,7 +122,10 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
             return
 
         # get the fib image parameters
-        self.image_layer: NapariImageLayer = self.parent.image_widget.ib_layer
+        self.image_layer = self.parent.image_widget.ib_layer
+        if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
+            napari.utils.notifications.show_warning("No FIB image layer found.")
+            return
         layer_translated = self.pts_layer.data - self.image_layer.translate
         image_shape = self.image_layer.data.shape
 

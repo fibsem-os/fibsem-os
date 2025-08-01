@@ -17,7 +17,6 @@ import napari.utils.notifications
 import fibsem
 from fibsem import utils
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.imaging.spot import run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import get_milling_stages, get_protocol_from_stages
 from fibsem.structures import (
@@ -185,7 +184,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.WAITING_FOR_UI_UPDATE: bool = False
         self.is_milling: bool = False
         self.WORKFLOW_IS_RUNNING: bool = False
-        self.STOP_WORKFLOW: bool = False
+        self._workflow_stop_event: threading.Event = threading.Event()
 
         # setup connections
         self.setup_connections()
@@ -361,95 +360,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
     def _spot_burn_workflow_errored(self):
         logging.error("Spot burn workflow failed.")
         self.set_spot_burn_widget_active(active=False)
-
-    def run_spot_burns(self):
-        # DEPRECATED
-        """Run the spot burning tool"""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Spot Burn Parameters")
-        dialog.setGeometry(100, 100, 300, 200)
-
-        layout = QtWidgets.QVBoxLayout(dialog)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-        layout.addWidget(QtWidgets.QLabel("Spot Burn Parameters"))
-        layout.addWidget(QtWidgets.QLabel("Exposure Time (s)"))
-        exposure_time_input = QtWidgets.QDoubleSpinBox(dialog)
-        exposure_time_input.setRange(0, 10000)
-        exposure_time_input.setValue(10)
-        exposure_time_input.setSuffix(" s")
-
-        layout.addWidget(exposure_time_input)
-        layout.addWidget(QtWidgets.QLabel("Milling Current (pA)"))
-        milling_current_input = QtWidgets.QDoubleSpinBox(dialog)
-        milling_current_input.setRange(0, 500)
-        milling_current_input.setValue(60)
-        milling_current_input.setSuffix(" pA")
-        layout.addWidget(milling_current_input)
-
-        # add standard buttons
-        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, dialog)
-        button_box.button(QtWidgets.QDialogButtonBox.Ok).setText("Run Spot Burn")
-        button_box.setContentsMargins(0, 0, 0, 0)
-        button_box.accepted.connect(dialog.accept)
-        button_box.rejected.connect(dialog.reject)
-        layout.addWidget(button_box)
-
-        ret = dialog.exec_()
-
-        if ret == QtWidgets.QDialog.Rejected:
-            logging.debug("Spot burn cancelled by user.")
-            return
-
-        exposure_time = exposure_time_input.value()
-        milling_current = milling_current_input.value() * 1e-12
-        logging.info(f"Spot burn parameters: {exposure_time} ms, {milling_current} pA")
-        
-        # get the points layer
-        if "Points" not in self.viewer.layers:
-            napari.utils.notifications.show_warning("No points layer found. Requires 'Points' layer.")
-            return
-
-        pt_layer = self.viewer.layers["Points"]
-
-        # check if there is a points layer, and that it has points in it
-        if pt_layer is None:
-            napari.utils.notifications.show_warning("No points layer found.")
-            return
-    
-        if len(pt_layer.data) == 0:
-            napari.utils.notifications.show_warning("No points selected.")
-            return
-
-
-        # get the fib image parameters
-        layer_translated = pt_layer.data - self.image_widget.ib_layer.translate
-        image_shape = self.image_widget.ib_layer.data.shape
-
-        # convert to relative image coordinates (0-1)
-        coordinates = [Point(x=pt[1]/image_shape[1], y=pt[0] / image_shape[0]) for pt in layer_translated]
-
-        # TODO: create the points layer, set add mode
-        self.spot_worker = self._spot_burn_worker(coordinates=coordinates, 
-                                                  exposure_time=exposure_time, 
-                                                  milling_current=milling_current)
-        self.spot_worker.finished.connect(self._spot_burn_finished)
-        self.spot_worker.errored.connect(self._spot_burn_errored)
-        self.spot_worker.start() # TODO: display a progress bar / indicator?
-
-    @thread_worker
-    def _spot_burn_worker(self, coordinates: List[Point], exposure_time: float, milling_current: float):
-        """Run the spot burn worker."""
-        run_spot_burn(microscope=self.microscope,
-                    coordinates=coordinates, 
-                    exposure_time=exposure_time, 
-                    milling_current=milling_current)
-
-    def _spot_burn_finished(self):
-        napari.utils.notifications.show_info("Spot burn finished.")
-
-    def _spot_burn_errored(self):
-        napari.utils.notifications.show_error("Spot burn failed.")
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -1366,6 +1276,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         if self.experiment.positions == []:
             return
 
+        if self.protocol is None:
+            return
+
         if self.WORKFLOW_IS_RUNNING:
             return
         
@@ -1505,6 +1418,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         if self.experiment.positions == []:
             return
 
+        if self.protocol is None:
+            return
         idx = self.comboBox_current_lamella.currentIndex()
         lamella: Lamella = self.experiment.positions[idx]
 
@@ -1568,9 +1483,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.update_ui()
 
     def cryo_deposition(self):
-        cryo_deposition_widget = FibsemCryoDepositionWidget(
-            self.microscope, self.settings
-        )
+        if self.microscope is None:
+            return
+        cryo_deposition_widget = FibsemCryoDepositionWidget(self.microscope)
         cryo_deposition_widget.exec_()
 
     def set_instructions_msg(
@@ -1608,7 +1523,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""
-        logging.debug("Sender: {}".format(self.sender().objectName()))
 
         # positve / negative response
         self.USER_RESPONSE = bool(self.sender() == self.pushButton_yes)
@@ -1628,7 +1542,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
     def _add_lamella_from_odemis(self):
 
-        filename = fui.path = fui.open_existing_directory_dialog(
+        filename = fui.open_existing_directory_dialog(
             msg="Select Odemis Project Directory",
             path=self.experiment.path,
             parent=self,
@@ -1727,6 +1641,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             logging.warning("No lamella is selected, cannot remove.")
             return
         
+        if self.experiment is None or self.experiment.positions == []:
+            logging.warning("No lamella in the experiment, cannot remove.")
+            return
+
         pos = self.experiment.positions[idx]
         ret = fui.message_box_ui(
             title="Remove Lamella",
@@ -1921,11 +1839,18 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self, idx: int, method: AutoLamellaMethod, stage: AutoLamellaStage
     ):
 
+        if self.protocol is None:
+            raise ValueError("No protocol loaded. Please load a protocol first.")
+        if self.experiment is None:
+            raise ValueError("No experiment loaded. Please load an experiment first.")
+        if self.experiment.positions == []:
+            raise ValueError("No lamella positions available. Please add a lamella first.")
+
         if stage not in PREPARTION_WORKFLOW_STAGES:
             return
-        
+
         stages = deepcopy(self.milling_widget.get_milling_stages())
-        
+
         # TRENCH SETUP
         if method.is_trench:
             self.experiment.positions[idx].protocol[TRENCH_KEY] = get_protocol_from_stages(stages)
@@ -1981,12 +1906,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             self.det_widget.confirm_button_clicked()
 
     def _stop_workflow_thread(self):
-        self.STOP_WORKFLOW = True
+        self._workflow_stop_event.set()
         napari.utils.notifications.show_error("Abort requested by user.")
 
     def _run_workflow(self, workflow: str) -> None:
         """Run the specified workflow."""
-        
+
         accepted, stc, supervision = open_workflow_dialog(
             experiment=deepcopy(self.experiment),
             protocol=self.protocol,
@@ -1995,17 +1920,15 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         if not accepted:
             return
 
-        logging.info(f"Accepted: {accepted}, STC: {stc}, Supervision: {supervision}")
-
         self.protocol.supervision = supervision
         self.update_protocol_ui()
-        
+
         try:
             self.milling_widget.milling_position_changed.disconnect()
         except Exception:
             pass
 
-        self.STOP_WORKFLOW = False
+        self._workflow_stop_event.clear()
         self.WORKFLOW_IS_RUNNING = True
         self.milling_widget.CAN_MOVE_PATTERN = True
         self.milling_widget.setEnabled(True)
@@ -2032,9 +1955,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.set_instructions_msg(f"Running {workflow.title()} workflow...")
 
         # turn on the beams, if not already on
-        if not self.microscope.get("on", BeamType.ELECTRON):
+        if not self.microscope.is_on(BeamType.ELECTRON):
             self.microscope.turn_on(BeamType.ELECTRON)
-        if not self.microscope.get("on", BeamType.ION):
+        if not self.microscope.is_on(BeamType.ION):
             self.microscope.turn_on(BeamType.ION)
 
         try:
@@ -2070,7 +1993,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
         self.WORKFLOW_IS_RUNNING = False
-        self.STOP_WORKFLOW = False
+        self._workflow_stop_event.clear()
         self.milling_widget.milling_position_changed.connect(
             self._update_milling_position
         )

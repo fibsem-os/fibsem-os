@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
@@ -41,7 +41,7 @@ def run_trench_milling(
     microscope: FibsemMicroscope,
     protocol: AutoLamellaProtocol,
     experiment: Experiment,
-    parent_ui: AutoLamellaUI=None,
+    parent_ui: Optional[AutoLamellaUI] = None,
     stages_to_complete: List[AutoLamellaStage] = AutoLamellaMethod.TRENCH.workflow
 ) -> Experiment:
     for lamella in experiment.positions:
@@ -69,7 +69,7 @@ def run_undercut_milling(
     microscope: FibsemMicroscope,
     protocol: AutoLamellaProtocol,
     experiment: Experiment,
-    parent_ui: AutoLamellaUI = None,
+    parent_ui: Optional[AutoLamellaUI] = None,
 ) -> Experiment:
     for lamella in experiment.positions:
 
@@ -91,7 +91,7 @@ def run_setup_lamella(
     microscope: FibsemMicroscope,
     protocol: AutoLamellaProtocol,
     experiment: Experiment,
-    parent_ui: AutoLamellaUI = None,
+    parent_ui: Optional[AutoLamellaUI] = None,
 ) -> Experiment:
     for lamella in experiment.positions:
 
@@ -120,7 +120,7 @@ def run_lamella_milling(
     microscope: FibsemMicroscope,
     protocol: AutoLamellaProtocol,
     experiment: Experiment,
-    parent_ui: AutoLamellaUI = None,
+    parent_ui: Optional[AutoLamellaUI] = None,
     stages_to_complete: List[AutoLamellaStage] = LAMELLA_MILLING_WORKFLOW
 ) -> Experiment:
 
@@ -156,7 +156,7 @@ def run_autolamella(
     microscope: FibsemMicroscope,
     protocol: AutoLamellaProtocol,
     experiment: Experiment,
-    parent_ui: AutoLamellaUI = None,
+    parent_ui: Optional[AutoLamellaUI] = None,
     stages_to_complete: List[AutoLamellaStage] = AutoLamellaMethod.ON_GRID.workflow
 ) -> Experiment:
     
@@ -178,7 +178,7 @@ def run_autolamella_waffle(
     microscope: FibsemMicroscope,
     protocol: AutoLamellaProtocol,
     experiment: Experiment,
-    parent_ui: AutoLamellaUI = None,
+    parent_ui: Optional[AutoLamellaUI] = None,
     stages_to_complete: List[AutoLamellaStage] = AutoLamellaMethod.WAFFLE.workflow
 ) -> Experiment:
     """Run the waffle method workflow."""

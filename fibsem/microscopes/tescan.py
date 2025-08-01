@@ -11,14 +11,7 @@ from typing import Dict, List, Union, Tuple, Optional
 import numpy as np
 
 import fibsem.constants as constants
-from fibsem.microscope import (
-    FibsemMicroscope,
-    _check_beam,
-    _check_manipulator,
-    _check_sputter,
-    _check_stage,
-    _check_stage_movement,
-)
+from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
 
@@ -446,7 +439,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         return fibsem_image
 
-    def last_image(self, beam_type: BeamType.ELECTRON) -> FibsemImage:
+    def last_image(self, beam_type: BeamType) -> FibsemImage:
         """    
         Returns the last acquired image for the specified beam type.
 
@@ -558,7 +551,6 @@ class TescanMicroscope(FibsemMicroscope):
         Returns:
             None
         """
-        _check_stage_movement(self.system, position)
         logging.info(f"Moving stage to {position}.")
         # convert to tescan position
         x, y, z, r, t = to_tescan_stage_position(position=position)
@@ -572,7 +564,6 @@ class TescanMicroscope(FibsemMicroscope):
     ) -> FibsemStagePosition:
         """Move the stage by the specified relative move."""
 
-        _check_stage_movement(self.system, position)
         logging.info(f"Moving stage by {position}.")
 
         current_position = self.get_stage_position()
@@ -766,8 +757,6 @@ class TescanMicroscope(FibsemMicroscope):
             
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
-        # pass
-        _check_manipulator(self.system)
         index = 0
         output_position = self.connection.Nanomanipulator.GetPosition(Index=index)
 
@@ -784,7 +773,6 @@ class TescanMicroscope(FibsemMicroscope):
 
 
     def insert_manipulator(self, name: str = "Standby"):
-        _check_manipulator(self.system)
         preset_positions = ["Parking","Standby","Working",]
 
         if name == "PARK":
@@ -839,7 +827,6 @@ class TescanMicroscope(FibsemMicroscope):
             tilt = True
         else:
             tilt = False
-        _check_manipulator(self.system, rotation, tilt)
         if self.connection.Nanomanipulator.IsCalibrated(0) == False:
             logging.info("Calibrating manipulator")
             self.connection.Nanomanipulator.Calibrate(0)
@@ -871,7 +858,6 @@ class TescanMicroscope(FibsemMicroscope):
             tilt = True
         else:
             tilt = False
-        _check_manipulator(self.system, rotation, tilt)
         if self.connection.Nanomanipulator.IsCalibrated(0) == False:
             logging.info("Calibrating manipulator")
             self.connection.Nanomanipulator.Calibrate(0)
@@ -889,7 +875,6 @@ class TescanMicroscope(FibsemMicroscope):
         self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
 
     def calibrate_manipulator(self):
-        _check_manipulator(self.system)
         logging.info("Calibrating manipulator")
         self.connection.Nanomanipulator.Calibrate(0)
 
@@ -954,7 +939,6 @@ class TescanMicroscope(FibsemMicroscope):
             dy (float): distance along the y-axis (image corodinates)
             beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
         """
-        _check_manipulator(self.system)
 
         if self.connection.Nanomanipulator.IsCalibrated(0) is False:
             logging.info("Calibrating manipulator")
@@ -982,11 +966,9 @@ class TescanMicroscope(FibsemMicroscope):
     def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str = None) -> None:
         logging.warning("Not supported by TESCAN API")
         # raise NotImplementedError("Not supported by TESCAN API")
-        # _check_manipulator_movement(self.system, offset)
         pass
 
     def _get_saved_manipulator_position(self):
-        _check_manipulator(self.system)
         logging.warning("Not supported by TESCAN API")
         pass
 
@@ -1004,7 +986,6 @@ class TescanMicroscope(FibsemMicroscope):
         if mill_settings.milling_channel is not BeamType.ION:
             raise ValueError("Only FIB milling is currently supported.")
         
-        _check_beam(mill_settings.milling_channel, self.system)
         self._prepare_beam(mill_settings.milling_channel)
 
         try: # TODO: check if the layer is loaded?
@@ -1123,7 +1104,6 @@ class TescanMicroscope(FibsemMicroscope):
     #     Raises:
     #         None
     #     """
-    #     _check_beam(BeamType.ION, self.system)
     #     status = self.connection.FIB.Beam.GetStatus()
     #     if status != Automation.FIB.Beam.Status.BeamOn:
     #         self.connection.FIB.Beam.On()
@@ -1394,7 +1374,6 @@ class TescanMicroscope(FibsemMicroscope):
         """Get the beam object for the given beam type."""
         if not isinstance(beam_type, BeamType):
             raise ValueError(f"Invalid beam type: {beam_type}")
-        _check_beam(beam_type, self.system)
 
         if beam_type is BeamType.ELECTRON:
             return self.connection.SEM
@@ -1472,7 +1451,6 @@ class TescanMicroscope(FibsemMicroscope):
         """Get a property of the microscope."""
         if beam_type is not None:
             beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
-            _check_beam(beam_type, self.system)
         
         # beam properties 
         if key == "on": 
@@ -1541,7 +1519,6 @@ class TescanMicroscope(FibsemMicroscope):
             return FibsemStagePosition.from_tescan_stage_position(position)
 
         if key == "stage_calibrated":
-            _check_stage(self.system)
             return self.connection.Stage.IsCalibrated()
 
         # chamber properties
@@ -1569,13 +1546,10 @@ class TescanMicroscope(FibsemMicroscope):
 
         # manipulator properties
         if key == "manipulator_position":
-            _check_manipulator(self.system)
             return self.connection.Nanomanipulator.GetPosition(0)
         if key == "manipulator_calibrated":
-            _check_manipulator(self.system)
             return self.connection.Nanomanipulator.IsCalibrated(0)
         if key == "manipulator_state":
-            _check_manipulator(self.system)
             return NotImplemented # self.connection.Nanomanipulator.GetStatus(0)
 
         if key == "presets":
@@ -1604,7 +1578,6 @@ class TescanMicroscope(FibsemMicroscope):
     def _set(self, key: str, value, beam_type: BeamType = None) -> None:
         """Set a property of the microscope."""
         if beam_type is not None:
-            _check_beam(beam_type, self.system)
             beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
             self._prepare_beam(beam_type)
 

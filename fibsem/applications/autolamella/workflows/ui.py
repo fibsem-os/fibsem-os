@@ -1,7 +1,7 @@
 import logging
 import time
 from copy import deepcopy
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.detection import detection
@@ -18,19 +18,21 @@ from fibsem.structures import (
 from fibsem.applications.autolamella.ui import AutoLamellaUI
 from fibsem.applications.autolamella.structures import Experiment
 
+# TODO: migrate to stop_event for cancelling workflow
+
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
-def _check_for_abort(parent_ui: AutoLamellaUI, msg: str = "Workflow aborted by user.") -> bool:
+def _check_for_abort(parent_ui: Optional[AutoLamellaUI], msg: str = "Workflow aborted by user.") -> bool:
     # headless mode
     if parent_ui is None:
         return False
 
-    if parent_ui.STOP_WORKFLOW:
+    if parent_ui._workflow_stop_event.is_set():
         raise InterruptedError(msg)
     return False
 
 def update_milling_ui(microscope: FibsemMicroscope,
                       stages: List[FibsemMillingStage],
-                      parent_ui: AutoLamellaUI,
+                      parent_ui: Optional[AutoLamellaUI],
                       msg: str,
                       validate: bool,
                       milling_enabled: bool = True) -> List[FibsemMillingStage]:
@@ -100,7 +102,7 @@ def update_milling_ui(microscope: FibsemMicroscope,
 
 # TODO: think this can be consolidated into mill arg for ask_user?
 def update_milling_stages_ui(
-    parent_ui: AutoLamellaUI, stages: List[FibsemMillingStage] = None
+    parent_ui: Optional[AutoLamellaUI], stages: List[FibsemMillingStage] = None
 ):
     _check_for_abort(parent_ui)
 
@@ -119,7 +121,7 @@ def update_detection_ui(
     microscope: FibsemMicroscope, 
     image_settings: ImageSettings, # TODO: deprecate
     checkpoint: str,
-    features: List[Feature], 
+    features: Sequence[Feature], 
     parent_ui: Optional[AutoLamellaUI] = None, 
     validate: bool = True, 
     msg: str = "Lamella", position: Optional[FibsemStagePosition] = None,
@@ -158,7 +160,7 @@ def update_detection_ui(
 
 
 def set_images_ui(
-    parent_ui: AutoLamellaUI,
+    parent_ui: Optional[AutoLamellaUI],
     eb_image: Optional[FibsemImage] = None,
     ib_image: Optional[FibsemImage] = None,
 ):
@@ -187,7 +189,7 @@ def set_images_ui(
     while parent_ui.WAITING_FOR_UI_UPDATE:
         time.sleep(0.5)
 
-def update_status_ui(parent_ui: AutoLamellaUI, msg: str, workflow_info: Optional[str] = None) -> None:
+def update_status_ui(parent_ui: Optional[AutoLamellaUI], msg: str, workflow_info: Optional[str] = None) -> None:
 
     if parent_ui is None:
         logging.info(msg)
@@ -203,7 +205,7 @@ def update_status_ui(parent_ui: AutoLamellaUI, msg: str, workflow_info: Optional
 
 
 def ask_user(
-    parent_ui: AutoLamellaUI,
+    parent_ui: Optional[AutoLamellaUI],
     msg: str,
     pos: str,
     neg: Optional[str] = None,
@@ -246,7 +248,7 @@ def ask_user_continue_workflow(parent_ui, msg: str = "Continue with the next sta
         ret = ask_user(parent_ui=parent_ui, msg=msg, pos="Continue", neg="Exit")
     return ret
 
-def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLamellaUI, 
+def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: Optional[AutoLamellaUI], 
         msg: str = "Edit Alignment Area", validate: bool = True) -> FibsemRectangle:
     """ Update the alignment area in the UI and return the updated alignment area."""
     
@@ -287,7 +289,7 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLam
 
     return alignment_area
 
-def update_experiment_ui(parent_ui: AutoLamellaUI, experiment: Experiment) -> None:
+def update_experiment_ui(parent_ui: Optional[AutoLamellaUI], experiment: Experiment) -> None:
     
     # headless mode
     if parent_ui is None:
