@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, fields, asdict
+from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar
 
 import numpy as np
 import tifffile as tff
+from numpy.typing import NDArray
 
 import fibsem
 from fibsem.config import METADATA_VERSION, SUPPORTED_COORDINATE_SYSTEMS
@@ -1053,20 +1054,53 @@ class FibsemCircleSettings(FibsemPatternSettings):
     def volume(self) -> float:
         return np.pi * self.radius**2 * self.depth
 
+
 @dataclass
 class FibsemBitmapSettings(FibsemPatternSettings):
     width: float
     height: float
     depth: float
-    rotation: float
     centre_x: float
     centre_y: float
-    path: str = None
+    rotation: float = 0
+    scan_direction: str = "TopToBottom"
+    passes: int = 0
+    time: float = 0.0
+    is_exclusion: bool = False
+    flip_y: bool = False
+    path: InitVar[Optional[Union[str, os.PathLike]]] = None
+    array: InitVar[Optional[NDArray[Any]]] = None
+    bitmap: Optional[NDArray[Any]] = field(init=False)
+
+    def __post_init__(
+        self, path: Optional[Union[str, os.PathLike]], array: Optional[NDArray[Any]]
+    ) -> None:
+        if array is None:
+            if path is None:
+                # Fallback on empty array
+                array = None
+            else:
+                from PIL import Image
+
+                array = np.asarray(Image.open(path), dtype=np.uint8)
+
+        if array is not None:
+            if array.dtype == np.uint8:
+                # Convert bitmap image to bitmap points - simpler if it's handled here and consistent after
+                from fibsem.milling.patterning.utils import bitmap_image_to_points
+
+                array = bitmap_image_to_points(array)
+            else:
+                array = array.copy()
+
+        self.bitmap = array
 
     @property
     def volume(self) -> float:
-        # NOTE: this is a VERY rough estimate
-        return self.width * self.height * self.depth
+        if self.bitmap is None:
+            return 0
+        return self.width * self.height * self.depth * self.bitmap[:, :, 0].mean()
+
 
 @dataclass
 class FibsemMillingSettings:

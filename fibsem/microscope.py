@@ -395,7 +395,7 @@ class FibsemMicroscope(ABC):
             self.draw_circle(pattern)
 
         elif isinstance(pattern, FibsemBitmapSettings):
-            self.draw_bitmap_pattern(pattern, pattern.path)
+            self.draw_bitmap_pattern(pattern)
 
     @abstractmethod
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
@@ -410,11 +410,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def draw_bitmap_pattern(
-        self,
-        pattern_settings: FibsemBitmapSettings,
-        path: str,
-    ):
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
         pass
 
     @abstractmethod
@@ -2558,14 +2554,18 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()})
         self._patterns.append(pattern)
         return pattern
-    
-    def draw_bitmap_pattern(
-        self,
-        pattern_settings: FibsemBitmapSettings,
-        path: str,
-    ):
 
-        bitmap_pattern = BitmapPatternDefinition.load(path)
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
+        if pattern_settings.bitmap is None:
+            logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
+            return None
+
+        # Get bitmap from pattern settings
+        bitmap_pattern = BitmapPatternDefinition()
+        bitmap_pattern.points = pattern_settings.bitmap
+
+        if pattern_settings.flip_y:
+            bitmap_pattern.points = np.flip(bitmap_pattern.points, axis=0)
 
         pattern = self.connection.patterning.create_bitmap(
             center_x=pattern_settings.centre_x,
@@ -2576,7 +2576,46 @@ class ThermoMicroscope(FibsemMicroscope):
             bitmap_pattern_definition=bitmap_pattern,
         )
 
-        logging.debug({"msg": "draw_bitmap_pattern", "pattern_settings": pattern_settings.to_dict(), "path": path})
+        if not np.isclose(pattern_settings.time, 0.0):
+            logging.debug("Setting pattern time to %f", pattern_settings.time)
+            pattern.time = pattern_settings.time
+
+        # set pattern rotation
+        pattern.rotation = pattern_settings.rotation
+
+        # set exclusion
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        # set scan direction
+        available_scan_directions = self.get_available_values("scan_direction")
+
+        if pattern_settings.scan_direction in available_scan_directions:
+            pattern.scan_direction = pattern_settings.scan_direction
+        else:
+            pattern.scan_direction = "TopToBottom"
+            logging.warning(
+                "Scan direction %s not supported. Using TopToBottom instead.", pattern_settings.scan_direction
+            )
+            logging.warning(
+                "Supported scan directions are: %s", str(available_scan_directions)
+            )
+
+        # set passes
+        if pattern_settings.passes:  # not zero
+            pattern.dwell_time = pattern.dwell_time * (
+                pattern.pass_count / pattern_settings.passes
+            )
+
+            # NB: passes, time, dwell time are all interlinked, therefore can only adjust passes indirectly
+            # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
+            # NB: the current must be set before doing this, otherwise it will be out of range
+
+        logging.debug(
+            {
+                "msg": "draw_bitmap_pattern",
+                "pattern_settings": pattern_settings.to_dict(),
+            }
+        )
         self._patterns.append(pattern)
         return pattern
 

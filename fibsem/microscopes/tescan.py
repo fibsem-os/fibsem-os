@@ -1350,11 +1350,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         return pattern
     
-    def draw_bitmap_pattern(
-        self,
-        pattern_settings: FibsemBitmapSettings,
-        path: str,
-    ):
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
         return NotImplemented
 
     def setup_sputter(self, protocol: dict):

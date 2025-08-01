@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import traceback
 from copy import deepcopy
 from pprint import pprint
 from typing import Dict, List, Optional, Tuple, Union
@@ -146,10 +147,10 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         self.current_milling_stage: Optional[FibsemMillingStage] = None
         self.milling_stages: List[FibsemMillingStage] = []
-        self.milling_pattern_layers: List[Layer] = []
+        self.milling_pattern_layers: List[str] = []
 
         self.pattern_attribute_widgets: Dict[str, Tuple[QtWidgets.QLabel, QtWidgets.QWidget]] = {}
-        self.strategy_config_widgets: Dict[str, QtWidgets.QWidget] = {}
+        self.strategy_config_widgets: Dict[str, Tuple[QtWidgets.QLabel, QtWidgets.QWidget]] = {}
 
         self.setup_connections()
         # TODO: migrate to MILLING_WORKFLOWS: Dict[str, List[FibsemMillingStage]]
@@ -470,7 +471,10 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
             # default None
             val = getattr(strategy.config, key, None)
 
-            if isinstance(val, (int, float)) and not isinstance(val, bool):
+            if isinstance(val, bool):
+                control_widget = QtWidgets.QCheckBox()
+                control_widget.setChecked(bool(val))
+            elif isinstance(val, (int, float)):
                 # limits
                 min_val = -1000
 
@@ -485,18 +489,16 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
                 if key in ["overtilt"]:
                     control_widget.setSuffix(" °")
                 control_widget.setValue(val)
-            if isinstance(val, str):
+            elif isinstance(val, str):
                 control_widget = QtWidgets.QLineEdit()
                 control_widget.setText(val)
-            if isinstance(val, bool):
-                control_widget = QtWidgets.QCheckBox()
-                control_widget.setChecked(bool(val))
-            if isinstance(val, (tuple, list)):
-                # dont handle for now
-                if "resolution" in key:
-                    control_widget = QtWidgets.QComboBox()
-                    control_widget.addItems(cfg.STANDARD_RESOLUTIONS)
-                    control_widget.setCurrentText(f"{val[0]}x{val[1]}") # TODO: check if in list
+            elif isinstance(val, (tuple, list)) and "resolution" in key:
+                control_widget = QtWidgets.QComboBox()
+                control_widget.addItems(cfg.STANDARD_RESOLUTIONS)
+                control_widget.setCurrentText(f"{val[0]}x{val[1]}") # TODO: check if in list
+            else:
+                logging.error("'%s' of %s cannot be displayed by UI", key, strategy.name)
+                continue
 
             # TODO: add support for scaling, str, bool, etc.
             # TODO: attached events
@@ -515,23 +517,30 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
         strategy = self.current_milling_stage.strategy
 
         # get the updated pattern values from ui
-        for i, key in enumerate(strategy.config.required_attributes):
-            
+        for key in strategy.config.required_attributes:
             if key not in self.strategy_config_widgets:
                 continue
 
-            label, widget = self.strategy_config_widgets[key]
+            _, widget = self.strategy_config_widgets[key]
 
             if isinstance(widget, QtWidgets.QDoubleSpinBox):
-                value = scale_value_for_display(key, widget.value(), constants.MICRO_TO_SI) # TODO: support other scales
-            if isinstance(widget, QtWidgets.QLineEdit):
+                value = scale_value_for_display(
+                    key, widget.value(), constants.MICRO_TO_SI
+                )  # TODO: support other scales
+            elif isinstance(widget, QtWidgets.QLineEdit):
                 value = widget.text()
-            if isinstance(widget, QtWidgets.QCheckBox):
+            elif isinstance(widget, QtWidgets.QCheckBox):
                 value = widget.isChecked()
-            if isinstance(widget, QtWidgets.QComboBox):
-                value = widget.currentText()
-                if "resolution" in key:
-                    value = tuple(map(int, value.split("x")))
+            elif isinstance(widget, QtWidgets.QComboBox) and "resolution" in key:
+                value = tuple(map(int, widget.currentText().split("x")))
+            else:
+                logging.error(
+                    "Unable to parse %s %s from %s",
+                    strategy.name,
+                    key,
+                    type(widget).__name__,
+                )
+                continue
             # TODO: add support for scaling, str, bool, etc.
 
             setattr(strategy.config, key, value)
@@ -678,7 +687,12 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
             # default None
             val = getattr(pattern, key, None)
 
-            if isinstance(val, (int, float)):
+            if isinstance(val, bool):
+                control_widget = QtWidgets.QCheckBox()
+                control_widget.setChecked(bool(val))
+                control_widget.stateChanged.connect(self.redraw_patterns)
+
+            elif isinstance(val, (int, float)):
                 # limits
                 min_val = -1000 # if key in LINE_KEYS else 0 # why not?
 
@@ -702,22 +716,26 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
                 control_widget.setValue(value)
                 control_widget.valueChanged.connect(self.redraw_patterns)
             
-            if isinstance(val, CrossSectionPattern):
+            elif isinstance(val, CrossSectionPattern):
                 control_widget = QtWidgets.QComboBox()
                 control_widget.addItems([section.name for section in CrossSectionPattern]) # TODO: store the options somewhere?
                 control_widget.setCurrentText(getattr(pattern, key, CrossSectionPattern.Rectangle).name)
                 control_widget.currentIndexChanged.connect(self.redraw_patterns)
 
-            if key == "scan_direction": # TODO: migrate to Enum??
+            elif key == "scan_direction": # TODO: migrate to Enum??
                 control_widget = QtWidgets.QComboBox()
                 control_widget.addItems(self.AVAILABLE_SCAN_DIRECTIONS)
                 control_widget.setCurrentText(val)
                 control_widget.currentIndexChanged.connect(self.redraw_patterns)
 
-            if isinstance(val, bool):
-                control_widget = QtWidgets.QCheckBox()
-                control_widget.setChecked(bool(val))
-                control_widget.stateChanged.connect(self.redraw_patterns)
+            elif isinstance(val, str):
+                control_widget = QtWidgets.QLineEdit()
+                control_widget.setText(val)
+                control_widget.editingFinished.connect(self.redraw_patterns)
+
+            else:
+                logging.error("'%s' of %s cannot be displayed by UI", key, pattern.name)
+                continue
 
             # add to grid layout
             self.gridLayout_patterns.addWidget(label, i, 0)
@@ -771,30 +789,38 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
                 widget.setVisible(show)
 
     def get_pattern_from_ui_v2(self):
-
         pattern = self.current_milling_stage.pattern
 
         # get the updated pattern values from ui
-        for i, key in enumerate(pattern.required_attributes):
-            label, widget = self.pattern_attribute_widgets[key]
+        for key in pattern.required_attributes:
+            _, widget = self.pattern_attribute_widgets[key]
 
             if isinstance(widget, QtWidgets.QDoubleSpinBox):
-                value = scale_value_for_display(key, widget.value(), constants.MICRO_TO_SI)
-            if isinstance(widget, QtWidgets.QComboBox):
+                value = scale_value_for_display(
+                    key, widget.value(), constants.MICRO_TO_SI
+                )
+            elif isinstance(widget, QtWidgets.QComboBox):
                 value = widget.currentText()
-
-                if key == "cross_section": # TODO: need a more general way to handle this
+                if key == "cross_section":
+                    # TODO: need a more general way to handle this
                     value = CrossSectionPattern[value]
-            if isinstance(widget, QtWidgets.QCheckBox):
+            elif isinstance(widget, QtWidgets.QCheckBox):
                 value = widget.isChecked()
+            elif isinstance(widget, QtWidgets.QLineEdit):
+                value = widget.text()
+            else:
+                logging.error(
+                    "Unable to parse %s %s from %s",
+                    pattern.name,
+                    key,
+                    type(widget).__name__,
+                )
+                continue
 
             setattr(pattern, key, value)
 
         pattern.point = self.get_point_from_ui()
-        
-        # from pprint import pprint
-        # pprint(pattern.to_dict())
-        
+
         return pattern
 
     def _single_click(self, layer, event):
@@ -1189,7 +1215,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
             )  
 
         except Exception as e:
-            napari.utils.notifications.show_error(f"Error drawing patterns: {e}")
+            napari.utils.notifications.show_error(f"Error drawing patterns: {traceback.format_exc()}")
             logging.error(e)
 
         self.image_widget.restore_active_layer_for_movement()
