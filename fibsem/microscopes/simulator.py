@@ -40,6 +40,8 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
+
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.util.draw_numbers import draw_text
 
 ######################## SIMULATOR ########################
@@ -221,7 +223,7 @@ class DemoMicroscope(FibsemMicroscope):
             scanning_mode="full_frame",
             scanning_mode_value = None,
         )
-        self.stage_is_compustage: bool = False
+        self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
@@ -231,6 +233,9 @@ class DemoMicroscope(FibsemMicroscope):
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
             
+        # fluorescence microscope
+        self.fm = FluorescenceMicroscope(self)
+
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
@@ -716,8 +721,8 @@ class DemoMicroscope(FibsemMicroscope):
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """Finish milling by restoring the imaging current and voltage."""
-        self.set_beam_current(imaging_current, self.milling_channel)
-        self.set_beam_voltage(imaging_voltage, self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
+        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
         self.clear_patterns()
 
     def clear_patterns(self) -> None:

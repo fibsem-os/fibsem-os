@@ -1,6 +1,7 @@
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import napari
 import napari.utils.notifications
@@ -10,12 +11,17 @@ from napari.layers import Layer as NapariLayer
 from napari.layers import Points as NapariPointsLayer
 from napari.qt.threading import thread_worker
 from napari.utils.events import Event as NapariEvent
-from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import QMainWindow, QWidget
 from scipy.ndimage import median_filter
 
 from fibsem import config as cfg
 from fibsem import constants, conversions
+from fibsem.applications.autolamella.protocol.validation import (
+    MILL_ROUGH_KEY,
+    TRENCH_KEY,
+)
+from fibsem.applications.autolamella.structures import AutoLamellaProtocol, Lamella
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
@@ -37,15 +43,13 @@ from fibsem.ui.napari.properties import (
     GRIDBAR_IMAGE_LAYER_PROPERTIES,
     OVERVIEW_IMAGE_LAYER_PROPERTIES,
 )
-from fibsem.ui.napari.utilities import draw_positions_in_napari, is_inside_image_bounds
+from fibsem.ui.napari.utilities import (
+    draw_positions_in_napari,
+    is_inside_image_bounds,
+    update_text_overlay,
+)
 from fibsem.ui.qtdesigner_files import FibsemMinimapWidget as FibsemMinimapWidgetUI
 
-try:
-    from fibsem.applications.autolamella.structures import AutoLamellaProtocol
-except ImportError:
-    AutoLamellaProtocol = None
-
-TRENCH_KEY, MILL_ROUGH_KEY = "trench", "mill_rough" # TODO: replace with autolamella.protocol.validation
 COLOURS = CORRELATION_IMAGE_LAYER_PROPERTIES["colours"]
 
 TILE_COUNTS = [f"{i}x{i}" for i in range(1, 8)]
@@ -74,25 +78,25 @@ def _get_total_fov(tile_count: int, fov: float) -> float:
 # TODO: migrate to properly scaled infinite canvas
 # TODO: allow acquiring multiple overview images
 # TODO: show stage orientation
-class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWindow):
+class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
     stage_position_added_signal = pyqtSignal(FibsemStagePosition)
     stage_position_updated_signal = pyqtSignal(FibsemStagePosition)
     stage_position_removed_signal = pyqtSignal(FibsemStagePosition)
     tile_acquisition_progress_signal = pyqtSignal(dict)
-    
+
     def __init__(
         self,
         viewer: napari.Viewer,
-        parent=None,
+        parent: QWidget,
     ):
         super().__init__(parent=parent)
         self.setupUi(self)
         self.parent = parent
 
         self.microscope: FibsemMicroscope = self.parent.microscope
-        self.protocol = None
+        self.protocol: Optional['AutoLamellaProtocol'] = None
         if hasattr(self.parent, "protocol"):
-            self.protocol: 'AutoLamellaProtocol' = deepcopy(self.parent.protocol)
+            self.protocol = deepcopy(self.parent.protocol)
         self.movement_widget: FibsemMovementWidget = self.parent.movement_widget
         self.image_widget: FibsemImageSettingsWidget = self.parent.image_widget
 
@@ -100,9 +104,9 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         self.viewer.window._qt_viewer.dockLayerList.setVisible(False)
         self.viewer.window._qt_viewer.dockLayerControls.setVisible(False)
 
-        self.image: FibsemImage = None
-        self.image_layer: NapariImageLayer  = None
-        self.position_layer: NapariPointsLayer = None
+        self.image: Optional[FibsemImage] = None
+        self.image_layer: Optional[NapariImageLayer]  = None
+        self.position_layer: Optional[NapariPointsLayer] = None
         self.correlation_image_layers: List[str] = []
         self.milling_pattern_layers: List[str] = []
 
@@ -113,6 +117,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         self.STOP_ACQUISITION: bool = False
 
         self.setup_connections()
+        update_text_overlay(self.viewer, self.microscope)
 
     def setup_connections(self):
         
@@ -140,7 +145,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         self.pushButton_move_to_position.clicked.connect(self.move_to_position_pressed)
         self.comboBox_tile_position.currentIndexChanged.connect(self.update_current_selected_position)
         self.pushButton_remove_position.clicked.connect(self.remove_selected_position_pressed)
-        
+
         # disable updating position name:
         self.label_position_name.setVisible(False)
         self.lineEdit_tile_position_name.setVisible(False)
@@ -148,16 +153,16 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
 
         # signals
         self.tile_acquisition_progress_signal.connect(self.handle_tile_acquisition_progress)
-        
+
         # refresh stage position ui, when added, updated or removed
         self.stage_position_added_signal.connect(self.handle_stage_position_signals)
         self.stage_position_updated_signal.connect(self.handle_stage_position_signals)
         self.stage_position_removed_signal.connect(self.handle_stage_position_signals)
 
-        # update the positions from the parent   
+        # update the positions from the parent
         if hasattr(self.parent, "sync_positions_to_minimap_signal"):
             self.parent.sync_positions_to_minimap_signal.connect(self.update_positions_from_parent)
-        
+
         if hasattr(self.parent, "lamella_created_signal"):
             self.parent.lamella_created_signal.connect(self.update_from_created_lamella)
 
@@ -313,13 +318,15 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         # TODO: handle when acquisition is cancelled halfway, clear viewer, etc
 
     @thread_worker
-    def run_tile_collection_thread(self, 
-                                   microscope: FibsemMicroscope, 
-                                   image_settings: ImageSettings,
-                                    grid_size: float, 
-                                    tile_size:float, 
-                                    overlap:float=0, 
-                                    cryo: bool=True):
+    def run_tile_collection_thread(
+        self,
+        microscope: FibsemMicroscope,
+        image_settings: ImageSettings,
+        grid_size: float,
+        tile_size: float,
+        overlap: float = 0,
+        cryo: bool = True,
+    ):
         """Threaded worker for tiled acquisition and stitching."""
         try:
             self.image = tiled.tiled_image_acquisition_and_stitch(
@@ -418,42 +425,41 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         """Ask the user to select a file to load an image as overview or correlation image."""
         is_correlation = self.sender() == self.actionLoad_Correlation_Image
 
-        path = ui_utils.open_existing_file_dialog(
+        filename = ui_utils.open_existing_file_dialog(
             msg="Select image to load", 
-            path=self.lineEdit_tile_path.text(), 
+            path=Path(self.lineEdit_tile_path.text()), 
             _filter="Image Files (*.tif *.tiff)", 
             parent=self)
 
-        if path == "":
+        if filename == "":
             napari.utils.notifications.show_error("No file selected..")
             return
 
         # load the image
-        image = FibsemImage.load(path)
+        image = FibsemImage.load(filename)
         
         if is_correlation:
             self.add_correlation_image(image)
         else:
             self.update_viewer(image)
 
-    def update_viewer(self, image: FibsemImage = None, tmp: bool = False):
+    def update_viewer(self, image: Optional[FibsemImage] = None, tmp: bool = False):
         """Update the viewer with the image and positions."""
         if image is not None:
     
             if not tmp:
                 self.image = image
-            
+
             # apply a median filter to the image
-            arr = median_filter(image.data, 
-                                size=OVERVIEW_IMAGE_LAYER_PROPERTIES["median_filter_size"])
+            arr = median_filter(image.data, size=OVERVIEW_IMAGE_LAYER_PROPERTIES["median_filter_size"])
 
             try:
                 self.image_layer.data = arr
-            except Exception as e:              
+            except Exception as e:
                 self.image_layer = self.viewer.add_image(arr, 
                                                          name=OVERVIEW_IMAGE_LAYER_PROPERTIES["name"],
-                                                         colormap=OVERVIEW_IMAGE_LAYER_PROPERTIES["colormap"], 
-                                                         blending=OVERVIEW_IMAGE_LAYER_PROPERTIES["blending"])
+                                                         colormap=OVERVIEW_IMAGE_LAYER_PROPERTIES["colormap"],
+                                                         blending=OVERVIEW_IMAGE_LAYER_PROPERTIES["blending"])  # type: ignore
 
             if tmp:
                 return # don't update the rest of the UI, we are just updating the image
@@ -473,6 +479,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
             self.draw_current_stage_position()  # draw the current stage position on the image
             self.draw_stage_positions()         # draw the reprojected positions on the image
             self.label_instructions.setText("Alt+Click to Add a position, Shift+Click to Update a position \nor Double Click to Move the Stage...")
+        update_text_overlay(self.viewer, self.microscope)
         self.set_active_layer_for_movement()
 
     def get_coordinate_in_microscope_coordinates(self, layer: NapariLayer, event: NapariEvent) -> Tuple[np.ndarray, Point]:
@@ -482,7 +489,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
             event (Event): The event object.
         Returns:
             Tuple[np.ndarray, Point]: The coordinates in image and microscope image coordinates.
-        """         
+        """
+        if self.image is None:
+            raise ValueError("No image loaded. Please load an image first.")
+
         # get coords in image coordinates (adjusts for translation, etc)
         coords = layer.world_to_data(event.position)
 
@@ -514,7 +524,6 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         
         # left click + (alt or shift)
         if event.button != 1 or not (ADD_NEW_POSITION or UPDATE_POSITION):
-            logging.warning(f"Invalid mouse click: {event.button} {event.modifiers}")
             return 
         
         coords, point = self.get_coordinate_in_microscope_coordinates(layer, event)
@@ -522,11 +531,14 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         if point is False: # clicked outside image
             return
 
+        if self.image is None or self.image.metadata is None:
+            return
+
         # get the stage position (xyzrt) based on the clicked point and projection
         stage_position = self.microscope.project_stable_move( 
                     dx=point.x, dy=point.y, 
                     beam_type=self.image.metadata.image_settings.beam_type, 
-                    base_position=self.image.metadata.microscope_state.stage_position)            
+                    base_position=self.image.metadata.stage_position)            
 
         # TODO: handle case where multiple modifiers are pressed
         if UPDATE_POSITION:
@@ -563,12 +575,14 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
 
         if point is False: # clicked outside image
             return
+        if self.image is None or self.image.metadata is None:
+            return
         
         beam_type = self.image.metadata.image_settings.beam_type
         stage_position = self.microscope.project_stable_move( 
             dx=point.x, dy=point.y, 
             beam_type=beam_type, 
-            base_position=self.image.metadata.microscope_state.stage_position)   
+            base_position=self.image.metadata.stage_position)   
 
         self.move_to_stage_position(stage_position)
 
@@ -602,8 +616,8 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         self.comboBox_tile_position.setCurrentIndex(idx)
 
         msg = ""
-        for pos in self.positions: # TODO: migrate to list-view
-            msg += f"{pos.name}:\t x:{pos.x*1e3:.2f}mm, y:{pos.y*1e3:.2f}mm, z:{pos.z*1e3:.2f}m\n"
+        for pos in self.positions:  # TODO: migrate to list-view
+            msg += f"{pos.name}: {pos.pretty_string}\n"
         self.label_position_info.setText(msg)
 
     def remove_selected_position_pressed(self):
@@ -633,7 +647,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QtWidgets.QMainWi
         stage_position = self.positions[idx] # TODO: migrate to self.selected_stage_position
         self.move_to_stage_position(stage_position)
 
-    def move_to_stage_position(self, stage_position: FibsemStagePosition)->None:
+    def move_to_stage_position(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to the selected position via movement widget."""
         self.movement_widget.move_to_position(stage_position)
 

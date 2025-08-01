@@ -615,7 +615,7 @@ def generate_final_overview_image(exp: Experiment,
 
 def save_final_overview_image(exp: Experiment, 
                         image: FibsemImage, 
-                        output_path: str) -> None:
+                        output_path: str) -> plt.Figure:
     """Save the final overview image with all the final lamellae positions.
     Args: 
         exp (Experiment): The experiment to plot.

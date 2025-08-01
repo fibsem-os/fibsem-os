@@ -140,6 +140,11 @@ def configure_logging(path: Path = "", log_filename="logfile", log_level=logging
         force=True,
     )
 
+    # disable some loggers
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("napari").setLevel(logging.WARNING)
+
     return logfile
 
 

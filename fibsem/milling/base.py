@@ -142,6 +142,15 @@ class FibsemMillingStage:
         """Run the milling stage strategy on the given microscope."""
         self.strategy.run(microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui)
 
+    @property
+    def pretty_name(self) -> str:
+        """Return a pretty name for the milling stage, including the milling current."""
+        from fibsem.utils import format_value
+        milling_current = self.milling.milling_current
+        mc = format_value(val=milling_current, unit="A", precision=1)
+        txt = f"{self.name} - {self.pattern.name} ({mc})"
+        return txt
+
 
 def get_milling_stages(key: str, protocol: Dict[str, List[Dict[str, Any]]]) -> List[FibsemMillingStage]:
     """Get the milling stages for specific key from the protocol.

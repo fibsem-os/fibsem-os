@@ -15,6 +15,7 @@ import tifffile as tff
 from scipy import ndimage
 from scipy.spatial import distance
 from skimage import feature, measure
+from skimage.morphology import closing, disk
 
 from fibsem import config as cfg
 from fibsem import conversions
@@ -1512,3 +1513,62 @@ def generate_segmentation_objects(data_path: str, labels_path: str, dataset_json
         save_json(dat, dataset_json_path)
 
     return dat
+
+
+def crop_threshold_to_polygon(image: np.ndarray, bbox: Optional[Tuple[int, int, int, int]] = None, threshold: float = 0.5) -> List[Tuple[int, int]]:
+    """
+    Crop an image using a bounding box, apply threshold segmentation, and return a polygon 
+    of the thresholded values in image coordinates.
+    
+    Args:
+        image: Input image as numpy array
+        bbox: Bounding box as (x_min, y_min, x_max, y_max) in image coordinates
+        threshold: Threshold value for segmentation (0.0 to 1.0 for normalized images, 
+                  or 0-255 for uint8 images)
+    
+    Returns:
+        List of (x, y) coordinate tuples representing the polygon boundary 
+        in original image coordinates
+    """
+    if bbox is None:
+        # If no bounding box is provided, use the entire image
+        bbox = (0, 0, image.shape[1], image.shape[0])
+    x_min, y_min, x_max, y_max = bbox
+    
+    # Validate bounding box
+    height, width = image.shape[:2]
+    x_min = max(0, min(x_min, width - 1))
+    y_min = max(0, min(y_min, height - 1))
+    x_max = max(x_min + 1, min(x_max, width))
+    y_max = max(y_min + 1, min(y_max, height))
+    
+    # Crop the image to the bounding box
+    mask = np.zeros_like(image)
+    mask[y_min:y_max, x_min:x_max] = 1
+
+    # Apply threshold segmentation
+    binary_mask = mask > threshold
+
+    # Apply morphological closing to clean up the mask
+    if binary_mask.any():
+        binary_mask = closing(binary_mask, disk(2))
+
+    # Find contours of the thresholded region
+    contours = measure.find_contours(image.astype(float), 0.5, mask=binary_mask)
+    
+    if not contours:
+        # Return empty polygon if no contours found
+        return []
+    
+    # Get the largest contour (main object)
+    largest_contour = max(contours, key=len)
+    
+    # Convert contour coordinates back to original image coordinates
+    # Note: find_contours returns (row, col) format, we want (x, y)
+    polygon = []
+    for row, col in largest_contour:
+        x = int(col)
+        y = int(row)
+        polygon.append((x, y))
+    
+    return polygon

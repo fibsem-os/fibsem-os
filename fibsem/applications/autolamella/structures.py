@@ -64,7 +64,7 @@ class LamellaState:
     microscope_state: MicroscopeState = field(default_factory=MicroscopeState)
     stage: AutoLamellaStage = AutoLamellaStage.Created
     start_timestamp: float = datetime.timestamp(datetime.now())
-    end_timestamp: float = None
+    end_timestamp: Optional[float] = None
 
     @property
     def completed(self) -> str:
@@ -369,12 +369,8 @@ class Lamella:
                 if stage.get("imaging", {}).get("path", None) is None:
                     stage["imaging"]["path"] = self.path
 
-        if self.history is None:
-            self.history = []
         if self.milling_workflows is None:
             self.milling_workflows = {k: get_milling_stages(k, self.protocol) for k in self.protocol}
-        if self.states is None:
-            self.states = {}
         if self._id is None:
             self._id = str(uuid.uuid4())
         # TODO: add multiple positions for milling, landing, etc. 
