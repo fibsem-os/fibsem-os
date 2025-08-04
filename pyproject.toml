@@ -75,6 +75,7 @@ fibsem-generate-config = "fibsem.configuration:gen_config_cli"
 fibsem-config-ui = "fibsem.ui.FibsemMicroscopeConfigurationWidget:main"
 fibsem-autolamella-ui = "fibsem.applications.autolamella.ui.run_ui:main"
 fm-ui ="fibsem.ui.FMAcquisitionWidget:main"
+fm-coincidence-ui = "fibsem.ui.FMCoincidenceMillingWidget:main"
 
 [tool.setuptools]
 packages = ["fibsem"]
