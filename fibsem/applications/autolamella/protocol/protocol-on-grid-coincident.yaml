@@ -30,6 +30,7 @@ milling:
             name: MicroExpansion
             width: 5.0e-07
         strategy: {}
+        alignment: {enabled: true}
     mill_polishing:
     -   milling:
             application_file: Si-ccs
@@ -42,25 +43,11 @@ milling:
             depth: 4.0e-07
             lower_trench_height: 7.0e-07
             name: Trench
-            spacing: 4.5e-07
+            spacing: 3.0e-07
             upper_trench_height: 7.0e-07
             width: 9.0e-06
         strategy: {}
-    -   milling:
-            application_file: Si-ccs
-            hfw: 8.0e-05
-            milling_current: 6.0e-11
-            patterning_mode: Serial
-        name: Polishing Mill 02
-        pattern:
-            cross_section: CleaningCrossSection
-            depth: 4.0e-07
-            lower_trench_height: 2.5e-07
-            name: Trench
-            spacing: 3.0e-07
-            upper_trench_height: 2.5e-07
-            width: 9.0e-06
-        strategy: {}
+        alignment: {enabled: true}
     mill_rough:
     -   milling:
             application_file: Si-ccs
@@ -76,6 +63,7 @@ milling:
             upper_trench_height: 3.5e-06
             width: 1.0e-05
         strategy: {}
+        alignment: {enabled: true}
     -   milling:
             application_file: Si-ccs
             hfw: 8.0e-05
@@ -91,6 +79,7 @@ milling:
             upper_trench_height: 2.0e-06
             width: 9.5e-06
         strategy: {}
+        alignment: {enabled: true}
 options:
     alignment_at_milling_current: false
     alignment_attempts: 3.0
