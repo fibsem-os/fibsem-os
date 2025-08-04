@@ -920,7 +920,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         
         for pos in stage_positions:
             # extract the stage position, add to experiment
-            self.add_new_lamella(pos.stage_position, pos.name)
+            self.add_new_lamella(pos.stage_position, pos.name, pos.objective_position)
 
     def open_minimap_widget(self):
         if self.microscope is None:
@@ -1556,7 +1556,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         for pos in stage_positions:
             self.add_new_lamella(pos)
 
-    def add_new_lamella(self, stage_position: Optional[FibsemStagePosition] = None, name: Optional[str] = None) -> Lamella:
+    def add_new_lamella(self, stage_position: Optional[FibsemStagePosition] = None, name: Optional[str] = None, objective_position: Optional[float] = None) -> Lamella:
         """Add a lamella to the experiment.
         Args:
             pos: The stage position of the lamella. If None, the current stage position is used.
@@ -1584,6 +1584,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
                                      state=state, 
                                      protocol=tmp_protocol, 
                                      name=name)
+        lamella.objective_position = objective_position
 
         from fibsem.applications.autolamella.workflows.core import log_status_message
         log_status_message(lamella, "STARTED")

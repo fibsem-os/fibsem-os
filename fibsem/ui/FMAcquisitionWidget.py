@@ -591,8 +591,24 @@ class FMAcquisitionWidget(QWidget):
         self.show_circle_overlays = True
         self.show_histogram = True
 
+        self.sync_experiment_positions()
         self.initUI()
         self.display_stage_position_overlay()
+
+    def sync_experiment_positions(self):
+        """Sync stage positions from the experiment to the widget."""
+        # TODO: save the fm state directly, and sync between the uis
+        if self.experiment and self.experiment.positions:
+            for pos in self.experiment.positions:
+                if pos.objective_position is None:
+                    logging.warning(f"Position {pos.name} does not have an objective position, skipping.")
+                    continue
+                if self.microscope.get_stage_orientation(pos.stage_position) != "FM":
+                    logging.warning(f"Position {pos.name} is not in FM orientation, skipping.")
+                    continue
+                self.stage_positions.append(FMStagePosition(name=pos.name,
+                                                            stage_position=pos.stage_position,
+                                                            objective_position=pos.objective_position))
 
     def toggle_widgets(self):
         """Toggle widgets based on current stage orientation."""
@@ -781,7 +797,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
-        self.fm.acquisition_signal.connect(lambda image: self.update_image_signal.emit(image)) 
+        self.fm.acquisition_signal.connect(self._wrap_update_image) 
         self.update_image_signal.connect(self.update_image)
         self.update_persistent_image_signal.connect(self.update_persistent_image)
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
@@ -827,6 +843,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_run_autofocus.setEnabled(True)
 
         # Initialize positions button state
+        self.savedPositionsWidget.update_positions(self.stage_positions)
         self._update_positions_button()
 
         # add file menu
@@ -1586,6 +1603,10 @@ class FMAcquisitionWidget(QWidget):
 
         self._update_acquisition_button_states()
 
+    def _wrap_update_image(self, image: FluorescenceImage):
+        """Wrap the update image signal emission for re-emission in the main thread."""
+        self.update_image_signal.emit(image)
+
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
@@ -2000,9 +2021,9 @@ class FMAcquisitionWidget(QWidget):
         logging.info("Closing FMAcquisitionWidget, stopping acquisition if running.")
 
         # Stop live acquisition
+        self.fm.acquisition_signal.disconnect(self._wrap_update_image)
         if self.fm.is_acquiring:
             try:
-                self.fm.acquisition_signal.disconnect()
                 self.stop_acquisition()
             except Exception as e:
                 logging.error(f"Error stopping acquisition: {e}")
