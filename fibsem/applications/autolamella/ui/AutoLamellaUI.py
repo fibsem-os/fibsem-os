@@ -278,6 +278,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         self.actionSyncPositionsFromFMMinimap.triggered.connect(self.sync_positions_from_fm_minimap)
         self.menuDevelopment.addAction(self.actionSyncPositionsFromFMMinimap)
 
+        open_coincidence_action = QtWidgets.QAction("Open Coincidence Milling...", self)
+        open_coincidence_action.triggered.connect(self.open_coincidence_widget)
+        self.menuDevelopment.addAction(open_coincidence_action)
+
         # development
         self.menuDevelopment.setVisible(False)
         self.actionAdd_Lamella_from_Odemis.setVisible(False)    # TMP: disable until tested
@@ -921,6 +925,39 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         for pos in stage_positions:
             # extract the stage position, add to experiment
             self.add_new_lamella(pos.stage_position, pos.name, pos.objective_position)
+
+    def open_coincidence_widget(self):
+        if self.microscope is None:
+            logging.warning("No microscope connected.")
+            return
+
+        if self.protocol is None:
+            logging.warning("No protocol loaded.")
+            return
+        if self.experiment is None:
+            napari.utils.notifications.show_warning(
+                "Please load an experiment first... [No Experiment Loaded]"
+            )
+            return
+
+        # TODO:
+        # select position from combobox
+        # move to position
+        # get coincidence milling parameters from protocol
+        # open coincidence milling widget
+        idx = self.comboBox_current_lamella.currentIndex()
+        if idx == -1:
+            napari.utils.notifications.show_warning("No lamella selected.")
+            return
+        lamella = self.experiment.positions[idx]
+
+        from fibsem.ui.FMCoincidenceMillingWidget import create_widget, milling_stage
+        viewer = napari.Viewer(title=f"Lamella {lamella.name} - Coincidence Milling")
+        milling_stage.imaging.path = lamella.path
+        self.coincidence_widget = create_widget(self.microscope, viewer, [milling_stage])
+
+        viewer.window.add_dock_widget(self.coincidence_widget, name="Coincidence Milling", area="right")
+        napari.run(max_loop_level=2)
 
     def open_minimap_widget(self):
         if self.microscope is None:

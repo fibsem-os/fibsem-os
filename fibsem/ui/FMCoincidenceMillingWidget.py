@@ -160,6 +160,10 @@ class FMCoincidenceMillingWidget(QWidget):
         self.show_fm_bbox_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.show_fm_bbox_button.clicked.connect(lambda: self.set_bounding_box_layer(editable=True))
         
+        self.start_fm_acquisition_button = QPushButton("Start FM Acquisition")
+        self.start_fm_acquisition_button.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.start_fm_acquisition_button.clicked.connect(self.toggle_fm_acquisition)
+
         # Start/Stop Milling button
         self.milling_button = QPushButton("Start Milling")
         self.milling_button.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
@@ -190,6 +194,7 @@ class FMCoincidenceMillingWidget(QWidget):
         button_layout.addWidget(self.acquire_fm_button, 0, 0)
         button_layout.addWidget(self.acquire_fib_button, 0, 1)
         button_layout.addWidget(self.show_fm_bbox_button, 1, 0)
+        button_layout.addWidget(self.start_fm_acquisition_button, 1, 1)
         button_layout.addWidget(self.milling_button, 2, 0)
         button_layout.addWidget(self.stop_milling_button, 2, 1)
         button_layout.addWidget(self.pause_milling_button, 3, 0)
@@ -267,6 +272,7 @@ class FMCoincidenceMillingWidget(QWidget):
             self.acquire_fib_button.setEnabled(False)
 
             # Acquire FIB image
+            self.fib_image_settings.hfw = self.milling_stage_editor.get_milling_stages()[0].milling.hfw
             self.fib_image = acquire.acquire_image(
                 microscope=self.microscope,
                 settings=self.fib_image_settings
@@ -276,6 +282,27 @@ class FMCoincidenceMillingWidget(QWidget):
             logging.error(f"Error acquiring FIB image: {e}")
         finally:
             self.acquire_fib_button.setEnabled(True)
+
+    def toggle_fm_acquisition(self):
+        """Toggle FM acquisition."""
+        if self.microscope.fm is None:
+            logging.error("Fluorescence microscope is not available for acquisition.")
+            return
+
+        if self.microscope.fm.is_acquiring:
+            try:
+                self.microscope.fm.stop_acquisition()
+                self.start_fm_acquisition_button.setText("Start FM Acquisition")
+                logging.info("FM acquisition stopped.")
+            except Exception as e:
+                logging.error(f"Error stopping FM acquisition: {e}")
+        else:
+            try:
+                self.microscope.fm.start_acquisition(channel_settings=self.channelSettingsWidget.channel_settings)
+                self.start_fm_acquisition_button.setText("Stop FM Acquisition")
+                logging.info("FM acquisition started.")
+            except Exception as e:
+                logging.error(f"Error starting FM acquisition: {e}")
 
     @pyqtSlot()
     def acquire_fm_image(self):
@@ -303,25 +330,32 @@ class FMCoincidenceMillingWidget(QWidget):
     def start_milling(self):
         """Start milling."""
         try:
-            if not self.is_milling:
-                # Start milling
-                self.milling_state_changed_signal.emit(True)
-                self.label_milling_state.setText("Milling State: Running")
-                self.label_milling_state.setStyleSheet("background-color: lightgreen; color: black;")
-                logging.info("Milling started")
+            if self.microscope.fm.is_acquiring:
+                logging.warning("Cannot start milling while FM acquisition is running.")
+                return
 
-                milling_stage = copy.deepcopy(self.milling_stage_editor.get_milling_stages()[0])
-                milling_stage.strategy.config.bbox = self.get_bounding_box()
-                milling_stage.strategy.config.channel_settings = self.channelSettingsWidget.channel_settings
-                pprint(milling_stage.to_dict())
+            if self.is_milling:
+                logging.warning("Milling is already running. Stopping current milling before starting a new one.")
+                return
 
-                self._milling_thread = threading.Thread(
-                    target=self._milling_worker,
-                    args=(milling_stage,),
-                    daemon=True
-                )
-                self._milling_thread.start()
-                logging.info("Milling worker thread started")
+            # Start milling
+            self.milling_state_changed_signal.emit(True)
+            self.label_milling_state.setText("Milling State: Running")
+            self.label_milling_state.setStyleSheet("background-color: lightgreen; color: black;")
+            logging.info("Milling started")
+
+            milling_stage = copy.deepcopy(self.milling_stage_editor.get_milling_stages()[0])
+            milling_stage.strategy.config.bbox = self.get_bounding_box()
+            milling_stage.strategy.config.channel_settings = self.channelSettingsWidget.channel_settings
+            pprint(milling_stage.to_dict())
+
+            self._milling_thread = threading.Thread(
+                target=self._milling_worker,
+                args=(milling_stage,),
+                daemon=True
+            )
+            self._milling_thread.start()
+            logging.info("Milling worker thread started")
     
         except Exception as e:
             logging.error(f"Error toggling milling: {e}")
@@ -343,7 +377,7 @@ class FMCoincidenceMillingWidget(QWidget):
         if not self.is_milling:
             logging.warning("Milling is not currently running.")
             return
-        
+
         try:
             # Stop milling
             self.microscope.stop_milling()
