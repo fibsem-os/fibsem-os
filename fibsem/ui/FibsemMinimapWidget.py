@@ -446,7 +446,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
     def update_viewer(self, image: Optional[FibsemImage] = None, tmp: bool = False):
         """Update the viewer with the image and positions."""
         if image is not None:
-    
+
             if not tmp:
                 self.image = image
 
@@ -575,9 +575,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         if point is False: # clicked outside image
             return
+
         if self.image is None or self.image.metadata is None:
             return
-        
+
         beam_type = self.image.metadata.image_settings.beam_type
         stage_position = self.microscope.project_stable_move( 
             dx=point.x, dy=point.y, 

@@ -395,7 +395,7 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
 
         self.shapes = [upper_pattern, lower_pattern, side_pattern]
         return self.shapes
-    
+
 
 @dataclass
 class HorseshoePatternVertical(BasePattern):
@@ -456,7 +456,7 @@ class HorseshoePatternVertical(BasePattern):
             cross_section=cross_section
         )
 
-        self.shapes = [upper_pattern, left_pattern, right_pattern]
+        self.shapes = [upper_pattern, left_pattern,right_pattern]
         return self.shapes
 
 
@@ -499,7 +499,7 @@ class SerialSectionPattern(BasePattern[FibsemLineSettings]):
                                              start_y=point.y + section_y, 
                                              end_y=point.y + section_y, 
                                              depth=section_depth)
-        
+
         self.shapes = [section_pattern]
 
         if use_side_patterns:

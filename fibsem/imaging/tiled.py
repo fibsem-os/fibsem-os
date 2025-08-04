@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from copy import deepcopy
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +22,6 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 
-
 POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
 
 ##### TILED ACQUISITION
@@ -33,7 +32,7 @@ def tiled_image_acquisition(
     tile_size: float,
     overlap: float = 0.0,
     cryo: bool = True,
-    parent_ui: Optional['FibsemMinimapWidget'] = None,
+    parent_ui: Optional['FibsemMinimapWidget']=None,
 ) -> dict: 
     """Tiled image acquisition. Currently only supports square grids with no overlap.
     Args:
@@ -148,7 +147,7 @@ def tiled_image_acquisition(
     return ddict
 
 # TODO: stitch while collecting
-def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui = None) -> FibsemImage:
+def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optional['FibsemMinimapWidget'] = None) -> FibsemImage:
     """Stitch an array (2D) of images together. Assumes images are ordered in a grid with no overlap.
     Args:
         images: The images.
@@ -185,12 +184,11 @@ def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui = None
     return image
 
 # TODO: add support for overlap, nrows, ncols
-def tiled_image_acquisition_and_stitch(microscope: FibsemMicroscope,
-                                  image_settings: ImageSettings,
-                                  grid_size: float,
-                                  tile_size: float,
-                                  overlap: float = 0.0,
-                                  cryo: bool = True,
+def tiled_image_acquisition_and_stitch(microscope: FibsemMicroscope, 
+                                  image_settings: ImageSettings, 
+                                  grid_size: float, 
+                                  tile_size: float, 
+                                  overlap: float = 0, cryo: bool = True, 
                                   parent_ui: Optional['FibsemMinimapWidget'] = None) -> FibsemImage:
     """Acquire a tiled image and stitch it together. Currently only supports square grids with no overlap.
     Args:

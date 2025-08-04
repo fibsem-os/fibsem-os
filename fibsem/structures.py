@@ -816,7 +816,7 @@ class BeamSettings:
             "beam_current": self.beam_current,
             "voltage": self.voltage,
             "hfw": self.hfw,
-            "resolution": self.resolution,
+            "resolution": list(self.resolution) if self.resolution is not None else None,
             "dwell_time": self.dwell_time,
             "stigmation": self.stigmation.to_dict()
             if self.stigmation is not None

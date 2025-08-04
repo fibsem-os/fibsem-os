@@ -193,6 +193,9 @@ def estimate_milling_time(pattern: BasePattern, milling_current: float) -> float
     Returns:
         float: the estimated milling time in seconds
     """
+    if hasattr(pattern, "time") and pattern.time != 0:
+        return pattern.time
+
     # get the key that is closest to the milling current
     sp_keys = list(MILLING_SPUTTER_RATE.keys())
     sp_keys.sort(key=lambda x: abs(x - milling_current))

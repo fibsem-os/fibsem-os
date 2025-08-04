@@ -1514,7 +1514,6 @@ def generate_segmentation_objects(data_path: str, labels_path: str, dataset_json
 
     return dat
 
-
 def crop_threshold_to_polygon(image: np.ndarray, bbox: Optional[Tuple[int, int, int, int]] = None, threshold: float = 0.5) -> List[Tuple[int, int]]:
     """
     Crop an image using a bounding box, apply threshold segmentation, and return a polygon 
