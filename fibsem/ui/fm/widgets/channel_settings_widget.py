@@ -521,7 +521,7 @@ class ChannelSettingsWidget(QWidget):
 
         # Get the currently selected channel widget
         selected_widget = self._get_selected_channel_widget()
-        if selected_widget and self.parent_widget:
+        if selected_widget and self.parent_widget and hasattr(self.parent_widget, '_update_exposure_time'):
             # Connect to the selected channel's input widgets
             selected_widget.exposure_time_input.valueChanged.connect(self.parent_widget._update_exposure_time)
             selected_widget.power_input.valueChanged.connect(self.parent_widget._update_power)

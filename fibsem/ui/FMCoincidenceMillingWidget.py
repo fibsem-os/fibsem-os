@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import QCollapsible
 from fibsem import acquire, utils
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.microscope import FluorescenceImage
@@ -45,20 +46,20 @@ from fibsem.ui.stylesheets import (
     RED_PUSHBUTTON_STYLE,
 )
 
-milling_stage = FibsemMillingStage(name="Milling Stage",
+from fibsem.ui.fm.widgets import SingleChannelWidget, ObjectiveControlWidget
+
+milling_stage = FibsemMillingStage(name="Coincidence Milling Stage",
                                   milling=FibsemMillingSettings(hfw=50e-6, milling_current=60e-12),
-                                  pattern=TrenchPattern(depth=0.5e-6, 
-                                                        width=10e-6, 
-                                                        spacing=0.25e-6, 
-                                                        upper_trench_height=0.5e-6, 
-                                                        lower_trench_height=0.5e-6, 
+                                  pattern=TrenchPattern(depth=0.5e-6,
+                                                        width=10e-6,
+                                                        spacing=0.25e-6,
+                                                        upper_trench_height=0.5e-6,
+                                                        lower_trench_height=0.5e-6,
                                                         cross_section=CrossSectionPattern.CleaningCrossSection),
                                   strategy=CoincidenceMillingStrategy())
 milling_stage.alignment.enabled = False
 
-# TODO: enable channel settings for FM image acquisition
-# TODO: enable objective control
-# TODO: control trench milling pattern -> run top trench, then bottom trench
+# TODO: enable stage movement (double-click, vertical move)
 
 class FMCoincidenceMillingWidget(QWidget):
     """Widget for FM Coincidence Milling with FIB image acquisition, FM image acquisition, and start/stop milling controls."""
@@ -78,11 +79,11 @@ class FMCoincidenceMillingWidget(QWidget):
         self.viewer = viewer
         self._lock = threading.RLock()  # Lock for thread safety
 
-        if microscope.fm is None:
+        if self.microscope.fm is None:
             raise ValueError("FluorescenceMicroscope (fm) must be initialized in the FibsemMicroscope.")
 
         self.fm_resolution = self.microscope.fm.camera.resolution
-        self.field_of_view = microscope.fm.camera.field_of_view
+        self.field_of_view = self.microscope.fm.camera.field_of_view
 
         # Default settings
         self.fib_image_settings = ImageSettings(
@@ -100,6 +101,23 @@ class FMCoincidenceMillingWidget(QWidget):
             exposure_time=0.1,
         )
 
+        # objective control widget
+        self.objective_control_widget = ObjectiveControlWidget(
+            fm=self.microscope.fm,
+            parent=self
+        )
+        self.objectiveCollapsible = QCollapsible("Objective Control", self)
+        self.objectiveCollapsible.addWidget(self.objective_control_widget)
+
+        # create channel settings widget
+        self.channelSettingsWidget = SingleChannelWidget(
+            fm=self.microscope.fm,
+            channel_settings=self.channel_settings,
+            parent=self
+        )
+        self.channelCollapsible = QCollapsible("Channel Settings", self)
+        self.channelCollapsible.addWidget(self.channelSettingsWidget)
+
         if isinstance(milling_stages, FibsemMillingStage):
             milling_stages = [milling_stages]
 
@@ -108,6 +126,8 @@ class FMCoincidenceMillingWidget(QWidget):
                                                     milling_stages=milling_stages,
                                                     parent=self)
         self.milling_stage_editor.image_layer.translate = (0, self.fm_resolution[0])
+        self.milling_stage_collapsible = QCollapsible("Milling Stage Editor", self)
+        self.milling_stage_collapsible.addWidget(self.milling_stage_editor)
         self.alignment_layer: Optional[NapariShapesLayer] = None
 
         # milling threading
@@ -177,7 +197,9 @@ class FMCoincidenceMillingWidget(QWidget):
         button_layout.addWidget(self.label_milling_state, 4, 0, 1, 2)
         button_layout.addWidget(self.label_fm_bbox, 5, 0, 1, 2)
         button_layout.addWidget(self.label_fm_intensity, 6, 0, 1, 2)
-        layout.addWidget(self.milling_stage_editor)
+        layout.addWidget(self.objectiveCollapsible)
+        layout.addWidget(self.channelCollapsible)
+        layout.addWidget(self.milling_stage_collapsible)
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
@@ -265,6 +287,7 @@ class FMCoincidenceMillingWidget(QWidget):
                 raise ValueError("Fluorescence microscope is not available")
 
             # Acquire FM image
+            self.channel_settings = self.channelSettingsWidget.channel_settings
             self.fm_image = acquire_image(
                 microscope=self.microscope.fm,
                 channel_settings=self.channel_settings
@@ -289,6 +312,7 @@ class FMCoincidenceMillingWidget(QWidget):
 
                 milling_stage = copy.deepcopy(self.milling_stage_editor.get_milling_stages()[0])
                 milling_stage.strategy.config.bbox = self.get_bounding_box()
+                milling_stage.strategy.config.channel_settings = self.channelSettingsWidget.channel_settings
                 pprint(milling_stage.to_dict())
 
                 self._milling_thread = threading.Thread(
@@ -392,6 +416,8 @@ class FMCoincidenceMillingWidget(QWidget):
 
     def update_alignment(self, event):
         """Validate the alignment area, and update the parent ui."""
+        if event is None:
+            return
         try:
             if not event.action == "changed":
                 return  

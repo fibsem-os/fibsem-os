@@ -9,7 +9,7 @@ from .z_parameters_widget import ZParametersWidget
 from .overview_parameters_widget import OverviewParametersWidget
 from .saved_positions_widget import SavedPositionsWidget
 from .objective_control_widget import ObjectiveControlWidget
-from .channel_settings_widget import ChannelSettingsWidget
+from .channel_settings_widget import ChannelSettingsWidget, SingleChannelWidget
 from .histogram_widget import HistogramWidget
 from .line_plot_widget import LinePlotWidget
 from .stage_position_control_widget import StagePositionControlWidget
@@ -22,6 +22,7 @@ __all__ = [
     'SavedPositionsWidget',
     'ObjectiveControlWidget',
     'ChannelSettingsWidget',
+    'SingleChannelWidget',
     'HistogramWidget',
     'LinePlotWidget',
     'StagePositionControlWidget',

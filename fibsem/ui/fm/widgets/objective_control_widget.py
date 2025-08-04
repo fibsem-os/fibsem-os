@@ -157,9 +157,13 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.blockSignals(True)  # Block signals to prevent recursion
         self.doubleSpinBox_objective_position.setValue(objective_position)  # Convert m to mm
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
-        
-        if self.parent_widget is not None:
-            self.parent_widget.display_stage_position_overlay()  # Update the stage position overlay in the parent widget
+
+        if self.parent_widget is not None: 
+            if hasattr(self.parent_widget, 'display_stage_position_overlay'):
+                self.parent_widget.display_stage_position_overlay()  # Update the stage position overlay in the parent widget
+            elif hasattr(self.parent_widget, "viewer"):
+                from fibsem.ui.napari.utilities import update_text_overlay # TODO: remove the above display_stage_position_overlay
+                update_text_overlay(self.parent_widget.viewer, self.parent_widget.microscope)
 
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
@@ -169,12 +173,12 @@ class ObjectiveControlWidget(QWidget):
 
         if is_large_change:
             logging.info(f"Large change in objective position requested: {position:.2f} mm")
-        
+
             ret = message_box_ui(
                 title="Large Objective Movement",
                 text=f"Are you sure you want to change the objective position to {position:.2f} mm?",
                 parent=self)
-            
+
             if ret is False:
                 logging.info("Objective position change cancelled by user.")
                 # Reset the spin box to the current position
@@ -201,11 +205,11 @@ class ObjectiveControlWidget(QWidget):
             return
 
         focus_position_mm = self.fm.objective.focus_position * METRE_TO_MILLIMETRE
-        
+
         # confirmation dialog for large movements
         current_position_mm = self.fm.objective.position * METRE_TO_MILLIMETRE
         is_large_change = abs(current_position_mm - focus_position_mm) > 1e-3  # 1 mm threshold
-        
+
         if is_large_change:
             ret = message_box_ui(
                 title="Move to Focus Position",
@@ -219,6 +223,6 @@ class ObjectiveControlWidget(QWidget):
         logging.info(f"Moving objective to focus position: {focus_position_mm:.3f} mm")
         self.fm.objective.move_absolute(self.fm.objective.focus_position)
         logging.info(f"Objective moved to focus position: {focus_position_mm:.3f} mm")
-        
+
         # Update the objective position label
         self.update_objective_position_labels()
