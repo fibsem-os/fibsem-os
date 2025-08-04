@@ -700,13 +700,13 @@ class FMAcquisitionWidget(QWidget):
         self.channelCollapsible.addWidget(self.channelSettingsWidget)
 
         # Set initial expanded state for all collapsible widgets
-        self.objectiveCollapsible.expand(animate=False)
-        self.stagePositionCollapsible.expand(animate=False)
-        self.semAcquisitionCollapsible.expand(animate=False)
-        self.zParametersCollapsible.expand(animate=False)
-        self.overviewCollapsible.expand(animate=False)
-        self.positionsCollapsible.expand(animate=False)
-        self.channelCollapsible.expand(animate=False)
+        # self.objectiveCollapsible.expand(animate=False)
+        # self.stagePositionCollapsible.expand(animate=False)
+        # self.semAcquisitionCollapsible.expand(animate=False)
+        # self.zParametersCollapsible.expand(animate=False)
+        # self.overviewCollapsible.expand(animate=False)
+        # self.positionsCollapsible.expand(animate=False)
+        # self.channelCollapsible.expand(animate=False)
 
         # Set content margins to 0 for all collapsible widgets
         self.objectiveCollapsible.setContentsMargins(0, 0, 0, 0)
