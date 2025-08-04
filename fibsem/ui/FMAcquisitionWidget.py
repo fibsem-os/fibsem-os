@@ -224,11 +224,12 @@ class OverviewConfirmationDialog(QDialog):
 class AcquisitionSummaryDialog(QDialog):
     """Dialog showing a summary of the acquisition before it starts."""
 
-    def __init__(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: ZParameters, parent: Optional[QWidget] = None):
+    def __init__(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: ZParameters, use_autofocus: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.checked_positions = checked_positions
         self.channel_settings = channel_settings
         self.z_parameters = z_parameters
+        self.use_autofocus = use_autofocus
         self.setWindowTitle("Acquisition Summary")
         self.setModal(True)
         self.initUI()
@@ -276,6 +277,15 @@ class AcquisitionSummaryDialog(QDialog):
         z_details.setStyleSheet("font-size: 10px; color: #666666;")
         layout.addWidget(zlabel)
         layout.addWidget(z_details)
+        
+        # Auto-focus information
+        autofocus_label = QLabel(f"Auto-focus: {'Enabled' if self.use_autofocus else 'Disabled'}")
+        autofocus_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        layout.addWidget(autofocus_label)
+        
+        autofocus_details = QLabel("Autofocus will run at each position before acquisition" if self.use_autofocus else "No autofocus will be performed")
+        autofocus_details.setStyleSheet("font-size: 10px; color: #666666;")
+        layout.addWidget(autofocus_details)
 
         # Buttons
         button_layout = QGridLayout()
@@ -1499,12 +1509,16 @@ class FMAcquisitionWidget(QWidget):
         settings = self._get_current_settings()
         channel_settings = settings['channel_settings']
         z_parameters = settings['z_parameters']
+        
+        # Get auto focus setting from the saved positions widget
+        use_autofocus = self.savedPositionsWidget.get_auto_focus_enabled()
 
         # Show acquisition summary dialog
         summary_dialog = AcquisitionSummaryDialog(
             checked_positions=checked_positions,
             channel_settings=channel_settings,
             z_parameters=z_parameters,
+            use_autofocus=use_autofocus,
             parent=self
         )
 
@@ -1521,12 +1535,16 @@ class FMAcquisitionWidget(QWidget):
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
             target=self._positions_worker,
-            args=(checked_positions, channel_settings, z_parameters),
+            args=(checked_positions, channel_settings, z_parameters, use_autofocus),
             daemon=True
         )
         self._acquisition_thread.start()
 
-    def _positions_worker(self, checked_positions: List[FMStagePosition], channel_settings: List[ChannelSettings], z_parameters: Optional[ZParameters]):
+    def _positions_worker(self,
+                          checked_positions: List[FMStagePosition],
+                          channel_settings: List[ChannelSettings],
+                          z_parameters: Optional[ZParameters],
+                          use_autofocus: bool):
         """Worker thread for positions acquisition."""
         try:
             logging.info(f"Acquiring at {len(checked_positions)} checked positions")
@@ -1538,7 +1556,7 @@ class FMAcquisitionWidget(QWidget):
                 channel_settings=channel_settings,
                 zparams=z_parameters,
                 stop_event=self._acquisition_stop_event,
-                use_autofocus=False,
+                use_autofocus=use_autofocus,
                 save_directory=self.experiment.path,
             )
 
@@ -1549,8 +1567,6 @@ class FMAcquisitionWidget(QWidget):
             # Emit each acquired image
             for image in images:
                 self.update_persistent_image_signal.emit(image)
-
-            logging.info(f"Positions acquisition completed successfully. Acquired {len(images)} images.")
 
         except Exception as e:
             logging.error(f"Error during positions acquisition: {e}")

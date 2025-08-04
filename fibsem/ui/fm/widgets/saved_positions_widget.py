@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QGridLayout,
@@ -64,7 +65,12 @@ class SavedPositionsWidget(QWidget):
         self.label_position_info = QLabel("No positions saved", self)
         self.label_position_info.setStyleSheet("QLabel { color: #666666; font-size: 10px; }")
         self.label_position_info.setWordWrap(True)
-        
+
+        # Auto Focus checkbox
+        self.checkBox_auto_focus = QCheckBox("Auto Focus at each position", self)
+        self.checkBox_auto_focus.setToolTip("Run autofocus at each position before acquisition")
+        self.checkBox_auto_focus.setChecked(False)
+
         # Create the layout
         layout = QGridLayout()
         layout.addWidget(self.label_positions, 0, 0)
@@ -76,6 +82,7 @@ class SavedPositionsWidget(QWidget):
         layout.addWidget(self.label_position_info, 3, 0, 1, 2)
         layout.addWidget(self.label_checkbox_list, 4, 0, 1, 2)
         layout.addWidget(self.listWidget_positions, 5, 0, 1, 2)
+        layout.addWidget(self.checkBox_auto_focus, 6, 0, 1, 2)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
@@ -204,6 +211,10 @@ class SavedPositionsWidget(QWidget):
                     checked_positions.append(self.parent_widget.stage_positions[i])
         
         return checked_positions
+
+    def get_auto_focus_enabled(self) -> bool:
+        """Return whether auto focus is enabled for position acquisition."""
+        return self.checkBox_auto_focus.isChecked()
 
     def _goto_selected_position(self):
         """Move stage to the selected position."""
