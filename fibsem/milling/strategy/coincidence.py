@@ -1,9 +1,14 @@
+import datetime
 import logging
+import os
 import time
 from dataclasses import dataclass
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
+from queue import Queue
 
 import numpy as np
+import tifffile as tff
+from psygnal import Signal
 
 from fibsem.fm.acquisition import acquire_z_stack
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
@@ -13,9 +18,8 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.milling.core import draw_patterns, finish_milling, setup_milling
+from fibsem.milling.core import setup_milling
 from fibsem.structures import BeamType, FibsemRectangle, MillingState
-from psygnal import Signal
 
 if TYPE_CHECKING:
     from fibsem.ui.FMCoincidenceMillingWidget import FMCoincidenceMillingWidget
@@ -25,9 +29,8 @@ channel_settings = ChannelSettings(
     excitation_wavelength=550,
     emission_wavelength=None,
     power=0.003,
-    exposure_time=0.1,
+    exposure_time=0.5,
 )
-
 
 @dataclass
 class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
@@ -36,14 +39,12 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     channel_settings: ChannelSettings = channel_settings
     zparams: ZParameters = ZParameters(-5e-6, 5e-6, 0.5e-6)
     timeout: int = 60  # seconds, default timeout for milling
+    save_fm_images: bool = True  # save FM images during milling
     acquire_z_stack: bool = False  # acquire a z-stack after milling
     acquire_fib_image: bool = False  # acquire a FIB image after milling
+    auto_intensity_drop: bool = False  # automatically detect intensity drop
     intensity_drop_threshold: float = 0.75  # threshold for intensity drop
     bbox: Optional[FibsemRectangle] = None  # reduced area for monitoring
-    # acquire fib image before/after
-    # save fm images
-    # acquire post z-stack
-    # intensity drop threshold
     # oscillation parameters
 
 
@@ -54,6 +55,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
     fullname: str = "fibsem.milling.CoincidenceMillingStrategy"
     config_class = CoincidenceMillingStrategyConfig
     intensity_drop_signal = Signal(dict)
+    cropped_image_signal = Signal(np.ndarray)
 
     def __init__(self, config: Optional[CoincidenceMillingStrategyConfig] = None):
         if config is None:
@@ -93,15 +95,18 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
         if self.parent_ui and hasattr(self.parent_ui, "on_intensity_drop_signal"):
             self.intensity_drop_signal.connect(self.parent_ui.on_intensity_drop_signal)
+        self._update_line_plot = self.parent_ui and hasattr(self.parent_ui, "update_line_plot_signal")
 
         # setup milling
         microscope.stop_milling()
         setup_milling(microscope, stage)
-        draw_patterns(microscope, patterns=stage.pattern.define())
+        microscope.draw_patterns(patterns=stage.pattern.define())
 
         # connect the acquisition signal
         microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
         microscope.fm.acquisition_signal.connect(self.on_fm_acquisition_signal)
+        if self.config.save_fm_images:
+            self.cropped_image_signal.connect(self._save_fm_image) # TODO: this should be threaded.
 
         # start fm acquisition, start milling
         microscope.fm.start_acquisition(channel_settings=self.config.channel_settings)
@@ -115,7 +120,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         SLEEP_DURATION = 1  # seconds
         while True:
             if self.parent_ui and hasattr(self.parent_ui, "get_bounding_box"):
-                self.config.bbox = self.parent_ui.get_bounding_box()
+                bbox = self.parent_ui.get_bounding_box()
+                if bbox is not None:
+                    self.config.bbox = bbox
             milling_state = microscope.get_milling_state()
             if milling_state == MillingState.RUNNING:
                 logging.info(f"Milling is running... {remaining_time:.2f} seconds remaining.")
@@ -151,7 +158,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
         # finalize
         microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
-        finish_milling(microscope)
+        self.cropped_image_signal.disconnect(self._save_fm_image)
+        microscope.finish_milling(imaging_current=self.microscope.system.ion.beam.beam_current,
+                                  imaging_voltage=self.microscope.system.ion.beam.voltage)
 
         # acquire a z-stack post-milling
         if self.config.acquire_z_stack:
@@ -184,11 +193,19 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 self.microscope.fm.camera.resolution
             )
             data = image.data[y : y + h, x : x + w]
+        self.cropped_image_signal.emit(data)
 
         # calc mean intensity
         mean_intensity = data.mean()
         if np.isnan(mean_intensity):
             return
+
+        if self._update_line_plot:
+            self.parent_ui.update_line_plot_signal.emit(mean_intensity) # type: ignore
+
+        if not self.config.auto_intensity_drop:
+            return
+
         n_rolling = 10
         self.intensities.append(mean_intensity)
         rolling_mean = sum(self.intensities[-n_rolling:]) / min(
@@ -201,8 +218,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             f"Mean Intensity: {mean_intensity:.2f}, Rolling Mean ({n_rolling}): {rolling_mean:.2f}, Average Mean: {average_mean:.2f}"
         )
 
-        if self.parent_ui and hasattr(self.parent_ui, "update_line_plot_signal"):
-            self.parent_ui.update_line_plot_signal.emit(mean_intensity)
 
         # check if the rolling mean intensity has dropped by 25%
         if rolling_mean < self.config.intensity_drop_threshold * average_mean:
@@ -223,3 +238,14 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         """Handle updates to the bounding box."""
         logging.info(f"Bounding Box Updated: {bbox}")
         self.config.bbox = bbox
+
+    def _save_fm_image(self, arr: np.ndarray) -> None:
+        logging.info(f"-" * 80)
+        path = self.stage.imaging.path
+        if path is None:
+            path = os.getcwd()
+        filename = f"fm-coincidence-{datetime.datetime.now().strftime('%H-%M-%S-%f')}.tif"
+        fname = os.path.join(path, filename)
+        logging.info(f"Saving FM image to {fname}")
+        tff.imwrite(fname, arr)
+        logging.info(f"-" * 80)
