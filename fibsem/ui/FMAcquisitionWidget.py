@@ -797,7 +797,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
 
         # we need to re-emit the signal to ensure it is handled in the main thread
-        self.fm.acquisition_signal.connect(self._wrap_update_image) 
+        self.fm.acquisition_signal.connect(self._wrap_update_image)
         self.update_image_signal.connect(self.update_image)
         self.update_persistent_image_signal.connect(self.update_persistent_image)
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
@@ -1605,21 +1605,20 @@ class FMAcquisitionWidget(QWidget):
 
     def _wrap_update_image(self, image: FluorescenceImage):
         """Wrap the update image signal emission for re-emission in the main thread."""
+        # rate limiting: only update if enough time has passed since last update
+        now = datetime.now()
+        if self._last_updated_at is not None:
+            time_since_last_update = now - self._last_updated_at
+            if time_since_last_update < timedelta(seconds=1.0):
+                return  # early return if not enough time has passed
+        self._last_updated_at = now
+
         self.update_image_signal.emit(image)
 
     # NOTE: not in main thread, so we need to handle signals properly
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
         """Update the napari image layer with the given image data and metadata. (Live images)"""
-
-        # rate limiting: only update if enough time has passed since last update
-        now = datetime.now()
-        if self._last_updated_at is not None:
-            time_since_last_update = now - self._last_updated_at
-            if time_since_last_update < timedelta(seconds=self.max_update_interval):
-                return  # early return if not enough time has passed
-        self._last_updated_at = now
-
 
         # convert metadata to napari image layer format
         image_height, image_width = image.data.shape[-2:]
@@ -1628,7 +1627,7 @@ class FMAcquisitionWidget(QWidget):
         logging.info(f"Updating image layer: {channel_name}, shape: {image.data.shape}, acquisition date: {image.metadata.acquisition_date}")
 
         self._update_napari_image_layer(channel_name, image.data, metadata_dict)
-        self.display_stage_position_overlay()
+        # self.display_stage_position_overlay()
 
     @pyqtSlot(FluorescenceImage)
     def update_persistent_image(self, image: Union[FibsemImage, FluorescenceImage]):
@@ -2099,7 +2098,7 @@ class FMAcquisitionWidget(QWidget):
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
-    CONFIG_PATH = None#r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
+    CONFIG_PATH = r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
     microscope, settings = utils.setup_session(config_path=CONFIG_PATH)
 
     if microscope.fm is None:

@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 from abc import ABC
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
@@ -496,6 +496,7 @@ class FluorescenceMicroscope(ABC):
         self.filter_set = FilterSet(parent=self)
         self.camera = Camera(parent=self)
         self.light_source = LightSource(parent=self)
+        self._last_updated_at: Optional[float] = datetime.now()
 
     def __repr__(self):
         """Return a string representation of the fluorescence microscope.
@@ -615,7 +616,14 @@ class FluorescenceMicroscope(ABC):
         """Construct a FluorescenceImage from raw data with associated metadata."""
         md = self.get_metadata()
         img = FluorescenceImage(data=data, metadata=md)
-        self.acquisition_signal.emit(img)  # Emit the acquired image signal
+
+        now = datetime.now()
+        if self._last_updated_at is not None:
+            time_since_last_update = now - self._last_updated_at
+            if time_since_last_update > timedelta(seconds=1):
+                self.acquisition_signal.emit(img)  # Emit the acquired image signal
+                self._last_updated_at = now
+
         return img
 
     def get_metadata(self) -> FluorescenceImageMetadata:
