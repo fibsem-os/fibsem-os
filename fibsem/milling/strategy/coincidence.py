@@ -2,7 +2,7 @@ import datetime
 import logging
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional
 from queue import Queue
 
@@ -36,8 +36,8 @@ channel_settings = ChannelSettings(
 class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     """Configuration for the Coincidence Milling Strategy."""
 
-    channel_settings: ChannelSettings = channel_settings
-    zparams: ZParameters = ZParameters(-5e-6, 5e-6, 0.5e-6)
+    channel_settings: ChannelSettings = field(default_factory=lambda: channel_settings)
+    zparams: ZParameters = field(default_factory=lambda: ZParameters(-5e-6, 5e-6, 0.5e-6))
     timeout: int = 60  # seconds, default timeout for milling
     save_fm_images: bool = True  # save FM images during milling
     acquire_z_stack: bool = False  # acquire a z-stack after milling

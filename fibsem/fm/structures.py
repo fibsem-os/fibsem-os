@@ -209,11 +209,6 @@ class ZParameters:
 
 
 # QUERY: add AcquisitionSettings class to handle acquisition settings?
-@dataclass
-class AcquisitionSettings:
-    channels: List[ChannelSettings] = field(default_factory=list)
-    zparams: ZParameters = ZParameters()
-    filename: str = "image.ome.tiff"
 
 
 @dataclass
