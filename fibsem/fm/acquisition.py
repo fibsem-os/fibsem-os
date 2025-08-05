@@ -817,7 +817,7 @@ def acquire_multiple_overviews(
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
     autofocus_mode: AutofocusMode = AutofocusMode.NONE,
-    autofocus_channel: Optional[ChannelSettings] = None,
+    autofocus_channel_name: Optional[str] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,
     stop_event: Optional[threading.Event] = None,
@@ -837,7 +837,7 @@ def acquire_multiple_overviews(
         zparams: Optional Z parameters for z-stack acquisition
         beam_type: Beam type to use for stage movements (default: ELECTRON)
         autofocus_mode: Auto-focus mode for tileset acquisition (default: NONE)
-        autofocus_channel: Channel settings to use for auto-focus (uses main channel if None)
+        autofocus_channel_name: Channel settings to use for auto-focus (uses main channel if None)
         autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
         save_directory: Optional directory path to save overview images. Creates subdirectories
                        for each position (default: None)
@@ -916,7 +916,7 @@ def acquire_multiple_overviews(
                 zparams=zparams,
                 beam_type=beam_type,
                 autofocus_mode=autofocus_mode,
-                autofocus_channel=autofocus_channel,
+                autofocus_channel_name=autofocus_channel_name,
                 autofocus_zparams=autofocus_zparams,
                 save_directory=position_save_directory,
                 stop_event=stop_event,

@@ -1,9 +1,29 @@
+from unittest.mock import Mock, call, patch
+
 import numpy as np
 import pytest
-from unittest.mock import Mock, patch, call
 
-from fibsem.fm.acquisition import generate_grid_positions, plot_grid_positions, calculate_grid_overlap, calculate_grid_dimensions, calculate_grid_size_for_area, calculate_grid_coverage_area, acquire_at_positions, acquire_channels, acquire_z_stack, acquire_image, stitch_tileset, acquire_and_stitch_tileset, acquire_multiple_overviews
-from fibsem.fm.structures import FMStagePosition, ChannelSettings, ZParameters, FluorescenceImage
+from fibsem.fm.acquisition import (
+    acquire_and_stitch_tileset,
+    acquire_at_positions,
+    acquire_channels,
+    acquire_image,
+    acquire_multiple_overviews,
+    acquire_z_stack,
+    calculate_grid_coverage_area,
+    calculate_grid_dimensions,
+    calculate_grid_overlap,
+    calculate_grid_size_for_area,
+    generate_grid_positions,
+    plot_grid_positions,
+    stitch_tileset,
+)
+from fibsem.fm.structures import (
+    ChannelSettings,
+    FluorescenceImage,
+    FMStagePosition,
+    ZParameters,
+)
 from fibsem.structures import FibsemStagePosition
 
 
