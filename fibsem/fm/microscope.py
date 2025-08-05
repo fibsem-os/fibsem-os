@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 EXCITATION_WAVELENGTHS = [365, 450, 550, 635]  # in nm, example wavelengths
-EMISSION_WAVELENGTHS = [365, 450, 550, 635, None]  # in nm, example wavelengths
+EMISSION_WAVELENGTHS = [None, "Fluorescence"]  # in nm, example wavelengths
 
 SIM_OBJECTIVE_MAGNIFICATION = 100.0  # placeholder for simulation
 SIM_OBJECTIVE_NA = 0.8

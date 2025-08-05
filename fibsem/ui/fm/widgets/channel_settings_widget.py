@@ -109,7 +109,11 @@ class SingleChannelWidget(QWidget):
             if wavelength is None:
                 self.emission_wavelength_input.addItem("Reflection", None)
                 continue
-            self.emission_wavelength_input.addItem(f"{int(wavelength)} nm", wavelength)
+            # Handle both numeric and string wavelengths
+            if isinstance(wavelength, str):
+                self.emission_wavelength_input.addItem(wavelength, wavelength)
+            else:
+                self.emission_wavelength_input.addItem(f"{int(wavelength)} nm", wavelength)
 
         layout.addWidget(self.emission_wavelength_input, 2, 1)
 
@@ -177,7 +181,7 @@ class SingleChannelWidget(QWidget):
     def update_emission_wavelength(self, idx: int):
         wavelength = self.emission_wavelength_input.itemData(idx)
         self.channel_settings.emission_wavelength = wavelength
-        logging.info(f"Emission wavelength updated to: {wavelength} nm")
+        logging.info(f"Emission wavelength updated to: {wavelength}")
 
     @pyqtSlot(float)
     def update_power(self, value: float):

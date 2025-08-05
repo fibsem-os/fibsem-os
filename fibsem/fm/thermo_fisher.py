@@ -453,14 +453,14 @@ class ThermoFisherFilterSet(FilterSet):
         return tuple(sorted(AVAILABLE_FM_WAVELENGTHS))
 
     @property
-    def available_emission_wavelengths(self) -> Tuple[float, ...]:
+    def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
         """Get the available emission wavelengths for the filter set.
 
         Returns:
             A tuple of available emission wavelengths in nanometers
             Same as excitation wavelengths for this system
         """
-        return (None, AVAILABLE_FM_WAVELENGTHS[0])
+        return (None, "Fluorescence")  # Reflection mode or fluorescence mode
 
     @property
     def excitation_wavelength(self) -> float:

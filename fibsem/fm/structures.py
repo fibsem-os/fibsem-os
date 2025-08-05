@@ -275,6 +275,9 @@ class FluorescenceImage:
             # wavelengths are in nm
             excitation_wavelength = int(channel.excitation_wavelength)
             emission_wavelength = channel.emission_wavelength
+            if isinstance(emission_wavelength, str):
+                # Handle string emission wavelength (e.g., "Fluorescence") -> multi-filter
+                emission_wavelength = excitation_wavelength
             if emission_wavelength is not None:
                 emission_wavelength = int(emission_wavelength)
 
