@@ -455,6 +455,16 @@ class ChannelSettingsWidget(QWidget):
         if self.channel_list.count() > 0:
             self.channel_list.setCurrentRow(0)
 
+        # Notify parent FMAcquisitionWidget about channel name changes
+        self._notify_parent_of_channel_changes()
+
+    def _notify_parent_of_channel_changes(self):
+        """Notify parent FMAcquisitionWidget that channel names have changed."""
+        if (self.parent_widget and 
+            hasattr(self.parent_widget, 'overviewParametersWidget') and 
+            self.parent_widget.overviewParametersWidget):
+            self.parent_widget.overviewParametersWidget._update_channel_names_from_parent()
+
     @property
     def selected_channel(self) -> Optional[ChannelSettings]:
         """Get the currently selected channel for live acquisition."""

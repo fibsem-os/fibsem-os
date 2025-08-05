@@ -655,6 +655,7 @@ class FMAcquisitionWidget(QWidget):
             'overview_overlap': self.overviewParametersWidget.get_overlap(),
             'overview_use_zstack': self.overviewParametersWidget.get_use_zstack(),
             'overview_autofocus_mode': self.overviewParametersWidget.get_autofocus_mode(),
+            'overview_autofocus_channel_name': self.overviewParametersWidget.get_autofocus_channel_name(),
         }
 
     def initUI(self):
@@ -1916,14 +1917,21 @@ class FMAcquisitionWidget(QWidget):
         use_zstack = settings['overview_use_zstack']
         z_parameters = settings['z_parameters'] if use_zstack else None
         autofocus_mode = settings['overview_autofocus_mode']
-        # TODO: support positions, autofocus channel and autofocus z parameters
+        autofocus_channel_name = settings['overview_autofocus_channel_name']
+        # TODO: support positions and autofocus z parameters
         # TODO: allow setting different sized overviews for each position
         positions = None #self.stage_positions
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(
             target=self._overview_worker,
-            args=(channel_settings, grid_size, tile_overlap, z_parameters, autofocus_mode, positions),
+            args=(channel_settings,
+                  grid_size,
+                  tile_overlap,
+                  z_parameters,
+                  autofocus_mode,
+                  autofocus_channel_name,
+                  positions),
             daemon=True
         )
         self._acquisition_thread.start()
@@ -1934,6 +1942,7 @@ class FMAcquisitionWidget(QWidget):
                         tile_overlap: float,
                         z_parameters: Optional[ZParameters],
                         autofocus_mode: AutofocusMode, 
+                        autofocus_channel_name: Optional[str],
                         positions: Optional[List[FMStagePosition]] = None):
         """Worker thread for overview acquisition."""
         try:
@@ -1973,6 +1982,7 @@ class FMAcquisitionWidget(QWidget):
                 tile_overlap=tile_overlap,
                 zparams=z_parameters,
                 autofocus_mode=autofocus_mode,
+                autofocus_channel_name=autofocus_channel_name,
                 save_directory=self.experiment.path,
                 stop_event=self._acquisition_stop_event
             )
@@ -2098,7 +2108,8 @@ class FMAcquisitionWidget(QWidget):
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
-    CONFIG_PATH = r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
+    # CONFIG_PATH = None #r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
+    CONFIG_PATH = "/Users/patrickcleeve/Documents/fibsem/fibsem/fibsem/config/sim-arctis-configuration.yaml"
     microscope, settings = utils.setup_session(config_path=CONFIG_PATH)
 
     if microscope.fm is None:

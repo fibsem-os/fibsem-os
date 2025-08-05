@@ -728,7 +728,7 @@ def acquire_and_stitch_tileset(
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
     autofocus_mode: AutofocusMode = AutofocusMode.NONE,
-    autofocus_channel: Optional[ChannelSettings] = None,
+    autofocus_channel_name: Optional[str] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,
     stop_event: Optional[threading.Event] = None,
@@ -743,7 +743,7 @@ def acquire_and_stitch_tileset(
         zparams: Optional Z parameters for z-stack acquisition
         beam_type: Beam type to use for stage movements (default: ELECTRON)
         autofocus_mode: Auto-focus mode for tileset acquisition (default: NONE)
-        autofocus_channel: Channel settings to use for auto-focus (uses main channel if None)
+        autofocus_channel_name: Channel name to use for auto-focus (uses first channel if None)
         autofocus_zparams: Z parameters for auto-focus search range (uses zparams if None)
         save_directory: Optional directory path to save individual tile images (default: None)
 
@@ -763,6 +763,15 @@ def acquire_and_stitch_tileset(
         basename = f"overview-{timestamp}"
         tiles_directory = os.path.join(save_directory, basename)
         os.makedirs(tiles_directory, exist_ok=True)
+
+    # set autofocus channel if specified
+    autofocus_channel = None
+    if autofocus_channel_name is not None:
+        for ch in channel_settings:
+            if ch.name == autofocus_channel_name:
+                autofocus_channel = ch
+                logging.info(f"Using channel '{autofocus_channel_name}' for autofocus")
+                break
 
     tileset = acquire_tileset(
         microscope=microscope,

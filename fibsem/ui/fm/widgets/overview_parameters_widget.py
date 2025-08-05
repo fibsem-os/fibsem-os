@@ -1,4 +1,5 @@
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import Qt
@@ -104,12 +105,18 @@ class OverviewParametersWidget(QWidget):
                 self.comboBox_autofocus_mode.setCurrentIndex(i)
                 break
         self.comboBox_autofocus_mode.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["autofocus_mode"])
-        
+
+        # Auto-focus channel selection
+        self.label_autofocus_channel = QLabel("Auto-Focus Channel", self)
+        self.comboBox_autofocus_channel = QComboBox(self)
+        self.comboBox_autofocus_channel.setToolTip("Select the channel to use for auto-focus during overview acquisition")
+        self.autofocus_channel_name = None
+
         # Total area (calculated, read-only)
         self.label_total_area = QLabel("Total Area", self)
         self.label_total_area_value = QLabel(self._calculate_total_area(), self)
         self.label_total_area_value.setStyleSheet("QLabel { color: #666666; }")
-        
+
         # Create the layout
         layout = QGridLayout()
         layout.addWidget(self.label_rows, 0, 0)
@@ -122,8 +129,10 @@ class OverviewParametersWidget(QWidget):
         layout.addWidget(self.label_zstack_planes_value, 3, 1)
         layout.addWidget(self.label_autofocus_mode, 4, 0)
         layout.addWidget(self.comboBox_autofocus_mode, 4, 1)
-        layout.addWidget(self.label_total_area, 5, 0)
-        layout.addWidget(self.label_total_area_value, 5, 1)
+        layout.addWidget(self.label_autofocus_channel, 5, 0)
+        layout.addWidget(self.comboBox_autofocus_channel, 5, 1)
+        layout.addWidget(self.label_total_area, 6, 0)
+        layout.addWidget(self.label_total_area_value, 6, 1)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
         self.setLayout(layout)
 
@@ -133,9 +142,13 @@ class OverviewParametersWidget(QWidget):
         self.doubleSpinBox_overlap.valueChanged.connect(self._on_overlap_changed)
         self.checkBox_use_zstack.stateChanged.connect(self._on_zstack_changed)
         self.comboBox_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_mode_changed)
-        
+        self.comboBox_autofocus_channel.currentIndexChanged.connect(self._on_autofocus_channel_changed)
+
         # Set initial z-stack planes visibility
         self._update_zstack_planes_visibility()
+
+        # Initialize channel names from parent widget
+        self._update_channel_names_from_parent()
 
     def _calculate_total_area(self) -> str:
         """Calculate the total area of the overview grid."""
@@ -198,7 +211,40 @@ class OverviewParametersWidget(QWidget):
     def get_autofocus_mode(self) -> AutofocusMode:
         """Get the selected auto-focus mode."""
         return self.autofocus_mode
+
+    def get_autofocus_channel_name(self) -> str:
+        """Get the selected auto-focus channel name."""
+        return self.autofocus_channel_name
+
+    def update_channel_names(self, channel_names: list):
+        """Update the autofocus channel combobox with available channel names."""
+        current_selection = self.autofocus_channel_name
+        self.comboBox_autofocus_channel.clear()
+
+        for channel_name in channel_names:
+            self.comboBox_autofocus_channel.addItem(channel_name)
+
+        # Restore previous selection if it still exists
+        if current_selection and current_selection in channel_names:
+            index = self.comboBox_autofocus_channel.findText(current_selection)
+            if index >= 0:
+                self.comboBox_autofocus_channel.setCurrentIndex(index)
+        elif channel_names:
+            # Select first channel by default
+            self.comboBox_autofocus_channel.setCurrentIndex(0)
+            self.autofocus_channel_name = channel_names[0]
     
+    def _update_channel_names_from_parent(self):
+        """Update channel names from the parent widget's channel settings."""
+        try:
+            if (self.parent_widget and 
+                hasattr(self.parent_widget, 'channelSettingsWidget') and 
+                self.parent_widget.channelSettingsWidget):
+                channel_names = [channel.name for channel in self.parent_widget.channelSettingsWidget.channel_settings]
+                self.update_channel_names(channel_names)
+        except Exception as e:
+            logging.warning(f"Error updating channel names from parent: {e}")
+
     def _on_zstack_changed(self, state: int):
         """Handle z-stack checkbox change."""
         self.use_zstack = state == 2  # Qt.Checked
@@ -207,7 +253,14 @@ class OverviewParametersWidget(QWidget):
     def _on_autofocus_mode_changed(self, index: int):
         """Handle auto-focus mode change."""
         self.autofocus_mode = self.comboBox_autofocus_mode.itemData(index)
-    
+
+    def _on_autofocus_channel_changed(self, index: int):
+        """Handle auto-focus channel change."""
+        if index >= 0:
+            self.autofocus_channel_name = self.comboBox_autofocus_channel.itemText(index)
+        else:
+            self.autofocus_channel_name = None
+
     def _calculate_zstack_planes(self) -> str:
         """Calculate the number of z-stack planes based on current Z parameters."""
         try:
