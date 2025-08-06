@@ -1,35 +1,37 @@
 import logging
 import os
-from pathlib import Path
 import threading
-import yaml
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import napari
 import numpy as np
-from napari.layers import Image as NapariImageLayer, Shapes as NapariShapesLayer
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot, Qt
+import yaml
+from napari.layers import Image as NapariImageLayer
+from napari.layers import Shapes as NapariShapesLayer
+from PyQt5.QtCore import QEvent, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
+    QAction,
     QCheckBox,
     QDialog,
     QGridLayout,
     QLabel,
+    QMenuBar,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QShortcut,
     QVBoxLayout,
     QWidget,
-    QMenuBar,
-    QAction,
 )
+from scipy.ndimage import median_filter
 from superqt import QCollapsible
-from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
+
 from fibsem import utils
-from fibsem.utils import format_duration
+from fibsem.applications.autolamella.structures import Experiment, create_new_experiment
 from fibsem.config import LOG_PATH
 from fibsem.constants import METRE_TO_MILLIMETRE
 from fibsem.fm.acquisition import (
@@ -40,22 +42,38 @@ from fibsem.fm.acquisition import (
 )
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
-from fibsem.fm.structures import AutoFocusMode, ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
-from fibsem.fm.timing import estimate_tileset_acquisition_time
-from fibsem.structures import FibsemStagePosition, Point, FibsemImage, FibsemImageMetadata
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    ChannelSettings,
+    FluorescenceImageMetadata,
+    FMStagePosition,
+    ZParameters,
+)
+from fibsem.fm.timing import (
+    DEFAULT_AUTOFOCUS_TIME,
+    DEFAULT_STAGE_MOVE_TIME,
+    estimate_acquisition_time,
+    estimate_tileset_acquisition_time,
+)
+from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
+from fibsem.structures import (
+    FibsemImage,
+    FibsemImageMetadata,
+    FibsemStagePosition,
+    Point,
+)
 from fibsem.ui.fm.widgets import (
     ChannelSettingsWidget,
+    ExperimentCreationDialog,
     HistogramWidget,
+    LinePlotWidget,
     ObjectiveControlWidget,
     OverviewParametersWidget,
     SavedPositionsWidget,
-    ZParametersWidget,
-    LinePlotWidget,
-    StagePositionControlWidget,
     SEMAcquisitionWidget,
-    ExperimentCreationDialog,
+    StagePositionControlWidget,
+    ZParametersWidget,
 )
-from fibsem.applications.autolamella.structures import create_new_experiment, Experiment
 from fibsem.ui.napari.utilities import (
     create_circle_shape,
     create_crosshair_shape,
@@ -69,7 +87,7 @@ from fibsem.ui.stylesheets import (
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
 )
-from scipy.ndimage import median_filter
+from fibsem.utils import format_duration
 
 
 @dataclass
@@ -326,6 +344,16 @@ class AcquisitionSummaryDialog(QDialog):
         autofocus_details.setStyleSheet("font-size: 10px; color: #666666;")
         layout.addWidget(autofocus_details)
 
+        # Time estimation
+        try:
+            time_estimate = self._calculate_time_estimate()
+            if time_estimate:
+                time_label = QLabel(f"Estimated Time: {time_estimate}")
+                time_label.setStyleSheet("font-weight: bold; color: #0066cc; font-size: 12px;")
+                layout.addWidget(time_label)
+        except Exception as e:
+            logging.warning(f"Could not calculate time estimate: {e}")
+
         # Buttons
         button_layout = QGridLayout()
         self.button_start = QPushButton("Start Acquisition")
@@ -340,6 +368,41 @@ class AcquisitionSummaryDialog(QDialog):
 
         layout.addLayout(button_layout)
         self.setLayout(layout)
+    
+    def _calculate_time_estimate(self) -> Optional[str]:
+        """Calculate and format the estimated acquisition time for position-based acquisition."""
+        try:
+            
+            # Calculate time per position
+            time_per_position = estimate_acquisition_time(
+                channel_settings=self.channel_settings,
+                zparams=self.z_parameters,
+            )
+            
+            num_positions = len(self.checked_positions)
+            
+            # Calculate total image acquisition time
+            total_image_time = time_per_position * num_positions
+            
+            # Calculate stage movement time between positions
+            # Assume we need to move between each position
+            num_stage_moves = max(0, num_positions - 1) if num_positions > 1 else 0
+            total_stage_time = num_stage_moves * DEFAULT_STAGE_MOVE_TIME
+            
+            # Calculate autofocus time if enabled
+            total_autofocus_time = 0.0
+            if self.use_autofocus:
+                total_autofocus_time = num_positions * DEFAULT_AUTOFOCUS_TIME
+            
+            # Calculate total time
+            total_time_seconds = total_image_time + total_stage_time + total_autofocus_time
+            
+            # Use the fibsem utility function to format duration
+            return format_duration(total_time_seconds)
+            
+        except Exception as e:
+            logging.warning(f"Error calculating time estimate: {e}")
+            return None
 
 
 class DisplayOptionsDialog(QDialog):
