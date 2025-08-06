@@ -68,6 +68,7 @@ from fibsem.ui.stylesheets import (
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
 )
+from scipy.ndimage import median_filter
 
 
 @dataclass
@@ -503,7 +504,9 @@ def _image_metadata_to_napari_image_layer(metadata: FluorescenceImageMetadata,
 def _fibsem_image_metadata_to_napari_image_layer(metadata: FibsemImageMetadata, shape: Tuple[int, int]) -> dict:
     """Convert FibsemImageMetadata to a dictionary suitable for napari image layer."""
     pos = stage_position_to_napari_image_coordinate(shape, metadata.stage_position, metadata.pixel_size.x)
-    acq_date = datetime.fromtimestamp(metadata.microscope_state.timestamp).strftime('%Y-%m-%d-%H-%M-%S')
+    acq_date = metadata.microscope_state.timestamp
+    if isinstance(acq_date, (int, float)):
+        acq_date = datetime.fromtimestamp(acq_date).strftime('%Y-%m-%d-%H-%M-%S')
     return {
         "name": f"SEM Overview - {acq_date}",
         "description": "SEM Overview Image",
@@ -1683,7 +1686,7 @@ class FMAcquisitionWidget(QWidget):
     def _update_fibsem_image(self, image: FibsemImage):
         """Update the napari image layer with the given FibsemImage data and metadata."""
         metadata_dict = _fibsem_image_metadata_to_napari_image_layer(image.metadata, image.data.shape)
-        self._update_napari_image_layer(metadata_dict['name'], image.data, metadata_dict)
+        self._update_napari_image_layer(metadata_dict['name'], median_filter(image.data, 3), metadata_dict)
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
@@ -2108,9 +2111,9 @@ class FMAcquisitionWidget(QWidget):
 
 
 def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
-    # CONFIG_PATH = None #r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
-    CONFIG_PATH = "/Users/patrickcleeve/Documents/fibsem/fibsem/fibsem/config/sim-arctis-configuration.yaml"
-    microscope, settings = utils.setup_session(config_path=CONFIG_PATH)
+    # CONFIG_PATH = r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
+    # CONFIG_PATH = "/Users/patrickcleeve/Documents/fibsem/fibsem/fibsem/config/sim-arctis-configuration.yaml"
+    microscope, settings = utils.setup_session(config_path=None)
 
     if microscope.fm is None:
         logging.error("FluorescenceMicroscope is not initialized. Cannot create FMAcquisitionWidget.")

@@ -246,6 +246,10 @@ def calculate_reprojected_stage_position(image: FibsemImage, pos: FibsemStagePos
         px_delta.x *= -1.0
         px_delta.y *= -1.0
 
+    # account for compustage tilt, when mounted upside down
+    if np.isclose(image.metadata.stage_position.t, np.radians(-180), atol=np.radians(5)):
+        px_delta.y *= -1.0
+
     image_centre = Point(x=image.data.shape[1]/2, y=image.data.shape[0]/2)
     point = image_centre + px_delta
 
