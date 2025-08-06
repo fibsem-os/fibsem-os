@@ -2,6 +2,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -30,6 +31,16 @@ from ome_types.model import (
 from ome_types import from_tiff
 
 from fibsem.structures import FibsemStagePosition
+
+
+class AutoFocusMode(Enum):
+    """Auto-focus modes for tileset acquisition."""
+
+    NONE = "none"
+    ONCE = "once"
+    EACH_ROW = "each_row"
+    EACH_TILE = "each_tile"
+
 
 BINNING_MAP = {
     1: Binning.ONEBYONE,
@@ -206,9 +217,6 @@ class ZParameters:
             return "Z-Stack: Single plane acquisition"
 
         return f"Z-Stack: {num_planes} planes ({self.zmin * 1e6:.1f}μm to {self.zmax * 1e6:.1f}μm, step {self.zstep * 1e6:.1f}μm)"
-
-
-# QUERY: add AcquisitionSettings class to handle acquisition settings?
 
 
 @dataclass

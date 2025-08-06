@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.fm.acquisition import AutofocusMode, calculate_grid_coverage_area
+from fibsem.fm.acquisition import AutoFocusMode, calculate_grid_coverage_area
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -25,7 +25,7 @@ OVERVIEW_PARAMETERS_CONFIG = {
     "default_cols": 3,
     "default_overlap": 0.1,
     "default_use_zstack": False,
-    "default_autofocus_mode": AutofocusMode.NONE,
+    "default_autofocus_mode": AutoFocusMode.NONE,
     "overlap_range": (0.0, 0.9),
     "overlap_step": 0.01,
     "overlap_decimals": 2,
@@ -93,10 +93,10 @@ class OverviewParametersWidget(QWidget):
         # Auto-focus mode selection
         self.label_autofocus_mode = QLabel("Auto-Focus Mode", self)
         self.comboBox_autofocus_mode = QComboBox(self)
-        self.comboBox_autofocus_mode.addItem("Don't Auto-Focus", AutofocusMode.NONE)
-        self.comboBox_autofocus_mode.addItem("Auto-Focus Once", AutofocusMode.ONCE)
-        self.comboBox_autofocus_mode.addItem("Auto-Focus Each Row", AutofocusMode.EACH_ROW)
-        self.comboBox_autofocus_mode.addItem("Auto-Focus Each Tile", AutofocusMode.EACH_TILE)
+        self.comboBox_autofocus_mode.addItem("Don't Auto-Focus", AutoFocusMode.NONE)
+        self.comboBox_autofocus_mode.addItem("Auto-Focus Once", AutoFocusMode.ONCE)
+        self.comboBox_autofocus_mode.addItem("Auto-Focus Each Row", AutoFocusMode.EACH_ROW)
+        self.comboBox_autofocus_mode.addItem("Auto-Focus Each Tile", AutoFocusMode.EACH_TILE)
         
         # Set default autofocus mode from config
         default_mode = OVERVIEW_PARAMETERS_CONFIG["default_autofocus_mode"]
@@ -208,7 +208,7 @@ class OverviewParametersWidget(QWidget):
         """Get whether to use z-stack acquisition."""
         return self.use_zstack
 
-    def get_autofocus_mode(self) -> AutofocusMode:
+    def get_autofocus_mode(self) -> AutoFocusMode:
         """Get the selected auto-focus mode."""
         return self.autofocus_mode
 

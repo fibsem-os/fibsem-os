@@ -29,10 +29,10 @@ from PyQt5.QtWidgets import (
 from superqt import QCollapsible
 from fibsem.microscopes.simulator import DemoMicroscope, FibsemMicroscope
 from fibsem import utils
+from fibsem.utils import format_duration
 from fibsem.config import LOG_PATH
 from fibsem.constants import METRE_TO_MILLIMETRE
 from fibsem.fm.acquisition import (
-    AutofocusMode,
     acquire_and_stitch_tileset,
     acquire_at_positions,
     acquire_image,
@@ -40,7 +40,8 @@ from fibsem.fm.acquisition import (
 )
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceImage, FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
+from fibsem.fm.structures import AutoFocusMode, ChannelSettings, FMStagePosition, ZParameters, FluorescenceImageMetadata
+from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.structures import FibsemStagePosition, Point, FibsemImage, FibsemImageMetadata
 from fibsem.ui.fm.widgets import (
     ChannelSettingsWidget,
@@ -199,9 +200,19 @@ class OverviewConfirmationDialog(QDialog):
             params_layout.addWidget(z_label)
 
         # Auto-focus
-        autofocus_mode: AutofocusMode = self.settings['overview_autofocus_mode']
+        autofocus_mode: AutoFocusMode = self.settings['overview_autofocus_mode']
         af_label = QLabel(f"Auto-Focus: {autofocus_mode.name.replace('_', ' ').title()}")
         params_layout.addWidget(af_label)
+
+        # Time estimation
+        try:
+            time_estimate = self._calculate_time_estimate()
+            if time_estimate:
+                time_label = QLabel(f"Estimated Time: {time_estimate}")
+                time_label.setStyleSheet("font-weight: bold; color: #0066cc;")
+                params_layout.addWidget(time_label)
+        except Exception as e:
+            logging.warning(f"Could not calculate time estimate: {e}")
 
         layout.addLayout(params_layout)
         layout.addStretch()
@@ -220,6 +231,33 @@ class OverviewConfirmationDialog(QDialog):
 
         layout.addLayout(button_layout)
         self.setLayout(layout)
+
+    def _calculate_time_estimate(self) -> Optional[str]:
+        """Calculate and format the estimated acquisition time for the overview."""
+        try:
+            # Get settings
+            channel_settings: List[ChannelSettings] = self.settings['channel_settings']
+            grid_size: Tuple[int, int] = self.settings['overview_grid_size']
+            use_zstack = self.settings['overview_use_zstack']
+            z_parameters = self.settings['z_parameters'] if use_zstack else None
+            autofocus_mode: AutoFocusMode = self.settings['overview_autofocus_mode']
+            
+            # Estimate acquisition time using the tileset function
+            timing_result = estimate_tileset_acquisition_time(
+                channel_settings=channel_settings,
+                grid_size=grid_size,
+                zparams=z_parameters,
+                autofocus_mode=autofocus_mode,  # Pass enum directly
+            )
+            
+            total_time_seconds = timing_result["total_time"]
+            
+            # Use the fibsem utility function to format duration
+            return format_duration(total_time_seconds)
+                
+        except Exception as e:
+            logging.warning(f"Error calculating time estimate: {e}")
+            return None
 
 
 class AcquisitionSummaryDialog(QDialog):
@@ -1944,7 +1982,7 @@ class FMAcquisitionWidget(QWidget):
                         grid_size: tuple[int, int],
                         tile_overlap: float,
                         z_parameters: Optional[ZParameters],
-                        autofocus_mode: AutofocusMode, 
+                        autofocus_mode: AutoFocusMode, 
                         autofocus_channel_name: Optional[str],
                         positions: Optional[List[FMStagePosition]] = None):
         """Worker thread for overview acquisition."""

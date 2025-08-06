@@ -3,7 +3,6 @@ import os
 import threading
 from copy import deepcopy
 from datetime import datetime
-from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -13,6 +12,7 @@ import matplotlib.patches as patches
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
+    AutoFocusMode,
     ChannelSettings,
     FluorescenceImage,
     ZParameters,
@@ -20,15 +20,6 @@ from fibsem.fm.structures import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
-
-
-class AutofocusMode(Enum):
-    """Auto-focus modes for tileset acquisition."""
-
-    NONE = "none"
-    ONCE = "once"
-    EACH_ROW = "each_row"
-    EACH_TILE = "each_tile"
 
 
 def acquire_channels(
@@ -307,7 +298,7 @@ def acquire_tileset(
     tile_overlap: float = 0.1,
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
-    autofocus_mode: AutofocusMode = AutofocusMode.NONE,
+    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE,
     autofocus_channel: Optional[ChannelSettings] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,
@@ -390,7 +381,7 @@ def acquire_tileset(
         f"Field of view: {fov_x * 1e6:.1f} x {fov_y * 1e6:.1f} μm, Step size: {step_x * 1e6:.1f} x {step_y * 1e6:.1f} μm"
     )
     # Set up auto-focus parameters
-    if autofocus_mode != AutofocusMode.NONE:
+    if autofocus_mode != AutoFocusMode.NONE:
         if autofocus_channel is None:
             autofocus_channel = (
                 channel_settings[0]
@@ -402,7 +393,7 @@ def acquire_tileset(
         logging.info(f"Auto-focus mode: {autofocus_mode.value}")
 
         # Perform initial auto-focus if mode is ONCE (before moving to starting position)
-        if autofocus_mode == AutofocusMode.ONCE:
+        if autofocus_mode == AutoFocusMode.ONCE:
             if not run_tileset_autofocus(
                 microscope,
                 autofocus_channel,
@@ -435,7 +426,7 @@ def acquire_tileset(
             row_images = []
 
             # Perform auto-focus at start of each row
-            if autofocus_mode == AutofocusMode.EACH_ROW:
+            if autofocus_mode == AutoFocusMode.EACH_ROW:
                 autofocus_success = run_tileset_autofocus(
                     microscope,
                     autofocus_channel,
@@ -456,7 +447,7 @@ def acquire_tileset(
                 microscope.fm.objective.move_absolute(initial_objective_position)
 
                 # Perform auto-focus at each tile
-                if autofocus_mode == AutofocusMode.EACH_TILE:
+                if autofocus_mode == AutoFocusMode.EACH_TILE:
                     autofocus_success = run_tileset_autofocus(
                         microscope,
                         autofocus_channel,
@@ -727,7 +718,7 @@ def acquire_and_stitch_tileset(
     tile_overlap: float = 0.1,
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
-    autofocus_mode: AutofocusMode = AutofocusMode.NONE,
+    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE,
     autofocus_channel_name: Optional[str] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,
@@ -816,7 +807,7 @@ def acquire_multiple_overviews(
     tile_overlap: float = 0.1,
     zparams: Optional[ZParameters] = None,
     beam_type: BeamType = BeamType.ELECTRON,
-    autofocus_mode: AutofocusMode = AutofocusMode.NONE,
+    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE,
     autofocus_channel_name: Optional[str] = None,
     autofocus_zparams: Optional[ZParameters] = None,
     save_directory: Optional[str] = None,

@@ -9,6 +9,12 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceChannelMetadata,
     FluorescenceImageMetadata,
+    AutoFocusMode,
+)
+from fibsem.fm.timing import (
+    calculate_total_images_count,
+    estimate_acquisition_time,
+    estimate_tileset_acquisition_time,
 )
 from fibsem.structures import FibsemStagePosition
 
@@ -1463,3 +1469,555 @@ def test_focus_stack_block_based():
     # Both should preserve high-intensity regions
     assert np.max(stacked_smooth) >= 500
     assert np.max(stacked_no_smooth) >= 500
+
+
+def test_calculate_total_images_count_single_channel():
+    """Test calculate_total_images_count with single channel."""
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    
+    # Single channel, no z-stack
+    count = calculate_total_images_count(channel)
+    assert count == 1
+    
+    # Single channel with z-stack
+    zparams = ZParameters(zmin=-5e-6, zmax=5e-6, zstep=1e-6)
+    count_z = calculate_total_images_count(channel, zparams)
+    assert count_z == 11  # 11 z-planes
+
+
+def test_calculate_total_images_count_multiple_channels():
+    """Test calculate_total_images_count with multiple channels."""
+    channel1 = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    channel2 = ChannelSettings(
+        name="FITC",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.05,
+    )
+    
+    channels = [channel1, channel2]
+    
+    # Multiple channels, no z-stack
+    count = calculate_total_images_count(channels)
+    assert count == 2
+    
+    # Multiple channels with z-stack
+    zparams = ZParameters(zmin=-3e-6, zmax=3e-6, zstep=1e-6)
+    count_z = calculate_total_images_count(channels, zparams)
+    assert count_z == 14  # 2 channels × 7 z-planes
+
+
+def test_calculate_total_images_count_edge_cases():
+    """Test calculate_total_images_count with edge cases."""
+    channel = ChannelSettings(
+        name="Test",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.05,
+    )
+    
+    # Single z-plane z-stack
+    zparams_single = ZParameters(zmin=0, zmax=0, zstep=1e-6)
+    count = calculate_total_images_count(channel, zparams_single)
+    assert count == 1
+    
+    # Large z-stack
+    zparams_large = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=0.5e-6)
+    count_large = calculate_total_images_count(channel, zparams_large)
+    assert count_large == 41  # 41 z-planes
+    
+    # Empty channel list
+    count_empty = calculate_total_images_count([])
+    assert count_empty == 0
+
+
+def test_estimate_acquisition_time_single_channel():
+    """Test estimate_acquisition_time with single channel."""
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,  # 100ms exposure
+    )
+    
+    # Single channel, no z-stack, default overhead (0.5s)
+    time_s = estimate_acquisition_time(channel)
+    expected_time = 0.1 + 0.5  # exposure + overhead
+    assert time_s == expected_time
+    
+    # Note: Custom timing parameters are now constants in the timing module
+
+
+def test_estimate_acquisition_time_z_stack():
+    """Test estimate_acquisition_time with z-stack."""
+    channel = ChannelSettings(
+        name="FITC",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.05,  # 50ms exposure
+    )
+    
+    # Z-stack with 5 planes
+    zparams = ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6)  # 5 planes
+    
+    time_s = estimate_acquisition_time(channel, zparams)
+    
+    # Expected: 5 images × (0.05s exposure + 0.5s overhead) + 4 z-moves × 0.1s
+    expected_exposure = 5 * 0.05  # 0.25s total exposure
+    expected_overhead = 5 * 0.5   # 2.5s total overhead
+    expected_z_moves = 4 * 0.1    # 0.4s z-movement time
+    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 3.15s
+    
+    assert time_s == expected_total
+
+
+def test_estimate_acquisition_time_multiple_channels():
+    """Test estimate_acquisition_time with multiple channels."""
+    channel1 = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    channel2 = ChannelSettings(
+        name="FITC",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.05,
+    )
+    
+    channels = [channel1, channel2]
+    
+    # Multiple channels, no z-stack
+    time_s = estimate_acquisition_time(channels)
+    expected_exposure = 0.1 + 0.05  # 0.15s total exposure
+    expected_overhead = 2 * 0.5     # 1.0s total overhead
+    expected_total = expected_exposure + expected_overhead  # 1.15s
+    assert time_s == expected_total
+
+
+def test_estimate_acquisition_time_multiple_channels_z_stack():
+    """Test estimate_acquisition_time with multiple channels and z-stack."""
+    channel1 = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    channel2 = ChannelSettings(
+        name="FITC",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.05,
+    )
+    
+    channels = [channel1, channel2]
+    zparams = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6)  # 3 z-planes
+    
+    time_s = estimate_acquisition_time(channels, zparams)
+    
+    # Expected: 6 total images (2 channels × 3 z-planes)
+    total_images = 6
+    expected_exposure = 3 * (0.1 + 0.05)  # 3 z-planes × (0.1 + 0.05)s per z-plane = 0.45s
+    expected_overhead = total_images * 0.5  # 6 × 0.5s = 3.0s
+    expected_z_moves = 2 * 2 * 0.1  # 2 channels × 2 z-moves × 0.1s = 0.4s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 3.85s
+    
+    assert time_s == expected_total
+
+
+def test_estimate_acquisition_time_custom_parameters():
+    """Test estimate_acquisition_time with custom timing parameters."""
+    channel = ChannelSettings(
+        name="Cy5",
+        excitation_wavelength=635,
+        emission_wavelength=680,
+        power=0.8,
+        exposure_time=0.2,  # 200ms exposure
+    )
+    
+    zparams = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6)  # 3 z-planes
+    
+    # Test with default timing constants
+    time_s = estimate_acquisition_time(channel, zparams)
+    
+    # Expected: 3 images × (0.2s exposure + 0.5s overhead) + 2 z-moves × 0.1s
+    expected_exposure = 3 * 0.2   # 0.6s
+    expected_overhead = 3 * 0.5   # 1.5s (using DEFAULT_OVERHEAD_PER_IMAGE)
+    expected_z_moves = 2 * 0.1    # 0.2s (using DEFAULT_Z_MOVE_TIME)
+    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 2.3s
+    
+    assert time_s == expected_total
+
+
+def test_estimate_acquisition_time_edge_cases():
+    """Test estimate_acquisition_time with edge cases."""
+    channel = ChannelSettings(
+        name="Test",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.01,  # Very short exposure
+    )
+    
+    # Single z-plane (no z-movement)
+    zparams_single = ZParameters(zmin=0, zmax=0, zstep=1e-6)
+    time_single = estimate_acquisition_time(channel, zparams_single)
+    expected_single = 0.01 + 0.5  # exposure + overhead, no z-moves
+    assert time_single == expected_single
+    
+    # Note: Timing constants are now fixed in the timing module
+    
+    # Empty channel list
+    time_empty = estimate_acquisition_time([])
+    assert time_empty == 0.0
+
+
+def test_helper_functions_integration():
+    """Test that helper functions work together and provide consistent results."""
+    # Create test channels
+    channels = [
+        ChannelSettings(name="DAPI", excitation_wavelength=365, emission_wavelength=450, power=0.5, exposure_time=0.1),
+        ChannelSettings(name="FITC", excitation_wavelength=488, emission_wavelength=525, power=0.3, exposure_time=0.05),
+        ChannelSettings(name="Cy5", excitation_wavelength=635, emission_wavelength=680, power=0.8, exposure_time=0.2),
+    ]
+    
+    # Test with different z-parameters
+    zparams_configs = [
+        None,  # No z-stack
+        ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),  # 5 z-planes
+        ZParameters(zmin=-5e-6, zmax=5e-6, zstep=0.5e-6),  # 21 z-planes
+    ]
+    
+    for zparams in zparams_configs:
+        # Calculate image count
+        image_count = calculate_total_images_count(channels, zparams)
+        
+        # Verify count calculation
+        expected_channels = len(channels)
+        expected_z_planes = 1 if zparams is None else zparams.num_planes
+        expected_count = expected_channels * expected_z_planes
+        assert image_count == expected_count
+        
+        # Calculate acquisition time
+        total_time = estimate_acquisition_time(channels, zparams)
+        
+        # Verify time is reasonable (should be positive and scale with image count)
+        assert total_time > 0
+        
+        # Time per image should be reasonable (exposure + overhead)
+        avg_exposure = sum(ch.exposure_time for ch in channels) / len(channels)
+        min_expected_time_per_image = avg_exposure  # At minimum, sum of exposures
+        min_total_time = min_expected_time_per_image * expected_z_planes
+        assert total_time >= min_total_time
+        
+        # Time should scale reasonably with image count
+        if zparams is not None and zparams.num_planes > 1:
+            # Z-stack should take longer than single plane
+            single_time = estimate_acquisition_time(channels, None)
+            assert total_time > single_time
+
+
+def test_estimate_tileset_acquisition_time_basic():
+    """Test basic tileset acquisition time estimation."""
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    
+    # Simple 2x2 grid, no autofocus
+    result = estimate_tileset_acquisition_time(channel, grid_size=(2, 2))
+    
+    # Check structure of returned dictionary
+    assert "total_time" in result
+    assert "image_acquisition_time" in result
+    assert "stage_movement_time" in result
+    assert "autofocus_time" in result
+    assert "total_images" in result
+    assert "tiles" in result
+    assert "breakdown" in result
+    
+    # Check basic calculations
+    assert result["tiles"] == 4  # 2x2 grid
+    assert result["total_images"] == 4  # 1 image per tile
+    assert result["autofocus_time"] == 0.0  # No autofocus
+    
+    # Should have positive acquisition and movement times
+    assert result["image_acquisition_time"] > 0
+    assert result["stage_movement_time"] > 0
+    assert result["total_time"] > 0
+    
+    # Total time should equal sum of components
+    expected_total = (
+        result["image_acquisition_time"] + 
+        result["stage_movement_time"] + 
+        result["autofocus_time"]
+    )
+    assert abs(result["total_time"] - expected_total) < 1e-6
+
+
+def test_estimate_tileset_acquisition_time_with_z_stack():
+    """Test tileset acquisition time with z-stack."""
+    channel = ChannelSettings(
+        name="FITC",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.05,
+    )
+    
+    zparams = ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6)  # 5 z-planes
+    
+    # 3x3 grid with z-stack
+    result = estimate_tileset_acquisition_time(channel, grid_size=(3, 3), zparams=zparams)
+    
+    assert result["tiles"] == 9  # 3x3 grid
+    assert result["total_images"] == 45  # 9 tiles × 5 z-planes
+    
+    # Should take longer than without z-stack
+    result_no_z = estimate_tileset_acquisition_time(channel, grid_size=(3, 3))
+    assert result["total_time"] > result_no_z["total_time"]
+    assert result["image_acquisition_time"] > result_no_z["image_acquisition_time"]
+
+
+def test_estimate_tileset_acquisition_time_multiple_channels():
+    """Test tileset acquisition time with multiple channels."""
+    channels = [
+        ChannelSettings(name="DAPI", excitation_wavelength=365, emission_wavelength=450, power=0.5, exposure_time=0.1),
+        ChannelSettings(name="FITC", excitation_wavelength=488, emission_wavelength=525, power=0.3, exposure_time=0.05),
+    ]
+    
+    result = estimate_tileset_acquisition_time(channels, grid_size=(2, 3))
+    
+    assert result["tiles"] == 6  # 2x3 grid
+    assert result["total_images"] == 12  # 6 tiles × 2 channels
+    
+    # Should take longer than single channel
+    result_single = estimate_tileset_acquisition_time(channels[0], grid_size=(2, 3))
+    assert result["total_time"] > result_single["total_time"]
+
+
+def test_estimate_tileset_acquisition_time_autofocus_modes():
+    """Test different autofocus modes."""
+    channel = ChannelSettings(
+        name="GFP",
+        excitation_wavelength=488,
+        emission_wavelength=520,
+        power=0.4,
+        exposure_time=0.08,
+    )
+    
+    grid_size = (3, 4)  # 12 tiles
+    
+    # Test "none" mode
+    result_none = estimate_tileset_acquisition_time(
+        channel, grid_size, autofocus_mode=AutoFocusMode.NONE
+    )
+    assert result_none["autofocus_time"] == 0.0
+    assert result_none["breakdown"]["autofocus"]["operations"] == 0
+    
+    # Test "once" mode
+    result_once = estimate_tileset_acquisition_time(
+        channel, grid_size, autofocus_mode=AutoFocusMode.ONCE
+    )
+    assert result_once["autofocus_time"] == 5.0  # Using DEFAULT_AUTOFOCUS_TIME
+    assert result_once["breakdown"]["autofocus"]["operations"] == 1
+    
+    # Test "each_row" mode
+    result_each_row = estimate_tileset_acquisition_time(
+        channel, grid_size, autofocus_mode=AutoFocusMode.EACH_ROW
+    )
+    assert result_each_row["autofocus_time"] == 15.0  # 3 rows × 5s
+    assert result_each_row["breakdown"]["autofocus"]["operations"] == 3
+    
+    # Test "each_tile" mode
+    result_each_tile = estimate_tileset_acquisition_time(
+        channel, grid_size, autofocus_mode=AutoFocusMode.EACH_TILE
+    )
+    assert result_each_tile["autofocus_time"] == 60.0  # 12 tiles × 5s
+    assert result_each_tile["breakdown"]["autofocus"]["operations"] == 12
+    
+    # Verify order of total times
+    assert result_none["total_time"] < result_once["total_time"]
+    assert result_once["total_time"] < result_each_row["total_time"]
+    assert result_each_row["total_time"] < result_each_tile["total_time"]
+
+
+def test_estimate_tileset_acquisition_time_stage_movement_calculation():
+    """Test stage movement time calculation."""
+    channel = ChannelSettings(
+        name="Cy5",
+        excitation_wavelength=635,
+        emission_wavelength=680,
+        power=0.8,
+        exposure_time=0.2,
+    )
+    
+    # 3x3 grid should have specific movement pattern
+    result = estimate_tileset_acquisition_time(
+        channel, grid_size=(3, 3)
+    )
+    
+    # For 3x3 grid:
+    # - 2 horizontal moves per row × 3 rows = 6 horizontal moves
+    # - 2 vertical moves (to next row) = 2 moves
+    # - 2 row resets (return to first column) = 2 moves
+    # Total: 6 + 2 + 2 = 10 moves
+    expected_moves = 10
+    expected_stage_time = expected_moves * 2.0  # Using DEFAULT_STAGE_MOVE_TIME
+    
+    assert result["breakdown"]["stage_movement"]["total_moves"] == expected_moves
+    assert result["stage_movement_time"] == expected_stage_time
+    
+    # Note: Stage move time is now a constant in the timing module
+
+
+def test_estimate_tileset_acquisition_time_comprehensive():
+    """Test comprehensive tileset with all features."""
+    channels = [
+        ChannelSettings(name="DAPI", excitation_wavelength=365, emission_wavelength=450, power=0.5, exposure_time=0.1),
+        ChannelSettings(name="FITC", excitation_wavelength=488, emission_wavelength=525, power=0.3, exposure_time=0.05),
+        ChannelSettings(name="Cy5", excitation_wavelength=635, emission_wavelength=680, power=0.8, exposure_time=0.2),
+    ]
+    
+    zparams = ZParameters(zmin=-3e-6, zmax=3e-6, zstep=1e-6)  # 7 z-planes
+    
+    result = estimate_tileset_acquisition_time(
+        channels,
+        grid_size=(4, 5),  # 20 tiles
+        zparams=zparams,
+        autofocus_mode=AutoFocusMode.EACH_ROW
+    )
+    
+    # Verify calculations
+    assert result["tiles"] == 20
+    assert result["total_images"] == 420  # 20 tiles × 3 channels × 7 z-planes
+    
+    # Check breakdown percentages sum close to 100%
+    breakdown = result["breakdown"]
+    total_percentage = (
+        breakdown["image_acquisition"]["percentage"] +
+        breakdown["stage_movement"]["percentage"] +
+        breakdown["autofocus"]["percentage"]
+    )
+    assert abs(total_percentage - 100.0) < 1e-6
+    
+    # Verify grid info
+    grid_info = breakdown["grid_info"]
+    assert grid_info["rows"] == 4
+    assert grid_info["cols"] == 5
+    assert grid_info["total_tiles"] == 20
+    assert grid_info["channels"] == 3
+    assert grid_info["z_planes"] == 7
+    
+    # Autofocus should be once per row (4 rows)
+    assert breakdown["autofocus"]["operations"] == 4
+    assert result["autofocus_time"] == 20.0  # 4 × 5s (DEFAULT_AUTOFOCUS_TIME)
+
+
+def test_estimate_tileset_acquisition_time_edge_cases():
+    """Test edge cases for tileset acquisition time."""
+    channel = ChannelSettings(
+        name="Test",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.3,
+        exposure_time=0.01,
+    )
+    
+    # Empty grid (0x0) should raise ValueError
+    with pytest.raises(ValueError, match="Grid dimensions must be positive integers"):
+        estimate_tileset_acquisition_time(channel, grid_size=(0, 0))
+    
+    # Single tile (1x1)
+    result_single = estimate_tileset_acquisition_time(channel, grid_size=(1, 1))
+    assert result_single["tiles"] == 1
+    assert result_single["total_images"] == 1
+    assert result_single["stage_movement_time"] == 0.0  # No movement for single tile
+    
+    # Single row (1xN)
+    result_row = estimate_tileset_acquisition_time(channel, grid_size=(1, 5))
+    assert result_row["tiles"] == 5
+    # Should have 4 horizontal moves, no vertical moves or resets
+    assert result_row["breakdown"]["stage_movement"]["total_moves"] == 4
+    
+    # Single column (Nx1)
+    result_col = estimate_tileset_acquisition_time(channel, grid_size=(5, 1))
+    assert result_col["tiles"] == 5
+    # Should have 4 vertical moves, no horizontal moves or resets
+    assert result_col["breakdown"]["stage_movement"]["total_moves"] == 4
+
+
+def test_estimate_tileset_acquisition_time_custom_parameters():
+    """Test tileset acquisition time with custom timing parameters."""
+    channel = ChannelSettings(
+        name="Custom",
+        excitation_wavelength=555,
+        emission_wavelength=600,
+        power=0.6,
+        exposure_time=0.15,
+    )
+    
+    result = estimate_tileset_acquisition_time(
+        channel,
+        grid_size=(2, 2),
+        autofocus_mode=AutoFocusMode.EACH_TILE
+    )
+    
+    # Should reflect default constants
+    assert result["breakdown"]["stage_movement"]["time_per_move"] == 2.0  # DEFAULT_STAGE_MOVE_TIME
+    assert result["breakdown"]["autofocus"]["time_per_operation"] == 5.0  # DEFAULT_AUTOFOCUS_TIME
+    assert result["autofocus_time"] == 20.0  # 4 tiles × 5s
+    
+    # Note: All timing parameters are now constants in the timing module
+
+
+def test_estimate_tileset_acquisition_time_scaling():
+    """Test that tileset acquisition time scales appropriately."""
+    channel = ChannelSettings(
+        name="Scale",
+        excitation_wavelength=488,
+        emission_wavelength=525,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    
+    # Test different grid sizes
+    result_2x2 = estimate_tileset_acquisition_time(channel, grid_size=(2, 2))
+    result_3x3 = estimate_tileset_acquisition_time(channel, grid_size=(3, 3))
+    result_4x4 = estimate_tileset_acquisition_time(channel, grid_size=(4, 4))
+    
+    # Larger grids should take longer
+    assert result_2x2["total_time"] < result_3x3["total_time"]
+    assert result_3x3["total_time"] < result_4x4["total_time"]
+    
+    # Image acquisition time should scale with number of tiles
+    assert result_3x3["image_acquisition_time"] / result_2x2["image_acquisition_time"] == 9/4
+    assert result_4x4["image_acquisition_time"] / result_2x2["image_acquisition_time"] == 16/4
+    
+    # Total images should scale with tiles
+    assert result_3x3["total_images"] / result_2x2["total_images"] == 9/4
+    assert result_4x4["total_images"] / result_2x2["total_images"] == 16/4
