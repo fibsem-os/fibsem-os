@@ -1315,8 +1315,8 @@ class FMAcquisitionWidget(QWidget):
         # Add 1mm bounding box around origin (yellow)
         if self.show_stage_limits:
             origin_point = Point(x=0, y=0)
-            origin_size = 0.8e-3  # 0.8mm in meters
-            origin_rect = create_rectangle_shape(origin_point, origin_size, origin_size, layer_scale)
+            origin_size = (1.8e-3, 0.8e-3)  # 1.8mm x 0.8mm in meters
+            origin_rect = create_rectangle_shape(origin_point, origin_size[0], origin_size[1], layer_scale)
             overlays.append(NapariShapeOverlay(
                 shape=origin_rect,
                 color="yellow",
