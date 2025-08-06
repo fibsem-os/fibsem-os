@@ -7,14 +7,17 @@ and imaging conditions.
 
 import logging
 import threading
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 import numpy as np
-from typing import Optional, List, Dict, TYPE_CHECKING
+
+from fibsem.fm.structures import ZParameters
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.fm.structures import ChannelSettings, ZParameters
-    from fibsem.structures import FibsemStagePosition
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures import FibsemStagePosition
 
 
 def laplacian_focus_measure(image: np.ndarray) -> np.ndarray:
@@ -756,10 +759,7 @@ def run_autofocus(
     # Move to best focus position
     microscope.objective.move_absolute(best_z_position)
 
-    logging.info(
-        f"Autofocus complete: Best position {best_z_position * 1e6:.1f} μm "
-        f"(score: {best_score:.4f})"
-    )
+    logging.info(f"Autofocus complete: Best position {best_z_position * 1e6:.1f} μm (score: {best_score:.4f})")
 
     return best_z_position
 
@@ -799,15 +799,12 @@ def run_coarse_fine_autofocus(
         ...     fine_range=20e-6, fine_step=2e-6
         ... )
     """
-    from fibsem.fm.structures import ZParameters
 
     initial_position = microscope.objective.position
     logging.info(f"Starting two-stage autofocus from {initial_position * 1e6:.1f} μm")
 
     # Stage 1: Coarse search
-    logging.info(
-        f"Coarse search: ±{coarse_range * 1e6:.1f} μm, step {coarse_step * 1e6:.1f} μm"
-    )
+    logging.info(f"Coarse search: {coarse_range * 1e6:.1f} μm, step {coarse_step * 1e6:.1f} μm")
     coarse_z_params = ZParameters(
         zmin=-coarse_range / 2, zmax=coarse_range / 2, zstep=coarse_step
     )
@@ -820,10 +817,7 @@ def run_coarse_fine_autofocus(
     )
 
     # Stage 2: Fine search around coarse optimum
-    logging.info(
-        f"Fine search around {coarse_best_z * 1e6:.1f} μm: "
-        f"±{fine_range * 1e6:.1f} μm, step {fine_step * 1e6:.1f} μm"
-    )
+    logging.info(f"Fine search around {coarse_best_z * 1e6:.1f} μm: "f"{fine_range * 1e6:.1f} μm, step {fine_step * 1e6:.1f} μm")
 
     # Move to coarse best position first
     microscope.objective.move_absolute(coarse_best_z)
@@ -840,11 +834,7 @@ def run_coarse_fine_autofocus(
     )
 
     total_adjustment = fine_best_z - initial_position
-    logging.info(
-        f"Two-stage autofocus complete: "
-        f"Final position {fine_best_z * 1e6:.1f} μm "
-        f"(total adjustment: {total_adjustment * 1e6:.1f} μm)"
-    )
+    logging.info(f"Final position {fine_best_z * 1e6:.1f} μm (total adjustment: {total_adjustment * 1e6:.1f} μm)")
 
     return fine_best_z
 

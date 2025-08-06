@@ -468,6 +468,12 @@ class ChannelSettingsWidget(QWidget):
             hasattr(self.parent_widget, 'overviewParametersWidget') and 
             self.parent_widget.overviewParametersWidget):
             self.parent_widget.overviewParametersWidget._update_channel_names_from_parent()
+        
+        # Also update autofocus widget
+        if (self.parent_widget and 
+            hasattr(self.parent_widget, 'autofocusWidget') and 
+            self.parent_widget.autofocusWidget):
+            self.parent_widget.autofocusWidget._update_channel_names_from_parent()
 
     @property
     def selected_channel(self) -> Optional[ChannelSettings]:

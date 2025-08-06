@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from scipy.ndimage import median_filter
-from superqt import QCollapsible
+from superqt import QCollapsible, ensure_main_thread
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment, create_new_experiment
@@ -63,6 +63,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui.fm.widgets import (
+    AutofocusWidget,
     ChannelSettingsWidget,
     ExperimentCreationDialog,
     HistogramWidget,
@@ -647,6 +648,7 @@ channel_settings=ChannelSettings(
 # TODO: Extract common worker exception handling pattern and worker decorator
 # TODO: Replace acquisition type magic strings with enum
 # TODO: add autofocus widget
+# TODO: add acquire single image channel
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
@@ -672,6 +674,7 @@ class FMAcquisitionWidget(QWidget):
         self.zParametersWidget: ZParametersWidget
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
+        self.autofocusWidget: AutofocusWidget
         self.histogramWidget: HistogramWidget
         # self.line_plot_widget: LinePlotWidget
 
@@ -722,6 +725,7 @@ class FMAcquisitionWidget(QWidget):
         self.objectiveControlWidget.setEnabled(is_fm_enabled)
         self.zParametersWidget.setEnabled(is_fm_enabled)
         self.channelSettingsWidget.setEnabled(is_fm_enabled)
+        self.autofocusWidget.setEnabled(is_fm_enabled)
         self.savedPositionsWidget.setEnabled(is_fm_enabled)
         self.overviewParametersWidget.setEnabled(is_fm_enabled)
         self.semAcquisitionWidget.setEnabled(is_fm_enabled)
@@ -803,6 +807,14 @@ class FMAcquisitionWidget(QWidget):
         self.channelCollapsible = QCollapsible("Channel Settings", self)
         self.channelCollapsible.addWidget(self.channelSettingsWidget)
 
+        # Create autofocus widget
+        self.autofocusWidget = AutofocusWidget(
+            channel_settings=self.channelSettingsWidget.channel_settings,
+            parent=self
+        )
+        self.autofocusCollapsible = QCollapsible("Autofocus Settings", self)
+        self.autofocusCollapsible.addWidget(self.autofocusWidget)
+
         # Set initial expanded state for all collapsible widgets
         # self.objectiveCollapsible.expand(animate=False)
         # self.stagePositionCollapsible.expand(animate=False)
@@ -820,6 +832,7 @@ class FMAcquisitionWidget(QWidget):
         self.overviewCollapsible.setContentsMargins(0, 0, 0, 0)
         self.positionsCollapsible.setContentsMargins(0, 0, 0, 0)
         self.channelCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.autofocusCollapsible.setContentsMargins(0, 0, 0, 0)
 
         # create histogram widget
         self.histogramWidget = HistogramWidget(parent=self)
@@ -850,6 +863,7 @@ class FMAcquisitionWidget(QWidget):
         layout.addWidget(self.semAcquisitionCollapsible)
         layout.addWidget(self.objectiveCollapsible)
         layout.addWidget(self.channelCollapsible)
+        layout.addWidget(self.autofocusCollapsible)
         layout.addWidget(self.zParametersCollapsible)
         layout.addWidget(self.positionsCollapsible)
         layout.addWidget(self.overviewCollapsible)
@@ -950,6 +964,7 @@ class FMAcquisitionWidget(QWidget):
         self.savedPositionsWidget.update_positions(self.stage_positions)
         self._update_positions_button()
         self.overviewParametersWidget._update_channel_names_from_parent()
+        self.autofocusWidget.update_channels(self.channelSettingsWidget.channel_settings)
 
         # add file menu
         self.menubar = QMenuBar(self)
@@ -1721,6 +1736,7 @@ class FMAcquisitionWidget(QWidget):
         self.update_image_signal.emit(image)
 
     # NOTE: not in main thread, so we need to handle signals properly
+    # @ensure_main_thread
     @pyqtSlot(FluorescenceImage)
     def update_image(self, image: FluorescenceImage):
         """Update the napari image layer with the given image data and metadata. (Live images)"""

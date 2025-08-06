@@ -15,6 +15,7 @@ from .line_plot_widget import LinePlotWidget
 from .stage_position_control_widget import StagePositionControlWidget
 from .experiment_creation_dialog import ExperimentCreationDialog
 from .sem_acquisition_widget import SEMAcquisitionWidget
+from .autofocus_widget import AutofocusWidget
 
 __all__ = [
     'ZParametersWidget',
@@ -27,5 +28,6 @@ __all__ = [
     'LinePlotWidget',
     'StagePositionControlWidget',
     'ExperimentCreationDialog',
-    'SEMAcquisitionWidget'
+    'SEMAcquisitionWidget',
+    'AutofocusWidget'
 ]
