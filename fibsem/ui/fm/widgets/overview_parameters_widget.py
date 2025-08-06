@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 OVERVIEW_PARAMETERS_CONFIG = {
     "min_grid_size": 1,
-    "max_grid_size": 15,
+    "max_grid_size": 19,
     "default_rows": 3,
     "default_cols": 3,
     "default_overlap": 0.1,
@@ -35,6 +35,7 @@ OVERVIEW_PARAMETERS_CONFIG = {
         "overlap": "Fraction of overlap between adjacent tiles",
         "use_zstack": "Acquire z-stacks at each tile position using current Z parameters",
         "autofocus_mode": "Select when to perform auto-focus during tileset acquisition",
+        "autofocus_channel": "Select the channel to use for auto-focus",
     },
 }
 
@@ -42,18 +43,17 @@ class OverviewParametersWidget(QWidget):
     def __init__(self, parent: Optional['FMAcquisitionWidget'] = None):
         super().__init__(parent)
         self.parent_widget = parent
-        
+
         # Initialize parameters
         self.rows = OVERVIEW_PARAMETERS_CONFIG["default_rows"]
         self.cols = OVERVIEW_PARAMETERS_CONFIG["default_cols"]
         self.overlap = OVERVIEW_PARAMETERS_CONFIG["default_overlap"]
         self.use_zstack = OVERVIEW_PARAMETERS_CONFIG["default_use_zstack"]
         self.autofocus_mode = OVERVIEW_PARAMETERS_CONFIG["default_autofocus_mode"]
-        
         self.initUI()
 
     def initUI(self):
-        
+
         # Number of rows
         self.label_rows = QLabel("Rows", self)
         self.spinBox_rows = QSpinBox(self)
@@ -61,7 +61,7 @@ class OverviewParametersWidget(QWidget):
                                    OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
         self.spinBox_rows.setValue(self.rows)
         self.spinBox_rows.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["rows"])
-        
+
         # Number of columns
         self.label_cols = QLabel("Columns", self)
         self.spinBox_cols = QSpinBox(self)
@@ -69,7 +69,7 @@ class OverviewParametersWidget(QWidget):
                                    OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
         self.spinBox_cols.setValue(self.cols)
         self.spinBox_cols.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["cols"])
-        
+
         # Tile overlap
         self.label_overlap = QLabel("Overlap", self)
         self.doubleSpinBox_overlap = QDoubleSpinBox(self)
@@ -79,12 +79,12 @@ class OverviewParametersWidget(QWidget):
         self.doubleSpinBox_overlap.setDecimals(OVERVIEW_PARAMETERS_CONFIG["overlap_decimals"])
         self.doubleSpinBox_overlap.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["overlap"])
         self.doubleSpinBox_overlap.setKeyboardTracking(False)
-        
+
         # Z-stack checkbox
         self.checkBox_use_zstack = QCheckBox("Use Z-Stack", self)
         self.checkBox_use_zstack.setChecked(self.use_zstack)
         self.checkBox_use_zstack.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["use_zstack"])
-        
+
         # Z-stack planes info (shown when z-stack is enabled)
         self.label_zstack_planes_value = QLabel(self._calculate_zstack_planes(), self)
         self.label_zstack_planes_value.setStyleSheet("QLabel { color: #666666; }")
@@ -109,7 +109,7 @@ class OverviewParametersWidget(QWidget):
         # Auto-focus channel selection
         self.label_autofocus_channel = QLabel("Auto-Focus Channel", self)
         self.comboBox_autofocus_channel = QComboBox(self)
-        self.comboBox_autofocus_channel.setToolTip("Select the channel to use for auto-focus during overview acquisition")
+        self.comboBox_autofocus_channel.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["autofocus_channel"])
         self.autofocus_channel_name = None
 
         # Total area (calculated, read-only)
@@ -155,10 +155,10 @@ class OverviewParametersWidget(QWidget):
         try:
             if self.parent_widget is None or self.parent_widget.fm is None:
                 return "N/A"
-            
+
             # Get FOV dimensions directly from camera
             fov_x, fov_y = self.parent_widget.fm.camera.field_of_view
-            
+
             # Calculate total coverage area using helper function
             total_width, total_height = calculate_grid_coverage_area(
                 ncols=self.cols,
@@ -167,13 +167,13 @@ class OverviewParametersWidget(QWidget):
                 fov_y=fov_y,
                 overlap=self.overlap
             )
-            
+
             # Convert to micrometers for display
             width_um = total_width * 1e6
             height_um = total_height * 1e6
-            
+
             return f"{width_um:.1f} x {height_um:.1f} μm"
-            
+
         except (ValueError, TypeError, AttributeError) as e:
             return f"Error: {str(e)}"
 
@@ -203,11 +203,11 @@ class OverviewParametersWidget(QWidget):
     def get_overlap(self) -> float:
         """Get the current overlap fraction."""
         return self.overlap
-    
+
     def get_use_zstack(self) -> bool:
         """Get whether to use z-stack acquisition."""
         return self.use_zstack
-    
+
     def get_autofocus_mode(self) -> AutofocusMode:
         """Get the selected auto-focus mode."""
         return self.autofocus_mode
@@ -233,7 +233,7 @@ class OverviewParametersWidget(QWidget):
             # Select first channel by default
             self.comboBox_autofocus_channel.setCurrentIndex(0)
             self.autofocus_channel_name = channel_names[0]
-    
+
     def _update_channel_names_from_parent(self):
         """Update channel names from the parent widget's channel settings."""
         try:
@@ -249,7 +249,7 @@ class OverviewParametersWidget(QWidget):
         """Handle z-stack checkbox change."""
         self.use_zstack = state == 2  # Qt.Checked
         self._update_zstack_planes_visibility()
-    
+
     def _on_autofocus_mode_changed(self, index: int):
         """Handle auto-focus mode change."""
         self.autofocus_mode = self.comboBox_autofocus_mode.itemData(index)
@@ -276,12 +276,12 @@ class OverviewParametersWidget(QWidget):
             return "N/A"
         except (ValueError, TypeError, AttributeError, ZeroDivisionError):
             return "N/A"
-    
+
     def _update_zstack_planes_visibility(self):
         """Update visibility of z-stack planes info based on checkbox state."""
         is_visible = self.use_zstack
         self.label_zstack_planes_value.setVisible(is_visible)
-        
+
         # Update the plane count if visible
         if is_visible:
             self.label_zstack_planes_value.setText(self._calculate_zstack_planes())

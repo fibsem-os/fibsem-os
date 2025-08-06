@@ -539,14 +539,13 @@ channel_settings=ChannelSettings(
         exposure_time=0.005,             # Example exposure time in seconds
 )
 
+# TODO: add export as png + metadata
 # TODO: add a progress bar for each acquisition
 # TODO: save/load images
 # TODO: add user defined protocol (channel, z-stack parameters, overview parameters, etc.)
-# TODO: enforce stage limits in the UI
-# TODO: menu function to load images
-# TODO: integrate with milling workflow
 # TODO: Extract common worker exception handling pattern and worker decorator
 # TODO: Replace acquisition type magic strings with enum
+# TODO: add autofocus widget
 
 class FMAcquisitionWidget(QWidget):
     update_image_signal = pyqtSignal(FluorescenceImage)
@@ -849,6 +848,7 @@ class FMAcquisitionWidget(QWidget):
         # Initialize positions button state
         self.savedPositionsWidget.update_positions(self.stage_positions)
         self._update_positions_button()
+        self.overviewParametersWidget._update_channel_names_from_parent()
 
         # add file menu
         self.menubar = QMenuBar(self)
