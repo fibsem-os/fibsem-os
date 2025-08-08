@@ -96,7 +96,11 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
     scan_direction: str = "TopToBottom"
     path: str = ""
     array: Optional[NDArray[Any]] = None
-    _advanced_attributes = ("time",)
+    interpolate: bool = True
+    bicubic: bool = True
+    # Interpolate and bicubic would be better as a single drop down list but
+    # that's currently tricky for the UI
+    _advanced_attributes = ("time", "interpolate", "bicubic")
     _hidden_attributes = ("array",)  # Can't set an array via the GUI
 
     name: ClassVar[str] = "Bitmap"
@@ -106,6 +110,11 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
         if not path:
             path = None
         array = self.array
+
+        if self.interpolate is None:
+            interp = None
+        else:
+            interp = "bicubic" if self.bicubic else "nearest"
 
         shape = FibsemBitmapSettings(
             width=self.width,
@@ -119,6 +128,7 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
             time=self.time,
             path=path,
             array=array,
+            interpolate=interp,
         )
         self.shapes = [shape]
         return self.shapes
@@ -136,7 +146,11 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
     path_lower: str = ""  # path will be flipped and used if not given
     array: Optional[NDArray[Any]] = None
     array_lower: Optional[NDArray[Any]] = None
-    _advanced_attributes = ("time", "path_lower")
+    interpolate: bool = True
+    bicubic: bool = True
+    # Interpolate and bicubic would be better as a single drop down list but
+    # that's currently tricky for the UI
+    _advanced_attributes = ("time", "path_lower", "interpolate", "bicubic")
     _hidden_attributes = ("array", "array_lower")  # Can't set an array via the GUI
 
     name: ClassVar[str] = "TrenchBitmap"
@@ -172,6 +186,11 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
                 path_lower = path
                 array_lower = array
 
+        if self.interpolate is None:
+            interp = None
+        else:
+            interp = "bicubic" if self.bicubic else "nearest"
+
         # mill settings
         lower_pattern_settings = FibsemBitmapSettings(
             width=self.width,
@@ -185,6 +204,7 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             flip_y=flip_lower_y,
             path=path_lower,
             array=array_lower,
+            interpolate=interp,
         )
 
         upper_pattern_settings = FibsemBitmapSettings(
@@ -198,6 +218,7 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             time=self.time,
             path=path,
             array=array,
+            interpolate=interp,
         )
 
         self.shapes = [lower_pattern_settings, upper_pattern_settings]
