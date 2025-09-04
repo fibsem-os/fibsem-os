@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar
+from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal
 
 import numpy as np
 import tifffile as tff
@@ -1097,6 +1097,7 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     path: InitVar[Optional[Union[str, os.PathLike]]] = None
     array: InitVar[Optional[NDArray[Any]]] = None
     bitmap: Optional[NDArray[Any]] = field(init=False)
+    interpolate: Optional[Literal["nearest", "bicubic", "bilinear"]] = None
 
     def __post_init__(
         self, path: Optional[Union[str, os.PathLike]], array: Optional[NDArray[Any]]
