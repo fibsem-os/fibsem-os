@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 import copy
 import datetime
 import logging
@@ -12,12 +12,14 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
+from skimage import transform
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
 from psygnal import Signal
 
 if TYPE_CHECKING:
     from fibsem.milling.base import FibsemMillingStage
+    from numpy.typing import NDArray
 
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
@@ -2738,10 +2740,16 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # Get bitmap from pattern settings
         bitmap_pattern = BitmapPatternDefinition()
-        bitmap_pattern.points = pattern_settings.bitmap
+
+        if pattern_settings.interpolate is not None:
+            pattern_settings.bitmap = self._resize_bitmap_to_pattern(pattern_settings)
+
+        points = pattern_settings.bitmap
 
         if pattern_settings.flip_y:
-            bitmap_pattern.points = np.flip(bitmap_pattern.points, axis=0)
+            points = np.flip(points, axis=0)
+
+        bitmap_pattern.points = points
 
         pattern = self.connection.patterning.create_bitmap(
             center_x=pattern_settings.centre_x,
@@ -2794,6 +2802,61 @@ class ThermoMicroscope(FibsemMicroscope):
         )
         self._patterns.append(pattern)
         return pattern
+
+    def _resize_bitmap_to_pattern(
+        self, pattern_settings: FibsemBitmapSettings
+    ) -> NDArray[np.float_ | np.uint8]:
+        points = pattern_settings.bitmap
+
+        if points is None:
+            raise ValueError(
+                "Unable to resize bitmap as FibsemBitmapSettings.bitmap is None"
+            )
+
+        # Get pitch to calculate expected pixel size
+        rectangle = self.connection.patterning.create_rectangle(
+            center_x=pattern_settings.centre_x,
+            center_y=pattern_settings.centre_y,
+            width=pattern_settings.width,
+            height=pattern_settings.height,
+            depth=pattern_settings.depth,
+        )
+
+        new_shape = (
+            int(round(pattern_settings.height / rectangle.pitch_y)),
+            int(round(pattern_settings.width / rectangle.pitch_x)),
+        )
+
+        # Disable after calculations just in case values are cleared
+        rectangle.enabled = False
+
+        if pattern_settings.interpolate == "bicubic":
+            order = 3
+        elif pattern_settings.interpolate == "bilinear":
+            order = 1
+        elif pattern_settings.interpolate == "nearest":
+            order = 0
+        else:
+            raise ValueError(
+                f"Invalid interpolate option '{pattern_settings.interpolate}'"
+            )
+
+        resized_points = np.empty((*new_shape, 2), dtype=object)
+
+        resized_points[:, :, 0] = transform.resize(
+            points[:, :, 0].squeeze(-1),
+            output_shape=new_shape,
+            order=order,
+            preserve_range=True,
+        ).astype(np.float_)
+        resized_points[:, :, 1] = transform.resize(
+            points[:, :, 1].squeeze(-1),
+            output_shape=new_shape,
+            order=0,
+            preserve_range=True,
+        ).astype(np.uint8)
+
+        return resized_points
 
     def get_gis(self, port: str = None):
         use_multichem = self.is_available("gis_multichem")
