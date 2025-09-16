@@ -2372,7 +2372,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # TODO: migrate to _set_milling_settings():
         # self.milling_channel = mill_settings.milling_channel
-        # self._default_application_file = mill_settings.application_file
         # self.set_milling_settings(mill_settings)
         # self.clear_patterns()
 
@@ -2463,10 +2462,9 @@ class ThermoMicroscope(FibsemMicroscope):
     #         milling_stage (FibsemMillingStage): Milling stage.
     #     """
     #     self.milling_channel = milling_stage.milling.milling_channel
-    #     self._default_application_file = milling_stage.milling.application_file
     #     self.set_channel(self.milling_channel)
     #     self.clear_patterns()  # clear any existing patterns
-    #     self.set_default_patterning_beam_type(self.milling_channel)
+    #     self.set_default_patterning_beam_type(self.milling_channel, default=True)
     #     self.set_application_file(milling_stage.milling.application_file)
     #     self.set_patterning_mode(milling_stage.milling.patterning_mode)
     #     self.set_field_of_view(hfw=milling_stage.milling.hfw, beam_type=self.milling_channel)
