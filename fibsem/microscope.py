@@ -2749,18 +2749,31 @@ class ThermoMicroscope(FibsemMicroscope):
         if  pattern_settings.thickness != 0:       
             inner_diameter = outer_diameter - 2*pattern_settings.thickness
 
-        self.set_application_file("Si")
-        pattern = self.connection.patterning.create_circle(
-            center_x=pattern_settings.centre_x,
-            center_y=pattern_settings.centre_y,
-            outer_diameter = outer_diameter,
-            inner_diameter = inner_diameter,
-            depth=pattern_settings.depth,
-        )
-        pattern.application_file = "Si"
-        pattern.overlap_r = 0.8
-        pattern.overlap_t = 0.8
-
+        fallback_application_file = "Si"
+        try:
+            pattern = self.connection.patterning.create_circle(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                outer_diameter=outer_diameter,
+                inner_diameter=inner_diameter,
+                depth=pattern_settings.depth,
+            )
+        except Exception:
+            if self.get_current_application_file() == fallback_application_file:
+                # No need to try again with the same application file
+                raise
+            logging.warning(
+                "Failed to draw circle pattern, falling back on application file %s",
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file)
+            pattern = self.connection.patterning.create_circle(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                outer_diameter=outer_diameter,
+                inner_diameter=inner_diameter,
+                depth=pattern_settings.depth,
+            )
         # set exclusion
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
@@ -2781,14 +2794,33 @@ class ThermoMicroscope(FibsemMicroscope):
         if pattern_settings.flip_y:
             bitmap_pattern.points = np.flip(bitmap_pattern.points, axis=0)
 
-        pattern = self.connection.patterning.create_bitmap(
-            center_x=pattern_settings.centre_x,
-            center_y=pattern_settings.centre_y,
-            width=pattern_settings.width,
-            height=pattern_settings.height,
-            depth=pattern_settings.depth,
-            bitmap_pattern_definition=bitmap_pattern,
-        )
+        fallback_application_file = "Si"
+        try:
+            pattern = self.connection.patterning.create_bitmap(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                width=pattern_settings.width,
+                height=pattern_settings.height,
+                depth=pattern_settings.depth,
+                bitmap_pattern_definition=bitmap_pattern,
+            )
+        except Exception:
+            if self.get_current_application_file() == fallback_application_file:
+                # No need to try again with the same application file
+                raise
+            logging.warning(
+                "Failed to draw bitmap pattern, falling back on application file %s",
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file)
+            pattern = self.connection.patterning.create_bitmap(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                width=pattern_settings.width,
+                height=pattern_settings.height,
+                depth=pattern_settings.depth,
+                bitmap_pattern_definition=bitmap_pattern,
+            )
 
         if not np.isclose(pattern_settings.time, 0.0):
             logging.debug("Setting pattern time to %f", pattern_settings.time)
