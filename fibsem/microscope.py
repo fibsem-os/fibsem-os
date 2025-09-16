@@ -1235,7 +1235,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperiment()
-        self._default_application_file = "Si"
+        self._current_application_file = self._default_application_file = "Si"
 
         # logging
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
@@ -1317,7 +1317,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
         # TODO: set default move settings, is this dependent on the stage type?
-        self.set_application_file(self._default_application_file, default=True)
+        self.set_application_file(self.get_default_application_file(), default=True)
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
@@ -2570,6 +2570,7 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         application_file = self.get_application_file(application_file, strict=strict)
         self.connection.patterning.set_default_application_file(application_file)
+        self._current_application_file = application_file
 
         if default:
             self._default_application_file = application_file
@@ -2582,6 +2583,12 @@ class ThermoMicroscope(FibsemMicroscope):
             }
         )
         return application_file
+
+    def get_current_application_file(self) -> str:
+        return self._current_application_file
+
+    def get_default_application_file(self) -> str:
+        return self._default_application_file
 
     def set_patterning_mode(self, mode: str):
         """Sets the patterning mode for the patterning API.
