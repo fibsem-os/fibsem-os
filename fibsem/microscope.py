@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 import copy
 import datetime
 import logging
@@ -9,15 +9,14 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from functools import wraps
+from typing import Dict, List, Optional, Tuple, Union, Any, TYPE_CHECKING
 
 import numpy as np
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
 from psygnal import Signal
 
-if TYPE_CHECKING:
-    from fibsem.milling.base import FibsemMillingStage
 
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
@@ -118,6 +117,9 @@ from fibsem.structures import (
     SystemSettings,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from fibsem.structures import TFibsemPatternSettings
 
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
@@ -1112,6 +1114,24 @@ class FibsemMicroscope(ABC):
     @property
     def current_grid(self) -> str:
         return "None"
+
+
+def _thermo_application_file_wrapper_for_drawing_functions(
+    patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
+) -> Callable[["ThermoMicroscope", TFibsemPatternSettings], Any]:
+    @wraps(patterning_function)
+    def wrap(self: ThermoMicroscope, pattern_settings: TFibsemPatternSettings) -> Any:
+        # Ensure the default is correctly set
+        self.set_application_file(self.get_default_application_file())
+        try:
+            retval = patterning_function(self, pattern_settings)
+        finally:
+            # Ensure any changes inside patterning_function don't persist
+            self.set_application_file(self.get_default_application_file())
+        return retval
+
+    return wrap
+
 
 class ThermoMicroscope(FibsemMicroscope):
     """
@@ -2601,6 +2621,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
 
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_rectangle(
         self,
         pattern_settings: FibsemRectangleSettings,
@@ -2672,8 +2693,6 @@ class ThermoMicroscope(FibsemMicroscope):
                 # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
                 # NB: the current must be set before doing this, otherwise it will be out of range
 
-        # restore default application file
-        self.set_application_file(self._default_application_file)
 
         logging.debug({"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()})
 
@@ -2681,6 +2700,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return pattern
 
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_line(self, pattern_settings: FibsemLineSettings):
         """
         Draws a line pattern on the current imaging view of the microscope.
@@ -2706,7 +2726,8 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()})
         self._patterns.append(pattern)
         return pattern
-    
+
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_circle(self, pattern_settings: FibsemCircleSettings):
         """
         Draws a circle pattern on the current imaging view of the microscope.
@@ -2739,7 +2760,6 @@ class ThermoMicroscope(FibsemMicroscope):
         pattern.application_file = "Si"
         pattern.overlap_r = 0.8
         pattern.overlap_t = 0.8
-        self.set_application_file(self._default_application_file)
 
         # set exclusion
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
@@ -2748,6 +2768,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._patterns.append(pattern)
         return pattern
 
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
         if pattern_settings.bitmap is None:
             logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
@@ -3521,4 +3542,3 @@ class ThermoMicroscope(FibsemMicroscope):
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
 
         return offset
-
