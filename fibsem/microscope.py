@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 import copy
 import datetime
 import logging
@@ -9,15 +9,14 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from functools import wraps
+from typing import Dict, List, Optional, Tuple, Union, Any, TYPE_CHECKING
 
 import numpy as np
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
 from psygnal import Signal
 
-if TYPE_CHECKING:
-    from fibsem.milling.base import FibsemMillingStage
 
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
@@ -118,6 +117,9 @@ from fibsem.structures import (
     SystemSettings,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from fibsem.structures import TFibsemPatternSettings
 
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
@@ -1113,6 +1115,24 @@ class FibsemMicroscope(ABC):
     def current_grid(self) -> str:
         return "None"
 
+
+def _thermo_application_file_wrapper_for_drawing_functions(
+    patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
+) -> Callable[["ThermoMicroscope", TFibsemPatternSettings], Any]:
+    @wraps(patterning_function)
+    def wrap(self: ThermoMicroscope, pattern_settings: TFibsemPatternSettings) -> Any:
+        # Ensure the default is correctly set
+        self.set_application_file(self.get_default_application_file())
+        try:
+            retval = patterning_function(self, pattern_settings)
+        finally:
+            # Ensure any changes inside patterning_function don't persist
+            self.set_application_file(self.get_default_application_file())
+        return retval
+
+    return wrap
+
+
 class ThermoMicroscope(FibsemMicroscope):
     """
     A class representing a Thermo Fisher FIB-SEM microscope.
@@ -1235,6 +1255,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperiment()
+        self._current_application_file = self._default_application_file = "Si"
 
         # logging
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
@@ -1316,7 +1337,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
         # TODO: set default move settings, is this dependent on the stage type?
-        self._default_application_file = "Si"
+        self.set_application_file(self.get_default_application_file(), default=True)
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
@@ -2362,8 +2383,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self.milling_channel = mill_settings.milling_channel
         self.set_channel(self.milling_channel)
         self.connection.patterning.set_default_beam_type(self.milling_channel.value)
-        self.set_default_application_file(mill_settings.application_file)
-        self._default_application_file = mill_settings.application_file
+        self.set_application_file(mill_settings.application_file, default=True)
         self.set_patterning_mode(mill_settings.patterning_mode)
         self.clear_patterns()  # clear any existing patterns
         self.set_field_of_view(hfw=mill_settings.hfw, beam_type=self.milling_channel)
@@ -2372,7 +2392,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # TODO: migrate to _set_milling_settings():
         # self.milling_channel = mill_settings.milling_channel
-        # self._default_application_file = mill_settings.application_file
         # self.set_milling_settings(mill_settings)
         # self.clear_patterns()
 
@@ -2463,11 +2482,10 @@ class ThermoMicroscope(FibsemMicroscope):
     #         milling_stage (FibsemMillingStage): Milling stage.
     #     """
     #     self.milling_channel = milling_stage.milling.milling_channel
-    #     self._default_application_file = milling_stage.milling.application_file
     #     self.set_channel(self.milling_channel)
     #     self.clear_patterns()  # clear any existing patterns
-    #     self.set_default_patterning_beam_type(self.milling_channel)
-    #     self.set_default_application_file(milling_stage.milling.application_file)
+    #     self.set_default_patterning_beam_type(self.milling_channel, default=True)
+    #     self.set_application_file(milling_stage.milling.application_file)
     #     self.set_patterning_mode(milling_stage.milling.patterning_mode)
     #     self.set_field_of_view(hfw=milling_stage.milling.hfw, beam_type=self.milling_channel)
     #     self.set_beam_current(current=milling_stage.milling.milling_current, beam_type=self.milling_channel)
@@ -2560,7 +2578,9 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return application_file
 
-    def set_default_application_file(self, application_file: str, strict: bool = True) -> str:
+    def set_application_file(
+        self, application_file: str, default: bool = False, strict: bool = True
+    ) -> str:
         """Sets the default application file for the patterning API.
         The api requires setting a valid application file before creating patterns.
         Args:
@@ -2568,8 +2588,25 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         application_file = self.get_application_file(application_file, strict=strict)
         self.connection.patterning.set_default_application_file(application_file)
-        logging.debug({"msg": "set_default_application_file", "application_file": self._default_application_file})
+        self._current_application_file = application_file
+
+        if default:
+            self._default_application_file = application_file
+
+        logging.debug(
+            {
+                "msg": "set_application_file",
+                "application_file": application_file,
+                "default": default,
+            }
+        )
         return application_file
+
+    def get_current_application_file(self) -> str:
+        return self._current_application_file
+
+    def get_default_application_file(self) -> str:
+        return self._default_application_file
 
     def set_patterning_mode(self, mode: str):
         """Sets the patterning mode for the patterning API.
@@ -2584,6 +2621,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
 
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_rectangle(
         self,
         pattern_settings: FibsemRectangleSettings,
@@ -2606,11 +2644,11 @@ class ThermoMicroscope(FibsemMicroscope):
         if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
             create_pattern_function = patterning_api.create_regular_cross_section
             self.set_patterning_mode("Serial") # parallel mode not supported for regular cross section
-            self.set_default_application_file("Si-multipass")
+            self.set_application_file("Si-multipass")
         elif pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
             create_pattern_function = patterning_api.create_cleaning_cross_section
             self.set_patterning_mode("Serial") # parallel mode not supported for cleaning cross section
-            self.set_default_application_file("Si-ccs")
+            self.set_application_file("Si-ccs")
         else:
             create_pattern_function = patterning_api.create_rectangle
 
@@ -2655,8 +2693,6 @@ class ThermoMicroscope(FibsemMicroscope):
                 # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
                 # NB: the current must be set before doing this, otherwise it will be out of range
 
-        # restore default application file
-        self.connection.patterning.set_default_application_file(self._default_application_file)
 
         logging.debug({"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()})
 
@@ -2664,6 +2700,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return pattern
 
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_line(self, pattern_settings: FibsemLineSettings):
         """
         Draws a line pattern on the current imaging view of the microscope.
@@ -2689,7 +2726,8 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()})
         self._patterns.append(pattern)
         return pattern
-    
+
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_circle(self, pattern_settings: FibsemCircleSettings):
         """
         Draws a circle pattern on the current imaging view of the microscope.
@@ -2711,19 +2749,31 @@ class ThermoMicroscope(FibsemMicroscope):
         if  pattern_settings.thickness != 0:       
             inner_diameter = outer_diameter - 2*pattern_settings.thickness
 
-        self.connection.patterning.set_default_application_file("Si")
-        pattern = self.connection.patterning.create_circle(
-            center_x=pattern_settings.centre_x,
-            center_y=pattern_settings.centre_y,
-            outer_diameter = outer_diameter,
-            inner_diameter = inner_diameter,
-            depth=pattern_settings.depth,
-        )
-        pattern.application_file = "Si"
-        pattern.overlap_r = 0.8
-        pattern.overlap_t = 0.8
-        self.connection.patterning.set_default_application_file(self._default_application_file)
-
+        fallback_application_file = "Si"
+        try:
+            pattern = self.connection.patterning.create_circle(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                outer_diameter=outer_diameter,
+                inner_diameter=inner_diameter,
+                depth=pattern_settings.depth,
+            )
+        except Exception:
+            if self.get_current_application_file() == fallback_application_file:
+                # No need to try again with the same application file
+                raise
+            logging.warning(
+                "Failed to draw circle pattern, falling back on application file %s",
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file)
+            pattern = self.connection.patterning.create_circle(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                outer_diameter=outer_diameter,
+                inner_diameter=inner_diameter,
+                depth=pattern_settings.depth,
+            )
         # set exclusion
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
@@ -2731,6 +2781,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._patterns.append(pattern)
         return pattern
 
+    @_thermo_application_file_wrapper_for_drawing_functions
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
         if pattern_settings.bitmap is None:
             logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
@@ -2743,14 +2794,33 @@ class ThermoMicroscope(FibsemMicroscope):
         if pattern_settings.flip_y:
             bitmap_pattern.points = np.flip(bitmap_pattern.points, axis=0)
 
-        pattern = self.connection.patterning.create_bitmap(
-            center_x=pattern_settings.centre_x,
-            center_y=pattern_settings.centre_y,
-            width=pattern_settings.width,
-            height=pattern_settings.height,
-            depth=pattern_settings.depth,
-            bitmap_pattern_definition=bitmap_pattern,
-        )
+        fallback_application_file = "Si"
+        try:
+            pattern = self.connection.patterning.create_bitmap(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                width=pattern_settings.width,
+                height=pattern_settings.height,
+                depth=pattern_settings.depth,
+                bitmap_pattern_definition=bitmap_pattern,
+            )
+        except Exception:
+            if self.get_current_application_file() == fallback_application_file:
+                # No need to try again with the same application file
+                raise
+            logging.warning(
+                "Failed to draw bitmap pattern, falling back on application file %s",
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file)
+            pattern = self.connection.patterning.create_bitmap(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                width=pattern_settings.width,
+                height=pattern_settings.height,
+                depth=pattern_settings.depth,
+                bitmap_pattern_definition=bitmap_pattern,
+            )
 
         if not np.isclose(pattern_settings.time, 0.0):
             logging.debug("Setting pattern time to %f", pattern_settings.time)
@@ -2923,7 +2993,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self.original_active_view = self.connection.imaging.get_active_view()
         self.set_channel(BeamType.ELECTRON)
         self.connection.patterning.clear_patterns()
-        self.connection.patterning.set_default_application_file(protocol["application_file"])
+        self.set_application_file(protocol["application_file"])
         self.connection.patterning.set_default_beam_type(BeamType.ELECTRON.value)
         self.multichem = self.connection.gas.get_multichem()
         self.multichem.insert(protocol["position"])
@@ -3020,7 +3090,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # Restore beam and imaging settings to their original state
         self.connection.beams.electron_beam.unblank()
-        self.connection.patterning.set_default_application_file(application_file)
+        self.set_application_file(application_file)
         self.connection.imaging.set_active_view(self.original_active_view)
         self.connection.patterning.set_default_beam_type(BeamType.ION.value)  # set ion beam
         self.multichem.retract()
@@ -3504,4 +3574,3 @@ class ThermoMicroscope(FibsemMicroscope):
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
 
         return offset
-
