@@ -13,6 +13,7 @@ from functools import wraps
 from typing import Dict, List, Optional, Tuple, Union, Any, TYPE_CHECKING
 
 import numpy as np
+from skimage import transform
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
 from psygnal import Signal
@@ -119,6 +120,7 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from numpy.typing import NDArray
     from fibsem.structures import TFibsemPatternSettings
 
 class FibsemMicroscope(ABC):
@@ -2784,19 +2786,28 @@ class ThermoMicroscope(FibsemMicroscope):
 
     @_thermo_application_file_wrapper_for_drawing_functions
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
+        # Avoid modifying the original pattern_settings object
+        pattern_settings = deepcopy(pattern_settings)
+
         if pattern_settings.bitmap is None:
             logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
             return None
 
         # Get bitmap from pattern settings
         bitmap_pattern = BitmapPatternDefinition()
-        bitmap_pattern.points = pattern_settings.bitmap
 
         if pattern_settings.flip_y:
-            bitmap_pattern.points = np.flip(bitmap_pattern.points, axis=0)
+            pattern_settings.bitmap = np.flip(pattern_settings.bitmap, axis=0)
+
+        points = pattern_settings.bitmap
 
         fallback_application_file = "Si"
         try:
+            if pattern_settings.interpolate is not None:
+                points = self._resize_bitmap_to_pattern(
+                    pattern_settings
+                )
+            bitmap_pattern.points = points
             pattern = self.connection.patterning.create_bitmap(
                 center_x=pattern_settings.centre_x,
                 center_y=pattern_settings.centre_y,
@@ -2814,6 +2825,12 @@ class ThermoMicroscope(FibsemMicroscope):
                 fallback_application_file,
             )
             self.set_application_file(fallback_application_file)
+
+            if pattern_settings.interpolate is not None:
+                points = self._resize_bitmap_to_pattern(
+                    pattern_settings
+                )
+            bitmap_pattern.points = points
             pattern = self.connection.patterning.create_bitmap(
                 center_x=pattern_settings.centre_x,
                 center_y=pattern_settings.centre_y,
@@ -2865,6 +2882,61 @@ class ThermoMicroscope(FibsemMicroscope):
         )
         self._patterns.append(pattern)
         return pattern
+
+    def _resize_bitmap_to_pattern(
+        self, pattern_settings: FibsemBitmapSettings
+    ) -> NDArray[np.float_ | np.uint8]:
+        points = pattern_settings.bitmap
+
+        if points is None:
+            raise ValueError(
+                "Unable to resize bitmap as FibsemBitmapSettings.bitmap is None"
+            )
+
+        # Get pitch to calculate expected pixel size
+        rectangle = self.connection.patterning.create_rectangle(
+            center_x=pattern_settings.centre_x,
+            center_y=pattern_settings.centre_y,
+            width=pattern_settings.width,
+            height=pattern_settings.height,
+            depth=pattern_settings.depth,
+        )
+
+        new_shape = (
+            int(round(pattern_settings.height / rectangle.pitch_y)),
+            int(round(pattern_settings.width / rectangle.pitch_x)),
+        )
+
+        # Disable after calculations just in case values are cleared
+        rectangle.enabled = False
+
+        if pattern_settings.interpolate == "bicubic":
+            order = 3
+        elif pattern_settings.interpolate == "bilinear":
+            order = 1
+        elif pattern_settings.interpolate == "nearest":
+            order = 0
+        else:
+            raise ValueError(
+                f"Invalid interpolate option '{pattern_settings.interpolate}'"
+            )
+
+        resized_points = np.empty((*new_shape, 2), dtype=object)
+
+        resized_points[:, :, 0] = transform.resize(
+            points[:, :, 0].squeeze(-1),
+            output_shape=new_shape,
+            order=order,
+            preserve_range=True,
+        ).astype(np.float_)
+        resized_points[:, :, 1] = transform.resize(
+            points[:, :, 1].squeeze(-1),
+            output_shape=new_shape,
+            order=0,
+            preserve_range=True,
+        ).astype(np.uint8)
+
+        return resized_points
 
     def get_gis(self, port: str = None):
         use_multichem = self.is_available("gis_multichem")
