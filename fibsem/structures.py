@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar
+from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal
 
 import numpy as np
 import tifffile as tff
