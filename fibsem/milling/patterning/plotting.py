@@ -410,7 +410,7 @@ def _add_overlaps_mpl(
     # Create masks for each pattern
     pattern_masks = []
     for stage in milling_stages:
-        stage_mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=False)
+        stage_mask = create_pattern_mask(stage.pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=False)
         pattern_masks.append(stage_mask)
     
     # Find overlaps between patterns
@@ -648,7 +648,7 @@ def draw_milling_patterns(
         try:
             # optional dependency, best effort
             from matplotlib_scalebar.scalebar import ScaleBar
-            scalebar = ScaleBar(
+            ax_scalebar = ScaleBar(
                 dx=image.metadata.pixel_size.x,
                 color="black",
                 box_color="white",
@@ -656,7 +656,7 @@ def draw_milling_patterns(
                 location="lower right",
             )
 
-            plt.gca().add_artist(scalebar)
+            plt.gca().add_artist(ax_scalebar)
         except ImportError:
             logging.debug("Scalebar not available, skipping")
 
@@ -913,12 +913,12 @@ def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.
     
     for i, stage in enumerate(stages):
         # Create mask
-        mask = create_pattern_mask(stage, image.data.shape, pixelsize=image.metadata.pixel_size.x)
-        
+        mask = create_pattern_mask(stage.pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x)
+
         # Show mask as colored overlay
         masked = np.ma.masked_where(~mask, mask)
         ax1.imshow(masked, alpha=0.6, cmap='gray', vmin=0, vmax=10)
-        
+
         print(f"{stage.name}: {np.sum(mask)} pixels")
     
     # Plot 2: Show bounding boxes
@@ -927,8 +927,8 @@ def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.
     
     for i, stage in enumerate(stages):
         # Get bounding box
-        x_min, y_min, x_max, y_max = get_pattern_bounding_box(stage, image)
-        
+        x_min, y_min, x_max, y_max = get_pattern_bounding_box(stage.pattern, image)
+
         if (x_min, y_min, x_max, y_max) != (0, 0, 0, 0):
             # Draw bounding box using COLOURS from plotting.py
             bbox = mpatches.Rectangle(
@@ -937,9 +937,10 @@ def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.
             )
             ax2.add_patch(bbox)
             ax2.text(x_min, y_min-5, stage.name, color=COLOURS[i % len(COLOURS)], fontsize=9)
-    
+
     # Add combined bounding box
-    x_min, y_min, x_max, y_max = get_patterns_bounding_box(stages, image)
+    patterns = [stage.pattern for stage in stages]
+    x_min, y_min, x_max, y_max = get_patterns_bounding_box(patterns, image)
     if (x_min, y_min, x_max, y_max) != (0, 0, 0, 0):
         combined_bbox = mpatches.Rectangle(
             (x_min, y_min), x_max - x_min, y_max - y_min,

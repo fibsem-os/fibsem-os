@@ -39,6 +39,41 @@ def image_to_microscope_image_coordinates(
 
     return point_m
 
+def image_to_microscope_image_coordinates2(
+    coord: Point, image_shape: Tuple[int, int], pixelsize: float, subpixel_precision: bool = False
+) -> Point:
+    """
+    Convert an image pixel coordinate to a microscope image coordinate.
+
+    The microscope image coordinate system is centered on the image with positive Y-axis pointing upwards.
+
+    Args:
+        coord (Point): A Point object representing the pixel coordinates in the original image.
+        image (np.ndarray): A numpy array representing the image.
+        pixelsize (float): The pixel size in meters.
+        subpixel_precision (bool): Rounds to the nearest pixel if False (default)
+
+    Returns:
+        Point: A Point object representing the corresponding microscope image coordinates in meters.
+    """
+    # convert from image pixel coord (0, 0) top left to microscope image (0, 0) mid
+
+    if len(image_shape) != 2:
+        raise ValueError("image_shape must be a tuple of two integers (height, width)")
+
+    # shape
+    centre_px = np.asarray(image_shape) / 2
+    if not subpixel_precision:
+        centre_px = np.asarray(image_shape) // 2
+    cy, cx = centre_px
+
+    # distance from centre?
+    dy = float(-(coord.y - cy))  # neg = down
+    dx = float(coord.x - cx)  # neg = left
+
+    point_m = Point(dx, dy)._to_metres(pixel_size=pixelsize)
+
+    return point_m
 
 def get_lamella_size_in_pixels(
     img: FibsemImage, protocol: dict, use_trench_height: bool = False
