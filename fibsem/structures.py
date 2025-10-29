@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal
+from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar
 
 import numpy as np
 import tifffile as tff
@@ -329,6 +329,18 @@ class FibsemStagePosition:
         rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}" if self.r is not None else "R:None"
         tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}" if self.t is not None else "T:None"
         return f"{rstr}, {tstr}"
+
+    @property
+    def pretty(self) -> str:
+        """Returns a pretty string representation of the stage position including units."""
+        from fibsem import constants
+        xstr = f"X:{self.x*constants.METRE_TO_MILLIMETRE:.2f}mm" if self.x is not None else "X:None"
+        ystr = f"Y:{self.y*constants.METRE_TO_MILLIMETRE:.2f}mm" if self.y is not None else "Y:None"
+        zstr = f"Z:{self.z*constants.METRE_TO_MILLIMETRE:.2f}mm" if self.z is not None else "Z:None"
+        rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}°" if self.r is not None else "R:None"
+        tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}°" if self.t is not None else "T:None"
+        return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
+
 
 @dataclass
 class FibsemManipulatorPosition:
@@ -925,6 +937,7 @@ class MicroscopeState:
     ion_beam: Optional[BeamSettings] = field(default_factory=lambda: BeamSettings(beam_type=BeamType.ION))
     electron_detector: Optional[FibsemDetectorSettings] = field(default_factory=FibsemDetectorSettings)
     ion_detector: Optional[FibsemDetectorSettings] = field(default_factory=FibsemDetectorSettings)
+    objective_position: Optional[float] = None  # in meters
 
     def __post_init__(self):
         assert (
@@ -964,6 +977,7 @@ class MicroscopeState:
             "ion_detector": self.ion_detector.to_dict()
             if self.ion_detector is not None
             else None,
+            "objective_position": self.objective_position,
         }
 
         return state_dict
@@ -993,6 +1007,7 @@ class MicroscopeState:
             ion_beam=ion_beam,
             electron_detector=electron_detector,
             ion_detector=ion_detector,
+            objective_position=state_dict.get("objective_position", None),
         )
 
         return microscope_state
@@ -1146,7 +1161,11 @@ class FibsemMillingSettings:
     from_dict(settings: dict) -> "FibsemMillingSettings": Creates a FibsemMillingSettings object from a dictionary of settings.
     """
 
-    milling_current: float = 20.0e-12
+    milling_current: float = field(default=20.0e-12, 
+                                   metadata={"unit": "A", 
+                                             "label": "Milling Current", 
+                                             "tooltip": "The current used for milling. Higher currents mill faster but with less precision and more damage.",
+                                             "manufacturer": "ThermoFisher"})
     spot_size: float = 5.0e-8
     rate: float = 3.0e-10  # m3/A/s
     dwell_time: float = 1.0e-6  # s
@@ -1602,6 +1621,10 @@ class FibsemImageMetadata:
     @property
     def stage_position(self) -> FibsemStagePosition:
         return self.microscope_state.stage_position
+
+    @property
+    def acquisition_date(self) -> datetime:
+        return datetime.fromtimestamp(self.microscope_state.timestamp)
 
     def to_dict(self) -> dict:
         """Converts metadata to a dictionary.
