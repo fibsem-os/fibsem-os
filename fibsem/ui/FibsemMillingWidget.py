@@ -99,7 +99,8 @@ UNSCALED_VALUES = [
     "fib_frame_integration",
     "overtilt",
     # Adaptive milling add unscaled keys
-    "gis_stop_um",
+    "gis_stop_min_um",
+    "gis_stop_median_um",
     "max_crack_area_um2",
     "max_milling_cycles",
     "minimum_lamella_area_um2",
