@@ -403,7 +403,7 @@ def _add_overlaps_mpl(
         Patch to be used for the legend if a label is given, otherwise None
     """
     if len(milling_stages) < 2:
-        return []
+        return None
     
     overlap_patches = []
     
@@ -455,18 +455,20 @@ def _add_overlaps_mpl(
                             linestyle=OVERLAP_PROPERTIES["line_style"],
                         )
                         overlap_patches.append(patch)
-    if overlap_patches:
-        ax.add_collection(
-            PatchCollection(overlap_patches, match_original=True, zorder=zorder),
-        )
+    if not overlap_patches:
+        return None
 
-        return mpatches.Patch(
-            linewidth=OVERLAP_PROPERTIES["line_width"],
-            edgecolor=OVERLAP_PROPERTIES["edge_color"],
-            facecolor=OVERLAP_PROPERTIES["face_color"],
-            linestyle=OVERLAP_PROPERTIES["line_style"],
-            label=label,
-        )
+    ax.add_collection(
+        PatchCollection(overlap_patches, match_original=True, zorder=zorder),
+    )
+
+    return mpatches.Patch(
+        linewidth=OVERLAP_PROPERTIES["line_width"],
+        edgecolor=OVERLAP_PROPERTIES["edge_color"],
+        facecolor=OVERLAP_PROPERTIES["face_color"],
+        linestyle=OVERLAP_PROPERTIES["line_style"],
+        label=label,
+    )
 
 
 @overload
