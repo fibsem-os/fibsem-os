@@ -648,15 +648,16 @@ def draw_milling_patterns(
         try:
             # optional dependency, best effort
             from matplotlib_scalebar.scalebar import ScaleBar
-            ax_scalebar = ScaleBar(
-                dx=image.metadata.pixel_size.x,
-                color="black",
-                box_color="white",
-                box_alpha=0.5,
-                location="lower right",
-            )
 
-            plt.gca().add_artist(ax_scalebar)
+            ax.add_artist(
+                ScaleBar(
+                    dx=image.metadata.pixel_size.x,
+                    color="black",
+                    box_color="white",
+                    box_alpha=0.5,
+                    location="lower right",
+                )
+            )
         except ImportError:
             logging.debug("Scalebar not available, skipping")
 
