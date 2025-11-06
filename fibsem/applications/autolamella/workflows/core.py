@@ -56,10 +56,6 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_status_ui,
 )
 
-if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
-
-# TODO: DEPRECATE THIS FILE
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -68,8 +64,6 @@ if TYPE_CHECKING:
                                                                  AutoLamellaStage,
                                                                  WORKFLOW_STAGE_TO_PROTOCOL_KEY, 
                                                                  )
-
-# DEPRECATE THIS FILE
 
 # constants
 ATOL_STAGE_TILT = 0.017 # 1 degrees
