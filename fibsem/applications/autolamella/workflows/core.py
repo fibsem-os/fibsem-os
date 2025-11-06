@@ -45,9 +45,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaStage,
     Experiment,
     Lamella,
-    AutoLamellaProtocol,
-    AutoLamellaMethod,
-    WORKFLOW_STAGE_TO_PROTOCOL_KEY,
 )
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
@@ -63,6 +60,16 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
 # TODO: DEPRECATE THIS FILE
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.protocol.legacy import (AutoLamellaProtocol, 
+                                                                 AutoLamellaMethod, 
+                                                                 AutoLamellaStage,
+                                                                 WORKFLOW_STAGE_TO_PROTOCOL_KEY, 
+                                                                 )
+
+# DEPRECATE THIS FILE
 
 # constants
 ATOL_STAGE_TILT = 0.017 # 1 degrees
@@ -87,7 +94,7 @@ def get_supervision(lamella: Lamella, protocol: 'AutoLamellaProtocol', parent_ui
 
 # CORE WORKFLOW STEPS
 def log_status_message(lamella: Lamella, step: str):
-    logging.debug({"msg": "status", "petname": lamella.name, "stage": lamella.status, "step": step})
+    logging.debug({"msg": "status", "petname": lamella.name, "stage": lamella.status_info, "step": step})
 
 def log_status_message_raw(stage: str, step: str, petname: str = "null"):
     logging.debug({"msg": "status", "petname": petname, stage: stage, "step": step })   
@@ -784,7 +791,7 @@ def align_feature_coincident(
     update_status_ui(parent_ui, f"{lamella.info} Aligning Feature Coincident ({feature.name})...")
     image_settings.beam_type = BeamType.ELECTRON
     image_settings.hfw = hfw
-    image_settings.filename = f"ref_{lamella.status}_{feature.name}_align_coincident_ml"
+    image_settings.filename = f"ref_{lamella.task_state.name}_{feature.name}_align_coincident_ml"
     image_settings.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, image_settings)
     set_images_ui(parent_ui, eb_image, ib_image)

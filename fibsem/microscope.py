@@ -139,6 +139,7 @@ class FibsemMicroscope(ABC):
     _acquisition_thread: threading.Thread = None
     _threading_lock: threading.RLock = threading.RLock()
 
+    fm: 'FluorescenceMicroscope' = None
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
@@ -669,6 +670,8 @@ class FibsemMicroscope(ABC):
                 self.set_detector_settings(microscope_state.ion_detector, BeamType.ION)
         if self.is_available("stage") and microscope_state.stage_position is not None:
             self.safe_absolute_stage_movement(microscope_state.stage_position)
+        if self.fm is not None and microscope_state.objective_position is not None:
+            self.fm.objective.move_absolute(microscope_state.objective_position)
 
         logging.debug({"msg": "set_microscope_state", "state": microscope_state.to_dict()})
 

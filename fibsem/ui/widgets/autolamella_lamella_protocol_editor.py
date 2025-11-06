@@ -353,6 +353,23 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
             self.parent_widget.experiment.save() # TODO: migrate to shared data model
 
+    def _on_image_settings_changed(self, settings):
+        """Callback when the image settings are changed."""
+        logging.info(f"Image settings changed: {settings}")
+
+        # Update the image settings in the task config
+        selected_task_name = self.comboBox_selected_task.currentText()
+        selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
+        selected_lamella.task_config[selected_task_name].imaging = settings
+
+        self._save_experiment()
+
+    def _save_experiment(self):
+        """Save the experiment."""
+        # save the experiment
+        if self.parent_widget is not None and self.parent_widget.experiment is not None:
+            self.parent_widget.experiment.save() # TODO: migrate to shared data model
+
 def show_protocol_editor(parent: 'AutoLamellaUI',):
     """Show the AutoLamella protocol editor widget."""
     viewer = napari.Viewer(title="AutoLamella Protocol Editor")

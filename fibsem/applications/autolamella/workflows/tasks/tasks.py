@@ -78,6 +78,9 @@ from fibsem.applications.autolamella.workflows._default_milling_config import DE
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.ui import AutoLamellaUI
+
 TAutoLamellaTaskConfig = TypeVar(
     "TAutoLamellaTaskConfig", bound="AutoLamellaTaskConfig"
 )
@@ -718,6 +721,9 @@ class MillRoughTask(AutoLamellaTask):
             msg=f"Press Run Milling to mill the stress relief features for {self.lamella.name}. Press Continue when done."
             milling_task_config = self.update_milling_config_ui(milling_task_config, msg=msg)
             self.config.milling[STRESS_RELIEF_KEY] = deepcopy(milling_task_config)
+            msg=f"Press Run Milling to mill the stress relief features for {self.lamella.name}. Press Continue when done."
+            milling_task_config = self.update_milling_config_ui(milling_task_config, msg=msg)
+            self.config.milling[STRESS_RELIEF_KEY] = deepcopy(milling_task_config)
 
         # mill rough trench
         self.log_status_message("MILL_LAMELLA", "Milling Rough Lamella...")
@@ -946,6 +952,9 @@ class SetupLamellaTask(AutoLamellaTask):
         # TODO: display milling task config to display lamella milling tasks
 
         # display max intensity projections of any fluorescence images for the lamella
+        self._display_fluorescence_images()
+
+        # display max intensity projections of any fluorescence images for the lamella
         if self.config.display_fluorescence:
             self._display_fluorescence_images()
 
@@ -1002,6 +1011,7 @@ class SetupLamellaTask(AutoLamellaTask):
     def _display_fluorescence_images(self, latest_only: bool = True) -> None:
         """Display fluorescence images in the FM control widget."""
         return
+
 
 class AcquireReferenceImageTask(AutoLamellaTask):
     """Task to acquire reference image with specified settings."""

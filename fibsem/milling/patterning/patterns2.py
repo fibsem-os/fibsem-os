@@ -673,10 +673,10 @@ class SerialSectionPattern(BasePattern[FibsemLineSettings]):
 class FiducialPattern(BasePattern[FibsemRectangleSettings]):
     width: float = 1.0e-6
     height: float = 10.0e-6
-    depth: float = 5.0e-6
+    depth: float = 1.0e-6
     rotation: float = 45.0
     cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
-
+    asymmetric: bool = False  # if true, make it y-shaped
     name: ClassVar[str] = "Fiducial"
 
     def define(self) -> List[FibsemRectangleSettings]:
@@ -688,6 +688,36 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
         rotation = self.rotation * constants.DEGREES_TO_RADIANS
         cross_section = self.cross_section
 
+
+        # def calculate_angles(num_steps, start_angle=0):
+        #     angles = []
+        #     step_size = 180 / num_steps
+        #     for i in range(num_steps):
+        #         angle = (start_angle + i * step_size) % 180
+        #         angles.append(angle)
+        #     return angles
+
+        # angles = calculate_angles(self.num_steps, start_angle=self.rotation)
+        # print(angles)
+        # shapes = []
+        # for i, angle in enumerate(angles):
+        #     rotation = angle * constants.DEGREES_TO_RADIANS
+        #     shape = FibsemRectangleSettings(
+        #         width=width,
+        #         height=height,
+        #         depth=depth,
+        #         centre_x=self.point.x,
+        #         centre_y=self.point.y,
+        #         scan_direction="TopToBottom",
+        #         cross_section=cross_section,
+        #         rotation=rotation,
+        #     )
+        #     if i >= 2:
+        #         import random
+        #         shape.height *= random.uniform(0.3, 0.7) # make it shorter
+        #     shapes.append(shape)
+        # self.shapes =  shapes
+        # return shapes
 
         left_pattern = FibsemRectangleSettings(
             width=width,
@@ -709,6 +739,10 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
             cross_section=cross_section,
             rotation=rotation + np.deg2rad(90),
         )
+        if self.asymmetric:
+            left_pattern.height *= 0.5
+            left_pattern.centre_x -= left_pattern.height*0.5*np.cos(rotation)
+            left_pattern.centre_y += left_pattern.height*0.5*np.sin(rotation)
 
         self.shapes = [left_pattern, right_pattern]
         return self.shapes

@@ -1,0 +1,441 @@
+name: AutoLamella Waffle Method Protocol
+description: Workflow for automated lamella preparation using the waffle method.
+version: '1.0'
+tasks:
+    Trench Milling:
+        task_type: MILL_TRENCH
+        description: mill trenches around region of interest at high current
+        parameters: # dict
+            orientation: FIB
+            charge_neutralisation: true
+        milling:
+            trench: 
+                name: Trench Milling
+                field_of_view: 0.00018
+                alignment: {enabled: true}
+                acquisition: {enabled: true}
+                stages:
+                -   name: Trench 01
+                    milling:
+                        application_file: Si
+                        hfw: 0.00018
+                        milling_current: 7.6e-09
+                        milling_voltage: 30000
+                        preset: 30 keV; 2.5 nA
+                    pattern:
+                        depth: 1.25e-06
+                        lower_trench_height: 3.2e-05
+                        name: Trench
+                        spacing: 2.5e-05
+                        upper_trench_height: 1.6e-05
+                        width: 2.2e-05
+                    strategy: {}
+    Undercut Milling:
+        task_type: MILL_UNDERCUT
+        description: mill regions underneath the lamella at an oblique angle
+        parameters: # dict
+            milling_angles: [25, 20]
+            orientation: SEM
+        milling:
+            undercut:
+                name: Undercut Milling
+                field_of_view: 80.0e-6
+                alignment: {enabled: true}
+                acquisition: {enabled: true}
+                stages:
+                -   name: Undercut 01
+                    milling:
+                        application_file: Si
+                        hfw: 8.0e-05
+                        milling_current: 7.6e-09
+                    pattern:
+                        depth: 1.2e-06
+                        height: 1.6e-05
+                        name: Rectangle
+                        width: 2.2e-05
+                    strategy: {}
+                -   name: Undercut 02
+                    milling:
+                        application_file: Si
+                        hfw: 8.0e-05
+                        milling_current: 7.6e-09
+                    pattern:
+                        depth: 1.2e-06
+                        height: 8.0e-06
+                        name: Rectangle
+                        width: 2.2e-05
+                    strategy: {}
+    Acquire Reference Image (FIB):
+        task_type: ACQUIRE_REFERENCE_IMAGE
+        parameters:
+            acquire_fib: true
+            acquire_sem: false
+            orientation: MILLING
+        milling: {}
+        imaging: {}
+    Spot Burn Fiducial:
+        task_type: SPOT_BURN_FIDUCIAL
+        parameters:
+            milling_current: 6.0e-11
+            exposure_time: 10
+            orientation: null
+        milling: {}
+    Setup Lamella (Mill Fiducial):
+        task_type: SETUP_LAMELLA
+        parameters:
+            milling_angle: 15
+            use_fiducial: true
+            align_to_reference: true
+            alignment_expansion: 30
+        milling:
+            fiducial:
+                name: Fiducial
+                field_of_view: 0.00015
+                channel: ION
+                alignment:
+                    enabled: false
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                stages:
+                -   name: Fiducial 1
+                    num: 0
+                    milling:
+                        milling_current: 1.0e-09
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 2.5e-05
+                            y: 0.0
+                            name: null
+                        width: 1.0e-06
+                        height: 1.0e-05
+                        depth: 1.0e-06
+                        rotation: 45
+                        cross_section: Rectangle
+                        asymmetric: true
+                        name: Fiducial
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: false
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+                -   name: Fiducial 2
+                    num: 0
+                    milling:
+                        milling_current: 1.0e-09
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: -2.5e-05
+                            y: 0.0
+                            name: null
+                        width: 1.0e-06
+                        height: 1.0e-05
+                        depth: 1.0e-06
+                        rotation: 45
+                        cross_section: Rectangle
+                        asymmetric: true
+                        name: Fiducial
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: false
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+    Rough Milling:
+        task_type: MILL_ROUGH
+        parameters:
+            acquire_reference_images: true
+            orientation: MILLING
+        milling:
+            mill_rough:
+                name: Rough Milling
+                field_of_view: 0.00015
+                channel: ION
+                alignment:
+                    enabled: true
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                stages:
+                -   name: Rough Mill 01
+                    num: 0
+                    milling:
+                        milling_current: 7.4e-10
+                        hfw: 0.00015
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 1.0e-05
+                        depth: 6.5e-07
+                        spacing: 4.6e-06
+                        upper_trench_height: 3.5e-06
+                        lower_trench_height: 3.5e-06
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+                -   name: Rough Mill 02
+                    num: 0
+                    milling:
+                        milling_current: 2.0e-10
+                        hfw: 0.00015
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.5e-06
+                        depth: 6.5e-07
+                        spacing: 1.6e-06
+                        upper_trench_height: 2.0e-06
+                        lower_trench_height: 2.0e-06
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+                -   name: Stress Relief Feature
+                    num: 0
+                    milling:
+                        milling_current: 1.0e-09
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 5.0e-07
+                        height: 1.8e-05
+                        depth: 1.0e-06
+                        distance: 1.0e-05
+                        name: MicroExpansion
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+            stress-relief:
+                name: Stress Relief
+                field_of_view: 0.00015
+                channel: ION
+                alignment:
+                    enabled: true
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                stages:
+                -   name: MicroExpansion
+                    num: 0
+                    milling:
+                        milling_current: 1.0e-09
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 5.0e-07
+                        height: 1.8e-05
+                        depth: 1.0e-06
+                        distance: 1.0e-05
+                        name: MicroExpansion
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+    Polishing:
+        task_type: MILL_POLISHING
+        parameters:
+            acquire_reference_images: true
+            orientation: MILLING
+        milling:
+            mill_polishing:
+                name: Polishing
+                field_of_view: 0.00015
+                channel: ION
+                alignment:
+                    enabled: true
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                stages:
+                -   name: Polishing Mill 01
+                    num: 0
+                    milling:
+                        milling_current: 6.0e-11
+                        hfw: 0.00015
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.0e-06
+                        depth: 4.0e-07
+                        spacing: 3.0e-07
+                        upper_trench_height: 7.0e-07
+                        lower_trench_height: 7.0e-07
+                        cross_section: CleaningCrossSection
+                        time: 0.0
+                        fillet: 0.0
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                        interval_enabled: false
+                        interval: 30
+                        rect:
+                            left: 0.7
+                            top: 0.3
+                            width: 0.25
+                            height: 0.4
+    Acquire Fluorescence Image:
+        task_type: ACQUIRE_FLUORESCENCE_IMAGE
+        channel_settings:
+        -   name: Reflection Channel
+            excitation_wavelength: 550
+            emission_wavelength: null
+            power: 0.03
+            exposure_time: 0.005
+            color: gray
+        -   name: Red Channel
+            excitation_wavelength: 550
+            emission_wavelength: Fluorescence
+            power: 0.3
+            exposure_time: 0.5
+            color: red
+        zparams:
+            zmin: -9.999999999999999e-06
+            zmax: 9.999999999999999e-06
+            zstep: 1.0e-06
+        autofocus_settings:
+            coarse_range: 5.0e-05
+            coarse_step: 5.0e-06
+            coarse_enabled: true
+            fine_range: 1.0e-05
+            fine_step: 1.0e-06
+            fine_enabled: true
+            method: laplacian
+            channel_name: Reflection Channel
+        milling: {}
+        imaging: {}
+workflow:
+    name: ''
+    description: ''
+    tasks:
+    -   name: Trench Milling
+        supervise: true
+        required: false
+        requires: []
+    -   name: Undercut Milling
+        supervise: true
+        required: false
+        requires: []
+    -   name: Acquire Fluorescence Image
+        supervise: false
+        required: false
+        requires: []
+    -   name: Setup Lamella (Mill Fiducial)
+        supervise: true
+        required: true
+        requires: []
+    -   name: Acquire Fluorescence Image
+        supervise: false
+        required: false
+        requires: []
+    -   name: Rough Milling
+        supervise: true
+        required: true
+        requires:
+        - Setup Lamella (Mill Fiducial)
+    -   name: Polishing
+        supervise: true
+        required: true
+        requires:
+        - Rough Milling
+options:
+    turn_beams_off: false

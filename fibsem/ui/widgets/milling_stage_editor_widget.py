@@ -1128,6 +1128,14 @@ class FibsemMillingStageEditorWidget(QWidget):
             logging.info("Correlation tool is open, ignoring click event.")
             return
 
+        if self.is_movement_locked:
+            logging.warning("Movement is locked. Cannot move milling patterns.")
+            return
+        
+        if self.is_correlation_open:
+            logging.info("Correlation tool is open, ignoring click event.")
+            return
+
         if not is_position_inside_layer(event.position, self.image_layer):
             logging.warning("Click position is outside the image layer.")
             return

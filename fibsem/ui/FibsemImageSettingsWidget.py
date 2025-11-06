@@ -192,7 +192,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
 ########### Live Acquisition
         # live acquisition
-        LIVE_ACQUISITION_ENABLED = False
+        LIVE_ACQUISITION_ENABLED = True
         self.pushButton_start_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
         self.pushButton_stop_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
         self.pushButton_start_acquisition.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
@@ -611,8 +611,8 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.set_detector_button.setEnabled(enable)
         self.button_set_beam_settings.setEnabled(enable)
         self.parent.movement_widget._toggle_interactions(enable, caller="ui")
-        if caller != "milling":
-            self.parent.milling_widget._toggle_interactions(enable, caller="ui")
+        # if caller != "milling":
+            # self.parent.milling_widget._toggle_interactions(enable, caller="ui")
         if enable:
             for btn in self.acquisition_buttons:
                 btn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)

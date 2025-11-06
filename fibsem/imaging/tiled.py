@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
 from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -23,23 +24,26 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 
+
 POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
 
 ##### TILED ACQUISITION
 def tiled_image_acquisition(
     microscope: FibsemMicroscope,
     image_settings: ImageSettings,
-    grid_size: float,
+    nrows: int,
+    ncols: int,
     tile_size: float,
     overlap: float = 0.0,
     cryo: bool = True,
     parent_ui: Optional['FibsemMinimapWidget']=None,
 ) -> dict: 
-    """Tiled image acquisition. Currently only supports square grids with no overlap.
+    """Tiled image acquisition.
     Args:
         microscope: The microscope connection.
         image_settings: The image settings.
-        grid_size: The size of the entire final image.
+        nrows: The number of rows in the grid.
+        ncols: The number of columns in the grid.
         tile_size: The size of the tiles.
         overlap: The overlap between tiles in pixels. Currently not supported.
         cryo: Whether to use cryo mode (histogram equalisation).
@@ -47,21 +51,20 @@ def tiled_image_acquisition(
     Returns:
         A dictionary containing the acquisition details for stitching."""
 
-    # TODO: OVERLAP + STITCH
-    n_rows, n_cols = int(grid_size // tile_size), int(grid_size // tile_size)
+    n_rows, n_cols = nrows, ncols
     dx, dy = image_settings.hfw, image_settings.hfw
 
     dy *= -1 # need to invert y-axis
 
     # fixed image settings
     image_settings.autogamma = False
+    total_fov = ncols * tile_size  # total hfw
 
     logging.info(f"TILE COLLECTION: {image_settings.filename}")
-    logging.info(f"Taking nrows={n_rows}, ncols={n_cols} ({n_rows*n_cols}) images. TotalFoV={grid_size*1e6} um, TileFoV={tile_size*1e6} um")
+    logging.info(f"Taking nrows={n_rows}, ncols={n_cols} ({n_rows*n_cols}) images. TotalFoV={total_fov*1e6} um, TileFoV={tile_size*1e6} um")
     logging.info(f"dx: {dx*1e6} um, dy: {dy*1e6} um")
 
     # start in the middle of the grid
-
     start_state = microscope.get_microscope_state()
     
     # we save all intermediates into a folder with the same name as the filename, then save the stitched image into the parent folder
@@ -71,18 +74,20 @@ def tiled_image_acquisition(
     prev_label = image_settings.filename
     
     # BIG_IMAGE FOR DEBUGGING ONLY
-    image_settings.hfw = grid_size
-    image_settings.filename = "big_image"
-    image_settings.save = False
-    big_image = acquire.new_image(microscope, image_settings)
+    # image_settings.hfw = grid_size
+    # image_settings.filename = "big_image"
+    # image_settings.save = False
+    # big_image = acquire.new_image(microscope, image_settings)
+    big_image = None
 
     # TOP LEFT CORNER START
     image_settings.hfw = tile_size
     image_settings.filename = prev_label
     image_settings.autocontrast = False # required for cryo
     image_settings.save = True
-    start_move = grid_size / 2 - tile_size / 2
-    dxg, dyg = start_move, start_move
+    start_move_x = (ncols * tile_size) / 2 - tile_size / 2
+    start_move_y = (nrows * tile_size) / 2 - tile_size / 2
+    dxg, dyg = start_move_x, start_move_y
     dyg *= -1
 
     microscope.stable_move(dx=-dxg, dy=-dyg, beam_type=image_settings.beam_type)
@@ -107,10 +112,10 @@ def tiled_image_acquisition(
             microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
 
             if parent_ui:
-                if parent_ui.STOP_ACQUISITION:
+                if parent_ui._thread_stop_event.is_set():
                     raise Exception("User Stopped Acquisition")
 
-            logging.info(f"Acquiring Tilet {i}, {j}")
+            logging.info(f"Acquiring Tile {i}, {j}")
             image = acquire.new_image(microscope, image_settings)
 
             # stitch image
@@ -130,7 +135,8 @@ def tiled_image_acquisition(
                         "total": total_tiles,
                     }
                 )
-                time.sleep(1)
+                if isinstance(microscope, DemoMicroscope):
+                    time.sleep(1)
 
             img_row.append(image)
         images.append(img_row)
@@ -139,15 +145,16 @@ def tiled_image_acquisition(
     microscope.set_microscope_state(start_state)
     image_settings.path = prev_path
 
-    ddict = {"grid_size": grid_size, "tile_size": tile_size, "n_rows": n_rows, "n_cols": n_cols, 
+    ddict = {"total_fov": total_fov, "tile_size": tile_size, "n_rows": n_rows, "n_cols": n_cols, 
             "image_settings": image_settings, 
             "dx": dx, "dy": dy, "cryo": cryo,
-            "start_state": start_state, "prev-filename": prev_label, "start_move": start_move, "dxg": dxg, "dyg": dyg,
+            "start_state": start_state, "prev-filename": prev_label, 
+            "start_move_x": start_move_x, "start_move_y": start_move_y, 
+            "dxg": dxg, "dyg": dyg,
             "images": images, "big_image": big_image, "stitched_image": arr}
 
     return ddict
 
-# TODO: stitch while collecting
 def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optional['FibsemMinimapWidget'] = None) -> FibsemImage:
     """Stitch an array (2D) of images together. Assumes images are ordered in a grid with no overlap.
     Args:
@@ -162,21 +169,23 @@ def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optio
 
     # convert to fibsem image
     image = FibsemImage(data=arr, metadata=images[0][0].metadata)
+    if image.metadata is None:
+        raise ValueError("Image metadata is not set. Cannot update metadata for stitched image.")
     image.metadata.microscope_state = deepcopy(ddict["start_state"])
     image.metadata.image_settings = ddict["image_settings"]
-    image.metadata.image_settings.hfw = deepcopy(float(ddict["grid_size"]))
-    image.metadata.image_settings.resolution = deepcopy([arr.shape[0], arr.shape[1]])
+    image.metadata.image_settings.hfw = deepcopy(float(ddict["total_fov"]))
+    image.metadata.image_settings.resolution = deepcopy((arr.shape[0], arr.shape[1]))
 
     # TODO: support overwrite protection here, very annoying to overwrite
 
-    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}')
+    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}') # type: ignore
     image.save(filename)
     # for cryo need to histogram equalise
     if ddict.get("cryo", False):
         from fibsem.imaging.autogamma import auto_gamma
         image = auto_gamma(image, method="autogamma")
-    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}-autogamma')
-    image.save(filename)
+        filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}-autogamma') # type: ignore
+        image.save(filename)
 
     # for garbage collection
     del ddict["images"]
@@ -184,18 +193,19 @@ def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optio
 
     return image
 
-# TODO: add support for overlap, nrows, ncols
 def tiled_image_acquisition_and_stitch(microscope: FibsemMicroscope, 
                                   image_settings: ImageSettings, 
-                                  grid_size: float, 
+                                  nrows: int, 
+                                  ncols: int, 
                                   tile_size: float, 
                                   overlap: float = 0, cryo: bool = True, 
                                   parent_ui: Optional['FibsemMinimapWidget'] = None) -> FibsemImage:
-    """Acquire a tiled image and stitch it together. Currently only supports square grids with no overlap.
+    """Acquire a tiled image and stitch it together.
     Args:
         microscope: The microscope connection.
         image_settings: The image settings.
-        grid_size: The size of the entire final image.
+        nrows: The number of rows in the grid.
+        ncols: The number of columns in the grid.
         tile_size: The size of the tiles.
         overlap: The overlap between tiles in pixels. Currently not supported.
         cryo: Whether to use cryo mode (histogram equalisation).
@@ -210,7 +220,7 @@ def tiled_image_acquisition_and_stitch(microscope: FibsemMicroscope,
 
     ddict = tiled_image_acquisition(microscope=microscope, 
                                     image_settings=image_settings, 
-                                    grid_size=grid_size, tile_size=tile_size, 
+                                    nrows=nrows, ncols=ncols, tile_size=tile_size, 
                                     cryo=cryo, parent_ui=parent_ui)
     image = stitch_images(images=ddict["images"], ddict=ddict, parent_ui=parent_ui)
 

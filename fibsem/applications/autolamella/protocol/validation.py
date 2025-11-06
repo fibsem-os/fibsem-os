@@ -15,6 +15,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     SETUP_LAMELLA_KEY,
     TRENCH_KEY,
     UNDERCUT_KEY,
+    STRESS_RELIEF_KEY,
 )
 
 # required milling keys
