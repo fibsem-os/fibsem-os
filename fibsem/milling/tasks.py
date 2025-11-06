@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -132,21 +133,34 @@ class FibsemMillingTask:
         else:
             logging.info(ddict)
 
+    def _configure_path(self) -> None:
+        path = self.config.acquisition.imaging.path
+        self.config.acquisition.imaging.path = os.path.join(str(path), "Milling",
+                                                            self.name.replace(" ", "-"), 
+                                                            )
+
     def run(self) -> None:
         """Run a list of milling stages, with a progress bar and notifications."""
 
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         try:
-            if self.parent_ui:
-                self.microscope.milling_progress_signal.connect(self.parent_ui._on_milling_progress)
+            if self.parent_ui and hasattr(self.parent_ui, "_on_milling_progress"):
+                self.microscope.milling_progress_signal.connect(self.parent_ui._on_milling_progress) # THIS is 100% broken and causes recursive emits, need to fix to just use the microscope signal
             else:
                 self.microscope.milling_progress_signal.connect(self._handle_progress)
             self.initial_beam_shift = self.microscope.get_beam_shift(beam_type=self.config.channel)
 
+            # configure acquisition filepaths
+            self._configure_path()
+
             # acquire a reference image for alignment
             if self.config.alignment.enabled:
                 self._acquire_reference_image()
+
+            # acquire an image before starting the task
+            if self.config.acquisition.enabled:
+                self._acquire_milling_task_images(stage_name=self.name, tag="pre-task")
 
             for idx, stage in enumerate(self.stages):
                 self._mill_stage(stage, idx)
@@ -173,7 +187,7 @@ class FibsemMillingTask:
 
         start_time = time.time()
         if self.parent_ui:
-            if self.parent_ui._milling_stop_event.is_set():
+            if hasattr(self.parent_ui, "_milling_stop_event") and self.parent_ui._milling_stop_event.is_set():
                 raise Exception("Milling stopped by user.")
 
         msgd =  {"msg": f"Preparing: {stage.name}",
@@ -187,14 +201,15 @@ class FibsemMillingTask:
         self._handle_progress(msgd)
 
         try:
-            if self.config.acquisition.enabled:
-                self._acquire_milling_task_images(stage_name=stage.name, tag="start")
+            # if self.config.acquisition.enabled:
+                # self._acquire_milling_task_images(stage_name=stage.name, tag="start")
 
             # Set up the stage with the task configuration
             stage.reference_image = self.reference_image
             stage.milling.hfw = self.config.field_of_view
             stage.milling.milling_channel = self.config.channel
             stage.milling.acquire_images = self.config.acquisition.enabled
+            stage.imaging.path = self.config.acquisition.imaging.path
             stage.alignment = self.config.alignment
             stage.strategy.run(
                 microscope=self.microscope,
@@ -205,8 +220,8 @@ class FibsemMillingTask:
             # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
             # performance logging
             msgd = {"msg": "milling_task",
-                    "task_id": self.task_id,
-                    "task_name": self.name,
+                    "milling_task_id": self.task_id,
+                    "milling_task_name": self.name,
                     "idx": idx,
                     "stage": stage.to_dict(),
                     "start_time": start_time,
@@ -216,7 +231,7 @@ class FibsemMillingTask:
 
             # optionally acquire images after milling
             if self.config.acquisition.enabled:
-                self._acquire_milling_task_images(stage_name=stage.name, tag="finished")
+                self._acquire_milling_task_images(stage_name=f"{self.name}-{stage.name}", tag="finished")
 
         except Exception as e:
             logging.error(f"Error running milling stage: {stage.name}, {e}")
@@ -231,7 +246,7 @@ class FibsemMillingTask:
         if path is None:
             path = Path(fcfg.DATA_CC_PATH)
 
-        filename = f"ref_milling_{self.name}_{fcfg.REFERENCE_FILENAME}_{current_timestamp_v3(timeonly=True)}".replace(' ', '-')
+        filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}_{current_timestamp_v3(timeonly=True)}".replace(' ', '-')
         image_settings = ImageSettings(
             hfw=self.config.field_of_view,
             dwell_time=1e-6,
@@ -242,7 +257,7 @@ class FibsemMillingTask:
             path=path,
             filename=filename,
         ) # TODO: support customising alignment imaging parameters?
-        self.reference_image =  acquire.acquire_image(microscope=self.microscope, settings=image_settings)
+        self.reference_image = acquire.acquire_image(microscope=self.microscope, settings=image_settings)
 
     def _acquire_milling_task_images(
         self,
@@ -254,19 +269,25 @@ class FibsemMillingTask:
             stage_name (str): Name of the milling stage
             tag (str): Tag to append to the filename
         """
-        self.microscope.finish_milling(self.microscope.system.ion.beam.beam_current, self.microscope.system.ion.beam.voltage)
+        self.microscope.finish_milling(imaging_current=self.microscope.system.ion.beam.beam_current,    # type: ignore 
+                                       imaging_voltage=self.microscope.system.ion.beam.voltage)         # type: ignore
 
-        # TODO: migrate to path = path/task_name/stage_name?
         acq_date = current_timestamp_v3(timeonly=True)
-        self.config.acquisition.imaging.filename = f"ref_milling_{self.name}_{stage_name}_{tag}_{acq_date}".replace(' ', '-')
+        self.config.acquisition.imaging.filename = f"{stage_name}_{tag}_{acq_date}".replace(' ', '-')
         self.config.acquisition.imaging.save = True
-        self.config.acquisition.imaging.hfw = self.config.field_of_view
+        self.config.acquisition.imaging.hfw = self.config.field_of_view # force field of view to match task
 
         if self.config.acquisition.imaging.path is None:
             self.config.acquisition.imaging.path = self.microscope._last_imaging_settings.path
 
         # acquire images
         images = acquire.take_reference_images(self.microscope, self.config.acquisition.imaging)
+
+        try:
+            self.microscope.sem_acquisition_signal.emit(images[0]) # sem image
+            self.microscope.fib_acquisition_signal.emit(images[1]) # ion image
+        except Exception as e:
+            logging.error(f"Error emitting acquisition signals: {e}")
 
         return images
 

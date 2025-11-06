@@ -82,7 +82,7 @@ def create_experiment_from_odemis(path: str, protocol: dict, name: str = "AutoLa
     """Create an experiment from an Odemis project folder."""
 
     experiment_name = f"{name}-{os.path.basename(path)}"
-    experiment = Experiment(path=path, name=experiment_name, method=method)
+    experiment = Experiment(path=path, name=experiment_name)
     experiment.save()
 
     # save the protocol in the experiment folder

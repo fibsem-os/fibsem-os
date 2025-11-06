@@ -1,12 +1,14 @@
 from __future__ import annotations
+
+import copy
 import glob
 import logging
 import os
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import cycle
 from typing import Dict, List, Optional, Tuple, Union
-from collections.abc import Iterator
 
 import numpy as np
 from skimage.transform import resize
@@ -230,7 +232,7 @@ class DemoMicroscope(FibsemMicroscope):
             self._setup_image_iterators()
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
-            
+
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
@@ -348,7 +350,7 @@ class DemoMicroscope(FibsemMicroscope):
             image.data = np.where(num_image > 0, num_image, image.data)
 
         # add additional metadata
-        image.metadata.image_settings = effective_image_settings
+        image.metadata.image_settings = copy.deepcopy(effective_image_settings)
         image.metadata.microscope_state = microscope_state
         image.metadata.system = self.system
         image.metadata.experiment = self.experiment
@@ -719,8 +721,8 @@ class DemoMicroscope(FibsemMicroscope):
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """Finish milling by restoring the imaging current and voltage."""
-        self.set_beam_current(imaging_current, self.milling_channel)
-        self.set_beam_voltage(imaging_voltage, self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
+        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
         self.clear_patterns()
 
     def clear_patterns(self) -> None:

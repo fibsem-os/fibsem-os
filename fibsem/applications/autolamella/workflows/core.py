@@ -3,7 +3,7 @@ import os
 import time
 from copy import deepcopy
 from datetime import datetime
-from typing import List, Tuple, Optional, Any, Union
+from typing import List, Tuple, Optional, Any, Union, TYPE_CHECKING
 
 import numpy as np
 from fibsem import acquire, alignment, calibration
@@ -28,7 +28,6 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaProtocol
 
 from fibsem.applications.autolamella.protocol.validation import (
     DEFAULT_ALIGNMENT_AREA,
@@ -44,13 +43,12 @@ from fibsem.applications.autolamella.protocol.validation import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaStage,
-    AutoLamellaMethod,
     Experiment,
     Lamella,
-    get_autolamella_method,
+    AutoLamellaProtocol,
+    AutoLamellaMethod,
+    WORKFLOW_STAGE_TO_PROTOCOL_KEY,
 )
-from fibsem.applications.autolamella.ui import AutoLamellaUI
-from fibsem.applications.autolamella.workflows import actions
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     set_images_ui,
@@ -61,7 +59,10 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_status_ui,
 )
 
-from fibsem.applications.autolamella.structures import WORKFLOW_STAGE_TO_PROTOCOL_KEY
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.ui import AutoLamellaUI
+
+# TODO: DEPRECATE THIS FILE
 
 # constants
 ATOL_STAGE_TILT = 0.017 # 1 degrees
@@ -70,7 +71,7 @@ MAX_ALIGNMENT_ATTEMPTS = 3
 # feature flags
 
 
-def get_supervision(lamella: Lamella, protocol: AutoLamellaProtocol, parent_ui: Optional['AutoLamellaUI'] = None) -> bool:
+def get_supervision(lamella: Lamella, protocol: 'AutoLamellaProtocol', parent_ui: Optional['AutoLamellaUI'] = None) -> bool:
     """Get the supervision setting for the current workflow stage. 
     Attempt to get it from the parent_ui if available (thread-safe)"""
 
@@ -94,9 +95,9 @@ def log_status_message_raw(stage: str, step: str, petname: str = "null"):
 
 def pass_through_stage(
     microscope: FibsemMicroscope,
-    protocol: AutoLamellaProtocol,
+    protocol: 'AutoLamellaProtocol',
     lamella: Lamella,
-    parent_ui: Optional[AutoLamellaUI] = None,
+    parent_ui: Optional['AutoLamellaUI'] = None,
 ) -> Lamella:
     # pass through stage
     return lamella 
@@ -104,9 +105,9 @@ def pass_through_stage(
 # mill trench
 def mill_trench(
     microscope: FibsemMicroscope,
-    protocol: AutoLamellaProtocol,
+    protocol: 'AutoLamellaProtocol',
     lamella: Lamella,
-    parent_ui: Optional[AutoLamellaUI] = None,
+    parent_ui: Optional['AutoLamellaUI'] = None,
 ) -> Lamella:
 
     validate = get_supervision(lamella, protocol, parent_ui)
@@ -174,9 +175,9 @@ def mill_trench(
 # mill undercut
 def mill_undercut(
     microscope: FibsemMicroscope,
-    protocol: AutoLamellaProtocol,
+    protocol: 'AutoLamellaProtocol',
     lamella: Lamella,
-    parent_ui: Optional[AutoLamellaUI] = None,
+    parent_ui: Optional['AutoLamellaUI'] = None,
 ) -> Lamella:
 
     method = protocol.method
@@ -327,9 +328,9 @@ def mill_undercut(
 
 def mill_lamella(
     microscope: FibsemMicroscope,
-    protocol: AutoLamellaProtocol,
+    protocol: 'AutoLamellaProtocol',
     lamella: Lamella,
-    parent_ui: Optional[AutoLamellaUI] = None,
+    parent_ui: Optional['AutoLamellaUI'] = None,
 ) -> Lamella:
 
     image_settings = protocol.configuration.image
@@ -478,9 +479,9 @@ def mill_lamella(
 
 def setup_lamella(
     microscope: FibsemMicroscope,
-    protocol: AutoLamellaProtocol,
+    protocol: 'AutoLamellaProtocol',
     lamella: Lamella,
-    parent_ui: Optional[AutoLamellaUI] = None,
+    parent_ui: Optional['AutoLamellaUI'] = None,
 ) -> Lamella:
 
     method = protocol.method
@@ -653,9 +654,9 @@ def setup_lamella(
 
 def setup_polishing(
     microscope: FibsemMicroscope,
-    protocol: AutoLamellaProtocol,
+    protocol: 'AutoLamellaProtocol',
     lamella: Lamella,
-    parent_ui: Optional[AutoLamellaUI] = None,
+    parent_ui: Optional['AutoLamellaUI'] = None,
 ) -> Lamella:
 
     method = protocol.method
@@ -709,7 +710,7 @@ def end_of_stage_update(
     microscope: FibsemMicroscope, 
     experiment: Experiment, 
     lamella: Lamella, 
-    parent_ui: Optional[AutoLamellaUI], 
+    parent_ui: Optional['AutoLamellaUI'], 
     save_state: bool = True, 
     update_ui: bool = True,
 ) -> Experiment:
@@ -738,7 +739,7 @@ def start_of_stage_update(
     microscope: FibsemMicroscope,
     lamella: Lamella,
     next_stage: AutoLamellaStage,
-    parent_ui: Optional[AutoLamellaUI],
+    parent_ui: Optional['AutoLamellaUI'],
     restore_state: bool = True,
     update_ui: bool = True,
 ) -> Lamella:
@@ -768,7 +769,7 @@ def align_feature_coincident(
     image_settings: ImageSettings,
     lamella: Lamella,
     checkpoint: str,
-    parent_ui: Optional[AutoLamellaUI],
+    parent_ui: Optional['AutoLamellaUI'],
     validate: bool,
     hfw: float = fcfg.REFERENCE_HFW_MEDIUM,
     feature: Feature = LamellaCentre(),
@@ -834,7 +835,7 @@ def align_feature_coincident(
 
 def align_feature_beam_shift(microscope: FibsemMicroscope, 
                             image_settings: ImageSettings, 
-                            lamella: Lamella, parent_ui: AutoLamellaUI, 
+                            lamella: Lamella, parent_ui: Optional['AutoLamellaUI'], 
                             validate: bool, 
                             beam_type: BeamType = BeamType.ELECTRON,
                             hfw: float = fcfg.REFERENCE_HFW_MEDIUM,
@@ -882,4 +883,3 @@ def align_feature_beam_shift(microscope: FibsemMicroscope,
     set_images_ui(parent_ui, eb_image, ib_image)
 
     return lamella
-

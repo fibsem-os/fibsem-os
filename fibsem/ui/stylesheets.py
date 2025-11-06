@@ -66,3 +66,20 @@ QPushButton {
 
 PROGRESS_BAR_GREEN_STYLE = "QProgressBar::chunk {background-color: green;}"
 PROGRESS_BAR_BLUE_STYLE = "QProgressBar::chunk {background-color: blue;}"
+
+
+CHECKBOX_STYLE = """
+QCheckBox::indicator {
+        width: 16px;"
+        height: 16px;
+        border: 1px solid rgba(220, 220, 220, 0.7);
+        border-radius: 3px;
+        background-color: rgba(255, 255, 255, 0.05);
+        }
+QCheckBox::indicator:hover {
+        border: 1px solid rgba(120, 180, 255, 0.9);
+}
+QCheckBox::indicator:checked {
+        background-color: #3a6ea5;
+        border: 1px solid #68a0dd;
+}"""

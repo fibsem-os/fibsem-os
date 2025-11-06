@@ -130,17 +130,18 @@ class FibsemMicroscope(ABC):
     system: SystemSettings
     _patterns: List
     stage_is_compustage: bool = False
+    milling_channel: BeamType = BeamType.ION
 
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: threading.Thread = None
+    _threading_lock: threading.RLock = threading.RLock()
 
-    fm: 'FluorescenceMicroscope' = None # type: ignore
 
     stage_position_changed = Signal(FibsemStagePosition)
-    _stage_position: FibsemStagePosition = None # type: ignore
+    _stage_position: FibsemStagePosition = None
 
     @abstractmethod
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
@@ -231,9 +232,16 @@ class FibsemMicroscope(ABC):
         """
 
         stage_position = self.get("stage_position")
+
+        if not isinstance(stage_position, FibsemStagePosition):
+            raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
+
         logging.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
 
-        if self._stage_position != stage_position:
+        if self._stage_position is None:
+            self._stage_position = deepcopy(stage_position)
+
+        if not self._stage_position.is_close2(stage_position, tol=1e-6):
             self._stage_position = deepcopy(stage_position)
             self.stage_position_changed.emit(self._stage_position)
 
@@ -457,7 +465,6 @@ class FibsemMicroscope(ABC):
     # TODO: use a decorator instead?
     def get(self, key: str, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list, tuple, Point]:
         """Get wrapper for logging."""
-        logging.debug(f"Getting {key} ({beam_type})")
         value = self._get(key, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug({"msg": "get", "key": key, "beam_type": beam_name, "value": value})
@@ -465,7 +472,6 @@ class FibsemMicroscope(ABC):
 
     def set(self, key: str, value: Union[str, float, int, tuple, list, Point], beam_type: Optional[BeamType] = None) -> None:
         """Set wrapper for logging"""
-        logging.debug(f"Setting {key} to {value} ({beam_type})")
         self._set(key, value, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug({"msg": "set", "key": key, "beam_type": beam_name, "value": value})
@@ -1021,6 +1027,14 @@ class FibsemMicroscope(ABC):
             target_position = stage_position
             target_position.r = orientation.r
             target_position.t = orientation.t
+        elif ((currrent_orientation in ["SEM", "FIB"] and target_orientation == "FM") or
+              (currrent_orientation == "FM" and target_orientation in ["SEM", "FIB"])):
+            if not self.stage_is_compustage:
+                raise ValueError("Cannot move to FM position on non-compustage systems.")
+            # Convert from FIB to FM
+            target_position = stage_position
+            target_position.r = orientation.r
+            target_position.t = orientation.t
         else:
             raise ValueError(f"Cannot convert from {currrent_orientation} to {target_orientation}")
 
@@ -1057,7 +1071,16 @@ class FibsemMicroscope(ABC):
         }
 
         if self.stage_is_compustage:
+            self.orientations["FIB"].r = np.radians(0)  # Compustage is always at 0 rotation
             self.orientations["FIB"].t -= np.radians(180)
+
+            self.orientations["FM"] = FibsemStagePosition(
+                r=np.radians(0),
+                t=np.radians(-180),
+            )
+        else:
+            # only x/y translation, no rotation
+            self.orientations["FM"] = deepcopy(self.orientations["FIB"])
 
         if orientation not in self.orientations:
             raise ValueError(f"Orientation {orientation} not supported.")
@@ -1073,9 +1096,18 @@ class FibsemMicroscope(ABC):
         if self.get_stage_orientation() == "FIB":
             return 90  # stage-tilt + pre-tilt + 90 - column-tilt
 
+        stage_tilt = self.get_stage_position().t
+
+        if stage_tilt is None:
+            raise ValueError("Stage tilt is not available. Cannot calculate milling angle.")
+        
+        if self.stage_is_compustage and stage_tilt < np.radians(-90):
+            # Compustage stage tilt is inverted, so we need to adjust the angle
+            stage_tilt += np.radians(180)
+
         # Calculate the milling angle from the stage tilt
         milling_angle = convert_stage_tilt_to_milling_angle(
-            stage_tilt=self.get_stage_position().t, 
+            stage_tilt=stage_tilt, 
             pretilt=np.radians(self.system.stage.shuttle_pre_tilt), 
             column_tilt=np.radians(self.system.ion.column_tilt)
         )
@@ -1333,9 +1365,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
-            self.stage = None
-            self.stage_is_compustage = False
-            logging.warning("No stage is installed on the microscope.")
+            raise Exception("No stage installed. Please check the microscope configuration.")
 
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
@@ -1371,6 +1401,9 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         if beam_type is not None:
             return self.acquire_image3(image_settings=None, beam_type=beam_type)
+
+        if image_settings is None:
+            raise ValueError("Must provide image_settings to acquire a new image if beam_type is not specified.")
 
         # set reduced area settings
         if image_settings.reduced_area is not None:
@@ -1975,6 +2008,10 @@ class ThermoMicroscope(FibsemMicroscope):
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
             PRETILT_SIGN = -1.0
 
+        if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
+            expected_y *= -1.0 # use this until rotation_180 is deprecated correctly...
+            PRETILT_SIGN = -1.0
+
         # corrected_pretilt_angle = PRETILT_SIGN * stage_tilt_flat_to_electron
         corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt) # electron angle = 0, ion = 52
 
@@ -2511,35 +2548,40 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def start_milling(self) -> None:
         """Start the milling process."""
-        if self.get_milling_state() is MillingState.IDLE:
-            self.connection.patterning.start()
-            logging.info("Starting milling...")
+        with self._threading_lock:
+            if self.get_milling_state() is MillingState.IDLE:
+                self.connection.patterning.start()
+                logging.info("Starting milling...")
 
     def stop_milling(self) -> None:
         """Stop the milling process."""
-        if self.get_milling_state() in ACTIVE_MILLING_STATES:
-            logging.info("Stopping milling...")
-            self.connection.patterning.stop()
-            logging.info("Milling stopped.")
+        with self._threading_lock:
+            if self.get_milling_state() in ACTIVE_MILLING_STATES:
+                logging.info("Stopping milling...")
+                self.connection.patterning.stop()
+                logging.info("Milling stopped.")
 
     def pause_milling(self) -> None:
         """Pause the milling process."""
-        if self.get_milling_state() == MillingState.RUNNING:
-            logging.info("Pausing milling...")
-            self.connection.patterning.pause()
-            logging.info("Milling paused.")
+        with self._threading_lock:
+            if self.get_milling_state() == MillingState.RUNNING:
+                logging.info("Pausing milling...")
+                self.connection.patterning.pause()
+                logging.info("Milling paused.")
 
     def resume_milling(self) -> None:
         """Resume the milling process."""
-        if self.get_milling_state() == MillingState.PAUSED:
-            logging.info("Resuming milling...")
-            self.connection.patterning.resume()
-            logging.info("Milling resumed.")
+        with self._threading_lock:
+            if self.get_milling_state() == MillingState.PAUSED:
+                logging.info("Resuming milling...")
+                self.connection.patterning.resume()
+                logging.info("Milling resumed.")
 
     def get_milling_state(self) -> MillingState:
         """Get the current milling state."""
-        self.set_channel(channel=self.milling_channel)
-        return MillingState[self.connection.patterning.state.upper()]
+        with self._threading_lock:
+            self.set_channel(channel=self.milling_channel)
+            return MillingState[self.connection.patterning.state.upper()]
 
     def clear_patterns(self):
         """Clear all currently drawn milling patterns."""
@@ -3632,6 +3674,10 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         """Get the difference between the stage position in specimen coordinates and raw coordinates."""
+        # no offset for compustage
+        if self.stage_is_compustage:
+            return FibsemStagePosition(x=0, y=0)
+
         # get stage position in speciemn coordinates 
         self.stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
         specimen_stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)

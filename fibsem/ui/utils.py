@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt5 import QtGui, QtWidgets
+from PyQt5.QtCore import QEvent, QObject
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QLabel,
@@ -14,6 +15,15 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
+
+
+class WheelBlocker(QObject):
+    """Event filter that blocks wheel events"""
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Wheel:
+            return True  # Block the wheel event
+        return super().eventFilter(watched, event)
 
 
 def set_arr_as_qlabel(

@@ -213,7 +213,6 @@ def ask_user(
     mill: Optional[bool] = None,
     det: Optional[DetectedFeatures] = None,
     spot_burn: Optional[bool] = None,
-    coincidence_milling: Optional[bool] = None,
 ) -> bool:
 
     if parent_ui is None:
@@ -227,7 +226,6 @@ def ask_user(
         "det": det,
         "milling_enabled": mill,
         "spot_burn": spot_burn,
-        "coincidence_milling": coincidence_milling,
     }
     parent_ui.workflow_update_signal.emit(INFO)
 

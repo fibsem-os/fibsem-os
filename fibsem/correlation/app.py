@@ -1,7 +1,7 @@
 import datetime
 import logging
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import napari
 import napari.utils
@@ -12,6 +12,7 @@ from napari.utils import notifications
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 
+from fibsem import utils
 from fibsem.correlation import (
     load_and_parse_fib_image,
     multi_channel_get_z_guass,
@@ -108,7 +109,7 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
     close_signal = pyqtSignal()
     continue_pressed_signal = pyqtSignal(dict)
 
-    def __init__(self, viewer: napari.Viewer, parent_ui: QtWidgets.QWidget = None):
+    def __init__(self, viewer: napari.Viewer, parent_ui: Optional[QtWidgets.QWidget] = None):
         super().__init__()
         self.setupUi(self)
 
@@ -121,19 +122,19 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
         self.use_z_gauss_optim: bool = False
         self.use_mip: bool = False
 
-        self.fib_image: np.ndarray = None
-        self.fm_image: np.ndarray = None
+        self.fib_image: Optional[np.ndarray] = None
+        self.fm_image: Optional[np.ndarray] = None
 
         self.translation = None
         self.fib_image_layer = None
         self.fm_image_layers: List[NapariImageLayer] = []
         self.selected_index = []
 
-        self.rotation_center: tuple = None
+        self.rotation_center: Optional[Tuple[int, int, int]] = None
 
         self.df = pd.DataFrame([], columns=DATAFRAME_PROPERTIES["columns"])
-        self.correlation_results: dict = None
-        self.poi_coordinate: Tuple[float, float] = (0, 0) # TODO: migrate to Point
+        self.correlation_results: Optional[dict] = None
+        self.poi_coordinate: Optional[Tuple[float, float]] = None  # TODO: migrate to Point
 
         # add a point layer for the coordinates (FIB, FM, POI)
         self.coordinates_layer = None
@@ -229,7 +230,6 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
 
         self.pushButton_continue.setVisible(self.parent_ui is not None)
         self.pushButton_continue.clicked.connect(self.continue_pressed)
-        self.continue_pressed_signal.connect(self.handle_continue_signal)
         self.pushButton_continue.setStyleSheet("background-color: blue")
         # method change
         self.comboBox_method.addItems(["Multi-Point", "Drag & Drop"])
@@ -243,6 +243,7 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
         # mark surface (alt click?)
         # update poi
         self.pushButton_refreactive_update_poi.clicked.connect(self.apply_refractive_index_correction)
+        self.pushButton_refreactive_update_poi.setStyleSheet("background-color: purple")
         # TODO: disable this button if no correlation results are available, no surface point available
 
     def on_method_changed(self):
@@ -375,18 +376,26 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
 
     def continue_pressed(self) -> None:
         # continue with the correlation
-        logging.info("Continue Pressed")
 
         info = {"poi": self.poi_coordinate}
 
-        msg = "Finish correlation and continue?"
         ret = QtWidgets.QMessageBox.question(self,
                                              'Finish Correlation',
-                                             msg,
+                                             "Finish correlation and continue?",
                                              QtWidgets.QMessageBox.Yes, 
                                              QtWidgets.QMessageBox.No)
 
         if ret == QtWidgets.QMessageBox.Yes:
+
+            # reset the viewer
+            # take a screenshot and save it in project directory
+            if self.path is not None:
+                timestamp = utils.current_timestamp_v3()
+                screenshot_path = os.path.join(self.path, f"correlation_screenshot_{timestamp}.png")
+                self.viewer.reset_view()
+                self.viewer.screenshot(path=screenshot_path, flash=False, canvas_only=True)
+                logging.info(f"Saved correlation screenshot to: {screenshot_path}")
+
             self.remove_correlation_layers()
             self.continue_pressed_signal.emit(info)
             self.close()
@@ -432,10 +441,10 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
         if "Initial PoI" in self.viewer.layers:
             self.viewer.layers.remove("Initial PoI")
 
-    def handle_continue_signal(self, ddict: dict):
+    # def handle_continue_signal(self, ddict: dict):
 
-        logging.info("CONTINUE SIGNAL PRESSED")
-        logging.info(f"POI: {ddict['poi']}")
+    #     logging.info("CONTINUE SIGNAL PRESSED")
+    #     logging.info(f"POI: {ddict['poi']}")
 
     def _show_project_controls(self):
         self.images_loaded = self.fib_image is not None and self.fm_image is not None
@@ -597,6 +606,7 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
 
         self.wizard = open_import_wizard(filename=filename)
         self.wizard.finished_signal.connect(self.handle_fm_finished_signal)
+        self.wizard.viewer.window.activate()
 
     def handle_fm_finished_signal(self, data: dict):
         self.fm_image = data["image"]
@@ -1110,8 +1120,14 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
             from fibsem.milling.patterning.patterns2 import FiducialPattern
             from fibsem.structures import Point
             from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari
+            from fibsem.milling import FibsemMillingStage
 
-            milling_stages = self.parent_ui.milling_stages
+            if hasattr(self.parent_ui, "milling_stages"):
+                milling_stages = self.parent_ui.milling_stages
+            if hasattr(self.parent_ui, "milling_stage_editor"):
+                milling_stages: List[FibsemMillingStage] = self.parent_ui.milling_stage_editor.get_milling_stages()
+            if hasattr(self.parent_ui, "milling_editor_widget"):
+                milling_stages: List[FibsemMillingStage] = self.parent_ui.milling_editor_widget.get_milling_stages()
 
             poi = self.poi_coordinate
             if poi is None:
