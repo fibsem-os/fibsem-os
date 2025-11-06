@@ -1,7 +1,8 @@
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QProgressBar,
@@ -25,13 +26,14 @@ class FibsemMillingWidget2(QWidget):
     This widget provides a button to start the milling task and handles
     the threading and progress updates.
     """
+    start_milling_signal = pyqtSignal()
 
     def __init__(self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget"):
         super().__init__(parent)
         self.microscope = microscope
         self.parent_widget = parent
 
-        self._milling_thread = None
+        self._milling_thread: Optional[threading.Thread] = None
         self._milling_stop_event = threading.Event()
         layout = QGridLayout()
 
@@ -59,13 +61,15 @@ class FibsemMillingWidget2(QWidget):
         )
         self.progressBar_milling.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
 
+        self.start_milling_signal.connect(self.run_milling)
+
         # TODO: milling message display
 
-        layout.addWidget(self.pushButton_run_milling)
-        layout.addWidget(self.pushButton_stop_milling)
-        layout.addWidget(self.pushButton_pause_milling)
-        layout.addWidget(self.progressBar_milling_stages)
-        layout.addWidget(self.progressBar_milling)
+        layout.addWidget(self.pushButton_run_milling, 0, 0, 1, 2)
+        layout.addWidget(self.progressBar_milling_stages, 1, 0, 1, 2)
+        layout.addWidget(self.progressBar_milling, 2, 0, 1, 2)
+        layout.addWidget(self.pushButton_pause_milling, 3, 0)
+        layout.addWidget(self.pushButton_stop_milling, 3, 1)
 
         self.setLayout(layout)
 
@@ -133,14 +137,20 @@ class FibsemMillingWidget2(QWidget):
             self.progressBar_milling_stages.setVisible(False)
 
     def run_milling(self):
-        self._milling_stop_event.clear()  # Reset the stop event before starting a new task
-        self.pushButton_run_milling.setEnabled(
-            False
-        )  # Disable button to prevent multiple clicks
+        """Start the milling task in a separate thread."""
+        # If a milling task is already running, do nothing
+        if self.is_milling:
+            logging.warning("Milling task is already running.")
+            return
+
+        # clear the stop event, disable gui elements
+        self._milling_stop_event.clear()
+        self.pushButton_run_milling.setEnabled(False)
+
         # Start the milling task in a separate thread
         self._milling_thread = threading.Thread(
             target=self._milling_worker,
-            args=(self.microscope, self.parent_widget.get_settings()),
+            args=(self.microscope, self.parent_widget.get_config()),
             daemon=True,
         )
 

@@ -709,12 +709,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             self.image_widget = FibsemImageSettingsWidget(
                 microscope=self.microscope,
                 image_settings=self.settings.image,
-                viewer=self.viewer,
                 parent=self,
             )
             self.movement_widget = FibsemMovementWidget(
                 microscope=self.microscope,
-                viewer=self.viewer,
                 parent=self,
             )
             self.milling_widget = FibsemMillingWidget(
@@ -866,16 +864,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
 #### PROTOCOL EDITOR
     def open_protocol_editor(self):
-        from fibsem.ui.FibsemMillingStageEditorWidget import show_protocol_editor
-
-        self.protocol_viewer = napari.Viewer(title="AutoLamella Protocol Editor")
-        self.protocol_editor_widget = show_protocol_editor(
-            self.protocol_viewer,
-            microscope=self.microscope,
-            experiment=self.experiment,
-            protocol=self.protocol,
-            parent=self,
-        )
+        logging.info("Protocol editor is currently disabled... it will be re-enabled in a future release.")
+        return
 
 #### MINIMAP
 

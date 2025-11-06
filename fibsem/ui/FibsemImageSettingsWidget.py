@@ -12,6 +12,7 @@ from napari.qt.threading import thread_worker
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from scipy.ndimage import median_filter
+from superqt import ensure_main_thread
 
 from fibsem import acquire, constants
 from fibsem import config as cfg
@@ -54,14 +55,17 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self,
         microscope: FibsemMicroscope,
         image_settings: ImageSettings,
-        viewer: napari.Viewer,
-        parent: QtWidgets.QWidget = None,
+        parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
         self.setupUi(self)
+
+        if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
+            raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
+
         self.parent = parent
         self.microscope = microscope
-        self.viewer = viewer
+        self.viewer = parent.viewer
         self.eb_layer: NapariImageLayer = None
         self.ib_layer: NapariImageLayer = None
 
@@ -191,21 +195,16 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         LIVE_ACQUISITION_ENABLED = False
         self.pushButton_start_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
         self.pushButton_stop_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
-        self.image_received.connect(self._update_viewer)
+        self.pushButton_start_acquisition.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_stop_acquisition.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
         self.microscope.sem_acquisition_signal.connect(self._on_acquire)
         self.microscope.fib_acquisition_signal.connect(self._on_acquire)
         self.pushButton_start_acquisition.clicked.connect(self.start_live_acquisition)
         self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
+        # TODO: support real-time parameter updates too
 
-        # TODO: properly support movement while live-acquisition
-
+    @ensure_main_thread
     def _on_acquire(self, image: FibsemImage):
-        """Safely emit the received data to the main thread"""
-        # Emit to our Qt signal (crosses thread boundary safely)
-        self.image_received.emit(image)
-
-    @pyqtSlot(object)
-    def _update_viewer(self, image: FibsemImage):
         """Update the viewer from the main thread"""
         try:
             # Update existing layer
@@ -705,7 +704,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 self.eb_image = image
             if image_settings.beam_type is BeamType.ION:
                 self.ib_image = image
-        
+
         self.acquisition_progress_signal.emit({"finished": True})
 
         logging.debug({"msg": "acquisition_worker", "image_settings": self.image_settings.to_dict()})
@@ -855,17 +854,15 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
     def clear_alignment_area(self):
         """Hide the alignment area layer"""
-        self.alignment_layer.mode = "pan_zoom"
-        self.alignment_layer.visible = False
+        if self.alignment_layer is not None:
+            self.alignment_layer.mode = "pan_zoom"
+            self.alignment_layer.visible = False
         self.restore_active_layer_for_movement()
 
     def toggle_alignment_area(self, reduced_area: FibsemRectangle, editable: bool = True):
         """Toggle the alignment area layer to selection mode, and display the alignment area."""
-        if self.viewer.layers.selection.active == self.eb_layer:
-            self.set_alignment_layer(reduced_area, editable=editable)
-            self.alignment_layer.visible = True
-        else:
-            self.clear_alignment_area()
+        self.set_alignment_layer(reduced_area, editable=editable)
+        self.alignment_layer.visible = True
 
     def set_alignment_layer(self,
                             reduced_area: FibsemRectangle = FibsemRectangle(0.25, 0.25, 0.5, 0.5),

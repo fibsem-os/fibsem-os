@@ -30,6 +30,7 @@ from fibsem.ui.stylesheets import (
     RED_PUSHBUTTON_STYLE,
 )
 from fibsem.ui.utils import (
+    WheelBlocker,
     message_box_ui,
     open_existing_file_dialog,
     open_save_file_dialog,
@@ -43,7 +44,6 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope,
-        viewer: napari.Viewer,
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
@@ -52,9 +52,11 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         if not hasattr(parent, 'image_widget') and not isinstance(parent.image_widget, FibsemImageSettingsWidget):
             raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
+        if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
+            raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.microscope = microscope
-        self.viewer = viewer
+        self.viewer = parent.viewer
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
         self.positions: List[FibsemStagePosition] = []
 
@@ -141,6 +143,19 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.doubleSpinBox_milling_angle.valueChanged.connect(self._update_milling_angle)
         self.pushButton_move_to_milling_angle.clicked.connect(lambda: self.move_to_orientation("MILLING"))
 
+        # set degree symbols for rotation and tilt
+        self.doubleSpinBox_movement_stage_rotation.setSuffix(constants.DEGREE_SYMBOL)
+        self.doubleSpinBox_movement_stage_tilt.setSuffix(constants.DEGREE_SYMBOL)
+
+        # Install wheel blocker on all double spin boxes
+        self.wheel_blocker = WheelBlocker()
+        self.doubleSpinBox_movement_stage_x.installEventFilter(self.wheel_blocker)
+        self.doubleSpinBox_movement_stage_y.installEventFilter(self.wheel_blocker)
+        self.doubleSpinBox_movement_stage_z.installEventFilter(self.wheel_blocker)
+        self.doubleSpinBox_movement_stage_rotation.installEventFilter(self.wheel_blocker)
+        self.doubleSpinBox_movement_stage_tilt.installEventFilter(self.wheel_blocker)
+        self.doubleSpinBox_milling_angle.installEventFilter(self.wheel_blocker)
+
         self.update_ui()
 
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
@@ -152,7 +167,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.doubleSpinBox_milling_angle.setEnabled(enable)
         self.pushButton_go_to.setEnabled(enable)
         if caller is None:
-            self.parent.milling_widget._toggle_interactions(enable, caller="movement")
+            # self.parent.milling_widget._toggle_interactions(enable, caller="movement")
             self.parent.image_widget._toggle_interactions(enable, caller="movement")
         if enable:
             self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
@@ -212,7 +227,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
     def update_ui_after_movement(self, retake: bool = True): # TODO: PPP Refactor
         # disable taking images after movement here
-        if retake is False:
+        if (retake is False or self.microscope.is_acquiring):
             self.update_ui()
             return
         if self.checkBox_movement_acquire_electron.isChecked() and self.checkBox_movement_acquire_ion.isChecked():

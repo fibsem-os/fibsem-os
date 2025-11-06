@@ -1,21 +1,104 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QHBoxLayout,
-    QListWidget,
-    QListWidgetItem,
-    QSplitter,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 from superqt import QIconifyIcon
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.ui.stylesheets import GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE
 from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 
 
 # TODO: be able to sync the position of different tasks
+
+
+class TaskNameDialog(QDialog):
+    """Dialog for entering a task name with duplicate validation."""
+
+    def __init__(self, existing_names: Set[str], parent: Optional[QWidget] = None):
+        """Initialize the task name dialog.
+
+        Args:
+            existing_names: Set of existing task names to check for duplicates
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self.existing_names = existing_names
+        self.setWindowTitle("Add New Task")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """Create and configure UI elements."""
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # Form layout for input
+        form_layout = QFormLayout()
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Enter task name...")
+        self.name_input.textChanged.connect(self._validate_name)
+        form_layout.addRow("Task Name:", self.name_input)
+        layout.addLayout(form_layout)
+
+        # Warning label
+        self.warning_label = QLabel("")
+        self.warning_label.setStyleSheet("color: red;")
+        self.warning_label.setVisible(False)
+        layout.addWidget(self.warning_label)
+
+        # Dialog buttons
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        # Initially disable OK button
+        self.button_box.button(QDialogButtonBox.Ok).setEnabled(False)
+
+    def _validate_name(self, text: str):
+        """Validate the task name and update UI accordingly.
+
+        Args:
+            text: Current text in the input field
+        """
+        ok_button = self.button_box.button(QDialogButtonBox.Ok)
+
+        if not text:
+            # Empty name
+            ok_button.setEnabled(False)
+            self.warning_label.setVisible(False)
+        elif text in self.existing_names:
+            # Duplicate name
+            ok_button.setEnabled(False)
+            self.warning_label.setText(f"Task name '{text}' already exists")
+            self.warning_label.setVisible(True)
+        else:
+            # Valid name
+            ok_button.setEnabled(True)
+            self.warning_label.setVisible(False)
+
+    def get_task_name(self) -> str:
+        """Get the entered task name.
+
+        Returns:
+            The task name entered by the user
+        """
+        return self.name_input.text().strip()
 
 class FibsemMillingTaskWidget(QWidget):
     """Widget for selecting and configuring milling tasks.
@@ -25,6 +108,8 @@ class FibsemMillingTaskWidget(QWidget):
     """
 
     task_config_updated = pyqtSignal(str, FibsemMillingTaskConfig)  # task_name, config
+    task_config_removed = pyqtSignal(str)  # task_name
+    task_configs_changed = pyqtSignal(dict)  # all task configs
     task_selection_changed = pyqtSignal(str)  # task_name
 
     def __init__(
@@ -32,6 +117,7 @@ class FibsemMillingTaskWidget(QWidget):
         microscope: FibsemMicroscope,
         task_configs: Optional[Dict[str, FibsemMillingTaskConfig]] = None,
         milling_enabled: bool = True,
+        correlation_enabled: bool = True,
         parent: Optional[QWidget] = None,
     ):
         """Initialize the milling task widget.
@@ -43,10 +129,11 @@ class FibsemMillingTaskWidget(QWidget):
             parent: Parent widget
         """
         super().__init__(parent)
+        self.parent_widget = parent
         self.microscope = microscope
         self._task_configs = task_configs or {}
         self._milling_enabled = milling_enabled
-        self._current_task_name: Optional[str] = None
+        self._correlation_enabled = correlation_enabled
 
         self._setup_ui()
         self._connect_signals()
@@ -55,61 +142,73 @@ class FibsemMillingTaskWidget(QWidget):
         if self._task_configs:
             self._populate_task_list()
 
+    @property
+    def _current_task_name(self) -> Optional[str]:
+        return self.task_list.currentText()
+
     def _setup_ui(self):
         """Create and configure all UI elements."""
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
         self.setLayout(layout)
 
-        # Create splitter for resizable panes
-        self.splitter = QSplitter()
-        layout.addWidget(self.splitter)
+        # Task selection with label and buttons
+        grid_layout = QGridLayout()
+        self.task_label = QLabel("Milling Task")
+        self.task_list = QComboBox()
+        self.btn_add_task = QPushButton("+")
+        self.btn_add_task.setMaximumWidth(30)
+        self.btn_add_task.setToolTip("Add new task")
+        self.btn_add_task.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.btn_remove_task = QPushButton("-")
+        self.btn_remove_task.setMaximumWidth(30)
+        self.btn_remove_task.setToolTip("Remove selected task")
+        self.btn_remove_task.setStyleSheet(RED_PUSHBUTTON_STYLE)
 
-        # Left pane: Task list
-        self.task_list = QListWidget()
-        self.task_list.setMaximumWidth(200)
-        self.task_list.setMinimumWidth(100)
-        self.splitter.addWidget(self.task_list)
+        grid_layout.addWidget(self.task_label, 0, 0)
+        grid_layout.addWidget(self.task_list, 0, 1)
+        grid_layout.addWidget(self.btn_add_task, 0, 2)
+        grid_layout.addWidget(self.btn_remove_task, 0, 3)
+        layout.addLayout(grid_layout)
 
-        # Right pane: Task configuration widget
+        # Task configuration widget
         self.config_widget = MillingTaskConfigWidget(
             microscope=self.microscope,
             milling_enabled=self._milling_enabled,
+            correlation_enabled=self._correlation_enabled,
             parent=self,
         )
-        self.splitter.addWidget(self.config_widget)
-
-        # Set splitter proportions (1:3 ratio)
-        self.splitter.setSizes([200, 600])
+        layout.addWidget(self.config_widget)
 
     def _connect_signals(self):
         """Connect widget signals to their handlers."""
-        self.task_list.currentItemChanged.connect(self._on_task_selection_changed)
+        self.task_list.currentIndexChanged.connect(self._on_task_selection_changed)
         self.config_widget.settings_changed.connect(self._on_config_changed)
+        self.btn_add_task.clicked.connect(self._on_add_task)
+        self.btn_remove_task.clicked.connect(self._on_remove_task)
 
     def _populate_task_list(self):
         """Populate the task list with available task configurations."""
         self.task_list.clear()
         for task_name in self._task_configs.keys():
-            item = QListWidgetItem(task_name)
-            self.task_list.addItem(item)
-            
+            self.task_list.addItem(task_name)
+
         # Select the first task if available
         if self.task_list.count() > 0:
-            self.task_list.setCurrentRow(0)
+            self.task_list.setCurrentIndex(0)
 
-        # if only one task, hide the task_list
-        self.task_list.setVisible(self.task_list.count() > 1)
+        # Show task selection controls only if there are tasks
+        visible = self.task_list.count() > 0
+        self.task_label.setVisible(visible)
+        self.task_list.setVisible(visible)
+        self.btn_add_task.setVisible(True)
+        self.btn_remove_task.setVisible(self.task_list.count() > 1)  # need at least one task to remove
 
-    def _on_task_selection_changed(
-        self, current: QListWidgetItem, _previous: QListWidgetItem
-    ):
+    def _on_task_selection_changed(self, index: int):
         """Handle task selection changes."""
-        if current is None:
-            self._current_task_name = None
+        if index < 0:
             return
 
-        task_name = current.text()
-        self._current_task_name = task_name
+        task_name = self.task_list.currentText()
 
         # Load the selected task configuration
         if task_name in self._task_configs:
@@ -117,25 +216,54 @@ class FibsemMillingTaskWidget(QWidget):
             self._update_background_milling_stages()
 
             # update config widget with selected task settings
-            self.config_widget.update_from_settings(self._task_configs[task_name])
+            self.config_widget.set_config(self._task_configs[task_name])
             # NOTE: selection seems to cause a double draw in stage editor widget
 
     def _on_config_changed(self, config: FibsemMillingTaskConfig):
         """Handle configuration changes in the sub-widget."""
-        print(f"_on_config_changed called: current_task='{self._current_task_name}', config={config is not None}")
-        if self._current_task_name:
+
+        current_task_name = self._current_task_name
+
+        if current_task_name:
             # Update the stored configuration
-            self._task_configs[self._current_task_name] = config
-            self.task_config_updated.emit(self._current_task_name, config)
-            print(f"Task '{self._current_task_name}' configuration updated and signal emitted.")
-        else:
-            # When no current task is selected, emit update for all task configs
-            # This handles the case where the lamella editor passes all configs
-            print("No current task selected, emitting updates for all tasks")
-            for task_name in self._task_configs.keys():
-                self.task_config_updated.emit(task_name, config)
-                print(f"Emitted update for task '{task_name}'")
-                break  # Only emit once since all tasks share the same config in this case
+            self._task_configs[current_task_name] = config
+            self.task_config_updated.emit(current_task_name, config)
+
+        print(f"Task Config changed: {self._current_task_name} {config.name}, {len(config.stages)} stages")
+        self.task_configs_changed.emit(self._task_configs)
+
+    def _on_add_task(self):
+        """Handle adding a new task."""
+        # Show custom dialog to get task name
+        dialog = TaskNameDialog(existing_names=set(self._task_configs.keys()), parent=self)
+
+        if dialog.exec_() == QDialog.Accepted:
+            task_name = dialog.get_task_name()
+
+            if task_name:
+                # Create a new default task configuration
+                new_config = FibsemMillingTaskConfig(name=task_name)
+                self.add_task_config(task_name, new_config)
+
+                # Select the newly added task
+                self.select_task(task_name)
+
+    def _on_remove_task(self):
+        """Handle removing the selected task."""
+        if not self._current_task_name:
+            return
+
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            "Confirm Removal",
+            f"Are you sure you want to remove the task '{self._current_task_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            self.remove_task_config(self._current_task_name)
 
     def set_task_configs(self, task_configs: Dict[str, FibsemMillingTaskConfig]):
         """Set the available task configurations.
@@ -145,10 +273,6 @@ class FibsemMillingTaskWidget(QWidget):
         """
         self._task_configs = task_configs.copy()
         self._populate_task_list()
-
-        # Clear current selection
-        self.task_list.clearSelection()
-        self._current_task_name = None
 
     def get_task_configs(self) -> Dict[str, FibsemMillingTaskConfig]:
         """Get all task configurations.
@@ -186,11 +310,9 @@ class FibsemMillingTaskWidget(QWidget):
             return
 
         # Find and select the item
-        for i in range(self.task_list.count()):
-            item = self.task_list.item(i)
-            if item and item.text() == task_name:
-                self.task_list.setCurrentItem(item)
-                break
+        index = self.task_list.findText(task_name)
+        if index >= 0:
+            self.task_list.setCurrentIndex(index)
 
     def add_task_config(self, task_name: str, config: FibsemMillingTaskConfig):
         """Add a new task configuration.
@@ -212,10 +334,8 @@ class FibsemMillingTaskWidget(QWidget):
             del self._task_configs[task_name]
             self._populate_task_list()
 
-            # Clear selection if the removed task was selected
-            if self._current_task_name == task_name:
-                self.task_list.clearSelection()
-                self._current_task_name = None
+            # emit signal that task selection changed
+            self.task_configs_changed.emit(self._task_configs)
 
     def update_task_config(self, task_name: str, config: FibsemMillingTaskConfig):
         """Update an existing task configuration.
@@ -259,6 +379,13 @@ class FibsemMillingTaskWidget(QWidget):
 
         self.config_widget.set_background_milling_stages(background_stages)
 
+    def set_movement_lock(self, locked: bool):
+        """Set whether movement is locked in the milling stage editor.
+
+        Args:
+            locked: True to lock movement, False to unlock
+        """
+        self.config_widget.milling_editor_widget.set_movement_lock(locked)
 
 if __name__ == "__main__":
     import os
@@ -306,17 +433,20 @@ if __name__ == "__main__":
         stages=protocol.milling["mill_polishing"], name="Polishing"  # type: ignore
     )
     # task_configs["stress-relief"] = FibsemMillingTaskConfig.from_stages(
-    #     stages=exp.positions[1].milling_workflows["microexpansion"],  # type: ignore
+        # stages=protocol.milling["microexpansion"],  # type: ignore
     # )
+    task_configs["mill_rough"].stages.extend(protocol.milling["microexpansion"])  # type: ignore
 
     task_widget = FibsemMillingTaskWidget(
-        microscope=microscope, task_configs=task_configs, milling_enabled=True
+        microscope=microscope,
+        task_configs=task_configs,
+        milling_enabled=False
     )
     layout.addWidget(task_widget)
 
     # Connect to settings change signal
-    def on_task_config_changed(task_config: FibsemMillingTaskConfig):
-        print(f"Task Config changed: {utils.current_timestamp_v3(timeonly=False)}")
+    def on_task_config_changed(task_name: str, task_config: FibsemMillingTaskConfig):
+        print(f"Task Config changed: {task_name} {utils.current_timestamp_v3(timeonly=False)}")
         print(f"  name: {task_config.name}")
         print(f"  field_of_view: {task_config.field_of_view}")
         print(f"  alignment: {task_config.alignment}")
@@ -329,7 +459,7 @@ if __name__ == "__main__":
             print(f"    Strategy: {stage.strategy.config}")
             print("---------------------" * 3)
 
-    # config_widget.settings_changed.connect(on_task_config_changed)
+    task_widget.task_config_updated.connect(on_task_config_changed)
     main_widget.setWindowTitle("MillingTaskConfig Widget Test")
 
     viewer.window.add_dock_widget(main_widget, add_vertical_stretch=False, area="right")

@@ -1,4 +1,6 @@
 import copy
+import logging
+import os
 from typing import Optional
 
 import napari
@@ -8,15 +10,20 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 from superqt import QCollapsible, QIconifyIcon
 
-from fibsem import utils, constants
+from fibsem import constants, utils
+from fibsem.correlation.app import CorrelationUI
 from fibsem.microscope import FibsemMicroscope
+from fibsem.milling.patterning.patterns2 import FiducialPattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.structures import FibsemImage, Point
+from fibsem.ui import stylesheets
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stage_editor_widget import FibsemMillingStageEditorWidget
 from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
@@ -54,6 +61,7 @@ class MillingTaskConfigWidget(QWidget):
     def __init__(self, microscope: FibsemMicroscope, 
                  milling_task_config: Optional[FibsemMillingTaskConfig] = None,
                  milling_enabled: bool = True,
+                correlation_enabled: bool = True,
                  parent: Optional[QWidget] = None):
         """Initialize the MillingTaskConfig widget.
 
@@ -65,7 +73,9 @@ class MillingTaskConfigWidget(QWidget):
         self.microscope = microscope
         self._show_advanced = False
         self._milling_enabled = milling_enabled
+        self._correlation_enabled = correlation_enabled
         self._settings = milling_task_config or FibsemMillingTaskConfig()
+        self.parent_widget = parent
         self._setup_ui()
         self.update_from_settings(self._settings)
         self._connect_signals()
@@ -81,6 +91,8 @@ class MillingTaskConfigWidget(QWidget):
         self.setLayout(main_layout)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        # dont allow horizontal scrolling
+        scroll_area.setHorizontalScrollBarPolicy(1)  # Qt.ScrollBarAlwaysOff
         main_layout.addWidget(scroll_area)
         
         # Create content widget that will be scrolled
@@ -98,7 +110,6 @@ class MillingTaskConfigWidget(QWidget):
         # Basic settings group
         self.basic_content = QWidget()
         basic_layout = QGridLayout()
-        basic_layout.setContentsMargins(0, 0, 0, 0)
         self.basic_content.setLayout(basic_layout)
 
         # Task name
@@ -122,10 +133,6 @@ class MillingTaskConfigWidget(QWidget):
         self.field_of_view_spinbox.setKeyboardTracking(fov_config["keyboard_tracking"])
         basic_layout.addWidget(self.field_of_view_spinbox, 1, 1)
 
-        self.task_group = QCollapsible("Milling Task", self)
-        self.task_group.addWidget(self.basic_content)
-        self.basic_content.setContentsMargins(0, 0, 0, 0)
-        self.task_group.setContentsMargins(0, 0, 0, 0)
 
         ############
 
@@ -159,10 +166,17 @@ class MillingTaskConfigWidget(QWidget):
         self.miling_group.addWidget(self.milling_editor_widget)
         self.miling_group.setContentsMargins(0, 0, 0, 0)
 
-        layout.addWidget(self.task_group)           # type: ignore
+        layout.addWidget(self.basic_content)           # type: ignore
         layout.addWidget(self.alignment_group)      # type: ignore
         layout.addWidget(self.acquisition_group)    # type: ignore
         layout.addWidget(self.miling_group)         # type: ignore
+
+        self.pushButton_open_correlation = QPushButton("Open Correlation")
+        self.pushButton_open_correlation.setToolTip("Open the correlation tool to align the FIB and FM images.")
+        self.pushButton_open_correlation.clicked.connect(self.open_3d_correlation_widget)
+        self.pushButton_open_correlation.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.enable_correlation_button(self._correlation_enabled)
+        layout.addWidget(self.pushButton_open_correlation)
 
         # NOTES: shouldn't know anything about viewer, or microscope
         # only need microscope to get 'dynamic' values such as milling current
@@ -191,6 +205,19 @@ class MillingTaskConfigWidget(QWidget):
         self.acquisition_widget.settings_changed.connect(self._emit_settings_changed)
         self.milling_editor_widget._milling_stages_updated.connect(self._emit_settings_changed)
 
+        if (self.parent_widget is not None
+            and hasattr(self.parent_widget, "image_widget")
+            and self.parent_widget.image_widget is not None):
+            self.parent_widget.image_widget.viewer_update_signal.connect(self._on_viewer_image_updated) 
+
+    def _on_viewer_image_updated(self):
+        try:
+            fib_image = self.parent_widget.image_widget.ib_image
+            self.milling_editor_widget.set_image(fib_image)
+            self.milling_editor_widget.update_milling_stage_display()
+        except Exception as e:
+            logging.error(f"An error occured when updating the image from the viewer: {e}")
+
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings.
 
@@ -199,6 +226,14 @@ class MillingTaskConfigWidget(QWidget):
         """
         settings = self.get_settings()
         self.settings_changed.emit(settings)
+
+    def get_config(self) -> FibsemMillingTaskConfig:
+        """Alias for get_settings to match naming conventions."""
+        return self.get_settings()
+    
+    def set_config(self, config: FibsemMillingTaskConfig):
+        """Alias for update_from_settings to match naming conventions."""
+        self.update_from_settings(config)
 
     def get_settings(self) -> FibsemMillingTaskConfig:
         """Get the current FibsemMillingTaskConfig from the widget values.
@@ -212,7 +247,7 @@ class MillingTaskConfigWidget(QWidget):
         self._settings.acquisition = self.acquisition_widget.get_settings()
         self._settings.stages = self.milling_editor_widget.get_milling_stages()
 
-        return self._settings
+        return copy.deepcopy(self._settings)
 
     def update_from_settings(self, settings: FibsemMillingTaskConfig):
         """Update all widget values from a FibsemMillingTaskConfig object.
@@ -224,6 +259,8 @@ class MillingTaskConfigWidget(QWidget):
         # Block signals to prevent recursive updates
         self.blockSignals(True)
 
+        self._settings = copy.deepcopy(settings)
+
         self.name_edit.setText(settings.name)
         self.field_of_view_spinbox.setValue(settings.field_of_view * constants.SI_TO_MICRO)
         # Update sub-widgets
@@ -231,8 +268,13 @@ class MillingTaskConfigWidget(QWidget):
         self.acquisition_widget.update_from_settings(settings.acquisition)
         self.milling_editor_widget.update_from_settings(settings.stages)
 
-        self._settings = copy.deepcopy(settings)
+        self.milling_editor_widget.update_milling_stage_display()
         self.blockSignals(False)
+
+    def clear(self):
+        """Reset all widget values to their defaults."""
+        default_settings = FibsemMillingTaskConfig()
+        self.update_from_settings(default_settings)
 
     def set_show_advanced(self, show_advanced: bool):
         """Set the visibility of advanced settings in sub-widgets.
@@ -267,10 +309,102 @@ class MillingTaskConfigWidget(QWidget):
         Args:
             background_stages: List of FibsemMillingStage objects to show as background
         """
-        print(f"Setting background milling stages: {[bs.name for bs in background_stages]}")
         self.milling_editor_widget.set_background_milling_stages(background_stages)
 
+    def enable_correlation_button(self, enable: bool):
+        """Enable or disable the correlation button.
 
+        Args:
+            enable: True to enable the button, False to disable it
+        """
+        self.pushButton_open_correlation.setEnabled(enable)
+        self.pushButton_open_correlation.setVisible(enable)
+
+    def open_3d_correlation_widget(self):
+        """Open the correlation widget, connect relevant signals."""
+
+        # attempt to close the windows
+        try:
+            if self.correlation_widget is not None:
+                self.correlation_widget.close()
+                self.correlation_widget = None
+        except Exception as e:
+            logging.warning(f"Error closing correlation widget: {e}")
+    
+        self.viewer = self.milling_editor_widget.viewer
+
+        # snapshot existing layers
+        self.existing_layers = [layer.name for layer in self.viewer.layers]
+        for layer_name in self.existing_layers:
+            self.viewer.layers[layer_name].visible = False
+
+        self.correlation_widget = CorrelationUI(viewer=self.viewer, parent_ui=self)
+        self.correlation_widget.continue_pressed_signal.connect(self.handle_correlation_continue_signal)
+        from scipy.ndimage import median_filter
+
+        # load fib image, if available
+        if (self.parent_widget is not None
+            and hasattr(self.parent_widget, "image_widget")
+            and self.parent_widget.image_widget is not None):
+            fib_image: FibsemImage = self.parent_widget.image_widget.ib_image
+        else:
+            fib_image: FibsemImage = self.milling_editor_widget.image
+
+        if fib_image is not None and fib_image.metadata is not None:
+            md = fib_image.metadata.image_settings
+            try:
+                filename = os.path.join(md.path, md.filename)
+                project_path = str(md.path)
+            except Exception as e:
+                logging.warning(f"Error getting fib image filename: {e}")
+                filename = "FIB Image"
+                project_path = ""
+            self.correlation_widget.set_project_path(project_path)
+            self.correlation_widget.load_fib_image(image=median_filter(fib_image.data, size=3),
+                                                    pixel_size=fib_image.metadata.pixel_size.x,
+                                                    filename=filename)
+        # create a button to run correlation
+        self.viewer.window.add_dock_widget(
+            self.correlation_widget,
+            area="right",
+            name="3DCT Correlation",
+            tabify=True
+        )
+
+    def handle_correlation_continue_signal(self, data: dict):
+        """Handle the correlation signal from the correlation widget."""
+
+        logging.info(f"correlation-data: {data}")
+
+        poi = data.get("poi", None)
+        if poi is None:
+            self._close_correlation_widget()
+            return
+        point = Point(x=poi[0], y=poi[1])
+
+        milling_config = self.get_config()
+        for milling_stage in milling_config.stages:
+            # don't move fiducial patterns
+            if isinstance(milling_stage.pattern, FiducialPattern):
+                continue
+            milling_stage.pattern.point = point
+        logging.debug(f"Moved patterns to {point}")
+
+        self.set_config(milling_config)
+        self._emit_settings_changed()
+
+        self._close_correlation_widget()
+
+    def _close_correlation_widget(self):
+        """Close the correlation widget and clean up."""
+        # restore layers visibility
+        for layer_name in self.existing_layers:
+            self.viewer.layers[layer_name].visible = True
+
+        # remove tab widget, delete object
+        self.viewer.window.remove_dock_widget(self.correlation_widget)
+        self.correlation_widget = None
+        self.existing_layers = []
 
 if __name__ == "__main__":
 
@@ -280,7 +414,10 @@ if __name__ == "__main__":
     import napari
     from PyQt5.QtWidgets import QTabWidget, QWidget
 
-    from fibsem.applications.autolamella.structures import AutoLamellaProtocol, Experiment
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaProtocol,
+        Experiment,
+    )
 
     viewer = napari.Viewer()
     main_widget = QTabWidget()
@@ -303,7 +440,7 @@ if __name__ == "__main__":
     protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
 
     milling_task_config = FibsemMillingTaskConfig.from_stages(
-        stages=exp.positions[0].milling_workflows["mill_rough"],  # type: ignore
+        stages=protocol.milling["mill_rough"],  # type: ignore
     )
 
     # Create the MillingTaskConfig widget

@@ -587,7 +587,7 @@ class Lamella:
 
             protocol = deepcopy(nprotocol)
 
-        from fibsem.applications.autolamella.workflows.tasks import load_task_config
+        from fibsem.applications.autolamella.workflows.tasks.tasks import load_task_config
 
         return cls(
             petname=data["petname"],

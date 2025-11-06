@@ -59,17 +59,8 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
             """Drag the detected feature positions to move them. Press Continue when finished."""
         )
 
-    def confirm_button_clicked(self):
-        """Confirm the detected features, save the data and and remove the layers from the viewer."""
-        
-        # update the mask as the user may edit it
-        self.det.mask = self.mask_layer.data.astype(np.uint8) # type: ignore
-        
-        # log the difference between initial and final detections
-        # TODO: move this to outside the widget, into the same place as the non-supervised logging.
-        det_utils.save_ml_feature_data(det=self.det, 
-                                       initial_features=self._intial_det.features)
-            
+    def clear_layers(self):
+        """Remove the layers added by the detection widget and reshow all other layers."""
         # remove feature detection layers
         if self.image_layer is not None:
             if self.image_layer in self.viewer.layers:
@@ -87,8 +78,20 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
             if layer.name in excluded_layers:
                 continue
             layer.visible = True
+
+    def confirm_button_clicked(self):
+        """Confirm the detected features, save the data and and remove the layers from the viewer."""
+
+        # update the mask as the user may edit it
+        self.det.mask = self.mask_layer.data.astype(np.uint8) # type: ignore
         
-        # reset camera
+        # log the difference between initial and final detections
+        # TODO: move this to outside the widget, into the same place as the non-supervised logging.
+        det_utils.save_ml_feature_data(det=self.det, 
+                                       initial_features=self._intial_det.features)
+
+        # reset layers and camera
+        self.clear_layers()
         self.viewer.reset_view()
 
     def set_detected_features(self, det_features: DetectedFeatures):
@@ -105,8 +108,11 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
         for layer in self.viewer.layers:
             layer.visible = False
 
-        self.image_layer = self.viewer.add_image(
-            self.det.image, name="image", opacity=0.7, blending="additive",
+        self.image_layer = self.viewer.add_image( # type: ignore
+            self.det.image,
+            name="image",
+            opacity=0.7,
+            blending="additive",
         )
 
         # add mask to viewer
@@ -157,12 +163,7 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
         self.update_info()
             
         # set camera
-        self.viewer.camera.center = [
-            0.0,
-            self.image_layer.data.shape[0] / 2,
-            self.image_layer.data.shape[1] / 2,
-        ]
-        self.viewer.camera.zoom = 0.7
+        self.viewer.reset_view()
 
         if self.det.checkpoint:
             self.label_model.setText(f"Checkpont: {os.path.basename(self.det.checkpoint)}")

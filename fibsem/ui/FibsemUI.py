@@ -98,12 +98,10 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.image_widget = FibsemImageSettingsWidget(
                 microscope=self.microscope,
                 image_settings=self.settings.image,
-                viewer=self.viewer,
                 parent=self,
             )
             self.movement_widget = FibsemMovementWidget(
                 microscope=self.microscope,
-                viewer=self.viewer,
                 parent=self,
             )
             self.milling_widget = FibsemMillingWidget(

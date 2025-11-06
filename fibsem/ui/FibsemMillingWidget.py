@@ -13,7 +13,7 @@ import numpy as np
 from napari.layers import Layer
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import QEvent, QObject, Qt
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QListWidgetItem
 from scipy.ndimage import median_filter
 
@@ -60,23 +60,12 @@ from fibsem.ui.napari.patterns import (
     remove_all_napari_shapes_layers,
 )
 from fibsem.ui.qtdesigner_files import FibsemMillingWidget as FibsemMillingWidgetUI
+from fibsem.ui.utils import WheelBlocker
 from fibsem.utils import format_duration, format_value
+from fibsem.correlation.app import CorrelationUI
 
 # 3D Correlation Widget
-CORRELATION_THREEDCT_AVAILABLE = False
-try:
-    from fibsem.correlation.app import CorrelationUI
-    logging.info("CorrelationUI imported from fibsem.correlation")
-    CORRELATION_THREEDCT_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"Could not import CorrelationUI from fibsem.correlation: {e}. Trying tdct...")
-    try:
-        from tdct.app import CorrelationUI
-        logging.info("CorrelationUI imported from tdct")
-        CORRELATION_THREEDCT_AVAILABLE = True
-    except ImportError as e:
-        logging.debug(f"Could not import CorrelationUI from tdct.app: {e}. CorrelationUI will not be available.")
-        CorrelationUI = None
+CORRELATION_THREEDCT_AVAILABLE = True
 
 UNSCALED_VALUES = [
     "rotation",
@@ -108,17 +97,9 @@ Press Run Milling to Start Milling"""
 
 def scale_value_for_display(key: str, value: Union[float, int], scale: float) -> Union[float, int]:
     if key not in UNSCALED_VALUES:
-        return value * scale    
+        return value * scale
     return value
 
-
-class WheelBlocker(QObject):
-    """Event filter that blocks wheel events"""
-    
-    def eventFilter(self, watched, event):
-        if event.type() == QEvent.Wheel:
-            return True  # Block the wheel event
-        return super().eventFilter(watched, event)
 
 class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
     milling_position_changed = QtCore.pyqtSignal()
@@ -472,6 +453,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
 
             # default None
             val = getattr(strategy.config, key, None)
+            control_widget: Optional[QtWidgets.QWidget] = None
 
             if isinstance(val, bool):
                 control_widget = QtWidgets.QCheckBox()
@@ -502,6 +484,9 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
                 logging.error("'%s' of %s cannot be displayed by UI", key, strategy.name)
                 continue
 
+            if control_widget is None:
+                logging.warning(f"Could not create control widget for {key} with value {val}.")
+                continue
             # TODO: add support for scaling, str, bool, etc.
             # TODO: attached events
 

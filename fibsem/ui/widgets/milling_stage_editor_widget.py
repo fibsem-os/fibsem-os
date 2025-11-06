@@ -1,8 +1,9 @@
 import copy
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+import numpy as np
 import napari
 import napari.utils.notifications
 from napari.layers import Image as NapariImageLayer
@@ -58,6 +59,9 @@ from fibsem.ui.napari.patterns import (
 )
 from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.utils import format_value
+
+if TYPE_CHECKING:
+    from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 
 MILLING_SETTINGS_GUI_CONFIG = {
     "patterning_mode": {
@@ -244,8 +248,9 @@ MILLING_STRATEGY_GUI_CONFIG = {
         "label": "Resolution",
         "type": List[int],
         "items": cfg.STANDARD_RESOLUTIONS_LIST,
-        "tooltip": "The imaging resolution for the milling strategy.",}
-    }
+        "tooltip": "The imaging resolution for the milling strategy.",
+    },
+}
 
 MILLING_ALIGNMENT_GUI_CONFIG = {
     "enabled": {
@@ -727,6 +732,7 @@ class FibsemMillingStageWidget(QWidget):
             value = getattr(point, attr) * scale
             control.setValue(value)
 
+
 class FibsemMillingStageEditorWidget(QWidget):
     _milling_stages_updated = pyqtSignal(list)
     """A widget to edit the milling stage settings."""
@@ -735,7 +741,7 @@ class FibsemMillingStageEditorWidget(QWidget):
                  viewer: napari.Viewer,
                  microscope: FibsemMicroscope,
                  milling_stages: List[FibsemMillingStage],
-                 parent=None):
+                 parent: Optional['MillingTaskConfigWidget']=None):
         super().__init__(parent)
 
         self.microscope = microscope
@@ -743,13 +749,25 @@ class FibsemMillingStageEditorWidget(QWidget):
         self._background_milling_stages: List[FibsemMillingStage] = []
         self.is_updating_pattern = False
         self._show_advanced: bool = False
+        self.is_movement_locked: bool = False
 
         self.viewer = viewer
-        self.image: FibsemImage = FibsemImage.generate_blank_image(hfw=80e-6, random=True)
-        if self.viewer is not None:
-            self.image_layer: NapariImageLayer = self.viewer.add_image(data=self.image.data, name="FIB Image") # type: ignore
-        else:
-            self.image_layer = None
+
+        self.parent_widget = parent
+        self.image = None
+        self.image_layer = None
+        if self.parent_widget is not None:
+            if self.parent_widget.parent() is not None:
+                super_parent = self.parent_widget.parent()
+                if hasattr(super_parent, "image_widget"):
+                    self.image = super_parent.image_widget.ib_image
+                    self.image_layer = super_parent.image_widget.ib_layer
+        if self.image is None:
+            self.image: FibsemImage = FibsemImage.generate_blank_image(hfw=80e-6, random=True)
+            if self.viewer is not None:
+                self.image_layer: NapariImageLayer = self.viewer.add_image(data=self.image.data, name="FIB Image") # type: ignore
+            else:
+                self.image_layer = None
         self._widgets: List[FibsemMillingStageWidget] = []
 
         # add widget for scroll content
@@ -791,7 +809,14 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.checkBox_show_milling_patterns.setVisible(False)
         self.checkBox_show_milling_crosshair.setVisible(False)
 
-        # # callbacks for checkboxes
+        self.checkbox_show_advanced = QCheckBox("Show Advanced Settings", self)
+        self.checkbox_show_advanced.setChecked(self._show_advanced)
+        self.checkbox_show_advanced.setToolTip("Show advanced settings for milling stages.")
+        self.checkbox_show_advanced.stateChanged.connect(self.set_show_advanced)
+        self.label_warning = QLabel(self)
+        self.label_warning.setText("")
+        self.label_warning.setStyleSheet("color: orange; font-style: italic;")
+        # callbacks for checkboxes
         # self.checkBox_show_milling_crosshair.stateChanged.connect(self.update_milling_stage_display)
         # self.checkBox_show_milling_patterns.stateChanged.connect(self._toggle_pattern_visibility)
 
@@ -799,6 +824,8 @@ class FibsemMillingStageEditorWidget(QWidget):
         self._grid_layout_checkboxes = QGridLayout()
         self._grid_layout_checkboxes.addWidget(self.checkBox_show_milling_patterns, 0, 0, 1, 1)
         self._grid_layout_checkboxes.addWidget(self.checkBox_show_milling_crosshair, 0, 1, 1, 1)
+        self._grid_layout_checkboxes.addWidget(self.checkbox_show_advanced, 1, 1, 1, 1)
+        self._grid_layout_checkboxes.addWidget(self.label_warning, 2, 0, 1, 2)
 
         # add widgets to main widget/layout
         self.main_layout = QVBoxLayout(self)
@@ -824,6 +851,9 @@ class FibsemMillingStageEditorWidget(QWidget):
             self.list_widget_milling_stages.setCurrentRow(0)
 
         self.set_show_advanced(self._show_advanced)
+
+    def set_movement_lock(self, locked: bool):
+        self.is_movement_locked = locked
 
     def set_show_advanced(self, show_advanced: bool):
         self._show_advanced = show_advanced
@@ -940,7 +970,7 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         self._add_milling_stage_widget(milling_stage)
 
-        self.list_widget_milling_stages.setCurrentRow(self.list_widget_milling_stages.count()-1)
+        self.list_widget_milling_stages.setCurrentRow(self.list_widget_milling_stages.count() - 1)
         self._on_milling_stage_updated()
 
     def _add_milling_stage_widget(self, milling_stage: FibsemMillingStage):
@@ -1021,15 +1051,18 @@ class FibsemMillingStageEditorWidget(QWidget):
             self.milling_pattern_layers = []
             return
 
-        logging.info(f"Selected milling stages: {[stage.name for stage in milling_stages]}")
-        logging.info(f"Background milling stages: {[stage.name for stage in self._background_milling_stages]}")
-
         if self.image is None:
             image = FibsemImage.generate_blank_image(hfw=milling_stages[0].milling.hfw)
             self.set_image(image)
 
         if self.image.metadata is None:
             raise ValueError("Image metadata is not set. Cannot update milling stage display.")
+
+        self._validate_image_field_of_view()
+
+        # logging.info(f"Selected milling stages: {[stage.name for stage in milling_stages]}")
+        # logging.info(f"Background milling stages: {[stage.name for stage in self._background_milling_stages]}")
+        # logging.info(f"Updating milling stage display with image HFW: {self.image.metadata.image_settings.hfw*1e6} um and pixel size: {self.image.metadata.pixel_size.x} m")
 
         self.milling_pattern_layers = draw_milling_patterns_in_napari(
             viewer=self.viewer,
@@ -1039,6 +1072,23 @@ class FibsemMillingStageEditorWidget(QWidget):
             draw_crosshair=self.checkBox_show_milling_crosshair.isChecked(),
             background_milling_stages=self._background_milling_stages,
         )
+
+    def _validate_image_field_of_view(self):
+        """Validate that the milling task and displayed image have the same field of view."""
+        try:
+            milling_fov = self.parent_widget._settings.field_of_view
+            image_fov = self.image.metadata.image_settings.hfw
+            msg = ""
+            if not np.isclose(milling_fov, image_fov):
+                milling_fov_um = utils.format_value(milling_fov, unit='m', precision=0)
+                image_fov_um = utils.format_value(image_fov, unit='m', precision=0)
+                msg = f"Milling Task FoV ({milling_fov_um}), is not the same as Image FoV ({image_fov_um})"
+                self.label_warning.setVisible(True)
+            else: 
+                self.label_warning.setVisible(False)
+            self.label_warning.setText(msg)
+        except Exception as e:
+            logging.warning(f"An error occured while checking the field of view of milling and image: {e}")
 
     def set_image(self, image: FibsemImage) -> None:
         """Set the image for the milling stage editor."""
@@ -1052,6 +1102,15 @@ class FibsemMillingStageEditorWidget(QWidget):
             self.image_layer = self.viewer.add_image(name="FIB Image", data=image.data, opacity=0.7) # type: ignore
         self.update_milling_stage_display()
 
+    @property
+    def is_correlation_open(self) -> bool:
+        """Check if correlation tool is opened"""
+        if self.parent_widget is not None and hasattr(self.parent_widget, "correlation_widget"):
+            correlation_widget = self.parent_widget.correlation_widget
+            if correlation_widget is not None and correlation_widget.isVisible():
+                return True
+        return False
+
     def _on_single_click(self, viewer: napari.Viewer, event):
         """Handle single click events to move milling patterns."""
         if event.button != 1 or 'Shift' not in event.modifiers or self._milling_stages == []:
@@ -1059,6 +1118,14 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         if not self.image_layer:
             logging.warning("No target layer found for the click event.")
+            return
+
+        if self.is_movement_locked:
+            logging.warning("Movement is locked. Cannot move milling patterns.")
+            return
+        
+        if self.is_correlation_open:
+            logging.info("Correlation tool is open, ignoring click event.")
             return
 
         if not is_position_inside_layer(event.position, self.image_layer):
@@ -1148,55 +1215,4 @@ class FibsemMillingStageEditorWidget(QWidget):
             return
 
         milling_stages = self.get_milling_stages()
-        print(f"Updated milling stages: {[ms.name for ms in milling_stages]}")
         self._milling_stages_updated.emit(milling_stages)
-
-
-def show_milling_stage_editor(viewer: napari.Viewer, 
-                              microscope: FibsemMicroscope,
-                              milling_stages: List[FibsemMillingStage],
-                              parent: QWidget = None):    
-    """Show the FibsemMillingStageEditorWidget in the napari viewer."""
-
-    widget = FibsemMillingStageEditorWidget(viewer=viewer, 
-                                            microscope=microscope, 
-                                            milling_stages=milling_stages, 
-                                            parent=parent)
-    viewer.window.add_dock_widget(widget, area='right', name='Milling Stage Editor')
-    napari.run(max_loop_level=2)
-    return widget
-
-# NOTE: milling stages cannot have the same name, because we use them as a key!!
-
-if __name__ == "__main__":
-    
-    from fibsem import utils
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaProtocol,
-        Experiment,
-    )
-
-    microscope, settings = utils.setup_session()
-    viewer = napari.Viewer()
-
-
-    BASE_PATH = "/home/patrick/github/autolamella/autolamella/log/AutoLamella-2025-05-28-17-22/"
-    EXPERIMENT_PATH = os.path.join(BASE_PATH, "experiment.yaml")
-    PROTOCOL_PATH = os.path.join(BASE_PATH, "protocol.yaml")
-    exp = Experiment.load(EXPERIMENT_PATH)
-    protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
-
-    widget = show_milling_stage_editor(viewer=viewer, 
-                                       microscope=microscope,
-                                       milling_stages=exp.positions[0].milling_workflows["mill_rough"],
-                                       parent=None)
-
-# TODO: re-sizing base image?? scale bar
-# TODO: export protocol to yaml file
-# TODO: re-fresh lamella list when lamella added/removed
-# TODO: allow 'live' edits of the protocol while workflow is running? SCARY
-# TODO: allow editing the 'master' protocol, so we can change the default milling stages
-# TODO: show multiple-stage milling patterns in the viewer?
-# TODO: what to do when we want to move multi-stages to the same position, e.g. rough-milling and polishing?
-# - This may be breaking, and we need a way to handle it rather than moving them individually.
-# QUERY: WHY ISN"T PROTOCOL PART OF EXPERIMENT?????

@@ -10,6 +10,7 @@ SETUP_POLISHING_KEY = "setup_polishing"
 LIFTOUT_KEY = "liftout"
 LANDING_KEY = "landing"
 RESET_KEY = "reset"
+STRESS_RELIEF_KEY = "stress-relief"
 
 # milling
 MILLING_KEYS = [
