@@ -50,6 +50,7 @@ fibsem/config/*.yaml
 !fibsem/config/tfs*.yaml
 !fibsem/config/odemis*.yaml
 !fibsem/config/tescan-*.yaml
+!fibsem/config/sim-*.yaml
 
 **/wandb/*
 tests/notebook.ipynb
