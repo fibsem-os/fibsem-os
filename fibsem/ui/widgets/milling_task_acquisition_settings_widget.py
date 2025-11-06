@@ -86,13 +86,14 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
 
         # Block signals to prevent recursive updates
         self.blockSignals(True)
+        self.enabled_checkbox.blockSignals(True)
 
         self.enabled_checkbox.setChecked(settings.enabled)
         self.image_settings_widget.update_from_settings(settings.imaging)
 
         # Update enabled state of image settings widget
         self._update_image_settings_enabled()
-
+        self.enabled_checkbox.blockSignals(False)
         self.blockSignals(False)
 
     def set_show_advanced(self, show_advanced: bool):

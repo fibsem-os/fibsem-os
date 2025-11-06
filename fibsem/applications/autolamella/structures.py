@@ -13,7 +13,7 @@ import pandas as pd
 import petname
 import yaml
 from psygnal import evented
-from psygnal.containers import EventedList
+from psygnal.containers import EventedList, EventedDict
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.validation import (
@@ -172,6 +172,7 @@ class AutoLamellaTaskState:
             return cls()
         return cls(**data)
 
+@evented
 @dataclass
 class AutoLamellaTaskConfig(ABC):
     """Configuration for AutoLamella tasks."""
@@ -200,7 +201,8 @@ class AutoLamellaTaskConfig(ABC):
         for k in self.parameters:
             ddict["parameters"][k] = getattr(self, k)
         ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
-        ddict["imaging"] = self.imaging.to_dict()
+        if self.imaging is not None:
+            ddict["imaging"] = self.imaging.to_dict()
         return ddict
 
     @classmethod
@@ -228,6 +230,14 @@ class AutoLamellaTaskConfig(ABC):
             }
 
         return cls(**kwargs)
+
+    @property
+    def estimated_time(self) -> float:
+        """Estimate the total milling time for this task configuration."""
+        total_time = 0.0
+        for milling_task in self.milling.values():
+            total_time += milling_task.estimated_time
+        return total_time
 
 @evented
 @dataclass
@@ -272,18 +282,21 @@ class AutoLamellaWorkflowConfig:
         """Get the list of required tasks for this workflow."""
         return [task.name for task in self.tasks if task.required]
 
-    def requires(self, task_name: str) -> List[str]:
+    def requirements(self, task_name: str) -> List[str]:
         for task in self.tasks:
             if task.name == task_name:
                 return task.requires
         return []
 
-    def get_completed_tasks(self, lamella: 'Lamella') -> List[str]:
+    def get_completed_tasks(self, lamella: 'Lamella', with_timestamps: bool = False) -> List[str]:
         """Get the list of completed tasks for a given lamella."""
         completed_tasks = []
         for task in lamella.task_history:
             if task.name in self.workflow:
-                completed_tasks.append(task.name)
+                txt = task.name
+                if with_timestamps:
+                    txt = task.completed
+                completed_tasks.append(txt)
         return completed_tasks
 
     def get_remaining_tasks(self, lamella: 'Lamella') -> List[str]:
@@ -309,6 +322,38 @@ class AutoLamellaWorkflowConfig:
             if task.name == task_name:
                 return task.supervise
         return False
+    
+    @property
+    def is_valid(self) -> bool:
+        """Check if the workflow configuration is valid."""
+        issues = self.validate()
+        return not issues
+
+    def validate(self) -> List[str]:
+        """Validate the workflow configuration and return a list of issues."""
+        issues = []
+        task_names = [task.name for task in self.tasks]
+        for i, task in enumerate(self.tasks):
+            for req in task.requires:
+                if req not in task_names:
+                    issues.append(f"Task '{task.name}' requires unknown task '{req}'.")
+                elif req not in task_names[:i]:
+                    issues.append(f"Task '{task.name}' requires '{req}' which comes after it in the workflow.")
+        return issues
+
+
+@evented
+@dataclass
+class AutoLamellaWorkflowOptions:
+    turn_beams_off: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaWorkflowOptions':
+        return cls(**data)
+
 
 @evented
 @dataclass
@@ -316,8 +361,9 @@ class AutoLamellaTaskProtocol:
     name: str = "AutoLamella Task Protocol"
     description: str = "Protocol for AutoLamella"
     version: str = "1.0"
-    task_config: Dict[str, AutoLamellaTaskConfig] = field(default_factory=dict)   # unique_name: AutoLamellaTaskConfig
+    task_config: EventedDict[str, AutoLamellaTaskConfig] = field(default_factory=lambda: EventedDict())   # unique_name: AutoLamellaTaskConfig
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
+    options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -326,20 +372,23 @@ class AutoLamellaTaskProtocol:
             "version": self.version,
             "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
             "workflow": self.workflow_config.to_dict(),
+            "options": self.options.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskProtocol':
-        from fibsem.applications.autolamella.workflows.tasks import load_task_config
+        from fibsem.applications.autolamella.workflows.tasks.tasks import load_task_config
         task_config = load_task_config(data.get("tasks", {}))
         workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
-        
+
         return cls(
             name=data.get("name", "AutoLamella Task Protocol"),
             description=data.get("description", "Protocol for AutoLamella"),
             version=data.get("version", "1.0"),
-            task_config=task_config, 
-            workflow_config=workflow_config)
+            task_config=task_config,
+            workflow_config=workflow_config,
+            options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {}))
+        )
 
     @classmethod
     def load(cls, filename: str) -> 'AutoLamellaTaskProtocol':
@@ -360,10 +409,140 @@ class AutoLamellaTaskProtocol:
         """Check if a task requires supervision."""
         return self.workflow_config.get_supervision(task_name)
 
+    @classmethod
+    def load_from_old_protocol(cls, path: Path) -> 'AutoLamellaTaskProtocol':
+        """Convert an AutoLamellaProtocol to an AutoLamellaTaskProtocol.
+        This involves mapping the milling configurations to the new task names.
+        Used to converte old protocols to the new task-based protocol format."""
 
+        # from fibsem.applications.autolamella.protocol.legacy import (
+        #     AutoLamellaMethod,
+        #     AutoLamellaProtocol,
+        #     AutoLamellaStage,
+        # )
+        from fibsem.applications.autolamella.protocol.constants import (
+            FIDUCIAL_KEY,
+            MICROEXPANSION_KEY, 
+            NOTCH_KEY, 
+            STRESS_RELIEF_KEY, 
+            TRENCH_KEY,
+            UNDERCUT_KEY
+        )
+        from fibsem.applications.autolamella.workflows.tasks.tasks import (
+            MillPolishingTaskConfig,
+            MillRoughTaskConfig,
+            MillTrenchTaskConfig,
+            MillUndercutTaskConfig,
+            SetupLamellaTaskConfig,
+        )
+        protocol = AutoLamellaProtocol.load(path)
+
+        # we need to map the milling configurations to the new task names
+        # mill_rough -> Rough Milling / mill_rough
+        # microexpansion -> Rough Milling / stress-relief
+        # notch -> Rough Milling / stress-relief
+        # trench -> Trench Milling / trench
+        # undercut -> Trench Milling / undercut
+        # fiducial -> Setup Lamella / fiducial
+        # mill_polishing -> Polishing
+        
+        if protocol.method not in [AutoLamellaMethod.ON_GRID, AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
+            raise ValueError(f"Protocol method {protocol.method} not supported for conversion to task protocol")
+
+        ROUGH_MILLING_TASK_NAME = "Rough Milling"
+        POLISHING_TASK_NAME = "Polishing"
+        TRENCH_MILLING_TASK_NAME = "Trench Milling"
+        SETUP_LAMELLA_TASK_NAME = "Setup Lamella"
+        UNDERCUT_TASK_NAME = "Undercut"
+
+        workflow_config = AutoLamellaWorkflowConfig()
+        task_config = EventedDict({})
+
+        if protocol.method in [AutoLamellaMethod.ON_GRID, AutoLamellaMethod.WAFFLE]:
+            rough_milling_task = MillRoughTaskConfig(
+                task_name=ROUGH_MILLING_TASK_NAME,
+                milling={MILL_ROUGH_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_ROUGH_KEY], name="Rough Milling")},
+                orientation="MILLING",
+            )
+
+            if protocol.options.use_microexpansion:
+                rough_milling_task.milling[STRESS_RELIEF_KEY] = FibsemMillingTaskConfig.from_stages(protocol.milling[MICROEXPANSION_KEY], name="Stress Relief")
+            if protocol.options.use_notch:
+                rough_milling_task.milling[STRESS_RELIEF_KEY] = FibsemMillingTaskConfig.from_stages(protocol.milling[NOTCH_KEY], name="Notch")
+
+            polishing_milling_task = MillPolishingTaskConfig(
+                task_name=POLISHING_TASK_NAME,
+                milling={MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_POLISHING_KEY], name="Polishing")},
+                orientation="MILLING",
+            )
+
+            setup_lamella_task = SetupLamellaTaskConfig(
+                task_name=SETUP_LAMELLA_TASK_NAME,
+                milling={FIDUCIAL_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[FIDUCIAL_KEY], name="Fiducial")},
+                use_fiducial=protocol.options.use_fiducial,
+                milling_angle=protocol.options.milling_angle,
+            )
+
+            task_config[ROUGH_MILLING_TASK_NAME] = rough_milling_task
+            task_config[POLISHING_TASK_NAME] = polishing_milling_task
+            task_config[SETUP_LAMELLA_TASK_NAME] = setup_lamella_task
+
+            workflow_config.tasks = [
+                AutoLamellaTaskDescription(name=SETUP_LAMELLA_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
+                AutoLamellaTaskDescription(name=ROUGH_MILLING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillRough], required=True, requires=[SETUP_LAMELLA_TASK_NAME]),
+                AutoLamellaTaskDescription(name=POLISHING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillPolishing], required=True, requires=[ROUGH_MILLING_TASK_NAME]),
+            ]
+
+
+        if protocol.method in [AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
+            trench_milling_task = MillTrenchTaskConfig(
+                task_name=TRENCH_MILLING_TASK_NAME,
+                milling={TRENCH_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[TRENCH_KEY], name="Trench"),
+                },
+                orientation="FIB",
+            )
+            task_config[TRENCH_MILLING_TASK_NAME] = trench_milling_task
+            workflow_config.tasks.insert(0, AutoLamellaTaskDescription(name=TRENCH_MILLING_TASK_NAME,
+                                                                    supervise=protocol.supervision[AutoLamellaStage.MillTrench], 
+                                                                    required=True))
+
+        if protocol.method is AutoLamellaMethod.WAFFLE:
+
+            undercut_task = MillUndercutTaskConfig(
+                task_name=UNDERCUT_TASK_NAME,
+                milling={UNDERCUT_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[UNDERCUT_KEY], name="Undercut")},
+                orientation="SEM",
+
+            )
+            task_config[UNDERCUT_TASK_NAME] = undercut_task
+            workflow_config.tasks.insert(1, AutoLamellaTaskDescription(name=UNDERCUT_TASK_NAME,
+                                                                    supervise=protocol.supervision[AutoLamellaStage.MillUndercut], 
+                                                                    required=True, requires=[TRENCH_MILLING_TASK_NAME]))
+
+
+        options = AutoLamellaWorkflowOptions(
+            turn_beams_off=protocol.options.turn_beams_off,
+        )
+
+        workflow_config.name = protocol.name
+        workflow_config.description = f"auto-converted protocol from {protocol.name} - {protocol.method.name}"
+
+        task_protocol = AutoLamellaTaskProtocol(
+            name=protocol.name,
+            description=f"auto-converted protocol from {protocol.name} - {protocol.method.name}",
+            task_config=task_config,
+            workflow_config=workflow_config,
+            options=options
+        )
+
+        return task_protocol
+
+
+@evented
 @dataclass
 class DefectState:
     has_defect: bool = False
+    requires_rework: bool = False
     description: str = ""
     updated_at: Optional[float] = None
 
@@ -375,6 +554,16 @@ class DefectState:
     def from_dict(cls, data: dict) -> 'DefectState':
         """Create a defect state from a dictionary."""
         return cls(**data)
+
+    def clear(self):
+        self.has_defect = False
+        self.description = ""
+        self.updated_at = None
+
+    def set_defect(self, description: str = ""):
+        self.has_defect = True
+        self.description = description
+        self.updated_at = datetime.timestamp(datetime.now())
 
 @evented
 @dataclass

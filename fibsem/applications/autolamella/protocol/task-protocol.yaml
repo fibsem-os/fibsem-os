@@ -1,0 +1,208 @@
+name: AutoLamella Protocol
+description: On Grid Lamella Preparation Protocol 
+version: '1.0'
+tasks:
+    Acquire Reference Image:
+        task_type: ACQUIRE_REFERENCE_IMAGE
+        parameters:
+            acquire_fib: true
+            acquire_sem: true
+            orientation: MILLING
+        milling: {}
+        imaging: {}
+    Setup Lamella:
+        task_type: SETUP_LAMELLA
+        parameters:
+            milling_angle: 15
+            use_fiducial: true
+            align_to_reference: true
+            alignment_expansion: 30
+        milling:
+            fiducial:
+                name: Fiducial
+                field_of_view: 80.0e-6
+                alignment:
+                    enabled: false
+                stages:
+                -   name: Fiducial 01
+                    milling:
+                        milling_current: 1.0e-09
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 2.5e-05
+                            y: 0.0
+                            name: null
+                        width: 1.0e-06
+                        height: 1.0e-05
+                        depth: 1.0e-06
+                        rotation: 45
+                        cross_section: Rectangle
+                        asymmetric: false
+                        name: Fiducial
+                    strategy:
+                        name: Standard
+                        config: {}
+    Rough Milling:
+        task_type: MILL_ROUGH
+        parameters:
+            acquire_reference_images: true
+            orientation: MILLING
+        milling:
+            mill_rough:
+                name: Rough Milling
+                field_of_view: 80.0e-6
+                channel: ION
+                alignment:
+                    enabled: true
+                stages:
+                -   name: Rough Mill 01
+                    milling:
+                        milling_current: 7.4e-10
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 1.0e-05
+                        depth: 6.5e-07
+                        spacing: 4.6e-06
+                        upper_trench_height: 3.5e-06
+                        lower_trench_height: 3.5e-06
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                -   name: Rough Mill 02
+                    milling:
+                        milling_current: 2.0e-10
+                        hfw: 80.0e-6
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.5e-06
+                        depth: 6.5e-07
+                        spacing: 1.6e-06
+                        upper_trench_height: 2.0e-06
+                        lower_trench_height: 2.0e-06
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                -   name: Stress Relief Feature
+                    num: 0
+                    milling:
+                        milling_current: 1.0e-09
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 5.0e-07
+                        height: 1.8e-05
+                        depth: 1.0e-06
+                        distance: 1.0e-05
+                        name: MicroExpansion
+                    strategy:
+                        name: Standard
+                        config: {}
+            stress-relief:
+                name: Stress Relief
+                field_of_view: 80.0e-6
+                channel: ION
+                alignment:
+                    enabled: true
+                stages:
+                -   name: MicroExpansion
+                    num: 0
+                    milling:
+                        milling_current: 1.0e-09
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 5.0e-07
+                        height: 1.8e-05
+                        depth: 1.0e-06
+                        distance: 1.0e-05
+                        name: MicroExpansion
+                    strategy:
+                        name: Standard
+                        config: {}
+    Polishing:
+        task_type: MILL_POLISHING
+        parameters:
+            acquire_reference_images: true
+            orientation: MILLING
+        milling:
+            mill_polishing:
+                name: Polishing
+                field_of_view: 80.0e-6
+                channel: ION
+                alignment:
+                    enabled: true
+                stages:
+                -   name: Polishing Mill 01
+                    milling:
+                        milling_current: 6.0e-11
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.0e-06
+                        depth: 4.0e-07
+                        spacing: 3.0e-07
+                        upper_trench_height: 7.0e-07
+                        lower_trench_height: 7.0e-07
+                        cross_section: CleaningCrossSection
+                        time: 0.0
+                        fillet: 0.0
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+workflow:
+    name: ''
+    description: ''
+    tasks:
+    -   name: Acquire Reference Image
+        supervise: false
+        required: false
+        requires: []
+    -   name: Setup Lamella
+        supervise: true
+        required: true
+        requires: []
+    -   name: Rough Milling
+        supervise: true
+        required: true
+        requires:
+        - Setup Lamella
+    -   name: Polishing
+        supervise: true
+        required: true
+        requires:
+        - Rough Milling
+options:
+    turn_beams_off: false
