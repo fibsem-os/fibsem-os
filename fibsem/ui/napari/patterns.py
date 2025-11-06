@@ -49,8 +49,8 @@ IMAGE_LAYER_PROPERTIES = {
 }
 
 IMAGE_PATTERN_TYPES = ("bitmap",)
-IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "alignment_area"] # ignore these layers when removing all shapes
-STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position"] # for minimap
+IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "alignment_area", "overlay-shapes", "bbox"] # ignore these layers when removing all shapes
+STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
 
@@ -347,6 +347,7 @@ def draw_milling_patterns_in_napari(
     pixelsize: float,
     draw_crosshair: bool = True,
     background_milling_stages: Optional[List[FibsemMillingStage]] = None,
+    colors: Optional[List[str]] = None,
 ) -> List[str]:
     """Draw the milling patterns in napari as a combination of Shapes and Label layers.
     Args:
@@ -359,6 +360,8 @@ def draw_milling_patterns_in_napari(
     Returns:
         List[str]: list of milling pattern layers
     """
+    if colors is None:
+        colors = COLOURS
 
     # base image properties
     image_shape = image_layer.data.shape
@@ -380,7 +383,7 @@ def draw_milling_patterns_in_napari(
         if is_background:
             napari_layer_colour = "black"
         else:
-            napari_layer_colour = COLOURS[i % len(COLOURS)]
+            napari_layer_colour = colors[i % len(colors)]
 
         # TODO: QUERY  migrate to using label layers for everything??
         # TODO: re-enable annulus drawing, re-enable bitmaps

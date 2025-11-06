@@ -227,7 +227,7 @@ def calculate_reprojected_stage_position(image: FibsemImage, pos: FibsemStagePos
         The reprojected stage position on the image."""
 
     # difference between current position and image position
-    delta = pos - image.metadata.microscope_state.stage_position
+    delta = pos - image.metadata.stage_position
 
     # projection of the positions onto the image
     dx = delta.x
@@ -245,6 +245,10 @@ def calculate_reprojected_stage_position(image: FibsemImage, pos: FibsemStagePos
     
     if np.isclose(scan_rotation, np.pi):
         px_delta.x *= -1.0
+        px_delta.y *= -1.0
+
+    # account for compustage tilt, when mounted upside down
+    if np.isclose(image.metadata.stage_position.t, np.radians(-180), atol=np.radians(5)):
         px_delta.y *= -1.0
 
     image_centre = Point(x=image.data.shape[1]/2, y=image.data.shape[0]/2)
@@ -407,7 +411,9 @@ def plot_stage_positions_on_image(
         show: bool = False,
         bound: bool = True,
         color: Optional[str] = None,
-        show_scalebar: bool = False) -> Figure:
+        show_scalebar: bool = False,
+        show_names: bool = True,
+        figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
@@ -418,12 +424,14 @@ def plot_stage_positions_on_image(
     Returns:
         The matplotlib figure."""
     from fibsem.ui.napari.utilities import is_inside_image_bounds
+    if image.metadata is None or image.metadata.microscope_state is None:
+        raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
 
     # reproject stage positions onto image 
     points = reproject_stage_positions_onto_image2(image=image, positions=positions)
 
     # construct matplotlib figure
-    fig = plt.figure(figsize=(15, 15))
+    fig = plt.figure(figsize = figsize)
     plt.imshow(image.data, cmap="gray")
 
     for i, pt in enumerate(points):
@@ -437,16 +445,94 @@ def plot_stage_positions_on_image(
         else:
             c = color
         plt.plot(pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}")
-        # draw position name next to point
-        plt.text(pt.x-225, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
 
+        if show_names:
+            # draw position name next to point
+            plt.text(pt.x, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
 
     if show_scalebar:
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
             scalebar = ScaleBar(
-                dx=image.metadata.pixel_size.x * image.data.shape[1],
+                dx=image.metadata.pixel_size.x,
+                color="black",
+                box_color="white",
+                box_alpha=0.5,
+                location="lower right",
+            )
+            plt.gca().add_artist(scalebar)
+        except Exception as e:
+            logging.debug(f"Could not add scalebar: {e}")
+
+    plt.axis("off")
+    if show:
+        plt.show()
+
+    return fig
+
+def plot_minimap(
+        image: FibsemImage,
+        positions: List[FibsemStagePosition],
+        current_position: Optional[FibsemStagePosition] = None,
+        grid_positions: Optional[List[FibsemStagePosition]] = None,
+        show: bool = False,
+        bound: bool = True,
+        color: Optional[str] = None,
+        show_scalebar: bool = False,
+        show_names: bool = True,
+        figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
+    """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
+    Args:
+        image: The image.
+        positions: The positions.
+        show: Whether to show the plot.
+        bound: Whether to only plot points inside the image.
+        color: The color of the points. (None -> default colour cycle)
+    Returns:
+        The matplotlib figure."""
+    from fibsem.ui.napari.utilities import is_inside_image_bounds
+    if image.metadata is None or image.metadata.microscope_state is None:
+        raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
+
+    if current_position is not None:
+        positions.append(current_position)
+    if grid_positions is not None:
+        positions.extend(grid_positions)
+
+    # construct matplotlib figure
+    fig = plt.figure(figsize = figsize)
+    plt.imshow(image.data, cmap="gray")
+
+    # reproject stage positions onto image 
+    points = reproject_stage_positions_onto_image2(image=image, positions=positions)
+
+    for i, pt in enumerate(points):
+
+        # if points outside image, don't plot
+        if bound and not is_inside_image_bounds((pt.y, pt.x), (image.data.shape[0], image.data.shape[1])):
+            continue
+        
+        if pt.name is None:
+            pt.name = f"Position {i:02d}"
+
+        c = "cyan"
+        if "Grid" in pt.name:
+            c = "red"
+        elif "Current Position" in pt.name:
+            c = "yellow"
+        plt.plot(pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}")
+
+        if show_names:
+            # draw position name next to point
+            plt.text(pt.x, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
+
+    if show_scalebar:
+        try:
+            # add scalebar
+            from matplotlib_scalebar.scalebar import ScaleBar
+            scalebar = ScaleBar(
+                dx=image.metadata.pixel_size.x,
                 color="black",
                 box_color="white",
                 box_alpha=0.5,
@@ -600,7 +686,7 @@ def _inverse_y_corrected_stage_movement(
         compustage_sign = 1.0
         stage_is_compustage = "Arctis" in image.metadata.system.info.model or image.metadata.system.sim.get("is_compustage", False)
         if stage_is_compustage: # TODO: add compustage to metadata
-            if stage_tilt <= 0:
+            if stage_tilt <= 0 and stage_tilt > np.radians(-90):
                 compustage_sign = -1.0
             stage_tilt += np.pi
 

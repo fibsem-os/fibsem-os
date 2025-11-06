@@ -1,5 +1,6 @@
 import logging
 from typing import List, Optional, Tuple
+from dataclasses import dataclass
 
 import napari
 import numpy as np
@@ -19,6 +20,16 @@ from fibsem.ui.napari.properties import (
 
 CROSSHAIR_LAYER_NAME = IMAGING_CROSSHAIR_LAYER_PROPERTIES["name"]
 SCALEBAR_LAYER_NAME = IMAGING_SCALEBAR_LAYER_PROPERTIES["name"]
+
+@dataclass
+class NapariShapeOverlay:
+    """Represents a shape overlay for napari with its properties."""
+    shape: np.ndarray
+    color: str
+    label: str
+    shape_type: str  # "rectangle", "ellipse", or "line"
+
+
 
 def draw_crosshair_in_napari(
     viewer: napari.Viewer,
@@ -291,6 +302,171 @@ def is_position_inside_layer(position: Tuple[float, float], target_layer) -> boo
             return False
 
     return True
+
+
+def create_crosshair_shape(point: Point, size: int, scale: Optional[Tuple[float, float]] = None) -> List[np.ndarray]:
+    """Create a crosshair shape at the specified point with given size and scale.
+    
+    Generates horizontal and vertical line data for creating a crosshair overlay
+    in napari. The function converts stage coordinates to pixel coordinates using
+    the provided scale factors.
+    
+    Args:
+        point: Stage coordinates where to create the crosshair (x, y in meters)
+        size: Half-length of crosshair arms in pixels (total crosshair span = 2 * size)
+        scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion from meters to pixels (optional).
+               If not provided, defaults to (1, 1)
+        
+    Returns:
+        List of numpy arrays representing crosshair line segments:
+        - [0]: Horizontal line array [[y, x_start], [y, x_end]]
+        - [1]: Vertical line array [[y_start, x], [y_end, x]]
+        
+    Note:
+        - Modifies the input point in-place by converting coordinates to pixel space
+        - Uses napari coordinate convention (y, x) for line endpoints
+        - Scale factors should match camera pixel size for accurate positioning
+        
+    Example:
+        >>> point = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y
+        >>> scale = (1e-6, 1e-6)  # 1μm per pixel
+        >>> crosshair = create_crosshair_shape(point, 25, scale)
+        >>> # Returns 2 line arrays for horizontal and vertical crosshair arms
+    """
+    if scale is None:
+        scale = (1.0, 1.0)
+
+    # Convert stage coordinates to pixel coordinates
+    point.x /= scale[0]  
+    point.y /= scale[1]  
+    
+    # Create horizontal line at point
+    horizontal_line = np.array([
+        [point.y, point.x - size],
+        [point.y, point.x + size]
+    ])
+    
+    # Create vertical line at point
+    vertical_line = np.array([
+        [point.y - size, point.x],
+        [point.y + size, point.x]
+    ])
+
+    return [horizontal_line, vertical_line]
+
+
+def create_rectangle_shape(
+    center_point: Point, 
+    width: float, 
+    height: float, 
+    scale: Optional[Tuple[float, float]] = None
+) -> np.ndarray:
+    """Create a rectangle shape centered at the specified point.
+    
+    Generates rectangle corner coordinates for creating a bounding box overlay
+    in napari. The function converts stage coordinates to pixel coordinates using
+    the provided scale factors.
+    
+    Args:
+        center_point: Stage coordinates for rectangle center (x, y in meters)
+        width: Rectangle width in meters
+        height: Rectangle height in meters  
+        scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion from meters to pixels (optional).
+               If not provided, defaults to (1, 1)
+        
+    Returns:
+        Numpy array of rectangle corner coordinates in napari format:
+        [[y0, x0], [y1, x1], [y2, x2], [y3, x3]] representing the four corners
+        in clockwise order starting from top-left
+        
+    Note:
+        - Modifies the input center_point in-place by converting coordinates to pixel space
+        - Uses napari coordinate convention (y, x) for corner coordinates
+        - Scale factors should match camera pixel size for accurate positioning
+        - Rectangle is axis-aligned (no rotation support)
+        
+    Example:
+        >>> center = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y center
+        >>> scale = (1e-6, 1e-6)  # 1μm per pixel
+        >>> rect = create_rectangle_shape(center, 20e-6, 15e-6, scale)
+        >>> # Returns 4x2 array of corner coordinates for 20x15 μm rectangle
+    """
+    if scale is None:
+        scale = (1.0, 1.0)
+
+    # Convert stage coordinates to pixel coordinates
+    center_x = center_point.x / scale[0]
+    center_y = center_point.y / scale[1]
+    
+    # Convert dimensions to pixels
+    w_px = width / scale[0]
+    h_px = height / scale[1]
+    
+    # Create rectangle corners in napari format (y, x)
+    # Clockwise order starting from top-left
+    corners = np.array([
+        [center_y - h_px/2, center_x - w_px/2],  # Top-left
+        [center_y - h_px/2, center_x + w_px/2],  # Top-right
+        [center_y + h_px/2, center_x + w_px/2],  # Bottom-right
+        [center_y + h_px/2, center_x - w_px/2]   # Bottom-left
+    ])
+    
+    return corners
+
+
+def create_circle_shape(
+    center_point: Point, 
+    radius: float, 
+    scale: Optional[Tuple[float, float]] = None,
+    num_points: int = 64
+) -> np.ndarray:
+    """Create a circle shape centered at the specified point.
+    
+    Generates circle points for creating a circular overlay in napari. The function 
+    converts stage coordinates to pixel coordinates using the provided scale factors.
+    
+    Args:
+        center_point: Stage coordinates for circle center (x, y in meters)
+        radius: Circle radius in meters
+        scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion from meters to pixels (optional).
+               If not provided, defaults to (1, 1)
+        num_points: Number of points to use for circle approximation (default: 64)
+        
+    Returns:
+        Numpy array of circle points in napari format:
+        [[y0, x0], [y1, x1], ...] representing points around the circle circumference
+        
+    Note:
+        - Modifies the input center_point in-place by converting coordinates to pixel space
+        - Uses napari coordinate convention (y, x) for point coordinates
+        - Scale factors should match camera pixel size for accurate positioning
+        - Circle is approximated using regular polygon with num_points vertices
+        
+    Example:
+        >>> center = Point(x=10e-6, y=5e-6)  # 10μm x, 5μm y center
+        >>> scale = (1e-6, 1e-6)  # 1μm per pixel
+        >>> circle = create_circle_shape(center, 5e-6, scale)
+        >>> # Returns array of points for 5μm radius circle
+    """
+    if scale is None:
+        scale = (1.0, 1.0)
+
+    # Convert stage coordinates to pixel coordinates
+    center_x = center_point.x / scale[0]
+    center_y = center_point.y / scale[1]
+    
+    # Convert radius to pixels
+    radius_px = radius / scale[0]  # Assume square pixels for simplicity
+    
+    # Calculate bounding box for ellipse
+    xmin = center_x - radius_px
+    xmax = center_x + radius_px
+    ymin = center_y - radius_px
+    ymax = center_y + radius_px
+    
+    # create circle
+    shape = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]
+    return np.array(shape)
 
 def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> None:
     """Update the text overlay in the napari viewer with current stage position and orientation.

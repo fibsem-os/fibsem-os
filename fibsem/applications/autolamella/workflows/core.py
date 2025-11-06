@@ -603,7 +603,7 @@ def setup_lamella(
         alignment_hfw = stages[0].milling.hfw
 
         # get alignment area based on fiducial bounding box
-        lamella.alignment_area = get_pattern_reduced_area(stage=stages[0],
+        lamella.alignment_area = get_pattern_reduced_area(pattern=stages[0].pattern,
                                                           image=FibsemImage.generate_blank_image(hfw=alignment_hfw),
                                                           expand_percent=30)
 

@@ -1,25 +1,18 @@
-import glob
 import logging
 import os
-import re
-import shutil
-import json
-from dataclasses import dataclass
-from enum import Enum
+from copy import deepcopy
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
-from copy import deepcopy
 
 from fibsem import config as cfg
 from fibsem import utils
-from fibsem.detection.detection import DetectedFeatures
+from fibsem.detection.detection import DetectedFeatures, Feature
 from fibsem.structures import FibsemImage, FibsemImageMetadata, Point
+
 
 def decode_segmap(image, nc=3):
 
@@ -46,10 +39,6 @@ def decode_segmap(image, nc=3):
     rgb_mask = np.stack([r, g, b], axis=2)
     return rgb_mask
 
-def coordinate_distance(p1: Point, p2: Point):
-    """Calculate the distance between two points in each coordinate"""
-
-    return p2.x - p1.x, p2.y - p1.y
 
 def scale_pixel_coordinates(px: Point, from_image: FibsemImage, to_image: FibsemImage) -> Point:
     """Scale the pixel coordinate from one image to another"""
@@ -74,44 +63,12 @@ def scale_coordinate_to_image(point: Point, shape: tuple) -> Point:
 
     return scaled_pt
 
-def parse_metadata(filename):
-
-    # FIB meta data key is 34682, comes as a string
-    img = Image.open(filename)
-    img_metadata = img.tag[34682][0]
-
-    # parse metadata
-    parsed_metadata = img_metadata.split("\r\n")
-
-    metadata_dict = {}
-    for item in parsed_metadata:
-
-        if item == "":
-            # skip blank lines
-            pass
-        elif re.match(r"\[(.*?)\]", item):
-            # find category, dont add to dict
-            category = item
-        else:
-            # meta data point
-            datum = item.split("=")
-
-            # save to dictionary
-            metadata_dict[category + "." + datum[0]] = datum[1]
-
-    # add filename to metadata
-    metadata_dict["filename"] = filename
-
-    # convert to pandas df
-    df = pd.DataFrame.from_dict(metadata_dict, orient="index").T
-
-    return df
 
 # TODO: add experiment, method
 # TODO: migrate this to fibsem.db
 # filename should match the same filename that is used for feature detection logging -> can be associated
 
-def save_ml_feature_data(det: DetectedFeatures, initial_features: DetectedFeatures = None):
+def save_ml_feature_data(det: DetectedFeatures, initial_features: Optional[List[Feature]] = None):
     """Save the feature data to disk"""
     
     # if initial features are not provided, use the current features 
@@ -120,6 +77,8 @@ def save_ml_feature_data(det: DetectedFeatures, initial_features: DetectedFeatur
         det.mask = det.mask.astype(np.uint8)
     
     try:
+        if det.fibsem_image.metadata is None or det.fibsem_image.metadata.image_settings is None:
+            raise AttributeError
         fname = det.fibsem_image.metadata.image_settings.filename
         beam_type = det.fibsem_image.metadata.image_settings.beam_type
     except AttributeError:
@@ -136,7 +95,7 @@ def save_ml_feature_data(det: DetectedFeatures, initial_features: DetectedFeatur
                 "px": f0.px.to_dict(),                                      # pixel coordinates
                 "dpx": px_diff.to_dict(),                                   # pixel difference
                 "dm": px_diff._to_metres(det.pixelsize).to_dict(),          # metre difference
-                "is_correct": not np.any(px_diff),                          # is the feature correct    
+                "is_correct": not np.any(px_diff.to_list()),                # is the feature correct
                 "beam_type": beam_type.name,                                # beam type         
                 "pixelsize": det.pixelsize,                                 # pixelsize
                 "checkpoint": det.checkpoint,                               # checkpoint

@@ -367,7 +367,7 @@ def parse_correlation_result_v2(cor_ret: dict, input_data: dict) -> dict:
 
     return correlation_data
 
-def save_correlation_data(data: dict, path: str) -> None:
+def save_correlation_data(data: dict, path: str) -> str:
     correlation_data_filename = os.path.join(path, "correlation_data.yaml")
     with open(correlation_data_filename, "w") as file:
         yaml.dump(data, file)

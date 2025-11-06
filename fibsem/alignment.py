@@ -17,6 +17,7 @@ from fibsem.structures import (
     MicroscopeSettings,
     ReferenceImages,
 )
+from threading import Event as ThreadingEvent
 
 
 def auto_eucentric_correction(
@@ -500,6 +501,7 @@ def multi_step_alignment_v2(
     steps: int = 3,
     use_autocontrast: bool = False,
     subsystem: Optional[str] = None,
+    stop_event: Optional[ThreadingEvent] = None,
 ) -> None:
     """Runs the beam shift alignment multiple times. Optionally sets the beam current before alignment."""
     # set alignment current
@@ -508,6 +510,8 @@ def multi_step_alignment_v2(
         microscope.set("current", alignment_current, beam_type)
 
     for i in range(steps):
+        if stop_event is not None and stop_event.is_set():
+            break
         beam_shift_alignment_v2(microscope=microscope, 
                                 ref_image=ref_image, 
                                 use_autocontrast=use_autocontrast, 

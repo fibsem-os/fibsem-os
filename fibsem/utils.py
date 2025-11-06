@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Tuple, Optional
 
 
 import requests
@@ -15,12 +15,13 @@ from packaging import version
 from PIL import Image
 
 from fibsem import config as cfg
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
     MicroscopeSettings,
 )
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 
 def current_timestamp():
@@ -63,7 +64,7 @@ def format_duration(seconds: float) -> str:
     else:
         return f"{seconds:.2f}s"
 
-def format_value(val: float, unit: str = None, precision: int = 2) -> str:
+def format_value(val: float, unit: Optional[str] = None, precision: int = 2) -> str:
     """Format a numerical value as a string with nearest SI unit.
     Args:
         val: The value to format.
@@ -104,7 +105,7 @@ def format_value(val: float, unit: str = None, precision: int = 2) -> str:
         unit = ""
     return f"{val*scale:.{precision}f} {prefix}{unit}"
 
-def make_logging_directory(path: Path = None, name="run"):
+def make_logging_directory(path: Optional[Path] = None, name="run"):
     """
     Create a logging directory with the specified name at the specified file path. 
     If no path is given, it creates the directory at the default base path.
@@ -129,7 +130,7 @@ def configure_logging(path: Path = "", log_filename="logfile", log_level=logging
     """Log to the terminal and to file simultaneously."""
     logfile = os.path.join(path, f"{log_filename}.log")
 
-    file_handler = logging.FileHandler(logfile)
+    file_handler = logging.FileHandler(logfile, encoding="utf-8")
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setLevel(logging.INFO if _DEBUG is False else logging.DEBUG)
 
@@ -210,7 +211,7 @@ def setup_session(
     ip_address: str = None,
     manufacturer: str = None,
     debug: bool = False,
-) -> Tuple[FibsemMicroscope, MicroscopeSettings]:
+) -> Tuple['FibsemMicroscope', 'MicroscopeSettings']:
     """Setup microscope session
 
     Args:
@@ -516,7 +517,11 @@ def _display_metadata(img: FibsemImage, timezone: str = 'Australia/Sydney', show
     return fig
 
 # TODO: re-think this, dont like the pop ups
-def _register_metadata(microscope: FibsemMicroscope, application_software: str, application_software_version: str, experiment_name: str, experiment_method: str) -> None:
+def _register_metadata(microscope: 'FibsemMicroscope',
+                       application_software: str,
+                       application_software_version: str,
+                       experiment_name: str,
+                       experiment_method: str) -> None:
     import fibsem
     from fibsem.structures import FibsemExperiment, FibsemUser
 
@@ -603,4 +608,3 @@ def check_for_updates(package_name: str = "fibsem") -> dict:
         result['status'] = f'Could not fetch PyPI versions for {package_name}'
     
     return result
-
