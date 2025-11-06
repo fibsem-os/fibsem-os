@@ -12,9 +12,9 @@ from napari.layers import Layer as NapariLayer
 from napari.layers import Shapes as NapariShapesLayer
 from napari.qt.threading import thread_worker
 from napari.utils.events import Event as NapariEvent
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QWidget, QDialog, QAction
 from psygnal import EmissionInfo
+from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QWidget
 from scipy.ndimage import median_filter
 from superqt import ensure_main_thread
 
@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     MILL_ROUGH_KEY,
     TRENCH_KEY,
 )
-from fibsem.applications.autolamella.structures import Lamella, AutoLamellaTaskProtocol
+from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, Lamella
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
@@ -183,7 +183,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         self.setup_connections()
 
-        # self.draw_blank_image() # TMP: disable until better workflow + testing
+        self.draw_blank_image() # TMP: disable until better workflow + testing
 
     def draw_blank_image(self):
         image: Optional[FibsemImage] = None
@@ -563,7 +563,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         filename = ui_utils.open_existing_file_dialog(
             msg="Select image to load", 
-            path=Path(self.lineEdit_tile_path.text()), 
+            path=str(self.lineEdit_tile_path.text()), 
             _filter="Image Files (*.tif *.tiff)", 
             parent=self)
 
@@ -859,7 +859,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             )
 
         # stage limits # TODO: get actual limits from microscope
-        if self.show_stage_limits:
+        if self.show_stage_limits and self.microscope.stage_is_compustage: # tmp: until we can get stage limits directly
             width = (2000e-6) / pixelsize
             height = points[2].y - points[3].y
             rect = create_rectangle_shape(grid_centre, width, height)
@@ -963,8 +963,8 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             return
 
         current_stage_position = deepcopy(self.microscope.get_stage_position())
-        centre_grid = FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
-        points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position, centre_grid])
+        stage_origin = FibsemStagePosition(name="Origin", x=0, y=0, z=0, r=0, t=0)
+        points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position, stage_origin])
 
         origin_point = points[1]
         current_point = points[0]
@@ -974,7 +974,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         # grid centre
         origin_lines = create_crosshair_shape(origin_point, crosshair_size, layer_scale)
-        for line, txt in zip(origin_lines, ["Grid Centre", ""]):
+        for line, txt in zip(origin_lines, ["Origin (0, 0)", ""]):
             overlays.append(NapariShapeOverlay(
                 shape=line,
                 color=CROSSHAIR_CONFIG["colors"]["origin"],
