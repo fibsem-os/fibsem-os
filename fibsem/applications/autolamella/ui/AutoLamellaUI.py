@@ -211,18 +211,20 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
 
         self.action_open_lamella_workflow_summary = QAction(  # type: ignore
-            "Open Lamella Workflow Summary",
+            "Open Lamella Summary",
             parent=self,
             triggered=self._open_lamella_workflow_summary,
         )
-        self.menuDevelopment.addAction(self.action_open_lamella_workflow_summary)
 
         self.action_open_experiment_workflow_summary = QAction(  # type: ignore
-            "Open Experiment Workflow Summary",
+            "Open Workflow Summary",
             parent=self,
             triggered=self._open_experiment_workflow_summary,
         )
-        self.menuDevelopment.addAction(self.action_open_experiment_workflow_summary)
+
+        self.menuTools.addSeparator()
+        self.menuTools.addAction(self.action_open_lamella_workflow_summary)
+        self.menuTools.addAction(self.action_open_experiment_workflow_summary)
         self.action_open_experiment_workflow_summary.setVisible(REPORTING_AVAILABLE)
         self.action_open_lamella_workflow_summary.setVisible(REPORTING_AVAILABLE)
 
@@ -650,15 +652,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         return
 
-
-#### PROTOCOL EDITOR
-
-    def _open_protocol_editor(self):
-        """Open the protocol editor dialog."""
-
-        self.protocol_editor_widget = show_protocol_editor(parent=self)
-
-
     def _open_lamella_workflow_summary(self):
         """Open the lamella task workflow summary dialog."""
 
@@ -686,6 +679,14 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         dialog = create_experiment_task_summary_widget(experiment=self.experiment, parent=self)
         dialog.exec_()
+
+
+#### PROTOCOL EDITOR
+
+    def _open_protocol_editor(self):
+        """Open the protocol editor dialog."""
+
+        self.protocol_editor_widget = show_protocol_editor(parent=self)
 
 
 #### MINIMAP

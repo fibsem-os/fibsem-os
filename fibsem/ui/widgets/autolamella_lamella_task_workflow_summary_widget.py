@@ -88,12 +88,13 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         self.experiment: Optional['Experiment'] = None
         self.current_lamella: Optional['Lamella'] = None
         self.current_figure: Optional[Figure] = None
+        self._title_artist = None
+        self._ylabel_artists: List = []
 
         self.initUI()
 
     def initUI(self):
         """Initialize the widget UI components."""
-        self.setContentsMargins(0, 0, 0, 0)
 
         layout = QVBoxLayout()
 
@@ -176,7 +177,6 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.info_label)
 
-        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
     def _create_empty_canvas(self):
@@ -184,6 +184,8 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         # Create empty figure
         self.figure = Figure(figsize=(10, 6), dpi=80)
         self.figure.patch.set_facecolor("#262930")
+        self._title_artist = None
+        self._ylabel_artists = []
 
         # Create canvas from figure
         if self.canvas is not None:
@@ -211,6 +213,15 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         ax.axis("off")
         self.figure.tight_layout()
         self.canvas.draw()
+
+    def _cache_text_artists(self, fig: Figure):
+        """Store references to title and ylabel artists for export color adjustments."""
+        self._title_artist = getattr(fig, "_suptitle", None)
+        self._ylabel_artists = []
+        for ax in fig.axes:
+            label = ax.yaxis.get_label()
+            if label is not None:
+                self._ylabel_artists.append(label)
 
     def _replace_canvas_with_figure(self, new_figure):
         """Replace the current canvas with a new figure.
@@ -343,6 +354,7 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
 
             # Store the current figure
             self.current_figure = fig
+            self._cache_text_artists(fig)
 
             # Replace canvas with the new figure
             self._replace_canvas_with_figure(fig)
@@ -368,6 +380,8 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         """Clear the current summary display."""
         self.current_lamella = None
         self.current_figure = None
+        self._title_artist = None
+        self._ylabel_artists = []
         self.lamella_selector.clear()
         self._create_empty_canvas()
         self.info_label.setText("No experiment loaded")
@@ -397,27 +411,28 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
             return
 
         try:
-            # Re-generate the figure with the reporting function for clean export
-            fig = plot_lamella_task_workflow_summary(
-                self.current_lamella,
-                show_title=True,
-                figsize=(30, 5),
-                show=False
-            )
-
-            if fig is None:
-                logging.warning("No figure generated for export")
-                return
+            original_title_color = None
+            ylabel_original_colors: List[str] = []
+            if self._title_artist is not None:
+                original_title_color = self._title_artist.get_color()
+                self._title_artist.set_color("black")
+            for label in self._ylabel_artists:
+                ylabel_original_colors.append(label.get_color())
+                label.set_color("black")
 
             # Save with high DPI
-            fig.savefig(file_path, dpi=300, bbox_inches='tight', facecolor='white')
-            logging.info(f"Exported task workflow summary to: {file_path}")
-            plt.close(fig)
+            self.current_figure.savefig(file_path, dpi=300, bbox_inches='tight', facecolor='white')
+            logging.info(f"Exported lamella task summary to: {file_path}")
 
         except Exception as e:
             logging.error(f"Error exporting figure: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            if self._title_artist is not None and original_title_color is not None:
+                self._title_artist.set_color(original_title_color)
+            for label, prev_color in zip(self._ylabel_artists, ylabel_original_colors):
+                label.set_color(prev_color)
 
 
 def create_lamella_workflow_summary_widget(experiment: 'Experiment',
@@ -438,7 +453,6 @@ def create_lamella_workflow_summary_widget(experiment: 'Experiment',
 
     # Create layout
     layout = QVBoxLayout()
-    layout.setContentsMargins(0, 0, 0, 0)
 
     # Create and add widget
     widget = LamellaTaskWorkflowSummaryWidget(parent=parent)

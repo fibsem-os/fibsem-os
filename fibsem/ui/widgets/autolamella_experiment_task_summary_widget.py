@@ -87,12 +87,13 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.experiment: Optional['Experiment'] = None
         self.current_task: Optional[str] = None
         self.current_figure: Optional[Figure] = None
+        self._title_artist = None
+        self._ylabel_artists: List = []
 
         self.initUI()
 
     def initUI(self):
         """Initialize the widget UI components."""
-        self.setContentsMargins(0, 0, 0, 0)
 
         layout = QVBoxLayout()
 
@@ -175,7 +176,6 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.info_label)
 
-        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
     def _create_empty_canvas(self):
@@ -183,6 +183,8 @@ class ExperimentTaskSummaryWidget(QWidget):
         # Create empty figure
         self.figure = Figure(figsize=(10, 6), dpi=80)
         self.figure.patch.set_facecolor("#262930")
+        self._title_artist = None
+        self._ylabel_artists = []
 
         # Create canvas from figure
         if self.canvas is not None:
@@ -210,6 +212,15 @@ class ExperimentTaskSummaryWidget(QWidget):
         ax.axis("off")
         self.figure.tight_layout()
         self.canvas.draw()
+
+    def _cache_text_artists(self, fig: Figure):
+        """Store references to title and ylabel artists for export adjustments."""
+        self._title_artist = getattr(fig, "_suptitle", None)
+        self._ylabel_artists = []
+        for ax in fig.axes:
+            label = ax.yaxis.get_label()
+            if label is not None:
+                self._ylabel_artists.append(label)
 
     def _replace_canvas_with_figure(self, new_figure):
         """Replace the current canvas with a new figure.
@@ -352,6 +363,7 @@ class ExperimentTaskSummaryWidget(QWidget):
 
             # Store the current figure
             self.current_figure = fig
+            self._cache_text_artists(fig)
 
             # Replace canvas with the new figure
             self._replace_canvas_with_figure(fig)
@@ -384,6 +396,8 @@ class ExperimentTaskSummaryWidget(QWidget):
         """Clear the current summary display."""
         self.current_task = None
         self.current_figure = None
+        self._title_artist = None
+        self._ylabel_artists = []
         self.task_selector.clear()
         self._create_empty_canvas()
         self.info_label.setText("No experiment loaded")
@@ -421,29 +435,27 @@ class ExperimentTaskSummaryWidget(QWidget):
             return
 
         try:
-            # Re-generate the figure with the reporting function for clean export
-            if self.current_task is not None and self.experiment is not None:
-                fig = plot_experiment_task_summary(
-                    self.experiment,
-                    self.current_task,
-                    show_title=True,
-                    figsize=(30, 5),
-                    show=False
-                )
+            original_title_color = None
+            ylabel_original_colors: List[str] = []
+            if self._title_artist is not None:
+                original_title_color = self._title_artist.get_color()
+                self._title_artist.set_color("black")
+            for label in self._ylabel_artists:
+                ylabel_original_colors.append(label.get_color())
+                label.set_color("black")
 
-                if fig is not None:
-                    # Save with high DPI
-                    fig.savefig(file_path, dpi=300, bbox_inches='tight', facecolor='white')
-                    logging.info(f"Exported experiment task summary to: {file_path}")
+            self.current_figure.savefig(file_path, dpi=300, bbox_inches='tight', facecolor='white')
+            logging.info(f"Exported experiment task summary to: {file_path}")
 
-                    # Clean up
-                    plt.close(fig)
-                else:
-                    logging.warning("No figure to export")
         except Exception as e:
             logging.error(f"Error exporting figure: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            if self._title_artist is not None and original_title_color is not None:
+                self._title_artist.set_color(original_title_color)
+            for label, prev_color in zip(self._ylabel_artists, ylabel_original_colors):
+                label.set_color(prev_color)
 
 
 def create_experiment_task_summary_widget(experiment: 'Experiment',
@@ -464,7 +476,6 @@ def create_experiment_task_summary_widget(experiment: 'Experiment',
 
     # Create layout
     layout = QVBoxLayout()
-    layout.setContentsMargins(0, 0, 0, 0)
 
     # Create and add widget
     widget = ExperimentTaskSummaryWidget(parent=parent)
