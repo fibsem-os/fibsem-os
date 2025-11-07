@@ -64,6 +64,7 @@ REPORTING_AVAILABLE: bool = False
 try:
     from fibsem.applications.autolamella.tools.reporting import save_final_overview_image
     from fibsem.ui.widgets.autolamella_generate_report_widget import generate_report_dialog
+    from fibsem.ui.widgets.autolamella_lamella_task_workflow_summary_widget import create_lamella_workflow_summary_widget
     REPORTING_AVAILABLE = True
 except ImportError as e:
     logging.debug(f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}")
@@ -208,6 +209,14 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         if os.name == "posix":
             self.menuBar().setNativeMenuBar(False) # required for macOS
         self.menuDevelopment.addAction(self.action_open_protocol_editor)
+
+
+        self.action_open_lamella_workflow_summary = QAction(  # type: ignore
+            "Open Lamella Workflow Summary",
+            parent=self,
+            triggered=self._open_lamella_workflow_summary,
+        )
+        self.menuDevelopment.addAction(self.action_open_lamella_workflow_summary)
 
         # development
         self.menuDevelopment.setVisible(False)
@@ -692,6 +701,20 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.protocol_editor_widget = show_protocol_editor(parent=self)
 
+
+    def _open_lamella_workflow_summary(self):
+        """Open the lamella task workflow summary dialog."""
+
+        if self.experiment is None:
+            napari.utils.notifications.show_warning("Please load an experiment first.")
+            return
+
+        if not REPORTING_AVAILABLE:
+            napari.utils.notifications.show_warning("Reporting tools are not available.")
+            return
+
+        dialog = create_lamella_workflow_summary_widget(experiment=self.experiment, parent=self)
+        dialog.exec_()
 
 #### MINIMAP
 

@@ -5,7 +5,7 @@ import os
 from copy import deepcopy
 from datetime import datetime
 from pprint import pprint
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,6 +28,8 @@ from reportlab.platypus import (
     TableStyle,
 )
 from skimage.transform import resize
+from scipy.ndimage import median_filter
+from matplotlib_scalebar.scalebar import ScaleBar
 
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -222,7 +224,7 @@ def _add_lamella_section(pdf: PDFReportGenerator,
 
     # Workflow images
     if include_images:
-        fig = plot_task_workflow_summary(lamella)
+        fig = plot_lamella_task_workflow_summary(lamella)
         if fig is not None:
             pdf.add_mpl_figure(fig, width=6*inch, height=4*inch)
 
@@ -255,7 +257,7 @@ def generate_report_data2(experiment: Experiment, encoding: str = "utf-8") -> Di
             - "detection_dataframe": Detection results (if available)
             - "detection_summary_dataframe": Detection summary statistics (if available)
     """
-    REPORT_DATA: Dict[str, any] = {}
+    REPORT_DATA: Dict[str, Any] = {}
 
     dfs = parse_logfile(str(experiment.path), encoding=encoding)
     dfs = format_pretty_dataframes(dfs)
@@ -373,9 +375,12 @@ def generate_report2(experiment: Experiment,
     # Generate PDF
     pdf.generate()
 
-def plot_task_workflow_summary(p: Lamella,
+def plot_lamella_task_workflow_summary(p: Lamella,
                          show_title: bool = False,
                          figsize: Tuple[int, int] = (30, 5),
+                         target_size: int = 256,
+                         fontsize: int = 12,
+                         mode: str = "light",
                          show: bool = False) -> Optional[Figure]:
     """Plot the final images for each task of the lamella workflow.
 
@@ -386,11 +391,17 @@ def plot_task_workflow_summary(p: Lamella,
         p: The lamella to plot workflow summary for
         show_title: Whether to add a title to the figure (default: False)
         figsize: Base size for the figure as (width, height) tuple (default: (30, 5))
+        target_size: Target size for image resize (default: 256)
+        fontsize: Font size for labels and title (default: 12)
+        mode: Display mode - "light" (black text) or "dark" (white text) (default: "light")
         show: Whether to display the figure immediately (default: False)
 
     Returns:
         Matplotlib Figure object if images are found, None otherwise
     """
+
+    # Determine text color based on mode
+    text_color = "white" if mode == "dark" else "black"
 
     # get completed tasks
     completed_tasks = [t.name for t in p.task_history]
@@ -408,7 +419,7 @@ def plot_task_workflow_summary(p: Lamella,
     if not task_filenames:
         logging.info(f"No valid images found for {p.name}")
         return None
-    
+
     # only keep tasks with valid images
     completed_tasks = list(task_filenames.keys())
     nrows = len(completed_tasks)
@@ -423,7 +434,7 @@ def plot_task_workflow_summary(p: Lamella,
             ax = axes[i]
 
         # Set y-axis label for this row (only on the leftmost subplot)
-        ax[0].set_ylabel(task_name, fontsize=18, rotation=90, ha='center', va='center')
+        ax[0].set_ylabel(task_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
 
         # Set x-axis label on the first row (only on the leftmost subplot)
         # if i == 0:
@@ -437,9 +448,9 @@ def plot_task_workflow_summary(p: Lamella,
 
                 # resize image, maintain aspect ratio
                 shape = img.data.shape
-                target_size = 256
                 resize_shape = (int(shape[0] * (target_size / shape[1])), target_size)
                 arr = resize(img.data, resize_shape, preserve_range=True).astype(img.data.dtype)
+                arr = median_filter(arr, size=3)
 
                 ax[j].imshow(arr, cmap="gray")
                 ax[j].set_xticks([])
@@ -448,7 +459,6 @@ def plot_task_workflow_summary(p: Lamella,
                     spine.set_visible(False)
 
                 # add scalebar
-                from matplotlib_scalebar.scalebar import ScaleBar
                 scalebar = ScaleBar(
                     dx=img.metadata.pixel_size.x * (shape[1] / target_size),
                     color="black",
@@ -462,7 +472,7 @@ def plot_task_workflow_summary(p: Lamella,
             logging.error(f"Error plotting {p.name} - {task_name}: {e}")
             continue
     if show_title:
-        fig.suptitle(f"Lamella {p.name}", fontsize=24)
+        fig.suptitle(f"Lamella {p.name}", fontsize=int(fontsize * 1.5), color=text_color)
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
     plt.tight_layout()
 
