@@ -488,35 +488,45 @@ def plot_minimap(
         grid_positions: Optional[List[FibsemStagePosition]] = None,
         show: bool = False,
         bound: bool = True,
-        color: Optional[str] = None,
+        color: str = "cyan",
         show_scalebar: bool = False,
         show_names: bool = True,
+        fontsize: int = 12,
+        markersize: int = 20,
         figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
         positions: The positions.
+        current_position: Optional current position to highlight
+        grid_positions: Optional grid positions to show
         show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
-        color: The color of the points. (None -> default colour cycle)
+        color: The color of the points.
+        show_scalebar: Whether to show a scalebar
+        show_names: Whether to show position names as labels
+        fontsize: Font size for position name labels (default: 14)
+        figsize: Figure size in inches (default: (15, 15))
     Returns:
         The matplotlib figure."""
     from fibsem.ui.napari.utilities import is_inside_image_bounds
     if image.metadata is None or image.metadata.microscope_state is None:
         raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
 
+    all_positions = list(positions)
     if current_position is not None:
-        positions.append(current_position)
+        all_positions.append(current_position)
     if grid_positions is not None:
-        positions.extend(grid_positions)
+        all_positions.extend(grid_positions)
 
-    # construct matplotlib figure
-    fig = plt.figure(figsize = figsize)
-    plt.imshow(image.data, cmap="gray")
+    # construct matplotlib figure/axes
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.imshow(image.data, cmap="gray")
 
     # reproject stage positions onto image 
-    points = reproject_stage_positions_onto_image2(image=image, positions=positions)
+    points = reproject_stage_positions_onto_image2(image=image, positions=all_positions)
 
+    marker_entries: List[dict] = []
     for i, pt in enumerate(points):
 
         # if points outside image, don't plot
@@ -526,33 +536,62 @@ def plot_minimap(
         if pt.name is None:
             pt.name = f"Position {i:02d}"
 
-        c = "cyan"
+        c = color
         if "Grid" in pt.name:
             c = "red"
         elif "Current Position" in pt.name:
             c = "yellow"
-        plt.plot(pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}")
+
+        marker_entries.append(
+            {
+                "point": (pt.x, pt.y),
+                "color": c,
+                "label": pt.name,
+            }
+        )
+
+    if marker_entries:
+        scatter_array = np.array([entry["point"] for entry in marker_entries])
+        scatter_colors = [entry["color"] for entry in marker_entries]
+        ax.scatter(
+            scatter_array[:, 0],
+            scatter_array[:, 1],
+            c=scatter_colors,
+            marker="+",
+            s=markersize ** 2,
+            linewidths=2,
+        )
 
         if show_names:
-            # draw position name next to point
-            plt.text(pt.x, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
+            for entry in marker_entries:
+                x, y = entry["point"]
+                ax.text(
+                    x + 10,
+                    y - 10,
+                    entry["label"],
+                    fontsize=fontsize,
+                    color=entry["color"],
+                    alpha=0.75,
+                    clip_on=True,
+                )
 
     if show_scalebar:
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
-            scalebar = ScaleBar(
-                dx=image.metadata.pixel_size.x,
-                color="black",
-                box_color="white",
-                box_alpha=0.5,
-                location="lower right",
+            ax.add_artist(
+                ScaleBar(
+                    dx=image.metadata.pixel_size.x,
+                    color="black",
+                    box_color="white",
+                    box_alpha=0.5,
+                    location="lower right",
+                )
             )
-            plt.gca().add_artist(scalebar)
         except Exception as e:
             logging.debug(f"Could not add scalebar: {e}")
 
-    plt.axis("off")
+    ax.axis("off")
     if show:
         plt.show()
 

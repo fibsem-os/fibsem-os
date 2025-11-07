@@ -62,10 +62,10 @@ from superqt import ensure_main_thread
 
 REPORTING_AVAILABLE: bool = False
 try:
-    from fibsem.applications.autolamella.tools.reporting import save_final_overview_image
     from fibsem.ui.widgets.autolamella_generate_report_widget import generate_report_dialog
     from fibsem.ui.widgets.autolamella_lamella_task_workflow_summary_widget import create_lamella_workflow_summary_widget
     from fibsem.ui.widgets.autolamella_experiment_task_summary_widget import create_experiment_task_summary_widget
+    from fibsem.ui.widgets.autolamella_overview_image_widget import create_overview_image_widget
     REPORTING_AVAILABLE = True
 except ImportError as e:
     logging.debug(f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}")
@@ -101,7 +101,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     detection_confirmed_signal = pyqtSignal(bool)
     # update_experiment_signal = pyqtSignal(Experiment)
     _workflow_finished_signal = pyqtSignal()
-    _reporting_workflow_finished_signal = pyqtSignal(dict)
 
     def __init__(self, viewer: napari.Viewer) -> None:
         super().__init__()
@@ -204,7 +203,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         )
 
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
-        self._reporting_workflow_finished_signal.connect(self._reporting_workflow_finished) # type: ignore
 
         # add to menu
         if os.name == "posix":
@@ -637,72 +635,21 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         generate_report_dialog(self.experiment, parent=self)
         return
 
-    def _reporting_workflow_finished(self, ddict: dict) -> None:
 
-        status = ddict.get("status", None)
-        msg = ddict.get("msg", None)
-        task = ddict.get("task", None)
-
-        if msg is None:
-            return
-
-        if status == "finished":
-            napari.utils.notifications.show_info(msg)
-        elif status == "errored":
-            napari.utils.notifications.show_error(msg) 
-
-    # TODO: migrate to a custom gui widget
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
             return
 
-        # get overview image
-        image_filename = fui.open_existing_file_dialog(
-            msg="Select Overview Image",
-            path=str(self.experiment.path),
-            _filter='Image Files (*.tif *.tiff)',
-            parent=self,
-        )
-
-        if image_filename == "":
-            return
-        image = FibsemImage.load(image_filename)
-        
-        # get user to select the output filename
-        filename = fui.open_save_file_dialog(
-            msg="Save Report",
-            path=os.path.join(self.experiment.path, f"final-overview-image-{utils.current_timestamp_v3()}.png"),
-            _filter="*.png",
-            parent=self,
-        )
-        if filename == "":
+        if not REPORTING_AVAILABLE:
+            napari.utils.notifications.show_warning("Reporting tools are not available.")
             return
 
-        # threaded overview generation
-        self.overview_worker = threading.Thread(
-            target=self.overview_gen_worker,
-            args=(deepcopy(self.experiment), image, filename)
-        )
-        self.overview_worker.start()
+        dialog = create_overview_image_widget(experiment=self.experiment, parent=self)
+        dialog.exec_()
 
-    def overview_gen_worker(self, experiment: Experiment, image: FibsemImage, filename: str) -> None:
-        err: Optional[Exception] = None
-        try:
-            # generate the overview plot
-            save_final_overview_image(exp=experiment, image=image, output_path=filename)
-        except Exception as e:
-            logging.warning(f"Failed to generate overview image plot: {e}")
-            err = e
-        finally:
-            msg = "Overview Plot Generation finished successfully"
-            status =  "finished"
-            if err is not None:
-                msg = f"An error occurred while generating the overview plot: {err}"
-                status = "errored"
-            self._reporting_workflow_finished_signal.emit({"status": status, # type: ignore
-                                                           "task": "Overview Plot Generation",
-                                                           "msg": msg})
+        return
+
 
 #### PROTOCOL EDITOR
 
