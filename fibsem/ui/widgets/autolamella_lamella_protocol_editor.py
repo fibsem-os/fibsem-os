@@ -87,14 +87,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fib_filenames_label = QLabel("FIB Image")
         self.combobox_fib_filenames.currentIndexChanged.connect(self._on_image_selected)
 
-        self.checkbox_flip_images = QCheckBox("Flip Images")
-        self.checkbox_flip_images.setToolTip("If checked, the fluorescence and FIB images will be flipped horizontally.")
-        self.checkbox_flip_images.setChecked(False)
-        self.checkbox_flip_images.stateChanged.connect(lambda: self._on_image_selected(0))
-        self.checkbox_sync_positions = QCheckBox("Sync Pattern Positions")
-        self.checkbox_sync_positions.setToolTip("If checked, the pattern position will be synchronized for rough milling and polishing stages.")
-        self.checkbox_sync_positions.setObjectName("checkbox-sync-positions")
-        self.checkbox_sync_positions.setChecked(True)
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setWordWrap(True)
@@ -111,13 +103,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.combobox_fm_filenames, 2, 1, 1, 1)
         self.grid_layout.addWidget(self.label_selected_milling, 3, 0)
         self.grid_layout.addWidget(self.comboBox_selected_task, 3, 1)
-        self.grid_layout.addWidget(self.checkbox_sync_positions, 4, 0, )
-        self.grid_layout.addWidget(self.checkbox_flip_images, 4, 1, 1, 1)
         self.grid_layout.addWidget(self.label_status, 5, 0, 1, 2)
         self.grid_layout.addWidget(self.label_warning, 6, 0, 1, 2)
         self.grid_layout.addWidget(self.pushButton_refresh_positions, 7, 0, 1, 2)
-        self.checkbox_flip_images.setVisible(False)
-        self.checkbox_sync_positions.setVisible(False)
 
         # main layout
         self.main_layout = QVBoxLayout(self)
@@ -145,7 +133,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.comboBox_selected_lamella.currentIndexChanged.connect(self._on_selected_lamella_changed)
         self.comboBox_selected_task.currentIndexChanged.connect(self._on_selected_task_changed)
-        self.milling_task_editor.task_config_updated.connect(self._on_milling_task_config_updated)
+        self.milling_task_editor.task_configs_changed.connect(self._on_milling_task_config_updated)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.image_params_widget.settings_changed.connect(self._on_image_settings_changed)
 
@@ -282,8 +270,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         task_config = selected_lamella.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
         self.milling_task_editor.set_task_configs(task_config.milling)
+        self.image_params_widget.update_from_settings(task_config.imaging)
         if task_config.milling:
             self._on_milling_fov_changed(task_config.milling)
+            self.milling_task_collapsible.setVisible(True)
+        else:
+            self.milling_task_collapsible.setVisible(False)
+            if "Milling Patterns" in self.viewer.layers:
+                self.viewer.layers.remove("Milling Patterns") # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # display label showing task has been completed
@@ -309,19 +303,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.label_warning.setVisible(False)
 
-    def _on_milling_task_config_updated(self, task_name: str, config: FibsemMillingTaskConfig):
+    def _on_milling_task_config_updated(self, configs: Dict[str, FibsemMillingTaskConfig]):
         """Callback when the milling task config is updated."""
 
         selected_task_name = self.comboBox_selected_task.currentText()
         selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
-        selected_lamella.task_config[selected_task_name].milling[task_name] = copy.deepcopy(config)
-        logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task, Milling Task: {task_name} ({config.name}) ")
+        selected_lamella.task_config[selected_task_name].milling = copy.deepcopy(configs)
+        logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task, Milling Tasks: {list(configs.keys())} ")
 
         # TODO: support position sync between milling tasks, e.g. sync trench position between rough milling and polishing
 
         self._save_experiment()
 
-        self._on_milling_fov_changed({task_name: config})
+        self._on_milling_fov_changed(configs)
 
     def _on_task_parameters_config_changed(self, field_name: str, new_value: Any):
         """Callback when the task parameters config is updated."""
@@ -353,22 +347,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
             self.parent_widget.experiment.save() # TODO: migrate to shared data model
 
-    def _on_image_settings_changed(self, settings):
-        """Callback when the image settings are changed."""
-        logging.info(f"Image settings changed: {settings}")
-
-        # Update the image settings in the task config
-        selected_task_name = self.comboBox_selected_task.currentText()
-        selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
-        selected_lamella.task_config[selected_task_name].imaging = settings
-
-        self._save_experiment()
-
-    def _save_experiment(self):
-        """Save the experiment."""
-        # save the experiment
-        if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save() # TODO: migrate to shared data model
 
 def show_protocol_editor(parent: 'AutoLamellaUI',):
     """Show the AutoLamella protocol editor widget."""

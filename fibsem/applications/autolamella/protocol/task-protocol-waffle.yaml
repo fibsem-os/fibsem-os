@@ -80,7 +80,7 @@ tasks:
             exposure_time: 10
             orientation: null
         milling: {}
-    Setup Lamella (Mill Fiducial):
+    Setup Lamella:
         task_type: SETUP_LAMELLA
         parameters:
             milling_angle: 15
@@ -415,23 +415,15 @@ workflow:
         supervise: true
         required: false
         requires: []
-    -   name: Acquire Fluorescence Image
-        supervise: false
-        required: false
-        requires: []
-    -   name: Setup Lamella (Mill Fiducial)
+    -   name: Setup Lamella
         supervise: true
         required: true
-        requires: []
-    -   name: Acquire Fluorescence Image
-        supervise: false
-        required: false
         requires: []
     -   name: Rough Milling
         supervise: true
         required: true
         requires:
-        - Setup Lamella (Mill Fiducial)
+        - Setup Lamella
     -   name: Polishing
         supervise: true
         required: true

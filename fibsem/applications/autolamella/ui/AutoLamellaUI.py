@@ -1198,9 +1198,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             logging.warning("No lamella in the experiment, cannot remove.")
             return
 
-        if self.milling_widget is None:
-            raise ValueError("Milling widget is not initialized.")
-
         pos = self.experiment.positions[idx]
         ret = fui.message_box_ui(
             title="Remove Lamella",

@@ -298,7 +298,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         task_config = self.experiment.task_protocol.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
-        
+        self.image_params_widget.update_from_settings(task_config.imaging)
+
         # clear existing image layers
         self.viewer.layers.clear()
         self.image = FibsemImage.generate_blank_image(hfw=150e-6, random=True)
