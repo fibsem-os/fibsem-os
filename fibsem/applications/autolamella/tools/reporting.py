@@ -423,8 +423,21 @@ def plot_lamella_task_workflow_summary(p: Lamella,
     # only keep tasks with valid images
     completed_tasks = list(task_filenames.keys())
     nrows = len(completed_tasks)
-    figsize = (figsize[0], figsize[1] * len(completed_tasks))
-    fig, axes = plt.subplots(nrows, 4, figsize=figsize)
+
+    # Load first image to determine aspect ratio for proper figure sizing
+    first_filename = list(task_filenames.values())[0][0]
+    first_img = FibsemImage.load(first_filename)
+    img_shape = first_img.data.shape
+    resize_shape = (int(img_shape[0] * (target_size / img_shape[1])), target_size)
+    aspect_ratio = resize_shape[0] / resize_shape[1]
+
+    # Calculate figure size based on target image size and number of rows
+    # 4 columns of images, each target_size wide
+    fig_width = figsize[0]
+    # Height should accommodate nrows of images with aspect_ratio, minimal spacing
+    fig_height = fig_width * aspect_ratio * nrows / 4
+
+    fig, axes = plt.subplots(nrows, 4, figsize=(fig_width, fig_height))
 
     for i, task_name in enumerate(completed_tasks):
 
@@ -471,15 +484,137 @@ def plot_lamella_task_workflow_summary(p: Lamella,
         except Exception as e:
             logging.error(f"Error plotting {p.name} - {task_name}: {e}")
             continue
+
     if show_title:
         fig.suptitle(f"Lamella {p.name}", fontsize=int(fontsize * 1.5), color=text_color)
-    plt.subplots_adjust(wspace=0.01, hspace=0.01)
-    plt.tight_layout()
+
+    # Minimize spacing between subplots
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.02, hspace=0.02)
 
     if show:
         plt.show()
 
     return fig
+
+
+def plot_experiment_task_summary(exp: Experiment,
+                                  task_name: str,
+                                  show_title: bool = False,
+                                  figsize: Tuple[int, int] = (30, 5),
+                                  target_size: int = 256,
+                                  fontsize: int = 12,
+                                  mode: str = "light",
+                                  show: bool = False) -> Optional[Figure]:
+    """Plot the final images for a specific task across all lamellae in an experiment.
+
+    Creates a grid of images showing SEM and FIB views at different resolutions
+    for a specific task across all lamellae that have completed that task.
+
+    Args:
+        exp: The experiment containing lamellae to plot
+        task_name: Name of the task to plot across all lamellae
+        show_title: Whether to add a title to the figure (default: False)
+        figsize: Base size for the figure as (width, height) tuple (default: (30, 5))
+        target_size: Target size for image resize (default: 256)
+        fontsize: Font size for labels and title (default: 12)
+        mode: Display mode - "light" (black text) or "dark" (white text) (default: "light")
+        show: Whether to display the figure immediately (default: False)
+
+    Returns:
+        Matplotlib Figure object if images are found, None otherwise
+    """
+
+    # Determine text color based on mode
+    text_color = "white" if mode == "dark" else "black"
+
+    # Find lamellae that have completed the specified task
+    lamella_filenames = {}
+    for lamella in exp.positions:
+        # Check if lamella has completed the task
+        if not lamella.has_completed_task(task_name):
+            continue
+
+        # Look for task images
+        filenames = sorted(glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*_res*.tif*")))
+        if len(filenames) == 0 or len(filenames) < 4:
+            continue
+        lamella_filenames[lamella.name] = filenames
+
+    if not lamella_filenames:
+        logging.info(f"No valid images found for task '{task_name}' in experiment '{exp.name}'")
+        return None
+
+    # only keep lamellae with valid images
+    lamella_names = list(lamella_filenames.keys())
+    nrows = len(lamella_names)
+
+    # Load first image to determine aspect ratio for proper figure sizing
+    first_filename = list(lamella_filenames.values())[0][0]
+    first_img = FibsemImage.load(first_filename)
+    img_shape = first_img.data.shape
+    resize_shape = (int(img_shape[0] * (target_size / img_shape[1])), target_size)
+    aspect_ratio = resize_shape[0] / resize_shape[1]
+
+    # Calculate figure size based on target image size and number of rows
+    # 4 columns of images, each target_size wide
+    fig_width = figsize[0]
+    # Height should accommodate nrows of images with aspect_ratio, minimal spacing
+    fig_height = fig_width * aspect_ratio * nrows / 4
+
+    fig, axes = plt.subplots(nrows, 4, figsize=(fig_width, fig_height))
+
+    for i, lamella_name in enumerate(lamella_names):
+
+        if nrows == 1:
+            ax = axes
+        else:
+            ax = axes[i]
+
+        # Set y-axis label for this row (lamella name)
+        ax[0].set_ylabel(lamella_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
+
+        filenames = lamella_filenames[lamella_name]
+        try:
+            for j, fname in enumerate(filenames):
+                img = FibsemImage.load(fname)
+
+                # resize image, maintain aspect ratio
+                shape = img.data.shape
+                resize_shape = (int(shape[0] * (target_size / shape[1])), target_size)
+                arr = resize(img.data, resize_shape, preserve_range=True).astype(img.data.dtype)
+                arr = median_filter(arr, size=3)
+
+                ax[j].imshow(arr, cmap="gray")
+                ax[j].set_xticks([])
+                ax[j].set_yticks([])
+                for spine in ax[j].spines.values():
+                    spine.set_visible(False)
+
+                # add scalebar
+                scalebar = ScaleBar(
+                    dx=img.metadata.pixel_size.x * (shape[1] / target_size),
+                    color="black",
+                    box_color="white",
+                    box_alpha=0.5,
+                    location="lower right",
+                )
+                ax[j].add_artist(scalebar)
+
+        except Exception as e:
+            logging.error(f"Error plotting {lamella_name} - {task_name}: {e}")
+            continue
+
+    if show_title:
+        fig.suptitle(f"Task: {task_name}", fontsize=int(fontsize * 1.5), color=text_color)
+
+    # Minimize spacing between subplots
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.02, hspace=0.02)
+
+    if show:
+        plt.show()
+
+    return fig
+
 
 def plot_task_milling_summary(p: Lamella, show: bool = False) -> List[Figure]:
     """Plot the milling patterns for each task of the lamella workflow.

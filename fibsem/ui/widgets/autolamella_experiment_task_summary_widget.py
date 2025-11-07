@@ -1,4 +1,4 @@
-"""Widget for displaying task workflow summary images for completed lamellae."""
+"""Widget for displaying experiment task summary images across all lamellae."""
 
 import logging
 import os
@@ -21,9 +21,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.tools.reporting import (
-    plot_lamella_task_workflow_summary,
+    plot_experiment_task_summary, Experiment
 )
-from fibsem.applications.autolamella.structures import Experiment, Lamella
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -69,16 +68,16 @@ BUTTON_STYLESHEET = """
 """
 
 
-class LamellaTaskWorkflowSummaryWidget(QWidget):
-    """Widget for displaying task workflow summary images for completed lamellae.
+class ExperimentTaskSummaryWidget(QWidget):
+    """Widget for displaying task summary images across all lamellae in an experiment.
 
     This widget displays a grid of images showing SEM and FIB views at different resolutions
-    for each completed task in a lamella workflow. Users can navigate between different
-    lamellae using a dropdown selector.
+    for a specific task across all lamellae that have completed that task. Users can navigate
+    between different tasks using a dropdown selector.
     """
 
     def __init__(self, parent: Optional['AutoLamellaUI'] = None):
-        """Initialize the task workflow summary widget.
+        """Initialize the experiment task summary widget.
 
         Args:
             parent: Parent AutoLamellaUI widget (optional)
@@ -86,7 +85,7 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         super().__init__(parent)
         self.parent_widget = parent
         self.experiment: Optional['Experiment'] = None
-        self.current_lamella: Optional['Lamella'] = None
+        self.current_task: Optional[str] = None
         self.current_figure: Optional[Figure] = None
 
         self.initUI()
@@ -101,21 +100,21 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         controls_layout = QHBoxLayout()
 
         # Title label
-        title_label = QLabel("Lamella Workflow Summary")
+        title_label = QLabel("Experiment Task Summary")
         title_label.setStyleSheet("color: white; font-size: 12px; font-weight: bold;")
         controls_layout.addWidget(title_label)
 
         controls_layout.addStretch()
 
-        # Lamella selector
-        self.lamella_label = QLabel("Lamella:")
-        self.lamella_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
-        controls_layout.addWidget(self.lamella_label)
+        # Task selector
+        self.task_label = QLabel("Task:")
+        self.task_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        controls_layout.addWidget(self.task_label)
 
-        self.lamella_selector = QComboBox(self)
-        self.lamella_selector.setStyleSheet(COMBOBOX_STYLESHEET)
-        self.lamella_selector.currentIndexChanged.connect(self._on_lamella_changed)
-        controls_layout.addWidget(self.lamella_selector)
+        self.task_selector = QComboBox(self)
+        self.task_selector.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.task_selector.currentIndexChanged.connect(self._on_task_changed)
+        controls_layout.addWidget(self.task_selector)
 
         layout.addLayout(controls_layout)
 
@@ -200,14 +199,14 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         ax.text(
             0.5,
             0.5,
-            "No task workflow data available",
+            "No experiment task data available",
             horizontalalignment="center",
             verticalalignment="center",
             transform=ax.transAxes,
             fontsize=12,
             color="#bbbbbb",
         )
-        ax.set_title("Lamella Workflow Summary", color="white")
+        ax.set_title("Experiment Task Summary", color="white")
         ax.axis("off")
         self.figure.tight_layout()
         self.canvas.draw()
@@ -263,68 +262,78 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         self.canvas.draw()
 
     def set_experiment(self, experiment: 'Experiment'):
-        """Set the experiment and populate the lamella selector.
+        """Set the experiment and populate the task selector.
 
         Args:
-            experiment: The Experiment object containing lamellae to display
+            experiment: The Experiment object to display
         """
         self.experiment = experiment
 
-        # Clear and populate lamella selector
-        self.lamella_selector.blockSignals(True)  # Prevent triggering update during population
-        self.lamella_selector.clear()
+        # Clear and populate task selector
+        self.task_selector.blockSignals(True)  # Prevent triggering update during population
+        self.task_selector.clear()
 
         if experiment is not None and hasattr(experiment, 'positions'):
-            # Filter to only show lamellae with completed tasks
-            lamellae_with_tasks = [
-                lamella for lamella in experiment.positions
-                if hasattr(lamella, 'task_history') and len(lamella.task_history) > 0
-            ]
+            # Collect all unique completed tasks across all lamellae
+            all_tasks = set()
+            for lamella in experiment.positions:
+                if hasattr(lamella, 'task_history'):
+                    all_tasks.update([task.name for task in lamella.task_history])
 
-            if lamellae_with_tasks:
-                for lamella in lamellae_with_tasks:
-                    display_name = f"{lamella.name} ({len(lamella.task_history)} tasks)"
-                    self.lamella_selector.addItem(display_name, userData=lamella)
+            # Sort tasks alphabetically
+            sorted_tasks = sorted(list(all_tasks))
 
-                # Set the first lamella as current
-                self.current_lamella = lamellae_with_tasks[0]
+            if sorted_tasks:
+                for task_name in sorted_tasks:
+                    # Count how many lamellae have completed this task
+                    count = sum(
+                        1 for lamella in experiment.positions
+                        if hasattr(lamella, 'task_history') and
+                        lamella.has_completed_task(task_name)
+                    )
+                    display_name = f"{task_name} ({count} lamellae)"
+                    self.task_selector.addItem(display_name, userData=task_name)
+
+                # Set the first task as current
+                self.current_task = sorted_tasks[0]
                 self.info_label.setText(
                     f"Experiment: {experiment.name} | "
-                    f"{len(lamellae_with_tasks)} lamellae with completed tasks"
+                    f"{len(sorted_tasks)} unique tasks"
                 )
             else:
                 self.info_label.setText(f"Experiment: {experiment.name} | No completed tasks found")
-                self.current_lamella = None
+                self.current_task = None
         else:
             self.info_label.setText("No experiment loaded")
-            self.current_lamella = None
+            self.current_task = None
 
-        self.lamella_selector.blockSignals(False)
+        self.task_selector.blockSignals(False)
 
         # Update the display
         self.update_summary()
 
-    def _on_lamella_changed(self, index: int):
-        """Handle lamella selection change.
+    def _on_task_changed(self, index: int):
+        """Handle task selection change.
 
         Args:
-            index: The index of the selected lamella in the combo box
+            index: The index of the selected task in the combo box
         """
         if index >= 0:
-            self.current_lamella = self.lamella_selector.itemData(index)
+            self.current_task = self.task_selector.itemData(index)
             self.update_summary()
 
     def update_summary(self):
-        """Update the task workflow summary display for the current lamella."""
+        """Update the experiment task summary display for the current task."""
 
-        if self.current_lamella is None:
+        if self.current_task is None or self.experiment is None:
             self._create_empty_canvas()
             return
 
         try:
             # Generate the figure
-            fig = plot_lamella_task_workflow_summary(
-                self.current_lamella,
+            fig = plot_experiment_task_summary(
+                self.experiment,
+                self.current_task,
                 show_title=True,
                 figsize=(10, 5),
                 target_size=512,
@@ -334,10 +343,10 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
             )
 
             if fig is None:
-                # No valid images found for this lamella
+                # No valid images found for this task
                 self._create_empty_canvas()
                 self.info_label.setText(
-                    f"Lamella: {self.current_lamella.name} | No valid workflow images found"
+                    f"Task: {self.current_task} | No valid images found"
                 )
                 return
 
@@ -347,10 +356,17 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
             # Replace canvas with the new figure
             self._replace_canvas_with_figure(fig)
 
+            # Count lamellae with this task
+            count = sum(
+                1 for lamella in self.experiment.positions
+                if hasattr(lamella, 'task_history') and
+                lamella.has_completed_task(self.current_task)
+            )
+
             # Update info label
             self.info_label.setText(
-                f"Lamella: {self.current_lamella.name} | "
-                f"{len(self.current_lamella.task_history)} completed tasks"
+                f"Task: {self.current_task} | "
+                f"{count} lamellae completed"
             )
 
         except ImportError as e:
@@ -358,7 +374,7 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
             self._create_empty_canvas()
             self.info_label.setText("Error: Reporting module not available")
         except Exception as e:
-            logging.error(f"Error updating task workflow summary: {e}")
+            logging.error(f"Error updating experiment task summary: {e}")
             import traceback
             traceback.print_exc()
             self._create_empty_canvas()
@@ -366,9 +382,9 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
 
     def clear_summary(self):
         """Clear the current summary display."""
-        self.current_lamella = None
+        self.current_task = None
         self.current_figure = None
-        self.lamella_selector.clear()
+        self.task_selector.clear()
         self._create_empty_canvas()
         self.info_label.setText("No experiment loaded")
 
@@ -376,19 +392,27 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
         """Handle export button click to save the current figure."""
         if self.current_figure is None:
             return
-        
-        if self.experiment is None or self.current_lamella is None:
-            return
 
-        start_dir = str(self.experiment.path)
-        default_name = f"task_workflow_summary_{self.current_lamella.name}.png"
-        default_filename = os.path.join(start_dir, default_name)
+        # Determine starting directory from experiment path if available
+        start_dir = ""
+        if self.experiment is not None:
+            start_dir = str(self.experiment.path)
+
+        # Default filename
+        default_name = "experiment_task_summary.png"
+        if self.current_task is not None:
+            default_name = f"experiment_task_summary_{self.current_task}.png"
+
+        if start_dir:
+            default_path = os.path.join(start_dir, default_name)
+        else:
+            default_path = default_name
 
         # Open file dialog
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Lamella Workflow Summary",
-            default_filename,
+            "Export Experiment Task Summary",
+            default_path,
             "PNG Files (*.png);;PDF Files (*.pdf);;All Files (*.*)"
         )
 
@@ -398,31 +422,33 @@ class LamellaTaskWorkflowSummaryWidget(QWidget):
 
         try:
             # Re-generate the figure with the reporting function for clean export
-            fig = plot_lamella_task_workflow_summary(
-                self.current_lamella,
-                show_title=True,
-                figsize=(30, 5),
-                show=False
-            )
+            if self.current_task is not None and self.experiment is not None:
+                fig = plot_experiment_task_summary(
+                    self.experiment,
+                    self.current_task,
+                    show_title=True,
+                    figsize=(30, 5),
+                    show=False
+                )
 
-            if fig is None:
-                logging.warning("No figure generated for export")
-                return
+                if fig is not None:
+                    # Save with high DPI
+                    fig.savefig(file_path, dpi=300, bbox_inches='tight', facecolor='white')
+                    logging.info(f"Exported experiment task summary to: {file_path}")
 
-            # Save with high DPI
-            fig.savefig(file_path, dpi=300, bbox_inches='tight', facecolor='white')
-            logging.info(f"Exported task workflow summary to: {file_path}")
-            plt.close(fig)
-
+                    # Clean up
+                    plt.close(fig)
+                else:
+                    logging.warning("No figure to export")
         except Exception as e:
             logging.error(f"Error exporting figure: {e}")
             import traceback
             traceback.print_exc()
 
 
-def create_lamella_workflow_summary_widget(experiment: 'Experiment',
-                                                parent: Optional['AutoLamellaUI'] = None) -> QDialog:
-    """Create and initialize a LamellaTaskWorkflowSummaryWidget wrapped in a dialog.
+def create_experiment_task_summary_widget(experiment: 'Experiment',
+                                          parent: Optional['AutoLamellaUI'] = None) -> QDialog:
+    """Create and initialize an ExperimentTaskSummaryWidget wrapped in a dialog.
 
     Args:
         experiment: The Experiment object to display
@@ -433,15 +459,15 @@ def create_lamella_workflow_summary_widget(experiment: 'Experiment',
     """
     # Create dialog
     dialog = QDialog(parent)
-    dialog.setWindowTitle(f"Lamella Workflow Summary - {experiment.name}")
-    dialog.setMinimumSize(400, 300)
+    dialog.setWindowTitle(f"Experiment Task Summary - {experiment.name}")
+    dialog.setMinimumSize(800, 600)
 
     # Create layout
     layout = QVBoxLayout()
     layout.setContentsMargins(0, 0, 0, 0)
 
     # Create and add widget
-    widget = LamellaTaskWorkflowSummaryWidget(parent=parent)
+    widget = ExperimentTaskSummaryWidget(parent=parent)
     widget.set_experiment(experiment)
     layout.addWidget(widget)
 
@@ -462,7 +488,7 @@ if __name__ == "__main__":
     dialog.setMinimumSize(800, 600)
 
     layout = QVBoxLayout()
-    widget = LamellaTaskWorkflowSummaryWidget()
+    widget = ExperimentTaskSummaryWidget()
     PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-11-07-12-32/experiment.yaml"
     exp = Experiment.load(PATH)
     widget.set_experiment(exp)

@@ -65,6 +65,7 @@ try:
     from fibsem.applications.autolamella.tools.reporting import save_final_overview_image
     from fibsem.ui.widgets.autolamella_generate_report_widget import generate_report_dialog
     from fibsem.ui.widgets.autolamella_lamella_task_workflow_summary_widget import create_lamella_workflow_summary_widget
+    from fibsem.ui.widgets.autolamella_experiment_task_summary_widget import create_experiment_task_summary_widget
     REPORTING_AVAILABLE = True
 except ImportError as e:
     logging.debug(f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}")
@@ -217,6 +218,15 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             triggered=self._open_lamella_workflow_summary,
         )
         self.menuDevelopment.addAction(self.action_open_lamella_workflow_summary)
+
+        self.action_open_experiment_workflow_summary = QAction(  # type: ignore
+            "Open Experiment Workflow Summary",
+            parent=self,
+            triggered=self._open_experiment_workflow_summary,
+        )
+        self.menuDevelopment.addAction(self.action_open_experiment_workflow_summary)
+        self.action_open_experiment_workflow_summary.setVisible(REPORTING_AVAILABLE)
+        self.action_open_lamella_workflow_summary.setVisible(REPORTING_AVAILABLE)
 
         # development
         self.menuDevelopment.setVisible(False)
@@ -715,6 +725,21 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         dialog = create_lamella_workflow_summary_widget(experiment=self.experiment, parent=self)
         dialog.exec_()
+
+    def _open_experiment_workflow_summary(self):
+        """Open the experiment task workflow summary dialog."""
+
+        if self.experiment is None:
+            napari.utils.notifications.show_warning("Please load an experiment first.")
+            return
+
+        if not REPORTING_AVAILABLE:
+            napari.utils.notifications.show_warning("Reporting tools are not available.")
+            return
+
+        dialog = create_experiment_task_summary_widget(experiment=self.experiment, parent=self)
+        dialog.exec_()
+
 
 #### MINIMAP
 
