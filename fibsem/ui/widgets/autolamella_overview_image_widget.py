@@ -174,13 +174,6 @@ class OverviewImageWidget(QWidget):
     def initUI(self):
         """Initialize the widget UI components."""
 
-        main_layout = QVBoxLayout()
-
-        # Title
-        title_label = QLabel("Generate Final Overview Image")
-        title_label.setStyleSheet("color: white; font-size: 12px; font-weight: bold;")
-        main_layout.addWidget(title_label)
-
         # Display Options Panel
         display_group = QGroupBox("Display Options")
         display_group.setStyleSheet(GROUPBOX_STYLESHEET)
@@ -190,29 +183,24 @@ class OverviewImageWidget(QWidget):
         self.title_textbox = QLineEdit()
         self.title_textbox.setStyleSheet(LINEEDIT_STYLESHEET)
         self.title_textbox.setText("Overview Image")
-        display_layout.addRow("Title", self.title_textbox)
 
         # Marker color
-        color_layout = QHBoxLayout()
         self.color_label = QLabel("●")
         self.color_label.setStyleSheet(f"color: {self.marker_color.name()}; font-size: 20px;")
-        color_layout.addWidget(self.color_label)
-
         self.color_button = QPushButton("Choose Color")
         self.color_button.setStyleSheet(BUTTON_STYLESHEET)
         self.color_button.clicked.connect(self._on_color_button_clicked)
+        color_layout = QHBoxLayout()
+        color_layout.addWidget(self.color_label)
         color_layout.addWidget(self.color_button)
         color_layout.addStretch()
-
-        display_layout.addRow("Marker Color", color_layout)
 
         # Text size
         self.text_size_spinbox = QSpinBox()
         self.text_size_spinbox.setStyleSheet(SPINBOX_STYLESHEET)
         self.text_size_spinbox.setRange(6, 48)
-        self.text_size_spinbox.setValue(12)
+        self.text_size_spinbox.setValue(10)
         self.text_size_spinbox.setKeyboardTracking(False)
-        display_layout.addRow("Text Size", self.text_size_spinbox)
 
         # Marker size
         self.markersize_spinbox = QSpinBox()
@@ -220,19 +208,25 @@ class OverviewImageWidget(QWidget):
         self.markersize_spinbox.setRange(5, 100)
         self.markersize_spinbox.setValue(20)
         self.markersize_spinbox.setKeyboardTracking(False)
-        display_layout.addRow("Marker Size", self.markersize_spinbox)
 
         # Show names checkbox
         self.show_names_checkbox = QCheckBox("")
         self.show_names_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
         self.show_names_checkbox.setChecked(True)
-        display_layout.addRow("Show Names", self.show_names_checkbox)
 
         # Show scalebar checkbox
         self.show_scalebar_checkbox = QCheckBox("")
         self.show_scalebar_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
         self.show_scalebar_checkbox.setChecked(True)
+        
+        # display layout
+        display_layout.addRow("Title", self.title_textbox)
+        display_layout.addRow("Marker Color", color_layout)
+        display_layout.addRow("Text Size", self.text_size_spinbox)
+        display_layout.addRow("Marker Size", self.markersize_spinbox)
+        display_layout.addRow("Show Names", self.show_names_checkbox)
         display_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
+        display_group.setLayout(display_layout)
 
         # Connect signals to update preview on change
         self.text_size_spinbox.valueChanged.connect(self._on_preview_clicked)
@@ -241,7 +235,6 @@ class OverviewImageWidget(QWidget):
         self.show_scalebar_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.title_textbox.editingFinished.connect(self._on_preview_clicked)
 
-        display_group.setLayout(display_layout)
 
         # Preview canvas
         self.canvas = None
@@ -255,48 +248,41 @@ class OverviewImageWidget(QWidget):
         # Create initial empty figure
         self._create_empty_canvas()
 
-        hlayout = QHBoxLayout()
-        main_layout.addLayout(hlayout)
-        hlayout.addWidget(self.canvas_container)
-        hlayout.addWidget(display_group)
-
         # Action buttons
-        button_layout = QHBoxLayout()
-
         self.load_image_button = QPushButton("Load Image", self)
         self.load_image_button.setStyleSheet(BUTTON_STYLESHEET)
         self.load_image_button.clicked.connect(self._on_browse_image_clicked)
         self.load_image_button.setAutoDefault(False)
         self.load_image_button.setDefault(False)
-        button_layout.addWidget(self.load_image_button)
-
-        self.preview_button = QPushButton("Generate Preview", self)
-        self.preview_button.setStyleSheet(BUTTON_STYLESHEET)
-        self.preview_button.clicked.connect(self._on_preview_clicked)
-        button_layout.addWidget(self.preview_button)
 
         self.reset_view_button = QPushButton("Reset View", self)
         self.reset_view_button.setStyleSheet(BUTTON_STYLESHEET)
         self.reset_view_button.clicked.connect(self._on_reset_view_clicked)
-        button_layout.addWidget(self.reset_view_button)
 
         self.save_button = QPushButton("Save Image", self)
         self.save_button.setStyleSheet(BUTTON_STYLESHEET)
         self.save_button.clicked.connect(self._on_save_clicked)
+
+        hlayout = QHBoxLayout()
+        hlayout.addWidget(self.canvas_container)
+        hlayout.addWidget(display_group)
+
+        # button layouts
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.load_image_button)
+        button_layout.addWidget(self.reset_view_button)
         button_layout.addWidget(self.save_button)
-
-        self.clear_button = QPushButton("Clear", self)
-        self.clear_button.setStyleSheet(BUTTON_STYLESHEET)
-        self.clear_button.clicked.connect(self.clear_preview)
-        button_layout.addWidget(self.clear_button)
-
         button_layout.addStretch()
-        main_layout.addLayout(button_layout)
 
         # Info label
         self.info_label = QLabel("No experiment loaded")
         self.info_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # main layout
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(hlayout)
+        main_layout.addLayout(button_layout)
         main_layout.addWidget(self.info_label)
 
         self.setLayout(main_layout)
@@ -588,9 +574,6 @@ class OverviewImageWidget(QWidget):
             self.info_label.setText("Error: No overview image loaded")
             return
 
-        # QUERY: pressing enter causes the open image dialog to open because the dialog is still focused?
-        # ANSWER: Yes, this is likely because the dialog is modal and the focus is still on the dialog.
-
         try:
 
             # Get settings
@@ -684,12 +667,6 @@ class OverviewImageWidget(QWidget):
         finally:
             if self._title_artist is not None and original_title_color is not None:
                 self._title_artist.set_color(original_title_color)
-
-    def clear_preview(self):
-        """Clear the current preview."""
-        self.current_figure = None
-        self._create_empty_canvas()
-        self.info_label.setText("Preview cleared")
 
 
 def create_overview_image_widget(experiment: 'Experiment',
