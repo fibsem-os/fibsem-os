@@ -923,7 +923,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         for widget in self._widgets:
             widget.deleteLater()
         self._widgets.clear()
-        
+
         self.update_milling_stage_display()
 
     def update_from_settings(self, milling_stages: List[FibsemMillingStage]):
@@ -962,7 +962,16 @@ class FibsemMillingStageEditorWidget(QWidget):
         if milling_stage is None:
             # create a default milling stage if not provided
             num = len(self._milling_stages) + 1
-            milling_stage = FibsemMillingStage(name=f"Milling Stage {num}", num=num)
+            name = f"Milling Stage {num}"
+            # TODO: display alignment area
+            # use a copy of the currently selected milling stage, if possible
+            current_index = self.list_widget_milling_stages.currentRow()
+            if current_index >= 0 and current_index < len(self._milling_stages):
+                milling_stage = copy.deepcopy(self._milling_stages[current_index])
+                milling_stage.name = name
+                milling_stage.num = num
+            else:
+                milling_stage = FibsemMillingStage(name=name, num=num)
 
         # Create a new widget for the milling stage
         logging.info(f"Added new milling stage: {milling_stage.name}")
