@@ -95,6 +95,7 @@ INSTRUCTIONS = {
 FLUORESCENCE_TASK = "Acquire Fluorescence Image"
 FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True
 FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
+FEATURE_POSE_CONTROLS_ENABLED = False
 
 class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
@@ -488,6 +489,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # Update UI
         self.update_lamella_combobox()
         self.update_ui()
+
+        # set the experiment tab as active
+        self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
     def create_experiment(self) -> None:
         """Create a new experiment using the experiment creation dialog."""
@@ -1014,8 +1018,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
 
         # buttons
-        self.pushButton_save_position.setText("Position Ready")
-        self.pushButton_save_position.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_save_position.setText("Update Position")
+        self.pushButton_save_position.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
         self.pushButton_save_position.setEnabled(True)
 
         # set objective position (show as mm)
@@ -1051,11 +1055,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.comboBox_lamella_pose.blockSignals(False)
 
         # hide pose controls if no poses
-        self.label_lamella_pose.setVisible(bool(lamella.poses))
-        self.comboBox_lamella_pose.setVisible(bool(lamella.poses))
-        self.label_lamella_pose_position.setVisible(bool(lamella.poses))
-        self.pushButton_lamella_move_to_pose.setVisible(bool(lamella.poses))
-        self.pushButton_lamella_set_pose.setVisible(bool(lamella.poses))
+        enable_pose_controls = bool(lamella.poses) and FEATURE_POSE_CONTROLS_ENABLED
+        self.label_lamella_pose.setVisible(enable_pose_controls)
+        self.comboBox_lamella_pose.setVisible(enable_pose_controls)
+        self.label_lamella_pose_position.setVisible(enable_pose_controls)
+        self.pushButton_lamella_move_to_pose.setVisible(enable_pose_controls)
+        self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
 
         # defect button
         msg = "Mark as Active" if lamella.defect.has_defect else "Mark As Defect"
