@@ -516,11 +516,13 @@ class DefectState:
     def clear(self):
         self.has_defect = False
         self.description = ""
+        self.requires_rework = False
         self.updated_at = None
 
-    def set_defect(self, description: str = ""):
+    def set_defect(self, description: str = "", requires_rework: bool = False):
         self.has_defect = True
         self.description = description
+        self.requires_rework = requires_rework
         self.updated_at = datetime.timestamp(datetime.now())
 
 
