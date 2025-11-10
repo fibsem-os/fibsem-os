@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from matplotlib.figure import Figure
+from matplotlib_scalebar.scalebar import ScaleBar
 from plotly.subplots import make_subplots
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, letter
@@ -27,9 +28,8 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
-from skimage.transform import resize
 from scipy.ndimage import median_filter
-from matplotlib_scalebar.scalebar import ScaleBar
+from skimage.transform import resize
 
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -377,6 +377,7 @@ def generate_report2(experiment: Experiment,
 
 def plot_lamella_task_workflow_summary(p: Lamella,
                          show_title: bool = False,
+                         show_scalebar: bool = True,
                          figsize: Tuple[int, int] = (30, 5),
                          target_size: int = 256,
                          fontsize: int = 12,
@@ -472,14 +473,14 @@ def plot_lamella_task_workflow_summary(p: Lamella,
                     spine.set_visible(False)
 
                 # add scalebar
-                scalebar = ScaleBar(
-                    dx=img.metadata.pixel_size.x * (shape[1] / target_size),
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
+                if show_scalebar:
+                    ax[j].add_artist(ScaleBar(
+                        dx=img.metadata.pixel_size.x * (shape[1] / target_size),
+                        color="black",
+                        box_color="white",
+                        box_alpha=0.5,
                     location="lower right",
-                )
-                ax[j].add_artist(scalebar)
+                ))
 
         except Exception as e:
             logging.error(f"Error plotting {p.name} - {task_name}: {e}")
@@ -500,6 +501,7 @@ def plot_lamella_task_workflow_summary(p: Lamella,
 def plot_experiment_task_summary(exp: Experiment,
                                   task_name: str,
                                   show_title: bool = False,
+                                  show_scalebar: bool = True,
                                   figsize: Tuple[int, int] = (30, 5),
                                   target_size: int = 256,
                                   fontsize: int = 12,
@@ -591,14 +593,15 @@ def plot_experiment_task_summary(exp: Experiment,
                     spine.set_visible(False)
 
                 # add scalebar
-                scalebar = ScaleBar(
-                    dx=img.metadata.pixel_size.x * (shape[1] / target_size),
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
-                    location="lower right",
-                )
-                ax[j].add_artist(scalebar)
+                if show_scalebar:
+                    ax[j].add_artist(ScaleBar(
+                        dx=img.metadata.pixel_size.x * (shape[1] / target_size),
+                        color="black",
+                        box_color="white",
+                        box_alpha=0.5,
+                        location="lower right",
+                    ))
+
 
         except Exception as e:
             logging.error(f"Error plotting {lamella_name} - {task_name}: {e}")

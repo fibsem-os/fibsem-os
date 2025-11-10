@@ -3,25 +3,31 @@
 import logging
 import os
 from typing import TYPE_CHECKING, List, Optional
+import traceback
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QSpinBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.tools.reporting import (
-    plot_experiment_task_summary, Experiment
+    plot_experiment_task_summary,
+    plot_lamella_task_workflow_summary,
 )
 
 if TYPE_CHECKING:
@@ -67,6 +73,13 @@ BUTTON_STYLESHEET = """
     }
 """
 
+SUMMARY_MODE_TASK = "task"
+SUMMARY_MODE_LAMELLA = "lamella"
+SUMMARY_MODE_LABELS = {
+    SUMMARY_MODE_TASK: "Task Summary",
+    SUMMARY_MODE_LAMELLA: "Lamella Summary",
+}
+
 
 class ExperimentTaskSummaryWidget(QWidget):
     """Widget for displaying task summary images across all lamellae in an experiment.
@@ -86,7 +99,9 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.parent_widget = parent
         self.experiment: Optional['Experiment'] = None
         self.current_task: Optional[str] = None
+        self.current_lamella: Optional['Lamella'] = None
         self.current_figure: Optional[Figure] = None
+        self.summary_mode: str = SUMMARY_MODE_TASK
         self._title_artist = None
         self._ylabel_artists: List = []
 
@@ -94,30 +109,6 @@ class ExperimentTaskSummaryWidget(QWidget):
 
     def initUI(self):
         """Initialize the widget UI components."""
-
-        layout = QVBoxLayout()
-
-        # Title and controls layout
-        controls_layout = QHBoxLayout()
-
-        # Title label
-        title_label = QLabel("Experiment Task Summary")
-        title_label.setStyleSheet("color: white; font-size: 12px; font-weight: bold;")
-        controls_layout.addWidget(title_label)
-
-        controls_layout.addStretch()
-
-        # Task selector
-        self.task_label = QLabel("Task:")
-        self.task_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
-        controls_layout.addWidget(self.task_label)
-
-        self.task_selector = QComboBox(self)
-        self.task_selector.setStyleSheet(COMBOBOX_STYLESHEET)
-        self.task_selector.currentIndexChanged.connect(self._on_task_changed)
-        controls_layout.addWidget(self.task_selector)
-
-        layout.addLayout(controls_layout)
 
         # Create matplotlib canvas (initially without a figure)
         self.canvas = None
@@ -144,39 +135,108 @@ class ExperimentTaskSummaryWidget(QWidget):
             }
         """)
 
-        layout.addWidget(self.scroll_area)
+        self.summary_mode_label = QLabel("Summary:")
+        self.summary_mode_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+
+        self.summary_mode_selector = QComboBox(self)
+        self.summary_mode_selector.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.summary_mode_selector.addItem(SUMMARY_MODE_LABELS[SUMMARY_MODE_TASK], SUMMARY_MODE_TASK)
+        self.summary_mode_selector.addItem(SUMMARY_MODE_LABELS[SUMMARY_MODE_LAMELLA], SUMMARY_MODE_LAMELLA)
+        self.summary_mode_selector.currentIndexChanged.connect(self._on_summary_mode_changed)
+
+        self.task_label = QLabel("Task:")
+        self.task_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+
+        self.task_selector = QComboBox(self)
+        self.task_selector.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.task_selector.currentIndexChanged.connect(self._on_task_changed)
+
+        self.lamella_label = QLabel("Lamella:")
+        self.lamella_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+
+        self.lamella_selector = QComboBox(self)
+        self.lamella_selector.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.lamella_selector.currentIndexChanged.connect(self._on_lamella_changed)
 
         # Button layout
-        button_layout = QHBoxLayout()
-
-        # Refresh button
         self.refresh_button = QPushButton("Refresh", self)
         self.refresh_button.setStyleSheet(BUTTON_STYLESHEET)
         self.refresh_button.clicked.connect(self.update_summary)
-        button_layout.addWidget(self.refresh_button)
 
-        # Export button
         self.export_button = QPushButton("Export Figure", self)
         self.export_button.setStyleSheet(BUTTON_STYLESHEET)
         self.export_button.clicked.connect(self._on_export_clicked)
-        button_layout.addWidget(self.export_button)
 
-        # Clear button
-        self.clear_button = QPushButton("Clear", self)
-        self.clear_button.setStyleSheet(BUTTON_STYLESHEET)
-        self.clear_button.clicked.connect(self.clear_summary)
-        button_layout.addWidget(self.clear_button)
-
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-
-        # Info label
         self.info_label = QLabel("No experiment loaded")
         self.info_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # Right side selector panels
+        selector_panel = QWidget()
+        selector_layout = QVBoxLayout(selector_panel)
+        selector_layout.setContentsMargins(10, 0, 0, 0)
+        selector_layout.setSpacing(12)
+        selector_layout.addWidget(self.summary_mode_label)
+        selector_layout.addWidget(self.summary_mode_selector)
+        selector_layout.addWidget(self.task_label)
+        selector_layout.addWidget(self.task_selector)
+        selector_layout.addWidget(self.lamella_label)
+        selector_layout.addWidget(self.lamella_selector)
+
+        # Display configuration
+        self.config_group = QWidget()
+        config_layout = QFormLayout(self.config_group)
+        config_layout.setContentsMargins(0, 10, 0, 0)
+        config_layout.setSpacing(6)
+
+        self.fontsize_spinbox = QSpinBox()
+        self.fontsize_spinbox.setRange(6, 48)
+        self.fontsize_spinbox.setValue(10)
+        self.fontsize_spinbox.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.fontsize_spinbox.editingFinished.connect(self._on_display_config_changed)
+
+        self.image_size_spinbox = QSpinBox()
+        self.image_size_spinbox.setRange(128, 1024)
+        self.image_size_spinbox.setSingleStep(64)
+        self.image_size_spinbox.setValue(512)
+        self.image_size_spinbox.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.image_size_spinbox.editingFinished.connect(self._on_display_config_changed)
+
+        self.show_title_checkbox = QCheckBox()
+        self.show_title_checkbox.setChecked(True)
+        self.show_title_checkbox.setStyleSheet("color: white; font-size: 10px;")
+        self.show_title_checkbox.stateChanged.connect(self._on_display_config_changed)
+
+        self.show_scalebar_checkbox = QCheckBox()
+        self.show_scalebar_checkbox.setChecked(True)
+        self.show_scalebar_checkbox.setStyleSheet("color: white; font-size: 10px;")
+        self.show_scalebar_checkbox.stateChanged.connect(self._on_display_config_changed)
+
+        config_layout.addRow("Font Size", self.fontsize_spinbox)
+        config_layout.addRow("Image Size", self.image_size_spinbox)
+        config_layout.addRow("Show Title", self.show_title_checkbox)
+        config_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
+        selector_layout.addWidget(self.config_group)
+        selector_layout.addStretch()
+
+        # content layout
+        content_layout = QHBoxLayout()
+        content_layout.addWidget(self.scroll_area, stretch=1)
+        content_layout.addWidget(selector_panel, stretch=0)
+
+        # Bottom button layout
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.refresh_button)
+        button_layout.addWidget(self.export_button)
+        button_layout.addStretch()
+
+        layout = QVBoxLayout()
+        layout.addLayout(content_layout)
+        layout.addLayout(button_layout)
         layout.addWidget(self.info_label)
 
         self.setLayout(layout)
+        self._update_selector_visibility()
 
     def _create_empty_canvas(self):
         """Create an empty canvas with placeholder text."""
@@ -212,6 +272,14 @@ class ExperimentTaskSummaryWidget(QWidget):
         ax.axis("off")
         self.figure.tight_layout()
         self.canvas.draw()
+
+    def _update_selector_visibility(self):
+        """Show/hide selectors based on the active summary mode."""
+        is_task_mode = self.summary_mode == SUMMARY_MODE_TASK
+        self.task_label.setVisible(is_task_mode)
+        self.task_selector.setVisible(is_task_mode)
+        self.lamella_label.setVisible(not is_task_mode)
+        self.lamella_selector.setVisible(not is_task_mode)
 
     def _cache_text_artists(self, fig: Figure):
         """Store references to title and ylabel artists for export adjustments."""
@@ -254,8 +322,12 @@ class ExperimentTaskSummaryWidget(QWidget):
         # Width will match the scroll area viewport width
         canvas_height = int(fig_height * dpi)
 
-        # Get scroll area width (subtract some pixels for potential scrollbar)
+        # Get scroll area width (fallback to widget width if viewport not ready yet)
         scroll_width = self.scroll_area.viewport().width()
+        if scroll_width <= 0:
+            scroll_width = self.scroll_area.width()
+        if scroll_width <= 0:
+            scroll_width = int(fig_width * dpi)
 
         # Set canvas to fill width, fixed height
         self.canvas.setFixedHeight(canvas_height)
@@ -273,55 +345,93 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.canvas.draw()
 
     def set_experiment(self, experiment: 'Experiment'):
-        """Set the experiment and populate the task selector.
-
-        Args:
-            experiment: The Experiment object to display
-        """
+        """Set the experiment and populate selectors for both modes."""
         self.experiment = experiment
+        self.current_task = None
+        self.current_lamella = None
 
-        # Clear and populate task selector
-        self.task_selector.blockSignals(True)  # Prevent triggering update during population
+        if experiment is None:
+            self.info_label.setText("No experiment loaded")
+        else:
+            self.info_label.setText(f"Experiment: {experiment.name}")
+
+        self._populate_task_selector()
+        self._populate_lamella_selector()
+        self._update_selector_visibility()
+        self.update_summary()
+
+    def _populate_task_selector(self):
+        """Populate the task selector with completed tasks across lamellae."""
+        self.task_selector.blockSignals(True)
         self.task_selector.clear()
+        self.current_task = None
 
-        if experiment is not None and hasattr(experiment, 'positions'):
-            # Collect all unique completed tasks across all lamellae
+        preferred_task = "Rough Milling"
+        preferred_index = -1
+
+        if self.experiment is not None:
             all_tasks = set()
-            for lamella in experiment.positions:
-                if hasattr(lamella, 'task_history'):
-                    all_tasks.update([task.name for task in lamella.task_history])
+            for lamella in self.experiment.positions:
+                all_tasks.update([task.name for task in lamella.task_history])
 
-            # Sort tasks alphabetically
-            sorted_tasks = sorted(list(all_tasks))
-
+            sorted_tasks = sorted(all_tasks)
             if sorted_tasks:
-                for task_name in sorted_tasks:
-                    # Count how many lamellae have completed this task
+                default_index = 0
+                for idx, task_name in enumerate(sorted_tasks):
                     count = sum(
-                        1 for lamella in experiment.positions
-                        if hasattr(lamella, 'task_history') and
-                        lamella.has_completed_task(task_name)
+                        1 for lamella in self.experiment.positions
+                        if lamella.has_completed_task(task_name)
                     )
                     display_name = f"{task_name} ({count} lamellae)"
                     self.task_selector.addItem(display_name, userData=task_name)
+                    if preferred_index == -1 and task_name == preferred_task and count > 0:
+                        preferred_index = idx
 
-                # Set the first task as current
-                self.current_task = sorted_tasks[0]
-                self.info_label.setText(
-                    f"Experiment: {experiment.name} | "
-                    f"{len(sorted_tasks)} unique tasks"
-                )
+                if preferred_index != -1:
+                    self.task_selector.setCurrentIndex(preferred_index)
+                    self.current_task = self.task_selector.itemData(preferred_index)
+                else:
+                    self.current_task = sorted_tasks[0]
             else:
-                self.info_label.setText(f"Experiment: {experiment.name} | No completed tasks found")
-                self.current_task = None
-        else:
-            self.info_label.setText("No experiment loaded")
-            self.current_task = None
+                self.info_label.setText(
+                    f"Experiment: {self.experiment.name} | No completed tasks found"
+                )
 
         self.task_selector.blockSignals(False)
 
-        # Update the display
-        self.update_summary()
+    def _populate_lamella_selector(self):
+        """Populate the lamella selector with lamellae that have tasks."""
+        self.lamella_selector.blockSignals(True)
+        self.lamella_selector.clear()
+        self.current_lamella = None
+
+        if self.experiment is not None:
+            lamellae_with_tasks = [
+                lamella for lamella in self.experiment.positions
+                if len(lamella.task_history) > 0
+            ]
+
+            if lamellae_with_tasks:
+                for lamella in lamellae_with_tasks:
+                    display_name = f"{lamella.name} ({len(lamella.task_history)} tasks)"
+                    self.lamella_selector.addItem(display_name, userData=lamella)
+                self.current_lamella = lamellae_with_tasks[0]
+            else:
+                self.info_label.setText(
+                    f"Experiment: {self.experiment.name} | No lamella workflows found"
+                )
+
+        self.lamella_selector.blockSignals(False)
+
+    def _on_summary_mode_changed(self, index: int):
+        """Handle summary mode selection change."""
+        if index < 0:
+            return
+        mode = self.summary_mode_selector.itemData(index)
+        if mode and mode != self.summary_mode:
+            self.summary_mode = mode
+            self._update_selector_visibility()
+            self.update_summary()
 
     def _on_task_changed(self, index: int):
         """Handle task selection change.
@@ -333,49 +443,59 @@ class ExperimentTaskSummaryWidget(QWidget):
             self.current_task = self.task_selector.itemData(index)
             self.update_summary()
 
-    def update_summary(self):
-        """Update the experiment task summary display for the current task."""
+    def _on_lamella_changed(self, index: int):
+        """Handle lamella selection change."""
+        if index >= 0:
+            self.current_lamella = self.lamella_selector.itemData(index)
+            self.update_summary()
 
+    def _on_display_config_changed(self):
+        """Refresh the summary when display parameters change."""
+        self.update_summary()
+
+    def update_summary(self):
+        """Update the summary view based on the selected mode."""
+        if self.summary_mode == SUMMARY_MODE_TASK:
+            self._update_task_summary()
+        else:
+            self._update_lamella_summary()
+
+    def _update_task_summary(self):
+        """Render the experiment-level task summary."""
         if self.current_task is None or self.experiment is None:
             self._create_empty_canvas()
+            self.info_label.setText("Select a task to view the experiment summary.")
             return
 
         try:
-            # Generate the figure
             fig = plot_experiment_task_summary(
-                self.experiment,
-                self.current_task,
-                show_title=True,
+                exp=self.experiment,
+                task_name=self.current_task,
+                show_title=self.show_title_checkbox.isChecked(),
+                show_scalebar=self.show_scalebar_checkbox.isChecked(),
                 figsize=(10, 5),
-                target_size=512,
-                fontsize=12,
+                target_size=self.image_size_spinbox.value(),
+                fontsize=self.fontsize_spinbox.value(),
                 mode="dark",
                 show=False
             )
 
             if fig is None:
-                # No valid images found for this task
                 self._create_empty_canvas()
                 self.info_label.setText(
                     f"Task: {self.current_task} | No valid images found"
                 )
                 return
 
-            # Store the current figure
             self.current_figure = fig
             self._cache_text_artists(fig)
-
-            # Replace canvas with the new figure
             self._replace_canvas_with_figure(fig)
 
-            # Count lamellae with this task
             count = sum(
                 1 for lamella in self.experiment.positions
-                if hasattr(lamella, 'task_history') and
-                lamella.has_completed_task(self.current_task)
+                if lamella.has_completed_task(self.current_task)
             )
 
-            # Update info label
             self.info_label.setText(
                 f"Task: {self.current_task} | "
                 f"{count} lamellae completed"
@@ -387,20 +507,54 @@ class ExperimentTaskSummaryWidget(QWidget):
             self.info_label.setText("Error: Reporting module not available")
         except Exception as e:
             logging.error(f"Error updating experiment task summary: {e}")
-            import traceback
             traceback.print_exc()
             self._create_empty_canvas()
             self.info_label.setText(f"Error: {str(e)}")
 
-    def clear_summary(self):
-        """Clear the current summary display."""
-        self.current_task = None
-        self.current_figure = None
-        self._title_artist = None
-        self._ylabel_artists = []
-        self.task_selector.clear()
-        self._create_empty_canvas()
-        self.info_label.setText("No experiment loaded")
+    def _update_lamella_summary(self):
+        """Render the lamella-level workflow summary."""
+        if self.current_lamella is None:
+            self._create_empty_canvas()
+            self.info_label.setText("Select a lamella to view the workflow summary.")
+            return
+
+        try:
+            fig = plot_lamella_task_workflow_summary(
+                self.current_lamella,
+                show_title=self.show_title_checkbox.isChecked(),
+                show_scalebar=self.show_scalebar_checkbox.isChecked(),
+                figsize=(10, 5),
+                target_size=self.image_size_spinbox.value(),
+                fontsize=self.fontsize_spinbox.value(),
+                mode="dark",
+                show=False
+            )
+
+            if fig is None:
+                self._create_empty_canvas()
+                self.info_label.setText(
+                    f"Lamella: {self.current_lamella.name} | No valid workflow images found"
+                )
+                return
+
+            self.current_figure = fig
+            self._cache_text_artists(fig)
+            self._replace_canvas_with_figure(fig)
+
+            self.info_label.setText(
+                f"Lamella: {self.current_lamella.name} | "
+                f"{len(self.current_lamella.task_history)} completed tasks"
+            )
+
+        except ImportError as e:
+            logging.error(f"Could not import reporting module: {e}")
+            self._create_empty_canvas()
+            self.info_label.setText("Error: Reporting module not available")
+        except Exception as e:
+            logging.error(f"Error updating lamella task summary: {e}")
+            traceback.print_exc()
+            self._create_empty_canvas()
+            self.info_label.setText(f"Error: {str(e)}")
 
     def _on_export_clicked(self):
         """Handle export button click to save the current figure."""
@@ -413,9 +567,12 @@ class ExperimentTaskSummaryWidget(QWidget):
             start_dir = str(self.experiment.path)
 
         # Default filename
-        default_name = "experiment_task_summary.png"
-        if self.current_task is not None:
+        if self.summary_mode == SUMMARY_MODE_LAMELLA and self.current_lamella is not None:
+            default_name = f"lamella_workflow_summary_{self.current_lamella.name}.png"
+        elif self.current_task is not None:
             default_name = f"experiment_task_summary_{self.current_task}.png"
+        else:
+            default_name = "experiment_task_summary.png"
 
         if start_dir:
             default_path = os.path.join(start_dir, default_name)
@@ -449,7 +606,6 @@ class ExperimentTaskSummaryWidget(QWidget):
 
         except Exception as e:
             logging.error(f"Error exporting figure: {e}")
-            import traceback
             traceback.print_exc()
         finally:
             if self._title_artist is not None and original_title_color is not None:
@@ -471,7 +627,7 @@ def create_experiment_task_summary_widget(experiment: 'Experiment',
     """
     # Create dialog
     dialog = QDialog(parent)
-    dialog.setWindowTitle(f"Experiment Task Summary - {experiment.name}")
+    dialog.setWindowTitle(f"Experiment Summary - {experiment.name}")
     dialog.setMinimumSize(800, 600)
 
     # Create layout
@@ -493,18 +649,8 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    # Create dummy dialog for testing
-    dialog = QDialog()
-    dialog.setWindowTitle("Experiment Task Summary Test")
-    dialog.setMinimumSize(800, 600)
-
-    layout = QVBoxLayout()
-    widget = ExperimentTaskSummaryWidget()
     PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-11-07-12-32/experiment.yaml"
     exp = Experiment.load(PATH)
-    widget.set_experiment(exp)
-    layout.addWidget(widget)
-    dialog.setLayout(layout)
-
+    dialog = create_experiment_task_summary_widget(exp)
     dialog.show()
     sys.exit(app.exec_())

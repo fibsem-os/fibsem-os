@@ -63,7 +63,6 @@ from superqt import ensure_main_thread
 REPORTING_AVAILABLE: bool = False
 try:
     from fibsem.ui.widgets.autolamella_generate_report_widget import generate_report_dialog
-    from fibsem.ui.widgets.autolamella_lamella_task_workflow_summary_widget import create_lamella_workflow_summary_widget
     from fibsem.ui.widgets.autolamella_experiment_task_summary_widget import create_experiment_task_summary_widget
     from fibsem.ui.widgets.autolamella_overview_image_widget import create_overview_image_widget
     REPORTING_AVAILABLE = True
@@ -209,13 +208,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.menuBar().setNativeMenuBar(False) # required for macOS
         self.menuDevelopment.addAction(self.action_open_protocol_editor)
 
-
-        self.action_open_lamella_workflow_summary = QAction(  # type: ignore
-            "Open Lamella Summary",
-            parent=self,
-            triggered=self._open_lamella_workflow_summary,
-        )
-
+        # reporting
         self.action_open_experiment_workflow_summary = QAction(  # type: ignore
             "Open Workflow Summary",
             parent=self,
@@ -223,10 +216,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         )
 
         self.menuTools.addSeparator()
-        self.menuTools.addAction(self.action_open_lamella_workflow_summary)
         self.menuTools.addAction(self.action_open_experiment_workflow_summary)
         self.action_open_experiment_workflow_summary.setVisible(REPORTING_AVAILABLE)
-        self.action_open_lamella_workflow_summary.setVisible(REPORTING_AVAILABLE)
 
         # development
         self.menuDevelopment.setVisible(False)
@@ -651,20 +642,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         dialog.exec_()
 
         return
-
-    def _open_lamella_workflow_summary(self):
-        """Open the lamella task workflow summary dialog."""
-
-        if self.experiment is None:
-            napari.utils.notifications.show_warning("Please load an experiment first.")
-            return
-
-        if not REPORTING_AVAILABLE:
-            napari.utils.notifications.show_warning("Reporting tools are not available.")
-            return
-
-        dialog = create_lamella_workflow_summary_widget(experiment=self.experiment, parent=self)
-        dialog.exec_()
 
     def _open_experiment_workflow_summary(self):
         """Open the experiment task workflow summary dialog."""
