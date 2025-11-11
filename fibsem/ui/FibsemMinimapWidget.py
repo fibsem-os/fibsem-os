@@ -94,6 +94,7 @@ CROSSHAIR_CONFIG = {
         "current": "yellow",
         "saved_selected": "lime",
         "saved_unselected": "cyan",
+        "grid": "red",
     },
 }
 
@@ -981,6 +982,19 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
                 label=txt,
                 shape_type="line"
             ))
+
+        # grid positions
+        grid_positions = [g.position for g in self.microscope._stage.holder.grids.values()]
+        grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
+        for i, grid_point in enumerate(grid_points):
+            grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)
+            for line, txt in zip(grid_lines, [grid_positions[i].name, ""]):
+                overlays.append(NapariShapeOverlay(
+                    shape=line,
+                    color=CROSSHAIR_CONFIG["colors"]["grid"],
+                    label=txt,
+                    shape_type="line"
+                ))
 
         # current stage position
         current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)

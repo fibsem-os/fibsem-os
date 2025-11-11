@@ -491,6 +491,7 @@ def plot_minimap(
         color: str = "cyan",
         show_scalebar: bool = False,
         show_names: bool = True,
+        show_grid_radius: bool = False,
         fontsize: int = 12,
         markersize: int = 20,
         figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
@@ -549,6 +550,12 @@ def plot_minimap(
                 "label": pt.name,
             }
         )
+
+        # show grid radius
+        if c == "red" and show_grid_radius:
+            r_pixels = 1000e-6 / image.metadata.pixel_size.x 
+            ax.add_artist(plt.Circle((pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5)
+            )
 
     if marker_entries:
         scatter_array = np.array([entry["point"] for entry in marker_entries])

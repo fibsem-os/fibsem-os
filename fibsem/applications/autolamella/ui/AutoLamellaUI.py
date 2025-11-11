@@ -733,18 +733,13 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             beam_type = self.minimap_plot_widget.image.metadata.beam_type # type: ignore
             fov = self.microscope.get_field_of_view(beam_type=beam_type)
 
-            # import numpy as np
-            # Create example grid position
-            # grid_positions = [ # hydra centre
-            #     FibsemStagePosition(name="Grid 01", x=-5e-3, y=0, z=0, r=0, t=np.radians(35)),
-            #     FibsemStagePosition(name="Grid 02", x=5e-3, y=0, z=0, r=0, t=np.radians(35))]
-            grid_positions = [FibsemStagePosition(name="Grid 01", x=0, y=0, z=0, r=0, t=0)]  # arctis centre
 
             # Set the data (delay redraw until all data updated...)
             if selected_name is not None:
                 self.minimap_plot_widget.selected_name = selected_name
             self.minimap_plot_widget.lamella_positions = self.experiment.get_milling_positions()
-            self.minimap_plot_widget.grid_positions = grid_positions
+            if self.minimap_plot_widget.grid_positions is None:
+                self.minimap_plot_widget.grid_positions = [g.position for g in self.microscope._stage.holder.grids.values()]
             self.minimap_plot_widget.fov_width = fov
             if stage_position is not None:
                 self.minimap_plot_widget.set_current_position(stage_position)

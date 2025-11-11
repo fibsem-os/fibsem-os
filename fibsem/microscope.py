@@ -248,6 +248,28 @@ class FibsemMicroscope(ABC):
 
         return deepcopy(stage_position)
 
+    def _create_sample_stage(self) -> None:
+        """Create the sample stage and holder based on the system settings."""
+
+        from fibsem.microscopes._stage import SampleGrid, SampleHolder, Stage
+        if self.stage_is_compustage:
+            grid01 = SampleGrid(name="Grid-01", index=1, 
+                                position=FibsemStagePosition(name="Grid-01", x=-0e-3, y=0.0, z=0.0, r=0.0, t=np.radians(0)))
+            holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, grids={"Grid-01": grid01})
+        else:
+            orientation = self.get_orientation("SEM")
+            grid01 = SampleGrid(name="Grid-01", index=1, 
+                                position=FibsemStagePosition(name="Grid-01", x=-5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
+            grid02 = SampleGrid(name="Grid-02", index=2, 
+                                position=FibsemStagePosition(name="Grid-02", x=+5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
+
+            holder = SampleHolder(name="Pre-Tilted Holder",
+                                pre_tilt=self.system.stage.shuttle_pre_tilt,
+                                reference_rotation=self.system.stage.rotation_reference,
+                                grids={"Grid-01": grid01, "Grid-02": grid02})
+        
+        self._stage = Stage(parent=self, holder=holder)
+
     @abstractmethod
     def move_stage_absolute(self, position: FibsemStagePosition) -> None:
         pass
@@ -1150,8 +1172,13 @@ class FibsemMicroscope(ABC):
 
     @property
     def current_grid(self) -> str:
-        return "None"
-
+        try:
+            grid = self._stage.current_grid
+            if grid is None:
+                return "NONE"
+            return grid.name
+        except Exception:
+            return "NONE"
 
 def _thermo_application_file_wrapper_for_drawing_functions(
     patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
@@ -1377,6 +1404,11 @@ class ThermoMicroscope(FibsemMicroscope):
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
+
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
 
     def set_channel(self, channel: BeamType) -> None:
         """

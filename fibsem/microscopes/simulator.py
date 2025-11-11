@@ -269,6 +269,11 @@ class DemoMicroscope(FibsemMicroscope):
         # logging
         logging.debug({"msg": "connect_to_microscope", "ip_address": ip_address, "port": port, "system_info": info.to_dict() })
 
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
+
         return
 
     def disconnect(self) -> None:
