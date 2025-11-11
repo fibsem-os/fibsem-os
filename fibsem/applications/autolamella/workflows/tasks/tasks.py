@@ -907,6 +907,7 @@ class SetupLamellaTask(AutoLamellaTask):
         rough_milling_task_config: Optional[FibsemMillingTaskConfig] = None
         rough_milling_name = None
         polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
+        polishing_milling_name = None
         try:
             # TODO: we need to store these task names, so we can then update them if they are changed in the gui    
             for task_name, task_config in self.lamella.task_config.items():
@@ -915,6 +916,7 @@ class SetupLamellaTask(AutoLamellaTask):
                     rough_milling_name = task_name
                 elif task_config.task_type == MillPolishingTaskConfig.task_type:
                     polishing_milling_task_config = task_config.milling[MILL_POLISHING_KEY]
+                    polishing_milling_name = task_name
         except Exception as e:
             logging.warning(f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}")
         # find MILL_ROUGH and MILL_POLISHING task configs
@@ -986,6 +988,12 @@ class SetupLamellaTask(AutoLamellaTask):
         fib_image = acquire.acquire_image(self.microscope, image_settings)
         image_settings.reduced_area = None
         image_settings.autocontrast = True
+
+        # sync alignment area to rough and polishing milling tasks (QUERY: should we sync all tasks?)
+        if rough_milling_task_config is not None and rough_milling_name is not None:
+            self.lamella.task_config[rough_milling_name].milling[MILL_ROUGH_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
+        if polishing_milling_task_config is not None and polishing_milling_name is not None:
+            self.lamella.task_config[polishing_milling_name].milling[MILL_POLISHING_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
 
         # reference images
         self._acquire_set_of_reference_images(image_settings)
