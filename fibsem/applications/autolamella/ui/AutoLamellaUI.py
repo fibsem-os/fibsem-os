@@ -203,12 +203,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             triggered=self._open_protocol_editor,
         )
 
-        self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
-
         # add to menu
         if os.name == "posix":
             self.menuBar().setNativeMenuBar(False) # required for macOS
-        self.menuDevelopment.addAction(self.action_open_protocol_editor)
 
         # reporting
         self.action_open_experiment_workflow_summary = QAction(  # type: ignore
@@ -218,6 +215,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         )
 
         self.menuTools.addSeparator()
+        self.menuTools.addAction(self.action_open_protocol_editor)
         self.menuTools.addAction(self.action_open_experiment_workflow_summary)
         self.action_open_experiment_workflow_summary.setVisible(REPORTING_AVAILABLE)
 
@@ -243,6 +241,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         # self.update_experiment_signal.connect(self.hande_update_experiment_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
+        self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
         self.pushButton_stop_workflow.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
         self.pushButton_add_lamella.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
@@ -329,20 +328,20 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         if self.experiment is None:
             return
-        
+
         if self.image_widget is None:
             return
 
         if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
             return
-        
+
         from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
         from fibsem.ui.napari.utilities import (
             NapariShapeOverlay,
             create_crosshair_shape,
         )
         from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-        
+
         if selected_name is None:
             selected_name = self.comboBox_current_lamella.currentText()
 
@@ -639,7 +638,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         generate_report_dialog(self.experiment, parent=self)
         return
 
-
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
@@ -668,14 +666,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         dialog = create_experiment_task_summary_widget(experiment=self.experiment, parent=self)
         dialog.exec_()
 
-
 #### PROTOCOL EDITOR
 
     def _open_protocol_editor(self):
         """Open the protocol editor dialog."""
 
         self.protocol_editor_widget = show_protocol_editor(parent=self)
-
 
 #### MINIMAP
 
@@ -1510,6 +1506,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
     def _stop_workflow_thread(self):
         self._workflow_stop_event.set()
+        self.milling_task_config_widget.milling_widget.stop_milling() # stop milling if running
         napari.utils.notifications.show_error("Abort requested by user.")
 
     def _workflow_finished(self):

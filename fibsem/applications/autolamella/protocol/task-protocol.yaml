@@ -9,7 +9,7 @@ tasks:
             acquire_sem: true
             orientation: MILLING
         milling: {}
-        imaging: {}
+        imaging: {hfw: 80.0e-6}
     Setup Lamella:
         task_type: SETUP_LAMELLA
         parameters:
