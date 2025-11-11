@@ -115,6 +115,7 @@ UNSCALED_VALUES = [
     "bitmap_erosion_px",
     "bitmap_gaussian_sigma",
     "boundary_smoothing_sigma",
+    "incident_angle_sputter_ratio",
 ]
 LINE_KEYS = ["start_x", "start_y", "end_x", "end_y"]
 
