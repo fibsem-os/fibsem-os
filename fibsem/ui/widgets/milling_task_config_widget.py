@@ -138,6 +138,7 @@ class MillingTaskConfigWidget(QWidget):
 
         # Alignment settings group
         self.alignment_widget = FibsemMillingAlignmentWidget(
+            parent=self,
             show_advanced=self._show_advanced
         )
         self.alignment_widget.setContentsMargins(0, 0, 0, 0)
@@ -147,6 +148,7 @@ class MillingTaskConfigWidget(QWidget):
 
         # Acquisition settings group
         self.acquisition_widget = FibsemMillingTaskAcquisitionSettingsWidget(
+            parent=self,
             show_advanced=self._show_advanced
         )
         self.acquisition_widget.setContentsMargins(0, 0, 0, 0)

@@ -31,6 +31,7 @@ from fibsem.structures import (
     calculate_fiducial_area_v2,
 )
 from fibsem.milling.patterning.utils import create_pattern_mask
+from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
 
 # colour wheel
 COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
@@ -348,6 +349,7 @@ def draw_milling_patterns_in_napari(
     draw_crosshair: bool = True,
     background_milling_stages: Optional[List[FibsemMillingStage]] = None,
     colors: Optional[List[str]] = None,
+    alignment_area: Optional[FibsemRectangle] = None,
 ) -> List[str]:
     """Draw the milling patterns in napari as a combination of Shapes and Label layers.
     Args:
@@ -357,6 +359,7 @@ def draw_milling_patterns_in_napari(
         milling_stages): list of milling stages
         draw_crosshair: draw crosshair on the image
         background_milling_stages: optional list of background milling stages to draw
+        alignment_area: optional alignment area to draw
     Returns:
         List[str]: list of milling pattern layers
     """
@@ -502,6 +505,16 @@ def draw_milling_patterns_in_napari(
 
     layer_name_list = list(layer_names_used)
 
+    # draw alignment area
+    if alignment_area is not None:
+        layer_name = draw_alignment_area(
+            viewer=viewer,
+            reduced_area=alignment_area,
+            image_shape=image_shape,
+            translate=translation,
+        )
+        layer_name_list.append(layer_name)
+
     # remove all un-updated layers (assume they have been deleted)
     remove_all_napari_shapes_layers(
         viewer=viewer, layer_type=NapariShapesLayers, ignore=layer_name_list
@@ -509,6 +522,36 @@ def draw_milling_patterns_in_napari(
 
     return layer_name_list  # list of milling pattern layers
 
+def draw_alignment_area(viewer: napari.Viewer,
+                        reduced_area: FibsemRectangle,
+                        image_shape: Tuple[int, int],
+                        translate: Tuple[float, float]):
+    """Draw the alignment area layer in napari.
+    Args:
+        viewer: napari viewer instance
+        reduced_area: FibsemRectangle defining the alignment area
+        image_shape: shape of the image to draw on
+        translate: translation of the FIB image layer
+    Returns:
+        layer_name: name of the alignment area layer"""
+
+    # add alignment area to napari
+    data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area,
+                                                image_shape=image_shape,
+                                                )
+    layer_name = "Milling Alignment Area"
+    if layer_name in viewer.layers:
+        viewer.layers.remove(layer_name)
+
+    viewer.add_shapes(data=data, name=layer_name,
+        shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"],
+        edge_color=ALIGNMENT_LAYER_PROPERTIES["edge_color"],
+        edge_width=ALIGNMENT_LAYER_PROPERTIES["edge_width"],
+        face_color=ALIGNMENT_LAYER_PROPERTIES["face_color"],
+        opacity=ALIGNMENT_LAYER_PROPERTIES["opacity"],
+        translate=translate) # match the fib layer translation
+
+    return layer_name
 
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     icy, icx = resolution[1] // 2, resolution[0] // 2

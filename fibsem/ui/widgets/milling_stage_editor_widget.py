@@ -1069,6 +1069,11 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         self._validate_image_field_of_view()
 
+        try:
+            alignment_area = self.parent_widget.alignment_widget._settings.rect
+        except Exception:
+            alignment_area = None
+
         # logging.info(f"Selected milling stages: {[stage.name for stage in milling_stages]}")
         # logging.info(f"Background milling stages: {[stage.name for stage in self._background_milling_stages]}")
         # logging.info(f"Updating milling stage display with image HFW: {self.image.metadata.image_settings.hfw*1e6} um and pixel size: {self.image.metadata.pixel_size.x} m")
@@ -1080,6 +1085,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             pixelsize=self.image.metadata.pixel_size.x,
             draw_crosshair=self.checkBox_show_milling_crosshair.isChecked(),
             background_milling_stages=self._background_milling_stages,
+            alignment_area=alignment_area, # NOTE: we need to update this for each milling task, rather than read from lamella.alignment_area
         )
 
     def _validate_image_field_of_view(self):
@@ -1127,14 +1133,6 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         if not self.image_layer:
             logging.warning("No target layer found for the click event.")
-            return
-
-        if self.is_movement_locked:
-            logging.warning("Movement is locked. Cannot move milling patterns.")
-            return
-        
-        if self.is_correlation_open:
-            logging.info("Correlation tool is open, ignoring click event.")
             return
 
         if self.is_movement_locked:
