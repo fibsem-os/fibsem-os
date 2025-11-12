@@ -109,6 +109,7 @@ from fibsem.structures import (
     FibsemPatternSettings,
     FibsemRectangle,
     FibsemRectangleSettings,
+    FibsemPolygonSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
@@ -444,6 +445,9 @@ class FibsemMicroscope(ABC):
 
         elif isinstance(pattern, FibsemBitmapSettings):
             self.draw_bitmap_pattern(pattern)
+        
+        elif isinstance(pattern, FibsemPolygonSettings):
+            self.draw_polygon(pattern)
 
     @abstractmethod
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
@@ -459,6 +463,10 @@ class FibsemMicroscope(ABC):
 
     @abstractmethod
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        pass
+
+    @abstractmethod
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         pass
 
     @abstractmethod
@@ -3014,6 +3022,23 @@ class ThermoMicroscope(FibsemMicroscope):
         ).astype(np.uint8)
 
         return resized_points
+
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        """Draw a polygon pattern on the current imaging view of the microscope."""
+
+        if AUTOSCRIPT_VERSION < parse_version("4.12"):
+            raise NotImplementedError("Polygon patterning is only supported in Autoscript 4.12 or higher.")
+
+        pattern = self.connection.patterning.create_polygon(
+            pattern_settings.vertices,
+            depth=pattern_settings.depth
+        )
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        logging.debug({"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()})
+        self._patterns.append(pattern)
+        return pattern
 
     def get_gis(self, port: str = None):
         use_multichem = self.is_available("gis_multichem")

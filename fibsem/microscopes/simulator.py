@@ -28,6 +28,7 @@ from fibsem.structures import (
     FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
+    FibsemPolygonSettings,
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
@@ -782,7 +783,11 @@ class DemoMicroscope(FibsemMicroscope):
     def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
         logging.debug({"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()})
         self.milling_system.patterns.append(pattern_settings)
-    
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        logging.debug({"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()})
+        self.milling_system.patterns.append(pattern_settings)
+
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
         logging.debug({"msg": "draw_bitmap_pattern", "pattern_settings": pattern_settings.to_dict()})
         self.milling_system.patterns.append(pattern_settings)

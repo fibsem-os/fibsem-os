@@ -230,6 +230,17 @@ MILLING_PATTERN_GUI_CONFIG = {
         "scale": None,
         "tooltip": "The number of columns in the array.",
     },
+    "angle":
+        {
+        "label": "Angle",
+        "type": float,
+        "units": "°",
+        "scale": None,
+        "minimum": 0.0,
+        "maximum": 90.0,
+        "step": 1.0,
+        "tooltip": "The angle for the milling pattern.",
+    },
 }
 
 MILLING_STRATEGY_GUI_CONFIG = {

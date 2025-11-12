@@ -49,6 +49,7 @@ from fibsem.structures import ( #noqa
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
+    FibsemPolygonSettings,
     FibsemRectangle,
     FibsemRectangleSettings,
     FibsemStagePosition,
@@ -1293,6 +1294,9 @@ class TescanMicroscope(FibsemMicroscope):
 
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
         return NotImplemented
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
+        raise NotImplementedError("draw_polygon not implemented for Tescan API")
 
     def setup_sputter(self, protocol: dict):
         pass

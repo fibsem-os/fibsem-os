@@ -20,6 +20,7 @@ from fibsem.structures import (
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     FibsemStagePosition,
     FibsemUser,
@@ -839,6 +840,9 @@ class OdemisMicroscope(FibsemMicroscope):
         return ThermoMicroscope.safe_absolute_stage_movement(self, position)
 
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        pass
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
         pass
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):

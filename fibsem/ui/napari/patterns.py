@@ -26,6 +26,7 @@ from fibsem.structures import (
     FibsemLineSettings,
     FibsemPatternSettings,
     FibsemRectangle,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
     calculate_fiducial_area_v2,
@@ -265,6 +266,26 @@ def convert_bitmap_pattern_to_napari_image(
         "translate": translation,
     }
 
+def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings, 
+                                      shape: Tuple[int, int], 
+                                      pixelsize: float, 
+                                      translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+                                      ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    if not isinstance(pattern_settings, FibsemPolygonSettings):
+        raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
+
+    # image centre
+    icy, icx = get_image_pixel_centre(shape)
+
+    vertices = np.array(pattern_settings.vertices)
+    # convert vertices to pixels
+    vertices = vertices / pixelsize
+    # reverse the order of coordinates for napari
+    vertices = vertices[:, ::-1]
+    # add the image centre
+    vertices += np.array([icy, icx])
+
+    return vertices, {"translate": translation}
 
 def remove_all_napari_shapes_layers(
     viewer: napari.Viewer,
@@ -289,6 +310,7 @@ NAPARI_DRAWING_DICT = {
     FibsemCircleSettings: (convert_pattern_to_napari_circle, "ellipse"),
     FibsemLineSettings: (convert_pattern_to_napari_line, "line"),
     FibsemBitmapSettings: (convert_bitmap_pattern_to_napari_image, "bitmap"),
+    FibsemPolygonSettings: (convert_pattern_to_napari_polygon, "polygon"),
 }
 
 

@@ -14,6 +14,7 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemRectangleSettings,
+    FibsemPolygonSettings,
     Point,
     TFibsemPatternSettings,
 )
@@ -45,6 +46,8 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         # Handle any special cases
         if "cross_section" in ddict:
             ddict["cross_section"] = ddict["cross_section"].name
+        if "vertices" in ddict:
+            ddict["vertices"] = ddict["vertices"].tolist()
         ddict["name"] = self.name
         del ddict["shapes"]
         return ddict
@@ -64,6 +67,10 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         cross_section = kwargs.pop("cross_section", None)
         if cross_section is not None:
             kwargs["cross_section"] = CrossSectionPattern[cross_section]
+
+        vertices = kwargs.pop("vertices", None)
+        if vertices is not None:
+            kwargs["vertices"] = np.array(vertices)
 
         return cls(**kwargs)
                 
@@ -1086,59 +1093,77 @@ class TriForcePattern(BasePattern[FibsemRectangleSettings]):
 
 
 @dataclass
-class TrapezoidPattern(BasePattern[FibsemRectangleSettings]):
-    inner_width: float = 10.0e-6
-    outer_width: float = 20.0e-6
-    trench_height: float = 5.0e-6
+class TrenchTrapezoidPattern(BasePattern):
+    trench_width: float = 10e-6
+    trench_height: float = 5e-6
+    spacing: float = 5.0e-6
     depth: float = 1.0e-6
-    distance: float = 1.0e-6
-    n_rectangles: int = 10
-    overlap: float = 0.0
+    angle: float = 60  # angle in degrees
 
-    name: ClassVar[str] = "Trapezoid"
+    name: ClassVar[str] = "TrapezoidTrench"
 
-    def define(self) -> List[FibsemRectangleSettings]:
-        
-        outer_width = self.outer_width
-        inner_width = self.inner_width
-        trench_height = self.trench_height
+    # ref: https://www.researchsquare.com/article/rs-6497420/v1
+    
+    def define(self):
+
+        width = self.trench_width
+        height = self.trench_height
+        spacing = self.spacing
+        angle = -self.angle  # angle in degrees
         depth = self.depth
-        distance = self.distance
-        n_rectangles = int(self.n_rectangles)
-        overlap = self.overlap
-        point = self.point
 
-        self.shapes = []
-        width_increments = (outer_width - inner_width) / (n_rectangles - 1)
-        height = trench_height / n_rectangles * (1 + overlap)
-        # bottom half
-        for i in range(n_rectangles):
-            width = outer_width - i * width_increments
-            y = point.y + (i * self.trench_height * (1-overlap)) - distance - trench_height
-            centre = Point(point.x, y)
-            pattern = FibsemRectangleSettings(
-                width=width,
-                height=height,
-                depth=depth,
-                centre_x=centre.x,
-                centre_y=centre.y,
-                scan_direction="BottomToTop",
-            )
-            self.shapes.append(deepcopy(pattern))
-        # top half
-        for i in range(n_rectangles):
-            width = outer_width - i * width_increments
-            y = point.y - (i * self.trench_height * (1-overlap)) + distance + trench_height
-            centre = Point(point.x, y)
-            pattern = FibsemRectangleSettings(
-                width=width,
-                height=height,
-                depth=depth,
-                centre_x=centre.x,
-                centre_y=centre.y,
-                scan_direction="TopToBottom",
-            )
-            self.shapes.append(deepcopy(pattern))
+        # define trapezoid polygon points
+        p1 = (-width / 2, 0)  # xy
+        p2 = (width / 2, 0)  # xy
+        p3 = (width / 2 - height * np.tan(np.radians(angle)), height)  # xy
+        p4 = (-width / 2 + height * np.tan(np.radians(angle)), height)  # xy
+
+        points = np.array([p1, p2, p3, p4])
+
+        # offset all points in y by spacing / 2
+        points[:, 1] += spacing / 2
+
+        # create mirrored polygon (mirror over y-axis)
+        mirrored_points = points.copy()
+        mirrored_points[:, 1] = -mirrored_points[:, 1] #- spacing /2
+
+        top_trench = FibsemPolygonSettings(vertices=points, depth=depth)
+        bottom_trench = FibsemPolygonSettings(vertices=mirrored_points, depth=depth)
+
+        # apply the verticies offset by the point
+        top_trench.vertices[:, 0] += self.point.x
+        top_trench.vertices[:, 1] -= self.point.y
+        bottom_trench.vertices[:, 0] += self.point.x
+        bottom_trench.vertices[:, 1] -= self.point.y
+
+        self.shapes = [top_trench, bottom_trench]
+        return self.shapes
+        # QUERY: we should consolidate this with TrenchPattern?
+
+
+@dataclass
+class PolygonPattern(BasePattern):
+    vertices: np.ndarray[float] = field(default_factory=list)
+    depth: float = 1.0e-6
+    is_exclusion: bool = False
+    name: ClassVar[str] = "PolygonPattern"
+
+    def define(self) -> List[FibsemPolygonSettings]:
+        """Define a polygon milling pattern based on the provided vertices."""
+        
+        if self.vertices.ndim != 2 or self.vertices.shape[1] != 2:
+            raise ValueError("Vertices must be a 2D array with shape (n, 2)")
+
+        # Create a polygon milling pattern
+        polygon = FibsemPolygonSettings(vertices=np.array(self.vertices, copy=True), 
+                                        depth=self.depth,
+                                        is_exclusion=self.is_exclusion)
+
+        # Offset the vertices by the point
+        polygon.vertices[:, 0] += self.point.x
+        polygon.vertices[:, 1] -= self.point.y
+
+        self.shapes = [polygon]
         return self.shapes
 
 
