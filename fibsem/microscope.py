@@ -271,11 +271,11 @@ class FibsemMicroscope(ABC):
         self._stage = Stage(parent=self, holder=holder)
 
     @abstractmethod
-    def move_stage_absolute(self, position: FibsemStagePosition) -> None:
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pass
 
     @abstractmethod
-    def move_stage_relative(self, position: FibsemStagePosition) -> None:
+    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pass
 
     @abstractmethod
@@ -283,7 +283,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def vertical_move(self, dy: float, dx: float = 0, static_wd: bool = True) -> None:
+    def vertical_move(self, dy: float, dx: float = 0, static_wd: bool = True) -> FibsemStagePosition:
         pass
 
     @abstractmethod

@@ -70,11 +70,11 @@ class SampleLoader:
 
 class Stage:
     parent: "FibsemMicroscope"
+    holder: 'SampleHolder'
     _position: Optional[FibsemStagePosition] = None
     position_changed = Signal(FibsemStagePosition)
-    holder: Optional["SampleHolder"] = None
 
-    def __init__(self, parent: "FibsemMicroscope", holder: Optional["SampleHolder"] = None) -> None:
+    def __init__(self, parent: "FibsemMicroscope", holder: SampleHolder) -> None:
         self.parent = parent
         self.holder = holder
 
@@ -110,17 +110,17 @@ class Stage:
     @property
     def is_homed(self) -> bool:
         """Check if the stage is homed."""
-        return self.parent.get("stage_homed")
+        return self.parent.get("stage_homed") # type: ignore
 
-    def move_absolute(self, position: FibsemStagePosition) -> None:
+    def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to an absolute position."""
         return self.parent.move_stage_absolute(position)
 
-    def move_relative(self, position: FibsemStagePosition) -> None:
+    def move_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by a relative delta."""
         return self.parent.move_stage_relative(position)
     
-    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> None:
+    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
         """Perform a stable move of the stage."""
         return self.parent.stable_move(dx, dy, beam_type)
 
@@ -132,7 +132,7 @@ class Stage:
         """Move the stage to a specific milling angle."""
         return self.parent.move_to_milling_angle(milling_angle)
 
-    def home(self) -> None:
+    def home(self) -> bool:
         """Home the stage."""
         return self.parent.home()
     
@@ -140,7 +140,7 @@ class Stage:
         """Project a stable move of the stage."""
         return self.parent.project_stable_move(dx, dy, beam_type, base_position)
     
-    def move_to_grid(self, grid_name: str) -> None:
+    def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to a specific grid."""
         if self.holder is None:
             raise ValueError("No sample holder defined.")
@@ -149,3 +149,5 @@ class Stage:
         
         grid = self.holder.grids[grid_name]
         self.move_absolute(grid.position)
+
+        return self.position

@@ -494,7 +494,8 @@ def plot_minimap(
         show_grid_radius: bool = False,
         fontsize: int = 12,
         markersize: int = 20,
-        figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
+        figsize: Optional[Tuple[int, int]] = (15, 15),
+        ax: Optional[plt.Axes] = None) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
@@ -521,7 +522,10 @@ def plot_minimap(
         all_positions.extend(grid_positions)
 
     # construct matplotlib figure/axes
-    fig, ax = plt.subplots(figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
     ax.imshow(image.data, cmap="gray")
 
     # reproject stage positions onto image 
