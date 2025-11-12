@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, TYPE_CHECKING
+from fibsem import constants
 from fibsem.structures import BeamType, FibsemStagePosition, Point
 from psygnal import Signal
 
@@ -13,7 +14,9 @@ class SampleGrid:
     name: str
     index: int
     position: FibsemStagePosition
-    radius: float = GRID_RADIUS  # 1mm default radius
+    radius: float = field(default=GRID_RADIUS, metadata={"units": "mm",
+                                                         "tooltip": "Radius of the sample grid", 
+                                                         "scale": 1e3})
     description: str = ""
 
     def to_dict(self) -> dict:
@@ -37,10 +40,16 @@ class SampleGrid:
 
 @dataclass
 class SampleHolder:
-    name: str = "Sample Holder"
-    description: str = ""
-    pre_tilt: float = 0.0  # degrees
-    reference_rotation: float = 0.0  # degrees
+    name: str = field(default="Sample Holder", metadata={"tooltip": "Name of the sample holder"})
+    description: str = field(default="", metadata={"tooltip": "Description of the sample holder"})
+    pre_tilt: float = field(default=0.0, 
+                            metadata={"units": constants.DEGREE_SYMBOL, 
+                                      "minimum": 0.0, "maximum": 90.0, "decimals": 0,
+                                        "tooltip": "Pre-tilt angle of the sample holder"})
+    reference_rotation: float = field(default=0.0, 
+                                      metadata={"units": constants.DEGREE_SYMBOL,
+                                        "minimum": 0.0, "maximum": 360.0, "decimals": 0,
+                                        "tooltip": "Reference rotation angle of the sample holder"})
     grids: dict[str, SampleGrid] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -62,6 +71,7 @@ class SampleHolder:
             reference_rotation=data.get("reference_rotation", 0.0),
             grids=grids
         )
+
 
 @dataclass
 class SampleLoader:
