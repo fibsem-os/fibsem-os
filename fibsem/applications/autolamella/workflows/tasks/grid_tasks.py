@@ -1,5 +1,6 @@
 import os
 import uuid
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
@@ -123,14 +124,59 @@ class CryoSputterGridTaskConfig(GridTaskConfig):
 
 
 @dataclass
-class CryoCleaningMillingGridTaskConfig(GridTaskConfig):
+class CryoCleaninggGridTaskConfig(GridTaskConfig):
     """Configuration for cryo cleaning milling task."""
-    task_type: ClassVar[str] = "CRYO_CLEANING_MILLING_GRID"
+    task_type: ClassVar[str] = "CRYO_CLEANING_GRID"
     display_name: ClassVar[str] = "Cryo Cleaning Milling"
-    milling_angle: float = 10.0  # degrees
-    milling_time: float = 120.0  # seconds
-    milling_current: float = 0.5  # nA
+    orientation: Literal["SEM", "FIB", "MILLING"] = "SEM"
+    milling_angle: float = 38.0 # degrees
+    field_of_view: float = 900e-6  # meters
+    duration: float = 10.0  # seconds
+    current: float = 15e-9  # A
 
+
+class CryoCleaningGridTask(GridTask):
+    """Task to perform cryo cleaning on the sample grid."""
+    config_cls: ClassVar[Type[GridTaskConfig]] = CryoCleaninggGridTaskConfig
+    config: CryoCleaninggGridTaskConfig
+
+    # ref: https://www.nature.com/articles/s41467-025-57493-3
+
+    def _run(self):
+        """Perform cryo cleaning on the sample grid using FIB."""
+        logging.info(f"Starting cryo cleaning for grid {self.grid.name}")
+
+        # move to grid position
+        target_position = self.microscope.get_target_position(self.grid.position, 
+                                                              target_orientation=self.config.orientation)
+        self.microscope._stage.move_absolute(target_position)
+
+        # set beam parameters
+        self.microscope.set_beam_current(self.config.current, beam_type=BeamType.ION)
+        self.microscope.set_field_of_view(self.config.field_of_view, beam_type=BeamType.ION)
+
+        # start timer for duration
+        start_time = time.time()
+        self.microscope.start_acquisition(beam_type=BeamType.ION)
+        while (time.time() - start_time) < self.config.duration:
+            if self._stop_event and self._stop_event.is_set():
+                logging.info("Cryo cleaning task stopped.")
+                break
+            time.sleep(1)  # wait for 1 second before checking again
+            remaining_time = self.config.duration - (time.time() - start_time)
+            logging.info(f"Cryo cleaning in progress... {remaining_time:.1f} seconds remaining.")
+        self.microscope.stop_acquisition()
+
+        # restore previous settings if needed
+        self.microscope.set_beam_current(self.microscope.system.ion.beam.beam_current, beam_type=BeamType.ION)
+
+        # Implement the cryo cleaning logic here
+        logging.info(f"Completed cryo cleaning for grid {self.grid.name}")
+        # acquire image
+        image = self.microscope.acquire_image(beam_type=BeamType.ION)
+        path = os.path.join(self.experiment.path, self.grid.name, self.task_name)
+        os.makedirs(path, exist_ok=True)
+        image.save(os.path.join(path, "post-grid-cleaining_ib.tif"))
 
 @dataclass
 class ParallelTrenchMIllingGridTaskConfig(GridTaskConfig):
@@ -140,10 +186,9 @@ class ParallelTrenchMIllingGridTaskConfig(GridTaskConfig):
 
 
 
-
-
 GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     AcquireOverviewImageGridTaskConfig.task_type: AcquireOverviewImageGridTask,
+    CryoCleaninggGridTaskConfig.task_type: CryoCleaningGridTask,
     # Add other tasks here as needed
 }   
 
