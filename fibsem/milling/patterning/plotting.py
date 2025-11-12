@@ -620,7 +620,7 @@ def draw_milling_patterns(
 
         # Get all shapes from the pattern
         try:
-            shapes = pattern.define()
+            shapes = stage.define_patterns()
         except Exception:
             logging.error("Failed to define pattern %s", pattern.name, exc_info=True)
             continue

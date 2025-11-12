@@ -412,7 +412,7 @@ def draw_milling_patterns_in_napari(
 
         # TODO: QUERY  migrate to using label layers for everything??
         # TODO: re-enable annulus drawing, re-enable bitmaps
-        for i, pattern_settings in enumerate(stage.pattern.define(), 1):
+        for i, pattern_settings in enumerate(stage.define_patterns(), 1):
             pattern = NapariPattern.draw(
                 name=stage.name,
                 index=i,

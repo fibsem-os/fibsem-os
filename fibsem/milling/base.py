@@ -12,6 +12,7 @@ from fibsem.structures import (
     MillingAlignment,
     ImageSettings,
     CrossSectionPattern,
+    FibsemPatternSettings,
     FibsemImage,
 )
 
@@ -151,6 +152,29 @@ class FibsemMillingStage:
         txt = f"{self.name} - {self.pattern.name} ({mc})"
         return txt
 
+    def define_patterns(self) -> List[FibsemPatternSettings]:
+        """Define the patterns for the milling stage."""
+        shapes = []
+        if self.patterns is not None:
+            for p in self.patterns:
+                shapes.extend(p.define())
+        else:
+            shapes = self.pattern.define()
+        return shapes
+
+    def is_compatible_with(self, other: "FibsemMillingStage") -> bool:
+        """Return True when both stages share milling settings and strategy. Compatible stages can be grouped together for milling."""
+        if not isinstance(other, FibsemMillingStage):
+            return False
+
+        if self.milling != other.milling:
+            return False
+
+        if type(self.strategy) is not type(other.strategy):
+            return False
+
+        return self.strategy.config == other.strategy.config
+
 
 def get_milling_stages(key: str, protocol: Dict[str, List[Dict[str, Any]]]) -> List[FibsemMillingStage]:
     """Get the milling stages for specific key from the protocol.
@@ -218,5 +242,4 @@ def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
     if not isinstance(stages, list):
         stages = [stages]
     return sum([estimate_milling_time(stage.pattern, stage.milling.milling_current) for stage in stages])
-
 

@@ -101,6 +101,36 @@ class FibsemMillingTaskConfig:
         """Estimate the total milling time for a list of milling stages"""
         return sum([stage.estimated_time for stage in self.stages])
 
+    def compatible_stages(self, reference_idx: int = 0) -> List[Tuple[int, FibsemMillingStage]]:
+        """Return stages whose milling settings & strategy match the stage at reference_idx."""
+        if not self.stages:
+            return []
+
+        if reference_idx < 0 or reference_idx >= len(self.stages):
+            raise IndexError(f"reference_idx {reference_idx} out of range for {len(self.stages)} stages.")
+
+        reference_stage = self.stages[reference_idx]
+        compatible: List[Tuple[int, FibsemMillingStage]] = []
+
+        for idx, stage in enumerate(self.stages):
+            if idx != reference_idx and stage.is_compatible_with(reference_stage):
+                compatible.append((idx, stage))
+
+        return compatible
+    
+    def merge_compatible_stages(self, reference_idx: int = 0) -> 'FibsemMillingStage':
+        compat_stages = self.compatible_stages(reference_idx=reference_idx)
+        logging.info(f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}") 
+
+        reference_stage = self.stages[reference_idx]
+        if compat_stages:
+            reference_stage.patterns = [reference_stage.pattern]
+            for idx, stage in compat_stages:
+                reference_stage.patterns.append(self.stages[idx].pattern)
+
+        return reference_stage
+
+
 @dataclass
 class FibsemMillingTask:
     config: FibsemMillingTaskConfig = field(default_factory=FibsemMillingTaskConfig)
