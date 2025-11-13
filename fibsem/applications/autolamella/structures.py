@@ -424,7 +424,7 @@ class AutoLamellaTaskProtocol:
             )
 
             if protocol.options.use_microexpansion:
-                rough_milling_task.milling[STRESS_RELIEF_KEY] = FibsemMillingTaskConfig.from_stages(protocol.milling[MICROEXPANSION_KEY], name="Stress Relief")
+                rough_milling_task.milling[MILL_ROUGH_KEY].stages.extend(protocol.milling[MICROEXPANSION_KEY])
             if protocol.options.use_notch:
                 rough_milling_task.milling[STRESS_RELIEF_KEY] = FibsemMillingTaskConfig.from_stages(protocol.milling[NOTCH_KEY], name="Notch")
 
