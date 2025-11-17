@@ -20,9 +20,9 @@ IMAGE_TEXT_LAYER_PROPERTIES = {
         "color": "white"
     },
     "size": 20,
-    "edge_width": 7,
-    "edge_width_is_relative": False,
-    "edge_color": "transparent",
+    "border_width": 7,
+    "border_width_is_relative": False,
+    "border_color": "transparent",
     "face_color": "transparent",
 }
 

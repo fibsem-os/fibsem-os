@@ -1051,7 +1051,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         # Update or create the napari layer
         if layer_name in self.viewer.layers:
             # Update existing layer
-            layer = self.viewer.layers[layer_name]
+            layer: NapariShapesLayer = self.viewer.layers[layer_name]
             layer.data = crosshair_lines
             # Note: edge_color and text updates may not work with all napari versions
             try:

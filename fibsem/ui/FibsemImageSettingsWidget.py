@@ -43,7 +43,6 @@ from fibsem.ui.napari.utilities import draw_crosshair_in_napari, draw_scalebar_i
 from fibsem.ui.qtdesigner_files import ImageSettingsWidget as ImageSettingsWidgetUI
 
 # feature flags
-ENABLE_ADVANCED_IMAGING_SETTINGS = True
 
 class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget):
     viewer_update_signal = pyqtSignal()             # when the viewer is updated
@@ -252,13 +251,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.checkBox_image_use_autogamma.setVisible(advanced_mode)
 
         # advanced imaging
-        self.checkBox_image_line_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.checkBox_image_scan_interlacing.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.checkBox_image_frame_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.checkBox_image_drift_correction.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.spinBox_image_line_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.spinBox_image_scan_interlacing.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.spinBox_image_frame_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
+        self.checkBox_image_line_integration.setVisible(advanced_mode)
+        self.checkBox_image_scan_interlacing.setVisible(advanced_mode)
+        self.checkBox_image_frame_integration.setVisible(advanced_mode)
+        self.checkBox_image_drift_correction.setVisible(advanced_mode)
+        self.spinBox_image_line_integration.setVisible(advanced_mode)
+        self.spinBox_image_scan_interlacing.setVisible(advanced_mode)
+        self.spinBox_image_frame_integration.setVisible(advanced_mode)
             
     def update_presets(self) -> None:
         beam_type = BeamType[self.selected_beam.currentText()]
@@ -461,14 +460,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         line_integration, scan_interlacing, frame_integration = None, None, None
         image_drift_correction = False
 
-        if ENABLE_ADVANCED_IMAGING_SETTINGS:
-            if self.checkBox_image_line_integration.isChecked():
-                line_integration = self.spinBox_image_line_integration.value()
-            if self.checkBox_image_scan_interlacing.isChecked():
-                scan_interlacing = self.spinBox_image_scan_interlacing.value()
-            if self.checkBox_image_frame_integration.isChecked():
-                frame_integration = self.spinBox_image_frame_integration.value()
-                image_drift_correction = self.checkBox_image_drift_correction.isChecked()
+        if self.checkBox_image_line_integration.isChecked():
+            line_integration = self.spinBox_image_line_integration.value()
+        if self.checkBox_image_scan_interlacing.isChecked():
+            scan_interlacing = self.spinBox_image_scan_interlacing.value()
+        if self.checkBox_image_frame_integration.isChecked():
+            frame_integration = self.spinBox_image_frame_integration.value()
+            image_drift_correction = self.checkBox_image_drift_correction.isChecked()
 
         # imaging settings
         self.image_settings = ImageSettings(
@@ -771,11 +769,11 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                     name=IMAGE_TEXT_LAYER_PROPERTIES["name"],
                     size=IMAGE_TEXT_LAYER_PROPERTIES["size"],
                     text=IMAGE_TEXT_LAYER_PROPERTIES["text"],
-                    edge_width=IMAGE_TEXT_LAYER_PROPERTIES["edge_width"],
-                    edge_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
-                        "edge_width_is_relative"
+                    border_width=IMAGE_TEXT_LAYER_PROPERTIES["border_width"],
+                    border_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
+                        "border_width_is_relative"
                     ],
-                    edge_color=IMAGE_TEXT_LAYER_PROPERTIES["edge_color"],
+                    border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
                     face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
                 )   
 
