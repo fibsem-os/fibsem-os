@@ -263,6 +263,10 @@ class FibsemMicroscope(ABC):
                                 position=FibsemStagePosition(name="Grid-01", x=-5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
             grid02 = SampleGrid(name="Grid-02", index=2, 
                                 position=FibsemStagePosition(name="Grid-02", x=+5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
+            # grid01 = SampleGrid(name="Grid-01", index=1, 
+            #                     position=FibsemStagePosition(name="Grid-01", x=-0.36502e-3, y=-1.74115e-3, z=7.32e-3, r=orientation.r, t=orientation.t))
+            # grid02 = SampleGrid(name="Grid-02", index=2, 
+            #                     position=FibsemStagePosition(name="Grid-02", x=+10.3e-3, y=-1.74115e-3, z=7.32e-3, r=orientation.r, t=orientation.t))
 
             holder = SampleHolder(name="Pre-Tilted Holder",
                                 pre_tilt=self.system.stage.shuttle_pre_tilt,
