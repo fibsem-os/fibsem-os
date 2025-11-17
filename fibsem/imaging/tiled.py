@@ -100,49 +100,53 @@ def tiled_image_acquisition(
     arr = np.zeros(shape=(full_shape), dtype=np.uint8)
     n_tiles_acquired = 0
     total_tiles = n_rows*n_cols
-    for i in range(n_rows):
+    try:
+        for i in range(n_rows):
 
-        microscope.safe_absolute_stage_movement(start_position)
-        
-        img_row = []
-        microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
+            microscope.safe_absolute_stage_movement(start_position)
 
-        for j in range(n_cols):
-            image_settings.filename = f"tile_{i}_{j}"
-            microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
+            img_row: list[FibsemImage] = []
+            microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
 
-            if parent_ui:
-                if parent_ui._thread_stop_event.is_set():
-                    raise Exception("User Stopped Acquisition")
+            for j in range(n_cols):
+                image_settings.filename = f"tile_{i}_{j}"
+                microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
 
-            logging.info(f"Acquiring Tile {i}, {j}")
-            image = acquire.new_image(microscope, image_settings)
+                if parent_ui:
+                    if parent_ui._thread_stop_event.is_set():
+                        raise Exception("User Stopped Acquisition")
 
-            # stitch image
-            arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = image.data
+                logging.info(f"Acquiring Tile {i}, {j}")
+                image = acquire.acquire_image(microscope, image_settings)
 
-            if parent_ui:
-                n_tiles_acquired += 1
-                parent_ui.tile_acquisition_progress_signal.emit(
-                    {
-                        "msg": "Tile Collected",
-                        "i": i,
-                        "j": j,
-                        "n_rows": n_rows,
-                        "n_cols": n_cols,
-                        "image": arr,
-                        "counter": n_tiles_acquired,
-                        "total": total_tiles,
-                    }
-                )
-                if isinstance(microscope, DemoMicroscope):
-                    time.sleep(1)
+                # stitch image
+                arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = image.data
 
-            img_row.append(image)
-        images.append(img_row)
+                if parent_ui:
+                    n_tiles_acquired += 1
+                    parent_ui.tile_acquisition_progress_signal.emit(
+                        {
+                            "msg": "Tile Collected",
+                            "i": i,
+                            "j": j,
+                            "n_rows": n_rows,
+                            "n_cols": n_cols,
+                            "image": arr,
+                            "counter": n_tiles_acquired,
+                            "total": total_tiles,
+                        }
+                    )
+                    if isinstance(microscope, DemoMicroscope):
+                        time.sleep(1)
 
-    # restore initial state
-    microscope.set_microscope_state(start_state)
+                img_row.append(image)
+            images.append(img_row)
+    except Exception as e:
+        logging.error(f"Tiled acquisition failed: {e}")
+        raise
+    finally:
+        logging.info(f"Tiled acquisition complete, restoring initial position: {start_state.stage_position.pretty}")
+        microscope.set_microscope_state(start_state)
     image_settings.path = prev_path
 
     ddict = {"total_fov": total_fov, "tile_size": tile_size, "n_rows": n_rows, "n_cols": n_cols, 
