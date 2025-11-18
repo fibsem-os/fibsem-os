@@ -55,6 +55,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
+    DefectState,
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import run_tasks
 from fibsem.applications.autolamella.ui.qt import AutoLamellaUI as AutoLamellaMainUI
@@ -100,7 +101,6 @@ FEATURE_POSE_CONTROLS_ENABLED = False
 class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
     detection_confirmed_signal = pyqtSignal(bool)
-    # update_experiment_signal = pyqtSignal(Experiment)
     _workflow_finished_signal = pyqtSignal()
 
     def __init__(self, viewer: napari.Viewer) -> None:
@@ -167,7 +167,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_go_to_lamella.clicked.connect(self.move_to_lamella_position)
         self.comboBox_current_lamella.currentIndexChanged.connect(self.update_lamella_ui)
         self.pushButton_save_position.clicked.connect(self.save_lamella_ui)
-        self.pushButton_fail_lamella.clicked.connect(self.fail_lamella_ui)
 
         # workflow button group
         self.pushButton_run_setup_autolamella.setVisible(False)
@@ -239,7 +238,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # signals
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
-        # self.update_experiment_signal.connect(self.hande_update_experiment_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
@@ -863,7 +861,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.update_protocol_ui()
 
         # setup experiment -> connect to microscope -> select lamella -> run autolamella
-        self.pushButton_fail_lamella.setVisible(has_lamella)
 
         # experiment loaded
         # file menu
@@ -1053,10 +1050,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_lamella_move_to_pose.setVisible(enable_pose_controls)
         self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
 
-        # defect button
-        msg = "Mark as Active" if lamella.defect.has_defect else "Mark As Defect"
-        self.pushButton_fail_lamella.setText(msg)
-        self.pushButton_fail_lamella.setVisible(False)
+        # defect state
         self.lamella_defect_widget.set_defect_state(lamella.defect)
 
         self._update_minimap_data(selected_name=lamella.name)

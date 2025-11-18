@@ -24,8 +24,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>458</width>
-        <height>590</height>
+        <width>472</width>
+        <height>678</height>
        </rect>
       </property>
       <layout class="QGridLayout" name="gridLayout_2">
@@ -174,10 +174,68 @@
           <string>Stage Movement</string>
          </property>
          <layout class="QGridLayout" name="gridLayout_3">
-          <item row="6" column="1">
-           <widget class="QPushButton" name="pushButton_move">
+          <item row="4" column="0">
+           <widget class="QLabel" name="label_movement_stage_rotation">
             <property name="text">
-             <string>Move to Position</string>
+             <string>Rotation</string>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="0">
+           <widget class="QDoubleSpinBox" name="doubleSpinBox_milling_angle"/>
+          </item>
+          <item row="7" column="1">
+           <widget class="QPushButton" name="pushButton_move_flat_ion">
+            <property name="text">
+             <string>Move Flat to ION Beam</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="0">
+           <widget class="QPushButton" name="pushButton_refresh_stage_position_data">
+            <property name="text">
+             <string>Refresh Stage Position Data</string>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="1">
+           <widget class="QPushButton" name="pushButton_move_to_milling_angle">
+            <property name="text">
+             <string>Move to Milling Angle</string>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QDoubleSpinBox" name="doubleSpinBox_movement_stage_rotation">
+            <property name="suffix">
+             <string> deg</string>
+            </property>
+            <property name="minimum">
+             <double>-360.000000000000000</double>
+            </property>
+            <property name="maximum">
+             <double>360.000000000000000</double>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_movement_stage_x">
+            <property name="text">
+             <string>X Coordinate</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_movement_stage_z">
+            <property name="text">
+             <string>Z Coordinate</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QDoubleSpinBox" name="doubleSpinBox_movement_stage_tilt">
+            <property name="suffix">
+             <string> deg</string>
             </property>
            </widget>
           </item>
@@ -200,91 +258,10 @@
             </property>
            </widget>
           </item>
-          <item row="7" column="1">
-           <widget class="QPushButton" name="pushButton_move_flat_ion">
-            <property name="text">
-             <string>Move Flat to ION Beam</string>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="0">
-           <widget class="QLabel" name="label_movement_stage_z">
-            <property name="text">
-             <string>Z Coordinate</string>
-            </property>
-           </widget>
-          </item>
-          <item row="4" column="1">
-           <widget class="QDoubleSpinBox" name="doubleSpinBox_movement_stage_rotation">
-            <property name="suffix">
-             <string> deg</string>
-            </property>
-            <property name="minimum">
-             <double>-360.000000000000000</double>
-            </property>
-            <property name="maximum">
-             <double>360.000000000000000</double>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="1">
-           <widget class="QDoubleSpinBox" name="doubleSpinBox_movement_stage_x">
-            <property name="suffix">
-             <string> mm</string>
-            </property>
-            <property name="decimals">
-             <number>5</number>
-            </property>
-            <property name="minimum">
-             <double>-10000000000.000000000000000</double>
-            </property>
-            <property name="maximum">
-             <double>100000000000000000.000000000000000</double>
-            </property>
-            <property name="singleStep">
-             <double>0.001000000000000</double>
-            </property>
-           </widget>
-          </item>
-          <item row="6" column="0">
-           <widget class="QPushButton" name="pushButton_refresh_stage_position_data">
-            <property name="text">
-             <string>Refresh Stage Position Data</string>
-            </property>
-           </widget>
-          </item>
-          <item row="4" column="0">
-           <widget class="QLabel" name="label_movement_stage_rotation">
-            <property name="text">
-             <string>Rotation</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="0">
-           <widget class="QLabel" name="label_movement_stage_x">
-            <property name="text">
-             <string>X Coordinate</string>
-            </property>
-           </widget>
-          </item>
-          <item row="5" column="1">
-           <widget class="QDoubleSpinBox" name="doubleSpinBox_movement_stage_tilt">
-            <property name="suffix">
-             <string> deg</string>
-            </property>
-           </widget>
-          </item>
           <item row="5" column="0">
            <widget class="QLabel" name="label_movement_stage_tilt">
             <property name="text">
              <string>Tilt</string>
-            </property>
-           </widget>
-          </item>
-          <item row="7" column="0">
-           <widget class="QPushButton" name="pushButton_move_flat_electron">
-            <property name="text">
-             <string>Move Flat to ELECTRON Beam</string>
             </property>
            </widget>
           </item>
@@ -307,6 +284,39 @@
             </property>
            </widget>
           </item>
+          <item row="0" column="1">
+           <widget class="QDoubleSpinBox" name="doubleSpinBox_movement_stage_x">
+            <property name="suffix">
+             <string> mm</string>
+            </property>
+            <property name="decimals">
+             <number>5</number>
+            </property>
+            <property name="minimum">
+             <double>-10000000000.000000000000000</double>
+            </property>
+            <property name="maximum">
+             <double>100000000000000000.000000000000000</double>
+            </property>
+            <property name="singleStep">
+             <double>0.001000000000000</double>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QPushButton" name="pushButton_move">
+            <property name="text">
+             <string>Move to Position</string>
+            </property>
+           </widget>
+          </item>
+          <item row="7" column="0">
+           <widget class="QPushButton" name="pushButton_move_flat_electron">
+            <property name="text">
+             <string>Move Flat to ELECTRON Beam</string>
+            </property>
+           </widget>
+          </item>
           <item row="2" column="0">
            <widget class="QLabel" name="label_movement_stage_y">
             <property name="text">
@@ -314,13 +324,19 @@
             </property>
            </widget>
           </item>
-          <item row="8" column="0">
-           <widget class="QDoubleSpinBox" name="doubleSpinBox_milling_angle"/>
-          </item>
-          <item row="8" column="1">
-           <widget class="QPushButton" name="pushButton_move_to_milling_angle">
+          <item row="9" column="0" colspan="2">
+           <widget class="QLabel" name="label_movement_instructions">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
             <property name="text">
-             <string>Move to Milling Angle</string>
+             <string>Double click to move. Press continue when complete.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
             </property>
            </widget>
           </item>
@@ -330,35 +346,6 @@
       </layout>
      </widget>
     </widget>
-   </item>
-   <item row="19" column="0" colspan="2">
-    <widget class="QLabel" name="label_movement_instructions">
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>0</height>
-      </size>
-     </property>
-     <property name="text">
-      <string>Double click to move. Press continue when complete.</string>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
-   <item row="20" column="0" colspan="2">
-    <spacer name="verticalSpacer">
-     <property name="orientation">
-      <enum>Qt::Vertical</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>20</width>
-       <height>40</height>
-      </size>
-     </property>
-    </spacer>
    </item>
   </layout>
  </widget>
