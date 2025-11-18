@@ -300,9 +300,14 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.task_parameters_config_widget.set_task_config(task_config)
         self.image_params_widget.update_from_settings(task_config.imaging)
 
+        field_of_view = 150e-6
+        if task_config.milling:
+            key = list(task_config.milling.keys())[0]
+            field_of_view = task_config.milling[key].field_of_view
+
         # clear existing image layers
         self.viewer.layers.clear()
-        self.image = FibsemImage.generate_blank_image(hfw=150e-6, random=True)
+        self.image = FibsemImage.generate_blank_image(hfw=field_of_view, random=True)
         self.viewer.add_image(self.image.data, name="Reference Image (FIB)", colormap='gray')
 
         self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
