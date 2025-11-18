@@ -949,6 +949,7 @@ class SetupLamellaTask(AutoLamellaTask):
             # mill the fiducial
             self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
             msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
+            fiducial_task_config.acquisition.imaging.path = self.lamella.path
             milling_task_config = self.update_milling_config_ui(fiducial_task_config, msg=msg)
             self.config.milling[FIDUCIAL_KEY] = deepcopy(milling_task_config)
 
