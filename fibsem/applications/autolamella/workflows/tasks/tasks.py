@@ -85,6 +85,9 @@ TAutoLamellaTaskConfig = TypeVar(
 MAX_ALIGNMENT_ATTEMPTS = 3
 ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
 
+# feature flags
+FEATURE_SELECTIVE_CHANNEL_ACQ = True
+FEAUTRE_ACQUIRE_SEM_CHANNEL = True
 
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
@@ -485,8 +488,15 @@ class AutoLamellaTask(ABC):
                                         alignment_current=None,
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
                                         stop_event=self._stop_event)
+
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""
+        if FEATURE_SELECTIVE_CHANNEL_ACQ:
+            return self._acquire_channels(image_settings, 
+                                          field_of_view=field_of_view, 
+                                          filename=filename, 
+                                          acquire_sem=FEAUTRE_ACQUIRE_SEM_CHANNEL)
+
         if filename is None:
             filename = f"ref_{self.task_name}_start"
 
@@ -502,6 +512,12 @@ class AutoLamellaTask(ABC):
                                  filename: Optional[str] = None, 
                                  field_of_views: Optional[Tuple[float, float]] = None) -> None:
         """Acquire a set of reference images."""
+        if FEATURE_SELECTIVE_CHANNEL_ACQ:
+            return self._acquire_set_of_channels(image_settings,
+                                                 field_of_views=field_of_views, 
+                                                 filename=filename,
+                                                 acquire_sem=FEAUTRE_ACQUIRE_SEM_CHANNEL)
+
         if filename is None:
             filename = f"ref_{self.task_name}_final"
         if field_of_views is None:
@@ -515,6 +531,51 @@ class AutoLamellaTask(ABC):
             filename=filename,
         )
         set_images_ui(self.parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
+
+    def _acquire_channels(self, 
+                          image_settings: ImageSettings, 
+                          filename: Optional[str] = None, 
+                          field_of_view: float = 150e-6,
+                          acquire_sem: bool = True, 
+                          acquire_fib: bool = True) -> None:
+        """Acquire images for sem/fib channels at given field of view."""
+        if filename is None:
+            filename = f"ref_{self.task_name}_start"
+
+        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        image_settings.hfw = field_of_view
+        image_settings.filename = filename
+        image_settings.save = True
+        sem_image, fib_image = acquire.acquire_channels(self.microscope,
+                                                        image_settings,
+                                                        acquire_sem=acquire_sem,
+                                                        acquire_fib=acquire_fib)
+        set_images_ui(self.parent_ui, sem_image, fib_image)
+
+    def _acquire_set_of_channels(self, image_settings: ImageSettings, 
+                                 field_of_views: Optional[List[float]] = None, 
+                                 filename: Optional[str] = None,
+                                 acquire_sem: bool = True, 
+                                 acquire_fib: bool = True) -> None:
+        """Acquire a set of images for each sem/fib channel at given field of views."""
+        
+        if field_of_views is None:
+            field_of_views = [fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER]
+        if filename is None:
+            filename = f"ref_{self.task_name}_final"
+
+        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        images = acquire.acquire_set_of_channels(
+            self.microscope,
+            image_settings,
+            field_of_views,
+            filename=filename,
+            acquire_sem=acquire_sem,
+            acquire_fib=acquire_fib,
+        )
+
+        sem_image, fib_image = images[-1] # last acquired image
+        set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
 
 
 class MillTrenchTask(AutoLamellaTask):

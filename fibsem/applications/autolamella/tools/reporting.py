@@ -413,7 +413,7 @@ def plot_lamella_task_workflow_summary(p: Lamella,
     task_filenames = {}
     for task_name in completed_tasks:
         filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*_res*.tif*")))
-        if len(filenames) == 0 or len(filenames) < 4:
+        if len(filenames) == 0:
             continue
         task_filenames[task_name] = filenames
 
@@ -424,6 +424,7 @@ def plot_lamella_task_workflow_summary(p: Lamella,
     # only keep tasks with valid images
     completed_tasks = list(task_filenames.keys())
     nrows = len(completed_tasks)
+    ncols = len(task_filenames[completed_tasks[0]])
 
     # Load first image to determine aspect ratio for proper figure sizing
     first_filename = list(task_filenames.values())[0][0]
@@ -436,9 +437,9 @@ def plot_lamella_task_workflow_summary(p: Lamella,
     # 4 columns of images, each target_size wide
     fig_width = figsize[0]
     # Height should accommodate nrows of images with aspect_ratio, minimal spacing
-    fig_height = fig_width * aspect_ratio * nrows / 4
+    fig_height = fig_width * aspect_ratio * nrows / ncols
 
-    fig, axes = plt.subplots(nrows, 4, figsize=(fig_width, fig_height))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_width, fig_height))
 
     for i, task_name in enumerate(completed_tasks):
 
@@ -538,7 +539,7 @@ def plot_experiment_task_summary(exp: Experiment,
 
         # Look for task images
         filenames = sorted(glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*_res*.tif*")))
-        if len(filenames) == 0 or len(filenames) < 4:
+        if len(filenames) == 0:
             continue
         lamella_filenames[lamella.name] = filenames
 
@@ -549,6 +550,7 @@ def plot_experiment_task_summary(exp: Experiment,
     # only keep lamellae with valid images
     lamella_names = list(lamella_filenames.keys())
     nrows = len(lamella_names)
+    ncols = len(lamella_filenames[lamella_names[0]])
 
     # Load first image to determine aspect ratio for proper figure sizing
     first_filename = list(lamella_filenames.values())[0][0]
@@ -561,9 +563,9 @@ def plot_experiment_task_summary(exp: Experiment,
     # 4 columns of images, each target_size wide
     fig_width = figsize[0]
     # Height should accommodate nrows of images with aspect_ratio, minimal spacing
-    fig_height = fig_width * aspect_ratio * nrows / 4
+    fig_height = fig_width * aspect_ratio * nrows / ncols
 
-    fig, axes = plt.subplots(nrows, 4, figsize=(fig_width, fig_height))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_width, fig_height))
 
     for i, lamella_name in enumerate(lamella_names):
 

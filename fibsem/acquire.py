@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 from typing import Optional, Tuple
 
@@ -183,3 +184,38 @@ def acquire_channels(microscope: FibsemMicroscope,
         image_settings.beam_type = BeamType.ION
         fib_image = acquire_image(microscope, image_settings)
     return sem_image, fib_image
+
+def acquire_set_of_channels(microscope: FibsemMicroscope, 
+                            image_settings: ImageSettings, 
+                            hfws: list[float],
+                            filename: str = "ref_image",
+                            acquire_sem: bool = True, 
+                            acquire_fib: bool = True) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
+    """Acquire a set of SEM and/or FIB images at different horizontal field widths (hfws).
+    Args:
+        microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
+        image_settings (ImageSettings): The settings to use for image acquisition.
+        hfws (list[float]): A list containing the horizontal field widths for the images.
+        acquire_sem (bool, optional): Whether to acquire SEM images. Defaults to True.
+        acquire_fib (bool, optional): Whether to acquire FIB images. Defaults to True.
+    Returns:
+        list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]: A list of tuples containing the acquired SEM and FIB images
+            for each horizontal field width. If a particular image type was not acquired, its corresponding value will be None.
+    """
+    images = []
+
+    image_settings = copy.deepcopy(image_settings)
+    image_settings.save = True  # ensure saving
+
+    if len(hfws) != 2:
+        raise ValueError("hfws must contain exactly two values for SEM and FIB acquisition.") # TODO: remove this restriction later
+
+    suffixes = ["low_res", "high_res"]
+
+    for hfw, suffix in zip(hfws, suffixes):
+        image_settings.hfw = hfw
+        image_settings.filename = f"{filename}_{suffix}"
+        # image_settings.filename = f"{filename}_{int(hfw*1e6)}um"
+        sem_image, fib_image = acquire_channels(microscope, image_settings, acquire_sem, acquire_fib)
+        images.append((sem_image, fib_image))
+    return images
