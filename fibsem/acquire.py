@@ -1,6 +1,7 @@
+from __future__ import annotations
 
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 from fibsem.imaging import autogamma
 from fibsem.microscope import FibsemMicroscope
@@ -158,4 +159,27 @@ def take_set_of_reference_images(
     return reference_images
 
 
+def acquire_channels(microscope: FibsemMicroscope,
+                           image_settings: ImageSettings,
+                           acquire_sem: bool = True,
+                           acquire_fib: bool = True) -> tuple[Optional[FibsemImage], Optional[FibsemImage]]:
+    """Acquire SEM and/or FIB images based on the specified flags.
+    Args:
+        microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
+        image_settings (ImageSettings): The settings to use for image acquisition.
+        acquire_sem (bool, optional): Whether to acquire an SEM image. Defaults to True.
+        acquire_fib (bool, optional): Whether to acquire a FIB image. Defaults to True.
+    Returns:
+        tuple[Optional[FibsemImage], Optional[FibsemImage]]: A tuple containing the acquired SEM and FIB images.
+            If a particular image type was not acquired, its corresponding value will be None.
+    """
 
+    sem_image: Optional[FibsemImage] = None
+    fib_image: Optional[FibsemImage] = None
+    if acquire_sem:
+        image_settings.beam_type = BeamType.ELECTRON
+        sem_image = acquire_image(microscope, image_settings)
+    if acquire_fib:
+        image_settings.beam_type = BeamType.ION
+        fib_image = acquire_image(microscope, image_settings)
+    return sem_image, fib_image

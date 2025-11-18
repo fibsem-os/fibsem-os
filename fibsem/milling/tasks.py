@@ -22,12 +22,20 @@ if TYPE_CHECKING:
 @dataclass
 class MillingTaskAcquisitionSettings:
     """Settings for the acquisition of images during a milling task."""
-    enabled: bool = True
+    acquire_sem: bool = field(default=True, 
+                              metadata={"tooltip": "Whether to acquire SEM images between the milling task stages."})
+    acquire_fib: bool = field(default=True, 
+                              metadata={"tooltip": "Whether to acquire FIB images between the milling task stages."})
     imaging: ImageSettings = field(default_factory=ImageSettings)
+
+    @property
+    def enabled(self) -> bool:
+        return self.acquire_sem or self.acquire_fib
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "enabled": self.enabled,
+            "acquire_sem": self.acquire_sem,
+            "acquire_fib": self.acquire_fib,
             "imaging": self.imaging.to_dict(),
         }
 
@@ -37,7 +45,8 @@ class MillingTaskAcquisitionSettings:
         if imaging == {} or imaging.get("path", None) is None:
             imaging["path"] = None
         return cls(
-            enabled=data.get("enabled", True),
+            acquire_sem=data.get("acquire_sem", True),
+            acquire_fib=data.get("acquire_fib", True),
             imaging=ImageSettings.from_dict(imaging),
         )
 
@@ -90,7 +99,8 @@ class FibsemMillingTaskConfig:
             channel=first_stage.milling.milling_channel,
             alignment=first_stage.alignment,
             acquisition=MillingTaskAcquisitionSettings(
-                enabled=first_stage.milling.acquire_images,
+                acquire_sem=first_stage.milling.acquire_images,
+                acquire_fib=first_stage.milling.acquire_images,
                 imaging=first_stage.imaging,
             ),
             stages=stages,
@@ -293,7 +303,7 @@ class FibsemMillingTask:
         self,
         stage_name: str,
         tag: str = "finished",
-    ) -> Tuple[FibsemImage, FibsemImage]:
+    ) -> None:
         """Acquire images after milling for reference.
         Args:
             stage_name (str): Name of the milling stage
@@ -310,16 +320,22 @@ class FibsemMillingTask:
         if self.config.acquisition.imaging.path is None:
             self.config.acquisition.imaging.path = self.microscope._last_imaging_settings.path
 
-        # acquire images
-        images = acquire.take_reference_images(self.microscope, self.config.acquisition.imaging)
+        # support specifying acquiring sem and/or fib images only
+        sem_image, fib_image = acquire.acquire_channels(
+            microscope=self.microscope,
+            image_settings=self.config.acquisition.imaging,
+            acquire_sem=self.config.acquisition.acquire_sem,
+            acquire_fib=self.config.acquisition.acquire_fib,
+        )
 
         try:
-            self.microscope.sem_acquisition_signal.emit(images[0]) # sem image
-            self.microscope.fib_acquisition_signal.emit(images[1]) # ion image
+            if sem_image is not None:
+                self.microscope.sem_acquisition_signal.emit(sem_image) # sem image
+            if fib_image is not None:
+                self.microscope.fib_acquisition_signal.emit(fib_image) # ion image
         except Exception as e:
             logging.error(f"Error emitting acquisition signals: {e}")
 
-        return images
 
 def run_milling_task(microscope: FibsemMicroscope, 
                      config: FibsemMillingTaskConfig, 

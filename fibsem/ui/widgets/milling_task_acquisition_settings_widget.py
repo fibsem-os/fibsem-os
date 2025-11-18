@@ -1,5 +1,5 @@
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QCheckBox, QVBoxLayout, QWidget, QHBoxLayout
 
 from fibsem.milling.tasks import MillingTaskAcquisitionSettings
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -39,24 +39,44 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
         self.setLayout(layout)
 
         # Enabled checkbox
-        self.enabled_checkbox = QCheckBox("Enable Acquisition")
-        self.enabled_checkbox.setChecked(True)
-        layout.addWidget(self.enabled_checkbox)
+        self.acquire_sem_checkbox = QCheckBox("Acquire SEM Image")
+        self.acquire_sem_checkbox.setChecked(True)
+        self.acquire_sem_checkbox.setToolTip(
+            self._settings.__dataclass_fields__["acquire_sem"].metadata.get(
+                "tooltip", ""
+            )
+        )
+        self.acquire_fib_checkbox = QCheckBox("Acquire FIB Image")
+        self.acquire_fib_checkbox.setChecked(True)
+        self.acquire_fib_checkbox.setToolTip(
+            self._settings.__dataclass_fields__["acquire_fib"].metadata.get(
+                "tooltip", ""
+            )
+        )
 
         # Image settings widget
         self.image_settings_widget = ImageSettingsWidget(show_advanced=show_advanced)
+
+        hbox = QHBoxLayout()
+        hbox.addWidget(self.acquire_sem_checkbox)
+        hbox.addWidget(self.acquire_fib_checkbox)
+        layout.addLayout(hbox)
         layout.addWidget(self.image_settings_widget)
-        # layout.setContentsMargins(5, 5, 5, 5)
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers."""
-        self.enabled_checkbox.toggled.connect(self._emit_settings_changed)
-        self.enabled_checkbox.toggled.connect(self._update_image_settings_enabled)
+        self.acquire_sem_checkbox.toggled.connect(self._emit_settings_changed)
+        self.acquire_fib_checkbox.toggled.connect(self._emit_settings_changed)
+        self.acquire_sem_checkbox.toggled.connect(self._update_image_settings_enabled)
+        self.acquire_fib_checkbox.toggled.connect(self._update_image_settings_enabled)
         self.image_settings_widget.settings_changed.connect(self._emit_settings_changed)
 
     def _update_image_settings_enabled(self):
         """Enable/disable the image settings widget based on the enabled checkbox."""
-        self.image_settings_widget.setEnabled(self.enabled_checkbox.isChecked())
+        self.image_settings_widget.setEnabled(
+            self.acquire_sem_checkbox.isChecked()
+            or self.acquire_fib_checkbox.isChecked()
+        )
 
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings."""
@@ -72,7 +92,8 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
             all other fields from the stored settings.
         """
         # Update only the fields controlled by this widget
-        self._settings.enabled = self.enabled_checkbox.isChecked()
+        self._settings.acquire_sem = self.acquire_sem_checkbox.isChecked()
+        self._settings.acquire_fib = self.acquire_fib_checkbox.isChecked()
         self._settings.imaging = self.image_settings_widget.get_settings()
         return self._settings
 
@@ -86,14 +107,16 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
 
         # Block signals to prevent recursive updates
         self.blockSignals(True)
-        self.enabled_checkbox.blockSignals(True)
-
-        self.enabled_checkbox.setChecked(settings.enabled)
+        self.acquire_sem_checkbox.blockSignals(True)
+        self.acquire_fib_checkbox.blockSignals(True)
+        self.acquire_sem_checkbox.setChecked(settings.acquire_sem)
+        self.acquire_fib_checkbox.setChecked(settings.acquire_fib)
         self.image_settings_widget.update_from_settings(settings.imaging)
 
         # Update enabled state of image settings widget
         self._update_image_settings_enabled()
-        self.enabled_checkbox.blockSignals(False)
+        self.acquire_sem_checkbox.blockSignals(False)
+        self.acquire_fib_checkbox.blockSignals(False)
         self.blockSignals(False)
 
     def set_show_advanced(self, show_advanced: bool):
