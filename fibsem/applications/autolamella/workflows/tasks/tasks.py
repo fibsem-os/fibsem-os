@@ -940,9 +940,6 @@ class SetupLamellaTask(AutoLamellaTask):
         # TODO: display milling task config to display lamella milling tasks
 
         # display max intensity projections of any fluorescence images for the lamella
-        self._display_fluorescence_images()
-
-        # display max intensity projections of any fluorescence images for the lamella
         if self.config.display_fluorescence:
             self._display_fluorescence_images()
 
