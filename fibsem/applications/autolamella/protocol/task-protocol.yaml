@@ -47,7 +47,8 @@ tasks:
     Rough Milling:
         task_type: MILL_ROUGH
         parameters:
-            acquire_reference_images: true
+            acquire_fib: true
+            acquire_sem: true
             orientation: MILLING
         milling:
             mill_rough:
@@ -121,7 +122,8 @@ tasks:
     Polishing:
         task_type: MILL_POLISHING
         parameters:
-            acquire_reference_images: true
+            acquire_fib: true
+            acquire_sem: true
             orientation: MILLING
         milling:
             mill_polishing:

@@ -87,7 +87,6 @@ ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
 
 # feature flags
 FEATURE_SELECTIVE_CHANNEL_ACQ = True
-FEAUTRE_ACQUIRE_SEM_CHANNEL = True
 
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
@@ -158,6 +157,16 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
             "units": "%",
         },
     )
+    acquire_sem: bool = field(
+        default=True,
+        metadata={"help": "Whether to acquire an SEM reference image",
+                  "label": "Acquire SEM Image"}
+    )
+    acquire_fib: bool = field(
+        default=True,
+        metadata={"help": "Whether to acquire a FIB reference image",
+                  "label": "Acquire FIB Image"}
+    )
     display_fluorescence: bool = field(
         default=True,
         metadata={"help": "Whether to display fluorescence images for lamella setup (if available)"},
@@ -172,9 +181,15 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
-    acquire_reference_images: bool = field(
+    acquire_sem: bool = field(
         default=True,
-        metadata={"help": "Whether to acquire reference images"},
+        metadata={"help": "Whether to acquire an SEM reference image",
+                  "label": "Acquire SEM Image"}
+    )
+    acquire_fib: bool = field(
+        default=True,
+        metadata={"help": "Whether to acquire a FIB reference image",
+                  "label": "Acquire FIB Image"}
     )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
@@ -194,9 +209,15 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
-    acquire_reference_images: bool = field(
+    acquire_sem: bool = field(
         default=True,
-        metadata={"help": "Whether to acquire reference images"},
+        metadata={"help": "Whether to acquire an SEM reference image",
+                  "label": "Acquire SEM Image"}
+    )
+    acquire_fib: bool = field(
+        default=True,
+        metadata={"help": "Whether to acquire a FIB reference image",
+                  "label": "Acquire FIB Image"}
     )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
@@ -492,11 +513,13 @@ class AutoLamellaTask(ABC):
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""
         if FEATURE_SELECTIVE_CHANNEL_ACQ:
+            acquire_sem = self.config.acquire_sem if hasattr(self.config, 'acquire_sem') else True
+            acquire_fib = self.config.acquire_fib if hasattr(self.config, 'acquire_fib') else True
             return self._acquire_channels(image_settings, 
                                           field_of_view=field_of_view, 
                                           filename=filename, 
-                                          acquire_sem=FEAUTRE_ACQUIRE_SEM_CHANNEL)
-
+                                          acquire_sem=acquire_sem,
+                                          acquire_fib=acquire_fib)
         if filename is None:
             filename = f"ref_{self.task_name}_start"
 
@@ -513,11 +536,13 @@ class AutoLamellaTask(ABC):
                                  field_of_views: Optional[Tuple[float, float]] = None) -> None:
         """Acquire a set of reference images."""
         if FEATURE_SELECTIVE_CHANNEL_ACQ:
+            acquire_sem = self.config.acquire_sem if hasattr(self.config, 'acquire_sem') else True
+            acquire_fib = self.config.acquire_fib if hasattr(self.config, 'acquire_fib') else True
             return self._acquire_set_of_channels(image_settings,
                                                  field_of_views=field_of_views, 
                                                  filename=filename,
-                                                 acquire_sem=FEAUTRE_ACQUIRE_SEM_CHANNEL)
-
+                                                 acquire_sem=acquire_sem,
+                                                 acquire_fib=acquire_fib)
         if filename is None:
             filename = f"ref_{self.task_name}_final"
         if field_of_views is None:
@@ -1099,19 +1124,10 @@ class AcquireReferenceImageTask(AutoLamellaTask):
 
         # acquire reference images
         image_settings.filename = f"ref_reference_image-{task_name}-{utils.current_timestamp_v3()}"
-        image_settings.save = True
-        sem_image, fib_image = None, None
-
-        if self.config.acquire_sem and self.config.acquire_fib:
-            sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        elif self.config.acquire_sem:
-            image_settings.beam_type = BeamType.ELECTRON
-            sem_image = acquire.acquire_image(self.microscope, image_settings)
-        elif self.config.acquire_fib:
-            image_settings.beam_type = BeamType.ION
-            fib_image = acquire.acquire_image(self.microscope, image_settings)
-
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        
+        self._acquire_reference_image(image_settings=image_settings, 
+                                      filename=image_settings.filename, 
+                                      field_of_view=self.config.imaging.hfw)
 
 
 class BasicMillingTask(AutoLamellaTask):
