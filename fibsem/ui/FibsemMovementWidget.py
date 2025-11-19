@@ -28,6 +28,7 @@ from fibsem.ui.stylesheets import (
     GREEN_PUSHBUTTON_STYLE,
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
+    LABEL_INSTRUCTIONS_STYLE,
 )
 from fibsem.ui.utils import (
     WheelBlocker,
@@ -36,6 +37,8 @@ from fibsem.ui.utils import (
     open_save_file_dialog,
 )
 
+INSTRUCTIONS_TEXT = """Double Click to Move. 
+Alt + Double Click to Move Vertically"""
 
 class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
@@ -76,7 +79,8 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
 
         # disable ui elements
-        self.label_movement_instructions.setText("Double click to move. Alt + Double Click in the Ion Beam to Move Vertically")
+        self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
+        self.label_movement_instructions.setStyleSheet(LABEL_INSTRUCTIONS_STYLE)
 
         # saved positions
         self.comboBox_positions.currentIndexChanged.connect(self.current_selected_position_changed)

@@ -45,10 +45,8 @@ WIDGET_CONFIG = {
     },
 }
 
-instructions_text = """Instructions:
-    Shift + Left Click to Move Selected Pattern
-    Ctrl + Shift + Left Click to Move All Patterns
-    Press Run Milling to Start Milling"""
+INSTRUCTIONS_TEXT = """Shift + Left Click to Move Selected Pattern
+Ctrl + Shift + Left Click to Move All Patterns"""
 
 # TODO: add options checkboxes, show advanced, show milling patterns, etc
 
@@ -193,8 +191,8 @@ class MillingTaskConfigWidget(QWidget):
         layout.addStretch()
 
         # add instructions label
-        self.label_instructions = QLabel(instructions_text) 
-        self.label_instructions.setStyleSheet("font-style: italic;")
+        self.label_instructions = QLabel(INSTRUCTIONS_TEXT, self) 
+        self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
         layout.addWidget(self.label_instructions)
 
         self.milling_widget = FibsemMillingWidget2(
