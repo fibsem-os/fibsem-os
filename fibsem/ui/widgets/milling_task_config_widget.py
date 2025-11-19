@@ -45,6 +45,11 @@ WIDGET_CONFIG = {
     },
 }
 
+instructions_text = """Instructions:
+    Shift + Left Click to Move Selected Pattern
+    Ctrl + Shift + Left Click to Move All Patterns
+    Press Run Milling to Start Milling"""
+
 # TODO: add options checkboxes, show advanced, show milling patterns, etc
 
 class MillingTaskConfigWidget(QWidget):
@@ -186,6 +191,11 @@ class MillingTaskConfigWidget(QWidget):
         # viewer is used to display the milling stages
         # could we do this at a higher level and just subscribe to the settings_changed signal?
         layout.addStretch()
+
+        # add instructions label
+        self.label_instructions = QLabel(instructions_text) 
+        self.label_instructions.setStyleSheet("font-style: italic;")
+        layout.addWidget(self.label_instructions)
 
         self.milling_widget = FibsemMillingWidget2(
             microscope=self.microscope,
