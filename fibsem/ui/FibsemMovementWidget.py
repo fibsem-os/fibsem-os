@@ -238,12 +238,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             self.image_widget.acquire_reference_images()
             return
         if self.checkBox_movement_acquire_electron.isChecked():
-            # self.image_widget.acquire_image(BeamType.ELECTRON)
-            logging.warning("Acquiring electron image after movement has been disabled temporarily. Please only acquire both images after movement")
+            self.image_widget.acquire_sem_image()
         elif self.checkBox_movement_acquire_ion.isChecked():
-            # self.image_widget.acquire_image(BeamType.ION)
-            logging.warning("Acquiring ion image after movement has been disabled temporarily. Please only acquire both images after movement")
-        else: 
+            self.image_widget.acquire_fib_image()
+        else:
             self.update_ui()
 
     def _update_milling_angle(self):
