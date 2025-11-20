@@ -419,6 +419,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         # ui feedback
         self.toggle_interaction(enable=False)
+        self._hide_overlay_layers()
 
         # TODO: migrate to threading.Thread, rather than napari thread_worker
         self._thread_stop_event.clear()
@@ -793,11 +794,23 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
     @ensure_main_thread
     def _on_stage_position_changed(self, stage_position: FibsemStagePosition):
         """Callback for when the stage position is changed."""
+        if self.is_acquiring:
+            return # do not update while acquiring
         try:
             self.update_viewer()
         except Exception as e:
             self.microscope.stage_position_changed.disconnect(self._on_stage_position_changed)
             logging.error(f"Error updating viewer on stage position change, signal disconnected: {e}")
+
+    def _hide_overlay_layers(self):
+        """Hide all overlay layers."""
+        if OVERLAY_CONFIG["layer_name"] in self.viewer.layers:
+            self.viewer.layers[OVERLAY_CONFIG["layer_name"]].visible = False
+        if CROSSHAIR_CONFIG["layer_name"] in self.viewer.layers:
+            self.viewer.layers[CROSSHAIR_CONFIG["layer_name"]].visible = False
+        if "Milling Patterns" in self.viewer.layers:
+            self.viewer.layers["Milling Patterns"].visible = False
+        return
 
     def draw_current_stage_position(self):
         """Draws the current stage position on the image."""
@@ -805,13 +818,9 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             return
 
         if self.is_acquiring:
-            if OVERLAY_CONFIG["layer_name"] in self.viewer.layers:
-                self.viewer.layers[OVERLAY_CONFIG["layer_name"]].visible = False
-            if CROSSHAIR_CONFIG["layer_name"] in self.viewer.layers:
-                self.viewer.layers[CROSSHAIR_CONFIG["layer_name"]].visible = False
-            if "Milling Patterns" in self.viewer.layers:
-                self.viewer.layers["Milling Patterns"].visible = False
+            self._hide_overlay_layers()
             return
+
 
         self._draw_overlay_shapes()
         self._draw_position_crosshairs()
