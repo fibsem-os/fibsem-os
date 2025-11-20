@@ -312,6 +312,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     @ensure_main_thread
     def _on_stage_position_updated(self, stage_position: FibsemStagePosition) -> None:
         """Callback for when the stage position is updated."""
+        if self.minimap_widget is not None and self.minimap_widget.is_acquiring:
+            return
         if self.movement_widget is not None:
             self.movement_widget.update_ui()
 
