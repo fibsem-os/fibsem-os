@@ -1488,7 +1488,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):
             self.update_lamella_ui()
-            # self._update_lamella_display()
 
     def handle_confirmed_detection_signal(self):
         # TODO: this seem very redundant if we just use the signal directly
@@ -1613,12 +1612,23 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.WAITING_FOR_UI_UPDATE = False
 
-    # def hande_update_experiment_signal(self, experiment: Experiment):
-    #     """Callback for updating the experiment object."""
-    #     self.experiment = experiment
-    #     self.update_lamella_combobox()
-    #     self.update_ui()
-
+        # status_msg = info.get("status", None)
+        # if status_msg is not None:
+        #     logging.info(f"Workflow Status Update: {status_msg}")
+        #     task_name = status_msg.get("task_name", "Unknown Task")
+        #     lamella_name = status_msg.get("lamella_name", "Unknown Lamella")
+        #     # step_name = status_msg.get("step_name", "Unknown Step")
+        #     # step_status = status_msg.get("step_status", "Unknown Status")
+        #     current_lamella_index = status_msg.get("current_lamella_index", None)
+        #     current_task_index = status_msg.get("current_task_index", None)
+        #     total_lamellae = status_msg.get("total_lamellas", None)
+        #     total_tasks = status_msg.get("total_tasks", None)
+        #     txt = f"Workflow Running: {task_name} on {lamella_name}"
+        #     if (current_lamella_index is not None and total_lamellae is not None):
+        #         txt += f" | Lamella {current_lamella_index + 1}/{total_lamellae}"
+        #     if (current_task_index is not None and total_tasks is not None):
+        #         txt += f" | Task {current_task_index + 1}/{total_tasks}"
+        #     logging.info(txt)
 
 def main():
     autolamella_ui = AutoLamellaUI(viewer=napari.Viewer())

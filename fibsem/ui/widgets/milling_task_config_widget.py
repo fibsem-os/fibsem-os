@@ -425,8 +425,9 @@ if __name__ == "__main__":
     from PyQt5.QtWidgets import QTabWidget, QWidget
 
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaProtocol,
+        AutoLamellaTaskProtocol,
         Experiment,
+        cfg
     )
 
     viewer = napari.Viewer()
@@ -443,15 +444,8 @@ if __name__ == "__main__":
 
     microscope, settings = utils.setup_session()
 
-    BASE_PATH = "/home/patrick/github/autolamella/autolamella/log/AutoLamella-2025-05-28-17-22/"
-    EXPERIMENT_PATH = Path(os.path.join(BASE_PATH, "experiment.yaml"))
-    PROTOCOL_PATH = Path(os.path.join(BASE_PATH, "protocol.yaml"))
-    exp = Experiment.load(EXPERIMENT_PATH)
-    protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
-
-    milling_task_config = FibsemMillingTaskConfig.from_stages(
-        stages=protocol.milling["mill_rough"],  # type: ignore
-    )
+    protocol = AutoLamellaTaskProtocol.load(cfg.TASK_PROTOCOL_PATH)
+    milling_task_config = protocol.task_config["Rough Milling"].milling["mill_rough"]  # type: ignore
 
     # Create the MillingTaskConfig widget
     config_widget = MillingTaskConfigWidget(microscope=microscope)

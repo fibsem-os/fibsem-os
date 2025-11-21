@@ -1280,10 +1280,25 @@ def run_tasks(microscope: FibsemMicroscope,
     Returns:
         Experiment: The updated experiment with task results.
     """
+    if required_lamella is None:
+        required_lamella = [p.name for p in experiment.positions]
     for task_name in task_names:
         for lamella in experiment.positions:
             # Sync config updates from GUI before processing this lamella
             lamella = sync_lamella_config_updates(lamella, parent_ui)
+
+            # if parent_ui:
+            #     parent_ui.workflow_update_signal.emit({"msg": f"Starting task {task_name} for lamella {lamella.name}.",
+            #         "status": {"task_name": task_name, 
+            #                     "task_names": task_names,
+            #                     "total_tasks": len(task_names),
+            #                     "current_task_index": task_names.index(task_name),
+            #                     "lamella_name": lamella.name,
+            #                     "lamella_names": required_lamella,
+            #                     "current_lamella_index": required_lamella.index(lamella.name),
+            #                     "total_lamellas": len(required_lamella)
+            #                     }
+            #                 })
 
             if required_lamella and lamella.name not in required_lamella:
                 logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Not in required lamella list.")
