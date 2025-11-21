@@ -118,6 +118,7 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
+from fibsem.transformations import get_stage_tilt_from_milling_angle
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1083,13 +1084,13 @@ class FibsemMicroscope(ABC):
 
     def get_orientation(self, orientation: str) -> FibsemStagePosition:
         """Get the orientation (r,t) for the given orientation string."""
+        # NOTE: this should be cached, and only re-calculated if the stage settings change
 
         stage_settings = self.system.stage
         shuttle_pre_tilt = stage_settings.shuttle_pre_tilt  # deg
         milling_angle = stage_settings.milling_angle        # deg
 
         # needs to be dynmaically updated as it can change.
-        from fibsem.transformations import get_stage_tilt_from_milling_angle
         milling_stage_tilt = get_stage_tilt_from_milling_angle(self, np.radians(milling_angle))
 
         self.orientations = {
@@ -1174,7 +1175,6 @@ class FibsemMicroscope(ABC):
         if rotation is None:
             rotation = np.radians(self.system.stage.rotation_reference)
 
-        from fibsem.transformations import get_stage_tilt_from_milling_angle
         # calculate the stage tilt from the milling angle
         stage_tilt = get_stage_tilt_from_milling_angle(self, milling_angle)
         stage_position = FibsemStagePosition(t=stage_tilt, r=rotation)

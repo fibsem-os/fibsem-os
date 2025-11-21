@@ -16,8 +16,4 @@ os.makedirs(LOG_PATH, exist_ok=True)
 
 EXPERIMENT_NAME = "AutoLamella"
 
-LIFTOUT_JOIN_METHODS = ["None", "Weld"]
-LIFTOUT_LANDING_JOIN_METHODS = ["Weld"]
-
-
 ####### FEATURE FLAGS

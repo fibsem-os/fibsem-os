@@ -57,17 +57,13 @@ AVAILABLE_RESOLUTIONS = SQUARE_RESOLUTIONS + STANDARD_RESOLUTIONS
 DEFAULT_STANDARD_RESOLUTION = "1536x1024"
 DEFAULT_SQUARE_RESOLUTION = "1024x1024"
 
-MILL_HFW_THRESHOLD = 0.01  # 1.0% of the image
 
-BASE_PATH = os.path.dirname(
-    fibsem.__path__[0]
-)  # TODO: figure out a more stable way to do this
+BASE_PATH = os.path.dirname(fibsem.__path__[0])
 CONFIG_PATH = os.path.join(BASE_PATH, "fibsem", "config")
 LOG_PATH = os.path.join(BASE_PATH, "fibsem", "log")
-DATA_PATH = os.path.join(BASE_PATH, "fibsem", "log", "data")
-DATA_ML_PATH: str = os.path.join(BASE_PATH, "fibsem", "log", "data", "ml")
-DATA_CC_PATH: str = os.path.join(BASE_PATH, "fibsem", "log", "data", "crosscorrelation")
-DATA_TILE_PATH: str = os.path.join(DATA_PATH, "tile")
+DATA_PATH = os.path.join(LOG_PATH, "data")
+DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
+DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
 POSITION_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
 MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
@@ -82,11 +78,6 @@ os.makedirs(LOG_PATH, exist_ok=True)
 os.makedirs(DATA_PATH, exist_ok=True)
 os.makedirs(DATA_ML_PATH, exist_ok=True)
 os.makedirs(DATA_CC_PATH, exist_ok=True)
-os.makedirs(DATA_TILE_PATH, exist_ok=True)
-
-DATABASE_PATH = os.path.join(BASE_PATH, "fibsem", "db", "fibsem.db")
-os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-
 
 
 def load_yaml(fname):

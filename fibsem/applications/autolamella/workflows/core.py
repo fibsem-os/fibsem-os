@@ -9,7 +9,6 @@ import numpy as np
 from fibsem import acquire, alignment, calibration
 from fibsem import config as fcfg
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.transformations import is_close_to_milling_angle, move_to_milling_angle
 from fibsem.detection.detection import (
     Feature,
     LamellaBottomEdge,
@@ -506,10 +505,10 @@ def setup_lamella(
                     f"Current milling angle is {current_milling_angle:.1f} {DEGREE_SYMBOL}.",
                     pos="Tilt", neg="Skip")
         if ret:
-            move_to_milling_angle(microscope=microscope, milling_angle=np.radians(milling_angle))
+            microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
 
     if method != AutoLamellaMethod.ON_GRID:
-        move_to_milling_angle(microscope=microscope, milling_angle=np.radians(milling_angle))
+        microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
 
     if method is AutoLamellaMethod.LIFTOUT:
 
