@@ -116,6 +116,7 @@ from fibsem.structures import (
     MicroscopeState,
     MillingState,
     Point,
+    RangeLimit,
     SystemSettings,
 )
 from fibsem.transformations import get_stage_tilt_from_milling_angle
@@ -253,11 +254,12 @@ class FibsemMicroscope(ABC):
     def _create_sample_stage(self) -> None:
         """Create the sample stage and holder based on the system settings."""
 
-        from fibsem.microscopes._stage import SampleGrid, SampleHolder, Stage
+        from fibsem.microscopes._stage import SampleGrid, SampleHolder, Stage, SampleGridLoader
         if self.stage_is_compustage:
             grid01 = SampleGrid(name="Grid-01", index=1, 
                                 position=FibsemStagePosition(name="Grid-01", x=-0e-3, y=0.0, z=0.0, r=0.0, t=np.radians(0)))
             holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, grids={"Grid-01": grid01})
+            loader = SampleGridLoader(parent=self)
         else:
             orientation = self.get_orientation("SEM")
             grid01 = SampleGrid(name="Grid-01", index=1, 
@@ -273,9 +275,21 @@ class FibsemMicroscope(ABC):
                                 pre_tilt=self.system.stage.shuttle_pre_tilt,
                                 reference_rotation=self.system.stage.rotation_reference,
                                 grids={"Grid-01": grid01, "Grid-02": grid02})
-        
-        self._stage = Stage(parent=self, holder=holder)
+            loader = None
 
+        self._stage = Stage(parent=self, holder=holder, loader=loader)
+
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the stage axis limits from the microscope."""
+
+        axes_limits: Dict[str, RangeLimit] = {}
+        axes_limits["x"] = RangeLimit(min=-100.0e-3, max=100.0e-3)
+        axes_limits["y"] = RangeLimit(min=-100.0e-3, max=100.0e-3)
+        axes_limits["z"] = RangeLimit(min=0.0e-3, max=50.0e-3)
+        axes_limits["r"] = RangeLimit(min=-360.0, max=360.0)
+        axes_limits["t"] = RangeLimit(min=-10.0, max=90.0)
+
+        return axes_limits
     @abstractmethod
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pass
@@ -2199,6 +2213,34 @@ class ThermoMicroscope(FibsemMicroscope):
             return "FIB"
 
         return "NONE"
+
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the stage axis limits for x, y, z, t, r."""
+        if self.stage_is_compustage:
+            from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE
+            return STAGE_LIMITS_COMPUSTAGE
+
+        limits: Dict[str, RangeLimit] = {}
+        for axis in ["x", "y", "z", "t"]:
+            axis_limit = self.stage.get_axis_limits(axis)
+            # t is in radians -> degrees
+            if axis == "t":
+                limits[axis].min = np.degrees(axis_limit.min)
+                limits[axis].max = np.degrees(axis_limit.max)
+                continue
+
+            limits[axis] = RangeLimit(
+                min=axis_limit.min,
+                max=axis_limit.max,
+            )
+
+        # special case for r (no specified limits, infinite rotation)
+        if not self.stage_is_compustage:
+            limits["r"] = RangeLimit(
+                min=-360,
+                max=360,
+            )
+        return limits
 
     def _safe_rotation_movement(
         self, stage_position: FibsemStagePosition

@@ -2147,3 +2147,18 @@ class MillingAlignment:
             interval=d.get("interval", 30),
             rect=FibsemRectangle.from_dict(d.get("rect", DEFAULT_ALIGNMENT_AREA))
         )
+
+@dataclass
+class RangeLimit:
+    min: float
+    max: float
+
+    def clamp(self, value: float) -> float:
+        return max(self.min, min(self.max, value))
+
+    def to_dict(self) -> dict:
+        return {"min": self.min, "max": self.max}
+
+    @staticmethod
+    def from_dict(d: dict) -> "RangeLimit":
+        return RangeLimit(min=d["min"], max=d["max"])

@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, TYPE_CHECKING
-from fibsem import constants
-from fibsem.structures import BeamType, FibsemStagePosition, Point
+from typing import TYPE_CHECKING, List, Optional, Tuple
+
 from psygnal import Signal
+
+from fibsem import constants
+from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -74,22 +76,52 @@ class SampleHolder:
 
 
 @dataclass
-class SampleLoader:
-    pass
+class SampleGridLoader:
+    parent: "FibsemMicroscope"
+    _loaded_grids: Optional[List[SampleGrid]] = None
+
+    def __init__(self, parent: "FibsemMicroscope") -> None:
+        self.parent = parent
+
+    @property
+    def loaded_grids(self) -> Optional[List[SampleGrid]]:
+        return self._loaded_grids
+
+    @property
+    def available_grids(self) -> List[SampleGrid]:
+        return []
+
+    def load_grid(self, grid_name: str) -> None:
+        pass
+
+    def unload_grid(self) -> None:
+        pass
 
 
 class Stage:
     parent: "FibsemMicroscope"
     holder: 'SampleHolder'
+    loader: Optional[SampleGridLoader] = None
     _position: Optional[FibsemStagePosition] = None
     position_changed = Signal(FibsemStagePosition)
+    limits: dict[str, RangeLimit] = field(default_factory=dict)
 
-    def __init__(self, parent: "FibsemMicroscope", holder: SampleHolder) -> None:
+    def __init__(self, parent: "FibsemMicroscope",
+                 holder: SampleHolder,
+                 loader: Optional[SampleGridLoader] = None) -> None:
         self.parent = parent
         self.holder = holder
+        self.loader = loader
+
+        # get the limits from the parent microscope
+        self.limits = self.parent._get_axis_limits()
 
     def __repr__(self) -> str:
         return f"<Stage: position={self.position}, holder={self.holder}>"
+
+    @property
+    def axes(self) -> Tuple[str, ...]:
+        return tuple(self.limits.keys())
 
     @property
     def position(self) -> FibsemStagePosition:
@@ -113,7 +145,7 @@ class Stage:
 
         stage_position = self.position
         for name, grid in self.holder.grids.items():
-            if stage_position.is_close2(grid.position, tol=GRID_RADIUS):
+            if stage_position.is_close2(grid.position, tol=GRID_RADIUS, axes=['x', 'y']):
                 return grid
         return None
 

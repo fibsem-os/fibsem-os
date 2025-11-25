@@ -1,12 +1,13 @@
 import datetime
 import glob
+import json
 
 import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Tuple, Optional
+from typing import TYPE_CHECKING, List, Tuple, Optional, Union
 
 
 import requests
@@ -178,6 +179,14 @@ def save_yaml(path: Path, data: dict) -> None:
     with open(path, "w") as f:
         yaml.dump(data, f, indent=4)
 
+def save_json(path: Union[Path, os.PathLike, str], data: dict) -> None:
+    """Saves a python dictionary object to a json file
+    Args:
+        path (Path): path location to save json file
+        data (dict): dictionary object
+    """
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=4)
 
 def create_gif(path: Path, search: str, gif_fname: str, loop: int = 0) -> None:
     """Creates a GIF from a set of images. Images must be in same folder

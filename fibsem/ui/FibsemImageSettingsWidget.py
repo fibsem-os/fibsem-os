@@ -718,10 +718,15 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 ib_image=self.ib_image,
                 is_checked=self.scalebar_checkbox.isChecked(),
             )
+            fm_shape = None
+            if self.microscope.fm is not None:
+                fm_shape = self.microscope.fm.camera.resolution[::-1]
+
             draw_crosshair_in_napari(
                 viewer=self.viewer,
                 sem_shape=self.eb_image.data.shape,
                 fib_shape=self.ib_image.data.shape,
+                fm_shape=fm_shape,
                 is_checked=self.crosshair_checkbox.isChecked(),
             )
 

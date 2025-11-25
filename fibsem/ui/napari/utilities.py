@@ -35,6 +35,7 @@ def draw_crosshair_in_napari(
     viewer: napari.Viewer,
     sem_shape: Tuple[int, int],
     fib_shape: Optional[Tuple[int, int]] = None,
+    fm_shape: Optional[Tuple[int, int]] = None,
     is_checked: bool = False,
     size_ratio: float = 0.05,
 ) -> None:
@@ -44,6 +45,7 @@ def draw_crosshair_in_napari(
         viewer: napari viewer object
         sem_shape: shape of the SEM image
         fib_shape: shape of the FIB image (Optional)
+        fm_shape: shape of the FM image (Optional)
         is_checked: boolean value to check if the crosshair is displayed
         size_ratio: size of the crosshair (percentage of the image size)
     """
@@ -62,6 +64,9 @@ def draw_crosshair_in_napari(
     if fib_shape is not None:
         fib_centre = [fib_shape[0] // 2, sem_shape[1] + fib_shape[1] // 2]
         crosshair_centres.append(fib_centre)
+    if fm_shape is not None:
+        fm_centre = [sem_shape[0] + fm_shape[0] // 2, fm_shape[1] // 2]
+        crosshair_centres.append(fm_centre)
 
     # compute the size of the crosshair
     size_px = size_ratio * sem_shape[1]

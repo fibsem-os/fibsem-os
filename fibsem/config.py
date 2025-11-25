@@ -1,3 +1,4 @@
+import logging
 import os
 
 import yaml
@@ -65,6 +66,7 @@ DATA_PATH = os.path.join(LOG_PATH, "data")
 DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
 POSITION_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
+USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
 MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
@@ -218,3 +220,35 @@ def save_tescan_manipulator_calibration(config: dict) -> None:
     from fibsem.utils import save_yaml
     save_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH, config)
     return None
+
+# Default values for persisted user preferences
+USER_PREFERENCES_DEFAULTS = {
+    "acquire_sem_after_stage_movement": True,
+    "acquire_fib_after_stage_movement": True,
+    "experiment_directory": "/home/patrick/data/",
+}
+
+def load_user_preferences() -> dict:
+    """Load persisted user preferences using built-in defaults."""
+    prefs = USER_PREFERENCES_DEFAULTS.copy()
+
+    if not os.path.exists(USER_PREFERENCES_PATH):
+        return prefs
+
+    try:
+        with open(USER_PREFERENCES_PATH, "r") as f:
+            loaded = yaml.safe_load(f) or {}
+        prefs.update(loaded)
+    except Exception as e:
+        logging.warning(f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}")
+    return prefs
+
+
+def save_user_preferences(preferences: dict) -> None:
+    """Persist user preferences to disk."""
+    try:
+        os.makedirs(CONFIG_PATH, exist_ok=True)
+        with open(USER_PREFERENCES_PATH, "w") as f:
+            yaml.safe_dump(preferences, f)
+    except Exception as e:
+        logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")

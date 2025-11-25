@@ -360,6 +360,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             self._update_position_display()
         except Exception as e:
             logging.error(f"Error logging experiment position change: {e}")
+            self.parent_widget.experiment.events.disconnect(self._on_experiment_position_changed) # type: ignore
 
     def get_imaging_parameters(self) -> Dict[str, Any]:
         """Get the imaging parameters from the UI."""
@@ -716,6 +717,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         if point is False: # clicked outside image
             return
+
         if self.image is None or self.image.metadata is None:
             return
 
@@ -840,16 +842,11 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             return []
 
         current_stage_position = deepcopy(self.microscope.get_stage_position())
-        centre_grid = FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
-        top_limit = FibsemStagePosition(name="Top Limit", x=0, y=-377e-6, z=0, r=0, t=0)
-        bottom_limit = FibsemStagePosition(name="Bottom Limit", x=0, y=377e-6, z=0, r=0, t=0)
-        points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position, centre_grid, 
-                                                                          top_limit, bottom_limit])
-        points[0].name = "Current Position"
+        current_stage_position.name = "Current Position"
+        points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position])
 
         pixelsize = self.image.metadata.pixel_size.x
         current_position = points[0]
-        grid_centre = points[1]
 
         overlays = []
 
@@ -868,10 +865,18 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
                 shape_type='rectangle')
             )
 
-        # stage limits # TODO: get actual limits from microscope
-        if self.show_stage_limits and self.microscope.stage_is_compustage: # tmp: until we can get stage limits directly
-            width = (2000e-6) / pixelsize
-            height = points[2].y - points[3].y
+        # stage limits
+        if self.show_stage_limits and self.microscope.stage_is_compustage:
+            stage_limits = self.microscope._stage.limits
+            xmin, xmax = stage_limits["x"].min, stage_limits["x"].max
+            ymin, ymax = stage_limits["y"].min, stage_limits["y"].max
+            centre_grid = FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
+            top_limit = FibsemStagePosition(name="Top Limit", x=0, y=ymin, z=0, r=0, t=0)
+            bottom_limit = FibsemStagePosition(name="Bottom Limit", x=0, y=ymax, z=0, r=0, t=0)
+            points = tiled.reproject_stage_positions_onto_image2(self.image, [centre_grid, top_limit, bottom_limit])
+            width = (xmax-xmin) / pixelsize
+            height = points[1].y - points[2].y
+            grid_centre = points[0]
             rect = create_rectangle_shape(grid_centre, width, height)
             overlays.append(NapariShapeOverlay(
                 shape=rect,
@@ -1249,4 +1254,3 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         """Set the active layer to the image layer for movement."""
         if self.image_layer is not None and self.image_layer in self.viewer.layers:
             self.viewer.layers.selection.active = self.image_layer
-

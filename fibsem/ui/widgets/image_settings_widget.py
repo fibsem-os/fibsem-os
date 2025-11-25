@@ -198,6 +198,15 @@ class ImageSettingsWidget(QWidget):
         """
         return self._show_advanced
 
+    def show_field_of_view(self, show: bool):
+        """Show or hide the Field of View (HFW) control.
+
+        Args:
+            show: True to show the HFW control, False to hide it
+        """
+        self.hfw_spinbox.setVisible(show)
+        self.layout().itemAtPosition(2, 0).widget().setVisible(show)  # Corresponding label
+
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings."""
         settings = self.get_settings()

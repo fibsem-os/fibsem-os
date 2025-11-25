@@ -41,6 +41,7 @@ from fibsem.structures import (
     MicroscopeState,
     MillingState,
     Point,
+    RangeLimit,
     SystemSettings,
 )
 from fibsem.util.draw_numbers import draw_text
@@ -61,6 +62,19 @@ SIMULATOR_BEAM_CURRENTS = {
         None: [1.0e-12, 3.0e-12, 20e-12, 41e-12, 90e-12, 0.2e-9, 0.4e-9, 1.000005e-9, 2.0e-9, 4.0e-9, 15e-9], # None = Gallium
     }}
 
+STAGE_LIMITS_DEFAULT = {
+    "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "z": RangeLimit(min=0.0e-3, max=40.0e-3),
+    "r": RangeLimit(min=-360.0, max=360.0),
+    "t": RangeLimit(min=-10.0, max=90.0),
+}
+STAGE_LIMITS_COMPUSTAGE = {
+    "x": RangeLimit(min=-999.9e-6, max=999.9e-6),
+    "y": RangeLimit(min=-377.8e-6, max=377.8e-6),
+    "z": RangeLimit(min=-999.9e-6, max=999.9e-6),
+    "t": RangeLimit(min=-195.0, max=15.0),
+}
 # hack, do this properly @patrick
 
 @dataclass
@@ -565,6 +579,12 @@ class DemoMicroscope(FibsemMicroscope):
 
     def project_stable_move(self, dx:float, dy:float, beam_type:BeamType, base_position:FibsemStagePosition) -> FibsemStagePosition:
         return ThermoMicroscope.project_stable_move(self, dx, dy, beam_type, base_position)
+
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the axis limits for the stage."""
+        if self.stage_is_compustage:
+            return STAGE_LIMITS_COMPUSTAGE
+        return STAGE_LIMITS_DEFAULT
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> None:
         """Move the stage to the specified position."""
