@@ -271,6 +271,43 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_parameters_config_widget.set_task_config(task_config)
         self.milling_task_editor.set_task_configs(task_config.milling)
         self.image_params_widget.update_from_settings(task_config.imaging)
+
+
+        # background_milling_stages = []
+
+        # rough_milling_config = None
+        # polishing_config = None
+        # setup_milling_config = None
+
+        # setup_config = selected_lamella.task_config.get("Setup Lamella", None)
+        # if setup_config is not None and setup_config.milling:
+        #     setup_milling_config = setup_config.milling.get("fiducial", None)
+        # polishing = selected_lamella.task_config.get("Polishing", None)
+        # if polishing is not None and polishing.milling:
+        #     polishing_config = polishing.milling.get("mill_polishing", None)
+        # rough_milling = selected_lamella.task_config.get("Rough Milling", None)
+        # if rough_milling is not None and rough_milling.milling:
+        #     rough_milling_config = rough_milling.milling.get("mill_rough", None)
+
+        # if selected_stage_name == "Setup Lamella":
+        #     if polishing_config is not None:
+        #         background_milling_stages.extend(polishing_config.stages)
+        #     if rough_milling_config is not None:
+        #         background_milling_stages.extend(rough_milling_config.stages)
+        # elif selected_stage_name == "Rough Milling":
+        #     if polishing_config is not None:
+        #         background_milling_stages.extend(polishing_config.stages)
+        #     if setup_milling_config is not None:
+        #         background_milling_stages.extend(setup_milling_config.stages)
+        # elif selected_stage_name == "Polishing":
+        #     if rough_milling_config is not None:
+        #         background_milling_stages.extend(rough_milling_config.stages)
+        #     if setup_milling_config is not None:
+        #         background_milling_stages.extend(setup_milling_config.stages)
+
+        # self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
+        # self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
+
         if task_config.milling:
             self._on_milling_fov_changed(task_config.milling)
             self.milling_task_collapsible.setVisible(True)
