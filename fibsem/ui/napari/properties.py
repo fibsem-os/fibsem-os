@@ -115,3 +115,17 @@ STAGE_POSITION_SHAPE_LAYER_PROPERTIES = {
     },
     "saved_color": "lime",
 }
+
+POINT_LAYER_PROPERTIES = {
+    "name": "Points",
+    "text": {"string": [], "color": "white"},
+    "size": 10,
+    "border_width": 1,
+    "border_width_is_relative": True,
+    "border_color": "white",
+    "face_color": "white",
+    "blending": "translucent",
+    "symbol": "o",
+    "ndim": 2,
+    "opacity": 1.0,
+}

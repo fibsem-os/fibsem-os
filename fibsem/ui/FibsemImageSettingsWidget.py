@@ -39,7 +39,7 @@ from fibsem.ui.napari.properties import (
     RULER_LAYER_NAME,
     RULER_LINE_LAYER_NAME,
 )
-from fibsem.ui.napari.utilities import draw_crosshair_in_napari, draw_scalebar_in_napari
+from fibsem.ui.napari.utilities import draw_crosshair_in_napari, draw_scalebar_in_napari, add_points_layer
 from fibsem.ui.qtdesigner_files import ImageSettingsWidget as ImageSettingsWidgetUI
 
 # feature flags
@@ -78,7 +78,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.ib_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
 
         # overlay layers
-        self.ruler_layer: NapariShapesLayer = None
+        self.ruler_layer: NapariPointLayer = None
         self.alignment_layer: NapariShapesLayer = None
 
         self.is_acquiring: bool = False
@@ -304,11 +304,11 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             }
 
         # create initial layers, and select the ruler layer for interaction 
-        self.ruler_layer = self.viewer.add_points(data=data, 
+        self.ruler_layer = add_points_layer(self.viewer, data=data, 
                                                     name=RULER_LAYER_NAME,
                                                     size=IMAGING_RULER_LAYER_PROPERTIES["size"], 
                                                     face_color=IMAGING_RULER_LAYER_PROPERTIES["face_color"], 
-                                                    edge_color=IMAGING_RULER_LAYER_PROPERTIES["edge_color"], 
+                                                    border_color=IMAGING_RULER_LAYER_PROPERTIES["edge_color"], 
                                                     text=text)
         self.viewer.add_shapes(data, shape_type='line', edge_color='lime', name=RULER_LINE_LAYER_NAME,edge_width=5)
         self.ruler_layer.mouse_drag_callbacks.append(self.update_ruler_points)
@@ -767,9 +767,10 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             points = np.array([[-20, 200], [-20, self.ib_layer.translate[1] + 150]])
 
             try:
-                self.viewer.layers['label'].data = points
-            except KeyError:    
-                self.viewer.add_points(
+                self.viewer.layers[IMAGE_TEXT_LAYER_PROPERTIES["name"]].data = points
+            except KeyError:
+                add_points_layer(
+                    viewer=self.viewer,
                     data=points,
                     name=IMAGE_TEXT_LAYER_PROPERTIES["name"],
                     size=IMAGE_TEXT_LAYER_PROPERTIES["size"],
@@ -780,7 +781,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                     ],
                     border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
                     face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
-                )   
+                )
 
         # set ui from image metadata
         if set_ui_from_image:
