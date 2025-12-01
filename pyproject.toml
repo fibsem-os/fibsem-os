@@ -14,7 +14,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT License"}
 classifiers = [
-    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.11",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Framework :: napari",
@@ -22,7 +22,8 @@ classifiers = [
 
 dependencies = [
     "tifffile>=2021.7.2",
-    "numpy>=1.23.5,<2.0.0",
+    "numpy>=1.23.5,<2.0.0; python_version < '3.9'",
+    "numpy>=2.0.0; python_version >= '3.9'",
     "scipy>=1.10.0",
     "opencv-python-headless>=4.7.0.72",
     "scikit-image>=0.19.3",
