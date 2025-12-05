@@ -512,6 +512,8 @@ def multi_step_alignment_v2(
     for i in range(steps):
         if stop_event is not None and stop_event.is_set():
             break
+        # only use autocontrast on first step
+        use_autocontrast = use_autocontrast if i == 0 else False
         beam_shift_alignment_v2(microscope=microscope, 
                                 ref_image=ref_image, 
                                 use_autocontrast=use_autocontrast, 
