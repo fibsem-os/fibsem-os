@@ -1,9 +1,15 @@
 import logging
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from dataclasses import dataclass
 
 import napari
 import numpy as np
+from napari.layers import Points as NapariPointsLayer
+
+try:
+    from packaging.version import InvalidVersion, Version
+except ImportError:  # packaging is available in napari envs but fall back gracefully
+    InvalidVersion = Version = None
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
@@ -15,6 +21,7 @@ from fibsem.structures import (
 from fibsem.ui.napari.properties import (
     IMAGING_CROSSHAIR_LAYER_PROPERTIES,
     IMAGING_SCALEBAR_LAYER_PROPERTIES,
+    POINT_LAYER_PROPERTIES,
     STAGE_POSITION_SHAPE_LAYER_PROPERTIES,
 )
 
@@ -509,3 +516,97 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> 
         viewer.text_overlay.text = "<STAGE POSITION UNAVAILABLE>"
         viewer.text_overlay.visible = False
         viewer.text_overlay.position = "bottom_left"
+
+
+def _napari_supports_border_width() -> bool:
+    """Return True if the installed napari version uses border width terminology."""
+    version_str = napari.__version__
+    if Version is not None:
+        try:
+            return Version(version_str) >= Version("0.5.0")
+        except InvalidVersion:
+            logging.debug("Unable to parse napari version with packaging: %s", version_str)
+
+    try:
+        parts = version_str.split(".")
+        parts = [int("".join(filter(str.isdigit, p)) or 0) for p in parts[:3]]
+        parts.extend([0] * (3 - len(parts)))
+        return tuple(parts[:3]) >= (0, 5, 0)
+    except Exception:
+        logging.debug("Unable to parse napari version string: %s", version_str)
+        return False
+
+
+def add_points_layer(
+    viewer: napari.Viewer,
+    data: np.ndarray,
+    name: str = "Points",
+    size: int = 10,
+    text: Optional[dict] = None,
+    border_width: int = 1,
+    border_width_is_relative: bool = True,
+    border_color: str = "white",
+    face_color: str = "white",
+    blending: str = "translucent",
+    symbol: str = "o",
+    ndim: int = 2,
+    opacity: float = 1.0,
+    **kwargs: Any,
+) -> NapariPointsLayer:
+    """Version-agnostic helper for adding point annotations to napari."""
+    defaults = POINT_LAYER_PROPERTIES
+    layer_name = defaults["name"] if name is None else name
+    layer_size = defaults["size"] if size is None else size
+    layer_text = defaults["text"] if text is None else text
+    layer_blending = defaults["blending"] if blending is None else blending
+    layer_symbol = defaults["symbol"] if symbol is None else symbol
+    layer_ndim = defaults["ndim"] if ndim is None else ndim
+    layer_opacity = defaults["opacity"] if opacity is None else opacity
+    layer_border_width = (
+        defaults["border_width"] if border_width is None else border_width
+    )
+    layer_border_width_is_relative = (
+        defaults["border_width_is_relative"]
+        if border_width_is_relative is None
+        else border_width_is_relative
+    )
+    layer_border_color = (
+        defaults["border_color"] if border_color is None else border_color
+    )
+    layer_face_color = (
+        defaults["face_color"] if face_color is None else face_color
+    )
+
+    layer_kwargs = {
+        "data": data,
+        "name": layer_name,
+        "size": layer_size,
+        "text": layer_text,
+        "blending": layer_blending,
+        "symbol": layer_symbol,
+        "ndim": layer_ndim,
+        "opacity": layer_opacity,
+    }
+
+    if _napari_supports_border_width():
+        layer_kwargs.update(
+            {
+                "border_width": layer_border_width,
+                "border_width_is_relative": layer_border_width_is_relative,
+                "border_color": layer_border_color,
+                "face_color": layer_face_color,
+            }
+        )
+    else:
+        layer_kwargs.update(
+            {
+                "edge_width": layer_border_width,
+                "edge_width_is_relative": layer_border_width_is_relative,
+                "edge_color": layer_border_color,
+                "face_color": layer_face_color,
+            }
+        )
+
+    layer_kwargs.update(kwargs)
+
+    return viewer.add_points(**layer_kwargs)

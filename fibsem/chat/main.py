@@ -1,4 +1,6 @@
 # 
+from __future__ import annotations
+
 from langchain.document_loaders import UnstructuredPDFLoader
 from langchain.indexes import VectorstoreIndexCreator
 from langchain.llms import OpenAI

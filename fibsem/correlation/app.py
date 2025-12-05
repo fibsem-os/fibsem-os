@@ -1,3 +1,4 @@
+from __future__ import annotations
 import datetime
 import logging
 import os
@@ -37,6 +38,7 @@ from fibsem.correlation.ui import (
     open_import_wizard,
     tdct_main,
 )
+from fibsem.ui.napari.utilities import add_points_layer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -283,16 +285,19 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
 
         if self.is_multi_point:
             self._show_project_controls()
-            if self.coordinates_layer is None:
-                self.coordinates_layer = self.viewer.add_points(
-                [],
+        if self.coordinates_layer is None:
+            self.coordinates_layer = add_points_layer(
+                viewer=self.viewer,
+                data=[],
                 name=COORDINATE_LAYER_PROPERTIES["name"],
                 ndim=COORDINATE_LAYER_PROPERTIES["ndim"],
                 size=COORDINATE_LAYER_PROPERTIES["size"],
-                projection_mode=COORDINATE_LAYER_PROPERTIES["projection_mode"],
                 symbol=COORDINATE_LAYER_PROPERTIES["symbol"],
+                blending=COORDINATE_LAYER_PROPERTIES["blending"],
+                opacity=COORDINATE_LAYER_PROPERTIES["opacity"],
                 text=TEXT_PROPERTIES,
                 properties=self.df,
+                projection_mode=COORDINATE_LAYER_PROPERTIES.get("projection_mode")
             )
             # single click callbacks
             self.coordinates_layer.mouse_drag_callbacks.append(
@@ -867,8 +872,8 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
             "color": "white",
             "anchor": "upper_right",
         }
-        self.results_layer = self.viewer.add_points( # TODO: consolidate this and poi_coordinate_layer, they display the same information
-            dat,
+        self.results_layer = add_points_layer(self.viewer,  # TODO: consolidate this and poi_coordinate_layer, they display the same information
+            data=dat,
             name=RESULTS_LAYER_PROPERTIES["name"],
             ndim=RESULTS_LAYER_PROPERTIES["ndim"],
             size=RESULTS_LAYER_PROPERTIES["size"],
@@ -1434,7 +1439,8 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
             "anchor": "lower_left",
         }
 
-        self.reprojection_layer = self.viewer.add_points(
+        self.reprojection_layer = add_points_layer(
+            self.viewer,
             reprojected_points,
             name=REPROJECTION_LAYER_PROPERTIES["name"],
             ndim=REPROJECTION_LAYER_PROPERTIES["ndim"],
