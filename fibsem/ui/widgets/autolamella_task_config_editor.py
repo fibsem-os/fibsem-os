@@ -184,6 +184,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
         self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
+        from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
+        self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
+        self.ref_image_params_widget.setVisible(False)  # hide for now
+        self.image_params_collapsible.addWidget(self.ref_image_params_widget)
+
         # lamella, milling controls
         self.label_selected_milling = QLabel("Task Name")
         self.comboBox_selected_task = QComboBox()
@@ -246,6 +251,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.milling_task_editor.task_configs_changed.connect(self._on_milling_task_configs_changed)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.image_params_widget.settings_changed.connect(self._on_image_settings_changed)
+        self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.pushButton_add_task.clicked.connect(self._on_add_task_clicked)
         self.pushButton_remove_task.clicked.connect(self._on_remove_task_clicked)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
@@ -316,6 +322,44 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # set milling task config
         self.milling_task_editor.set_task_configs(task_config.milling)
 
+
+        # # TODO: turn this into a helper function to get background milling stages -> background = related stages
+        # # depending on selected stage
+        # background_milling_stages = []
+
+        # rough_milling_config = None
+        # polishing_config = None
+        # setup_milling_config = None
+
+        # setup_config = self.experiment.task_protocol.task_config.get("Setup Lamella", None)
+        # if setup_config is not None and setup_config.milling:
+        #     setup_milling_config = setup_config.milling.get("fiducial", None)
+        # polishing = self.experiment.task_protocol.task_config.get("Polishing", None)
+        # if polishing is not None and polishing.milling:
+        #     polishing_config = polishing.milling.get("mill_polishing", None)
+        # rough_milling = self.experiment.task_protocol.task_config.get("Rough Milling", None)
+        # if rough_milling is not None and rough_milling.milling:
+        #     rough_milling_config = rough_milling.milling.get("mill_rough", None)
+
+        # if selected_stage_name == "Setup Lamella":
+        #     if polishing_config is not None:
+        #         background_milling_stages.extend(polishing_config.stages)
+        #     if rough_milling_config is not None:
+        #         background_milling_stages.extend(rough_milling_config.stages)
+        # elif selected_stage_name == "Rough Milling":
+        #     if polishing_config is not None:
+        #         background_milling_stages.extend(polishing_config.stages)
+        #     if setup_milling_config is not None:
+        #         background_milling_stages.extend(setup_milling_config.stages)
+        # elif selected_stage_name == "Polishing":
+        #     if rough_milling_config is not None:
+        #         background_milling_stages.extend(rough_milling_config.stages)
+        #     if setup_milling_config is not None:
+        #         background_milling_stages.extend(setup_milling_config.stages)
+
+        # self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
+        # self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
+
         if task_config.milling:
             self._on_milling_fov_changed(task_config.milling)
             self.milling_task_collapsible.setVisible(True)
@@ -367,6 +411,17 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         # save the experiment
         self._save_experiment()
+
+    def _on_ref_image_settings_changed(self, settings):
+        """Callback when the image settings are changed."""
+        from pprint import pprint
+        pprint(settings.to_dict())
+        # # Update the image settings in the task config
+        # selected_task_name = self.comboBox_selected_task.currentText()
+        # self.experiment.task_protocol.task_config[selected_task_name].imaging = settings
+
+        # # Save the experiment
+        # self._save_experiment()
 
     def _on_image_settings_changed(self, settings):
         """Callback when the image settings are changed."""

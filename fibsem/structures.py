@@ -697,6 +697,16 @@ class ImageSettings:
 
         return settings_dict
 
+    @property
+    def field_of_view(self) -> float:
+        """Calculate the field of view based on the horizontal field width (hfw)."""
+        return self.hfw
+
+    @field_of_view.setter
+    def field_of_view(self, value: float):
+        """Set the horizontal field width (hfw) based on the desired field of view."""
+        self.hfw = value
+
     @staticmethod
     def fromFibsemImage(image: "FibsemImage") -> "ImageSettings":
         """Returns the image settings for a FibsemImage object.
@@ -2163,3 +2173,48 @@ class RangeLimit:
     @staticmethod
     def from_dict(d: dict) -> "RangeLimit":
         return RangeLimit(min=d["min"], max=d["max"])
+
+
+@dataclass
+class ReferenceImageParameters:
+    imaging: ImageSettings = field(default_factory=ImageSettings)
+    field_of_view1: float = field(default=80e-6, metadata={"tooltip": "Field of view for first reference image"})
+    field_of_view2: float = field(default=150e-6, metadata={"tooltip": "Field of view for second reference image"})
+    acquire_sem: bool = field(default=True, metadata={"tooltip": "Whether to acquire SEM reference images"})
+    acquire_fib: bool = field(default=True, metadata={"tooltip": "Whether to acquire FIB reference images"})
+    acquire_image1: bool = field(default=True, metadata={"tooltip": "Whether to acquire first reference image"})
+    acquire_image2: bool = field(default=True, metadata={"tooltip": "Whether to acquire second reference image"})
+
+    def to_dict(self) -> dict:
+        return {
+            "imaging": self.imaging.to_dict(),
+            "field_of_view1": self.field_of_view1,
+            "field_of_view2": self.field_of_view2,
+            "acquire_sem": self.acquire_sem,
+            "acquire_fib": self.acquire_fib,
+            "acquire_image1": self.acquire_image1,
+            "acquire_image2": self.acquire_image2,
+        }
+
+    @staticmethod
+    def from_dict(settings: dict) -> "ReferenceImageParameters":
+        imaging = ImageSettings.from_dict(settings.get("imaging", {}))
+        return ReferenceImageParameters(
+            imaging=imaging,
+            field_of_view1=settings.get("field_of_view1", 80e-6),
+            field_of_view2=settings.get("field_of_view2", 150e-6),
+            acquire_sem=settings.get("acquire_sem", True),
+            acquire_fib=settings.get("acquire_fib", True),
+            acquire_image1=settings.get("acquire_image1", True),
+            acquire_image2=settings.get("acquire_image2", True),
+        )
+    
+    @property
+    def field_of_views(self) -> List[float]:
+        # return field of views if set to be acquired
+        fovs = []
+        if self.acquire_image1:
+            fovs.append(self.field_of_view1)
+        if self.acquire_image2:
+            fovs.append(self.field_of_view2)
+        return sorted(fovs, reverse=True) # largest to smallest
