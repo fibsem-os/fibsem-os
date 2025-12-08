@@ -90,8 +90,8 @@ def beam_shift_alignment_v2(
 
     # set alignment current
     if alignment_current is not None:
-        initial_current = microscope.get("current", image_settings.beam_type)
-        microscope.set("current", alignment_current, image_settings.beam_type)
+        initial_current = microscope.get_beam_current(image_settings.beam_type)
+        microscope.set_beam_current(alignment_current, image_settings.beam_type)
 
     new_image = acquire.new_image(microscope, settings=image_settings)
     dx, dy, _ = shift_from_crosscorrelation(
@@ -114,7 +114,7 @@ def beam_shift_alignment_v2(
 
     # reset beam current
     if alignment_current is not None:
-        microscope.set("current", initial_current, image_settings.beam_type)
+        microscope.set_beam_current(initial_current, image_settings.beam_type)
     logging.info(f"Beam Shift Alignment: dx: {dx}, dy: {dy}")
     msgd = {"msg": "beam_shift_alignment", "dx": dx, "dy": dy, "image_settings": image_settings.to_dict()}
     logging.debug(msgd)
@@ -506,8 +506,8 @@ def multi_step_alignment_v2(
     """Runs the beam shift alignment multiple times. Optionally sets the beam current before alignment."""
     # set alignment current
     if alignment_current is not None:
-        initial_current = microscope.get("current", beam_type)
-        microscope.set("current", alignment_current, beam_type)
+        initial_current = microscope.get_beam_current(beam_type)
+        microscope.set_beam_current(alignment_current, beam_type)
 
     for i in range(steps):
         if stop_event is not None and stop_event.is_set():
@@ -518,7 +518,7 @@ def multi_step_alignment_v2(
                                 ref_image=ref_image, 
                                 use_autocontrast=use_autocontrast, 
                                 subsystem=subsystem)
-    
+
     # reset beam current
     if alignment_current is not None:
-        microscope.set("current", initial_current, beam_type)
+        microscope.set_beam_current(initial_current, beam_type)

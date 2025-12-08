@@ -62,6 +62,8 @@ from fibsem.utils import format_value
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
+    from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+    from fibsem.applications.autolamella.ui import AutoLamellaUI
 
 MILLING_SETTINGS_GUI_CONFIG = {
     "patterning_mode": {
@@ -765,18 +767,20 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.viewer = viewer
 
         self.parent_widget = parent
-        self.image = None
-        self.image_layer = None
+        self.image: Optional[FibsemImage] = None
+        self.image_layer: Optional[NapariImageLayer] = None
+        self.image_widget: Optional['FibsemImageSettingsWidget'] = None
         if self.parent_widget is not None:
             if self.parent_widget.parent() is not None:
-                super_parent = self.parent_widget.parent()
-                if hasattr(super_parent, "image_widget"):
+                super_parent: 'AutoLamellaUI' = self.parent_widget.parent()
+                if hasattr(super_parent, "image_widget") and super_parent.image_widget is not None:
+                    self.image_widget = super_parent.image_widget
                     self.image = super_parent.image_widget.ib_image
                     self.image_layer = super_parent.image_widget.ib_layer
         if self.image is None:
-            self.image: FibsemImage = FibsemImage.generate_blank_image(hfw=80e-6, random=True)
+            self.image = FibsemImage.generate_blank_image(hfw=80e-6, random=True)
             if self.viewer is not None:
-                self.image_layer: NapariImageLayer = self.viewer.add_image(data=self.image.data, name="FIB Image") # type: ignore
+                self.image_layer = self.viewer.add_image(data=self.image.data, name="FIB Image") # type: ignore
             else:
                 self.image_layer = None
         self._widgets: List[FibsemMillingStageWidget] = []
@@ -1075,7 +1079,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             image = FibsemImage.generate_blank_image(hfw=milling_stages[0].milling.hfw)
             self.set_image(image)
 
-        if self.image.metadata is None:
+        if self.image is None or self.image.metadata is None:
             raise ValueError("Image metadata is not set. Cannot update milling stage display.")
 
         self._validate_image_field_of_view()
@@ -1098,6 +1102,9 @@ class FibsemMillingStageEditorWidget(QWidget):
             background_milling_stages=self._background_milling_stages,
             alignment_area=alignment_area, # NOTE: we need to update this for each milling task, rather than read from lamella.alignment_area
         )
+
+        if self.image_widget is not None:
+            self.image_widget.restore_active_layer_for_movement()
 
     def _validate_image_field_of_view(self):
         """Validate that the milling task and displayed image have the same field of view."""
