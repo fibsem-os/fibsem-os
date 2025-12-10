@@ -14,6 +14,7 @@ import fibsem.constants as constants
 from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
+TESCAN_BEAM_READY_TIMEOUT = 60        # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 
 try:
     import tescanautomation
@@ -370,6 +371,16 @@ class TescanMicroscope(FibsemMicroscope):
         beam: Union[Automation.SEM, Automation.FIB]
         beam = self._prepare_beam(effective_beam_type)
 
+        start_time = time.monotonic()
+        while (beam.IsBusy()):
+            logging.debug(f"Waiting for the {beam} beam to become ready.")
+            if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:
+                raise TimeoutError(
+                    f"{effective_beam_type} beam is not ready. "
+                    f"Timeout of {TESCAN_BEAM_READY_TIMEOUT} seconds expired."
+                )
+            time.sleep(1)
+
         # imaging parameters
         dwell_time_ns = effective_image_settings.dwell_time * constants.SI_TO_NANO
         image_width, image_height = effective_image_settings.resolution
@@ -387,7 +398,6 @@ class TescanMicroscope(FibsemMicroscope):
                 rect=image_roi, 
                 image_shape=(image_width, image_height)
             )
-
             image: Document = beam.Scan.AcquireROI(
                 Detector=self._active_detector[effective_beam_type],
                 Width=image_width,
