@@ -22,9 +22,9 @@ if TYPE_CHECKING:
 @dataclass
 class MillingTaskAcquisitionSettings:
     """Settings for the acquisition of images during a milling task."""
-    acquire_sem: bool = field(default=True, 
+    acquire_sem: bool = field(default=False, 
                               metadata={"tooltip": "Whether to acquire SEM images between the milling task stages."})
-    acquire_fib: bool = field(default=True, 
+    acquire_fib: bool = field(default=False, 
                               metadata={"tooltip": "Whether to acquire FIB images between the milling task stages."})
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
@@ -45,8 +45,8 @@ class MillingTaskAcquisitionSettings:
         if imaging == {} or imaging.get("path", None) is None:
             imaging["path"] = None
         return cls(
-            acquire_sem=data.get("acquire_sem", True),
-            acquire_fib=data.get("acquire_fib", True),
+            acquire_sem=data.get("acquire_sem", False),
+            acquire_fib=data.get("acquire_fib", False),
             imaging=ImageSettings.from_dict(imaging),
         )
 

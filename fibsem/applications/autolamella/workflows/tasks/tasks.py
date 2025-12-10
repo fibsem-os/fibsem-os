@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.protocol.constants import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
+    AutoLamellaTaskStatus,
     Experiment,
     Lamella,
 )
@@ -87,6 +88,7 @@ ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
 
 # feature flags
 FEATURE_SELECTIVE_CHANNEL_ACQ = True
+FEATURE_USE_REFERENCE_IMAGING_PARAMETERS = True
 
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
@@ -261,16 +263,6 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     """Configuration for the AcquireReferenceImageTask."""
     task_type: ClassVar[str] = "ACQUIRE_REFERENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Reference Image"
-    acquire_sem: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire SEM image",
-                  "label": "Acquire SEM Image"}
-    )
-    acquire_fib: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire FIB image",
-                  "label": "Acquire FIB Image"}
-    )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
         metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)"},
@@ -342,6 +334,8 @@ class AutoLamellaTask(ABC):
         self.lamella.task_state.start_timestamp = datetime.timestamp(datetime.now())
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type
+        self.lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        self.lamella.task_state.status_message = ""
         self.log_status_message(message="STARTED", 
                                 display_message="Started", 
                                 workflow_display_message=f"{self.lamella.name} [{self.display_name}]")
@@ -350,12 +344,14 @@ class AutoLamellaTask(ABC):
         # post-task
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.state.microscope_state = self.microscope.get_microscope_state()
+        self.lamella.state.microscope_state = self.microscope.get_microscope_state() # TODO: get rid of this as a global thing, confusing and error prone
         self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
+        self.lamella.task_state.status_message = ""
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
-        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
+        self.lamella.task_history.append(deepcopy(self.lamella.task_state)) # TODO: append to the history if task fails?
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""
@@ -385,6 +381,7 @@ class AutoLamellaTask(ABC):
                        "task_step": message})
         if self.lamella.task_state is not None:
             self.lamella.task_state.step = message
+            self.lamella.task_state.status_message = display_message if display_message is not None else ""
 
         if display_message is not None:
             self.update_status_ui(message = display_message, 
@@ -513,8 +510,8 @@ class AutoLamellaTask(ABC):
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""
         if FEATURE_SELECTIVE_CHANNEL_ACQ:
-            acquire_sem = self.config.acquire_sem if hasattr(self.config, 'acquire_sem') else True
-            acquire_fib = self.config.acquire_fib if hasattr(self.config, 'acquire_fib') else True
+            acquire_fib = self.config.reference_imaging.acquire_fib
+            acquire_sem = self.config.reference_imaging.acquire_sem
             return self._acquire_channels(image_settings, 
                                           field_of_view=field_of_view, 
                                           filename=filename, 
@@ -530,32 +527,36 @@ class AutoLamellaTask(ABC):
         sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
         set_images_ui(self.parent_ui, sem_image, fib_image)
 
-    def _acquire_set_of_reference_images(self, 
+    def _acquire_set_of_reference_images(self,
                                  image_settings: ImageSettings, 
                                  filename: Optional[str] = None, 
-                                 field_of_views: Optional[Tuple[float, float]] = None) -> None:
+                                 field_of_views: Optional[Tuple[float, ...]] = None) -> None:
         """Acquire a set of reference images."""
-        if FEATURE_SELECTIVE_CHANNEL_ACQ:
-            acquire_sem = self.config.acquire_sem if hasattr(self.config, 'acquire_sem') else True
-            acquire_fib = self.config.acquire_fib if hasattr(self.config, 'acquire_fib') else True
+        if FEATURE_USE_REFERENCE_IMAGING_PARAMETERS:
+            acquire_fib = self.config.reference_imaging.acquire_fib
+            acquire_sem = self.config.reference_imaging.acquire_sem
+            if field_of_views is None:
+                field_of_views = self.config.reference_imaging.field_of_views
+            image_settings = self.config.reference_imaging.imaging
             return self._acquire_set_of_channels(image_settings,
-                                                 field_of_views=field_of_views, 
+                                                 field_of_views=field_of_views,
                                                  filename=filename,
                                                  acquire_sem=acquire_sem,
                                                  acquire_fib=acquire_fib)
-        if filename is None:
-            filename = f"ref_{self.task_name}_final"
-        if field_of_views is None:
-            field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
 
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        reference_images = acquire.take_set_of_reference_images(
-            microscope=self.microscope,
-            image_settings=image_settings,
-            hfws=field_of_views,
-            filename=filename,
-        )
-        set_images_ui(self.parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
+        # if filename is None:
+        #     filename = f"ref_{self.task_name}_final"
+        # if field_of_views is None:
+        #     field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
+
+        # self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        # reference_images = acquire.take_set_of_reference_images(
+        #     microscope=self.microscope,
+        #     image_settings=image_settings,
+        #     hfws=field_of_views,
+        #     filename=filename,
+        # )
+        # set_images_ui(self.parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
 
     def _acquire_channels(self, 
                           image_settings: ImageSettings, 
@@ -578,14 +579,14 @@ class AutoLamellaTask(ABC):
         set_images_ui(self.parent_ui, sem_image, fib_image)
 
     def _acquire_set_of_channels(self, image_settings: ImageSettings, 
-                                 field_of_views: Optional[List[float]] = None, 
+                                 field_of_views: Optional[Tuple[float, ...]] = None, 
                                  filename: Optional[str] = None,
-                                 acquire_sem: bool = True, 
+                                 acquire_sem: bool = True,
                                  acquire_fib: bool = True) -> None:
         """Acquire a set of images for each sem/fib channel at given field of views."""
         
         if field_of_views is None:
-            field_of_views = [fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER]
+            field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
         if filename is None:
             filename = f"ref_{self.task_name}_final"
 
@@ -780,8 +781,8 @@ class MillRoughTask(AutoLamellaTask):
         """Run the task to mill the rough trenches for a lamella."""
 
         # bookkeeping
-        image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
+        self.image_settings = self.config.imaging
+        self.image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
@@ -797,7 +798,8 @@ class MillRoughTask(AutoLamellaTask):
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         # take reference images
-        self._acquire_reference_image(image_settings, field_of_view=self.config.milling[MILL_ROUGH_KEY].field_of_view)
+        self._acquire_reference_image(self.image_settings, 
+                                      field_of_view=self.config.milling[MILL_ROUGH_KEY].field_of_view)
 
         # mill stress relief features # QUERY: should stress relief be a separate task, or just part of mill rough
         # PRO: allows it to be 'separate'
@@ -826,7 +828,7 @@ class MillRoughTask(AutoLamellaTask):
         self.sync_polishing_milling_task_position(milling_task_config.stages[0].pattern.point)
 
         # reference images
-        self._acquire_set_of_reference_images(image_settings)
+        self._acquire_set_of_reference_images(self.image_settings)
 
     def sync_polishing_milling_task_position(self, rough_milling_point: Point) -> None:
         """Sync the polishing milling task position to the rough milling task position."""
@@ -976,6 +978,7 @@ class SetupLamellaTask(AutoLamellaTask):
                         pos="Tilt", neg="Skip")
             if ret:
                 self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
+                # TODO: create an automated eucentric version of this...
 
             # move_to_milling_angle(microscope=self.microscope, milling_angle=np.radians(milling_angle))
             # lamella = align_feature_coincident(microscope=microscope, 
@@ -1123,11 +1126,8 @@ class AcquireReferenceImageTask(AutoLamellaTask):
             task_name = self.lamella.last_completed_task.name.replace(" ", "-")
 
         # acquire reference images
-        image_settings.filename = f"ref_reference_image-{task_name}-{utils.current_timestamp_v3()}"
-        
-        self._acquire_reference_image(image_settings=image_settings, 
-                                      filename=image_settings.filename, 
-                                      field_of_view=self.config.imaging.hfw)
+        filename = f"ref_reference_image-{task_name}-{utils.current_timestamp_v3()}"
+        self._acquire_set_of_reference_images(image_settings=image_settings, filename=filename)
 
 
 class BasicMillingTask(AutoLamellaTask):
@@ -1282,6 +1282,9 @@ def run_tasks(microscope: FibsemMicroscope,
     """
     if required_lamella is None:
         required_lamella = [p.name for p in experiment.positions]
+
+    # TODO: clear the task state for all required lamella, and mark as not started with
+
     for task_name in task_names:
         for lamella in experiment.positions:
             # Sync config updates from GUI before processing this lamella
@@ -1333,7 +1336,9 @@ def run_tasks(microscope: FibsemMicroscope,
                 experiment.save()
             except Exception as e:
                 logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
-
+                lamella.task_state.status = AutoLamellaTaskStatus.Failed
+                lamella.task_state.status_message = str(e)
+                experiment.save()
 
     update_status_ui(parent_ui, "", workflow_info="All tasks completed.")
 

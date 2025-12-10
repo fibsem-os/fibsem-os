@@ -2210,11 +2210,11 @@ class ReferenceImageParameters:
         )
     
     @property
-    def field_of_views(self) -> List[float]:
-        # return field of views if set to be acquired
+    def field_of_views(self) -> Tuple[float, ...]:
+        """Returns a tuple of the selected field of views, sorted from largest to smallest."""
         fovs = []
         if self.acquire_image1:
             fovs.append(self.field_of_view1)
         if self.acquire_image2:
             fovs.append(self.field_of_view2)
-        return sorted(fovs, reverse=True) # largest to smallest
+        return tuple(sorted(fovs, reverse=True)) # largest to smallest

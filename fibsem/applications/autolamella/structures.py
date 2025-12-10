@@ -39,6 +39,7 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     ReferenceImages,
+    ReferenceImageParameters,
 )
 from fibsem.utils import configure_logging, format_duration
 
@@ -91,6 +92,11 @@ class LamellaState:
             end_timestamp=data["end_timestamp"]
         )
 
+class AutoLamellaTaskStatus(Enum):
+    NotStarted = auto()
+    InProgress = auto()
+    Completed = auto()
+    Failed = auto()
 
 @evented
 @dataclass
@@ -102,6 +108,8 @@ class AutoLamellaTaskState:
     lamella_id: str = ""
     start_timestamp: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
     end_timestamp: Optional[float] = None
+    status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
+    status_message: str = ""
 
     @property
     def completed(self) -> str:
@@ -129,13 +137,17 @@ class AutoLamellaTaskState:
 
     def to_dict(self) -> dict:
         """Convert the task state to a dictionary."""
-        return asdict(self)
+        ddict = asdict(self)
+        ddict["status"] = self.status.name
+        return ddict
 
     @classmethod
     def from_dict(cls, data: dict) -> 'AutoLamellaTaskState':
         """Create a task state from a dictionary."""
         if data is None:
             return cls()
+        data = data.copy()
+        data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
         return cls(**data)
 
 @evented
@@ -145,8 +157,9 @@ class AutoLamellaTaskConfig(ABC):
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     task_name: str = "" # unique name for identifying in multi-task workflows
-    imaging: ImageSettings = field(default_factory=ImageSettings)
+    # imaging: ImageSettings = field(default_factory=ImageSettings)
     milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
+    reference_imaging: ReferenceImageParameters = field(default_factory=ReferenceImageParameters)
 
     @property
     def parameters(self) -> Tuple[str, ...]:
@@ -167,8 +180,8 @@ class AutoLamellaTaskConfig(ABC):
         for k in self.parameters:
             ddict["parameters"][k] = getattr(self, k)
         ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
-        if self.imaging is not None:
-            ddict["imaging"] = self.imaging.to_dict()
+        if self.reference_imaging is not None:
+            ddict["reference_imaging"] = self.reference_imaging.to_dict()
         return ddict
 
     @classmethod
@@ -188,12 +201,12 @@ class AutoLamellaTaskConfig(ABC):
                     # QUERY: should we raise an error here or just ignore unknown parameters?
                     raise ValueError(f"Unknown parameter '{key}' in task configuration.")
 
-        if "imaging" in ddict:
-            kwargs["imaging"] = ImageSettings.from_dict(ddict["imaging"])
         if "milling" in ddict:
             kwargs["milling"] = {
                 k: FibsemMillingTaskConfig.from_dict(v) for k, v in ddict["milling"].items()
             }
+        if "reference_imaging" in ddict:
+            kwargs["reference_imaging"] = ReferenceImageParameters.from_dict(ddict["reference_imaging"])
 
         return cls(**kwargs)
 
@@ -204,6 +217,16 @@ class AutoLamellaTaskConfig(ABC):
         for milling_task in self.milling.values():
             total_time += milling_task.estimated_time
         return total_time
+    
+    @property
+    def imaging(self) -> ImageSettings:
+        """Get the imaging settings from the reference imaging parameters."""
+        return self.reference_imaging.imaging
+    
+    @imaging.setter
+    def imaging(self, value: ImageSettings):
+        """Set the imaging settings in the reference imaging parameters."""
+        self.reference_imaging.imaging = value
 
 @evented
 @dataclass
@@ -994,6 +1017,8 @@ class Experiment:
                     "task_name": task.name,
                     "task_id": task.task_id,
                     "task_type": task.task_type,
+                    "task_status": task.status.name,
+                    "task_status_message": task.status_message,
                     "start_timestamp": task.start_timestamp,
                     "end_timestamp": task.end_timestamp,
                     "completed_at": task.completed_at,

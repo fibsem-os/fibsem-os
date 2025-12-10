@@ -187,7 +187,7 @@ def acquire_channels(microscope: FibsemMicroscope,
 
 def acquire_set_of_channels(microscope: FibsemMicroscope, 
                             image_settings: ImageSettings, 
-                            hfws: list[float],
+                            hfws: tuple[float, ...],
                             filename: str = "ref_image",
                             acquire_sem: bool = True, 
                             acquire_fib: bool = True) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
@@ -207,10 +207,11 @@ def acquire_set_of_channels(microscope: FibsemMicroscope,
     image_settings = copy.deepcopy(image_settings)
     image_settings.save = True  # ensure saving
 
-    if len(hfws) != 2:
-        raise ValueError("hfws must contain exactly two values for SEM and FIB acquisition.") # TODO: remove this restriction later
 
-    suffixes = ["low_res", "high_res"]
+    # extend suffexes if more hfws are provided than suffixes
+    suffixes = []
+    while len(suffixes) < len(hfws):
+        suffixes.append(f"res_{len(suffixes)+1:02d}")
 
     for hfw, suffix in zip(hfws, suffixes):
         image_settings.hfw = hfw

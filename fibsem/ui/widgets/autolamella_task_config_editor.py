@@ -27,7 +27,7 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.tasks.tasks import TASK_REGISTRY
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage
+from fibsem.structures import FibsemImage, ReferenceImageParameters
 from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE, GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
@@ -177,8 +177,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.milling_task_editor.setMinimumHeight(550)
 
         self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
-        self.image_params_widget = ImageSettingsWidget(parent=self)
-        self.image_params_collapsible.addWidget(self.image_params_widget)
 
         self.task_params_collapsible = QCollapsible("Task Parameters", self)
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
@@ -186,7 +184,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-        self.ref_image_params_widget.setVisible(False)  # hide for now
+        self.ref_image_params_widget.setVisible(True)  # hide for now
         self.image_params_collapsible.addWidget(self.ref_image_params_widget)
 
         # lamella, milling controls
@@ -250,7 +248,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.comboBox_selected_task.currentIndexChanged.connect(self._on_selected_task_changed)
         self.milling_task_editor.task_configs_changed.connect(self._on_milling_task_configs_changed)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
-        self.image_params_widget.settings_changed.connect(self._on_image_settings_changed)
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.pushButton_add_task.clicked.connect(self._on_add_task_clicked)
         self.pushButton_remove_task.clicked.connect(self._on_remove_task_clicked)
@@ -304,7 +301,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         task_config = self.experiment.task_protocol.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
-        self.image_params_widget.update_from_settings(task_config.imaging)
+        self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
 
         field_of_view = 150e-6
         if task_config.milling:
@@ -412,16 +409,17 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # save the experiment
         self._save_experiment()
 
-    def _on_ref_image_settings_changed(self, settings):
+    def _on_ref_image_settings_changed(self, settings: ReferenceImageParameters):
         """Callback when the image settings are changed."""
+        print('--- ref imaging settings changed ---')
         from pprint import pprint
         pprint(settings.to_dict())
         # # Update the image settings in the task config
-        # selected_task_name = self.comboBox_selected_task.currentText()
-        # self.experiment.task_protocol.task_config[selected_task_name].imaging = settings
-
+        selected_task_name = self.comboBox_selected_task.currentText()
+        self.experiment.task_protocol.task_config[selected_task_name].reference_imaging = settings
+        print('--- updated ref imaging settings ---')
         # # Save the experiment
-        # self._save_experiment()
+        self._save_experiment()
 
     def _on_image_settings_changed(self, settings):
         """Callback when the image settings are changed."""

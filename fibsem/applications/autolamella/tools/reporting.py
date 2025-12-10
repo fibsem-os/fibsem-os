@@ -646,7 +646,7 @@ def plot_task_milling_summary(p: Lamella, show: bool = False) -> List[Figure]:
         # check if the task has milling operations
         if v.milling:
 
-            filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{k}_final_high_res_ib.tif")))
+            filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{k}_final_*_ib.tif")))
             if len(filenames) == 0:
                 logging.info(f"No final high-res ion beam image found for {p.name} - {k}")
                 continue
