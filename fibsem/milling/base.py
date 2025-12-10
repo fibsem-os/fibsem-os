@@ -105,8 +105,8 @@ class FibsemMillingStage:
         if self.imaging.save is None:
             self.imaging.save = False
 
-    def to_dict(self):
-        return {
+    def to_dict(self, short: bool = False) -> Dict[str, Any]:
+        ddict = {
             "name": self.name,
             "num": self.num,
             "milling": self.milling.to_dict(),
@@ -115,6 +115,12 @@ class FibsemMillingStage:
             "alignment": self.alignment.to_dict(),
             "imaging": self.imaging.to_dict(),
         }
+        if short:
+            ddict.pop("alignment")
+            ddict.pop("imaging")
+            ddict.pop("num")
+            ddict["milling"].pop("acquire_images")
+        return ddict
 
     @classmethod
     def from_dict(cls, data: dict):

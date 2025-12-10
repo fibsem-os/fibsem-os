@@ -68,7 +68,7 @@ class FibsemMillingTaskConfig:
             "channel": self.channel.name,
             "alignment": self.alignment.to_dict(),
             "acquisition": self.acquisition.to_dict(),
-            "stages": [stage.to_dict() for stage in self.stages],
+            "stages": [stage.to_dict(short=True) for stage in self.stages],
         }
 
     @classmethod
