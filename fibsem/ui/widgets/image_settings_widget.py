@@ -263,8 +263,15 @@ class ImageSettingsWidget(QWidget):
         """
         self._settings = settings
 
-        # Block signals to prevent recursive updates
-        self.blockSignals(True)
+        # Block signals on individual widgets to prevent recursive updates
+        self.resolution_combo.blockSignals(True)
+        self.dwell_time_spinbox.blockSignals(True)
+        self.hfw_spinbox.blockSignals(True)
+        self.line_integration_spinbox.blockSignals(True)
+        self.scan_interlacing_spinbox.blockSignals(True)
+        self.frame_integration_spinbox.blockSignals(True)
+        self.autocontrast_check.blockSignals(True)
+        self.drift_correction_check.blockSignals(True)
 
         # Set resolution
         resolution_list = list(settings.resolution)
@@ -291,10 +298,18 @@ class ImageSettingsWidget(QWidget):
         self.autocontrast_check.setChecked(settings.autocontrast)
         self.drift_correction_check.setChecked(settings.drift_correction)
 
+        # Unblock signals
+        self.resolution_combo.blockSignals(False)
+        self.dwell_time_spinbox.blockSignals(False)
+        self.hfw_spinbox.blockSignals(False)
+        self.line_integration_spinbox.blockSignals(False)
+        self.scan_interlacing_spinbox.blockSignals(False)
+        self.frame_integration_spinbox.blockSignals(False)
+        self.autocontrast_check.blockSignals(False)
+        self.drift_correction_check.blockSignals(False)
+
         # Update visibility based on settings
         self._update_advanced_visibility()
-
-        self.blockSignals(False)
 
 
 if __name__ == "__main__":

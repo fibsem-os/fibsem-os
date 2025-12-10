@@ -1,3 +1,4 @@
+import copy 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -60,7 +61,7 @@ class ReferenceImageParametersWidget(QWidget):
         self._settings = ReferenceImageParameters()
         self._setup_ui()
         self._connect_signals()
-        self.update_from_settings(self._settings)
+        # self.update_from_settings(self._settings)
 
     def _setup_ui(self):
         """Create and configure all UI elements."""
@@ -73,9 +74,9 @@ class ReferenceImageParametersWidget(QWidget):
         acq_group = QGroupBox("Acquisition Settings")
         acq_group.setFlat(True)  # Flat style for lighter visual weight
         acq_layout = QGridLayout()
-        acq_layout.setContentsMargins(6, 6, 6, 6)  # Reduced margins
-        acq_layout.setHorizontalSpacing(8)
-        acq_layout.setVerticalSpacing(4)
+        # acq_layout.setContentsMargins(6, 6, 6, 6)  # Reduced margins
+        # acq_layout.setHorizontalSpacing(8)
+        # acq_layout.setVerticalSpacing(4)
         acq_group.setLayout(acq_layout)
 
         # Beam Type Options
@@ -151,8 +152,8 @@ class ReferenceImageParametersWidget(QWidget):
         self.imaging_widget.show_field_of_view(False)
 
         imaging_layout = QVBoxLayout()
-        imaging_layout.setContentsMargins(6, 6, 6, 6)  # Reduced margins
-        imaging_layout.setSpacing(4)  # Tighter spacing
+        # imaging_layout.setContentsMargins(6, 6, 6, 6)  # Reduced margins
+        # imaging_layout.setSpacing(4)  # Tighter spacing
         self.imaging_settings_group.setLayout(imaging_layout)
         imaging_layout.addWidget(self.imaging_widget)
 
@@ -296,20 +297,25 @@ class ReferenceImageParametersWidget(QWidget):
             settings: ReferenceImageParameters object to load values from.
                      Units are converted from SI units (m) to display units (μm).
         """
-        self._settings = settings
+        self._settings = copy.deepcopy(settings)
 
-        # Block signals to prevent recursive updates
-        self.blockSignals(True)
+        # Block signals on individual widgets to prevent recursive updates
+        self.fov1_spinbox.blockSignals(True)
+        self.fov2_spinbox.blockSignals(True)
+        self.acquire_sem_check.blockSignals(True)
+        self.acquire_fib_check.blockSignals(True)
+        self.acquire_image1_check.blockSignals(True)
+        self.acquire_image2_check.blockSignals(True)
 
         # Set field of view values
-        self.fov1_spinbox.setValue(settings.field_of_view1 * SI_TO_MICRO)  # Convert m to μm
-        self.fov2_spinbox.setValue(settings.field_of_view2 * SI_TO_MICRO)  # Convert m to μm
+        self.fov1_spinbox.setValue(self._settings.field_of_view1 * SI_TO_MICRO)  # Convert m to μm
+        self.fov2_spinbox.setValue(self._settings.field_of_view2 * SI_TO_MICRO)  # Convert m to μm
 
         # Set acquisition options
-        self.acquire_sem_check.setChecked(settings.acquire_sem)
-        self.acquire_fib_check.setChecked(settings.acquire_fib)
-        self.acquire_image1_check.setChecked(settings.acquire_image1)
-        self.acquire_image2_check.setChecked(settings.acquire_image2)
+        self.acquire_sem_check.setChecked(self._settings.acquire_sem)
+        self.acquire_fib_check.setChecked(self._settings.acquire_fib)
+        self.acquire_image1_check.setChecked(self._settings.acquire_image1)
+        self.acquire_image2_check.setChecked(self._settings.acquire_image2)
 
         # Update FOV control enabled state based on checkbox state
         self.acquire_image1_label.setEnabled(settings.acquire_image1)
@@ -320,9 +326,15 @@ class ReferenceImageParametersWidget(QWidget):
         self.fov2_spinbox.setEnabled(settings.acquire_image2)
 
         # Update imaging settings widget if available
-        self.imaging_widget.update_from_settings(settings.imaging)
+        self.imaging_widget.update_from_settings(self._settings.imaging)
 
-        self.blockSignals(False)
+        # Unblock signals
+        self.fov1_spinbox.blockSignals(False)
+        self.fov2_spinbox.blockSignals(False)
+        self.acquire_sem_check.blockSignals(False)
+        self.acquire_fib_check.blockSignals(False)
+        self.acquire_image1_check.blockSignals(False)
+        self.acquire_image2_check.blockSignals(False)
 
         # Update info/warning label (called after unblocking signals to avoid recursion)
         self._update_information_text()
@@ -365,6 +377,14 @@ if __name__ == "__main__":
         print(f"Settings changed - FOV1: {settings.field_of_view1 * SI_TO_MICRO:.1f} μm, FOV2: {settings.field_of_view2 * SI_TO_MICRO:.1f} μm")
 
     settings_widget.settings_changed.connect(on_settings_changed)
+
+    initial_params = ReferenceImageParameters(
+        field_of_view1=200e-6, field_of_view2=100e-6, 
+        acquire_fib=True, acquire_sem=False, 
+        acquire_image1=True, acquire_image2=False
+    )
+    settings_widget.update_from_settings(initial_params)
+
 
     main_widget.setWindowTitle("ReferenceImageParameters Widget Test")
 
