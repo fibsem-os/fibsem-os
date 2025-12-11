@@ -411,13 +411,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_ref_image_settings_changed(self, settings: ReferenceImageParameters):
         """Callback when the image settings are changed."""
-        print('--- ref imaging settings changed ---')
-        from pprint import pprint
-        pprint(settings.to_dict())
         # # Update the image settings in the task config
         selected_task_name = self.comboBox_selected_task.currentText()
         self.experiment.task_protocol.task_config[selected_task_name].reference_imaging = settings
-        print('--- updated ref imaging settings ---')
+
         # # Save the experiment
         self._save_experiment()
 
