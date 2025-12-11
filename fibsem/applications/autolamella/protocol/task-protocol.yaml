@@ -5,8 +5,6 @@ tasks:
     Acquire Reference Image:
         task_type: ACQUIRE_REFERENCE_IMAGE
         parameters:
-            acquire_fib: true
-            acquire_sem: true
             orientation: MILLING
         milling: {}
         imaging: {hfw: 80.0e-6}

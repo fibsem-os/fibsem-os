@@ -68,8 +68,6 @@ tasks:
     Acquire Reference Image (FIB):
         task_type: ACQUIRE_REFERENCE_IMAGE
         parameters:
-            acquire_fib: true
-            acquire_sem: false
             orientation: MILLING
         milling: {}
         imaging: {}
