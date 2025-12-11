@@ -118,6 +118,11 @@ OVERLAY_CONFIG = {
     },
 }
 
+LABEL_INSTRUCTIONS = {
+    "image-available": "Instructions: \nAlt+Click to Add a position, \nShift+Click to Update a position \nor Double Click to Move the Stage...",
+    "no-image": "Please take or load an overview image..."
+}
+
 def generate_gridbar_image(shape: Tuple[int, int], pixelsize: float, spacing: float, width: float) -> FibsemImage:
     """Generate an synthetic image of cryo gridbars."""
     arr = np.zeros(shape=shape, dtype=np.uint8)
@@ -558,7 +563,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             self.pushButton_run_tile_collection.setText("Running Tile Collection...")
 
         if self.image is None:
-            self.label_instructions.setText("Please take or load an overview image...")
+            self.label_instructions.setText(LABEL_INSTRUCTIONS["no-image"])
 
     def load_image(self):
         """Ask the user to select a file to load an image as overview or correlation image."""
@@ -589,8 +594,11 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             if not tmp:
                 self.image = image
 
-            # apply a median filter to the image
-            arr = median_filter(image.data, size=OVERVIEW_IMAGE_LAYER_PROPERTIES["median_filter_size"])
+                # apply a median filter to the image 
+                # TODO: migrate to apply to each image tile during acquisition, rather than the full stitch
+                # arr = median_filter(image.data, size=OVERVIEW_IMAGE_LAYER_PROPERTIES["median_filter_size"])
+            # else:
+            arr = image.data
 
             try:
                 self.image_layer.data = arr
@@ -621,7 +629,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         if self.image:
             self.draw_current_stage_position()  # draw the current stage position on the image
             self._draw_milling_pattern_overlay()         # draw the reprojected positions on the image
-            self.label_instructions.setText("Instructions: \nAlt+Click to Add a position, \nShift+Click to Update a position \nor Double Click to Move the Stage...")
+            self.label_instructions.setText(LABEL_INSTRUCTIONS["image-available"])
         update_text_overlay(self.viewer, self.microscope)
         self.set_active_layer_for_movement()
 
