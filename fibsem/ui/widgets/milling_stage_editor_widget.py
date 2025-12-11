@@ -52,7 +52,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.FibsemMillingWidget import WheelBlocker
+from fibsem.ui.utils import WheelBlocker
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
     is_pattern_placement_valid,

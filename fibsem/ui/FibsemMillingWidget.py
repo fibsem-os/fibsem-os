@@ -1,3 +1,4 @@
+# NOTE: file is deprecated, use fibsem/ui/widgets/milling_task_config_widget.py instead.
 import logging
 import math
 import os
