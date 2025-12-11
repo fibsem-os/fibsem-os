@@ -3,13 +3,12 @@ import copy
 import glob
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict
 
 import napari
 import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QGridLayout,
     QLabel,
@@ -20,18 +19,19 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from fibsem import utils
+from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, ReferenceImageParameters
-from fibsem.ui import stylesheets
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.reference_image_parameters_widget import (
+    ReferenceImageParametersWidget,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -40,9 +40,9 @@ if TYPE_CHECKING:
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
-    def __init__(self, 
+    def __init__(self,
                 viewer: napari.Viewer,
-                 parent: 'AutoLamellaUI'):
+                parent: 'AutoLamellaUI'):
         super().__init__(parent)
         self.parent_widget = parent
         self.viewer = viewer
@@ -57,9 +57,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """Create the widgets for the protocol editor."""
 
         self.milling_task_collapsible = QCollapsible("Milling Task Editor")
-        self.milling_task_editor = FibsemMillingTaskWidget(microscope=self.microscope, 
-                                                                         milling_enabled=False, 
-                                                                         parent=self)
+        self.milling_task_editor = FibsemMillingTaskWidget(microscope=self.microscope,
+                                                            milling_enabled=False,
+                                                            parent=self)
         self.milling_task_collapsible.addWidget(self.milling_task_editor)
         self.milling_task_editor.setMinimumHeight(550)
 
@@ -68,9 +68,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
         self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
-        from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-        self.ref_image_params_widget.setVisible(True)  # hide for now
         self.image_params_collapsible.addWidget(self.ref_image_params_widget)
 
         # lamella, milling controls
@@ -129,6 +127,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.main_layout.addWidget(self.scroll_area) # type: ignore
 
     def _initialise_widgets(self):
+        """Initialise the widgets based on the current experiment protocol."""
         if self.parent_widget.experiment is not None:
             for pos in self.parent_widget.experiment.positions:
                 self.comboBox_selected_lamella.addItem(pos.name, pos)
@@ -332,8 +331,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             milling_fov = config[key].field_of_view
             image_hfw = self.milling_task_editor.config_widget.milling_editor_widget.image.metadata.image_settings.hfw
             if not np.isclose(milling_fov, image_hfw):
-                milling_fov_um = utils.format_value(milling_fov, unit='m', precision=0)
-                image_fov_um = utils.format_value(image_hfw, unit='m', precision=0)
+                milling_fov_um = format_value(milling_fov, unit='m', precision=0)
+                image_fov_um = format_value(image_hfw, unit='m', precision=0)
                 self.label_warning.setText(f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um}).")
                 self.label_warning.setVisible(True)
                 return
@@ -369,21 +368,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self._save_experiment()
 
-    # def _on_image_settings_changed(self, settings):
-    #     """Callback when the image settings are changed."""
-    #     logging.info(f"Image settings changed: {settings}")
-
-    #     # Update the image settings in the task config
-    #     selected_task_name = self.comboBox_selected_task.currentText()
-    #     selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
-    #     selected_lamella.task_config[selected_task_name].imaging = settings
-
-    #     self._save_experiment()
-    
     def _on_ref_image_settings_changed(self, settings: ReferenceImageParameters):
         """Callback when the image settings are changed."""
-        from pprint import pprint
-        pprint(settings.to_dict())
+
         # Update the image settings in the task config
         selected_task_name = self.comboBox_selected_task.currentText()
         selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
@@ -406,4 +393,3 @@ def show_protocol_editor(parent: 'AutoLamellaUI',):
                                              parent=parent)
     viewer.window.add_dock_widget(widget, area='right', name='AutoLamella Protocol Editor')
     return widget
-

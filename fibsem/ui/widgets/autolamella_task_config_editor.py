@@ -2,11 +2,11 @@
 import copy
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import napari
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from fibsem import utils
+from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.tasks.tasks import TASK_REGISTRY
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -34,7 +34,7 @@ from fibsem.ui.widgets.autolamella_task_config_widget import (
 )
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import AutoLamellaProtocolEditorWidget
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -176,13 +176,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.milling_task_collapsible.addWidget(self.milling_task_editor)
         self.milling_task_editor.setMinimumHeight(550)
 
-        self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
 
         self.task_params_collapsible = QCollapsible("Task Parameters", self)
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
         self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
-        from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
+        self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
         self.ref_image_params_widget.setVisible(True)  # hide for now
         self.image_params_collapsible.addWidget(self.ref_image_params_widget)
@@ -257,6 +256,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.lineEdit_protocol_version.editingFinished.connect(self._on_protocol_version_changed)
 
     def _initialise_widgets(self):
+        """Initialise the widgets based on the current experiment protocol."""
 
         if self.experiment is None or self.experiment.task_protocol is None:
             raise ValueError("Experiment or task protocol is None, cannot initialise protocol editor.")
@@ -292,8 +292,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.comboBox_selected_task.blockSignals(False)
 
         # Update sync button visibility based on whether there are positions
-        has_positions = bool(self.experiment.positions)
-        self.pushButton_sync_to_lamella.setVisible(has_positions)
+        self.pushButton_sync_to_lamella.setVisible(bool(self.experiment.positions))
 
     def _on_selected_task_changed(self):
         """Callback when the selected milling stage changes."""
@@ -372,8 +371,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             milling_fov = config[key].field_of_view
             image_hfw = self.milling_task_editor.config_widget.milling_editor_widget.image.metadata.image_settings.hfw
             if not np.isclose(milling_fov, image_hfw):
-                milling_fov_um = utils.format_value(milling_fov, unit='m', precision=0)
-                image_fov_um = utils.format_value(image_hfw, unit='m', precision=0)
+                milling_fov_um = format_value(milling_fov, unit='m', precision=0)
+                image_fov_um = format_value(image_hfw, unit='m', precision=0)
                 self.label_warning.setText(f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um}).")
                 self.label_warning.setVisible(True)
                 return
@@ -418,16 +417,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # # Save the experiment
         self._save_experiment()
 
-    def _on_image_settings_changed(self, settings):
-        """Callback when the image settings are changed."""
-
-        # Update the image settings in the task config
-        selected_task_name = self.comboBox_selected_task.currentText()
-        self.experiment.task_protocol.task_config[selected_task_name].imaging = settings
-
-        # Save the experiment
-        self._save_experiment()
-
     def _save_experiment(self):
         """Save the experiment if available."""
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
@@ -436,7 +425,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
-        dialog = AddTaskDialog(self.experiment.task_protocol.task_config, parent=self)
+        dialog = AddTaskDialog(self.experiment.task_protocol.task_config, parent=self) # type: ignore
         if dialog.exec_() == QDialog.Accepted:
             task_type, task_name = dialog.get_task_info()
             if task_type and task_name:
@@ -447,6 +436,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
                 # Add to experiment
                 self.experiment.task_protocol.task_config[task_name] = new_task_config
+
+                # also add task to each existing lamella
+                for lamella in self.experiment.positions:
+                    lamella.task_config[task_name] = copy.deepcopy(new_task_config)
 
                 # Save experiment
                 self._save_experiment()
@@ -547,6 +540,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             # Update task_config for each lamella
             updated_count = 0
             for lamella in self.experiment.positions:
+                # TODO: add selective lamella selection instead of all lamella
                 existing_task_config = lamella.task_config.get(selected_task_name)
                 new_task_config = copy.deepcopy(current_task_config)
 
