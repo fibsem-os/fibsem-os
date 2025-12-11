@@ -5,6 +5,7 @@ import logging
 import os
 import time
 import uuid
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -23,9 +24,13 @@ if TYPE_CHECKING:
 class MillingTaskAcquisitionSettings:
     """Settings for the acquisition of images during a milling task."""
     acquire_sem: bool = field(default=False, 
-                              metadata={"tooltip": "Whether to acquire SEM images between the milling task stages."})
+                              metadata={
+                                  "label": "Acquire SEM Image",
+                                  "tooltip": "Whether to acquire SEM images between the milling task stages."})
     acquire_fib: bool = field(default=False, 
-                              metadata={"tooltip": "Whether to acquire FIB images between the milling task stages."})
+                              metadata={
+                                  "label": "Acquire FIB Image",
+                                  "tooltip": "Whether to acquire FIB images between the milling task stages."})
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
     @property
@@ -140,7 +145,9 @@ class FibsemMillingTaskConfig:
 
         return reference_stage
 
-
+# TODO: remove parent_ui arg, use microscope signal only, and stop_event -> need to migrate
+# TODO: restore current to initial current, rather than system.ion.beam.beam_current
+# TODO: support customising alignment imaging parameters?
 @dataclass
 class FibsemMillingTask:
     config: FibsemMillingTaskConfig = field(default_factory=FibsemMillingTaskConfig)
@@ -155,6 +162,9 @@ class FibsemMillingTask:
         self.parent_ui = parent_ui
         self.task_id = str(uuid.uuid4())
         self.initial_beam_shift: Optional[Point] = None
+        self._stop_event: Optional[threading.Event] = None
+        if self.parent_ui and hasattr(self.parent_ui, "_milling_stop_event"):
+            self._stop_event = self.parent_ui._milling_stop_event
 
     @property
     def name(self) -> str:
@@ -174,6 +184,7 @@ class FibsemMillingTask:
             logging.info(ddict)
 
     def _configure_path(self) -> None:
+        """Configure the acquisition path for the milling task."""
         path = self.config.acquisition.imaging.path
         self.config.acquisition.imaging.path = os.path.join(str(path), "Milling",
                                                             self.name.replace(" ", "-"), 
@@ -222,12 +233,23 @@ class FibsemMillingTask:
             if self.parent_ui:
                 self.microscope.milling_progress_signal.disconnect(self.parent_ui._on_milling_progress)
 
+            try:
+                # acquire an image after finishing the task, if not already done
+                if not self.config.acquisition.enabled and not self.config.acquisition.acquire_fib:
+                    fib_image = self.microscope.acquire_image(image_settings=None, beam_type=self.config.channel)
+                    self.microscope.fib_acquisition_signal.emit(fib_image)
+            except Exception as e:
+                logging.error(f"Error acquiring image after milling task: {e}")
+
     def _mill_stage(self, stage: FibsemMillingStage, idx: int) -> None:
-        """Run a single milling stage with progress updates."""
+        """Run a single milling stage with progress updates.
+        Args:
+            stage (FibsemMillingStage): The milling stage to run.
+            idx (int): The index of the milling stage.
+        """
 
         start_time = time.time()
-        if self.parent_ui:
-            if hasattr(self.parent_ui, "_milling_stop_event") and self.parent_ui._milling_stop_event.is_set():
+        if self._stop_event and self._stop_event.is_set():
                 raise Exception("Milling stopped by user.")
 
         msgd =  {"msg": f"Preparing: {stage.name}",
@@ -296,7 +318,7 @@ class FibsemMillingTask:
             save=True,
             path=path,
             filename=filename,
-        ) # TODO: support customising alignment imaging parameters?
+        )
         self.reference_image = acquire.acquire_image(microscope=self.microscope, settings=image_settings)
 
     def _acquire_milling_task_images(
@@ -340,7 +362,14 @@ class FibsemMillingTask:
 def run_milling_task(microscope: FibsemMicroscope, 
                      config: FibsemMillingTaskConfig, 
                      parent_ui: Optional['FibsemMillingWidget2'] = None) -> FibsemMillingTask:
-    """Run a milling task with the given configuration."""
+    """Run a milling task with the given configuration.
+    Args:
+        microscope (FibsemMicroscope): The microscope to use for milling.
+        config (FibsemMillingTaskConfig): The configuration for the milling task.
+        parent_ui (Optional[FibsemMillingWidget2]): The parent UI widget for progress updates.
+    Returns:
+        FibsemMillingTask: The milling task that was run.
+    """
     task = FibsemMillingTask(microscope=microscope, 
                              config=config, 
                              parent_ui=parent_ui)
