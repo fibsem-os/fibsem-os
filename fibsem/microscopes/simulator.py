@@ -546,6 +546,7 @@ class DemoMicroscope(FibsemMicroscope):
         if reduced_area is not None:
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
+        logging.info(f"Autocontrasting {beam_type.name} beam.")
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
@@ -672,7 +673,7 @@ class DemoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "move_manipulator_corrected", "dx": dx, "dy": dy, "beam_type": beam_type.name})
         return self.get_manipulator_position()
 
-    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str = None) -> FibsemManipulatorPosition:
+    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: Optional[str] = None) -> FibsemManipulatorPosition:
         if name is None:
             name = "EUCENTRIC"
 

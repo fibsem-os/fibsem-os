@@ -2143,12 +2143,18 @@ class MillingAlignment:
     interval_enabled: bool = False
     interval: int = 30 # seconds
     rect: FibsemRectangle = field(default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA))
+    use_autocontrast: bool = True
+    steps: int = 3
+    # imaging: ImageSettings = field(default_factory=ImageSettings)
 
     def to_dict(self):
         return {"enabled": self.enabled, 
                 "interval_enabled": self.interval_enabled, 
                 "interval": self.interval, 
-                "rect": self.rect.to_dict()}
+                "rect": self.rect.to_dict(),
+                "use_autocontrast": self.use_autocontrast,
+                "steps": self.steps,
+                }
 
     @staticmethod
     def from_dict(d: dict) -> "MillingAlignment":
@@ -2156,7 +2162,9 @@ class MillingAlignment:
             enabled=d.get("enabled", False),
             interval_enabled=d.get("interval_enabled", False),
             interval=d.get("interval", 30),
-            rect=FibsemRectangle.from_dict(d.get("rect", DEFAULT_ALIGNMENT_AREA))
+            rect=FibsemRectangle.from_dict(d.get("rect", DEFAULT_ALIGNMENT_AREA),),
+            use_autocontrast=d.get("use_autocontrast", True),
+            steps=d.get("steps", 3),
         )
 
 @dataclass

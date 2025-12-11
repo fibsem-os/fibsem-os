@@ -48,8 +48,8 @@ def setup_milling(
             microscope=microscope,
             ref_image=reference_image,
             beam_type=milling_stage.milling.milling_channel,
-            steps=3,
-            use_autocontrast=True,
+            steps=milling_stage.alignment.steps,
+            use_autocontrast=milling_stage.alignment.use_autocontrast,
         )  # high current -> damaging
 
 

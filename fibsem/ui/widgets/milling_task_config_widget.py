@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
 from superqt import QCollapsible, QIconifyIcon
 
 from fibsem import constants, utils
-from fibsem.correlation.app import CorrelationUI
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.patterns2 import FiducialPattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -348,6 +347,7 @@ class MillingTaskConfigWidget(QWidget):
         for layer_name in self.existing_layers:
             self.viewer.layers[layer_name].visible = False
 
+        from fibsem.correlation.app import CorrelationUI
         self.correlation_widget = CorrelationUI(viewer=self.viewer, parent_ui=self)
         self.correlation_widget.continue_pressed_signal.connect(self.handle_correlation_continue_signal)
         from scipy.ndimage import median_filter
@@ -442,7 +442,7 @@ if __name__ == "__main__":
     qwidget.setContentsMargins(0, 0, 0, 0)
     layout.setContentsMargins(0, 0, 0, 0)
 
-    microscope, settings = utils.setup_session()
+    microscope, settings = utils.setup_session(debug=False)
 
     protocol = AutoLamellaTaskProtocol.load(cfg.TASK_PROTOCOL_PATH)
     milling_task_config = protocol.task_config["Rough Milling"].milling["mill_rough"]  # type: ignore
