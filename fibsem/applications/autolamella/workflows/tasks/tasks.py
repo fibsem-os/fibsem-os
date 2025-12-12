@@ -612,8 +612,10 @@ class MillTrenchTask(AutoLamellaTask):
         self._acquire_reference_image(image_settings, field_of_view=milling_task_config.field_of_view)
 
         # log the task configuration
+        msg = f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done."
+        milling_task_config.acquisition.imaging.path = self.lamella.path
         milling_task_config = self.update_milling_config_ui(milling_task_config, 
-                                                          msg=f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done.",
+                                                          msg=msg,
                                                           )
         self.config.milling[TRENCH_KEY] = deepcopy(milling_task_config)
 

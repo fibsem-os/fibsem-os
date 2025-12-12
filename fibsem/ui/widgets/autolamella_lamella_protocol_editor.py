@@ -209,8 +209,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # load fib reference image
         self.combobox_fib_filenames.blockSignals(True)
         fib_filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*_ib.tif")))
-        fib_filenames = [f for f in fib_filenames if "ref_reference_image" in f or "_final" in f]
+        fib_filenames = [f for f in fib_filenames if "alignment" not in f] # show all non-alignment images
 
+        # remember selected fib filename
         selected_fib_filename = self.combobox_fib_filenames.currentText()
         self.combobox_fib_filenames.clear()
         for f in fib_filenames:
@@ -221,7 +222,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         latest_task_filename = ""
         if selected_lamella.last_completed_task is not None:
             last_task_name = selected_lamella.last_completed_task.name          
-            latest_task_filename = f"ref_{last_task_name}_final_high_res_ib.tif"
+            reference_image_filename = f"ref_{last_task_name}_final_res_*_ib.tif"
+            matching_filenames = glob.glob(os.path.join(selected_lamella.path, reference_image_filename))
+            if len(matching_filenames) > 0:
+                # pick the latest by modification time
+                latest_task_filename = os.path.basename(sorted(matching_filenames, key=os.path.getmtime)[-1])
 
         # set default fib image filename
         default_filename = fib_filenames[-1] if len(fib_filenames) > 0 else ""

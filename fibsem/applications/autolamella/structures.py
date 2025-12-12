@@ -1,13 +1,13 @@
 import logging
 import os
 import uuid
-from abc import ABC, abstractmethod
+from abc import ABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import pandas as pd
 import petname
@@ -92,11 +92,13 @@ class LamellaState:
             end_timestamp=data["end_timestamp"]
         )
 
+
 class AutoLamellaTaskStatus(Enum):
     NotStarted = auto()
     InProgress = auto()
     Completed = auto()
     Failed = auto()
+
 
 @evented
 @dataclass
@@ -150,6 +152,7 @@ class AutoLamellaTaskState:
         data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
         return cls(**data)
 
+
 @evented
 @dataclass
 class AutoLamellaTaskConfig(ABC):
@@ -157,7 +160,6 @@ class AutoLamellaTaskConfig(ABC):
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     task_name: str = "" # unique name for identifying in multi-task workflows
-    # imaging: ImageSettings = field(default_factory=ImageSettings)
     milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
     reference_imaging: ReferenceImageParameters = field(default_factory=ReferenceImageParameters)
 
@@ -198,8 +200,7 @@ class AutoLamellaTaskConfig(ABC):
                 if key in cls.__annotations__:
                     kwargs[key] = value
                 else:
-                    # QUERY: should we raise an error here or just ignore unknown parameters?
-                    raise ValueError(f"Unknown parameter '{key}' in task configuration.")
+                    logging.warning(f"Unknown parameter '{key}' in task configuration.")
 
         if "milling" in ddict:
             kwargs["milling"] = {
@@ -228,6 +229,7 @@ class AutoLamellaTaskConfig(ABC):
         """Set the imaging settings in the reference imaging parameters."""
         self.reference_imaging.imaging = value
 
+
 @evented
 @dataclass
 class AutoLamellaTaskDescription:
@@ -244,6 +246,7 @@ class AutoLamellaTaskDescription:
         if data is None:
             return cls(name="", task_type="", supervise=False, required=False, requires=[])
         return cls(**data)
+
 
 @evented
 @dataclass
@@ -311,7 +314,7 @@ class AutoLamellaWorkflowConfig:
             if task.name == task_name:
                 return task.supervise
         return False
-    
+
     @property
     def is_valid(self) -> bool:
         """Check if the workflow configuration is valid."""
@@ -517,6 +520,20 @@ class AutoLamellaTaskProtocol:
         )
 
         return task_protocol
+
+    def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> EventedDict[str, AutoLamellaTaskConfig]:
+        """Get the task configuration by type."""
+        task_configs = EventedDict()
+        for k, v in self.task_config.items():
+            if isinstance(v, task_type):
+                task_configs[k] = v
+        return task_configs
+
+
+class DefectType(Enum):
+    NONE = auto()
+    FAILURE = auto()
+    REWORK = auto()
 
 
 @evented
@@ -743,6 +760,14 @@ class Lamella:
         )
 
         return reference_images
+
+    # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
+    #     """Get the task configuration by type."""
+    #     task_configs = {}
+    #     for k, v in self.task_config.items():
+    #         if isinstance(v, task_type):
+    #             task_configs[k] = v
+    #     return task_configs
 
 
 @evented
