@@ -159,16 +159,6 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
             "units": "%",
         },
     )
-    acquire_sem: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire an SEM reference image",
-                  "label": "Acquire SEM Image"}
-    )
-    acquire_fib: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire a FIB reference image",
-                  "label": "Acquire FIB Image"}
-    )
     display_fluorescence: bool = field(
         default=True,
         metadata={"help": "Whether to display fluorescence images for lamella setup (if available)"},
@@ -183,16 +173,6 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
-    acquire_sem: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire an SEM reference image",
-                  "label": "Acquire SEM Image"}
-    )
-    acquire_fib: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire a FIB reference image",
-                  "label": "Acquire FIB Image"}
-    )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
         metadata={"help": "The orientation to perform rough milling in"},
@@ -211,16 +191,6 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
-    acquire_sem: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire an SEM reference image",
-                  "label": "Acquire SEM Image"}
-    )
-    acquire_fib: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire a FIB reference image",
-                  "label": "Acquire FIB Image"}
-    )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
         metadata={"help": "The orientation to perform polishing in"},
