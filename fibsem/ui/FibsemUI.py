@@ -23,6 +23,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         self.label_title.setText(f"fibsemOS v{fibsem.__version__}")
 
         self.viewer = viewer
+        self.viewer.title = f"fibsemOS v{fibsem.__version__}"
 
         self.microscope: FibsemMicroscope = None
         self.settings: MicroscopeSettings = None
