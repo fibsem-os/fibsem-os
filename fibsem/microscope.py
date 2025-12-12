@@ -1735,7 +1735,7 @@ class ThermoMicroscope(FibsemMicroscope):
                 if self._stop_acquisition_event.is_set():
                     break
 
-                # acquire image using current beam settings
+                # acquire image using current beam settings # TODO: migrate to start_acquisition while loop
                 image = self.acquire_image(beam_type=beam_type, image_settings=None)
 
                 # emit the acquired image
@@ -1831,7 +1831,7 @@ class ThermoMicroscope(FibsemMicroscope):
         wd = self.get_working_distance(BeamType.ELECTRON)
 
         # convert to autoscript position
-        autoscript_position = position.to_autoscript_position(compustage=self.stage_is_compustage)
+        autoscript_position = position.to_autoscript_position(compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
         logging.info(f"Moving stage to {position}.")
         self.stage.absolute_move(autoscript_position, MoveSettings(rotate_compucentric=True)) # TODO: This needs at least an optional safe move to prevent collision?
@@ -3465,7 +3465,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "stage_position":
             # get stage position in raw coordinates 
             self.stage.set_default_coordinate_system(self._default_stage_coordinate_system) # TODO: remove this once testing is done
-            stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)
+            stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position) # TODO: apply compucentric/raw coordinate system conversion here
             return stage_position
         
         if key == "stage_homed":
