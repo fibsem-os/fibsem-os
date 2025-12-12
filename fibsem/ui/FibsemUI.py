@@ -7,7 +7,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
-from fibsem.ui.FibsemMillingWidget import FibsemMillingWidget
+from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
@@ -20,7 +20,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         super().__init__()
         self.setupUi(self)
 
-        self.label_title.setText(f"OpenFIBSEM v{fibsem.__version__}")
+        self.label_title.setText(f"fibsemOS v{fibsem.__version__}")
 
         self.viewer = viewer
 
@@ -29,7 +29,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
         self.image_widget: FibsemImageSettingsWidget = None
         self.movement_widget: FibsemMovementWidget = None
-        self.milling_widget: FibsemMillingWidget = None
+        self.milling_widget: MillingTaskConfigWidget = None
         self.manipulator_widget: FibsemManipulatorWidget = None
 
         self.minimap_widget: FibsemMinimapWidget = None
@@ -104,9 +104,8 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
                 microscope=self.microscope,
                 parent=self,
             )
-            self.milling_widget = FibsemMillingWidget(
+            self.milling_widget = MillingTaskConfigWidget(
                 microscope=self.microscope,
-                viewer=self.viewer,
                 parent=self,
             )
             if self.microscope.system.manipulator.enabled:
@@ -157,8 +156,8 @@ def main():
     fibsem_ui = FibsemUI(viewer=viewer)
     viewer.window.add_dock_widget(fibsem_ui, 
                                   area="right", 
-                                  add_vertical_stretch=True, 
-                                  name=f"OpenFIBSEM v{fibsem.__version__}")
+                                  add_vertical_stretch=False, 
+                                  name=f"fibsemOS v{fibsem.__version__}")
     napari.run()
 
 
