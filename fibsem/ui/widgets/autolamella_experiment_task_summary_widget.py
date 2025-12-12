@@ -650,6 +650,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-11-07-12-32/experiment.yaml"
+    PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-12-12-12-49/experiment.yaml"
     exp = Experiment.load(PATH)
     dialog = create_experiment_task_summary_widget(exp)
     dialog.show()

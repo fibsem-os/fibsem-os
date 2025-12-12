@@ -412,7 +412,7 @@ def plot_lamella_task_workflow_summary(p: Lamella,
 
     task_filenames = {}
     for task_name in completed_tasks:
-        filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*_res*.tif*")))
+        filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*res*.tif*")))
         if len(filenames) == 0:
             continue
         task_filenames[task_name] = filenames
@@ -424,7 +424,7 @@ def plot_lamella_task_workflow_summary(p: Lamella,
     # only keep tasks with valid images
     completed_tasks = list(task_filenames.keys())
     nrows = len(completed_tasks)
-    ncols = len(task_filenames[completed_tasks[0]])
+    ncols = max(len(task_filenames[task]) for task in completed_tasks)
 
     # Load first image to determine aspect ratio for proper figure sizing
     first_filename = list(task_filenames.values())[0][0]
@@ -448,13 +448,11 @@ def plot_lamella_task_workflow_summary(p: Lamella,
         else:
             ax = axes[i]
 
+        if ncols == 1:
+            ax = np.expand_dims(ax, axis=0)
+
         # Set y-axis label for this row (only on the leftmost subplot)
         ax[0].set_ylabel(task_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
-
-        # Set x-axis label on the first row (only on the leftmost subplot)
-        # if i == 0:
-            # ax[0].set_xlabel(p.name, fontsize=18, ha='center', va='center')
-            # ax[0].xaxis.set_label_position('top')
 
         filenames = task_filenames[task_name]
         try:
@@ -482,6 +480,17 @@ def plot_lamella_task_workflow_summary(p: Lamella,
                         box_alpha=0.5,
                     location="lower right",
                 ))
+
+            if j < ncols - 1:
+                # fill remaining subplots with blank images
+                for k in range(j + 1, ncols):
+                    ax[k].imshow(np.zeros(resize_shape, dtype=np.uint8), cmap="gray")
+                    ax[k].set_xticks([])
+                    ax[k].set_yticks([])
+                    for spine in ax[k].spines.values():
+                        spine.set_visible(False)
+                    ax[k].text(0.5, 0.5, "No Data", color="white", fontsize=fontsize,
+                               ha='center', va='center', transform=ax[k].transAxes)
 
         except Exception as e:
             logging.error(f"Error plotting {p.name} - {task_name}: {e}")
@@ -538,7 +547,7 @@ def plot_experiment_task_summary(exp: Experiment,
             continue
 
         # Look for task images
-        filenames = sorted(glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*_res*.tif*")))
+        filenames = sorted(glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*res*.tif*")))
         if len(filenames) == 0:
             continue
         lamella_filenames[lamella.name] = filenames
@@ -550,7 +559,7 @@ def plot_experiment_task_summary(exp: Experiment,
     # only keep lamellae with valid images
     lamella_names = list(lamella_filenames.keys())
     nrows = len(lamella_names)
-    ncols = len(lamella_filenames[lamella_names[0]])
+    ncols = max(len(lamella_filenames[lamella]) for lamella in lamella_names)
 
     # Load first image to determine aspect ratio for proper figure sizing
     first_filename = list(lamella_filenames.values())[0][0]
@@ -573,6 +582,9 @@ def plot_experiment_task_summary(exp: Experiment,
             ax = axes
         else:
             ax = axes[i]
+
+        if ncols == 1:
+            ax = np.expand_dims(ax, axis=0)
 
         # Set y-axis label for this row (lamella name)
         ax[0].set_ylabel(lamella_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
@@ -604,6 +616,16 @@ def plot_experiment_task_summary(exp: Experiment,
                         location="lower right",
                     ))
 
+            if j < ncols - 1:
+                # fill remaining subplots with blank images
+                for k in range(j + 1, ncols):
+                    ax[k].imshow(np.zeros(resize_shape, dtype=np.uint8), cmap="gray")
+                    ax[k].set_xticks([])
+                    ax[k].set_yticks([])
+                    for spine in ax[k].spines.values():
+                        spine.set_visible(False)
+                    ax[k].text(0.5, 0.5, "No Data", color="white", fontsize=fontsize,
+                               ha='center', va='center', transform=ax[k].transAxes)
 
         except Exception as e:
             logging.error(f"Error plotting {lamella_name} - {task_name}: {e}")
