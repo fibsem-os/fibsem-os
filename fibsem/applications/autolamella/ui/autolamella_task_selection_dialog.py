@@ -52,6 +52,18 @@ class AutoLamellaTaskSelectionDialog(QDialog):
 
         lamella_layout.addWidget(self.lamella_list)
 
+        # Add Select All / Deselect All buttons for lamella
+        lamella_buttons_layout = QHBoxLayout()
+        self.select_all_lamella_button = QPushButton("Select All Lamella")
+        self.deselect_all_lamella_button = QPushButton("Deselect All Lamella")
+
+        self.select_all_lamella_button.clicked.connect(self._select_all_lamella)
+        self.deselect_all_lamella_button.clicked.connect(self._deselect_all_lamella)
+
+        lamella_buttons_layout.addWidget(self.select_all_lamella_button)
+        lamella_buttons_layout.addWidget(self.deselect_all_lamella_button)
+        lamella_layout.addLayout(lamella_buttons_layout)
+
         tasks_group = QGroupBox("Tasks")
         tasks_layout = QVBoxLayout()
         tasks_group.setLayout(tasks_layout)
@@ -124,6 +136,22 @@ class AutoLamellaTaskSelectionDialog(QDialog):
         selected_items = list_widget.selectedItems()
         if selected_items:
             logging.info(f"{label} selected: {selected_items[0].text()}")
+
+    def _select_all_lamella(self) -> None:
+        """Select all lamella in the lamella list."""
+        for i in range(self.lamella_list.count()):
+            item = self.lamella_list.item(i)
+            if item:
+                item.setCheckState(Qt.Checked)  # type: ignore
+        self._update_status_message()
+
+    def _deselect_all_lamella(self) -> None:
+        """Deselect all lamella in the lamella list."""
+        for i in range(self.lamella_list.count()):
+            item = self.lamella_list.item(i)
+            if item:
+                item.setCheckState(Qt.Unchecked)  # type: ignore
+        self._update_status_message()
 
     def _select_all_tasks(self) -> None:
         """Select all tasks in the tasks list."""
