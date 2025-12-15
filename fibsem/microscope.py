@@ -2225,8 +2225,10 @@ class ThermoMicroscope(FibsemMicroscope):
             axis_limit = self.stage.get_axis_limits(axis)
             # t is in radians -> degrees
             if axis == "t":
-                limits[axis].min = np.degrees(axis_limit.min)
-                limits[axis].max = np.degrees(axis_limit.max)
+                limits[axis] = RangeLimit(
+                    min=np.degrees(axis_limit.min),
+                    max=np.degrees(axis_limit.max)
+                )                
                 continue
 
             limits[axis] = RangeLimit(
