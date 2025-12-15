@@ -111,6 +111,10 @@ def beam_shift_alignment_v2(
             dy=-dy,
             beam_type=image_settings.beam_type,
         )
+    elif subsystem == "stage-vertical":
+        if image_settings.beam_type is BeamType.ELECTRON:
+            raise ValueError(f"Unsupported movement type ({subsystem}) for beam type {image_settings.beam_type}")
+        microscope.vertical_move(dy=-dy, dx=dx)
 
     # reset beam current
     if alignment_current is not None:
@@ -522,3 +526,81 @@ def multi_step_alignment_v2(
     # reset beam current
     if alignment_current is not None:
         microscope.set_beam_current(initial_current, beam_type)
+
+
+
+def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: ImageSettings, 
+                              target_angle: float, step_size: float, 
+                              beam_type: Optional[BeamType] = None) -> None:
+    from fibsem.structures import FibsemStagePosition
+    import matplotlib.pyplot as plt
+
+    stage_position = microscope.get_stage_position()
+    current_angle = np.degrees(stage_position.t)
+
+    n_steps = abs(int(current_angle) - target_angle) // step_size
+
+    print(f"Current Tilt: {current_angle}, Target Tilt:  {target_angle}, Step Size: {step_size},  Num Steps: {n_steps}")
+    steps = np.linspace(current_angle, target_angle, num=n_steps)
+
+    # input()
+
+    # NOTE: this is coincidence + eucentric maintaining tilt
+    # for just eucentric, the other beam will drift out of position
+    # but it might be required, for systems that don't want to acquire sem, or have no sem.
+
+    # QUERY: should we be updating the ref image as we go?
+
+    image_settings.hfw = 80e-6
+    if beam_type is not None:
+        image_settings.beam_type = beam_type
+        reference_image = acquire.acquire_image(microscope, image_settings)
+    else:
+        ref_sem_image, ref_fib_image = acquire.acquire_channels(microscope, image_settings)
+
+    # NOTE: we can skip the first step, its at the current tilt
+
+    fib_images = []
+    sem_images = []
+
+    for i, angle in enumerate(steps):
+        print(f"Moving to Angle: {angle}")
+        microscope.move_stage_absolute(FibsemStagePosition(t=np.radians(angle)))
+
+        if beam_type is not None:
+            beam_shift_alignment_v2(microscope, reference_image, subsystem="stage")
+        else:
+            beam_shift_alignment_v2(microscope, ref_sem_image, subsystem="stage")
+            beam_shift_alignment_v2(microscope, ref_fib_image, subsystem="stage-vertical")
+
+        # we prob want to do sem-> stage, fib -> vertical
+
+        sem_image, fib_image = acquire.acquire_channels(microscope, image_settings)
+        fig, ax = plt.subplots(1, 2, figsize=(10, 7))
+
+        ax[0].imshow(sem_image.data, cmap="gray")
+        ax[0].plot(sem_image.data.shape[1]//2, sem_image.data.shape[0]//2, "y+", ms=50)
+        ax[1].imshow(fib_image.data, cmap="gray")
+        ax[1].plot(fib_image.data.shape[1]//2, fib_image.data.shape[0]//2, "y+", ms=50)
+        plt.show()
+
+        sem_images.append(sem_image)
+        fib_images.append(fib_image)
+        # if i >=5:
+            # break
+        if beam_type is None:
+            ref_sem_image = sem_image
+            ref_fib_image = fib_image
+        elif beam_type is BeamType.ELECTRON:
+            reference_image = sem_image
+        elif beam_type is BeamType.ION:
+            reference_image = fib_image
+    
+    # TODO: have a metric to measure if it failed? how??
+    final_position = microscope.get_stage_position()
+    diff = stage_position - final_position
+    logging.info(f"Start Position: {stage_position.pretty}")
+    logging.info(f"Final Position: {final_position.pretty}")
+    logging.info(f"Difference: {diff.pretty}")
+
+    return sem_images, fib_images
