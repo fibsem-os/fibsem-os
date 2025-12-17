@@ -1,11 +1,12 @@
 import copy
 import logging
 import os
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, Union
 
 import napari
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QGridLayout,
     QLabel,
@@ -14,6 +15,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QVBoxLayout,
     QWidget,
+    QGroupBox,
 )
 from superqt import QCollapsible, QIconifyIcon
 
@@ -29,6 +31,10 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
     FibsemMillingTaskAcquisitionSettingsWidget,
 )
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+
+
+if TYPE_CHECKING:
+    from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -64,7 +70,7 @@ class MillingTaskConfigWidget(QWidget):
                  milling_task_config: Optional[FibsemMillingTaskConfig] = None,
                  milling_enabled: bool = True,
                 correlation_enabled: bool = True,
-                 parent: Optional[QWidget] = None):
+                 parent: Optional[Union[QWidget, 'FibsemMillingTaskWidget']] = None):
         """Initialize the MillingTaskConfig widget.
 
         Args:
@@ -88,42 +94,45 @@ class MillingTaskConfigWidget(QWidget):
         Creates a scroll area containing a vertical layout with basic settings at the top,
         followed by alignment and acquisition settings in group boxes.
         """
-        
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        # dont allow horizontal scrolling
-        scroll_area.setHorizontalScrollBarPolicy(1)  # Qt.ScrollBarAlwaysOff
-        main_layout.addWidget(scroll_area)
-        
         # Create content widget that will be scrolled
         content_widget = QWidget()
         layout = QVBoxLayout()
-        scroll_area.setContentsMargins(0, 0, 0, 0)
-        layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         content_widget.setLayout(layout)
-        content_widget.setContentsMargins(0, 0, 0, 0)
-        scroll_area.setWidget(content_widget)
 
-        # EXTRACT INTO SEPARATE WIDGET
+        use_scroll_area = True
+        try:
+            from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
+            use_scroll_area = not isinstance(self.parent_widget, FibsemMillingTaskWidget)
+        except Exception:
+            use_scroll_area = True
+
+        if use_scroll_area:
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            # scroll_area.setContentsMargins(0, 0, 0, 0)
+            scroll_area.setWidget(content_widget)
+            main_layout.addWidget(scroll_area)
+        else:
+            layout.setContentsMargins(0, 0, 0, 0)
+            content_widget.setContentsMargins(0, 0, 0, 0)
+            main_layout.addWidget(content_widget)
 
         # Basic settings group
-        self.basic_content = QWidget()
+        self.basic_group = QGroupBox("Task", self)
         basic_layout = QGridLayout()
-        self.basic_content.setLayout(basic_layout)
+        self.basic_group.setLayout(basic_layout)
 
         # Task name
-        basic_layout.addWidget(QLabel("Name"), 0, 0)
         self.name_edit = QLineEdit()
         name_config = WIDGET_CONFIG["name"]
         self.name_edit.setText(name_config["default"])
         self.name_edit.setPlaceholderText(name_config["placeholder"])
-        basic_layout.addWidget(self.name_edit, 0, 1)
 
         # Field of view
-        basic_layout.addWidget(QLabel("Field of View"), 1, 0)
         self.field_of_view_spinbox = QDoubleSpinBox()
         fov_config = WIDGET_CONFIG["field_of_view"]
         self.field_of_view_spinbox.setRange(*fov_config["range"])
@@ -133,30 +142,42 @@ class MillingTaskConfigWidget(QWidget):
         self.field_of_view_spinbox.setSuffix(fov_config["suffix"])
         self.field_of_view_spinbox.setToolTip(fov_config["tooltip"])
         self.field_of_view_spinbox.setKeyboardTracking(fov_config["keyboard_tracking"])
+
+        basic_layout.addWidget(QLabel("Name"), 0, 0)
+        basic_layout.addWidget(self.name_edit, 0, 1)
+        basic_layout.addWidget(QLabel("Field of View"), 1, 0)
         basic_layout.addWidget(self.field_of_view_spinbox, 1, 1)
 
-
-        ############
+        self.advanced_checkbox = QCheckBox("Show Advanced Settings", self)
+        self.advanced_checkbox.setToolTip("Show advanced configuration options (alignment, acquisition, strategy).")
+        self.advanced_checkbox.setChecked(self._show_advanced)
+        self.advanced_checkbox.toggled.connect(self.set_show_advanced)
+        basic_layout.addWidget(QLabel(""), 2, 0, 1, 1)  # empty spacer
+        basic_layout.addWidget(self.advanced_checkbox, 2, 1, 1, 1)
+        basic_layout.setColumnStretch(0, 1)  # Labels column - expandable
+        basic_layout.setColumnStretch(1, 1)  # Input widgets column - expandable
 
         # Alignment settings group
         self.alignment_widget = FibsemMillingAlignmentWidget(
             parent=self,
             show_advanced=self._show_advanced
         )
-        self.alignment_widget.setContentsMargins(0, 0, 0, 0)
-        self.alignment_group = QCollapsible("Alignment", self)
-        self.alignment_group.addWidget(self.alignment_widget)
-        self.alignment_group.setContentsMargins(0, 0, 0, 0)
+        # self.alignment_widget.setContentsMargins(0, 0, 0, 0)
+        self.alignment_group = QGroupBox("Alignment", self)
+        self.alignment_group.setLayout(QVBoxLayout())
+        self.alignment_group.layout().addWidget(self.alignment_widget)
+        # self.alignment_group.setContentsMargins(0, 0, 0, 0)
 
         # Acquisition settings group
         self.acquisition_widget = FibsemMillingTaskAcquisitionSettingsWidget(
             parent=self,
             show_advanced=self._show_advanced
         )
-        self.acquisition_widget.setContentsMargins(0, 0, 0, 0)
-        self.acquisition_group = QCollapsible("Acquisition", self)
-        self.acquisition_group.addWidget(self.acquisition_widget)
-        self.acquisition_group.setContentsMargins(0, 0, 0, 0)
+        # self.acquisition_widget.setContentsMargins(0, 0, 0, 0)
+        self.acquisition_group = QGroupBox("Acquisition", self)
+        self.acquisition_group.setLayout(QVBoxLayout())
+        self.acquisition_group.layout().addWidget(self.acquisition_widget)
+        # self.acquisition_group.setContentsMargins(0, 0, 0, 0)
 
         # Milling stages editor
         self.milling_editor_widget = FibsemMillingStageEditorWidget(
@@ -166,21 +187,24 @@ class MillingTaskConfigWidget(QWidget):
             parent=self
         )
         self.milling_editor_widget.setContentsMargins(0, 0, 0, 0)
-        self.miling_group = QCollapsible("Milling Stages", self)
-        self.miling_group.addWidget(self.milling_editor_widget)
-        self.miling_group.setContentsMargins(0, 0, 0, 0)
+        self.milling_group = QGroupBox("Milling Stages", self)
+        self.milling_group.setLayout(QVBoxLayout())
+        self.milling_group.layout().addWidget(self.milling_editor_widget)
+        self.milling_group.setContentsMargins(0, 0, 0, 0)
 
-        layout.addWidget(self.basic_content)           # type: ignore
+        layout.addWidget(self.basic_group)           # type: ignore
         layout.addWidget(self.alignment_group)      # type: ignore
         layout.addWidget(self.acquisition_group)    # type: ignore
-        layout.addWidget(self.miling_group)         # type: ignore
+        layout.addWidget(self.milling_group)         # type: ignore
+
+        self._update_advanced_visibility()
 
         self.pushButton_open_correlation = QPushButton("Open Correlation")
         self.pushButton_open_correlation.setToolTip("Open the correlation tool to align the FIB and FM images.")
         self.pushButton_open_correlation.clicked.connect(self.open_3d_correlation_widget)
         self.pushButton_open_correlation.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
         self.enable_correlation_button(self._correlation_enabled)
-        layout.addWidget(self.pushButton_open_correlation)
+        main_layout.addWidget(self.pushButton_open_correlation)
 
         # NOTES: shouldn't know anything about viewer, or microscope
         # only need microscope to get 'dynamic' values such as milling current
@@ -192,15 +216,14 @@ class MillingTaskConfigWidget(QWidget):
         # add instructions label
         self.label_instructions = QLabel(INSTRUCTIONS_TEXT, self) 
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
-        layout.addWidget(self.label_instructions)
+        main_layout.addWidget(self.label_instructions)
 
         self.milling_widget = FibsemMillingWidget2(
             microscope=self.microscope,
             parent=self
         )
-        layout.addWidget(self.milling_widget)
+        main_layout.addWidget(self.milling_widget)
         self.milling_widget.setVisible(self._milling_enabled)
-        # layout.addStretch()
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers.
@@ -292,9 +315,14 @@ class MillingTaskConfigWidget(QWidget):
             show_advanced: True to show advanced settings, False to hide them
         """
         self._show_advanced = show_advanced
+        if self.advanced_checkbox.isChecked() != show_advanced:
+            self.advanced_checkbox.blockSignals(True)
+            self.advanced_checkbox.setChecked(show_advanced)
+            self.advanced_checkbox.blockSignals(False)
         self.alignment_widget.set_show_advanced(show_advanced)
         self.acquisition_widget.set_show_advanced(show_advanced)
         self.milling_editor_widget.set_show_advanced(show_advanced)
+        self._update_advanced_visibility()
 
     def toggle_advanced(self):
         """Toggle the visibility of advanced settings in sub-widgets.
@@ -311,6 +339,11 @@ class MillingTaskConfigWidget(QWidget):
             True if advanced settings are currently visible, False otherwise
         """
         return self._show_advanced
+
+    def _update_advanced_visibility(self):
+        """Show or hide advanced sections based on the toggle state."""
+        self.alignment_group.setVisible(self._show_advanced)
+        self.acquisition_group.setVisible(self._show_advanced)
 
     def set_background_milling_stages(self, background_stages):
         """Set background milling stages to be displayed in the milling stage editor.

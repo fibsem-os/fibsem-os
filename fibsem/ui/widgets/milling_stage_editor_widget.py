@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
+    QGroupBox,
 )
 from superqt import QCollapsible
 
@@ -385,6 +386,8 @@ class FibsemMillingStageWidget(QWidget):
         self.comboBox_selected_pattern.currentTextChanged.connect(self._on_pattern_changed)
         self.pattern_widget.layout().addWidget(label, 0, 0, 1, 1)
         self.pattern_widget.layout().addWidget(self.comboBox_selected_pattern, 0, 1, 1, 1)
+        self.pattern_widget.layout().setColumnStretch(0, 1)  # Labels column - expandable
+        self.pattern_widget.layout().setColumnStretch(1, 1)  # Input widgets column - expandable
 
         # create strategy widget
         label = QLabel(self)
@@ -408,20 +411,34 @@ class FibsemMillingStageWidget(QWidget):
         # Add the widgets to the main layout
         self.gridlayout = QGridLayout(self)
         label = QLabel(self)
-        label.setText("Milling Stage:")
+        label.setText("Stage Name")
         label.setObjectName("label-milling-stage-name")
         self.lineEdit_milling_stage_name = QLineEdit(self)
         self.lineEdit_milling_stage_name.setText(self._milling_stage.name)
         self.lineEdit_milling_stage_name.setObjectName("lineEdit-name-stage")
         self.lineEdit_milling_stage_name.setToolTip("The name of the milling stage.")
         self.lineEdit_milling_stage_name.editingFinished.connect(self._update_setting)
-        # TODO: move milling stage name into milling settings widget?
-        self.gridlayout.addWidget(label, 0, 0, 1, 1)
-        self.gridlayout.addWidget(self.lineEdit_milling_stage_name, 0, 1, 1, 1)
-        for title, widget in zip(["Milling", "Pattern", "Strategy"], self._widgets):
-            collapsible = QCollapsible(title, parent=self)
-            collapsible.addWidget(widget)
-            self.gridlayout.addWidget(collapsible, self.gridlayout.rowCount(), 0, 1, 2) # type: ignore
+        self.milling_widget.layout().addWidget(label, 0, 0, 1, 1)
+        self.milling_widget.layout().addWidget(self.lineEdit_milling_stage_name, 0, 1, 1, 1)
+        self.milling_widget.layout().setColumnStretch(0, 1)  # Labels column - expandable
+        self.milling_widget.layout().setColumnStretch(1, 1)  # Input widgets column - expandable
+
+        # add group boxes for each widget
+        self.milling_groupbox = QGroupBox("Milling", self)
+        self.milling_groupbox.setLayout(QVBoxLayout())
+        self.milling_groupbox.layout().addWidget(self.milling_widget)
+        
+        self.pattern_groupbox = QGroupBox("Pattern", self)
+        self.pattern_groupbox.setLayout(QVBoxLayout())
+        self.pattern_groupbox.layout().addWidget(self.pattern_widget)
+
+        self.strategy_groupbox = QGroupBox("Strategy", self)
+        self.strategy_groupbox.setLayout(QVBoxLayout())
+        self.strategy_groupbox.layout().addWidget(self.strategy_widget)
+
+        self.gridlayout.addWidget(self.milling_groupbox, self.gridlayout.rowCount(), 0, 1, 2) # type: ignore
+        self.gridlayout.addWidget(self.pattern_groupbox, self.gridlayout.rowCount(), 0, 1, 2) # type: ignore
+        self.gridlayout.addWidget(self.strategy_groupbox, self.gridlayout.rowCount(), 0, 1, 2) # type: ignore
 
     def _initialise_widgets(self):
         """Initialise the widgets with the current milling stage settings."""
@@ -465,7 +482,7 @@ class FibsemMillingStageWidget(QWidget):
             if control:
                 control.setVisible(show)
         # consider strategy as advanced, so hide it as well
-        # self.strategy_widget.setVisible(show)
+        self.strategy_groupbox.setVisible(show)
 
     def clear_widget(self, widget: QWidget, row_threshold: int = -1):
         """Clear the widget's layout, removing all items below a certain row threshold."""
@@ -828,6 +845,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.checkbox_show_advanced.setChecked(self._show_advanced)
         self.checkbox_show_advanced.setToolTip("Show advanced settings for milling stages.")
         self.checkbox_show_advanced.stateChanged.connect(self.set_show_advanced)
+        self.checkbox_show_advanced.setVisible(False)
         self.label_warning = QLabel(self)
         self.label_warning.setText("")
         self.label_warning.setStyleSheet("color: orange; font-style: italic;")
@@ -844,13 +862,13 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         # add widgets to main widget/layout
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.addWidget(self.milling_stage_content)
         self.main_layout.addLayout(button_layout)
         self.main_layout.addLayout(self._grid_layout_checkboxes)
         self.main_layout.addWidget(self.list_widget_milling_stages)
+        self.main_layout.addWidget(self.milling_stage_content)
 
-        self.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        # self.setContentsMargins(0, 0, 0, 0)
+        # self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.milling_stage_content.setContentsMargins(0, 0, 0, 0)
         self.milling_stage_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -867,6 +885,8 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         self.set_show_advanced(self._show_advanced)
 
+        self._update_empty_state()
+
     def set_movement_lock(self, locked: bool):
         self.is_movement_locked = locked
 
@@ -874,6 +894,22 @@ class FibsemMillingStageEditorWidget(QWidget):
         self._show_advanced = show_advanced
         for widget in self._widgets:
             widget.toggle_advanced_settings(show_advanced)
+
+    def _update_empty_state(self) -> None:
+        has_stages = self.list_widget_milling_stages.count() > 0
+        self.list_widget_milling_stages.setVisible(has_stages)
+        # self.checkbox_show_advanced.setVisible(has_stages)
+        self.pushButton_remove.setEnabled(has_stages)
+
+        if has_stages:
+            self.label_warning.setStyleSheet("color: orange; font-style: italic;")
+            self.label_warning.setText("")
+            self.label_warning.setVisible(False)
+            return
+
+        self.label_warning.setText("No milling stages defined. Please add a milling stage.")
+        self.label_warning.setStyleSheet("color: gray; font-style: italic;")
+        self.label_warning.setVisible(True)
 
     def _toggle_pattern_visibility(self, state: int):
         """Toggle the visibility of milling patterns in the viewer."""
@@ -928,6 +964,7 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         self._on_milling_stage_updated()
         self.update_milling_stage_display()
+        self._update_empty_state()
 
     def clear_milling_stages(self):
         """Clear all milling stages from the editor."""
@@ -940,6 +977,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         self._widgets.clear()
 
         self.update_milling_stage_display()
+        self._update_empty_state()
 
     def update_from_settings(self, milling_stages: List[FibsemMillingStage]):
         """Update the editor with the given milling stages.
@@ -958,6 +996,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         # select the first milling stage if available
         if self._milling_stages:
             self.list_widget_milling_stages.setCurrentRow(0)
+        self._update_empty_state()
 
     def set_background_milling_stages(self, milling_stages: List[FibsemMillingStage]):
         """Set the background milling stages to be displayed in the editor."""
@@ -996,6 +1035,7 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         self.list_widget_milling_stages.setCurrentRow(self.list_widget_milling_stages.count() - 1)
         self._on_milling_stage_updated()
+        self._update_empty_state()
 
     def _add_milling_stage_widget(self, milling_stage: FibsemMillingStage):
         """Add a milling stage widget to the editor."""

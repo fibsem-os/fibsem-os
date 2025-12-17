@@ -179,6 +179,9 @@ class FibsemMillingTaskWidget(QWidget):
         )
         layout.addWidget(self.config_widget)
 
+        self.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
+
     def _connect_signals(self):
         """Connect widget signals to their handlers."""
         self.task_list.currentIndexChanged.connect(self._on_task_selection_changed)
@@ -202,6 +205,11 @@ class FibsemMillingTaskWidget(QWidget):
         self.task_list.setVisible(visible)
         self.btn_add_task.setVisible(True)
         self.btn_remove_task.setVisible(self.task_list.count() > 1)  # need at least one task to remove
+
+        self.task_label.setVisible(False)
+        self.task_list.setVisible(False)
+        self.btn_remove_task.setVisible(False)
+        self.btn_add_task.setVisible(False)
 
     def _on_task_selection_changed(self, index: int):
         """Handle task selection changes."""
@@ -395,9 +403,10 @@ if __name__ == "__main__":
     from PyQt5.QtWidgets import QTabWidget, QWidget
 
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaProtocol,
+        AutoLamellaTaskProtocol,
         Experiment,
     )
+    from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 
     from fibsem import utils
     from PyQt5.QtWidgets import QVBoxLayout
@@ -416,26 +425,8 @@ if __name__ == "__main__":
 
     microscope, settings = utils.setup_session()
 
-    BASE_PATH = (
-        "/home/patrick/github/autolamella/autolamella/log/AutoLamella-2025-05-28-17-22/"
-    )
-    EXPERIMENT_PATH = Path(os.path.join(BASE_PATH, "experiment.yaml"))
-    PROTOCOL_PATH = Path(os.path.join(BASE_PATH, "protocol.yaml"))
-    exp = Experiment.load(EXPERIMENT_PATH)
-    protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
-
-    task_configs = {}
-
-    task_configs["mill_rough"] = FibsemMillingTaskConfig.from_stages(
-        stages=protocol.milling["mill_rough"], name="Rough Milling"  # type: ignore
-    )
-    task_configs["mill_polishing"] = FibsemMillingTaskConfig.from_stages(
-        stages=protocol.milling["mill_polishing"], name="Polishing"  # type: ignore
-    )
-    # task_configs["stress-relief"] = FibsemMillingTaskConfig.from_stages(
-        # stages=protocol.milling["microexpansion"],  # type: ignore
-    # )
-    task_configs["mill_rough"].stages.extend(protocol.milling["microexpansion"])  # type: ignore
+    protocol = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH)
+    task_configs = protocol.task_config["Rough Milling"].milling
 
     task_widget = FibsemMillingTaskWidget(
         microscope=microscope,
