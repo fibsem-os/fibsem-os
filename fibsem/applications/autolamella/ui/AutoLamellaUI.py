@@ -93,9 +93,8 @@ INSTRUCTIONS = {
     "AUTOLAMELLA_READY": "Lamella Positions Selected. Ready to Run AutoLamella.",
 }
 
-FLUORESCENCE_TASK = "Acquire Fluorescence Image"
 FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True
-FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = True
+FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_POSE_CONTROLS_ENABLED = False
 
 class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
@@ -350,6 +349,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             points = reproject_stage_positions_onto_image2(image=self.image_widget.ib_image, 
                                                            positions=self.experiment.get_milling_positions(), 
                                                            bound=True)
+
+            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
+            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
+            # should disable until we can fix this properly
 
             layer_scale = None
             overlays: List[NapariShapeOverlay] = []
