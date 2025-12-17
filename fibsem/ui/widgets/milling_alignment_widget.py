@@ -92,6 +92,13 @@ class FibsemMillingAlignmentWidget(QWidget):
         # self.rect_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 5px; border: 1px solid #ccc; }")
         layout.addWidget(self.rect_label, 3, 1)
 
+        # currently hidden advanced settings
+        self.interval_enabled_checkbox.setVisible(False)
+        self.interval_label.setVisible(False)
+        self.interval_spinbox.setVisible(False)
+        self.rect_display_label.setVisible(False)
+        self.rect_label.setVisible(False)
+
     def _connect_signals(self):
         """Connect widget signals to their respective handlers.
         
@@ -111,11 +118,12 @@ class FibsemMillingAlignmentWidget(QWidget):
         
         Advanced settings include: interval settings and rectangle display.
         """
-        self.interval_enabled_checkbox.setVisible(self._show_advanced)
-        self.interval_label.setVisible(self._show_advanced)
-        self.interval_spinbox.setVisible(self._show_advanced)
-        self.rect_display_label.setVisible(self._show_advanced)
-        self.rect_label.setVisible(self._show_advanced)
+        # self.interval_enabled_checkbox.setVisible(self._show_advanced)
+        # self.interval_label.setVisible(self._show_advanced)
+        # self.interval_spinbox.setVisible(self._show_advanced)
+        # self.rect_display_label.setVisible(self._show_advanced)
+        # self.rect_label.setVisible(self._show_advanced)
+        pass
 
     def _update_controls_enabled(self):
         """Enable/disable controls based on the enabled checkbox.
