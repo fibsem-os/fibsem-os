@@ -155,7 +155,12 @@ class FibsemMillingStage:
         from fibsem.utils import format_value
         milling_current = self.milling.milling_current
         mc = format_value(val=milling_current, unit="A", precision=1)
-        txt = f"{self.name} - {self.pattern.name} ({mc})"
+
+        dp = ""
+        if hasattr(self.pattern, "depth") and self.pattern.depth is not None:
+            depth = self.pattern.depth
+            dp = format_value(val=depth, unit="m", precision=1)
+        txt = f"{self.name} - {self.pattern.name} ({dp}, {mc})"
         return txt
 
     def define_patterns(self) -> List[FibsemPatternSettings]:
