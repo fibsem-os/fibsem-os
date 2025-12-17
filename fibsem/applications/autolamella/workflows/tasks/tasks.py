@@ -173,13 +173,9 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
-    orientation: Literal["SEM", "FIB", "MILLING"] = field(
-        default="MILLING",
-        metadata={"help": "The orientation to perform rough milling in"},
-    )
     sync_polishing_position: bool = field(
         default=True,
-        metadata={"help": "Whether to synchronize the polishing position with the rough milling position"},
+        metadata={"help": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
     display_name: ClassVar[str] = "Rough Milling"
@@ -191,10 +187,6 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
-    orientation: Literal["SEM", "FIB", "MILLING"] = field(
-        default="MILLING",
-        metadata={"help": "The orientation to perform polishing in"},
-    )
     task_type: ClassVar[str] = "MILL_POLISHING"
     display_name: ClassVar[str] = "Polishing"
 
@@ -236,7 +228,7 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
         metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)"},
-    )
+    ) # change to pose?
 
 
 @dataclass
@@ -760,10 +752,6 @@ class MillRoughTask(AutoLamellaTask):
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
         if self.lamella.milling_pose is None or self.lamella.milling_pose.stage_position is None:
             raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        milling_position = self.lamella.milling_pose.stage_position
-
-        if self.microscope.get_stage_orientation(milling_position) != self.config.orientation:
-            raise ValueError(f"Stage position {milling_position} is not in {self.config.orientation} orientation...")
         self.microscope.set_microscope_state(self.lamella.milling_pose)
 
         # beam_shift alignment
@@ -804,7 +792,9 @@ class MillRoughTask(AutoLamellaTask):
 
     def sync_polishing_milling_task_position(self, rough_milling_point: Point) -> None:
         """Sync the polishing milling task position to the rough milling task position."""
-        
+        if not self.config.sync_polishing_position:
+            return
+
         # if polishing task exists, we want to sync the position of the milling patterns
         polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
         polishing_task_name: Optional[str] = None
@@ -841,10 +831,6 @@ class MillPolishingTask(AutoLamellaTask):
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
         if self.lamella.milling_pose is None or self.lamella.milling_pose.stage_position is None:
             raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        milling_position = self.lamella.milling_pose.stage_position
-
-        if self.microscope.get_stage_orientation(milling_position) != self.config.orientation:
-            raise ValueError(f"Stage position {milling_position} is not in {self.config.orientation} orientation...")
         self.microscope.set_microscope_state(self.lamella.milling_pose)
 
         # beam_shift alignment
@@ -932,11 +918,13 @@ class SetupLamellaTask(AutoLamellaTask):
             self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
             ref_image = FibsemImage.load(filenames[-1])
 
-            # TODO: we should also check that the current position is close to the reference image to prevent bad alignments?
-            alignment.multi_step_alignment_v2(microscope=self.microscope, 
-                                            ref_image=ref_image, 
-                                            beam_type=BeamType.ION, 
-                                            steps=MAX_ALIGNMENT_ATTEMPTS)
+            # confirm that we are close to the reference image stage position before aligning
+            image_stage_position = ref_image.metadata.stage_position
+            if image_stage_position.is_close2(self.microscope.get_stage_position()):
+                alignment.multi_step_alignment_v2(microscope=self.microscope,
+                                                ref_image=ref_image,
+                                                beam_type=BeamType.ION,
+                                                steps=MAX_ALIGNMENT_ATTEMPTS)
 
         self.log_status_message("SELECT_POSITION", "Selecting Position...")
         milling_angle = self.config.milling_angle
