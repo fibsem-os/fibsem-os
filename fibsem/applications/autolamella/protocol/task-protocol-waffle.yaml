@@ -84,7 +84,7 @@ tasks:
             milling_angle: 15
             use_fiducial: true
             align_to_reference: true
-            alignment_expansion: 30
+            alignment_expansion: 50
         milling:
             fiducial:
                 name: Fiducial
@@ -92,13 +92,6 @@ tasks:
                 channel: ION
                 alignment:
                     enabled: false
-                    interval_enabled: false
-                    interval: 30
-                    rect:
-                        left: 0.7
-                        top: 0.3
-                        width: 0.25
-                        height: 0.4
                 stages:
                 -   name: Fiducial 1
                     num: 0
@@ -116,58 +109,14 @@ tasks:
                         depth: 1.0e-06
                         rotation: 45
                         cross_section: Rectangle
-                        asymmetric: true
                         name: Fiducial
                     strategy:
                         name: Standard
                         config: {}
                     alignment:
                         enabled: false
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
-                -   name: Fiducial 2
-                    num: 0
-                    milling:
-                        milling_current: 1.0e-09
-                        hfw: 0.00015
-                        patterning_mode: Serial
-                        application_file: Si
-                        milling_voltage: 30000.0
-                    pattern:
-                        point:
-                            x: -2.5e-05
-                            y: 0.0
-                            name: null
-                        width: 1.0e-06
-                        height: 1.0e-05
-                        depth: 1.0e-06
-                        rotation: 45
-                        cross_section: Rectangle
-                        asymmetric: true
-                        name: Fiducial
-                    strategy:
-                        name: Standard
-                        config: {}
-                    alignment:
-                        enabled: false
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
     Rough Milling:
         task_type: MILL_ROUGH
-        parameters:
-            acquire_fib: true
-            acquire_sem: true
-            orientation: MILLING
         milling:
             mill_rough:
                 name: Rough Milling
@@ -175,13 +124,6 @@ tasks:
                 channel: ION
                 alignment:
                     enabled: true
-                    interval_enabled: false
-                    interval: 30
-                    rect:
-                        left: 0.7
-                        top: 0.3
-                        width: 0.25
-                        height: 0.4
                 stages:
                 -   name: Rough Mill 01
                     num: 0
@@ -207,13 +149,6 @@ tasks:
                         config: {}
                     alignment:
                         enabled: true
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
                 -   name: Rough Mill 02
                     num: 0
                     milling:
@@ -238,13 +173,6 @@ tasks:
                         config: {}
                     alignment:
                         enabled: true
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
                 -   name: Stress Relief Feature
                     num: 0
                     milling:
@@ -268,26 +196,12 @@ tasks:
                         config: {}
                     alignment:
                         enabled: true
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
             stress-relief:
                 name: Stress Relief
                 field_of_view: 0.00015
                 channel: ION
                 alignment:
                     enabled: true
-                    interval_enabled: false
-                    interval: 30
-                    rect:
-                        left: 0.7
-                        top: 0.3
-                        width: 0.25
-                        height: 0.4
                 stages:
                 -   name: MicroExpansion
                     num: 0
@@ -312,13 +226,6 @@ tasks:
                         config: {}
                     alignment:
                         enabled: true
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
     Polishing:
         task_type: MILL_POLISHING
         parameters:
@@ -332,19 +239,11 @@ tasks:
                 channel: ION
                 alignment:
                     enabled: true
-                    interval_enabled: false
-                    interval: 30
-                    rect:
-                        left: 0.7
-                        top: 0.3
-                        width: 0.25
-                        height: 0.4
                 stages:
                 -   name: Polishing Mill 01
                     num: 0
                     milling:
                         milling_current: 6.0e-11
-                        hfw: 0.00015
                         application_file: Si-ccs
                         milling_voltage: 30000.0
                     pattern:
@@ -366,43 +265,6 @@ tasks:
                         config: {}
                     alignment:
                         enabled: true
-                        interval_enabled: false
-                        interval: 30
-                        rect:
-                            left: 0.7
-                            top: 0.3
-                            width: 0.25
-                            height: 0.4
-    Acquire Fluorescence Image:
-        task_type: ACQUIRE_FLUORESCENCE_IMAGE
-        channel_settings:
-        -   name: Reflection Channel
-            excitation_wavelength: 550
-            emission_wavelength: null
-            power: 0.03
-            exposure_time: 0.005
-            color: gray
-        -   name: Red Channel
-            excitation_wavelength: 550
-            emission_wavelength: Fluorescence
-            power: 0.3
-            exposure_time: 0.5
-            color: red
-        zparams:
-            zmin: -9.999999999999999e-06
-            zmax: 9.999999999999999e-06
-            zstep: 1.0e-06
-        autofocus_settings:
-            coarse_range: 5.0e-05
-            coarse_step: 5.0e-06
-            coarse_enabled: true
-            fine_range: 1.0e-05
-            fine_step: 1.0e-06
-            fine_enabled: true
-            method: laplacian
-            channel_name: Reflection Channel
-        milling: {}
-        imaging: {}
 workflow:
     name: ''
     description: ''
