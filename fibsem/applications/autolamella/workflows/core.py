@@ -827,7 +827,7 @@ def align_feature_coincident(
     # reference images
     image_settings.save = True
     image_settings.hfw = hfw
-    image_settings.filename = f"ref_{lamella.status}_{feature.name}_align_coincident_final"
+    image_settings.filename = f"ref_{lamella.task_state.name}_{feature.name}_align_coincident_final"
     sem_image, fib_image = acquire.take_reference_images(microscope, image_settings)
     set_images_ui(parent_ui, sem_image, fib_image)
 
