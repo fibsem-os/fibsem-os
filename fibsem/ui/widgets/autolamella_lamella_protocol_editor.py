@@ -56,7 +56,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
 
-        self.milling_task_collapsible = QCollapsible("Milling Task Editor")
+        self.milling_task_collapsible = QCollapsible("Milling Task Parameters", self)
         self.milling_task_editor = FibsemMillingTaskWidget(microscope=self.microscope,
                                                             milling_enabled=False,
                                                             parent=self)
@@ -67,9 +67,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
         self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
-        self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-        self.image_params_collapsible.addWidget(self.ref_image_params_widget)
+        self.task_params_collapsible.addWidget(self.ref_image_params_widget)
 
         # lamella, milling controls
         self.label_selected_lamella = QLabel("Lamella")
@@ -117,7 +116,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)    # type: ignore
         self.scroll_content_layout.addLayout(self.grid_layout)
         self.scroll_content_layout.addWidget(self.task_params_collapsible)      # type: ignore
-        self.scroll_content_layout.addWidget(self.image_params_collapsible)     # type: ignore
         self.scroll_content_layout.addWidget(self.milling_task_collapsible)     # type: ignore
         self.scroll_content_layout.addStretch()
 

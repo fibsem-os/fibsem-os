@@ -168,23 +168,20 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.label_protocol_version = QLabel("Version")
         self.lineEdit_protocol_version = QLineEdit()
 
-        self.milling_task_collapsible = QCollapsible("Milling Task Editor")
+        self.milling_task_collapsible = QCollapsible("Milling Task Parameters", self)
         self.milling_task_editor = FibsemMillingTaskWidget(microscope=self.microscope, 
                                                                          milling_enabled=False,
                                                                          correlation_enabled=False,
                                                                          parent=self)
         self.milling_task_collapsible.addWidget(self.milling_task_editor)
-        self.milling_task_editor.setMinimumHeight(550)
 
 
         self.task_params_collapsible = QCollapsible("Task Parameters", self)
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
         self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
-        self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-        self.ref_image_params_widget.setVisible(True)  # hide for now
-        self.image_params_collapsible.addWidget(self.ref_image_params_widget)
+        self.task_params_collapsible.addWidget(self.ref_image_params_widget)
 
         # lamella, milling controls
         self.label_selected_milling = QLabel("Task Name")
@@ -233,7 +230,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)    # type: ignore
         self.scroll_content_layout.addLayout(self.grid_layout)
         self.scroll_content_layout.addWidget(self.task_params_collapsible)      # type: ignore
-        self.scroll_content_layout.addWidget(self.image_params_collapsible)     # type: ignore
         self.scroll_content_layout.addWidget(self.milling_task_collapsible)     # type: ignore
         self.scroll_content_layout.addStretch()
 
@@ -291,8 +287,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.comboBox_selected_task.setCurrentIndex(0)
         self.comboBox_selected_task.blockSignals(False)
 
-        # Update sync button visibility based on whether there are positions
-        self.pushButton_sync_to_lamella.setVisible(bool(self.experiment.positions))
 
     def _on_selected_task_changed(self):
         """Callback when the selected milling stage changes."""

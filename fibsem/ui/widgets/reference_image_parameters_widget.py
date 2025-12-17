@@ -66,17 +66,14 @@ class ReferenceImageParametersWidget(QWidget):
     def _setup_ui(self):
         """Create and configure all UI elements."""
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(6)  # Reduced spacing between groups
         self.setLayout(main_layout)
 
         # Acquisition Settings Group (consolidates FOV and acquisition options)
-        acq_group = QGroupBox("Acquisition Settings")
+        acq_group = QGroupBox("Acquisition")
         acq_group.setFlat(True)  # Flat style for lighter visual weight
         acq_layout = QGridLayout()
-        # acq_layout.setContentsMargins(6, 6, 6, 6)  # Reduced margins
-        # acq_layout.setHorizontalSpacing(8)
-        # acq_layout.setVerticalSpacing(4)
         acq_group.setLayout(acq_layout)
 
         # Beam Type Options
@@ -148,12 +145,10 @@ class ReferenceImageParametersWidget(QWidget):
         # Imaging Settings
         self.imaging_settings_group = QGroupBox("Imaging Settings")
         self.imaging_settings_group.setFlat(True)  # Flat style for lighter visual weight
-        self.imaging_widget = ImageSettingsWidget(show_advanced=False)
+        self.imaging_widget = ImageSettingsWidget(show_advanced=False, parent=self)
         self.imaging_widget.show_field_of_view(False)
 
         imaging_layout = QVBoxLayout()
-        # imaging_layout.setContentsMargins(6, 6, 6, 6)  # Reduced margins
-        # imaging_layout.setSpacing(4)  # Tighter spacing
         self.imaging_settings_group.setLayout(imaging_layout)
         imaging_layout.addWidget(self.imaging_widget)
 

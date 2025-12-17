@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
+    QGroupBox,
 )
 from superqt import QCollapsible
 
@@ -428,7 +429,6 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
         self.task_config = task_config
         self.parameter_widgets: Dict[str, ParameterWidget] = {}
 
-        self.setContentsMargins(0,0,0,0)
         self._setup_ui()
         if self.task_config:
             self._update_from_config()
@@ -442,14 +442,16 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
         self.current_row = 0
+        self.params_groupbox = QGroupBox("Task")
+        self.params_groupbox.setLayout(self.grid_layout)
 
-        self.main_layout.addWidget(self.params_widget)    # type: ignore
+        self.main_layout.addWidget(self.params_groupbox)    # type: ignore
 
     def set_task_config(self, task_config: Optional[AutoLamellaTaskConfig]):
         """Set the task configuration to edit."""
         self.task_config = task_config
         self._update_from_config()
-        
+
     def _update_from_config(self):
         """Update the UI from the current task configuration."""
         if not self.task_config:
