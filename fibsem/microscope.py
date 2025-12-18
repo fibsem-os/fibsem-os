@@ -1056,6 +1056,7 @@ class FibsemMicroscope(ABC):
         if currrent_orientation == "NONE":
             raise ValueError("Unknown orientation. Cannot convert stage position.")
 
+        stage_position = deepcopy(stage_position)
         orientation = self.get_orientation(target_orientation)
 
         if currrent_orientation in ["SEM", "MILLING"] and target_orientation == "FIB":

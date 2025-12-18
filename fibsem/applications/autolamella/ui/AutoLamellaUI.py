@@ -8,6 +8,7 @@ except Exception:
 import glob
 import logging
 import os
+import subprocess
 import threading
 from copy import deepcopy
 from typing import List, Optional
@@ -201,9 +202,17 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             triggered=self._open_protocol_editor,
         )
 
+        self.action_open_experiment_directory = QAction(  # type: ignore
+            "Open Experiment Directory",
+            parent=self,
+            triggered=self._open_experiment_directory,
+        )
+
         # add to menu
         if os.name == "posix":
             self.menuBar().setNativeMenuBar(False) # required for macOS
+        self.menuDevelopment.addSeparator()
+        self.menuDevelopment.addAction(self.action_open_experiment_directory)
 
         # reporting
         self.action_open_experiment_workflow_summary = QAction(  # type: ignore
@@ -676,6 +685,33 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.protocol_editor_widget = show_protocol_editor(parent=self)
 
+
+    def _open_experiment_directory(self) -> None:
+        """Open the experiment directory in the system file explorer."""
+        if self.experiment is None or self.experiment.path is None:
+            napari.utils.notifications.show_warning(
+                "Please load an experiment first... [No Experiment Loaded]"
+            )
+            return
+
+        experiment_path = os.fspath(self.experiment.path)
+        if not os.path.isdir(experiment_path):
+            napari.utils.notifications.show_error(
+                f"Experiment directory not found: {experiment_path}"
+            )
+            return
+
+        try:
+            if sys.platform.startswith("darwin"):
+                subprocess.Popen(["open", experiment_path])
+            elif os.name == "nt":
+                os.startfile(experiment_path)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", experiment_path])
+        except Exception:
+            logging.exception("Failed to open experiment directory.")
+            napari.utils.notifications.show_error("Failed to open experiment directory.")
+
 #### MINIMAP
 
     def open_minimap_widget(self):
@@ -853,6 +889,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         has_lamella = bool(self.experiment.positions) if is_experiment_loaded else False
         is_experiment_ready = is_experiment_loaded and is_protocol_loaded
 
+        self.action_open_experiment_directory.setEnabled(is_experiment_loaded)
+
         # force order: connect -> experiment -> protocol
         self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.tab), is_microscope_connected)
         self.actionNew_Experiment.setVisible(is_microscope_connected)
@@ -882,8 +920,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.actionGenerate_Overview_Plot.setVisible(is_experiment_ready and REPORTING_AVAILABLE)
 
         # labels
+        self.lineEdit_experiment_name.setToolTip("No Experiment Loaded")
         if is_experiment_loaded and self.experiment is not None:
             self.lineEdit_experiment_name.setText(f"{self.experiment.name}")
+            self.lineEdit_experiment_name.setToolTip(f"Experiment Directory: {self.experiment.path}")
             self.comboBox_current_lamella.setVisible(has_lamella)
 
             self.task_history_widget.set_experiment(self.experiment)
