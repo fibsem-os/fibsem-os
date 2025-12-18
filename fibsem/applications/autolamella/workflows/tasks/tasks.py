@@ -87,8 +87,6 @@ MAX_ALIGNMENT_ATTEMPTS = 3
 ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
 
 # feature flags
-FEATURE_SELECTIVE_CHANNEL_ACQ = True
-FEATURE_USE_REFERENCE_IMAGING_PARAMETERS = True
 
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
@@ -471,54 +469,29 @@ class AutoLamellaTask(ABC):
 
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""
-        if FEATURE_SELECTIVE_CHANNEL_ACQ:
-            acquire_fib = self.config.reference_imaging.acquire_fib
-            acquire_sem = self.config.reference_imaging.acquire_sem
-            return self._acquire_channels(image_settings, 
-                                          field_of_view=field_of_view, 
-                                          filename=filename, 
-                                          acquire_sem=acquire_sem,
-                                          acquire_fib=acquire_fib)
-        if filename is None:
-            filename = f"ref_{self.task_name}_start"
-
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        image_settings.hfw = field_of_view
-        image_settings.filename = filename
-        image_settings.save = True
-        sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        acquire_fib = self.config.reference_imaging.acquire_fib
+        acquire_sem = self.config.reference_imaging.acquire_sem
+        return self._acquire_channels(image_settings, 
+                                        field_of_view=field_of_view, 
+                                        filename=filename, 
+                                        acquire_sem=acquire_sem,
+                                        acquire_fib=acquire_fib)
 
     def _acquire_set_of_reference_images(self,
                                  image_settings: ImageSettings, 
                                  filename: Optional[str] = None, 
                                  field_of_views: Optional[Tuple[float, ...]] = None) -> None:
         """Acquire a set of reference images."""
-        if FEATURE_USE_REFERENCE_IMAGING_PARAMETERS:
-            acquire_fib = self.config.reference_imaging.acquire_fib
-            acquire_sem = self.config.reference_imaging.acquire_sem
-            if field_of_views is None:
-                field_of_views = self.config.reference_imaging.field_of_views
-            image_settings = self.config.reference_imaging.imaging
-            return self._acquire_set_of_channels(image_settings,
-                                                 field_of_views=field_of_views,
-                                                 filename=filename,
-                                                 acquire_sem=acquire_sem,
-                                                 acquire_fib=acquire_fib)
-
-        # if filename is None:
-        #     filename = f"ref_{self.task_name}_final"
-        # if field_of_views is None:
-        #     field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
-
-        # self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        # reference_images = acquire.take_set_of_reference_images(
-        #     microscope=self.microscope,
-        #     image_settings=image_settings,
-        #     hfws=field_of_views,
-        #     filename=filename,
-        # )
-        # set_images_ui(self.parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
+        acquire_fib = self.config.reference_imaging.acquire_fib
+        acquire_sem = self.config.reference_imaging.acquire_sem
+        if field_of_views is None:
+            field_of_views = self.config.reference_imaging.field_of_views
+        image_settings = self.config.reference_imaging.imaging
+        return self._acquire_set_of_channels(image_settings,
+                                                field_of_views=field_of_views,
+                                                filename=filename,
+                                                acquire_sem=acquire_sem,
+                                                acquire_fib=acquire_fib)
 
     def _acquire_channels(self, 
                           image_settings: ImageSettings, 
@@ -939,6 +912,11 @@ class SetupLamellaTask(AutoLamellaTask):
             if ret:
                 self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
                 # TODO: create an automated eucentric version of this...
+                # alignment._eucentric_tilt_alignment(microscope=self.microscope,
+                #                                     image_settings=image_settings,
+                #                                     target_angle=milling_angle,
+                #                                     step_size=3,
+                #                                     )
 
             # move_to_milling_angle(microscope=self.microscope, milling_angle=np.radians(milling_angle))
             # lamella = align_feature_coincident(microscope=microscope, 
