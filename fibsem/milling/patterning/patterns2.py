@@ -3,8 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, asdict
-from typing import Dict, List, Tuple, Union, Any, Optional, Type, ClassVar, TypeVar, Generic
-from os import PathLike
+from functools import cached_property
+from typing import Dict, List, Tuple, Union, Any, Optional, Type, ClassVar, TypeVar, Generic, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,25 +19,32 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     Point,
     TFibsemPatternSettings,
+    get_fields_with_metadata,
 )
+from fibsem.milling.properties import (DEFAULT_DISTANCE_METADATA,
+                                       DEFAULT_ANGLE_METADATA,
+                                       DEFAULT_DURATION_METADATA,
+                                       DEFAULT_SCAN_DIRECTION_METADATA,
+                                       DEFAULT_CROSS_SECTION_METADATA,
+                                       DEFAULT_PASSES_METADATA)
 
 TPattern = TypeVar("TPattern", bound="BasePattern")
-
-# TODO: define the configuration for each key,
-# e.g. 
-# "width": {"type": "float", "min": 0, "max": 1000, "default": 100, "description": "Width of the rectangle"}
-# "cross_section": {"type": "str", "options": [cs.name for cs in CrossSectionPattern], "default": "Rectangle", "description": "Cross section of the milling pattern"}
 
 ####### Combo Patterns
 
 @dataclass
 class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     name: ClassVar[str] = field(init=False)
-    point: Point = field(default_factory=Point)
+    point: Point = field(default_factory=Point, 
+                         metadata={
+                            "label": "Point",
+                            "type": Point,
+                            **DEFAULT_DISTANCE_METADATA,
+                            "minimum": -1000.0,
+                            "maximum": 1000.0,
+                            "tooltip": "Point coordinates for the milling pattern.",
+                         })
     shapes: Optional[List[TFibsemPatternSettings]] = field(default=None, init=False)
-
-    _advanced_attributes: ClassVar[Tuple[str, ...]] = ()
-    _hidden_attributes: ClassVar[Tuple[str, ...]] = ()
 
     @abstractmethod
     def define(self) -> List[TFibsemPatternSettings]:
@@ -75,42 +82,93 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
             kwargs["vertices"] = np.array(vertices)
 
         return cls(**kwargs)
-                
-    @property
+
+    @cached_property
     def required_attributes(self) -> Tuple[str, ...]:
         return tuple(
             f.name
             for f in fields(self)
-            if f.name not in self._hidden_attributes and f not in fields(BasePattern) 
+            if f.name not in self._hidden_attributes and f not in fields(BasePattern)
         )
-    
-    @property
+
+    @cached_property
     def advanced_attributes(self) -> Tuple[str, ...]:
-        return self._advanced_attributes
+        """Return attributes that are marked as advanced in the metadata."""
+        return tuple(f.name for f in fields(self) if f.metadata.get("advanced", False))
+
+    @cached_property
+    def _hidden_attributes(self) -> Tuple[str, ...]:
+        """Return attributes that are hidden from the UI."""
+        return tuple(f.name for f in fields(self) if f.metadata.get("hidden", False))
 
     @property
     def volume(self) -> float:
         # calculate the total volume of the milling pattern (sum of all shapes)
         return sum([shape.volume for shape in self.define()])
 
+    @property
+    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """Return dataclass fields with metadata, filling any missing keys with defaults."""
+        return get_fields_with_metadata(self.__class__)
+
 
 @dataclass
 class BitmapPattern(BasePattern[FibsemBitmapSettings]):
-    width: float = 10.0e-6
-    height: float = 10.0e-6
-    depth: float = 1.0e-6
-    rotation: float = 0
-    time: float = 0
-    passes: int = 0
-    scan_direction: str = "TopToBottom"
-    path: str = ""
-    array: Optional[NDArray[Any]] = None
-    interpolate: bool = True
-    bicubic: bool = True
-    # Interpolate and bicubic would be better as a single drop down list but
-    # that's currently tricky for the UI
-    _advanced_attributes = ("time", "interpolate", "bicubic")
-    _hidden_attributes = ("array",)  # Can't set an array via the GUI
+    width: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the bitmap pattern.",
+        },
+    )
+    height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the bitmap pattern.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the bitmap pattern.",
+        },
+    )
+    rotation: float = field(
+        default=0,
+        metadata={
+            **DEFAULT_ANGLE_METADATA,
+            "tooltip": "Rotation of the bitmap pattern in degrees.",
+        },
+    )
+    time: float = field(default=0, metadata=DEFAULT_DURATION_METADATA)
+    passes: int = field(default=0, metadata=DEFAULT_PASSES_METADATA)
+    scan_direction: str = field(
+        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+    )
+    path: str = field(
+        default="",
+        metadata={
+            "label": "File Path",
+            "type": str,
+            "filepath": True,
+            "tooltip": "Path to the bitmap image file.",
+        },
+    )
+    array: Optional[NDArray[Any]] = field(default=None, metadata={"hidden": True})
+    interpolation: Optional[Literal["nearest", "bilinear", "bicubic"]] = field(
+        default=None,
+        metadata={
+            "label": "Interpolation",
+            "advanced": True,
+            "items": [None, "nearest", "bilinear", "bicubic"],
+            "tooltip": "Interpolation method for resizing the bitmap image.",
+        },
+    )
 
     name: ClassVar[str] = "Bitmap"
 
@@ -119,13 +177,6 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
         if not path:
             path = None
         array = self.array
-
-        if self.interpolate is None:
-            interp = None
-        elif self.bicubic:
-            interp = "bicubic"
-        else:
-            interp = "nearest"
 
         shape = FibsemBitmapSettings(
             width=self.width,
@@ -139,7 +190,7 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
             time=self.time,
             path=path,
             array=array,
-            interpolate=interp,
+            interpolate=self.interpolation,
         )
         self.shapes = [shape]
         return self.shapes
@@ -147,23 +198,81 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
 
 @dataclass
 class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
-    width: float = 10.0e-6
-    depth: float = 10.0e-6
-    spacing: float = 1.0e-6
-    upper_trench_height: float = 5.0e-6
-    lower_trench_height: float = 5.0e-6
-    time: float = 0
-    path: str = ""
-    path_lower: str = ""  # path will be flipped and used if not given
-    array: Optional[NDArray[Any]] = None
-    array_lower: Optional[NDArray[Any]] = None
-    interpolate: bool = True
-    bicubic: bool = True
-    # Interpolate and bicubic would be better as a single drop down list but
-    # that's currently tricky for the UI
-    _advanced_attributes = ("time", "path_lower", "interpolate", "bicubic")
-    _hidden_attributes = ("array", "array_lower")  # Can't set an array via the GUI
-
+    width: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the trench bitmap pattern.",
+        },
+    )
+    depth: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the trench bitmap pattern.",
+        },
+    )
+    spacing: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Spacing",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Spacing between the upper and lower trenches.",
+        },
+    )
+    upper_trench_height: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Upper Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the upper trench.",
+        },
+    )
+    lower_trench_height: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Lower Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the lower trench.",
+        },
+    )
+    time: float = field(
+        default=0,
+        metadata={
+            "label": "Time",
+            **DEFAULT_DURATION_METADATA,
+            "tooltip": "Time to mill the trench bitmap pattern. Set to 0 for automatic calculation.",
+        },
+    )
+    path: str = field(
+        default="",
+        metadata={
+            "label": "File Path",
+            "filepath": True,
+            "tooltip": "Path to the upper trench bitmap image file.",
+        },
+    )
+    path_lower: str = field(
+        default="",
+        metadata={
+            "label": "File Path Lower",
+            "filepath": True,
+            "tooltip": "Path to the lower trench bitmap image file. If not provided, the upper trench bitmap will be flipped and used.",
+        },
+    )
+    array: Optional[NDArray[Any]] = field(default=None, metadata={"hidden": True})
+    array_lower: Optional[NDArray[Any]] = field(default=None, metadata={"hidden": True})
+    interpolation: Optional[Literal["nearest", "bicubic", "bilinear"]] = field(
+        default=None,
+        metadata={
+            "label": "Interpolation",
+            "advanced": True,
+            "items": [None, "nearest", "bilinear", "bicubic"],
+            "tooltip": "Interpolation method for resizing the bitmap image.",
+        },
+    )
     name: ClassVar[str] = "TrenchBitmap"
 
     def define(self) -> List[FibsemBitmapSettings]:
@@ -197,13 +306,6 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
                 path_lower = path
                 array_lower = array
 
-        if self.interpolate is None:
-            interp = None
-        elif self.bicubic:
-            interp = "bicubic"
-        else:
-            interp = "nearest"
-
         # mill settings
         lower_pattern_settings = FibsemBitmapSettings(
             width=self.width,
@@ -217,7 +319,7 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             flip_y=flip_lower_y,
             path=path_lower,
             array=array_lower,
-            interpolate=interp,
+            interpolate=self.interpolation,
         )
 
         upper_pattern_settings = FibsemBitmapSettings(
@@ -231,7 +333,7 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             time=self.time,
             path=path,
             array=array,
-            interpolate=interp,
+            interpolate=self.interpolation,
         )
 
         self.shapes = [lower_pattern_settings, upper_pattern_settings]
@@ -240,18 +342,49 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
 
 @dataclass
 class RectanglePattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 10.0e-6
-    height: float = 5.0e-6
-    depth: float = 1.0e-6
-    rotation: float = 0
-    time: float = 0  # means auto
-    passes: int = 0  # means auto
-    scan_direction: str = "TopToBottom"
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
+    width: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the rectangle pattern.",
+        },
+    )
+    height: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the rectangle pattern.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the rectangle pattern.",
+        },
+    )
+    rotation: float = field(
+        default=0.0,
+        metadata={
+            **DEFAULT_ANGLE_METADATA,
+            "tooltip": "Rotation of the rectangle pattern in degrees.",
+        },
+    )
 
+    time: float = field(default=0.0, metadata=DEFAULT_DURATION_METADATA)
+    passes: int = field(default=0, metadata=DEFAULT_PASSES_METADATA)
+    scan_direction: str = field(
+        default="TopToBottom",
+        metadata=DEFAULT_SCAN_DIRECTION_METADATA,
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle,
+        metadata=DEFAULT_CROSS_SECTION_METADATA,
+    )
     name: ClassVar[str] = "Rectangle"
-    # TODO: add for other patterns
-    _advanced_attributes: ClassVar[Tuple[str, ...]] = ("time", "passes")
 
     def define(self) -> List[FibsemRectangleSettings]:
 
@@ -274,12 +407,50 @@ class RectanglePattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class LinePattern(BasePattern[FibsemLineSettings]):
-    start_x: float = -10.0e-6
-    end_x: float = 10.0e-6
-    start_y: float = 0.0
-    end_y: float = 0.0
-    depth: float = 1.0e-6
-
+    start_x: float = field(
+        default=-10.0e-6,
+        metadata={
+            "label": "Start X",
+            **DEFAULT_DISTANCE_METADATA,
+            "minimum": -1000.0,
+            "maximum": 1000.0,
+        },
+    )
+    end_x: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "End X",
+            **DEFAULT_DISTANCE_METADATA,
+            "minimum": -1000.0,
+            "maximum": 1000.0,
+        },
+    )
+    start_y: float = field(
+        default=0.0,
+        metadata={
+            "label": "Start Y",
+            **DEFAULT_DISTANCE_METADATA,
+            "minimum": -1000.0,
+            "maximum": 1000.0,
+        },
+    )
+    end_y: float = field(
+        default=0.0,
+        metadata={
+            "label": "End Y",
+            **DEFAULT_DISTANCE_METADATA,
+            "minimum": -1000.0,
+            "maximum": 1000.0,
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the line pattern.",
+        },
+    )
     name: ClassVar[str] = "Line"
 
     def define(self) -> List[FibsemLineSettings]:
@@ -296,9 +467,31 @@ class LinePattern(BasePattern[FibsemLineSettings]):
 
 @dataclass
 class CirclePattern(BasePattern[FibsemCircleSettings]):
-    radius: float = 5.0e-6
-    depth: float = 1.0e-6
-    thickness: float = 0
+    radius: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Radius",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Radius of the circle pattern.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the circle pattern.",
+        },
+    )
+    thickness: float = field(
+        default=0,
+        metadata={
+            "label": "Thickness",
+            **DEFAULT_DISTANCE_METADATA,
+            "minimum": 0.0,
+            "tooltip": "Thickness of the circle pattern. 0 means solid.",
+        },
+    )
 
     name: ClassVar[str] = "Circle"
 
@@ -317,17 +510,62 @@ class CirclePattern(BasePattern[FibsemCircleSettings]):
 
 @dataclass
 class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettings]]):
-    width: float = 10.0e-6
-    depth: float = 1.0e-6
-    spacing: float = 5.0e-6
-    upper_trench_height: float = 5.0e-6
-    lower_trench_height: float = 5.0e-6
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
-    time: float = 0.0  # means auto
-    fillet: float = 0.0  # no fillet radius
+    width: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the trench pattern.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the trench pattern.",
+        },
+    )
+    spacing: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Spacing",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Spacing between the upper and lower trenches.",
+        },
+    )
+    upper_trench_height: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Upper Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the upper trench.",
+        },
+    )
+    lower_trench_height: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Lower Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the lower trench.",
+        },
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
+    time: float = field(default=0.0, metadata=DEFAULT_DURATION_METADATA)
+    fillet: float = field(
+        default=0.0,
+        metadata={
+            "label": "Fillet Radius",
+            **DEFAULT_DISTANCE_METADATA,
+            "minimum": 0.0,
+            "advanced": True,
+            "tooltip": "Fillet radius for the trench corners.",
+        },
+    )
 
     name: ClassVar[str] = "Trench"
-    _advanced_attributes: ClassVar[Tuple[str, ...]] = ("time", "fillet")
 
     def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
 
@@ -460,15 +698,68 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
 
 @dataclass
 class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 40.0e-6
-    upper_trench_height: float = 10.0e-6
-    lower_trench_height: float = 10.0e-6
-    spacing: float = 10.0e-6
-    depth: float = 10.0e-6
-    side_width: float = 5.0e-6
-    inverted: bool = False
-    scan_direction: str = "TopToBottom"
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
+    width: float = field(
+        default=40.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the horseshoe pattern.",
+        },
+    )
+    upper_trench_height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Upper Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the upper trench.",
+        },
+    )
+    lower_trench_height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Lower Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the lower trench.",
+        },
+    )
+    spacing: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Spacing",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Spacing between trenches.",
+        },
+    )
+    depth: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the trenches.",
+        },
+    )
+    side_width: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Side Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the side trench.",
+        },
+    )
+    inverted: bool = field(
+        default=False,
+        metadata={
+            "label": "Inverted",
+            "type": bool,
+            "tooltip": "If true, the side trench will be milled on the opposite side",
+        },
+    )
+    scan_direction: str = field(
+        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
 
     name: ClassVar[str] = "Horseshoe"
     # ref: "horseshoe" terminology https://www.researchgate.net/publication/351737991_A_Modular_Platform_for_Streamlining_Automated_Cryo-FIB_Workflows#pf14
@@ -534,14 +825,60 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class HorseshoePatternVertical(BasePattern):
-    width: float = 2.0e-05
-    height: float = 5.0e-05
-    side_trench_width: float = 5.0e-06
-    top_trench_height: float = 10.0e-6
-    depth: float = 4.0e-6
-    scan_direction: str = "TopToBottom"
-    inverted: bool = False
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
+    width: float = field(
+        default=2.0e-05,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the horseshoe vertical pattern.",
+        },
+    )
+    height: float = field(
+        default=5.0e-05,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the horseshoe vertical pattern.",
+        },
+    )
+    side_trench_width: float = field(
+        default=5.0e-06,
+        metadata={
+            "label": "Side Trench Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the side trenches.",
+        },
+    )
+    top_trench_height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Top Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the top trench.",
+        },
+    )
+    depth: float = field(
+        default=4.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the trenches.",
+        },
+    )
+    scan_direction: str = field(
+        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+    )
+    inverted: bool = field(
+        default=False,
+        metadata={
+            "label": "Inverted",
+            "type": bool,
+            "tooltip": "If true, the top trench will be milled below the point.",
+        },
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
 
     name: ClassVar[str] = "HorseshoeVertical"
     # ref: "horseshoe" terminology https://www.researchgate.net/publication/351737991_A_Modular_Platform_for_Streamlining_Automated_Cryo-FIB_Workflows#pf14
@@ -597,14 +934,70 @@ class HorseshoePatternVertical(BasePattern):
 
 @dataclass
 class SerialSectionPattern(BasePattern[FibsemLineSettings]):
-    section_thickness: float = 4.0e-6
-    section_width: float = 50.0e-6
-    section_depth: float = 20.0e-6
-    side_width: float = 10.0e-6
-    side_height: float = 10.0e-6
-    side_depth: float = 40.0e-6
-    inverted: bool = False
-    use_side_patterns: bool = True
+    section_thickness: float = field(
+        default=4.0e-6,
+        metadata={
+            "label": "Section Thickness",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Thickness of the section.",
+        },
+    )
+    section_width: float = field(
+        default=50.0e-6,
+        metadata={
+            "label": "Section Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the section.",
+        },
+    )
+    section_depth: float = field(
+        default=20.0e-6,
+        metadata={
+            "label": "Section Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the section.",
+        },
+    )
+    side_width: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Side Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the side cleaning area.",
+        },
+    )
+    side_height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Side Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the side cleaning area.",
+        },
+    )
+    side_depth: float = field(
+        default=40.0e-6,
+        metadata={
+            "label": "Side Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the side cleaning area.",
+        },
+    )
+    inverted: bool = field(
+        default=False,
+        metadata={
+            "label": "Inverted",
+            "type": bool,
+            "tooltip": "If true, the section will be milled inverted.",
+        },
+    )
+    use_side_patterns: bool = field(
+        default=True,
+        metadata={
+            "label": "Use Side Patterns",
+            "type": bool,
+            "tooltip": "If true, side cleaning patterns will be used.",
+        },
+    )
 
     name: ClassVar[str] = "SerialSection"
     # ref: "serial-liftout section" https://www.nature.com/articles/s41592-023-02113-5
@@ -680,12 +1073,49 @@ class SerialSectionPattern(BasePattern[FibsemLineSettings]):
 
 @dataclass
 class FiducialPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 1.0e-6
-    height: float = 10.0e-6
-    depth: float = 1.0e-6
-    rotation: float = 45.0
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
-    asymmetric: bool = False  # if true, make it y-shaped
+    width: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the fiducial mark.",
+        },
+    )
+    height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the fiducial mark.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the fiducial mark.",
+        },
+    )
+    rotation: float = field(
+        default=45.0,
+        metadata={
+            "label": "Rotation",
+            **DEFAULT_ANGLE_METADATA,
+            "tooltip": "Rotation angle of the fiducial mark.",
+        },
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
+    asymmetric: bool = field(
+        default=False,
+        metadata={
+            "label": "Asymmetric",
+            "type": bool,
+            "tooltip": "If true, make the fiducial mark y-shaped.",
+        },
+    )
     name: ClassVar[str] = "Fiducial"
 
     def define(self) -> List[FibsemRectangleSettings]:
@@ -759,13 +1189,57 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class UndercutPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 5.0e-6
-    height: float = 10.0e-6
-    depth: float = 10.0e-6
-    trench_width: float = 2.0e-6
-    rhs_height: float = 10.0e-6
-    h_offset: float = 5.0e-6
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
+    width: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the undercut pattern.",
+        },
+    )
+    height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the undercut pattern.",
+        },
+    )
+    depth: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the undercut pattern.",
+        },
+    )
+    trench_width: float = field(
+        default=2.0e-6,
+        metadata={
+            "label": "Trench Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the trench in the undercut pattern.",
+        },
+    )
+    rhs_height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "RHS Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the right-hand side of the undercut pattern.",
+        },
+    )
+    h_offset: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Horizontal Offset",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Horizontal offset of the undercut pattern.",
+        },
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
 
     name: ClassVar[str] = "Undercut"
 
@@ -819,10 +1293,38 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 0.5e-6
-    height: float = 15.0e-6
-    depth: float = 1.0e-6
-    distance: float = 10.0e-6
+    width: float = field(
+        default=0.5e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the microexpansion joint pattern.",
+        },
+    )
+    height: float = field(
+        default=15.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the microexpansion joint pattern.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the microexpansion joint pattern.",
+        },
+    )
+    distance: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Distance",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Distance between microexpansion joints.",
+        },
+    )
 
     name: ClassVar[str] = "MicroExpansion"
     # ref: https://www.nature.com/articles/s41467-022-29501-3
@@ -860,17 +1362,88 @@ class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class ArrayPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 2.0e-6
-    height: float = 2.0e-6
-    depth: float = 5.0e-6
-    n_columns: int = 5
-    n_rows: int = 5
-    pitch_vertical: float = 5.0e-6
-    pitch_horizontal: float = 5.0e-6
-    passes: int = 0  # means auto
-    rotation: float = 0
-    scan_direction: str = "TopToBottom"
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
+    width: float = field(
+        default=2.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the array pattern.",
+        },
+    )
+    height: float = field(
+        default=2.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the array pattern.",
+        },
+    )
+    depth: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the array pattern.",
+        },
+    )
+    n_columns: int = field(
+        default=5,
+        metadata={
+            "label": "Number of Columns",
+            "type": int,
+            "minimum": 1,
+            "maximum": 100,
+            "step": 1,
+            "decimals": 0,
+            "tooltip": "Number of columns in the array pattern.",
+        },
+    )
+    n_rows: int = field(
+        default=5,
+        metadata={
+            "label": "Number of Rows",
+            "type": int,
+            "minimum": 1,
+            "maximum": 100,
+            "step": 1,
+            "decimals": 0,
+            "tooltip": "Number of rows in the array pattern.",
+        },
+    )
+    pitch_vertical: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Vertical Pitch",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Vertical pitch between elements in the array pattern.",
+        },
+    )
+    pitch_horizontal: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Horizontal Pitch",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Horizontal pitch between elements in the array pattern.",
+        },
+    )
+    passes: int = field(
+        default=0,
+        metadata=DEFAULT_PASSES_METADATA,
+    )
+    rotation: float = field(
+        default=0,
+        metadata={
+            "label": "Rotation",
+            **DEFAULT_ANGLE_METADATA,
+            "tooltip": "Rotation angle of the array pattern in degrees.",
+        },
+    )
+    scan_direction: str = field(
+        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
 
     name: ClassVar[str] = "ArrayPattern"
     # ref: spotweld terminology https://www.researchgate.net/publication/351737991_A_Modular_Platform_for_Streamlining_Automated_Cryo-FIB_Workflows#pf14
@@ -923,14 +1496,64 @@ class ArrayPattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
-    vheight: float = 2.0e-6
-    vwidth: float = 0.5e-6
-    hheight: float = 0.5e-6
-    hwidth: float = 2.0e-6
-    depth: float = 1.0e-6
-    distance: float = 2.0e-6
-    inverted: bool = False
-    cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
+    vheight: float = field(
+        default=2.0e-6,
+        metadata={
+            "label": "Vertical Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the vertical notch sections.",
+        },
+    )
+    vwidth: float = field(
+        default=0.5e-6,
+        metadata={
+            "label": "Vertical Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the vertical notch sections.",
+        },
+    )
+    hheight: float = field(
+        default=0.5e-6,
+        metadata={
+            "label": "Horizontal Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the horizontal notch sections.",
+        },
+    )
+    hwidth: float = field(
+        default=2.0e-6,
+        metadata={
+            "label": "Horizontal Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the horizontal notch sections.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the notch sections.",
+        },
+    )
+    distance: float = field(
+        default=2.0e-6,
+        metadata={
+            "label": "Distance",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Distance between notch sections.",
+        },
+    )
+    inverted: bool = field(
+        default=False,
+        metadata={
+            "label": "Inverted",
+            "tooltip": "Invert the notch pattern.",
+        },
+    )
+    cross_section: CrossSectionPattern = field(
+        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+    )
 
     name: ClassVar[str] = "WaffleNotch"
     # ref: https://www.nature.com/articles/s41467-022-29501-3
@@ -1011,8 +1634,22 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class CloverPattern(BasePattern[Union[FibsemCircleSettings, FibsemRectangleSettings]]):
-    radius: float = 10.0e-6
-    depth: float = 5.0e-6
+    radius: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Radius",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Radius of the clover leaves.",
+        },
+    )
+    depth: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the clover pattern.",
+        },
+    )
 
     name: ClassVar[str] = "Clover"
 
@@ -1060,9 +1697,30 @@ class CloverPattern(BasePattern[Union[FibsemCircleSettings, FibsemRectangleSetti
 
 @dataclass
 class TriForcePattern(BasePattern[FibsemRectangleSettings]):
-    width: float = 1.0e-6
-    height: float = 10.0e-6
-    depth: float = 5.0e-6
+    width: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the triangles.",
+        },
+    )
+    height: float = field(
+        default=10.0e-6,
+        metadata={
+            "label": "Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the triangles.",
+        },
+    )
+    depth: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the triangles.",
+        },
+    )
 
     name: ClassVar[str] = "TriForce"
 
@@ -1096,12 +1754,46 @@ class TriForcePattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class TrenchTrapezoidPattern(BasePattern):
-    trench_width: float = 10e-6
-    trench_height: float = 5e-6
-    spacing: float = 5.0e-6
-    depth: float = 1.0e-6
-    angle: float = 60  # angle in degrees
-
+    trench_width: float = field(
+        default=10e-6,
+        metadata={
+            "label": "Trench Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Width of the trench at the top.",
+        },
+    )
+    trench_height: float = field(
+        default=5e-6,
+        metadata={
+            "label": "Trench Height",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Height of the trench.",
+        },
+    )
+    spacing: float = field(
+        default=5.0e-6,
+        metadata={
+            "label": "Spacing",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Spacing between trenches.",
+        },
+    )
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the trench.",
+        },
+    )
+    angle: float = field(
+        default=60,
+        metadata={
+            "label": "Angle",
+            **DEFAULT_ANGLE_METADATA,
+            "tooltip": "Angle of the trench in degrees.",
+        },
+    )
     name: ClassVar[str] = "TrapezoidTrench"
 
     # ref: https://www.researchsquare.com/article/rs-6497420/v1
@@ -1145,9 +1837,23 @@ class TrenchTrapezoidPattern(BasePattern):
 
 @dataclass
 class PolygonPattern(BasePattern):
-    vertices: np.ndarray[float] = field(default_factory=list)
-    depth: float = 1.0e-6
-    is_exclusion: bool = False
+    vertices: np.ndarray[float] = field(default_factory=lambda: np.array([]), metadata={"hidden": True})    # type: ignore[type-arg]
+    depth: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Depth",
+            **DEFAULT_DISTANCE_METADATA,
+            "tooltip": "Depth of the polygon.",
+        },
+    )
+    is_exclusion: bool = field(
+        default=False,
+        metadata={
+            "label": "Is Exclusion",
+            "type": bool,
+            "tooltip": "If true, the polygon will be an exclusion area.",
+        },
+    )
     name: ClassVar[str] = "PolygonPattern"
 
     def define(self) -> List[FibsemPolygonSettings]:

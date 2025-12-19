@@ -3,6 +3,7 @@ import glob
 import json
 
 import logging
+import math
 import os
 import sys
 import time
@@ -65,46 +66,78 @@ def format_duration(seconds: float) -> str:
     else:
         return f"{seconds:.2f}s"
 
-def format_value(val: float, unit: Optional[str] = None, precision: int = 2) -> str:
+SI_PREFIXES = {
+    -12: "p",
+    -9: "n",
+    -6: "μ",
+    -3: "m",
+    0: "",
+    3: "k",
+    6: "M",
+    9: "G",
+    12: "T",
+}
+
+_MIN_SI_EXP = min(SI_PREFIXES)
+_MAX_SI_EXP = max(SI_PREFIXES)
+
+
+def format_resolution_as_str(resolution: List[int]) -> str:
+    """Format a resolution list as a string.
+
+    Args:
+        resolution (List[int]): The resolution to format.
+    Returns:
+        str: The formatted resolution string.
+    """
+    return f"{resolution[0]} x {resolution[1]}"
+
+def _get_scale_from_value(val: float) -> float:
+    """Return the scale multiplier corresponding to the SI prefix for a value."""
+    if val == 0:
+        return 1.0
+
+    exponent = int(math.floor(math.log10(abs(val))))
+    exponent = (exponent // 3) * 3
+    exponent = max(min(exponent, _MAX_SI_EXP), _MIN_SI_EXP)
+    return 10 ** (-exponent)
+
+
+def _get_prefix_from_scale(scale: float) -> Tuple[str, float]:
+    """Return the SI prefix and correction factor associated with a scale multiplier."""
+    if scale == 0:
+        return "", 1.0
+
+    exponent = -math.log10(scale)
+    exponent = int(round(exponent / 3.0) * 3)
+    exponent = max(min(exponent, _MAX_SI_EXP), _MIN_SI_EXP)
+    prefix = SI_PREFIXES.get(exponent, "")
+    multiplier = (10 ** (-exponent)) / scale
+    return prefix, multiplier
+
+def _get_display_unit(scale: float, unit: Optional[str] = None) -> str:
+    """Return the formatted unit string using the scale-derived SI prefix."""
+    unit = unit or ""
+    prefix, _ = _get_prefix_from_scale(scale)
+    return f"{prefix}{unit}"
+
+def format_value(val: float, unit: Optional[str] = None, precision: int = 2, scale: Optional[float] = None) -> str:
     """Format a numerical value as a string with nearest SI unit.
+
     Args:
         val: The value to format.
         unit (str, optional): The unit of the value. Defaults to None.
-        precision (int, optional): The number of decimal places to include. Defaults to 2.
+        precision (int, optional): Decimal places. Defaults to 2.
+        scale (float, optional): Override the auto-calculated scale multiplier.
+
     Returns:
         str: The formatted value with the appropriate SI prefix.
     """
-    if val < 1e-9:
-        scale = 1e12
-        prefix = "p"
-    elif val < 1e-6:
-        scale = 1e9
-        prefix = "n"
-    elif val < 1e-3:
-        scale = 1e6
-        prefix = "u"
-    elif val < 1:
-        scale = 1e3
-        prefix = "m"
-    elif val < 1e3:
-        scale = 1
-        prefix = ""
-    elif val < 1e6:
-        scale = 1e-3
-        prefix = "k"
-    elif val < 1e9:
-        scale = 1e-6
-        prefix = "M"
-    elif val < 1e12:
-        scale = 1e-9
-        prefix = "G"
-    else:
-        scale = 1e-12
-        prefix = "T"
-
-    if unit is None:
-        unit = ""
-    return f"{val*scale:.{precision}f} {prefix}{unit}"
+    scale = scale if scale is not None else _get_scale_from_value(val)
+    prefix, multiplier = _get_prefix_from_scale(scale)
+    scaled_val = val * scale * multiplier
+    unit = unit or ""
+    return f"{scaled_val:.{precision}f} {prefix}{unit}"
 
 def make_logging_directory(path: Optional[Path] = None, name="run"):
     """

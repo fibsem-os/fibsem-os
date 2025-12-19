@@ -1,6 +1,5 @@
 import copy
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
@@ -26,7 +25,6 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from fibsem import config as cfg
 from fibsem import conversions, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import (
@@ -47,320 +45,51 @@ from fibsem.milling.strategy import (
 )
 from fibsem.structures import (
     BeamType,
-    CrossSectionPattern,
-    Enum,
     FibsemImage,
     Point,
 )
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import QFilePathLineEdit, _create_combobox_control
 from fibsem.ui.utils import WheelBlocker
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
     is_pattern_placement_valid,
 )
 from fibsem.ui.napari.utilities import is_position_inside_layer
-from fibsem.utils import format_value
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
-MILLING_SETTINGS_GUI_CONFIG = {
-    "patterning_mode": {
-        "label": "Patterning Mode",
-        "type": str,
-        "items": ["Serial", "Parallel"],
-        "tooltip": "The mode of patterning used for milling.",
-    },
-    "milling_current": {
-        "label": "Milling Current",
-        "units": "A",
-        "tooltip": "The current used for milling.",
-        "items": "dynamic",
-    },
-    "milling_voltage": {
-        "label": "Milling Voltage",
-        "units": "V",
-        "items": "dynamic",
-        "tooltip": "The voltage used for milling.",
-    },
-    "hfw": {
-        "label": "Field of View",
-        "type": float,
-        "units": "µm",
-        "scale": 1e6,
-        "default": 150.0,
-        "minimum": 20.0,
-        "maximum": 950.0,
-        "step": 10.0,
-        "decimals": 2,
-        "tooltip": "The horizontal field width (fov) for milling.",
-    },
-    "application_file": {
-        "label": "Application File",
-        "type": str,
-        "items":  "dynamic",
-        "tooltip": "The ThermoFisher application file for milling.",
-    },
-    "acquire_images": {
-        "label": "Acquire After Milling",
-        "type": bool,
-        "default": True,
-        "tooltip": "Acquire images after milling.",
-    },
-    "rate": {
-        "label": "Milling Rate",
-        "units": "mm3/s",
-        "scale": 1e9,
-        "tooltip": "The milling rate in mm³/s.",
-    },
-    "preset": {
-        "label": "Milling Preset",
-        "type": str,
-        "items": "dynamic",
-        "tooltip": "The preset for milling parameters.",
-    },
-    "dwell_time": {
-        "label": "Dwell Time",
-        "units": "us",
-        "scale": 1e6,
-        # "default": 0.1,
-        # "minimum": 0.01,
-        # "maximum": 10.0,
-        # "step": 0.01,
-        "decimals": 2,
-        "tooltip": "The dwell time for each point in the milling pattern.",
-    },
-    "spot_size": {
-        "label": "Spot Size",
-        "type": float,
-        "units": "um",
-        "scale": 1e6,
-        # "default": 10.0,
-        # "minimum": 1.0,
-        # "maximum": 100.0,
-        # "step": 1.0,
-        "decimals": 2,
-        "tooltip": "The spot size for the ion beam during milling.",
-    },
-}
-
-MILLING_PATTERN_GUI_CONFIG = {
-    "width": {
-        "label": "Width",
-        "tooltip": "The width of the milling pattern.",
-    },
-    "height": {
-        "label": "Height",
-        "tooltip": "The height of the milling pattern.",
-    },
-    "depth": {
-        "label": "Depth",
-        "tooltip": "The depth of the milling pattern.",
-    },
-    "rotation": {
-        "label": "Rotation",
-        "type": float,
-        "scale": None,
-        "units": "°",
-        "minimum": 0.0,
-        "maximum": 360.0,
-        "step": 1.0,
-        "tooltip": "The rotation angle of the milling pattern.",
-    },
-    "time": {
-        "label": "Time",
-        "units": "s",
-        "scale": None,
-        "tooltip": "The time for which the milling pattern will be applied.",
-    },
-    "cross_section": {
-        "label": "Cross Section",
-        "type": CrossSectionPattern,
-        "items": [cs for cs in CrossSectionPattern],
-        "tooltip": "The type of cross section for the milling pattern.",
-    },
-    "scan_direction": {
-        "label": "Scan Direction",
-        "type": str,
-        "items": "dynamic",
-        "tooltip": "The scan direction for the milling pattern.",
-    },
-    "upper_trench_height": {
-        "label": "Upper Trench Height",
-        "tooltip": "The height of the upper trench in the milling pattern.",
-    }, 
-    "lower_trench_height": {
-        "label": "Lower Trench Height",
-        "tooltip": "The height of the lower trench in the milling pattern.",
-    },
-    "fillet": {
-        "label": "Fillet",
-        "tooltip": "The fillet radius for the milling pattern.",
-    },
-    "spacing": {
-        "label": "Spacing",
-        "tooltip": "The spacing between the trenches in the milling pattern.",
-    },
-    "side_width": {
-        "label": "Side Width",
-        "tooltip": "The width of the sides in the milling pattern.",
-    },
-    "passes": {
-        "label": "Passes",
-        "scale": None,
-        "units": "",
-        "tooltip": "The number of passes for the milling pattern.",
-    },
-    "n_rows": {
-        "label": "Rows",
-        "type": int,
-        "units": "",
-        "minimum": 1,
-        "maximum": 100,
-        "step": 1,
-        "scale": None,
-        "tooltip": "The number of rows in the array.",
-    },
-    "n_columns": {
-        "label": "Columns",
-        "type": int,
-        "units": "",
-        "minimum": 1,
-        "maximum": 100,
-        "step": 1,
-        "scale": None,
-        "tooltip": "The number of columns in the array.",
-    },
-    "angle":
-        {
-        "label": "Angle",
-        "type": float,
-        "units": "°",
-        "scale": None,
-        "minimum": 0.0,
-        "maximum": 90.0,
-        "step": 1.0,
-        "tooltip": "The angle for the milling pattern.",
-    },
-}
-
-MILLING_STRATEGY_GUI_CONFIG = {
-    "overtilt": {
-        "label": "Overtilt",
-        "type": float,
-        "units": "°",
-        "scale": None,
-        "minimum": 0.0,
-        "maximum": 10,
-        "step": 1.0,
-        "decimals": 2,
-        "tooltip": "The overtilt angle for the milling strategy.",
-    },  
-    "resolution": {
-        "label": "Resolution",
-        "type": List[int],
-        "items": cfg.STANDARD_RESOLUTIONS_LIST,
-        "tooltip": "The imaging resolution for the milling strategy.",
-    },
-}
-
-MILLING_ALIGNMENT_GUI_CONFIG = {
-    "enabled": {
-        "label": "Initial Alignment",
-        "type": bool,
-        "default": True,
-        "tooltip": "Enable initial milling alignment between imaging and milling current.",
-    },
-}
-
-MILLING_IMAGING_GUI_CONFIG = {
-    "resolution": {
-        "label": "Image Resolution",
-        "type": List[int],
-        "items": cfg.STANDARD_RESOLUTIONS_LIST,
-        "tooltip": "The resolution for the acquired images.",
-    },
-    "hfw": {
-        "label": "Horizontal Field Width",
-        "units": "µm",
-        "scale": 1e6,
-        "tooltip": "The horizontal field width for the acquired images.",
-    },
-    "dwell_time": {
-        "label": "Dwell Time",
-        "units": "µs",
-        "scale": 1e6,
-        "tooltip": "The dwell time for each pixel in the acquired images.",
-    },
-    "autocontrast": {
-        "label": "Autocontrast",
-        "type": bool,
-        "default": True,
-        "tooltip": "Enable autocontrast for the acquired images.",
-    },
-}
-
-DEFAULT_PARAMETERS: Dict[str, Any] = {
-    "type": float,
-    "units": "µm",
-    "scale": 1e6,
-    "minimum": 0.0,
-    "maximum": 1000.0,
-    "step": 0.01,
-    "decimals": 2,
-    "tooltip": "Default parameter for milling settings.",
-}
-
-GUI_CONFIG: Dict[str, Dict] = {
-    "milling": MILLING_SETTINGS_GUI_CONFIG,
-    "pattern": MILLING_PATTERN_GUI_CONFIG,
-    "strategy": MILLING_STRATEGY_GUI_CONFIG,
-    "alignment": MILLING_ALIGNMENT_GUI_CONFIG,
-    "imaging": MILLING_IMAGING_GUI_CONFIG,}
-
-# mapping from milling settings to microscope parameters
-PARAMETER_MAPPING = {
-    "milling_current": "current",
-    "milling_voltage": "voltage",
-}
-
-
-# MILLING_TASK:
-#   MILLING_ALIGNMENT
-#   MILLING_ACQUISITION
-#   MILLING_STAGE_1:
-#       MILLING_SETTINGS
-#       MILLING_PATTERN
-#       MILLING_STRATEGY
-#   MILLING_STAGE_2:
-#       ...
-
-# TODO: 
-# what to do when no microscope available???
-# milling stage name?
-
+# QUERY: 
+# migrate this into three sub widgets: MillingSettingsWidget, PatternSettingsWidget, MillingStrategyConfigWidge?
 
 class FibsemMillingStageWidget(QWidget):
     _milling_stage_changed = pyqtSignal(FibsemMillingStage)
 
     def __init__(self, 
-                 microscope: FibsemMicroscope, # TODO: don't require this!, but if its available, use it for dynamic items 
+                 microscope: FibsemMicroscope, 
                  milling_stage: FibsemMillingStage, 
-                 manufacturer: str = "TFS", 
                  parent=None):
         super().__init__(parent)
 
-        self.parameters: Dict[str, Dict[str, Tuple[QLabel, QWidget, float]]] = {} # param: label, control, scale
+        self.parameters: Dict[str, Dict[str, Tuple[QLabel, QWidget, Optional[float]]]] = {} # param: label, control, scale
         self.microscope = microscope
         self._milling_stage = milling_stage
-        self._manufacturer = manufacturer  # Manufacturer for dynamic items (TFS, TESCAN)
+        self._manufacturer = self._determine_manufacturer()
 
         self._create_widgets()
         self._initialise_widgets()
         self.setContentsMargins(0, 0, 0, 0)
         self.layout().setContentsMargins(0, 0, 0, 0)
+
+    def _determine_manufacturer(self) -> str:
+        """Determine the manufacturer of the microscope for dynamic parameter items."""
+        from fibsem.microscopes.tescan import TescanMicroscope
+        if isinstance(self.microscope, TescanMicroscope):
+            return "Tescan"
+        return "ThermoFisher"
 
     def _create_widgets(self):
         """Create the main widgets for the milling stage editor."""
@@ -377,23 +106,23 @@ class FibsemMillingStageWidget(QWidget):
         self.strategy_widget.setLayout(QGridLayout())
 
         # create label and combobox
-        label = QLabel(self)
-        label.setText("Name")
+        self.label_pattern_name = QLabel(self)
+        self.label_pattern_name.setText("Name")
         self.comboBox_selected_pattern = QComboBox(self)
         self.comboBox_selected_pattern.addItems(MILLING_PATTERN_NAMES)
         self.wheel_blocker1 = WheelBlocker()
         self.comboBox_selected_pattern.installEventFilter(self.wheel_blocker1)
         self.comboBox_selected_pattern.currentTextChanged.connect(self._on_pattern_changed)
-        self.pattern_widget.layout().addWidget(label, 0, 0, 1, 1)
+        self.pattern_widget.layout().addWidget(self.label_pattern_name, 0, 0, 1, 1)
         self.pattern_widget.layout().addWidget(self.comboBox_selected_pattern, 0, 1, 1, 1)
         self.pattern_widget.layout().setColumnStretch(0, 1)  # Labels column - expandable
         self.pattern_widget.layout().setColumnStretch(1, 1)  # Input widgets column - expandable
 
         # create strategy widget
-        label = QLabel(self)
-        label.setText("Name")
+        self.label_strategy_name = QLabel(self)
+        self.label_strategy_name.setText("Name")
         self.comboBox_selected_strategy = QComboBox(self)
-        self.strategy_widget.layout().addWidget(label, 0, 0, 1, 1)
+        self.strategy_widget.layout().addWidget(self.label_strategy_name, 0, 0, 1, 1)
         self.strategy_widget.layout().addWidget(self.comboBox_selected_strategy, 0, 1, 1, 1)
 
         self.comboBox_selected_strategy.addItems(get_strategy_names())
@@ -443,8 +172,9 @@ class FibsemMillingStageWidget(QWidget):
     def _initialise_widgets(self):
         """Initialise the widgets with the current milling stage settings."""
         # MILLING SETTINGS
-        milling_parames = self._milling_stage.milling.get_parameters(self._manufacturer)
-        self._create_controls(self.milling_widget, milling_parames, "milling", GUI_CONFIG["milling"].copy())
+        milling_params = self._milling_stage.milling.get_parameters(self._manufacturer)
+        milling_field_metadata = self._milling_stage.milling.field_metadata
+        self._create_controls(self.milling_widget, milling_params, "milling", milling_field_metadata)
 
         # PATTERN
         self.comboBox_selected_pattern.blockSignals(True)
@@ -507,14 +237,14 @@ class FibsemMillingStageWidget(QWidget):
                 item.widget().deleteLater()
 
     def _on_pattern_changed(self, pattern_name: str):
-        # TODO: convert the comboBox_selected_pattern to use currentData, 
+        """Update the pattern widget with the selected pattern's parameters."""
+        # TODO: convert the comboBox_selected_pattern to use currentData,
         # that way we can pass the pattern object directly (and restore it from the previous state)
         pattern = get_pattern(pattern_name)
 
-        self._milling_stage.pattern = pattern  # Update the milling stage's pattern
-
+        self._milling_stage.pattern = pattern
         self._update_pattern_widget(pattern)
-        self._milling_stage_changed.emit(self._milling_stage)  # Emit signal to notify changes
+        self._milling_stage_changed.emit(self._milling_stage)
 
     def _update_pattern_widget(self, pattern: BasePattern):
         """Update the pattern widget with the selected pattern's parameters."""
@@ -522,7 +252,7 @@ class FibsemMillingStageWidget(QWidget):
         params = {k: getattr(pattern, k) for k in pattern.required_attributes if hasattr(pattern, k)}
         params["point"] = pattern.point  # add point as a special case
 
-        self._create_controls(self.pattern_widget, params, "pattern", GUI_CONFIG["pattern"].copy())
+        self._create_controls(self.pattern_widget, params, "pattern", pattern.field_metadata)
 
     def _on_strategy_changed(self, strategy_name: str):
         """Update the strategy widget with the selected strategy's parameters."""
@@ -531,24 +261,27 @@ class FibsemMillingStageWidget(QWidget):
         # update strategy and widget
         self._milling_stage.strategy = strategy
         self._update_strategy_widget(strategy)
-        self._milling_stage_changed.emit(self._milling_stage)  # Emit signal to notify changes
+        self._milling_stage_changed.emit(self._milling_stage)
 
     def _update_strategy_widget(self, strategy: MillingStrategy[Any]):
         """Update the strategy widget with the selected strategy's parameters."""
         params = {k: getattr(strategy.config, k) for k in strategy.config.required_attributes}
 
-        self._create_controls(self.strategy_widget, params, "strategy.config", GUI_CONFIG["strategy"].copy())
+        self._create_controls(self.strategy_widget, params, "strategy.config", strategy.config.field_metadata)
 
-    def _create_controls(self, widget: QWidget, params: Dict[str, Any], cls: str, config: Dict[str, Any]):
+    def _create_controls(self, widget: QWidget,
+                         params: Dict[str, Any],
+                         control_type: str,
+                         field_metadata: Dict[str, Dict[str, Any]]):
         """Create controls for the given parameters and add them to the widget."""
 
         # clear previous controls
-        if cls == "pattern":
+        if control_type == "pattern":
             self.clear_widget(self.pattern_widget, row_threshold=0)
-        if cls == "strategy.config":
+        if control_type == "strategy.config":
             self.clear_widget(self.strategy_widget, row_threshold=0)
 
-        self.parameters[cls] = {}
+        self.parameters[control_type] = {}
         grid_layout = widget.layout()
         if grid_layout is None:
             raise ValueError(f"Widget {widget} does not have a layout. Expected QGridLayout, got {type(grid_layout)}.")
@@ -556,69 +289,41 @@ class FibsemMillingStageWidget(QWidget):
             raise TypeError(f"Expected QGridLayout, got {type(grid_layout)} for widget {widget}.")
 
         # point controls (special case). but why do they have to be?
-        if cls == "pattern":
-            gui_config = config.get("point", {})
-            label_text = gui_config.get("label", "Point")
-            minimum = gui_config.get("minimum", DEFAULT_PARAMETERS["minimum"])
-            maximum = gui_config.get("maximum", DEFAULT_PARAMETERS["maximum"])
-            step_size   = gui_config.get("step", DEFAULT_PARAMETERS["step"])
-            units = gui_config.get("units", DEFAULT_PARAMETERS["units"])
-            scale = gui_config.get("scale", DEFAULT_PARAMETERS["scale"])
-            decimals = gui_config.get("decimals", DEFAULT_PARAMETERS["decimals"])
-
-            # points are a special case? 
-            pt_label = QLabel(self)
-            pt_label.setText(label_text)
-            pt_label.setObjectName(f"label-{cls}-point")
-            pt_label.setToolTip(gui_config.get("tooltip", "Point coordinates for the milling pattern."))
-
-            hbox_layout = QHBoxLayout()
-            for attr in ["x", "y"]:
-                # create double spin boxes for point coordinates
-                control = QDoubleSpinBox(self)
-                control.setSuffix(f" {units}")
-                control.setRange(-1000, 1000)
-                control.setSingleStep(step_size)
-                value = getattr(params["point"], attr)
-                if scale is not None:
-                    value *= scale
-                control.setValue(value)
-                control.setObjectName(f"control-pattern-point.{attr}")
-                control.setKeyboardTracking(False)
-                control.setDecimals(decimals)
-                control.valueChanged.connect(self._update_setting)
-
-                self.parameters[cls][f"point.{attr}"] = (pt_label, control, scale)
-                hbox_layout.addWidget(control)
-
-            # add both point controls to widget, set the padding to 0 to match other visual
-            point_widget = QWidget(self)
-            point_widget.setObjectName(f"point-widget-{cls}")
-            point_widget.setToolTip(gui_config.get("tooltip", "Point coordinates for the milling pattern."))
-            hbox_layout.setContentsMargins(0, 0, 0, 0)
-            point_widget.setContentsMargins(0, 0, 0, 0)
-            point_widget.setLayout(hbox_layout)
-
-            # add to the grid layout
-            row = grid_layout.rowCount()
-            grid_layout.addWidget(pt_label, row, 0, 1, 1)
-            grid_layout.addWidget(point_widget, row, 1, 1, 1)
+        if control_type == "pattern":
+            self._create_point_controls(control_type, params, field_metadata, grid_layout)
 
         for name, value in params.items():
 
-            if cls == "milling" and name in ["milling_channel", "hfw", "acquire_images"]:
-                continue
+            conf = field_metadata.get(name, {})
 
-            # get the GUI configuration for the parameter
-            gui_config: Dict[str, Any] = config.get(name, {})
-            label_text = gui_config.get("label", name.replace("_", " ").title())
-            scale = gui_config.get("scale", DEFAULT_PARAMETERS["scale"])
-            units = gui_config.get("units", DEFAULT_PARAMETERS["units"])
-            minimum = gui_config.get("minimum", DEFAULT_PARAMETERS["minimum"])
-            maximum = gui_config.get("maximum", DEFAULT_PARAMETERS["maximum"])
-            step_size = gui_config.get("step", DEFAULT_PARAMETERS["step"])
-            decimals = gui_config.get("decimals", DEFAULT_PARAMETERS["decimals"])
-            items = gui_config.get("items", [])
+            # skip parameters that should not be shown in the GUI
+            if conf.get("hidden", False) is True:
+                continue
+            # QUERY: use a data structure for field metadata instead of dict?
+            label_text = conf.get("label") or name.replace("_", " ").title()
+            scale = conf.get("scale")
+            units = conf.get("unit")
+            minimum = conf.get("minimum")
+            maximum = conf.get("maximum")
+            step_size = conf.get("step")
+            decimals = conf.get("decimals")
+            items = conf.get("items", [])
+            tooltip = conf.get("tooltip", None)
+            parameter_mapping = conf.get("microscope_parameter", name)
+            is_filepath = conf.get("filepath", False)
+            dimensions = conf.get("dimensions", None)
+            format_fn = conf.get("format_fn", None)
+
+            # display unit -> prefix + unit
+            display_unit = None
+            if units is not None and scale is not None:
+                display_unit = utils._get_display_unit(scale, units)
+            elif units is not None:
+                display_unit = units
+
+            # adjust scale for dimensions
+            if dimensions is not None and scale is not None:
+                scale = scale ** dimensions
 
             # set label text
             label = QLabel(label_text)
@@ -626,39 +331,15 @@ class FibsemMillingStageWidget(QWidget):
             # add combobox controls
             if items:
                 if items == "dynamic":
-                    items = self.microscope.get_available_values(PARAMETER_MAPPING.get(name, name), BeamType.ION)
-
-                control = QComboBox()
-                for item in items:
-                    if isinstance(item, (float, int)):
-                        item_str = format_value(val=item,
-                                                unit=units,
-                                                precision=gui_config.get("decimals", 1))
-                    elif isinstance(item, Enum):
-                        item_str = item.name # TODO: migrate to QEnumComboBox
-                    elif "resolution" in name:
-                        item_str = f"{item[0]}x{item[1]}"
-                    else:
-                        item_str = str(item)
-                    control.addItem(item_str, item)
-
-                if isinstance(value, tuple) and len(value) == 2:
-                    value = list(value)  # Convert tuple to list for easier handling
-
-                # find the closest match to the current value (should only be used for numerical values)
-                idx = control.findData(value)
-                if idx == -1:
-                    # get the closest value
-                    closest_value = min(items, key=lambda x: abs(x - value))
-                    idx = control.findData(closest_value)
-                if idx == -1:
-                    logging.debug(f"Warning: No matching item or nearest found for {name} with value {value}. Using first item.")
-                    idx = 0
-                control.setCurrentIndex(idx)
+                    items = self.microscope.get_available_values(parameter_mapping, BeamType.ION)
+                control = _create_combobox_control(value, items, units, format_fn)
 
             # add line edit controls
             elif isinstance(value, str):
-                control = QLineEdit()
+                if is_filepath:
+                    control = QFilePathLineEdit()
+                else:
+                    control = QLineEdit()
                 control.setText(value)
             # add checkbox controls
             elif isinstance(value, bool):
@@ -667,8 +348,8 @@ class FibsemMillingStageWidget(QWidget):
             elif isinstance(value, (float, int)):
 
                 control = QDoubleSpinBox()
-                if units is not None:
-                    control.setSuffix(f' {units}')
+                if display_unit is not None:
+                    control.setSuffix(f' {display_unit}')
                 if scale is not None:
                     value = value * scale
                 if minimum is not None:
@@ -681,25 +362,25 @@ class FibsemMillingStageWidget(QWidget):
                     control.setDecimals(decimals)
                 control.setValue(value)
                 control.setKeyboardTracking(False)
-            else:
+            else: # unsupported type
                 continue
 
             # Set tooltip for both label and control
-            if tooltip := gui_config.get("tooltip"):
+            if tooltip:
                 label.setToolTip(tooltip)
                 control.setToolTip(tooltip)
 
             grid_layout.addWidget(label, grid_layout.rowCount(), 0)
             grid_layout.addWidget(control, grid_layout.rowCount() - 1, 1)
 
-            label.setObjectName(f"label-{cls}-{name}")
-            control.setObjectName(f"control-{cls}-{name}")
-            self.parameters[cls][name] = (label, control, scale)
+            label.setObjectName(f"label-{control_type}-{name}")
+            control.setObjectName(f"control-{control_type}-{name}")
+            self.parameters[control_type][name] = (label, control, scale)
 
             if isinstance(control, QComboBox):
                 control.currentIndexChanged.connect(self._update_setting)
-            elif isinstance(control, QLineEdit):
-                control.textChanged.connect(self._update_setting)
+            elif isinstance(control, (QLineEdit, QFilePathLineEdit)):
+                control.editingFinished.connect(self._update_setting)
             elif isinstance(control, QCheckBox):
                 control.toggled.connect(self._update_setting)
             elif isinstance(control, (QSpinBox, QDoubleSpinBox)):
@@ -709,27 +390,29 @@ class FibsemMillingStageWidget(QWidget):
     def _update_setting(self):
         obj = self.sender()
         if not obj:
+            logging.warning("No sender object for _update_setting")
             return
         obj_name = obj.objectName()
-        _, cls, name = obj_name.split("-", 2)
+        _, control_type, name = obj_name.split("-", 2)
 
         if isinstance(obj, QComboBox):
             value = obj.currentData()
-        elif isinstance(obj, QLineEdit):
+        elif isinstance(obj, (QLineEdit, QFilePathLineEdit)):
             value = obj.text()
         elif isinstance(obj, QCheckBox):
             value = obj.isChecked()
         elif isinstance(obj, (QSpinBox, QDoubleSpinBox)):
             value = obj.value()
             # apply scale if defined
-            scale = self.parameters[cls][name][2]
+            scale = self.parameters[control_type][name][2]
             if scale is not None:
                 value /= scale
         else:
+            logging.warning(f"Unsupported control type: {obj_name} {type(obj)} for {control_type}-{name}")
             return
 
         # update the milling_stage object
-        if hasattr(self._milling_stage, cls):
+        if hasattr(self._milling_stage, control_type):
 
             # special case for pattern point
             if "point" in name:
@@ -737,17 +420,75 @@ class FibsemMillingStageWidget(QWidget):
                     setattr(self._milling_stage.pattern.point, "x", value)
                 elif "y" in name:
                     setattr(self._milling_stage.pattern.point, "y", value)
-            elif cls == "name":
+            elif control_type == "name":
                 setattr(self._milling_stage, "name", value)
             else:
-                setattr(getattr(self._milling_stage, cls), name, value)
-        elif hasattr(self._milling_stage, "strategy") and cls == "strategy.config":
+                setattr(getattr(self._milling_stage, control_type), name, value)
+        elif hasattr(self._milling_stage, "strategy") and control_type == "strategy.config":
             # Special case for strategy config
             setattr(self._milling_stage.strategy.config, name, value)
         else:
-            logging.debug(f"Warning: {cls} not found in milling_stage object. Cannot update {name}.")
+            logging.debug(f"Warning: {control_type} not found in milling_stage object. Cannot update {name}.")
 
         self._milling_stage_changed.emit(self._milling_stage)  # notify changes
+
+    def _create_point_controls(self, control_type: str, 
+                               params: Dict[str, Any], 
+                               field_metadata: Dict[str, Dict[str, Any]], 
+                               grid_layout: QGridLayout):
+        """Create controls for the point parameter (x, y)."""
+
+        point_field_metadata = field_metadata["point"]
+        label_text = point_field_metadata["label"]
+        units = point_field_metadata["unit"]
+        scale = point_field_metadata["scale"]
+        minimum = point_field_metadata["minimum"]
+        maximum = point_field_metadata["maximum"]
+        step_size = point_field_metadata["step"]
+        decimals = point_field_metadata["decimals"]
+        tooltip = point_field_metadata["tooltip"]
+        display_unit = None
+        if units is not None and scale is not None:
+            display_unit = utils._get_display_unit(scale, units)
+        elif units is not None:
+            display_unit = units
+
+        # create label for point
+        pt_label = QLabel(self)
+        pt_label.setText(label_text)
+        pt_label.setObjectName(f"label-{control_type}-point")
+        pt_label.setToolTip(tooltip)
+
+        hbox_layout = QHBoxLayout()
+        for attr in ["x", "y"]:
+            control = QDoubleSpinBox(self)
+            control.setSuffix(f" {display_unit}")
+            control.setRange(minimum, maximum)
+            control.setSingleStep(step_size)
+            value = getattr(params["point"], attr)
+            if scale is not None:
+                value *= scale
+            control.setValue(value)
+            control.setObjectName(f"control-pattern-point.{attr}")
+            control.setKeyboardTracking(False)
+            control.setDecimals(decimals)
+            control.valueChanged.connect(self._update_setting)
+
+            self.parameters[control_type][f"point.{attr}"] = (pt_label, control, scale)
+            hbox_layout.addWidget(control)
+
+        # add both point controls to widget, set the padding to 0 to match other visual
+        point_widget = QWidget(self)
+        point_widget.setObjectName(f"point-widget-{control_type}")
+        point_widget.setToolTip(tooltip)
+        hbox_layout.setContentsMargins(0, 0, 0, 0)
+        point_widget.setContentsMargins(0, 0, 0, 0)
+        point_widget.setLayout(hbox_layout)
+
+        # add to the grid layout
+        row = grid_layout.rowCount()
+        grid_layout.addWidget(pt_label, row, 0, 1, 1)
+        grid_layout.addWidget(point_widget, row, 1, 1, 1)
 
     def get_milling_stage(self) -> FibsemMillingStage:
         return self._milling_stage

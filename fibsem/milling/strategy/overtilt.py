@@ -10,6 +10,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import draw_pattern, run_milling, setup_milling, finish_milling
 from fibsem.milling.base import (FibsemMillingStage, MillingStrategy,
                                  MillingStrategyConfig)
+from fibsem.milling.properties import DEFAULT_IMAGE_RESOLUTION_METADATA, DEFAULT_ANGLE_METADATA
 from fibsem.milling.patterning.patterns2 import TrenchPattern
 from fibsem.structures import (BeamType, FibsemImage, FibsemRectangle,
                                FibsemStagePosition, ImageSettings)
@@ -17,8 +18,36 @@ from fibsem.structures import (BeamType, FibsemImage, FibsemRectangle,
 
 @dataclass
 class OvertiltTrenchMillingConfig(MillingStrategyConfig):
-    overtilt: float = 1
-    resolution: List[int] = field(default_factory=lambda: [1536, 1024])
+    overtilt: float = field(default=1.0, 
+                            metadata={
+                                **DEFAULT_ANGLE_METADATA,
+                                "label": "Overtilt",
+                                "minimum": 0.1,
+                                "maximum": 10.0,
+                                "step": 0.5,
+                                "tooltip": "The overtilt angle for the milling strategy."
+                                })
+    image_resolution: List[int] = field(default_factory=lambda: [1536, 1024],
+                                  metadata={
+                                    **DEFAULT_IMAGE_RESOLUTION_METADATA,
+                                      "tooltip": "The imaging resolution for the milling strategy."
+                                  })
+    secret_parameter: bool = field(default=False,
+                                  metadata={
+                                      "label": "Secret Parameter",
+                                      "type": bool,
+                                      "advanced": True,
+                                      "tooltip": "A secret parameter for internal use (testing)."
+                                  })
+    area_parameter: float = field(default=1e-6,
+                                  metadata={
+                                      "label": "Area Parameter",
+                                      "type": float,
+                                      "unit": "m²",
+                                      "dimensions": 2,
+                                      "scale": 1e6,
+                                      "tooltip": "An area parameter for internal use (testing)."
+                                  })
 
 
 class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]):
@@ -47,7 +76,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         # TODO: use drift correction structure to re-align? once added to milling stage
         image_settings = ImageSettings(hfw=stage.milling.hfw,
                                        dwell_time=1e-6, 
-                                       resolution=[1536, 1024], 
+                                       resolution=self.config.image_resolution,
                                        beam_type=stage.milling.milling_channel)
         image_settings.reduced_area = stage.alignment.rect
         image_settings.path = os.getcwd()
