@@ -132,6 +132,20 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
 
 
 @dataclass
+class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
+    """Configuration for the SelectMillingPositionTask."""
+
+    milling_angle: float = field(
+        default=15,
+        metadata={
+            "help": "The angle between the FIB and sample used for milling",
+            "units": constants.DEGREE_SYMBOL,
+        },)    
+    task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
+    display_name: ClassVar[str] = "Select Milling Position"
+
+
+@dataclass
 class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the SetupLamellaTask."""
 
@@ -864,6 +878,65 @@ class SpotBurnFiducialTask(AutoLamellaTask):
 # setup lamella: mill fiducial, acquire alignment image, set alignment area
 # then allow the user to modify the other patterns (rough mill, polishing) asynchronously in gui
 
+
+class SelectMillingPositionTask(AutoLamellaTask):
+    """Task to setup the lamella for milling."""
+    config: SelectMillingPositionTaskConfig
+    config_cls: ClassVar[Type[SelectMillingPositionTaskConfig]] = SelectMillingPositionTaskConfig
+
+    def _run(self) -> None:
+        """Run the task to select the milling position for the lamella for milling."""
+
+        # bookkeeping
+        self.image_settings: ImageSettings = self.config.imaging
+        self.image_settings.path = self.lamella.path
+
+        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
+        stage_position = self.lamella.stage_position
+        if self.lamella.milling_pose is not None and self.lamella.milling_pose.stage_position is not None:
+            logging.info(f"Lamella {self.lamella.name} already has a milling pose set. Using existing milling pose.")
+            stage_position = self.lamella.milling_pose.stage_position
+        self.microscope.safe_absolute_stage_movement(stage_position)
+
+        self.log_status_message("SELECT_POSITION", "Selecting Position...")
+        milling_angle = self.config.milling_angle
+        is_close = self.microscope.is_close_to_milling_angle(milling_angle=milling_angle)
+
+        if not is_close and self.validate:
+            current_milling_angle = self.microscope.get_current_milling_angle()
+            ret = ask_user(parent_ui=self.parent_ui,
+                        msg=f"Tilt to specified milling angle ({milling_angle:.1f} {constants.DEGREE_SYMBOL})? "
+                        f"Current milling angle is {current_milling_angle:.1f} {constants.DEGREE_SYMBOL}.",
+                        pos="Tilt", neg="Skip")
+            if ret:
+                self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
+                # TODO: create an automated eucentric version of this...
+                # alignment._eucentric_tilt_alignment(microscope=self.microscope,
+                #                                     image_settings=self.image_settings,
+                #                                     target_angle=milling_angle,
+                #                                     step_size=3,
+                #                                     )
+
+        # acquire an image at the milling position
+        self._acquire_reference_image(image_settings=self.image_settings,
+                                      filename=f"ref_{self.task_name}_initial_position",
+                                      field_of_view=self.config.reference_imaging.field_of_view1)
+
+        # confirm with user to move to milling position
+        if self.validate:
+            ask_user(parent_ui=self.parent_ui,
+                    msg=f"Move to the milling position for {self.lamella.name} in the microscope UI. "
+                        f"Press Continue when done.",
+                    pos="Continue")
+
+        # reference images
+        self._acquire_set_of_reference_images(self.image_settings)
+
+        # store milling angle and pose
+        self.lamella.milling_angle = self.microscope.get_current_milling_angle()
+        self.lamella.milling_pose = self.microscope.get_microscope_state()
+
+
 class SetupLamellaTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
     config: SetupLamellaTaskConfig
@@ -1150,6 +1223,7 @@ TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = {
     SetupLamellaTaskConfig.task_type: SetupLamellaTask,
     AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
     BasicMillingTaskConfig.task_type: BasicMillingTask,
+    SelectMillingPositionTaskConfig.task_type: SelectMillingPositionTask,
     # Add other tasks here as needed
 }
 
