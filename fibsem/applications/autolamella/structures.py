@@ -315,6 +315,13 @@ class AutoLamellaWorkflowConfig:
                 return task.supervise
         return False
 
+    def add_task(self, task: AutoLamellaTaskConfig) -> None:
+        """Add a task to the workflow configuration."""
+        self.tasks.append(AutoLamellaTaskDescription(name=task.task_name, 
+                                                     supervise=True, 
+                                                     required=True, 
+                                                     requires=[]))
+
     @property
     def is_valid(self) -> bool:
         """Check if the workflow configuration is valid."""

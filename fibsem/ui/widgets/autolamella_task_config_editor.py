@@ -416,6 +416,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
             self.parent_widget.experiment.save()
             self.parent_widget.experiment.task_protocol.save(os.path.join(self.experiment.path, "protocol.yaml"))
+            self.parent_widget.workflow_widget._refresh_from_state()
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
@@ -430,6 +431,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
                 # Add to experiment
                 self.experiment.task_protocol.task_config[task_name] = new_task_config
+                self.experiment.task_protocol.workflow_config.add_task(new_task_config)
 
                 # also add task to each existing lamella
                 for lamella in self.experiment.positions:
