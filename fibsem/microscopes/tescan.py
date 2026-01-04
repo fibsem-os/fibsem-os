@@ -319,6 +319,10 @@ class TescanMicroscope(FibsemMicroscope):
         self.reset_beam_shifts()
         logging.debug({"msg": "connect_to_microscope", "ip_address": ip_address, "port": port, "system_info": self.system.info.to_dict()})
 
+    @property
+    def manufacturer(self) -> str:
+        return "Tescan"
+
     def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         """
         Acquire a new image with the specified settings or current settings for the given beam type.

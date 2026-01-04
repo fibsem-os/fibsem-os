@@ -1207,6 +1207,10 @@ class FibsemMicroscope(ABC):
         except Exception:
             return "NONE"
 
+    @property
+    def manufacturer(self) -> str:
+        return "ThermoFisher"
+
 def _thermo_application_file_wrapper_for_drawing_functions(
     patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
 ) -> Callable[["ThermoMicroscope", TFibsemPatternSettings], Any]:

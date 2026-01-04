@@ -86,6 +86,8 @@ class FibsemMillingStageWidget(QWidget):
 
     def _determine_manufacturer(self) -> str:
         """Determine the manufacturer of the microscope for dynamic parameter items."""
+        if hasattr(self.microscope, "manufacturer"):
+            return self.microscope.manufacturer
         from fibsem.microscopes.tescan import TescanMicroscope
         if isinstance(self.microscope, TescanMicroscope):
             return "Tescan"
