@@ -73,7 +73,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # lamella, milling controls
         self.label_selected_lamella = QLabel("Lamella")
         self.comboBox_selected_lamella = QComboBox()
-        self.pushButton_refresh_positions = QPushButton("Refresh Experiment Positions")
+        self.pushButton_refresh_positions = QPushButton("Refresh Experiment Data")
+        self.pushButton_refresh_positions.setToolTip("Refresh the list of lamella positions from the experiment (and associated data).")
         self.pushButton_refresh_positions.clicked.connect(self._refresh_experiment_positions)
         self.label_selected_milling = QLabel("Task Name")
         self.comboBox_selected_task = QComboBox()
