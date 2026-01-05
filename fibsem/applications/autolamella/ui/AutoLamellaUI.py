@@ -44,9 +44,8 @@ from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 from fibsem.ui.widgets.autolamella_create_experiment_widget import create_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_task_protocol_widget import load_task_protocol_dialog
-from fibsem.ui.widgets.autolamella_task_config_editor import show_protocol_editor
+from fibsem.ui.widgets.autolamella_task_config_editor import show_protocol_editor, AutoLamellaProtocolEditorTabWidget
 from fibsem.ui.widgets.autolamella_task_history_widget import AutoLamellaWorkflowDisplayWidget
-from fibsem.ui.widgets.autolamella_workflow_widget import AutoLamellaWorkflowWidget
 from fibsem.ui.widgets.autolamella_defect_state_widget import AutoLamellaDefectStateWidget
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.applications.autolamella import config as cfg
@@ -125,7 +124,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskConfigWidget] = None
         self.det_widget: Optional['FibsemEmbeddedDetectionWidget'] = None
-        self.workflow_widget: AutoLamellaWorkflowWidget = AutoLamellaWorkflowWidget(parent=self)
+        self.protocol_editor_widget: Optional[AutoLamellaProtocolEditorTabWidget] = None
 
         # minimap plot widget
         self.minimap_plot_widget = MinimapPlotWidget(self)
@@ -137,7 +136,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
-        self.tabWidget.addTab(self.workflow_widget, "Workflow")
 
         self.WAITING_FOR_USER_INTERACTION: bool = False
         self.USER_RESPONSE: bool = False
@@ -263,8 +261,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.task_history_widget = AutoLamellaWorkflowDisplayWidget(experiment=None, parent=self)
         self.scrollArea_lamella_info.setWidget(self.task_history_widget)
 
-        self.workflow_widget.workflow_config_changed.connect(self._on_workflow_config_changed)
-        self.workflow_widget.workflow_options_changed.connect(self._on_workflow_options_changed)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -639,7 +635,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
                 self.image_widget.acquisition_progress_signal.disconnect(self.handle_acquisition_update)
                 self.image_widget.deleteLater()
                 self.image_widget = None
-            self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.workflow_widget), False)
 
 #### REPORT GENERATION
     def action_generate_report(self) -> None:
@@ -683,7 +678,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def _open_protocol_editor(self):
         """Open the protocol editor dialog."""
 
-        self.protocol_editor_widget = show_protocol_editor(parent=self)
+        show_protocol_editor(parent=self)
 
 
     def _open_experiment_directory(self) -> None:
@@ -901,7 +896,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
 
         # workflow
-        self.update_protocol_ui()
+        # self.update_protocol_ui()
 
         # setup experiment -> connect to microscope -> select lamella -> run autolamella
 
@@ -985,11 +980,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.set_instructions_msg(INSTRUCTIONS["AUTOLAMELLA_READY"])
 
     def update_protocol_ui(self):
-        if self.experiment is None or self.experiment.task_protocol is None:
-            self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.workflow_widget), False)
-            return
-        self.workflow_widget.set_experiment(self.experiment)
-        self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.workflow_widget), True)
+        """Update the protocol editor ui based on the current experiment protocol."""
+        if self.protocol_editor_widget is not None and self.experiment is not None:
+            self.protocol_editor_widget.workflow_widget.set_experiment(self.experiment) 
+            self.protocol_editor_widget.task_widget._initialise_widgets()
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1457,6 +1451,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # Update UI
         self.update_ui()
+        self.update_protocol_ui()
 
     def export_protocol_ui(self):
         """Export the current protocol to file."""

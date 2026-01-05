@@ -33,6 +33,7 @@ from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import AutoLamellaProtocolEditorWidget
+from fibsem.ui.widgets.autolamella_workflow_widget import AutoLamellaWorkflowWidget
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
@@ -416,7 +417,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
             self.parent_widget.experiment.save()
             self.parent_widget.experiment.task_protocol.save(os.path.join(self.experiment.path, "protocol.yaml"))
-            self.parent_widget.workflow_widget._refresh_from_state()
+            self.parent_widget.protocol_editor_widget.workflow_widget._refresh_from_state()
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
@@ -585,6 +586,9 @@ class AutoLamellaProtocolEditorTabWidget(QTabWidget):
     def __init__(self, parent_widget: Optional['AutoLamellaUI'] = None):
         super().__init__(parent_widget)
         self.parent_widget = parent_widget
+        self.workflow_widget: AutoLamellaWorkflowWidget
+        self.task_widget: AutoLamellaProtocolTaskConfigEditor
+        self.lamella_widget : AutoLamellaProtocolEditorWidget
 
         # Connect to tab change signal
         self.currentChanged.connect(self._on_tab_changed)
@@ -596,7 +600,7 @@ class AutoLamellaProtocolEditorTabWidget(QTabWidget):
         try:
             for i in range(self.count()):
                 w: Union[AutoLamellaProtocolTaskConfigEditor, AutoLamellaProtocolEditorWidget] = self.widget(i)
-                if w is None:
+                if w is None or isinstance(w, AutoLamellaWorkflowWidget):
                     continue
                 milling_editor = w.milling_task_editor.config_widget.milling_editor_widget
 
@@ -605,12 +609,18 @@ class AutoLamellaProtocolEditorTabWidget(QTabWidget):
                     milling_editor.is_movement_locked = False  # lock movement when tab is not focused
                     if index == 0:  # Task Config tab
                         w._on_selected_task_changed()  # type: ignore
-                    elif index == 1:  # Lamella Config tab
+                    elif index == 2:  # Lamella Config tab
                         w._on_selected_lamella_changed()  # type: ignore
                 else:
                     milling_editor.is_movement_locked = True  # lock movement when tab is not focused
         except Exception as e:
             logging.error(f"Error updating tab '{tab_name}': {e}")
+
+    def closeEvent(self, event):
+        """Handle widget close event to clean up parent reference."""
+        if self.parent_widget is not None:
+            self.parent_widget.protocol_editor_widget = None
+        super().closeEvent(event)
 
 
 def show_protocol_editor(parent: 'AutoLamellaUI'):
@@ -618,12 +628,31 @@ def show_protocol_editor(parent: 'AutoLamellaUI'):
     viewer = napari.Viewer(title="AutoLamella Protocol Editor")
 
     # create a tab widget and add the editor as a tab
-    widget1 = AutoLamellaProtocolTaskConfigEditor(viewer=viewer, parent=parent)
-    widget2 = AutoLamellaProtocolEditorWidget(viewer=viewer, parent=parent)
+    task_widget = AutoLamellaProtocolTaskConfigEditor(viewer=viewer, parent=parent)
+    lamella_widget = AutoLamellaProtocolEditorWidget(viewer=viewer, parent=parent)
+    workflow_widget = AutoLamellaWorkflowWidget(experiment=parent.experiment, parent=parent)
+    workflow_widget.workflow_config_changed.connect(parent._on_workflow_config_changed)
+    workflow_widget.workflow_options_changed.connect(parent._on_workflow_options_changed)
     tab_widget = AutoLamellaProtocolEditorTabWidget(parent_widget=parent)
-    tab_widget.addTab(widget1, "Protocol")
-    tab_widget.addTab(widget2, "Lamella")
+    tab_widget.addTab(task_widget, "Protocol")
+    tab_widget.addTab(workflow_widget, "Workflow")
+    tab_widget.addTab(lamella_widget, "Lamella")
     tab_widget._on_tab_changed(0)  # default to Protocol tab
+
+    tab_widget.workflow_widget = workflow_widget
+    tab_widget.task_widget = task_widget
+    tab_widget.lamella_widget = lamella_widget
+
+    # Store reference in parent for later access
+    parent.protocol_editor_widget = tab_widget
+
+    # Connect to viewer window destruction to clean up parent reference
+    # This is necessary because closeEvent on the dock widget isn't triggered when napari closes
+    def on_viewer_closed():
+        if parent.protocol_editor_widget is not None:
+            parent.protocol_editor_widget = None
+
+    viewer.window._qt_window.destroyed.connect(on_viewer_closed)
 
     viewer.window.add_dock_widget(tab_widget, area='right', name='AutoLamella Protocol Editor')
     viewer.window.activate()
