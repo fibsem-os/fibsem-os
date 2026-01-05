@@ -296,7 +296,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
     def _update_milling_angle(self):
         """Update the milling angle in the microscope and the UI"""
         milling_angle = self.doubleSpinBox_milling_angle.value() # deg
-        self.microscope.system.stage.milling_angle = milling_angle
+        self.microscope.set_milling_angle(milling_angle)
 
         # refresh tooltip and overlay
         milling = self.microscope.get_orientation("MILLING")

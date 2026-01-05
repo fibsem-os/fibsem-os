@@ -1094,12 +1094,63 @@ class FibsemMicroscope(ABC):
         return target_position
 
     def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        """Get the orientation of the stage position."""
-        return NotImplemented
+        """Get the current stage orientation based on the stage position (r,t).
+        Args:
+            stage_position (FibsemStagePosition, optional): stage position to use. If None, uses current stage position.
+        Returns:
+            str: current stage orientation ("SEM", "FIB", "MILLING", "NONE")
+        """
+        # TODO: update this to an enum
+
+        # current stage position
+        if stage_position is None:
+            stage_position = self.get_stage_position()
+        if stage_position.r is None or stage_position.t is None:
+            raise ValueError("Stage position must have both rotation (r) and tilt (t) defined.")
+        stage_rotation = stage_position.r % (2 * np.pi)
+        stage_tilt = stage_position.t
+
+        from fibsem import movement
+        # TODO: also check xyz ranges?
+
+        sem = self.get_orientation("SEM")
+        fib = self.get_orientation("FIB")
+        milling = self.get_orientation("MILLING")
+        if sem is None or fib is None or milling is None:
+            raise ValueError("SEM, FIB or MILLING orientation not defined in the system.")
+        if sem.r is None or sem.t is None or fib.r is None or fib.t is None or milling.r is None or milling.t is None:
+            raise ValueError("SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined.")
+
+        is_sem_rotation = movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5) # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
+        is_fib_rotation = movement.rotation_angle_is_smaller(stage_rotation, fib.r, atol=5)
+
+        is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
+        is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
+        is_milling_tilt = np.radians(-45) < stage_tilt  < sem.t
+
+        if is_sem_rotation and is_sem_tilt:
+            return "SEM"
+        if is_sem_rotation and is_milling_tilt:
+            return "MILLING"
+        if is_fib_rotation and is_fib_tilt:
+            return "FIB"
+
+        return "NONE"
 
     def get_orientation(self, orientation: str) -> FibsemStagePosition:
         """Get the orientation (r,t) for the given orientation string."""
-        # NOTE: this should be cached, and only re-calculated if the stage settings change
+
+        # if orientations not initialised, update
+        if not hasattr(self, "orientations"):
+            self._update_orientations()
+       
+        if orientation not in self.orientations:
+            raise ValueError(f"Orientation {orientation} not supported.")
+
+        return self.orientations[orientation]
+
+    def _update_orientations(self) -> None:
+        """Update the stage orientations based on the current system settings."""
 
         stage_settings = self.system.stage
         shuttle_pre_tilt = stage_settings.shuttle_pre_tilt  # deg
@@ -1135,10 +1186,10 @@ class FibsemMicroscope(ABC):
             # only x/y translation, no rotation
             self.orientations["FM"] = deepcopy(self.orientations["FIB"])
 
-        if orientation not in self.orientations:
-            raise ValueError(f"Orientation {orientation} not supported.")
-
-        return self.orientations[orientation]
+    def set_milling_angle(self, milling_angle: float) -> None:
+        """Set the 'stored' milling angle in the system settings."""
+        self.system.stage.milling_angle = milling_angle
+        self._update_orientations()
 
     def get_current_milling_angle(self) -> float:
         """Get the current milling angle in degrees based on the current stage tilt."""
@@ -2181,43 +2232,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return expected_y
 
-    # TODO: update this to an enum
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
 
-        # current stage position
-        if stage_position is None:
-            stage_position = self.get_stage_position()
-        if stage_position.r is None or stage_position.t is None:
-            raise ValueError("Stage position must have both rotation (r) and tilt (t) defined.")
-        stage_rotation = stage_position.r % (2 * np.pi)
-        stage_tilt = stage_position.t
-
-        from fibsem import movement
-        # TODO: also check xyz ranges?
-
-        sem = self.get_orientation("SEM")
-        fib = self.get_orientation("FIB")
-        milling = self.get_orientation("MILLING")
-        if sem is None or fib is None or milling is None:
-            raise ValueError("SEM, FIB or MILLING orientation not defined in the system.")
-        if sem.r is None or sem.t is None or fib.r is None or fib.t is None or milling.r is None or milling.t is None:
-            raise ValueError("SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined.")
-
-        is_sem_rotation = movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5) # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
-        is_fib_rotation = movement.rotation_angle_is_smaller(stage_rotation, fib.r, atol=5)
-
-        is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
-        is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-        is_milling_tilt = np.radians(-45) < stage_tilt  < sem.t
-
-        if is_sem_rotation and is_sem_tilt:
-            return "SEM"
-        if is_sem_rotation and is_milling_tilt:
-            return "MILLING"
-        if is_fib_rotation and is_fib_tilt:
-            return "FIB"
-
-        return "NONE"
 
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits for x, y, z, t, r."""

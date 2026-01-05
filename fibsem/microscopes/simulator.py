@@ -568,9 +568,6 @@ class DemoMicroscope(FibsemMicroscope):
         elif beam_type == BeamType.ION:
             self.ion_system.beam.shift += Point(float(dx), float(dy))
 
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        return ThermoMicroscope.get_stage_orientation(self, stage_position)
-
     def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
         return ThermoMicroscope._safe_rotation_movement(self, stage_position)
 

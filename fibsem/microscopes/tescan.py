@@ -647,11 +647,6 @@ class TescanMicroscope(FibsemMicroscope):
         z_move = FibsemStagePosition(x=dx, y=0, z=dy, r=0, t=0)
         self.move_stage_relative(z_move)
 
-    # TODO: make this generic?
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        from fibsem.microscope import ThermoMicroscope
-        return ThermoMicroscope.get_stage_orientation(self, stage_position) # type: ignore
-
     def _y_corrected_stage_movement(
         self,
         expected_y: float,
