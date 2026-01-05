@@ -1116,9 +1116,8 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         # move to position
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
         stage_position = self.lamella.stage_position
-        self.microscope.safe_absolute_stage_movement(stage_position)
+        self.microscope.safe_absolute_stage_movement(stage_position) # TODO: use orientation/pose instead
 
-        time.sleep(random.uniform(3, 5))
         if self.validate:
             ask_user(self.parent_ui,
                     msg=f"Acquire reference image for {self.lamella.name}. Press continue when ready.",
