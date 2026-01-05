@@ -6,7 +6,6 @@ from typing import List, Optional
 import napari
 import napari.utils.notifications
 import numpy as np
-import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 
@@ -28,6 +27,7 @@ from fibsem.ui.stylesheets import (
     GREEN_PUSHBUTTON_STYLE,
     ORANGE_PUSHBUTTON_STYLE,
     RED_PUSHBUTTON_STYLE,
+    LABEL_INSTRUCTIONS_STYLE,
 )
 from fibsem.ui.utils import (
     WheelBlocker,
@@ -36,6 +36,8 @@ from fibsem.ui.utils import (
     open_save_file_dialog,
 )
 
+INSTRUCTIONS_TEXT = """Double Click to Move. 
+Alt + Double Click to Move Vertically"""
 
 class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
@@ -65,6 +67,9 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
     def setup_connections(self):
 
+        # load persisted movement acquisition preferences
+        self._apply_movement_preferences()
+
         # buttons
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
         self.pushButton_move_flat_ion.clicked.connect(self.move_flat_to_beam)
@@ -76,7 +81,8 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
 
         # disable ui elements
-        self.label_movement_instructions.setText("Double click to move. Alt + Double Click in the Ion Beam to Move Vertically")
+        self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
+        self.label_movement_instructions.setStyleSheet(LABEL_INSTRUCTIONS_STYLE)
 
         # saved positions
         self.comboBox_positions.currentIndexChanged.connect(self.current_selected_position_changed)
@@ -91,11 +97,27 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.movement_progress_signal.connect(self.handle_movement_progress_update)
         self.image_widget.acquisition_progress_signal.connect(self.handle_acquisition_update)
         self.saved_positions_updated_signal.connect(self.update_saved_positions_ui)
+        self.checkBox_movement_acquire_electron.stateChanged.connect(self._save_movement_preferences)
+        self.checkBox_movement_acquire_ion.stateChanged.connect(self._save_movement_preferences)
+
+        stage_limits = self.microscope._stage.limits
+        xlimits = stage_limits['x']
+        ylimits = stage_limits['y']
+        zlimits = stage_limits['z']
+        tlimits = stage_limits['t']
+
+        self.doubleSpinBox_movement_stage_tilt.setMinimum(tlimits.min)
+        self.doubleSpinBox_movement_stage_tilt.setMaximum(tlimits.max)
+        self.doubleSpinBox_movement_stage_x.setMinimum(xlimits.min * constants.SI_TO_MILLI)
+        self.doubleSpinBox_movement_stage_x.setMaximum(xlimits.max * constants.SI_TO_MILLI)
+        self.doubleSpinBox_movement_stage_y.setMinimum(ylimits.min * constants.SI_TO_MILLI)
+        self.doubleSpinBox_movement_stage_y.setMaximum(ylimits.max * constants.SI_TO_MILLI)
+        self.doubleSpinBox_movement_stage_z.setMinimum(zlimits.min * constants.SI_TO_MILLI)
+        self.doubleSpinBox_movement_stage_z.setMaximum(zlimits.max * constants.SI_TO_MILLI)
 
         # set custom tilt limits for the compustage
         if self.microscope.stage_is_compustage:
-            self.doubleSpinBox_movement_stage_tilt.setMinimum(-195.0)
-            self.doubleSpinBox_movement_stage_tilt.setMaximum(15)
+
 
             # NOTE: these values are expressed in mm in the UI, hence the conversion
             # set x, y, z step sizes to be 1 um
@@ -103,11 +125,9 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             self.doubleSpinBox_movement_stage_y.setSingleStep(1e-6 * constants.SI_TO_MILLI)
             self.doubleSpinBox_movement_stage_z.setSingleStep(1e-6 * constants.SI_TO_MILLI)
 
-            # TODO: get the true limits from the microscope
-            self.doubleSpinBox_movement_stage_x.setMinimum(-999.9e-6 * constants.SI_TO_MILLI)
-            self.doubleSpinBox_movement_stage_x.setMaximum(999.9e-6 * constants.SI_TO_MILLI)
-            self.doubleSpinBox_movement_stage_y.setMinimum(-377.8e-6 * constants.SI_TO_MILLI)
-            self.doubleSpinBox_movement_stage_y.setMaximum(377.8e-6 * constants.SI_TO_MILLI)
+            # hide rotation control for compustage
+            self.label_movement_stage_rotation.setVisible(False)
+            self.doubleSpinBox_movement_stage_rotation.setVisible(False)
 
         # stylesheets
         self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
@@ -157,6 +177,39 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.doubleSpinBox_milling_angle.installEventFilter(self.wheel_blocker)
 
         self.update_ui()
+
+    def _apply_movement_preferences(self):
+        """Load movement acquisition preferences from disk and apply to checkboxes."""
+        prefs = cfg.load_user_preferences()
+
+        self.checkBox_movement_acquire_electron.blockSignals(True)
+        self.checkBox_movement_acquire_ion.blockSignals(True)
+        self.checkBox_movement_acquire_electron.setChecked(
+            bool(
+                prefs.get(
+                    "acquire_sem_after_stage_movement",
+                    cfg.USER_PREFERENCES_DEFAULTS["acquire_sem_after_stage_movement"],
+                )
+            )
+        )
+        self.checkBox_movement_acquire_ion.setChecked(
+            bool(
+                prefs.get(
+                    "acquire_fib_after_stage_movement",
+                    cfg.USER_PREFERENCES_DEFAULTS["acquire_fib_after_stage_movement"],
+                )
+            )
+        )
+        self.checkBox_movement_acquire_electron.blockSignals(False)
+        self.checkBox_movement_acquire_ion.blockSignals(False)
+
+    def _save_movement_preferences(self):
+        """Persist movement acquisition preferences to disk."""
+        prefs = {
+            "acquire_sem_after_stage_movement": self.checkBox_movement_acquire_electron.isChecked(),
+            "acquire_fib_after_stage_movement": self.checkBox_movement_acquire_ion.isChecked(),
+        }
+        cfg.save_user_preferences(prefs)
 
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
@@ -234,18 +287,16 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             self.image_widget.acquire_reference_images()
             return
         if self.checkBox_movement_acquire_electron.isChecked():
-            # self.image_widget.acquire_image(BeamType.ELECTRON)
-            logging.warning("Acquiring electron image after movement has been disabled temporarily. Please only acquire both images after movement")
+            self.image_widget.acquire_sem_image()
         elif self.checkBox_movement_acquire_ion.isChecked():
-            # self.image_widget.acquire_image(BeamType.ION)
-            logging.warning("Acquiring ion image after movement has been disabled temporarily. Please only acquire both images after movement")
-        else: 
+            self.image_widget.acquire_fib_image()
+        else:
             self.update_ui()
 
     def _update_milling_angle(self):
         """Update the milling angle in the microscope and the UI"""
         milling_angle = self.doubleSpinBox_milling_angle.value() # deg
-        self.microscope.system.stage.milling_angle = milling_angle
+        self.microscope.set_milling_angle(milling_angle)
 
         # refresh tooltip and overlay
         milling = self.microscope.get_orientation("MILLING")
@@ -493,6 +544,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             return
 
         def load_saved_positions_from_yaml(path: str = None) -> List[FibsemStagePosition]:
+            import yaml
             with open(path, "r") as f:
                 ddict = yaml.safe_load(f)
             return [FibsemStagePosition.from_dict(pdict) for pdict in ddict]

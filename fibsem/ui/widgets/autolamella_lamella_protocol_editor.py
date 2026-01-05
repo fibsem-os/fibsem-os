@@ -3,13 +3,12 @@ import copy
 import glob
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict
 
 import napari
 import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QGridLayout,
     QLabel,
@@ -20,18 +19,19 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from fibsem import utils
+from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage
-from fibsem.ui import stylesheets
+from fibsem.structures import FibsemImage, ReferenceImageParameters
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.reference_image_parameters_widget import (
+    ReferenceImageParametersWidget,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -40,9 +40,9 @@ if TYPE_CHECKING:
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
-    def __init__(self, 
+    def __init__(self,
                 viewer: napari.Viewer,
-                 parent: 'AutoLamellaUI'):
+                parent: 'AutoLamellaUI'):
         super().__init__(parent)
         self.parent_widget = parent
         self.viewer = viewer
@@ -56,10 +56,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
 
-        self.milling_task_collapsible = QCollapsible("Milling Task Editor")
-        self.milling_task_editor = FibsemMillingTaskWidget(microscope=self.microscope, 
-                                                                         milling_enabled=False, 
-                                                                         parent=self)
+        self.milling_task_collapsible = QCollapsible("Milling Task Parameters", self)
+        self.milling_task_editor = FibsemMillingTaskWidget(microscope=self.microscope,
+                                                            milling_enabled=False,
+                                                            parent=self)
         self.milling_task_collapsible.addWidget(self.milling_task_editor)
         self.milling_task_editor.setMinimumHeight(550)
 
@@ -67,14 +67,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
         self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
-        self.image_params_collapsible = QCollapsible("Imaging Parameters", self)
-        self.image_params_widget = ImageSettingsWidget(parent=self)
-        self.image_params_collapsible.addWidget(self.image_params_widget)
+        self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
+        self.task_params_collapsible.addWidget(self.ref_image_params_widget)
 
         # lamella, milling controls
         self.label_selected_lamella = QLabel("Lamella")
         self.comboBox_selected_lamella = QComboBox()
-        self.pushButton_refresh_positions = QPushButton("Refresh Experiment Positions")
+        self.pushButton_refresh_positions = QPushButton("Refresh Experiment Data")
+        self.pushButton_refresh_positions.setToolTip("Refresh the list of lamella positions from the experiment (and associated data).")
         self.pushButton_refresh_positions.clicked.connect(self._refresh_experiment_positions)
         self.label_selected_milling = QLabel("Task Name")
         self.comboBox_selected_task = QComboBox()
@@ -87,14 +87,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fib_filenames_label = QLabel("FIB Image")
         self.combobox_fib_filenames.currentIndexChanged.connect(self._on_image_selected)
 
-        self.checkbox_flip_images = QCheckBox("Flip Images")
-        self.checkbox_flip_images.setToolTip("If checked, the fluorescence and FIB images will be flipped horizontally.")
-        self.checkbox_flip_images.setChecked(False)
-        self.checkbox_flip_images.stateChanged.connect(lambda: self._on_image_selected(0))
-        self.checkbox_sync_positions = QCheckBox("Sync Pattern Positions")
-        self.checkbox_sync_positions.setToolTip("If checked, the pattern position will be synchronized for rough milling and polishing stages.")
-        self.checkbox_sync_positions.setObjectName("checkbox-sync-positions")
-        self.checkbox_sync_positions.setChecked(True)
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setWordWrap(True)
@@ -111,13 +103,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.combobox_fm_filenames, 2, 1, 1, 1)
         self.grid_layout.addWidget(self.label_selected_milling, 3, 0)
         self.grid_layout.addWidget(self.comboBox_selected_task, 3, 1)
-        self.grid_layout.addWidget(self.checkbox_sync_positions, 4, 0, )
-        self.grid_layout.addWidget(self.checkbox_flip_images, 4, 1, 1, 1)
         self.grid_layout.addWidget(self.label_status, 5, 0, 1, 2)
         self.grid_layout.addWidget(self.label_warning, 6, 0, 1, 2)
         self.grid_layout.addWidget(self.pushButton_refresh_positions, 7, 0, 1, 2)
-        self.checkbox_flip_images.setVisible(False)
-        self.checkbox_sync_positions.setVisible(False)
 
         # main layout
         self.main_layout = QVBoxLayout(self)
@@ -129,7 +117,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)    # type: ignore
         self.scroll_content_layout.addLayout(self.grid_layout)
         self.scroll_content_layout.addWidget(self.task_params_collapsible)      # type: ignore
-        self.scroll_content_layout.addWidget(self.image_params_collapsible)     # type: ignore
         self.scroll_content_layout.addWidget(self.milling_task_collapsible)     # type: ignore
         self.scroll_content_layout.addStretch()
 
@@ -139,15 +126,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.main_layout.addWidget(self.scroll_area) # type: ignore
 
     def _initialise_widgets(self):
+        """Initialise the widgets based on the current experiment protocol."""
         if self.parent_widget.experiment is not None:
             for pos in self.parent_widget.experiment.positions:
                 self.comboBox_selected_lamella.addItem(pos.name, pos)
 
         self.comboBox_selected_lamella.currentIndexChanged.connect(self._on_selected_lamella_changed)
         self.comboBox_selected_task.currentIndexChanged.connect(self._on_selected_task_changed)
-        self.milling_task_editor.task_config_updated.connect(self._on_milling_task_config_updated)
+        self.milling_task_editor.task_configs_changed.connect(self._on_milling_task_config_updated)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
-        self.image_params_widget.settings_changed.connect(self._on_image_settings_changed)
+        self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
 
         if self.comboBox_selected_lamella.count() > 0:
             self.comboBox_selected_lamella.setCurrentIndex(0)
@@ -220,8 +208,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # load fib reference image
         self.combobox_fib_filenames.blockSignals(True)
         fib_filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*_ib.tif")))
-        fib_filenames = [f for f in fib_filenames if "ref_reference_image" in f or "_final" in f]
+        fib_filenames = [f for f in fib_filenames if "alignment" not in f] # show all non-alignment images
 
+        # remember selected fib filename
         selected_fib_filename = self.combobox_fib_filenames.currentText()
         self.combobox_fib_filenames.clear()
         for f in fib_filenames:
@@ -232,7 +221,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         latest_task_filename = ""
         if selected_lamella.last_completed_task is not None:
             last_task_name = selected_lamella.last_completed_task.name          
-            latest_task_filename = f"ref_{last_task_name}_final_high_res_ib.tif"
+            reference_image_filename = f"ref_{last_task_name}_final_res_*_ib.tif"
+            matching_filenames = glob.glob(os.path.join(selected_lamella.path, reference_image_filename))
+            if len(matching_filenames) > 0:
+                # pick the latest by modification time
+                latest_task_filename = os.path.basename(sorted(matching_filenames, key=os.path.getmtime)[-1])
 
         # set default fib image filename
         default_filename = fib_filenames[-1] if len(fib_filenames) > 0 else ""
@@ -282,8 +275,51 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         task_config = selected_lamella.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
         self.milling_task_editor.set_task_configs(task_config.milling)
+        self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
+
+
+        # background_milling_stages = []
+
+        # rough_milling_config = None
+        # polishing_config = None
+        # setup_milling_config = None
+
+        # setup_config = selected_lamella.task_config.get("Setup Lamella", None)
+        # if setup_config is not None and setup_config.milling:
+        #     setup_milling_config = setup_config.milling.get("fiducial", None)
+        # polishing = selected_lamella.task_config.get("Polishing", None)
+        # if polishing is not None and polishing.milling:
+        #     polishing_config = polishing.milling.get("mill_polishing", None)
+        # rough_milling = selected_lamella.task_config.get("Rough Milling", None)
+        # if rough_milling is not None and rough_milling.milling:
+        #     rough_milling_config = rough_milling.milling.get("mill_rough", None)
+
+        # if selected_stage_name == "Setup Lamella":
+        #     if polishing_config is not None:
+        #         background_milling_stages.extend(polishing_config.stages)
+        #     if rough_milling_config is not None:
+        #         background_milling_stages.extend(rough_milling_config.stages)
+        # elif selected_stage_name == "Rough Milling":
+        #     if polishing_config is not None:
+        #         background_milling_stages.extend(polishing_config.stages)
+        #     if setup_milling_config is not None:
+        #         background_milling_stages.extend(setup_milling_config.stages)
+        # elif selected_stage_name == "Polishing":
+        #     if rough_milling_config is not None:
+        #         background_milling_stages.extend(rough_milling_config.stages)
+        #     if setup_milling_config is not None:
+        #         background_milling_stages.extend(setup_milling_config.stages)
+
+        # self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
+        # self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
+
         if task_config.milling:
             self._on_milling_fov_changed(task_config.milling)
+            self.milling_task_collapsible.setVisible(True)
+        else:
+            self.milling_task_collapsible.setVisible(False)
+            if "Milling Patterns" in self.viewer.layers:
+                self.viewer.layers.remove("Milling Patterns") # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # display label showing task has been completed
@@ -299,8 +335,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             milling_fov = config[key].field_of_view
             image_hfw = self.milling_task_editor.config_widget.milling_editor_widget.image.metadata.image_settings.hfw
             if not np.isclose(milling_fov, image_hfw):
-                milling_fov_um = utils.format_value(milling_fov, unit='m', precision=0)
-                image_fov_um = utils.format_value(image_hfw, unit='m', precision=0)
+                milling_fov_um = format_value(milling_fov, unit='m', precision=0)
+                image_fov_um = format_value(image_hfw, unit='m', precision=0)
                 self.label_warning.setText(f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um}).")
                 self.label_warning.setVisible(True)
                 return
@@ -309,19 +345,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.label_warning.setVisible(False)
 
-    def _on_milling_task_config_updated(self, task_name: str, config: FibsemMillingTaskConfig):
+    def _on_milling_task_config_updated(self, configs: Dict[str, FibsemMillingTaskConfig]):
         """Callback when the milling task config is updated."""
 
         selected_task_name = self.comboBox_selected_task.currentText()
         selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
-        selected_lamella.task_config[selected_task_name].milling[task_name] = copy.deepcopy(config)
-        logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task, Milling Task: {task_name} ({config.name}) ")
+        selected_lamella.task_config[selected_task_name].milling = copy.deepcopy(configs)
+        logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task, Milling Tasks: {list(configs.keys())} ")
 
         # TODO: support position sync between milling tasks, e.g. sync trench position between rough milling and polishing
 
         self._save_experiment()
 
-        self._on_milling_fov_changed({task_name: config})
+        self._on_milling_fov_changed(configs)
 
     def _on_task_parameters_config_changed(self, field_name: str, new_value: Any):
         """Callback when the task parameters config is updated."""
@@ -336,15 +372,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self._save_experiment()
 
-    def _on_image_settings_changed(self, settings):
+    def _on_ref_image_settings_changed(self, settings: ReferenceImageParameters):
         """Callback when the image settings are changed."""
-        logging.info(f"Image settings changed: {settings}")
 
         # Update the image settings in the task config
         selected_task_name = self.comboBox_selected_task.currentText()
         selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
-        selected_lamella.task_config[selected_task_name].imaging = settings
+        selected_lamella.task_config[selected_task_name].reference_imaging = settings
 
+        # Save the experiment
         self._save_experiment()
 
     def _save_experiment(self):
@@ -353,6 +389,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
             self.parent_widget.experiment.save() # TODO: migrate to shared data model
 
+
 def show_protocol_editor(parent: 'AutoLamellaUI',):
     """Show the AutoLamella protocol editor widget."""
     viewer = napari.Viewer(title="AutoLamella Protocol Editor")
@@ -360,4 +397,3 @@ def show_protocol_editor(parent: 'AutoLamellaUI',):
                                              parent=parent)
     viewer.window.add_dock_widget(widget, area='right', name='AutoLamella Protocol Editor')
     return widget
-

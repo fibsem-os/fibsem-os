@@ -83,3 +83,5 @@ QCheckBox::indicator:checked {
         background-color: #3a6ea5;
         border: 1px solid #68a0dd;
 }"""
+
+LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""

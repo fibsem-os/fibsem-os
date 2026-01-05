@@ -10,9 +10,12 @@ WIDGET_CONFIG = {
         "default": 30,
         "suffix": " s",
     },
-    "enabled": {"default": True, "label": "Enable Initial Alignment"},
+    "enabled": {"default": True, "label": "Enable Initial Alignment", 
+                "tooltip": "Align between imaging and milling current before starting milling"},
     "interval_enabled": {"default": False, "label": "Enable Interval Alignment"},
     "rect_precision": 3,  # Decimal places for rectangle display
+    "use_contrast": {"default": True, "label": "Use Autocontrast", 
+                     "tooltip": "Autocontrast before acquiring alignment image"},
 }
 
 
@@ -56,7 +59,15 @@ class FibsemMillingAlignmentWidget(QWidget):
         enabled_config = WIDGET_CONFIG["enabled"]
         self.enabled_checkbox = QCheckBox(enabled_config["label"])
         self.enabled_checkbox.setChecked(enabled_config["default"])
-        layout.addWidget(self.enabled_checkbox, 0, 0, 1, 2)
+        self.enabled_checkbox.setToolTip(enabled_config["tooltip"])
+        layout.addWidget(self.enabled_checkbox, 0, 0, 1, 1)
+
+        # use autocontrast
+        use_contrast_config = WIDGET_CONFIG["use_contrast"]
+        self.autocontrast_checkbox = QCheckBox(use_contrast_config["label"])
+        self.autocontrast_checkbox.setChecked(use_contrast_config["default"])
+        self.autocontrast_checkbox.setToolTip(use_contrast_config["tooltip"])
+        layout.addWidget(self.autocontrast_checkbox, 0, 1, 1, 1)
 
         # Interval enabled checkbox
         interval_enabled_config = WIDGET_CONFIG["interval_enabled"]
@@ -81,6 +92,13 @@ class FibsemMillingAlignmentWidget(QWidget):
         # self.rect_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 5px; border: 1px solid #ccc; }")
         layout.addWidget(self.rect_label, 3, 1)
 
+        # currently hidden advanced settings
+        self.interval_enabled_checkbox.setVisible(False)
+        self.interval_label.setVisible(False)
+        self.interval_spinbox.setVisible(False)
+        self.rect_display_label.setVisible(False)
+        self.rect_label.setVisible(False)
+
     def _connect_signals(self):
         """Connect widget signals to their respective handlers.
         
@@ -93,17 +111,19 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.interval_enabled_checkbox.toggled.connect(self._emit_settings_changed)
         self.interval_enabled_checkbox.toggled.connect(self._update_interval_enabled)
         self.interval_spinbox.valueChanged.connect(self._emit_settings_changed)
+        self.autocontrast_checkbox.toggled.connect(self._emit_settings_changed)
 
     def _update_advanced_visibility(self):
         """Show/hide advanced settings based on the show_advanced flag.
         
         Advanced settings include: interval settings and rectangle display.
         """
-        self.interval_enabled_checkbox.setVisible(self._show_advanced)
-        self.interval_label.setVisible(self._show_advanced)
-        self.interval_spinbox.setVisible(self._show_advanced)
-        self.rect_display_label.setVisible(self._show_advanced)
-        self.rect_label.setVisible(self._show_advanced)
+        # self.interval_enabled_checkbox.setVisible(self._show_advanced)
+        # self.interval_label.setVisible(self._show_advanced)
+        # self.interval_spinbox.setVisible(self._show_advanced)
+        # self.rect_display_label.setVisible(self._show_advanced)
+        # self.rect_label.setVisible(self._show_advanced)
+        pass
 
     def _update_controls_enabled(self):
         """Enable/disable controls based on the enabled checkbox.
@@ -118,6 +138,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.interval_spinbox.setEnabled(enabled)
         self.rect_display_label.setEnabled(enabled)
         self.rect_label.setEnabled(enabled)
+        self.autocontrast_checkbox.setEnabled(enabled)
         self._update_interval_enabled()
 
     def _update_interval_enabled(self):
@@ -167,6 +188,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self._settings.interval_enabled = self.interval_enabled_checkbox.isChecked()
         self._settings.interval = self.interval_spinbox.value()
         # rect is preserved as-is since it's display-only
+        self._settings.use_autocontrast = self.autocontrast_checkbox.isChecked()
         return self._settings
 
     def update_from_settings(self, settings: MillingAlignment):
@@ -180,22 +202,29 @@ class FibsemMillingAlignmentWidget(QWidget):
         self._settings = settings
 
         # Block signals to prevent recursive updates
-        self.blockSignals(True)
+        self.enabled_checkbox.blockSignals(True)
+        self.interval_enabled_checkbox.blockSignals(True)
+        self.interval_spinbox.blockSignals(True)
+        self.autocontrast_checkbox.blockSignals(True)
 
         self.enabled_checkbox.setChecked(settings.enabled)
         self.interval_enabled_checkbox.setChecked(settings.interval_enabled)
         self.interval_spinbox.setValue(settings.interval)
+        self.autocontrast_checkbox.setChecked(settings.use_autocontrast)
 
         # Update rectangle display
         self._update_rect_label()
 
         # Update enabled states
         self._update_controls_enabled()
-        
+
         # Update advanced visibility
         self._update_advanced_visibility()
 
-        self.blockSignals(False)
+        self.enabled_checkbox.blockSignals(False)
+        self.interval_enabled_checkbox.blockSignals(False)
+        self.interval_spinbox.blockSignals(False)
+        self.autocontrast_checkbox.blockSignals(False)
 
     def set_show_advanced(self, show_advanced: bool):
         """Set the visibility of advanced settings.
@@ -220,5 +249,3 @@ class FibsemMillingAlignmentWidget(QWidget):
             True if advanced settings are currently visible, False otherwise
         """
         return self._show_advanced
-
-

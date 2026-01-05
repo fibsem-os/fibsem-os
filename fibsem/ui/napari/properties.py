@@ -20,9 +20,9 @@ IMAGE_TEXT_LAYER_PROPERTIES = {
         "color": "white"
     },
     "size": 20,
-    "edge_width": 7,
-    "edge_width_is_relative": False,
-    "edge_color": "transparent",
+    "border_width": 7,
+    "border_width_is_relative": False,
+    "border_color": "transparent",
     "face_color": "transparent",
 }
 
@@ -114,4 +114,18 @@ STAGE_POSITION_SHAPE_LAYER_PROPERTIES = {
         "translation": np.array([-50, 0]), # text shown 50px above the point
     },
     "saved_color": "lime",
+}
+
+POINT_LAYER_PROPERTIES = {
+    "name": "Points",
+    "text": {"string": [], "color": "white"},
+    "size": 10,
+    "border_width": 1,
+    "border_width_is_relative": True,
+    "border_color": "white",
+    "face_color": "white",
+    "blending": "translucent",
+    "symbol": "o",
+    "ndim": 2,
+    "opacity": 1.0,
 }

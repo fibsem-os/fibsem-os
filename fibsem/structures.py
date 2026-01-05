@@ -1,4 +1,5 @@
 # fibsem structures
+from __future__ import annotations
 
 import json
 import os
@@ -37,6 +38,41 @@ except ImportError:
 TFibsemPatternSettings = TypeVar(
     "TFibsemPatternSettings", bound="FibsemPatternSettings"
 )
+
+DEFAULT_FIELD_METADATA: Dict[str, Any] = {
+    "label": None,                  # the display label for the field
+    "type": None,                   # the data type of the field
+    "unit": None,                   # the display unit for the field (after scaling)
+    "tooltip": None,                # the tooltip/help text for the field
+    "scale": None,                  # scale factor for display (e.g., 1e6 for metres to microns)
+    "dimensions": None,             # for complex dimensions, e.g. areas or volumes
+    "default": None,                # default value for the field
+    "minimum": None,                # minimum value for numeric fields
+    "maximum": None,                # maximum value for numeric fields
+    "step": None,                   # step size for numeric fields
+    "decimals": None,               # number of decimal places for numeric fields
+    "items": None,                  # for lists/enums, the possible items. items specified as 'dynamic' are fetched from the microscope via the 'microscope_parameter' key
+    "hidden": False,                # whether the field is hidden from the UI
+    "advanced": False,              # whether the field is considered advanced in the UI
+    "manufacturer": None,           # manufacturer specific parameter (ThermoFisher, Tescan, etc.). Common parameters have None
+    "microscope_parameter": None,   # the corresponding microscope parameter name, if applicable (via get/set)
+    "format_fn": None,              # function to format the value for display
+    "format_fn_kwargs": None,       # kwargs for the format function # NOTE: unused yet
+}
+
+def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]:
+    """Return dataclass fields with metadata, filling any missing keys with defaults."""
+    # Prefer a struct-level DEFAULT_METADATA if provided, layering on top of the
+    # module-wide defaults so any missing keys are still populated.
+    default_metadata = {
+        **DEFAULT_FIELD_METADATA,
+        **getattr(struct_cls, "DEFAULT_METADATA", {}),
+    }
+    field_metadata: Dict[str, Dict[str, Any]] = {}
+    for f in fields(struct_cls):
+        merged_metadata = {**default_metadata, **dict(f.metadata)}
+        field_metadata[f.name] = merged_metadata
+    return field_metadata
 
 @dataclass
 class Point:
@@ -696,6 +732,16 @@ class ImageSettings:
 
         return settings_dict
 
+    @property
+    def field_of_view(self) -> float:
+        """Calculate the field of view based on the horizontal field width (hfw)."""
+        return self.hfw
+
+    @field_of_view.setter
+    def field_of_view(self, value: float):
+        """Set the horizontal field width (hfw) based on the desired field of view."""
+        self.hfw = value
+
     @staticmethod
     def fromFibsemImage(image: "FibsemImage") -> "ImageSettings":
         """Returns the image settings for a FibsemImage object.
@@ -1145,6 +1191,43 @@ class FibsemBitmapSettings(FibsemPatternSettings):
 
 
 @dataclass
+class FibsemPolygonSettings(FibsemPatternSettings):
+    vertices: np.ndarray[float] # n[x, y]
+    depth: float
+    is_exclusion: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "vertices": self.vertices.tolist(),
+            "depth": self.depth,
+            "is_exclusion": self.is_exclusion,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> "FibsemPolygonSettings":
+        return FibsemPolygonSettings(
+            vertices=np.asarray(data["vertices"], dtype=float),
+            depth=data["depth"],
+            is_exclusion=data.get("is_exclusion", False),
+        )
+
+    @property
+    def volume(self) -> float:
+        # NOTE: this is a VERY rough estimate, assuming a convex polygon
+        # calculate polygon area as rectangle area
+        if len(self.vertices) == 0:
+            return 100e-6
+        xmin = min(v[0] for v in self.vertices)
+        xmax = max(v[0] for v in self.vertices)
+        ymin = min(v[1] for v in self.vertices)
+        ymax = max(v[1] for v in self.vertices)
+        width = xmax - xmin
+        height = ymax - ymin
+        # volume is area * depth
+        return width * height * self.depth
+
+
+@dataclass
 class FibsemMillingSettings:
     """
     This class is used to store and retrieve settings for FIBSEM milling.
@@ -1163,30 +1246,113 @@ class FibsemMillingSettings:
 
     milling_current: float = field(default=20.0e-12, 
                                    metadata={"unit": "A", 
-                                             "label": "Milling Current", 
+                                             "label": "Milling Current",
+                                             "type": float,
+                                             "items": "dynamic",
+                                             "microscope_parameter": "current",
                                              "tooltip": "The current used for milling. Higher currents mill faster but with less precision and more damage.",
                                              "manufacturer": "ThermoFisher"})
-    spot_size: float = 5.0e-8
-    rate: float = 3.0e-10  # m3/A/s
-    dwell_time: float = 1.0e-6  # s
-    hfw: float = 150e-6
-    patterning_mode: str = "Serial"
-    application_file: str = "Si"
-    preset: str = "30 keV; 2nA"
-    spacing: float = 1.0
-    milling_voltage: float = 30e3
-    milling_channel: BeamType = BeamType.ION
-    acquire_images: bool = False
+    milling_voltage: float = field(default=30e3, 
+                                  metadata={"unit": "V",
+                                            "label": "Milling Voltage",
+                                            "type": float,
+                                            "items": "dynamic",
+                                            "microscope_parameter": "voltage",
+                                            "advanced": True,
+                                            "tooltip": "The voltage used for milling. Higher voltages provide higher energy ions for milling.",
+                                            "manufacturer": "ThermoFisher"})
+    application_file: str = field(default="Si", 
+                                 metadata={"label": "Application File",
+                                           "type": str,
+                                           "items": "dynamic",
+                                           "microscope_parameter": "application_file",
+                                           "advanced": True,
+                                           "tooltip": "The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
+                                           "manufacturer": "ThermoFisher"})
+    patterning_mode: str = field(default="Serial", 
+                                metadata={"label": "Patterning Mode",
+                                        "type": str,
+                                        "items": ["Serial", "Parallel"],
+                                        "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
+                                        })
+    hfw: float = field(default=150e-6, 
+                      metadata={"label": "Field of View",
+                                "type": float,
+                                "unit": "m",
+                                "scale": 1e6,
+                                "default": 150.0,
+                                "minimum": 20.0,
+                                "maximum": 950.0,
+                                "step": 10.0,
+                                "decimals": 2,
+                                "microscope_parameter": "hfw",
+                                "hidden": True,
+                                "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
+                                })
+    preset: str = field(default="30 keV; 2nA", 
+                        metadata={"label": "Preset",
+                                  "type": str,
+                                  "items": "dynamic",
+                                  "microscope_parameter": "preset",
+                                  "tooltip": "The preset used for milling. Presets define the beam settings for different milling conditions.",
+                                  "manufacturer": "Tescan"})
+    spot_size: float = field(default=5.0e-8, 
+                            metadata={
+                                    "label": "Spot Size",
+                                    "type": float,
+                                    "unit": "m",
+                                    "scale": 1e6,
+                                    # "default": 10.0,
+                                    "minimum": 1.0,
+                                    "maximum": 100.0,
+                                    "step": 1.0,
+                                    "decimals": 2,
+                                    "tooltip": "The spot size for the ion beam during milling.",
+                                    "manufacturer": "Tescan"})
+    rate: float = field(default=3.0e-10, 
+                        metadata={
+                                    "label": "Rate",
+                                    "type": float,
+                                    "unit": "m³/s",
+                                    "scale": 1e3,
+                                    "dimensions": 3,
+                                    "tooltip": "The milling rate (mm³/s).",
+                                    "manufacturer": "Tescan"
+                                    })
+    dwell_time: float = field(default=1.0e-6, 
+                              metadata={
+                                    "label": "Dwell Time",
+                                    "type": float,
+                                    "unit": "s",
+                                    "scale": 1e6,
+                                    "tooltip": "The dwell time for the ion beam during milling (µs).",
+                                    "manufacturer": "Tescan"})
+    spacing: float = field(default=1.0, 
+                           metadata={
+                                    "label": "Spacing",
+                                    "type": float,
+                                    "unit": "m",
+                                    "scale": 1e6,
+                                    "tooltip": "The spacing between milling points.",
+                                    "manufacturer": "Tescan"})
+    milling_channel: BeamType = field(default=BeamType.ION, 
+                                      metadata={
+                                    "label": "Milling Channel",
+                                    "type": BeamType,
+                                    "items": [BeamType.ION, BeamType.ELECTRON],
+                                    "tooltip": "The beam channel used for milling.",
+                                    "hidden": True,
+                                    })
+    acquire_images: bool = field(default=False, 
+                                metadata={
+                                    "label": "Acquire Images",
+                                    "type": bool,
+                                    "tooltip": "Whether to acquire images after milling.",
+                                    "hidden": True,
+                                    })
 
     # Parameter mapping for different manufacturers
-    _PARAMETERS = {
-        "COMMON": {"hfw", "patterning_mode", "milling_channel", "acquire_images"},
-        "TFS": {"milling_current", "milling_voltage", "application_file"},
-        "TESCAN": {"dwell_time", "preset", "rate", "spacing", "spot_size"}
-    }
-
-    _SUPPORTED_MANUFACTURERS = {"TFS", "TESCAN"}
-    advanced_attributes = {"milling_voltage", "application_file", "dwell_time", "spacing", "spot_size"}
+    _SUPPORTED_MANUFACTURERS = {"ThermoFisher", "Tescan"}
 
     def __post_init__(self):
         assert isinstance(
@@ -1252,14 +1418,35 @@ class FibsemMillingSettings:
 
         return milling_settings
 
-    @classmethod
-    def get_parameters_for_manufacturer(cls, manufacturer: str) -> Set[str]:
+    @property
+    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """Return dataclass fields with metadata, filling any missing keys with defaults."""
+        return get_fields_with_metadata(self.__class__)
+
+    @property
+    def advanced_attributes(self) -> Set[str]:
+        """Return a set of advanced attribute names."""
+        fields_with_metadata = self.field_metadata
+        return {
+            field_name
+            for field_name, metadata in fields_with_metadata.items()
+            if metadata.get("advanced", False)
+        }
+
+    def get_parameters_for_manufacturer(self, manufacturer: str) -> tuple[str, ...]:
         """Get all parameter names for a specific manufacturer."""
-        if manufacturer not in cls._SUPPORTED_MANUFACTURERS:
-            raise ValueError(f"Manufacturer must be one of: {', '.join(cls._SUPPORTED_MANUFACTURERS)}")
+        if manufacturer not in self._SUPPORTED_MANUFACTURERS:
+            raise ValueError(f"Manufacturer must be one of: {', '.join(self._SUPPORTED_MANUFACTURERS)}")
         
-        # TODO: ensure this returns in the canonical order
-        return cls._PARAMETERS["COMMON"] | cls._PARAMETERS[manufacturer]
+        # use the field metadata to determine manufacturer-specific parameters
+        fields_with_metadata = self.field_metadata
+        required_params = []
+
+        for field_name, metadata in fields_with_metadata.items():
+            param_manufacturer = metadata.get("manufacturer", None)
+            if param_manufacturer == manufacturer or param_manufacturer is None:
+                required_params.append(field_name)
+        return tuple(sorted(set(required_params)))
 
     def get_parameters(self, manufacturer: str) -> Dict[str, Any]:
         """Get parameter values for a specific manufacturer."""
@@ -2095,12 +2282,18 @@ class MillingAlignment:
     interval_enabled: bool = False
     interval: int = 30 # seconds
     rect: FibsemRectangle = field(default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA))
+    use_autocontrast: bool = True
+    steps: int = 3
+    # imaging: ImageSettings = field(default_factory=ImageSettings)
 
     def to_dict(self):
         return {"enabled": self.enabled, 
                 "interval_enabled": self.interval_enabled, 
                 "interval": self.interval, 
-                "rect": self.rect.to_dict()}
+                "rect": self.rect.to_dict(),
+                "use_autocontrast": self.use_autocontrast,
+                "steps": self.steps,
+                }
 
     @staticmethod
     def from_dict(d: dict) -> "MillingAlignment":
@@ -2108,5 +2301,67 @@ class MillingAlignment:
             enabled=d.get("enabled", False),
             interval_enabled=d.get("interval_enabled", False),
             interval=d.get("interval", 30),
-            rect=FibsemRectangle.from_dict(d.get("rect", DEFAULT_ALIGNMENT_AREA))
+            rect=FibsemRectangle.from_dict(d.get("rect", DEFAULT_ALIGNMENT_AREA),),
+            use_autocontrast=d.get("use_autocontrast", True),
+            steps=d.get("steps", 3),
         )
+
+@dataclass
+class RangeLimit:
+    min: float
+    max: float
+
+    def clamp(self, value: float) -> float:
+        return max(self.min, min(self.max, value))
+
+    def to_dict(self) -> dict:
+        return {"min": self.min, "max": self.max}
+
+    @staticmethod
+    def from_dict(d: dict) -> "RangeLimit":
+        return RangeLimit(min=d["min"], max=d["max"])
+
+
+@dataclass
+class ReferenceImageParameters:
+    imaging: ImageSettings = field(default_factory=ImageSettings)
+    field_of_view1: float = field(default=80e-6, metadata={"tooltip": "Field of view for first reference image"})
+    field_of_view2: float = field(default=150e-6, metadata={"tooltip": "Field of view for second reference image"})
+    acquire_sem: bool = field(default=True, metadata={"tooltip": "Whether to acquire SEM reference images"})
+    acquire_fib: bool = field(default=True, metadata={"tooltip": "Whether to acquire FIB reference images"})
+    acquire_image1: bool = field(default=True, metadata={"tooltip": "Whether to acquire first reference image"})
+    acquire_image2: bool = field(default=True, metadata={"tooltip": "Whether to acquire second reference image"})
+
+    def to_dict(self) -> dict:
+        return {
+            "imaging": self.imaging.to_dict(),
+            "field_of_view1": self.field_of_view1,
+            "field_of_view2": self.field_of_view2,
+            "acquire_sem": self.acquire_sem,
+            "acquire_fib": self.acquire_fib,
+            "acquire_image1": self.acquire_image1,
+            "acquire_image2": self.acquire_image2,
+        }
+
+    @staticmethod
+    def from_dict(settings: dict) -> "ReferenceImageParameters":
+        imaging = ImageSettings.from_dict(settings.get("imaging", {}))
+        return ReferenceImageParameters(
+            imaging=imaging,
+            field_of_view1=settings.get("field_of_view1", 80e-6),
+            field_of_view2=settings.get("field_of_view2", 150e-6),
+            acquire_sem=settings.get("acquire_sem", True),
+            acquire_fib=settings.get("acquire_fib", True),
+            acquire_image1=settings.get("acquire_image1", True),
+            acquire_image2=settings.get("acquire_image2", True),
+        )
+    
+    @property
+    def field_of_views(self) -> Tuple[float, ...]:
+        """Returns a tuple of the selected field of views, sorted from largest to smallest."""
+        fovs = []
+        if self.acquire_image1:
+            fovs.append(self.field_of_view1)
+        if self.acquire_image2:
+            fovs.append(self.field_of_view2)
+        return tuple(sorted(fovs, reverse=True)) # largest to smallest

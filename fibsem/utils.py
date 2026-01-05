@@ -1,12 +1,14 @@
 import datetime
 import glob
+import json
 
 import logging
+import math
 import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Tuple, Optional
+from typing import TYPE_CHECKING, List, Tuple, Optional, Union
 
 
 import requests
@@ -64,46 +66,78 @@ def format_duration(seconds: float) -> str:
     else:
         return f"{seconds:.2f}s"
 
-def format_value(val: float, unit: Optional[str] = None, precision: int = 2) -> str:
+SI_PREFIXES = {
+    -12: "p",
+    -9: "n",
+    -6: "μ",
+    -3: "m",
+    0: "",
+    3: "k",
+    6: "M",
+    9: "G",
+    12: "T",
+}
+
+_MIN_SI_EXP = min(SI_PREFIXES)
+_MAX_SI_EXP = max(SI_PREFIXES)
+
+
+def format_resolution_as_str(resolution: List[int]) -> str:
+    """Format a resolution list as a string.
+
+    Args:
+        resolution (List[int]): The resolution to format.
+    Returns:
+        str: The formatted resolution string.
+    """
+    return f"{resolution[0]} x {resolution[1]}"
+
+def _get_scale_from_value(val: float) -> float:
+    """Return the scale multiplier corresponding to the SI prefix for a value."""
+    if val == 0:
+        return 1.0
+
+    exponent = int(math.floor(math.log10(abs(val))))
+    exponent = (exponent // 3) * 3
+    exponent = max(min(exponent, _MAX_SI_EXP), _MIN_SI_EXP)
+    return 10 ** (-exponent)
+
+
+def _get_prefix_from_scale(scale: float) -> Tuple[str, float]:
+    """Return the SI prefix and correction factor associated with a scale multiplier."""
+    if scale == 0:
+        return "", 1.0
+
+    exponent = -math.log10(scale)
+    exponent = int(round(exponent / 3.0) * 3)
+    exponent = max(min(exponent, _MAX_SI_EXP), _MIN_SI_EXP)
+    prefix = SI_PREFIXES.get(exponent, "")
+    multiplier = (10 ** (-exponent)) / scale
+    return prefix, multiplier
+
+def _get_display_unit(scale: float, unit: Optional[str] = None) -> str:
+    """Return the formatted unit string using the scale-derived SI prefix."""
+    unit = unit or ""
+    prefix, _ = _get_prefix_from_scale(scale)
+    return f"{prefix}{unit}"
+
+def format_value(val: float, unit: Optional[str] = None, precision: int = 2, scale: Optional[float] = None) -> str:
     """Format a numerical value as a string with nearest SI unit.
+
     Args:
         val: The value to format.
         unit (str, optional): The unit of the value. Defaults to None.
-        precision (int, optional): The number of decimal places to include. Defaults to 2.
+        precision (int, optional): Decimal places. Defaults to 2.
+        scale (float, optional): Override the auto-calculated scale multiplier.
+
     Returns:
         str: The formatted value with the appropriate SI prefix.
     """
-    if val < 1e-9:
-        scale = 1e12
-        prefix = "p"
-    elif val < 1e-6:
-        scale = 1e9
-        prefix = "n"
-    elif val < 1e-3:
-        scale = 1e6
-        prefix = "u"
-    elif val < 1:
-        scale = 1e3
-        prefix = "m"
-    elif val < 1e3:
-        scale = 1
-        prefix = ""
-    elif val < 1e6:
-        scale = 1e-3
-        prefix = "k"
-    elif val < 1e9:
-        scale = 1e-6
-        prefix = "M"
-    elif val < 1e12:
-        scale = 1e-9
-        prefix = "G"
-    else:
-        scale = 1e-12
-        prefix = "T"
-
-    if unit is None:
-        unit = ""
-    return f"{val*scale:.{precision}f} {prefix}{unit}"
+    scale = scale if scale is not None else _get_scale_from_value(val)
+    prefix, multiplier = _get_prefix_from_scale(scale)
+    scaled_val = val * scale * multiplier
+    unit = unit or ""
+    return f"{scaled_val:.{precision}f} {prefix}{unit}"
 
 def make_logging_directory(path: Optional[Path] = None, name="run"):
     """
@@ -178,6 +212,14 @@ def save_yaml(path: Path, data: dict) -> None:
     with open(path, "w") as f:
         yaml.dump(data, f, indent=4)
 
+def save_json(path: Union[Path, os.PathLike, str], data: dict) -> None:
+    """Saves a python dictionary object to a json file
+    Args:
+        path (Path): path location to save json file
+        data (dict): dictionary object
+    """
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=4)
 
 def create_gif(path: Path, search: str, gif_fname: str, loop: int = 0) -> None:
     """Creates a GIF from a set of images. Images must be in same folder
@@ -441,80 +483,6 @@ def save_positions(positions: list, path: str = None, overwrite: bool = False) -
     
     # save
     save_yaml(path, pdict)
-    
-
-def _display_metadata(img: FibsemImage, timezone: str = 'Australia/Sydney', show: bool = True):
-    import matplotlib.pyplot as plt
-    import pytz
-    from matplotlib_scalebar.scalebar import ScaleBar
-
-    import fibsem.constants as constants
-    fig, ax = plt.subplots()
-
-    # Display the image
-    ax.imshow(img.data, cmap='gray')
-    image_height, image_width = img.data.shape
-    # Hide axis
-    ax.axis('off')
-    ax.set_xlim(0, image_width)  # Set the width of the image
-    ax.set_ylim(0, image_height)  # Set the height of the image
-    # Create a list to store metadata lines
-    if img.metadata.image_settings.beam_type == BeamType.ELECTRON:
-        metadata_lines = "Electron Beam \n"
-    else: 
-        metadata_lines = "Ion Beam \n"
-
-    # add metadata lines
-    if img.metadata.image_settings.beam_type == BeamType.ELECTRON and img.metadata.microscope_state.electron_beam.voltage is not None:
-        metadata_lines += f'{img.metadata.microscope_state.electron_beam.voltage * constants.SI_TO_KILO} kV  |  '
-    elif img.metadata.image_settings.beam_type == BeamType.ION and img.metadata.microscope_state.ion_beam.voltage is not None:
-        metadata_lines += f'{img.metadata.microscope_state.ion_beam.voltage * constants.SI_TO_KILO} kV  |  '
-    else:
-        metadata_lines += 'Voltage: Unknown  |  '
-    metadata_lines += (f'HFW: {img.metadata.image_settings.hfw * constants.SI_TO_MICRO} μm  | ')
-    metadata_lines += (f'{img.metadata.image_settings.resolution[0]} x {img.metadata.image_settings.resolution[1]}  |  ')
-
-    desired_timezone = pytz.timezone(timezone)  
-    timestamp = img.metadata.microscope_state.timestamp
-
-    if isinstance(timestamp, str):
-        timestamp_format = "%m/%d/%Y %H:%M:%S"
-        timestamp = datetime.datetime.strptime(img.metadata.microscope_state.timestamp, timestamp_format)
-
-    if isinstance(timestamp, (int,float)):
-        timestamp_str = datetime.datetime.fromtimestamp(timestamp, tz=desired_timezone).strftime('%Y-%m-%d %I:%M %p')    
-    
-    if isinstance(timestamp, datetime.datetime):
-        timestamp_str = timestamp.astimezone(desired_timezone).strftime('%Y-%m-%d %I:%M %p')         
-
-    metadata_lines += (f"{timestamp_str}")
-
-    # add empty char to second line to fill up space
-    _line2 = metadata_lines.split("\n")[1]
-    metadata_lines += " " * (70 - len(_line2))
-
-    metadata_rect = plt.text(
-            0.01, 0.03, metadata_lines,
-            transform=ax.transAxes,
-            fontsize=10,
-            color='white',
-            bbox=dict(facecolor='black', alpha=0.7),
-            ha='left',
-        )
-
-    metadata_rect.set_clip_box(dict(width=1.0))
-    scale = (img.metadata.image_settings.hfw * constants.SI_TO_MICRO) / img.data.shape[1]
-    
-    # transparent background
-    scalebar = ScaleBar(scale, "um", 
-        color="black", box_color="white", box_alpha=0.3) 
-
-    plt.gca().add_artist(scalebar)
-
-    if show:
-        plt.show()
-
-    return fig
 
 # TODO: re-think this, dont like the pop ups
 def _register_metadata(microscope: 'FibsemMicroscope',

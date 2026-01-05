@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, fields, field, asdict
+from functools import cached_property
 from typing import List, Union, Dict, Any, Tuple, Optional, Type, TypeVar, ClassVar, Generic
 
 from fibsem.microscope import FibsemMicroscope
@@ -12,7 +13,9 @@ from fibsem.structures import (
     MillingAlignment,
     ImageSettings,
     CrossSectionPattern,
+    FibsemPatternSettings,
     FibsemImage,
+    get_fields_with_metadata,
 )
 
 
@@ -25,7 +28,6 @@ TMillingStrategy = TypeVar("TMillingStrategy", bound="MillingStrategy")
 @dataclass
 class MillingStrategyConfig(ABC):
     """Abstract base class for milling strategy configurations"""
-    _advanced_attributes: ClassVar[Tuple[str, ...]] = ()
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -36,14 +38,24 @@ class MillingStrategyConfig(ABC):
     ) -> TMillingStrategyConfig:
         return cls(**d)
 
-    @property
+    @cached_property
     def required_attributes(self) -> Tuple[str, ...]:
         return tuple(f.name for f in fields(self))
 
-    @property
+    @cached_property
     def advanced_attributes(self) -> Tuple[str, ...]:
-        """Attributes that are considered advanced and may not be required for all strategies."""
-        return self._advanced_attributes
+        """Return attributes that are marked as advanced in the metadata."""
+        return tuple(f.name for f in fields(self) if f.metadata.get("advanced", False))
+
+    @cached_property
+    def _hidden_attributes(self) -> Tuple[str, ...]:
+        """Return attributes that are hidden from the UI."""
+        return tuple(f.name for f in fields(self) if f.metadata.get("hidden", False))
+
+    @property
+    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """Return dataclass fields with metadata, filling any missing keys with defaults."""
+        return get_fields_with_metadata(self.__class__)
 
 
 class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
@@ -104,8 +116,8 @@ class FibsemMillingStage:
         if self.imaging.save is None:
             self.imaging.save = False
 
-    def to_dict(self):
-        return {
+    def to_dict(self, short: bool = False) -> Dict[str, Any]:
+        ddict = {
             "name": self.name,
             "num": self.num,
             "milling": self.milling.to_dict(),
@@ -114,6 +126,12 @@ class FibsemMillingStage:
             "alignment": self.alignment.to_dict(),
             "imaging": self.imaging.to_dict(),
         }
+        if short:
+            ddict.pop("alignment")
+            ddict.pop("imaging")
+            ddict.pop("num")
+            ddict["milling"].pop("acquire_images")
+        return ddict
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -148,8 +166,36 @@ class FibsemMillingStage:
         from fibsem.utils import format_value
         milling_current = self.milling.milling_current
         mc = format_value(val=milling_current, unit="A", precision=1)
-        txt = f"{self.name} - {self.pattern.name} ({mc})"
+
+        dp = ""
+        if hasattr(self.pattern, "depth") and self.pattern.depth is not None:
+            depth = self.pattern.depth
+            dp = format_value(val=depth, unit="m", precision=1)
+        txt = f"{self.name} - {self.pattern.name} ({dp}, {mc})"
         return txt
+
+    def define_patterns(self) -> List[FibsemPatternSettings]:
+        """Define the patterns for the milling stage."""
+        shapes = []
+        if self.patterns is not None:
+            for p in self.patterns:
+                shapes.extend(p.define())
+        else:
+            shapes = self.pattern.define()
+        return shapes
+
+    def is_compatible_with(self, other: "FibsemMillingStage") -> bool:
+        """Return True when both stages share milling settings and strategy. Compatible stages can be grouped together for milling."""
+        if not isinstance(other, FibsemMillingStage):
+            return False
+
+        if self.milling != other.milling:
+            return False
+
+        if type(self.strategy) is not type(other.strategy):
+            return False
+
+        return self.strategy.config == other.strategy.config
 
 
 def get_milling_stages(key: str, protocol: Dict[str, List[Dict[str, Any]]]) -> List[FibsemMillingStage]:
@@ -218,5 +264,3 @@ def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
     if not isinstance(stages, list):
         stages = [stages]
     return sum([estimate_milling_time(stage.pattern, stage.milling.milling_current) for stage in stages])
-
-

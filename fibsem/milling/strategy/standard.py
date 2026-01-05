@@ -35,7 +35,7 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
                 logging.info(f"Stopping {self.name} Milling Strategy for {stage.name}")
                 return
 
-        microscope.draw_patterns(stage.pattern.define())
+        microscope.draw_patterns(stage.define_patterns())
 
         estimated_time = microscope.estimate_milling_time()
         logging.info(f"Estimated time for {stage.name}: {estimated_time:.2f} seconds")

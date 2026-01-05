@@ -20,6 +20,7 @@ from fibsem.structures import (
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     FibsemStagePosition,
     FibsemUser,
@@ -253,6 +254,14 @@ class OdemisMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperiment()
 
+        from fibsem.fm.odemis import OdemisFluorescenceMicroscope
+        self.fm = OdemisFluorescenceMicroscope(self)
+
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
+
     def connect_to_microscope(self, ip_address: str, port: int) -> None:
         pass
 
@@ -262,10 +271,6 @@ class OdemisMicroscope(FibsemMicroscope):
     def get_orientation(self, orientation: str) -> str:
         """Get the current orientation of the microscope."""
         return ThermoMicroscope.get_orientation(self, orientation)
-
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        """Get the stage position for the specified orientation."""
-        return ThermoMicroscope.get_stage_orientation(self, stage_position)
 
     def move_flat_to_beam(self, beam_type: BeamType, _safe: bool = True) -> None:
         # new style
@@ -836,6 +841,9 @@ class OdemisMicroscope(FibsemMicroscope):
         return ThermoMicroscope.safe_absolute_stage_movement(self, position)
 
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        pass
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
         pass
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):

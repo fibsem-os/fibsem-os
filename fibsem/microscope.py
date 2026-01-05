@@ -109,14 +109,17 @@ from fibsem.structures import (
     FibsemPatternSettings,
     FibsemRectangle,
     FibsemRectangleSettings,
+    FibsemPolygonSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
     MicroscopeState,
     MillingState,
     Point,
+    RangeLimit,
     SystemSettings,
 )
+from fibsem.transformations import get_stage_tilt_from_milling_angle
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -139,6 +142,7 @@ class FibsemMicroscope(ABC):
     _acquisition_thread: threading.Thread = None
     _threading_lock: threading.RLock = threading.RLock()
 
+    fm: 'FluorescenceMicroscope' = None
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
@@ -247,12 +251,51 @@ class FibsemMicroscope(ABC):
 
         return deepcopy(stage_position)
 
+    def _create_sample_stage(self) -> None:
+        """Create the sample stage and holder based on the system settings."""
+
+        from fibsem.microscopes._stage import SampleGrid, SampleHolder, Stage, SampleGridLoader
+        if self.stage_is_compustage:
+            grid01 = SampleGrid(name="Grid-01", index=1, 
+                                position=FibsemStagePosition(name="Grid-01", x=-0e-3, y=0.0, z=0.0, r=0.0, t=np.radians(0)))
+            holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, grids={"Grid-01": grid01})
+            loader = SampleGridLoader(parent=self)
+        else:
+            orientation = self.get_orientation("SEM")
+            grid01 = SampleGrid(name="Grid-01", index=1, 
+                                position=FibsemStagePosition(name="Grid-01", x=-5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
+            grid02 = SampleGrid(name="Grid-02", index=2, 
+                                position=FibsemStagePosition(name="Grid-02", x=+5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
+            # grid01 = SampleGrid(name="Grid-01", index=1, 
+            #                     position=FibsemStagePosition(name="Grid-01", x=-0.36502e-3, y=-1.74115e-3, z=7.32e-3, r=orientation.r, t=orientation.t))
+            # grid02 = SampleGrid(name="Grid-02", index=2, 
+            #                     position=FibsemStagePosition(name="Grid-02", x=+10.3e-3, y=-1.74115e-3, z=7.32e-3, r=orientation.r, t=orientation.t))
+
+            holder = SampleHolder(name="Pre-Tilted Holder",
+                                pre_tilt=self.system.stage.shuttle_pre_tilt,
+                                reference_rotation=self.system.stage.rotation_reference,
+                                grids={"Grid-01": grid01, "Grid-02": grid02})
+            loader = None
+
+        self._stage = Stage(parent=self, holder=holder, loader=loader)
+
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the stage axis limits from the microscope."""
+
+        axes_limits: Dict[str, RangeLimit] = {}
+        axes_limits["x"] = RangeLimit(min=-100.0e-3, max=100.0e-3)
+        axes_limits["y"] = RangeLimit(min=-100.0e-3, max=100.0e-3)
+        axes_limits["z"] = RangeLimit(min=0.0e-3, max=50.0e-3)
+        axes_limits["r"] = RangeLimit(min=-360.0, max=360.0)
+        axes_limits["t"] = RangeLimit(min=-10.0, max=90.0)
+
+        return axes_limits
     @abstractmethod
-    def move_stage_absolute(self, position: FibsemStagePosition) -> None:
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pass
 
     @abstractmethod
-    def move_stage_relative(self, position: FibsemStagePosition) -> None:
+    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pass
 
     @abstractmethod
@@ -260,7 +303,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def vertical_move(self, dy: float, dx: float = 0, static_wd: bool = True) -> None:
+    def vertical_move(self, dy: float, dx: float = 0, static_wd: bool = True) -> FibsemStagePosition:
         pass
 
     @abstractmethod
@@ -421,6 +464,9 @@ class FibsemMicroscope(ABC):
 
         elif isinstance(pattern, FibsemBitmapSettings):
             self.draw_bitmap_pattern(pattern)
+        
+        elif isinstance(pattern, FibsemPolygonSettings):
+            self.draw_polygon(pattern)
 
     @abstractmethod
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
@@ -436,6 +482,10 @@ class FibsemMicroscope(ABC):
 
     @abstractmethod
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        pass
+
+    @abstractmethod
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         pass
 
     @abstractmethod
@@ -669,6 +719,8 @@ class FibsemMicroscope(ABC):
                 self.set_detector_settings(microscope_state.ion_detector, BeamType.ION)
         if self.is_available("stage") and microscope_state.stage_position is not None:
             self.safe_absolute_stage_movement(microscope_state.stage_position)
+        if self.fm is not None and microscope_state.objective_position is not None:
+            self.fm.objective.move_absolute(microscope_state.objective_position)
 
         logging.debug({"msg": "set_microscope_state", "state": microscope_state.to_dict()})
 
@@ -1004,6 +1056,7 @@ class FibsemMicroscope(ABC):
         if currrent_orientation == "NONE":
             raise ValueError("Unknown orientation. Cannot convert stage position.")
 
+        stage_position = deepcopy(stage_position)
         orientation = self.get_orientation(target_orientation)
 
         if currrent_orientation in ["SEM", "MILLING"] and target_orientation == "FIB":
@@ -1041,18 +1094,69 @@ class FibsemMicroscope(ABC):
         return target_position
 
     def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        """Get the orientation of the stage position."""
-        return NotImplemented
+        """Get the current stage orientation based on the stage position (r,t).
+        Args:
+            stage_position (FibsemStagePosition, optional): stage position to use. If None, uses current stage position.
+        Returns:
+            str: current stage orientation ("SEM", "FIB", "MILLING", "NONE")
+        """
+        # TODO: update this to an enum
+
+        # current stage position
+        if stage_position is None:
+            stage_position = self.get_stage_position()
+        if stage_position.r is None or stage_position.t is None:
+            raise ValueError("Stage position must have both rotation (r) and tilt (t) defined.")
+        stage_rotation = stage_position.r % (2 * np.pi)
+        stage_tilt = stage_position.t
+
+        from fibsem import movement
+        # TODO: also check xyz ranges?
+
+        sem = self.get_orientation("SEM")
+        fib = self.get_orientation("FIB")
+        milling = self.get_orientation("MILLING")
+        if sem is None or fib is None or milling is None:
+            raise ValueError("SEM, FIB or MILLING orientation not defined in the system.")
+        if sem.r is None or sem.t is None or fib.r is None or fib.t is None or milling.r is None or milling.t is None:
+            raise ValueError("SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined.")
+
+        is_sem_rotation = movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5) # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
+        is_fib_rotation = movement.rotation_angle_is_smaller(stage_rotation, fib.r, atol=5)
+
+        is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
+        is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
+        is_milling_tilt = np.radians(-45) < stage_tilt  < sem.t
+
+        if is_sem_rotation and is_sem_tilt:
+            return "SEM"
+        if is_sem_rotation and is_milling_tilt:
+            return "MILLING"
+        if is_fib_rotation and is_fib_tilt:
+            return "FIB"
+
+        return "NONE"
 
     def get_orientation(self, orientation: str) -> FibsemStagePosition:
         """Get the orientation (r,t) for the given orientation string."""
+
+        # if orientations not initialised, update
+        if not hasattr(self, "orientations"):
+            self._update_orientations()
+       
+        if orientation not in self.orientations:
+            raise ValueError(f"Orientation {orientation} not supported.")
+
+        return self.orientations[orientation]
+
+    def _update_orientations(self) -> None:
+        """Update the stage orientations based on the current system settings."""
 
         stage_settings = self.system.stage
         shuttle_pre_tilt = stage_settings.shuttle_pre_tilt  # deg
         milling_angle = stage_settings.milling_angle        # deg
 
         # needs to be dynmaically updated as it can change.
-        from fibsem.transformations import get_stage_tilt_from_milling_angle
         milling_stage_tilt = get_stage_tilt_from_milling_angle(self, np.radians(milling_angle))
 
         self.orientations = {
@@ -1082,10 +1186,10 @@ class FibsemMicroscope(ABC):
             # only x/y translation, no rotation
             self.orientations["FM"] = deepcopy(self.orientations["FIB"])
 
-        if orientation not in self.orientations:
-            raise ValueError(f"Orientation {orientation} not supported.")
-
-        return self.orientations[orientation]
+    def set_milling_angle(self, milling_angle: float) -> None:
+        """Set the 'stored' milling angle in the system settings."""
+        self.system.stage.milling_angle = milling_angle
+        self._update_orientations()
 
     def get_current_milling_angle(self) -> float:
         """Get the current milling angle in degrees based on the current stage tilt."""
@@ -1137,7 +1241,6 @@ class FibsemMicroscope(ABC):
         if rotation is None:
             rotation = np.radians(self.system.stage.rotation_reference)
 
-        from fibsem.transformations import get_stage_tilt_from_milling_angle
         # calculate the stage tilt from the milling angle
         stage_tilt = get_stage_tilt_from_milling_angle(self, milling_angle)
         stage_position = FibsemStagePosition(t=stage_tilt, r=rotation)
@@ -1145,10 +1248,24 @@ class FibsemMicroscope(ABC):
 
         return self.is_close_to_milling_angle(milling_angle)
 
+    def move_to_device(self, device: str) -> None:
+        """Move the stage to the predefined device position."""
+        logging.warning(f"move_to_device is not implemented for {self.__class__.__name__}.")
+        pass
+
     @property
     def current_grid(self) -> str:
-        return "None"
+        try:
+            grid = self._stage.current_grid
+            if grid is None:
+                return "NONE"
+            return grid.name
+        except Exception:
+            return "NONE"
 
+    @property
+    def manufacturer(self) -> str:
+        return "ThermoFisher"
 
 def _thermo_application_file_wrapper_for_drawing_functions(
     patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
@@ -1374,6 +1491,11 @@ class ThermoMicroscope(FibsemMicroscope):
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
+
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -1674,7 +1796,7 @@ class ThermoMicroscope(FibsemMicroscope):
                 if self._stop_acquisition_event.is_set():
                     break
 
-                # acquire image using current beam settings
+                # acquire image using current beam settings # TODO: migrate to start_acquisition while loop
                 image = self.acquire_image(beam_type=beam_type, image_settings=None)
 
                 # emit the acquired image
@@ -1770,7 +1892,7 @@ class ThermoMicroscope(FibsemMicroscope):
         wd = self.get_working_distance(BeamType.ELECTRON)
 
         # convert to autoscript position
-        autoscript_position = position.to_autoscript_position(compustage=self.stage_is_compustage)
+        autoscript_position = position.to_autoscript_position(compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
         logging.info(f"Moving stage to {position}.")
         self.stage.absolute_move(autoscript_position, MoveSettings(rotate_compucentric=True)) # TODO: This needs at least an optional safe move to prevent collision?
@@ -2115,43 +2237,37 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return expected_y
 
-    # TODO: update this to an enum
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
 
-        # current stage position
-        if stage_position is None:
-            stage_position = self.get_stage_position()
-        if stage_position.r is None or stage_position.t is None:
-            raise ValueError("Stage position must have both rotation (r) and tilt (t) defined.")
-        stage_rotation = stage_position.r % (2 * np.pi)
-        stage_tilt = stage_position.t
 
-        from fibsem import movement
-        # TODO: also check xyz ranges?
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the stage axis limits for x, y, z, t, r."""
+        if self.stage_is_compustage:
+            from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE
+            return STAGE_LIMITS_COMPUSTAGE
 
-        sem = self.get_orientation("SEM")
-        fib = self.get_orientation("FIB")
-        milling = self.get_orientation("MILLING")
-        if sem is None or fib is None or milling is None:
-            raise ValueError("SEM, FIB or MILLING orientation not defined in the system.")
-        if sem.r is None or sem.t is None or fib.r is None or fib.t is None or milling.r is None or milling.t is None:
-            raise ValueError("SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined.")
+        limits: Dict[str, RangeLimit] = {}
+        for axis in ["x", "y", "z", "t"]:
+            axis_limit = self.stage.get_axis_limits(axis)
+            # t is in radians -> degrees
+            if axis == "t":
+                limits[axis] = RangeLimit(
+                    min=np.degrees(axis_limit.min),
+                    max=np.degrees(axis_limit.max)
+                )                
+                continue
 
-        is_sem_rotation = movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5) # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
-        is_fib_rotation = movement.rotation_angle_is_smaller(stage_rotation, fib.r, atol=5)
+            limits[axis] = RangeLimit(
+                min=axis_limit.min,
+                max=axis_limit.max,
+            )
 
-        is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
-        is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-        is_milling_tilt = np.radians(-45) < stage_tilt  < sem.t
-
-        if is_sem_rotation and is_sem_tilt:
-            return "SEM"
-        if is_sem_rotation and is_milling_tilt:
-            return "MILLING"
-        if is_fib_rotation and is_fib_tilt:
-            return "FIB"
-
-        return "NONE"
+        # special case for r (no specified limits, infinite rotation)
+        if not self.stage_is_compustage:
+            limits["r"] = RangeLimit(
+                min=-360,
+                max=360,
+            )
+        return limits
 
     def _safe_rotation_movement(
         self, stage_position: FibsemStagePosition
@@ -2980,6 +3096,23 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return resized_points
 
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        """Draw a polygon pattern on the current imaging view of the microscope."""
+
+        if AUTOSCRIPT_VERSION < parse_version("4.12"):
+            raise NotImplementedError("Polygon patterning is only supported in Autoscript 4.12 or higher.")
+
+        pattern = self.connection.patterning.create_polygon(
+            pattern_settings.vertices,
+            depth=pattern_settings.depth
+        )
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        logging.debug({"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()})
+        self._patterns.append(pattern)
+        return pattern
+
     def get_gis(self, port: str = None):
         use_multichem = self.is_available("gis_multichem")
         
@@ -3359,7 +3492,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "stage_position":
             # get stage position in raw coordinates 
             self.stage.set_default_coordinate_system(self._default_stage_coordinate_system) # TODO: remove this once testing is done
-            stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)
+            stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position) # TODO: apply compucentric/raw coordinate system conversion here
             return stage_position
         
         if key == "stage_homed":

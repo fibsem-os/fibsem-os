@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import time
 from copy import deepcopy
@@ -26,11 +28,13 @@ from fibsem.structures import (
     FibsemLineSettings,
     FibsemPatternSettings,
     FibsemRectangle,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
     calculate_fiducial_area_v2,
 )
 from fibsem.milling.patterning.utils import create_pattern_mask
+from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
 
 # colour wheel
 COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
@@ -264,6 +268,26 @@ def convert_bitmap_pattern_to_napari_image(
         "translate": translation,
     }
 
+def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings, 
+                                      shape: Tuple[int, int], 
+                                      pixelsize: float, 
+                                      translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+                                      ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    if not isinstance(pattern_settings, FibsemPolygonSettings):
+        raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
+
+    # image centre
+    icy, icx = get_image_pixel_centre(shape)
+
+    vertices = np.array(pattern_settings.vertices)
+    # convert vertices to pixels
+    vertices = vertices / pixelsize
+    # reverse the order of coordinates for napari
+    vertices = vertices[:, ::-1]
+    # add the image centre
+    vertices += np.array([icy, icx])
+
+    return vertices, {"translate": translation}
 
 def remove_all_napari_shapes_layers(
     viewer: napari.Viewer,
@@ -288,6 +312,7 @@ NAPARI_DRAWING_DICT = {
     FibsemCircleSettings: (convert_pattern_to_napari_circle, "ellipse"),
     FibsemLineSettings: (convert_pattern_to_napari_line, "line"),
     FibsemBitmapSettings: (convert_bitmap_pattern_to_napari_image, "bitmap"),
+    FibsemPolygonSettings: (convert_pattern_to_napari_polygon, "polygon"),
 }
 
 
@@ -348,6 +373,7 @@ def draw_milling_patterns_in_napari(
     draw_crosshair: bool = True,
     background_milling_stages: Optional[List[FibsemMillingStage]] = None,
     colors: Optional[List[str]] = None,
+    alignment_area: Optional[FibsemRectangle] = None,
 ) -> List[str]:
     """Draw the milling patterns in napari as a combination of Shapes and Label layers.
     Args:
@@ -357,6 +383,7 @@ def draw_milling_patterns_in_napari(
         milling_stages): list of milling stages
         draw_crosshair: draw crosshair on the image
         background_milling_stages: optional list of background milling stages to draw
+        alignment_area: optional alignment area to draw
     Returns:
         List[str]: list of milling pattern layers
     """
@@ -387,7 +414,7 @@ def draw_milling_patterns_in_napari(
 
         # TODO: QUERY  migrate to using label layers for everything??
         # TODO: re-enable annulus drawing, re-enable bitmaps
-        for i, pattern_settings in enumerate(stage.pattern.define(), 1):
+        for i, pattern_settings in enumerate(stage.define_patterns(), 1):
             pattern = NapariPattern.draw(
                 name=stage.name,
                 index=i,
@@ -502,6 +529,16 @@ def draw_milling_patterns_in_napari(
 
     layer_name_list = list(layer_names_used)
 
+    # draw alignment area
+    if alignment_area is not None:
+        layer_name = draw_alignment_area(
+            viewer=viewer,
+            reduced_area=alignment_area,
+            image_shape=image_shape,
+            translate=translation,
+        )
+        layer_name_list.append(layer_name)
+
     # remove all un-updated layers (assume they have been deleted)
     remove_all_napari_shapes_layers(
         viewer=viewer, layer_type=NapariShapesLayers, ignore=layer_name_list
@@ -509,6 +546,36 @@ def draw_milling_patterns_in_napari(
 
     return layer_name_list  # list of milling pattern layers
 
+def draw_alignment_area(viewer: napari.Viewer,
+                        reduced_area: FibsemRectangle,
+                        image_shape: Tuple[int, int],
+                        translate: Tuple[float, float]):
+    """Draw the alignment area layer in napari.
+    Args:
+        viewer: napari viewer instance
+        reduced_area: FibsemRectangle defining the alignment area
+        image_shape: shape of the image to draw on
+        translate: translation of the FIB image layer
+    Returns:
+        layer_name: name of the alignment area layer"""
+
+    # add alignment area to napari
+    data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area,
+                                                image_shape=image_shape,
+                                                )
+    layer_name = "Milling Alignment Area"
+    if layer_name in viewer.layers:
+        viewer.layers.remove(layer_name)
+
+    viewer.add_shapes(data=data, name=layer_name,
+        shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"],
+        edge_color=ALIGNMENT_LAYER_PROPERTIES["edge_color"],
+        edge_width=ALIGNMENT_LAYER_PROPERTIES["edge_width"],
+        face_color=ALIGNMENT_LAYER_PROPERTIES["face_color"],
+        opacity=ALIGNMENT_LAYER_PROPERTIES["opacity"],
+        translate=translate) # match the fib layer translation
+
+    return layer_name
 
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     icy, icx = resolution[1] // 2, resolution[0] // 2

@@ -64,8 +64,13 @@ class AutoLamellaWorkflowDisplayWidget(QWidget):
                 note = desc
                 if len(desc) > 5:
                     note = f"{desc[:5]}..."
-                status_msg = f"Defect ({note})"
-                status_label.setStyleSheet("color: red")
+                req_rework = pos.defect.requires_rework
+                if req_rework:
+                    status_msg = f"Rework ({note})"
+                    status_label.setStyleSheet("color: orange")
+                else:
+                    status_msg = f"Defect ({note})"
+                    status_label.setStyleSheet("color: red")
                 status_label.setToolTip(f"{pos.defect.description} - {datetime.fromtimestamp(pos.defect.updated_at).strftime('%Y-%m-%d %H:%M:%S')}")
             status_label.setText(status_msg)
 

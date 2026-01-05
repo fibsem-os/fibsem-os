@@ -28,6 +28,7 @@ from fibsem.structures import (
     FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
+    FibsemPolygonSettings,
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
@@ -40,6 +41,7 @@ from fibsem.structures import (
     MicroscopeState,
     MillingState,
     Point,
+    RangeLimit,
     SystemSettings,
 )
 from fibsem.util.draw_numbers import draw_text
@@ -60,6 +62,19 @@ SIMULATOR_BEAM_CURRENTS = {
         None: [1.0e-12, 3.0e-12, 20e-12, 41e-12, 90e-12, 0.2e-9, 0.4e-9, 1.000005e-9, 2.0e-9, 4.0e-9, 15e-9], # None = Gallium
     }}
 
+STAGE_LIMITS_DEFAULT = {
+    "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "z": RangeLimit(min=0.0e-3, max=40.0e-3),
+    "r": RangeLimit(min=-360.0, max=360.0),
+    "t": RangeLimit(min=-10.0, max=90.0),
+}
+STAGE_LIMITS_COMPUSTAGE = {
+    "x": RangeLimit(min=-999.9e-6, max=999.9e-6),
+    "y": RangeLimit(min=-377.8e-6, max=377.8e-6),
+    "z": RangeLimit(min=-999.9e-6, max=999.9e-6),
+    "t": RangeLimit(min=-195.0, max=15.0),
+}
 # hack, do this properly @patrick
 
 @dataclass
@@ -268,6 +283,11 @@ class DemoMicroscope(FibsemMicroscope):
 
         # logging
         logging.debug({"msg": "connect_to_microscope", "ip_address": ip_address, "port": port, "system_info": info.to_dict() })
+
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
 
         return
 
@@ -526,6 +546,7 @@ class DemoMicroscope(FibsemMicroscope):
         if reduced_area is not None:
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
+        logging.info(f"Autocontrasting {beam_type.name} beam.")
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
@@ -547,9 +568,6 @@ class DemoMicroscope(FibsemMicroscope):
         elif beam_type == BeamType.ION:
             self.ion_system.beam.shift += Point(float(dx), float(dy))
 
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        return ThermoMicroscope.get_stage_orientation(self, stage_position)
-
     def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
         return ThermoMicroscope._safe_rotation_movement(self, stage_position)
 
@@ -559,6 +577,12 @@ class DemoMicroscope(FibsemMicroscope):
 
     def project_stable_move(self, dx:float, dy:float, beam_type:BeamType, base_position:FibsemStagePosition) -> FibsemStagePosition:
         return ThermoMicroscope.project_stable_move(self, dx, dy, beam_type, base_position)
+
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the axis limits for the stage."""
+        if self.stage_is_compustage:
+            return STAGE_LIMITS_COMPUSTAGE
+        return STAGE_LIMITS_DEFAULT
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> None:
         """Move the stage to the specified position."""
@@ -646,7 +670,7 @@ class DemoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "move_manipulator_corrected", "dx": dx, "dy": dy, "beam_type": beam_type.name})
         return self.get_manipulator_position()
 
-    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str = None) -> FibsemManipulatorPosition:
+    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: Optional[str] = None) -> FibsemManipulatorPosition:
         if name is None:
             name = "EUCENTRIC"
 
@@ -777,7 +801,11 @@ class DemoMicroscope(FibsemMicroscope):
     def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
         logging.debug({"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()})
         self.milling_system.patterns.append(pattern_settings)
-    
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        logging.debug({"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()})
+        self.milling_system.patterns.append(pattern_settings)
+
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
         logging.debug({"msg": "draw_bitmap_pattern", "pattern_settings": pattern_settings.to_dict()})
         self.milling_system.patterns.append(pattern_settings)

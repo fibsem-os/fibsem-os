@@ -5,18 +5,15 @@ import os
 from copy import deepcopy
 from datetime import datetime
 from pprint import pprint
-from typing import Dict, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from fibsem.imaging.tiled import plot_stage_positions_on_image
-from fibsem.milling import get_milling_stages
-from fibsem.milling.patterning.plotting import draw_milling_patterns
-from fibsem.structures import FibsemImage
+from matplotlib.figure import Figure
+from matplotlib_scalebar.scalebar import ScaleBar
 from plotly.subplots import make_subplots
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, letter
@@ -31,22 +28,20 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from scipy.ndimage import median_filter
+from skimage.transform import resize
 
-from fibsem.applications.autolamella.protocol.validation import (
-    FIDUCIAL_KEY,
-    MICROEXPANSION_KEY,
-    MILL_POLISHING_KEY,
-    MILL_ROUGH_KEY,
-)
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaMethod,
-    AutoLamellaProtocol,
-    AutoLamellaStage,
     Experiment,
     Lamella,
-    get_completed_stages,
 )
-from fibsem.applications.autolamella.tools.data import calculate_statistics_dataframe
+from fibsem.applications.autolamella.tools.data import (
+    format_pretty_dataframes,
+    parse_logfile,
+)
+from fibsem.imaging.tiled import plot_stage_positions_on_image
+from fibsem.milling import plot_milling_patterns
+from fibsem.structures import FibsemImage
 
 
 class PDFReportGenerator:
@@ -119,16 +114,16 @@ class PDFReportGenerator:
         
         # Create table style
         style = TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2F4F4F')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2F314F")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white])
         ])
@@ -161,9 +156,20 @@ class PDFReportGenerator:
         self.story.append(Spacer(1, 20))
         plt.close(fig)
 
-    def add_mpl_figure(self, fig: Figure) -> None:
-        fig.savefig('temp.png', format='png', bbox_inches='tight', dpi=300)
-        self.story.append(Image('temp.png'))
+    def add_mpl_figure(self, fig: Figure, width: float = 6*inch, height: float = 4*inch) -> None:
+        """Add a matplotlib figure to the PDF using in-memory buffer
+
+        Args:
+            fig: Matplotlib figure to add
+            width: Width in inches (default: 6 inches)
+            height: Height in inches (default: 4 inches)
+        """
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+        buf.seek(0)
+        plt.close(fig)
+        self.story.append(Image(buf, width=width, height=height))
+        self.story.append(Spacer(1, 20))
 
     def add_plotly_figure(self, fig: go.Figure, title=None, width=6.5*inch, height=4*inch) -> None:
         """Add a Plotly figure to the PDF"""
@@ -185,87 +191,279 @@ class PDFReportGenerator:
         """Generate the PDF document"""
         self.doc.build(self.story)
 
-def plot_lamella_milling_workflow(p: Lamella) -> Optional[Figure]:
 
-    # DRAW MILLING PATTERNS
-    milling_workflows = [MILL_ROUGH_KEY, MILL_POLISHING_KEY, MICROEXPANSION_KEY, FIDUCIAL_KEY]
-    milling_stages = []
-    for mw in milling_workflows:
-        if mw not in p.protocol.keys():
-            continue
-        milling_stages.extend(get_milling_stages(key=mw, protocol=p.protocol))
 
-    filenames = sorted(glob.glob(os.path.join(p.path, "ref_MillPolishing*_final_high_res_ib.tif*")))
 
-    if len(filenames) == 0:
-        logging.info(f"No images found for {p.name}")
-        return None
+###### NEW REPORTING FOR NEW TASK-WORKFLOW ######
+def _add_lamella_section(pdf: PDFReportGenerator,
+                         lamella: Lamella,
+                         df_task_history: pd.DataFrame,
+                         df_milling: pd.DataFrame,
+                         include_workflow: bool = True,
+                         include_images: bool = True,
+                         include_milling: bool = True) -> None:
+    """Add a complete lamella section to the report.
 
-    # sem_image = FibsemImage.load(filenames[0])
-    fib_image = FibsemImage.load(filenames[0])
+    Args:
+        pdf: The PDF generator instance
+        lamella: The lamella to generate a section for
+        df_task_history: Task history dataframe for all lamellae
+        df_milling: Milling data dataframe for all lamellae
+        include_workflow: Whether to include workflow duration table
+        include_images: Whether to include workflow summary images
+        include_milling: Whether to include milling patterns and data
+    """
+    pdf.add_page_break()
+    pdf.add_heading(f"Lamella: {lamella.name}")
 
-    fig, ax = draw_milling_patterns(fib_image, milling_stages, title=f"{p.name}")
+    # Workflow table
+    if include_workflow:
+        df = df_task_history[df_task_history["Lamella Name"] == lamella.name]
+        if not df.empty:
+            pdf.add_dataframe(df, 'Workflow')
 
-    return fig
+    # Workflow images
+    if include_images:
+        fig = plot_lamella_task_workflow_summary(lamella)
+        if fig is not None:
+            pdf.add_mpl_figure(fig, width=6*inch, height=4*inch)
 
-def plot_lamella_summary(p: Lamella, 
-                         method: AutoLamellaMethod = AutoLamellaMethod.ON_GRID, 
-                         show_title: bool = False, 
-                         figsize: Tuple[int, int] = (30, 5), 
+    # Milling data and patterns
+    if include_milling:
+        df = df_milling[df_milling["Lamella Name"] == lamella.name]
+        if not df.empty:
+            pdf.add_dataframe(df, 'Milling Data')
+
+        figs = plot_task_milling_summary(lamella)
+        if figs:
+            for fig in figs:
+                pdf.add_mpl_figure(fig, width=6*inch, height=4*inch)
+
+
+def generate_report_data2(experiment: Experiment, encoding: str = "utf-8") -> Dict[str, any]:
+    """Generate report data from an experiment by parsing the logfile directly.
+
+    Args:
+        experiment: The experiment to extract data from
+        encoding: Text encoding for log file parsing (default: "utf-8")
+
+    Returns:
+        Dictionary containing parsed report data with keys:
+            - "experiment_name": Name of the experiment
+            - "experiment_summary_dataframe": Summary statistics for the experiment
+            - "workflow_dataframe": Workflow statistics
+            - "task_history_dataframe": History of all tasks
+            - "milling_dataframe": Milling operation details
+            - "detection_dataframe": Detection results (if available)
+            - "detection_summary_dataframe": Detection summary statistics (if available)
+    """
+    REPORT_DATA: Dict[str, Any] = {}
+
+    dfs = parse_logfile(str(experiment.path), encoding=encoding)
+    dfs = format_pretty_dataframes(dfs)
+
+    REPORT_DATA["experiment_name"] = experiment.name
+    REPORT_DATA["experiment_summary_dataframe"] = dfs["experiment"]
+    REPORT_DATA["workflow_dataframe"] = dfs["workflow"]
+    REPORT_DATA["task_history_dataframe"] = dfs["task_history"]
+    REPORT_DATA["milling_dataframe"] = dfs["milling"]
+    REPORT_DATA["detection_dataframe"] = dfs["detection"]
+    REPORT_DATA["detection_summary_dataframe"] = dfs["detection_summary"]
+
+    return REPORT_DATA
+
+
+def generate_report2(experiment: Experiment,
+                    output_filename: str = "autolamella.pdf",
+                    sections: Optional[Dict[str, bool]] = None,
+                    encoding: str = "utf-8") -> None:
+    """Generate a comprehensive AutoLamella experiment report.
+
+    This function generates a PDF report from an experiment by parsing the logfile directly.
+    Used for the new task-based workflow system.
+
+    Args:
+        experiment: The experiment to generate a report for
+        output_filename: Path where the PDF report will be saved (default: "autolamella.pdf")
+        sections: Optional dict to control which sections to include. Available keys:
+            - "overview": Overview image with positions (default: True)
+            - "task_history": Task history table (default: True)
+            - "detection": Detection data tables (default: True)
+            - "lamella_workflow": Per-lamella workflow tables (default: True)
+            - "lamella_workflow_images": Per-lamella workflow images (default: True)
+            - "lamella_milling": Per-lamella milling data and patterns (default: True)
+        encoding: Text encoding for log file parsing (default: "utf-8")
+
+    Returns:
+        None. The PDF report is saved to output_filename.
+
+    Raises:
+        FileNotFoundError: If the experiment path doesn't exist
+        ValueError: If the experiment has no positions
+
+    Example:
+        >>> exp = Experiment.load("path/to/experiment.yaml")
+        >>> generate_report2(exp, "my_report.pdf", sections={"overview": True, "detection": False})
+    """
+    # Set up default sections
+    default_sections = {
+        "overview": True,
+        "task_history": True,
+        "detection": True,
+        "lamella_workflow": True,
+        "lamella_workflow_images": True,
+        "lamella_milling": True
+    }
+    sections = {**default_sections, **(sections or {})}
+
+    report_data = generate_report_data2(experiment, encoding=encoding)
+
+    # Create PDF generator
+    pdf = PDFReportGenerator(output_filename=output_filename)
+
+    # Add content - Header and summary tables
+    pdf.add_title(f"AutoLamella Report: {report_data['experiment_name']}",
+                  f'Generated on {datetime.now().strftime("%B %d, %Y")}')
+    pdf.add_paragraph('This report summarises the results of the AutoLamella experiment.')
+    pdf.add_dataframe(report_data["workflow_dataframe"], 'Workflow Summary')
+    pdf.add_dataframe(report_data["experiment_summary_dataframe"], 'Experiment Summary')
+
+    # Overview image with positions
+    if sections["overview"]:
+        try:
+            filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
+            filenames = [f for f in filenames if "autogamma" not in f]
+            if len(filenames) > 0:
+                pdf.add_page_break()
+                pdf.add_heading("Overview (Positions)")
+                for filename in filenames:
+                    image = FibsemImage.load(filename)
+                    fig = generate_final_overview_image(exp=experiment, image=image)
+                    pdf.add_mpl_figure(fig, width=4.5*inch, height=4.5*inch)
+        except Exception as e:
+            logging.warning(f"Error generating overview image: {e}")
+
+    # Task history
+    if sections["task_history"]:
+        pdf.add_page_break()
+        pdf.add_heading("Task History")
+        pdf.add_dataframe(report_data["task_history_dataframe"])
+
+    # Detection data
+    if sections["detection"]:
+        if report_data["detection_dataframe"] is not None and not report_data["detection_dataframe"].empty:
+            pdf.add_page_break()
+            pdf.add_heading("Detection Data")
+            pdf.add_dataframe(report_data["detection_dataframe"])
+            pdf.add_dataframe(report_data["detection_summary_dataframe"], "Detection Summary")
+
+    # Per-lamella sections
+    df_task_history = report_data["task_history_dataframe"]
+    df_milling = report_data["milling_dataframe"]
+
+    for p in experiment.positions:
+        _add_lamella_section(
+            pdf=pdf,
+            lamella=p,
+            df_task_history=df_task_history,
+            df_milling=df_milling,
+            include_workflow=sections["lamella_workflow"],
+            include_images=sections["lamella_workflow_images"],
+            include_milling=sections["lamella_milling"]
+        )
+
+    # Generate PDF
+    pdf.generate()
+
+def plot_lamella_task_workflow_summary(p: Lamella,
+                         show_title: bool = False,
+                         show_scalebar: bool = True,
+                         figsize: Tuple[int, int] = (30, 5),
+                         target_size: int = 256,
+                         fontsize: int = 12,
+                         mode: str = "light",
                          show: bool = False) -> Optional[Figure]:
-    """Plot the final images for each stage of the lamella workflow."""
+    """Plot the final images for each task of the lamella workflow.
 
-    # get completed stages
-    completed_stages = get_completed_stages(p, method=method)
-    if not completed_stages:
-        logging.info(f"No completed stages found for {p.name}")
+    Creates a grid of images showing SEM and FIB views at different resolutions
+    for each completed task in the lamella workflow.
+
+    Args:
+        p: The lamella to plot workflow summary for
+        show_title: Whether to add a title to the figure (default: False)
+        figsize: Base size for the figure as (width, height) tuple (default: (30, 5))
+        target_size: Target size for image resize (default: 256)
+        fontsize: Font size for labels and title (default: 12)
+        mode: Display mode - "light" (black text) or "dark" (white text) (default: "light")
+        show: Whether to display the figure immediately (default: False)
+
+    Returns:
+        Matplotlib Figure object if images are found, None otherwise
+    """
+
+    # Determine text color based on mode
+    text_color = "white" if mode == "dark" else "black"
+
+    # get completed tasks
+    completed_tasks = [t.name for t in p.task_history]
+    if not completed_tasks:
+        logging.info(f"No completed tasks found for {p.name}")
         return None
 
-    figsize = (figsize[0], figsize[1] * len(completed_stages))
+    task_filenames = {}
+    for task_name in completed_tasks:
+        filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*res*.tif*")))
+        if len(filenames) == 0:
+            continue
+        task_filenames[task_name] = filenames
 
-    nrows = len(completed_stages)
-    fig, axes = plt.subplots(nrows, 4, figsize=figsize)
-    for i, s in enumerate(completed_stages):
+    if not task_filenames:
+        logging.info(f"No valid images found for {p.name}")
+        return None
+
+    # only keep tasks with valid images
+    completed_tasks = list(task_filenames.keys())
+    nrows = len(completed_tasks)
+    ncols = max(len(task_filenames[task]) for task in completed_tasks)
+
+    # Load first image to determine aspect ratio for proper figure sizing
+    first_filename = list(task_filenames.values())[0][0]
+    first_img = FibsemImage.load(first_filename)
+    img_shape = first_img.data.shape
+    resize_shape = (int(img_shape[0] * (target_size / img_shape[1])), target_size)
+    aspect_ratio = resize_shape[0] / resize_shape[1]
+
+    # Calculate figure size based on target image size and number of rows
+    # 4 columns of images, each target_size wide
+    fig_width = figsize[0]
+    # Height should accommodate nrows of images with aspect_ratio, minimal spacing
+    fig_height = fig_width * aspect_ratio * nrows / ncols
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_width, fig_height))
+
+    for i, task_name in enumerate(completed_tasks):
 
         if nrows == 1:
             ax = axes
         else:
             ax = axes[i]
 
-        stage_name = s.name
+        if ncols == 1:
+            ax = np.expand_dims(ax, axis=0)
 
         # Set y-axis label for this row (only on the leftmost subplot)
-        ax[0].set_ylabel(stage_name, fontsize=18, rotation=90, ha='center', va='center')
+        ax[0].set_ylabel(task_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
 
-        # Set x-axis label on the first row (only on the leftmost subplot)
-        if i == 0:
-            ax[0].set_xlabel(p.name, fontsize=18, ha='center', va='center')
-            ax[0].xaxis.set_label_position('top')
-        filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{stage_name}*_final_*_res*.tif*")))
-
-        # for backwards compatibility
-        if stage_name == "SetupLamella":
-            tmp_filenames = sorted(glob.glob(os.path.join(p.path, "ref_ReadyLamella*_final_*_res*.tif*")))
-            if len(tmp_filenames) > len(filenames):
-                filenames = tmp_filenames
-
-        if len(filenames) == 0:
-            logging.info(f"No images found for {p.name} - {s.name}")
-            continue
-
-        if len(filenames) < 4:
-            logging.info(f"Only {len(filenames)} images found for {p.name} - {s.name}, expected 4")
-            continue
+        filenames = task_filenames[task_name]
         try:
             for j, fname in enumerate(filenames):
                 img = FibsemImage.load(fname)
 
                 # resize image, maintain aspect ratio
-                from PIL import Image as PILImage
                 shape = img.data.shape
-                target_size = 256
                 resize_shape = (int(shape[0] * (target_size / shape[1])), target_size)
-                arr = np.asarray(PILImage.fromarray(img.data).resize(resize_shape[::-1]))
+                arr = resize(img.data, resize_shape, preserve_range=True).astype(img.data.dtype)
+                arr = median_filter(arr, size=3)
 
                 ax[j].imshow(arr, cmap="gray")
                 ax[j].set_xticks([])
@@ -274,47 +472,278 @@ def plot_lamella_summary(p: Lamella,
                     spine.set_visible(False)
 
                 # add scalebar
-                from matplotlib_scalebar.scalebar import ScaleBar
-                scalebar = ScaleBar(
-                    dx=img.metadata.pixel_size.x * (shape[1] / target_size),
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
+                if show_scalebar:
+                    ax[j].add_artist(ScaleBar(
+                        dx=img.metadata.pixel_size.x * (shape[1] / target_size),
+                        color="black",
+                        box_color="white",
+                        box_alpha=0.5,
                     location="lower right",
-                )
-                ax[j].add_artist(scalebar)
+                ))
+
+            if j < ncols - 1:
+                # fill remaining subplots with blank images
+                for k in range(j + 1, ncols):
+                    ax[k].imshow(np.zeros(resize_shape, dtype=np.uint8), cmap="gray")
+                    ax[k].set_xticks([])
+                    ax[k].set_yticks([])
+                    for spine in ax[k].spines.values():
+                        spine.set_visible(False)
+                    ax[k].text(0.5, 0.5, "No Data", color="white", fontsize=fontsize,
+                               ha='center', va='center', transform=ax[k].transAxes)
 
         except Exception as e:
-            logging.error(f"Error plotting {p.name} - {s.name}: {e}")
+            logging.error(f"Error plotting {p.name} - {task_name}: {e}")
             continue
+
     if show_title:
-        fig.suptitle(f"Lamella {p.name}", fontsize=24)
-    plt.subplots_adjust(wspace=0.01, hspace=0.01)
+        fig.suptitle(f"Lamella {p.name}", fontsize=int(fontsize * 1.5), color=text_color)
+
+    # Minimize spacing between subplots
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.02, hspace=0.02)
 
     if show:
         plt.show()
 
     return fig
 
-def get_lamella_figures(p: Lamella, exp_path: str) -> dict:
 
-    p.path = os.path.join(exp_path, p.name)
+def plot_experiment_task_summary(exp: Experiment,
+                                  task_name: str,
+                                  show_title: bool = False,
+                                  show_scalebar: bool = True,
+                                  figsize: Tuple[int, int] = (30, 5),
+                                  target_size: int = 256,
+                                  fontsize: int = 12,
+                                  mode: str = "light",
+                                  show: bool = False) -> Optional[Figure]:
+    """Plot the final images for a specific task across all lamellae in an experiment.
 
-    # get plot of milling patterns on final image
-    fig_milling = plot_lamella_milling_workflow(p)
+    Creates a grid of images showing SEM and FIB views at different resolutions
+    for a specific task across all lamellae that have completed that task.
 
-    filenames = sorted(glob.glob(os.path.join(p.path, "ref_MillPolishing*_final_high_res*.tif*")))
-    sem_image = FibsemImage.load(filenames[0])
-    fib_image = FibsemImage.load(filenames[1])
+    Args:
+        exp: The experiment containing lamellae to plot
+        task_name: Name of the task to plot across all lamellae
+        show_title: Whether to add a title to the figure (default: False)
+        figsize: Base size for the figure as (width, height) tuple (default: (30, 5))
+        target_size: Target size for image resize (default: 256)
+        fontsize: Font size for labels and title (default: 12)
+        mode: Display mode - "light" (black text) or "dark" (white text) (default: "light")
+        show: Whether to display the figure immediately (default: False)
 
-    fig_images, ax = plt.subplots(1, 2, figsize=(10, 5))
-    ax[0].imshow(sem_image.data, cmap="gray")
-    ax[1].imshow(fib_image.data, cmap="gray")
-    # plt.show()
+    Returns:
+        Matplotlib Figure object if images are found, None otherwise
+    """
 
-    FIGURES = {"milling": deepcopy(fig_milling), "images": deepcopy(fig_images)}
-    return FIGURES
+    # Determine text color based on mode
+    text_color = "white" if mode == "dark" else "black"
 
+    # Find lamellae that have completed the specified task
+    lamella_filenames = {}
+    for lamella in exp.positions:
+        # Check if lamella has completed the task
+        if not lamella.has_completed_task(task_name):
+            continue
+
+        # Look for task images
+        filenames = sorted(glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*res*.tif*")))
+        if len(filenames) == 0:
+            continue
+        lamella_filenames[lamella.name] = filenames
+
+    if not lamella_filenames:
+        logging.info(f"No valid images found for task '{task_name}' in experiment '{exp.name}'")
+        return None
+
+    # only keep lamellae with valid images
+    lamella_names = list(lamella_filenames.keys())
+    nrows = len(lamella_names)
+    ncols = max(len(lamella_filenames[lamella]) for lamella in lamella_names)
+
+    # Load first image to determine aspect ratio for proper figure sizing
+    first_filename = list(lamella_filenames.values())[0][0]
+    first_img = FibsemImage.load(first_filename)
+    img_shape = first_img.data.shape
+    resize_shape = (int(img_shape[0] * (target_size / img_shape[1])), target_size)
+    aspect_ratio = resize_shape[0] / resize_shape[1]
+
+    # Calculate figure size based on target image size and number of rows
+    # 4 columns of images, each target_size wide
+    fig_width = figsize[0]
+    # Height should accommodate nrows of images with aspect_ratio, minimal spacing
+    fig_height = fig_width * aspect_ratio * nrows / ncols
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_width, fig_height))
+
+    for i, lamella_name in enumerate(lamella_names):
+
+        if nrows == 1:
+            ax = axes
+        else:
+            ax = axes[i]
+
+        if ncols == 1:
+            ax = np.expand_dims(ax, axis=0)
+
+        # Set y-axis label for this row (lamella name)
+        ax[0].set_ylabel(lamella_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
+
+        filenames = lamella_filenames[lamella_name]
+        try:
+            for j, fname in enumerate(filenames):
+                img = FibsemImage.load(fname)
+
+                # resize image, maintain aspect ratio
+                shape = img.data.shape
+                resize_shape = (int(shape[0] * (target_size / shape[1])), target_size)
+                arr = resize(img.data, resize_shape, preserve_range=True).astype(img.data.dtype)
+                arr = median_filter(arr, size=3)
+
+                ax[j].imshow(arr, cmap="gray")
+                ax[j].set_xticks([])
+                ax[j].set_yticks([])
+                for spine in ax[j].spines.values():
+                    spine.set_visible(False)
+
+                # add scalebar
+                if show_scalebar:
+                    ax[j].add_artist(ScaleBar(
+                        dx=img.metadata.pixel_size.x * (shape[1] / target_size),
+                        color="black",
+                        box_color="white",
+                        box_alpha=0.5,
+                        location="lower right",
+                    ))
+
+            if j < ncols - 1:
+                # fill remaining subplots with blank images
+                for k in range(j + 1, ncols):
+                    ax[k].imshow(np.zeros(resize_shape, dtype=np.uint8), cmap="gray")
+                    ax[k].set_xticks([])
+                    ax[k].set_yticks([])
+                    for spine in ax[k].spines.values():
+                        spine.set_visible(False)
+                    ax[k].text(0.5, 0.5, "No Data", color="white", fontsize=fontsize,
+                               ha='center', va='center', transform=ax[k].transAxes)
+
+        except Exception as e:
+            logging.error(f"Error plotting {lamella_name} - {task_name}: {e}")
+            continue
+
+    if show_title:
+        fig.suptitle(f"Task: {task_name}", fontsize=int(fontsize * 1.5), color=text_color)
+
+    # Minimize spacing between subplots
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.02, hspace=0.02)
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def plot_task_milling_summary(p: Lamella, show: bool = False) -> List[Figure]:
+    """Plot the milling patterns for each task of the lamella workflow.
+
+    Creates figures showing the milling patterns overlaid on the final high-resolution
+    ion beam images for each task that includes milling operations.
+
+    Args:
+        p: The lamella to plot milling patterns for
+        show: Whether to display the figures immediately (default: False)
+
+    Returns:
+        List of matplotlib Figure objects, one per task with milling operations.
+        Returns empty list if no milling tasks are found or images are missing.
+    """
+    figures = []
+     
+    for k, v in p.task_config.items():
+
+        # check if the task was completed
+        if k not in [t.name for t in p.task_history]:
+            continue
+
+        # check if the task has milling operations
+        if v.milling:
+
+            filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{k}_final_*_ib.tif")))
+            if len(filenames) == 0:
+                logging.info(f"No final high-res ion beam image found for {p.name} - {k}")
+                continue
+            image = FibsemImage.load(filenames[0])
+            milling_stages = []
+            for mtask in v.milling.values():
+                milling_stages.extend(mtask.stages)
+
+            fig, ax = plot_milling_patterns(image, milling_stages, title=f"Lamella {p.name} - {k}")
+            figures.append(fig)
+            if show:
+                plt.show()
+    return figures
+
+def generate_final_overview_image(exp: Experiment,
+                                  image: FibsemImage,
+                                  state: str = "MILLING") -> Figure:
+    """Generate an overview image with all the final lamellae positions marked.
+
+    Creates a figure showing the overview image with colored markers indicating
+    the final positions of all lamellae in the experiment.
+
+    Args:
+        exp: The experiment containing lamella positions to plot
+        image: The overview image to use as background
+        state: The workflow state to retrieve positions from (default: "MILLING")
+
+    Returns:
+        Matplotlib Figure object with the overview image and position markers
+    """
+
+    sem_positions = []
+    for p in exp.positions:
+        pstate = p.poses.get(state, p.state.microscope_state)
+        if pstate is None or pstate.stage_position is None:
+            continue
+        pos = pstate.stage_position
+        pos.name = p.name
+        sem_positions.append(pos)
+
+    fig = plot_stage_positions_on_image(image, sem_positions,
+                                        show=False,
+                                        color="cyan",
+                                        show_scalebar=True,
+                                        figsize=None)
+
+    # plot details
+    fig.suptitle(f"Experiment: {exp.name}")
+    fig.tight_layout()
+
+    return fig
+
+def save_final_overview_image(exp: Experiment, 
+                        image: FibsemImage, 
+                        output_path: str) -> Figure:
+    """Save the final overview image with all the final lamellae positions.
+    Args: 
+        exp (Experiment): The experiment to plot.
+        image (FibsemImage): The overview image.
+        output_path (str): The path to save the image to.
+    Returns:
+        plt.Figure: The figure with the overview image and the positions.
+    Note: The figure is saved with a dpi of 300.
+    """
+
+    fig = generate_final_overview_image(exp, image)
+
+    # save the figure with dpi=300
+    fig.savefig(output_path, dpi=300)
+
+    return fig
+
+
+
+######## legacy reporting - for old protocol – to be deleted ######
 
 
 def plot_multi_gantt(df: pd.DataFrame, color_by='piece_id', barmode='group') -> go.Figure:
@@ -460,190 +889,3 @@ def generate_duration_data(df: pd.DataFrame) -> Tuple[pd.DataFrame, go.Figure]:
                         color="Workflow", barmode="group")
     
     return df[["Name", "Workflow", "Duration"]], fig_duration
-
-    # # display df_experiment dataframe
-    # st.subheader("Experiment Data")
-    # df_lamella = df_experiment[["petname", "current_stage", "failure", "failure_note", "failure_timestamp"]].copy()
-    # # rename petname to lamella
-    # df_lamella.rename(columns={"petname": "lamella"}, inplace=True)
-    # # convert timestamp to datetime, aus timezone
-    # df_lamella.failure_timestamp = pd.to_datetime(df_lamella.failure_timestamp, unit="s")
-    # st.dataframe(df_lamella)
-
-
-def generate_report_data(experiment: Experiment, encoding: str = "cp1252") -> dict:
-
-    REPORT_DATA = {}
-
-    # Load experiment data
-    dfs = calculate_statistics_dataframe(experiment.path, encoding=encoding)
-    df_experiment, df_history, df_beam_shift, df_steps, df_stage, df_det, df_click, df_milling = dfs
-
-    df, fig_duration = generate_duration_data(df_history)
-
-    REPORT_DATA["experiment_name"] = experiment.name
-    REPORT_DATA["experiment_summary_dataframe"] = experiment.to_summary_dataframe()
-
-    # timeline
-    REPORT_DATA["workflow_timeline_plot"] = generate_workflow_timeline(df_history)
-    REPORT_DATA["step_timeline_plots"] = generate_workflow_steps_timeline(df_steps)
-    # REPORT_DATA["step_timeline_plot"] = generate_report_timeline(df_steps)
-    # REPORT_DATA["interactions_timeline_plot"] = generate_interaction_timeline(df_click)
-
-    # duration
-    REPORT_DATA["duration_dataframe"] = df
-    REPORT_DATA["duration_plot"] = fig_duration
-
-    # lamella figures
-    REPORT_DATA["lamella_data"] = {}
-    for p in experiment.positions:
-        # figs = get_lamella_figures(p, exp.path)
-        # REPORT_DATA["lamella_data"][p.name] = figs
-        REPORT_DATA["lamella_data"][p.name] = "TODO"
-
-    return REPORT_DATA
-
-# report generation
-def generate_report(experiment: Experiment, 
-                    output_filename: str = "autolamella.pdf", 
-                    encoding="cp1252"):
-
-    report_data = generate_report_data(experiment, encoding=encoding)
-
-    # Create PDF generator
-    pdf = PDFReportGenerator(output_filename=output_filename)
-    
-    # Add content
-    pdf.add_title(f"AutoLamella Report: {report_data['experiment_name']}",
-                  f'Generated on {datetime.now().strftime("%B %d, %Y")}')
-    pdf.add_paragraph('This report summarises the results of the AutoLamella experiment.')
-    pdf.add_dataframe(report_data["experiment_summary_dataframe"], 'Experiment Summary')
-
-    # overview
-    try:
-        pdf.add_page_break()
-        pdf.add_heading("Overview (Positions)")
-        filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-        filenames = [f for f in filenames if "autogamma" not in f]
-        for filename in filenames:
-
-            image = FibsemImage.load(filename)
-            overview_filename = filename.replace(".tif", ".png")
-            fig = save_final_overview_image(exp=experiment, 
-                                            image=image, 
-                                            output_path=overview_filename)
-            pdf.story.append(Image(overview_filename, width=4.5*inch, height=4.5*inch))
-    except Exception as e:
-        logging.debug(f"Error generating overview image: {e}")
-
-    # timeline
-    pdf.add_page_break()
-    pdf.add_plotly_figure(report_data["workflow_timeline_plot"], "Workflow Timeline")
-    for stage_name, fig in report_data["step_timeline_plots"].items():
-        pdf.add_plotly_figure(fig, f"{stage_name} Timeline")
-
-    # pdf.add_plotly_figure(report_data["interactions_timeline_plot"], "Interaction Timeline")
-
-    # duration
-    # pdf.add_dataframe(report_data["duration_dataframe"], 'Workflow Duration')
-    pdf.add_plotly_figure(report_data["duration_plot"], "Workflow Duration by Lamella")
-
-    # TODO: 
-    # show overall summary
-    # show overview image with positions
-    # show individual lamella data
-    # show final images for each lamella
-    # show milling patterns for each lamella
-    # show milling data
-
-    # method = AutoLamellaMethod.ON_GRID
-    # if "Waffle" in experiment.name:
-        # method = AutoLamellaMethod.WAFFLE
-
-    df_history = experiment.history_dataframe()
-
-    for p in experiment.positions:
-        print(f"exporting: {p.name}")
-        p.path = os.path.join(experiment.path, p.name)
-        pdf.add_page_break()
-        pdf.add_heading(f"Lamella: {p.name}")
-
-        df = df_history[df_history["petname"] == p.name]
-        df, fig = generate_duration_data(df)
-
-        pdf.add_dataframe(df, 'Workflow Duration')
-
-        # display final images for each workflow stage
-        fig = plot_lamella_summary(p, method=experiment.method)
-        if fig is None:
-            continue
-
-        os.makedirs(os.path.join(p.path,'tmp'), exist_ok=True)
-        # save figure to temp file
-        fname = os.path.join(p.path,'tmp', f'tmp-{p.name}.png')
-        fig.savefig(fname, format='png', bbox_inches='tight', dpi=300)
-        plt.close()
-        pdf.story.append(Image(fname, width=6*inch, height=4*inch))
-
-        # add milling patterns
-        fig = plot_lamella_milling_workflow(p)
-        if fig is None:
-            continue
-        # save figure to temp file
-        fname = os.path.join(p.path,'tmp', f'tmp-milling-{p.name}.png')
-        fig.savefig(fname, format='png', bbox_inches='tight', dpi=300)
-        plt.close()
-        pdf.story.append(Image(fname, width=6*inch, height=4*inch))
-
-    # Generate PDF
-    pdf.generate()
-
-def generate_final_overview_image(exp: Experiment, 
-                                  image: FibsemImage, 
-                                  state: AutoLamellaStage = AutoLamellaStage.PositionReady) -> Figure:
-    """Generate an overview image with all the final lamellae positions.
-    Args:
-        exp (Experiment): The experiment to plot.
-        image (FibsemImage): The overview image.
-        state (AutoLamellaStage): The state to plot.
-    Returns:
-        plt.Figure: The figure with the overview image and the positions."""
-
-    sem_positions = []
-    for p in exp.positions:
-        pstate = p.states.get(state, None)
-        if pstate is None:
-            continue
-        pos = pstate.microscope_state.stage_position
-        pos.name = p.name
-        sem_positions.append(pos)
-
-    fig = plot_stage_positions_on_image(image, sem_positions,
-                                        show=False,
-                                        show_scalebar=True)
-
-    # plot details
-    fig.suptitle(f"Experiment: {exp.name}")
-    fig.tight_layout()
-
-    return fig
-
-def save_final_overview_image(exp: Experiment, 
-                        image: FibsemImage, 
-                        output_path: str) -> Figure:
-    """Save the final overview image with all the final lamellae positions.
-    Args: 
-        exp (Experiment): The experiment to plot.
-        image (FibsemImage): The overview image.
-        output_path (str): The path to save the image to.
-    Returns:
-        plt.Figure: The figure with the overview image and the positions.
-    Note: The figure is saved with a dpi of 300.
-    """
-
-    fig = generate_final_overview_image(exp, image)
-
-    # save the figure with dpi=300
-    fig.savefig(output_path, dpi=300)
-
-    return fig

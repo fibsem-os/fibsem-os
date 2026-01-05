@@ -198,6 +198,15 @@ class ImageSettingsWidget(QWidget):
         """
         return self._show_advanced
 
+    def show_field_of_view(self, show: bool):
+        """Show or hide the Field of View (HFW) control.
+
+        Args:
+            show: True to show the HFW control, False to hide it
+        """
+        self.hfw_spinbox.setVisible(show)
+        self.layout().itemAtPosition(2, 0).widget().setVisible(show)  # Corresponding label
+
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings."""
         settings = self.get_settings()
@@ -254,8 +263,15 @@ class ImageSettingsWidget(QWidget):
         """
         self._settings = settings
 
-        # Block signals to prevent recursive updates
-        self.blockSignals(True)
+        # Block signals on individual widgets to prevent recursive updates
+        self.resolution_combo.blockSignals(True)
+        self.dwell_time_spinbox.blockSignals(True)
+        self.hfw_spinbox.blockSignals(True)
+        self.line_integration_spinbox.blockSignals(True)
+        self.scan_interlacing_spinbox.blockSignals(True)
+        self.frame_integration_spinbox.blockSignals(True)
+        self.autocontrast_check.blockSignals(True)
+        self.drift_correction_check.blockSignals(True)
 
         # Set resolution
         resolution_list = list(settings.resolution)
@@ -282,10 +298,18 @@ class ImageSettingsWidget(QWidget):
         self.autocontrast_check.setChecked(settings.autocontrast)
         self.drift_correction_check.setChecked(settings.drift_correction)
 
+        # Unblock signals
+        self.resolution_combo.blockSignals(False)
+        self.dwell_time_spinbox.blockSignals(False)
+        self.hfw_spinbox.blockSignals(False)
+        self.line_integration_spinbox.blockSignals(False)
+        self.scan_interlacing_spinbox.blockSignals(False)
+        self.frame_integration_spinbox.blockSignals(False)
+        self.autocontrast_check.blockSignals(False)
+        self.drift_correction_check.blockSignals(False)
+
         # Update visibility based on settings
         self._update_advanced_visibility()
-
-        self.blockSignals(False)
 
 
 if __name__ == "__main__":

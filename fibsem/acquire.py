@@ -1,6 +1,8 @@
+from __future__ import annotations
 
+import copy
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 from fibsem.imaging import autogamma
 from fibsem.microscope import FibsemMicroscope
@@ -158,4 +160,63 @@ def take_set_of_reference_images(
     return reference_images
 
 
+def acquire_channels(microscope: FibsemMicroscope,
+                           image_settings: ImageSettings,
+                           acquire_sem: bool = True,
+                           acquire_fib: bool = True) -> tuple[Optional[FibsemImage], Optional[FibsemImage]]:
+    """Acquire SEM and/or FIB images based on the specified flags.
+    Args:
+        microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
+        image_settings (ImageSettings): The settings to use for image acquisition.
+        acquire_sem (bool, optional): Whether to acquire an SEM image. Defaults to True.
+        acquire_fib (bool, optional): Whether to acquire a FIB image. Defaults to True.
+    Returns:
+        tuple[Optional[FibsemImage], Optional[FibsemImage]]: A tuple containing the acquired SEM and FIB images.
+            If a particular image type was not acquired, its corresponding value will be None.
+    """
 
+    sem_image: Optional[FibsemImage] = None
+    fib_image: Optional[FibsemImage] = None
+    if acquire_sem:
+        image_settings.beam_type = BeamType.ELECTRON
+        sem_image = acquire_image(microscope, image_settings)
+    if acquire_fib:
+        image_settings.beam_type = BeamType.ION
+        fib_image = acquire_image(microscope, image_settings)
+    return sem_image, fib_image
+
+def acquire_set_of_channels(microscope: FibsemMicroscope, 
+                            image_settings: ImageSettings, 
+                            hfws: tuple[float, ...],
+                            filename: str = "ref_image",
+                            acquire_sem: bool = True, 
+                            acquire_fib: bool = True) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
+    """Acquire a set of SEM and/or FIB images at different horizontal field widths (hfws).
+    Args:
+        microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
+        image_settings (ImageSettings): The settings to use for image acquisition.
+        hfws (list[float]): A list containing the horizontal field widths for the images.
+        acquire_sem (bool, optional): Whether to acquire SEM images. Defaults to True.
+        acquire_fib (bool, optional): Whether to acquire FIB images. Defaults to True.
+    Returns:
+        list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]: A list of tuples containing the acquired SEM and FIB images
+            for each horizontal field width. If a particular image type was not acquired, its corresponding value will be None.
+    """
+    images = []
+
+    image_settings = copy.deepcopy(image_settings)
+    image_settings.save = True  # ensure saving
+
+
+    # extend suffexes if more hfws are provided than suffixes
+    suffixes = []
+    while len(suffixes) < len(hfws):
+        suffixes.append(f"res_{len(suffixes)+1:02d}")
+
+    for hfw, suffix in zip(hfws, suffixes):
+        image_settings.hfw = hfw
+        image_settings.filename = f"{filename}_{suffix}"
+        # image_settings.filename = f"{filename}_{int(hfw*1e6)}um"
+        sem_image, fib_image = acquire_channels(microscope, image_settings, acquire_sem, acquire_fib)
+        images.append((sem_image, fib_image))
+    return images

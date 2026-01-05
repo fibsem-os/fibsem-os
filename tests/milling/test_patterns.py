@@ -342,25 +342,25 @@ class TestTrenchPattern:
 
         # Check lower trench
         assert shapes[0].width == 100.0
-        assert shapes[0].height == 25.0
+        assert shapes[0].height == 30.0
         assert shapes[0].depth == 50.0
         assert shapes[0].centre_x == 10.0
-        assert shapes[0].scan_direction == "BottomToTop"
+        assert shapes[0].scan_direction == "TopToBottom"
         assert shapes[0].time == 5.0
 
         # Check upper trench
         assert shapes[1].width == 100.0
-        assert shapes[1].height == 30.0
+        assert shapes[1].height == 25.0
         assert shapes[1].depth == 50.0
         assert shapes[1].centre_x == 10.0
-        assert shapes[1].scan_direction == "TopToBottom"
+        assert shapes[1].scan_direction == "BottomToTop"
         assert shapes[1].time == 5.0
 
         # Check calculated positions
-        expected_lower_y = 20.0 - (20.0 / 2 + 25.0 / 2)
         expected_upper_y = 20.0 + (20.0 / 2 + 30.0 / 2)
-        assert abs(shapes[0].centre_y - expected_lower_y) < 1e-6
-        assert abs(shapes[1].centre_y - expected_upper_y) < 1e-6
+        expected_lower_y = 20.0 - (20.0 / 2 + 25.0 / 2)
+        assert abs(shapes[0].centre_y - expected_upper_y) < 1e-6
+        assert abs(shapes[1].centre_y - expected_lower_y) < 1e-6
 
     def test_define_with_fillet(self):
         trench = TrenchPattern(
@@ -550,7 +550,7 @@ class TestArrayPattern:
             assert shape.height == 20.0
             assert shape.depth == 30.0
             assert shape.passes == 2
-            assert shape.rotation == 45
+            assert shape.rotation == np.radians(45)
             assert shape.scan_direction == "LeftToRight"
             assert shape.cross_section == CrossSectionPattern.Rectangle
 

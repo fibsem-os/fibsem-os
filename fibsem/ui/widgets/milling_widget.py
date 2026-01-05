@@ -161,6 +161,9 @@ class FibsemMillingWidget2(QWidget):
     ):
         """Worker function to run the milling task in a separate thread."""
         try:
+            if not milling_task_config.stages:
+                raise ValueError("No milling stages defined in the configuration.")
+
             run_milling_task(
                 microscope=microscope, config=milling_task_config, parent_ui=self
             )

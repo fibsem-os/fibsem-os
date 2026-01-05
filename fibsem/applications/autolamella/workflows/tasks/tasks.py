@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.protocol.constants import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
+    AutoLamellaTaskStatus,
     Experiment,
     Lamella,
 )
@@ -83,6 +84,9 @@ TAutoLamellaTaskConfig = TypeVar(
 )
 
 MAX_ALIGNMENT_ATTEMPTS = 3
+ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
+
+# feature flags
 
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
@@ -128,6 +132,20 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
 
 
 @dataclass
+class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
+    """Configuration for the SelectMillingPositionTask."""
+
+    milling_angle: float = field(
+        default=15,
+        metadata={
+            "help": "The angle between the FIB and sample used for milling",
+            "units": constants.DEGREE_SYMBOL,
+        },)    
+    task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
+    display_name: ClassVar[str] = "Select Milling Position"
+
+
+@dataclass
 class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the SetupLamellaTask."""
 
@@ -167,17 +185,9 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
-    acquire_reference_images: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire reference images"},
-    )
-    orientation: Literal["SEM", "FIB", "MILLING"] = field(
-        default="MILLING",
-        metadata={"help": "The orientation to perform rough milling in"},
-    )
     sync_polishing_position: bool = field(
         default=True,
-        metadata={"help": "Whether to synchronize the polishing position with the rough milling position"},
+        metadata={"help": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
     display_name: ClassVar[str] = "Rough Milling"
@@ -189,14 +199,6 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
-    acquire_reference_images: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire reference images"},
-    )
-    orientation: Literal["SEM", "FIB", "MILLING"] = field(
-        default="MILLING",
-        metadata={"help": "The orientation to perform polishing in"},
-    )
     task_type: ClassVar[str] = "MILL_POLISHING"
     display_name: ClassVar[str] = "Polishing"
 
@@ -235,20 +237,10 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     """Configuration for the AcquireReferenceImageTask."""
     task_type: ClassVar[str] = "ACQUIRE_REFERENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Reference Image"
-    acquire_sem: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire SEM image",
-                  "label": "Acquire SEM Image"}
-    )
-    acquire_fib: bool = field(
-        default=True,
-        metadata={"help": "Whether to acquire FIB image",
-                  "label": "Acquire FIB Image"}
-    )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
         metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)"},
-    )
+    ) # change to pose?
 
 
 @dataclass
@@ -316,6 +308,8 @@ class AutoLamellaTask(ABC):
         self.lamella.task_state.start_timestamp = datetime.timestamp(datetime.now())
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type
+        self.lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        self.lamella.task_state.status_message = ""
         self.log_status_message(message="STARTED", 
                                 display_message="Started", 
                                 workflow_display_message=f"{self.lamella.name} [{self.display_name}]")
@@ -324,12 +318,13 @@ class AutoLamellaTask(ABC):
         # post-task
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.state.microscope_state = self.microscope.get_microscope_state()
         self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
+        self.lamella.task_state.status_message = ""
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
-        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
+        self.lamella.task_history.append(deepcopy(self.lamella.task_state)) # TODO: append to the history if task fails?
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""
@@ -359,6 +354,7 @@ class AutoLamellaTask(ABC):
                        "task_step": message})
         if self.lamella.task_state is not None:
             self.lamella.task_state.step = message
+            self.lamella.task_state.status_message = display_message if display_message is not None else ""
 
         if display_message is not None:
             self.update_status_ui(message = display_message, 
@@ -484,18 +480,76 @@ class AutoLamellaTask(ABC):
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
                                         stop_event=self._stop_event)
 
-    def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None) -> None:
+    def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
+        """Acquire a reference image with given field of view."""
+        acquire_fib = self.config.reference_imaging.acquire_fib
+        acquire_sem = self.config.reference_imaging.acquire_sem
+        return self._acquire_channels(image_settings, 
+                                        field_of_view=field_of_view, 
+                                        filename=filename, 
+                                        acquire_sem=acquire_sem,
+                                        acquire_fib=acquire_fib)
+
+    def _acquire_set_of_reference_images(self,
+                                 image_settings: ImageSettings, 
+                                 filename: Optional[str] = None, 
+                                 field_of_views: Optional[Tuple[float, ...]] = None) -> None:
         """Acquire a set of reference images."""
+        acquire_fib = self.config.reference_imaging.acquire_fib
+        acquire_sem = self.config.reference_imaging.acquire_sem
+        if field_of_views is None:
+            field_of_views = self.config.reference_imaging.field_of_views
+        image_settings = self.config.reference_imaging.imaging
+        return self._acquire_set_of_channels(image_settings,
+                                                field_of_views=field_of_views,
+                                                filename=filename,
+                                                acquire_sem=acquire_sem,
+                                                acquire_fib=acquire_fib)
+
+    def _acquire_channels(self, 
+                          image_settings: ImageSettings, 
+                          filename: Optional[str] = None, 
+                          field_of_view: float = 150e-6,
+                          acquire_sem: bool = True, 
+                          acquire_fib: bool = True) -> None:
+        """Acquire images for sem/fib channels at given field of view."""
+        if filename is None:
+            filename = f"ref_{self.task_name}_start"
+
+        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        image_settings.hfw = field_of_view
+        image_settings.filename = filename
+        image_settings.save = True
+        sem_image, fib_image = acquire.acquire_channels(self.microscope,
+                                                        image_settings,
+                                                        acquire_sem=acquire_sem,
+                                                        acquire_fib=acquire_fib)
+        set_images_ui(self.parent_ui, sem_image, fib_image)
+
+    def _acquire_set_of_channels(self, image_settings: ImageSettings, 
+                                 field_of_views: Optional[Tuple[float, ...]] = None, 
+                                 filename: Optional[str] = None,
+                                 acquire_sem: bool = True,
+                                 acquire_fib: bool = True) -> None:
+        """Acquire a set of images for each sem/fib channel at given field of views."""
+        
+        if field_of_views is None:
+            field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
         if filename is None:
             filename = f"ref_{self.task_name}_final"
+
         self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        reference_images = acquire.take_set_of_reference_images(
-            microscope=self.microscope,
-            image_settings=image_settings,
-            hfws=(fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER),
+        images = acquire.acquire_set_of_channels(
+            self.microscope,
+            image_settings,
+            field_of_views,
             filename=filename,
+            acquire_sem=acquire_sem,
+            acquire_fib=acquire_fib,
         )
-        set_images_ui(self.parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
+
+        sem_image, fib_image = images[-1] # last acquired image
+        set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
 
 
 class MillTrenchTask(AutoLamellaTask):
@@ -533,15 +587,13 @@ class MillTrenchTask(AutoLamellaTask):
         milling_task_config = self.config.milling[TRENCH_KEY]
 
         # acquire reference images
-        image_settings.hfw = milling_task_config.field_of_view
-        image_settings.filename = f"ref_{self.task_name}_start"
-        image_settings.save = True
-        eb_image, ib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, eb_image, ib_image)
+        self._acquire_reference_image(image_settings, field_of_view=milling_task_config.field_of_view)
 
         # log the task configuration
+        msg = f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done."
+        milling_task_config.acquisition.imaging.path = self.lamella.path
         milling_task_config = self.update_milling_config_ui(milling_task_config, 
-                                                          msg=f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done.",
+                                                          msg=msg,
                                                           )
         self.config.milling[TRENCH_KEY] = deepcopy(milling_task_config)
 
@@ -552,7 +604,7 @@ class MillTrenchTask(AutoLamellaTask):
             calibration.auto_charge_neutralisation(self.microscope, image_settings)
 
         # reference images
-        self._acquire_reference_image(image_settings)
+        self._acquire_set_of_reference_images(image_settings)
 
 
 class MillUndercutTask(AutoLamellaTask):
@@ -610,12 +662,9 @@ class MillUndercutTask(AutoLamellaTask):
 
             # detect
             self.log_status_message(f"ALIGN_UNDERCUT_{nid}", f"Aligning Undercut Position {nid}...")
-            image_settings.beam_type = BeamType.ION
-            image_settings.hfw = milling_task_config.field_of_view
-            image_settings.filename = f"ref_{self.task_name}_align_ml_{nid}"
-            image_settings.save = True
-            sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-            set_images_ui(self.parent_ui, sem_image, fib_image)
+            self._acquire_reference_image(image_settings,
+                                          filename=f"ref_{self.task_name}_align_ml_{nid}", 
+                                          field_of_view=milling_task_config.field_of_view)
 
             # get pattern
             scan_rotation = self.microscope.get_scan_rotation(beam_type=BeamType.ION)
@@ -647,7 +696,7 @@ class MillUndercutTask(AutoLamellaTask):
         self.config.milling[UNDERCUT_KEY] = deepcopy(milling_task_config)
 
         # take reference images
-        self._acquire_reference_image(image_settings, filename=f"ref_{self.task_name}_undercut")
+        self._acquire_set_of_reference_images(image_settings, filename=f"ref_{self.task_name}_undercut")
 
         # re-align to lamella centre
         self.log_status_message("ALIGN_FINAL", "Aligning Final Position...")
@@ -670,7 +719,7 @@ class MillUndercutTask(AutoLamellaTask):
         )
 
         # acquire reference images
-        self._acquire_reference_image(image_settings)
+        self._acquire_set_of_reference_images(image_settings)
 
 
 class MillRoughTask(AutoLamellaTask):
@@ -682,28 +731,21 @@ class MillRoughTask(AutoLamellaTask):
         """Run the task to mill the rough trenches for a lamella."""
 
         # bookkeeping
-        image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
+        self.image_settings = self.config.imaging
+        self.image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
         if self.lamella.milling_pose is None or self.lamella.milling_pose.stage_position is None:
             raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        milling_position = self.lamella.milling_pose.stage_position
-
-        if self.microscope.get_stage_orientation(milling_position) != self.config.orientation:
-            raise ValueError(f"Stage position {milling_position} is not in {self.config.orientation} orientation...")
         self.microscope.set_microscope_state(self.lamella.milling_pose)
 
         # beam_shift alignment
-        self._align_reference_image("ref_alignment_ib.tif")
+        self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         # take reference images
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        image_settings.filename = f"ref_{self.task_name}_start"
-        image_settings.hfw = self.config.milling[MILL_ROUGH_KEY].field_of_view
-        sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        self._acquire_reference_image(self.image_settings, 
+                                      field_of_view=self.config.milling[MILL_ROUGH_KEY].field_of_view)
 
         # mill stress relief features # QUERY: should stress relief be a separate task, or just part of mill rough
         # PRO: allows it to be 'separate'
@@ -714,7 +756,6 @@ class MillRoughTask(AutoLamellaTask):
             milling_task_config.alignment.rect = self.lamella.alignment_area
             milling_task_config.acquisition.imaging.path = self.lamella.path
 
-            self.config.milling[STRESS_RELIEF_KEY] = deepcopy(milling_task_config)
             msg=f"Press Run Milling to mill the stress relief features for {self.lamella.name}. Press Continue when done."
             milling_task_config = self.update_milling_config_ui(milling_task_config, msg=msg)
             self.config.milling[STRESS_RELIEF_KEY] = deepcopy(milling_task_config)
@@ -733,11 +774,13 @@ class MillRoughTask(AutoLamellaTask):
         self.sync_polishing_milling_task_position(milling_task_config.stages[0].pattern.point)
 
         # reference images
-        self._acquire_reference_image(image_settings)
+        self._acquire_set_of_reference_images(self.image_settings)
 
     def sync_polishing_milling_task_position(self, rough_milling_point: Point) -> None:
         """Sync the polishing milling task position to the rough milling task position."""
-        
+        if not self.config.sync_polishing_position:
+            return
+
         # if polishing task exists, we want to sync the position of the milling patterns
         polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
         polishing_task_name: Optional[str] = None
@@ -774,21 +817,13 @@ class MillPolishingTask(AutoLamellaTask):
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
         if self.lamella.milling_pose is None or self.lamella.milling_pose.stage_position is None:
             raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        milling_position = self.lamella.milling_pose.stage_position
-
-        if self.microscope.get_stage_orientation(milling_position) != self.config.orientation:
-            raise ValueError(f"Stage position {milling_position} is not in {self.config.orientation} orientation...")
         self.microscope.set_microscope_state(self.lamella.milling_pose)
 
         # beam_shift alignment
-        self._align_reference_image("ref_alignment_ib.tif")
+        self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         # reference images
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        image_settings.filename = f"ref_{self.task_name}_start"
-        image_settings.hfw = self.config.milling[MILL_POLISHING_KEY].field_of_view
-        sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        self._acquire_reference_image(image_settings, field_of_view=self.config.milling[MILL_POLISHING_KEY].field_of_view)
 
         # mill polishing 
         self.log_status_message("MILL_LAMELLA", "Milling Polishing Lamella...")
@@ -801,7 +836,7 @@ class MillPolishingTask(AutoLamellaTask):
         self.config.milling[MILL_POLISHING_KEY] = deepcopy(milling_task_config)
 
         # reference images
-        self._acquire_reference_image(image_settings)
+        self._acquire_set_of_reference_images(image_settings)
 
 
 class SpotBurnFiducialTask(AutoLamellaTask):
@@ -826,11 +861,7 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         self.microscope.safe_absolute_stage_movement(target_position)
 
         # acquire images, set ui
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        image_settings.filename = f"ref_{self.task_name}_start"
-        image_settings.save = True
-        sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        self._acquire_reference_image(image_settings, field_of_view=fcfg.REFERENCE_HFW_HIGH)
 
         self.log_status_message("SPOT_BURN_FIDUCIAL")
         # ask the user to select the position/parameters for spot burns
@@ -838,16 +869,72 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         ask_user(self.parent_ui, msg=msg, pos="Continue", spot_burn=True)
 
         # acquire final reference images
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        image_settings.filename = f"ref_{self.task_name}_end"
-        image_settings.save = True
-        sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        self._acquire_set_of_reference_images(image_settings)
+
 
 # TODO: we need to split this into select position and setup lamella tasks:
 # select position: move to milling angle, correct coincidence, acquire base image
 # setup lamella: mill fiducial, acquire alignment image, set alignment area
 # then allow the user to modify the other patterns (rough mill, polishing) asynchronously in gui
+
+
+class SelectMillingPositionTask(AutoLamellaTask):
+    """Task to setup the lamella for milling."""
+    config: SelectMillingPositionTaskConfig
+    config_cls: ClassVar[Type[SelectMillingPositionTaskConfig]] = SelectMillingPositionTaskConfig
+
+    def _run(self) -> None:
+        """Run the task to select the milling position for the lamella for milling."""
+
+        # bookkeeping
+        self.image_settings: ImageSettings = self.config.imaging
+        self.image_settings.path = self.lamella.path
+
+        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
+        stage_position = self.lamella.stage_position
+        if self.lamella.milling_pose is not None and self.lamella.milling_pose.stage_position is not None:
+            logging.info(f"Lamella {self.lamella.name} already has a milling pose set. Using existing milling pose.")
+            stage_position = self.lamella.milling_pose.stage_position
+        self.microscope.safe_absolute_stage_movement(stage_position)
+
+        self.log_status_message("SELECT_POSITION", "Selecting Position...")
+        milling_angle = self.config.milling_angle
+        is_close = self.microscope.is_close_to_milling_angle(milling_angle=milling_angle)
+
+        if not is_close and self.validate:
+            current_milling_angle = self.microscope.get_current_milling_angle()
+            ret = ask_user(parent_ui=self.parent_ui,
+                        msg=f"Tilt to specified milling angle ({milling_angle:.1f} {constants.DEGREE_SYMBOL})? "
+                        f"Current milling angle is {current_milling_angle:.1f} {constants.DEGREE_SYMBOL}.",
+                        pos="Tilt", neg="Skip")
+            if ret:
+                self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
+                # TODO: create an automated eucentric version of this...
+                # alignment._eucentric_tilt_alignment(microscope=self.microscope,
+                #                                     image_settings=self.image_settings,
+                #                                     target_angle=milling_angle,
+                #                                     step_size=3,
+                #                                     )
+
+        # acquire an image at the milling position
+        self._acquire_reference_image(image_settings=self.image_settings,
+                                      filename=f"ref_{self.task_name}_initial_position",
+                                      field_of_view=self.config.reference_imaging.field_of_view1)
+
+        # confirm with user to move to milling position
+        if self.validate:
+            ask_user(parent_ui=self.parent_ui,
+                    msg=f"Move to the milling position for {self.lamella.name} in the microscope UI. "
+                        f"Press Continue when done.",
+                    pos="Continue")
+
+        # reference images
+        self._acquire_set_of_reference_images(self.image_settings)
+
+        # store milling angle and pose
+        self.lamella.milling_angle = self.microscope.get_current_milling_angle()
+        self.lamella.milling_pose = self.microscope.get_microscope_state()
+
 
 class SetupLamellaTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
@@ -876,11 +963,13 @@ class SetupLamellaTask(AutoLamellaTask):
             self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
             ref_image = FibsemImage.load(filenames[-1])
 
-            # TODO: we should also check that the current position is close to the reference image to prevent bad alignments?
-            alignment.multi_step_alignment_v2(microscope=self.microscope, 
-                                            ref_image=ref_image, 
-                                            beam_type=BeamType.ION, 
-                                            steps=MAX_ALIGNMENT_ATTEMPTS)
+            # confirm that we are close to the reference image stage position before aligning
+            image_stage_position = ref_image.metadata.stage_position
+            if image_stage_position.is_close2(self.microscope.get_stage_position()):
+                alignment.multi_step_alignment_v2(microscope=self.microscope,
+                                                ref_image=ref_image,
+                                                beam_type=BeamType.ION,
+                                                steps=MAX_ALIGNMENT_ATTEMPTS)
 
         self.log_status_message("SELECT_POSITION", "Selecting Position...")
         milling_angle = self.config.milling_angle
@@ -894,6 +983,12 @@ class SetupLamellaTask(AutoLamellaTask):
                         pos="Tilt", neg="Skip")
             if ret:
                 self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
+                # TODO: create an automated eucentric version of this...
+                # alignment._eucentric_tilt_alignment(microscope=self.microscope,
+                #                                     image_settings=image_settings,
+                #                                     target_angle=milling_angle,
+                #                                     step_size=3,
+                #                                     )
 
             # move_to_milling_angle(microscope=self.microscope, milling_angle=np.radians(milling_angle))
             # lamella = align_feature_coincident(microscope=microscope, 
@@ -911,6 +1006,7 @@ class SetupLamellaTask(AutoLamellaTask):
         rough_milling_task_config: Optional[FibsemMillingTaskConfig] = None
         rough_milling_name = None
         polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
+        polishing_milling_name = None
         try:
             # TODO: we need to store these task names, so we can then update them if they are changed in the gui    
             for task_name, task_config in self.lamella.task_config.items():
@@ -919,6 +1015,7 @@ class SetupLamellaTask(AutoLamellaTask):
                     rough_milling_name = task_name
                 elif task_config.task_type == MillPolishingTaskConfig.task_type:
                     polishing_milling_task_config = task_config.milling[MILL_POLISHING_KEY]
+                    polishing_milling_name = task_name
         except Exception as e:
             logging.warning(f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}")
         # find MILL_ROUGH and MILL_POLISHING task configs
@@ -930,11 +1027,7 @@ class SetupLamellaTask(AutoLamellaTask):
         # assert np.isclose(rough_milling_task_config.field_of_view, fiducial_task_config.field_of_view, atol=1e-6), \
         #     "Rough milling and fiducial tasks must have the same field of view."
 
-        image_settings.hfw = fiducial_task_config.field_of_view
-        image_settings.filename = f"ref_{self.task_name}_start"
-        image_settings.save = True
-        sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        self._acquire_reference_image(image_settings, field_of_view=fiducial_task_config.field_of_view)
 
         # review rough milling pattern
         if self.validate and rough_milling_task_config is not None and rough_milling_name is not None:
@@ -955,6 +1048,7 @@ class SetupLamellaTask(AutoLamellaTask):
             # mill the fiducial
             self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
             msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
+            fiducial_task_config.acquisition.imaging.path = self.lamella.path
             milling_task_config = self.update_milling_config_ui(fiducial_task_config, msg=msg)
             self.config.milling[FIDUCIAL_KEY] = deepcopy(milling_task_config)
 
@@ -992,8 +1086,14 @@ class SetupLamellaTask(AutoLamellaTask):
         image_settings.reduced_area = None
         image_settings.autocontrast = True
 
+        # sync alignment area to rough and polishing milling tasks (QUERY: should we sync all tasks?)
+        if rough_milling_task_config is not None and rough_milling_name is not None:
+            self.lamella.task_config[rough_milling_name].milling[MILL_ROUGH_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
+        if polishing_milling_task_config is not None and polishing_milling_name is not None:
+            self.lamella.task_config[polishing_milling_name].milling[MILL_POLISHING_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
+
         # reference images
-        self._acquire_reference_image(image_settings)
+        self._acquire_set_of_reference_images(image_settings)
 
         # store milling angle and pose
         self.lamella.milling_angle = self.microscope.get_current_milling_angle()
@@ -1002,6 +1102,7 @@ class SetupLamellaTask(AutoLamellaTask):
     def _display_fluorescence_images(self, latest_only: bool = True) -> None:
         """Display fluorescence images in the FM control widget."""
         return
+
 
 class AcquireReferenceImageTask(AutoLamellaTask):
     """Task to acquire reference image with specified settings."""
@@ -1014,9 +1115,8 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         # move to position
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
         stage_position = self.lamella.stage_position
-        self.microscope.safe_absolute_stage_movement(stage_position)
+        self.microscope.safe_absolute_stage_movement(stage_position) # TODO: use orientation/pose instead
 
-        time.sleep(random.uniform(3, 5))
         if self.validate:
             ask_user(self.parent_ui,
                     msg=f"Acquire reference image for {self.lamella.name}. Press continue when ready.",
@@ -1035,20 +1135,8 @@ class AcquireReferenceImageTask(AutoLamellaTask):
             task_name = self.lamella.last_completed_task.name.replace(" ", "-")
 
         # acquire reference images
-        image_settings.filename = f"ref_reference_image-{task_name}-{utils.current_timestamp_v3()}"
-        image_settings.save = True
-        sem_image, fib_image = None, None
-
-        if self.config.acquire_sem and self.config.acquire_fib:
-            sem_image, fib_image = acquire.take_reference_images(self.microscope, image_settings)
-        elif self.config.acquire_sem:
-            image_settings.beam_type = BeamType.ELECTRON
-            sem_image = acquire.acquire_image(self.microscope, image_settings)
-        elif self.config.acquire_fib:
-            image_settings.beam_type = BeamType.ION
-            fib_image = acquire.acquire_image(self.microscope, image_settings)
-
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        filename = f"ref_reference_image-{task_name}-{utils.current_timestamp_v3()}"
+        self._acquire_set_of_reference_images(image_settings=image_settings, filename=filename)
 
 
 class BasicMillingTask(AutoLamellaTask):
@@ -1059,19 +1147,21 @@ class BasicMillingTask(AutoLamellaTask):
     def _run(self) -> None:
         """Run the basic milling task."""
 
+        image_settings = self.config.imaging
+        image_settings.path = self.lamella.path
+
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
         self.microscope.safe_absolute_stage_movement(self.lamella.stage_position)
 
         self.log_status_message("RUN_MILLING", "Milling...")
 
         for key, milling_task_config in self.config.milling.items():
+            milling_task_config.acquisition.imaging.path = self.lamella.path
             milling_task_config = self.update_milling_config_ui( milling_task_config)
             self.config.milling[key] = deepcopy(milling_task_config)
 
         self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
-        image_settings = ImageSettings()
-        image_settings.path = self.lamella.path
-        self._acquire_reference_image(image_settings)
+        self._acquire_set_of_reference_images(image_settings)
 
 
 def get_task_supervision(task_name: str, 
@@ -1133,6 +1223,7 @@ TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = {
     SetupLamellaTaskConfig.task_type: SetupLamellaTask,
     AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
     BasicMillingTaskConfig.task_type: BasicMillingTask,
+    SelectMillingPositionTaskConfig.task_type: SelectMillingPositionTask,
     # Add other tasks here as needed
 }
 
@@ -1201,10 +1292,28 @@ def run_tasks(microscope: FibsemMicroscope,
     Returns:
         Experiment: The updated experiment with task results.
     """
+    if required_lamella is None:
+        required_lamella = [p.name for p in experiment.positions]
+
+    # TODO: clear the task state for all required lamella, and mark as not started with
+
     for task_name in task_names:
         for lamella in experiment.positions:
             # Sync config updates from GUI before processing this lamella
             lamella = sync_lamella_config_updates(lamella, parent_ui)
+
+            # if parent_ui:
+            #     parent_ui.workflow_update_signal.emit({"msg": f"Starting task {task_name} for lamella {lamella.name}.",
+            #         "status": {"task_name": task_name, 
+            #                     "task_names": task_names,
+            #                     "total_tasks": len(task_names),
+            #                     "current_task_index": task_names.index(task_name),
+            #                     "lamella_name": lamella.name,
+            #                     "lamella_names": required_lamella,
+            #                     "current_lamella_index": required_lamella.index(lamella.name),
+            #                     "total_lamellas": len(required_lamella)
+            #                     }
+            #                 })
 
             if required_lamella and lamella.name not in required_lamella:
                 logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Not in required lamella list.")
@@ -1239,14 +1348,11 @@ def run_tasks(microscope: FibsemMicroscope,
                 experiment.save()
             except Exception as e:
                 logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
-
+                lamella.task_state.status = AutoLamellaTaskStatus.Failed
+                lamella.task_state.status_message = str(e)
+                experiment.save()
 
     update_status_ui(parent_ui, "", workflow_info="All tasks completed.")
 
     print(experiment.task_history_dataframe())
     return experiment
-
-
-
-# TODO:
-# SYNC ROUGH-MILL, POLISHING AFTER SETUP LAMELLA, AFTER ROUGH MILL?

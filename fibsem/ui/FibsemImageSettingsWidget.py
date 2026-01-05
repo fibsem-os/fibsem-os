@@ -10,11 +10,11 @@ from napari.layers import Points as NapariPointLayer
 from napari.layers import Shapes as NapariShapesLayer
 from napari.qt.threading import thread_worker
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QEvent, pyqtSignal
 from scipy.ndimage import median_filter
 from superqt import ensure_main_thread
 
-from fibsem import acquire, constants
+from fibsem import acquire, constants, utils
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
@@ -39,11 +39,10 @@ from fibsem.ui.napari.properties import (
     RULER_LAYER_NAME,
     RULER_LINE_LAYER_NAME,
 )
-from fibsem.ui.napari.utilities import draw_crosshair_in_napari, draw_scalebar_in_napari
+from fibsem.ui.napari.utilities import draw_crosshair_in_napari, draw_scalebar_in_napari, add_points_layer
 from fibsem.ui.qtdesigner_files import ImageSettingsWidget as ImageSettingsWidgetUI
 
 # feature flags
-ENABLE_ADVANCED_IMAGING_SETTINGS = True
 
 class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget):
     viewer_update_signal = pyqtSignal()             # when the viewer is updated
@@ -70,7 +69,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.ib_layer: NapariImageLayer = None
 
         # TODO: migrate to this structure
-        self.imaging_layers: Dict[str, NapariImageLayer] = {}
+        self.imaging_layers: Dict[BeamType, NapariImageLayer] = {}
         self.imaging_layers[BeamType.ELECTRON] = None
         self.imaging_layers[BeamType.ION] = None
 
@@ -79,7 +78,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.ib_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
 
         # overlay layers
-        self.ruler_layer: NapariShapesLayer = None
+        self.ruler_layer: NapariPointLayer = None
         self.alignment_layer: NapariShapesLayer = None
 
         self.is_acquiring: bool = False
@@ -105,7 +104,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.doubleSpinBox_beam_current.setRange(0.1, 10000.0) # TODO: convert to combobox
 
         # buttons
-        self.pushButton_take_image.clicked.connect(self.acquire_image)
         self.pushButton_acquire_sem_image.clicked.connect(self.acquire_sem_image)
         self.pushButton_acquire_fib_image.clicked.connect(self.acquire_fib_image)
         self.pushButton_take_all_images.clicked.connect(self.acquire_reference_images)
@@ -138,7 +136,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.toggle_mode()
 
         # set ui stylesheets
-        self.pushButton_take_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         self.pushButton_acquire_sem_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         self.pushButton_acquire_fib_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         self.pushButton_take_all_images.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
@@ -178,21 +175,29 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.checkBox_image_frame_integration.toggled.connect(self.spinBox_image_frame_integration.setEnabled)
         self.checkBox_image_frame_integration.toggled.connect(self.checkBox_image_drift_correction.setEnabled)
 
+        # save image with selected lamella control
+        show_lamella_controls = hasattr(self.parent, "experiment")
+        self.checkBox_save_with_selected_lamella.setVisible(show_lamella_controls)
+        self.checkBox_save_with_selected_lamella.toggled.connect(self.update_ui_saving_settings)
+        self.checkBox_save_with_selected_lamella.setToolTip("Save images to the path of the currently selected lamella position in the experiment.")
+        try:
+            self.parent.comboBox_current_lamella.currentIndexChanged.connect(self._on_current_lamella_changed)
+        except Exception as e:
+            logging.debug(f"Error connecting to lamella selection changes: {e}")
+
         # feature flags
         self.pushButton_show_alignment_area.setVisible(False)
         # self.pushButton_show_alignment_area.clicked.connect(lambda: self.toggle_alignment_area(None))
 
-        self.pushButton_take_image.setVisible(False)
         self.acquisition_buttons: List[QtWidgets.QPushButton] = [
             self.pushButton_take_all_images,
-            self.pushButton_take_image,
             self.pushButton_acquire_sem_image,
             self.pushButton_acquire_fib_image,
         ]
 
 ########### Live Acquisition
         # live acquisition
-        LIVE_ACQUISITION_ENABLED = False
+        LIVE_ACQUISITION_ENABLED = True
         self.pushButton_start_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
         self.pushButton_stop_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
         self.pushButton_start_acquisition.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
@@ -252,13 +257,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.checkBox_image_use_autogamma.setVisible(advanced_mode)
 
         # advanced imaging
-        self.checkBox_image_line_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.checkBox_image_scan_interlacing.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.checkBox_image_frame_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.checkBox_image_drift_correction.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.spinBox_image_line_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.spinBox_image_scan_interlacing.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
-        self.spinBox_image_frame_integration.setVisible(advanced_mode and ENABLE_ADVANCED_IMAGING_SETTINGS)
+        self.checkBox_image_line_integration.setVisible(advanced_mode)
+        self.checkBox_image_scan_interlacing.setVisible(advanced_mode)
+        self.checkBox_image_frame_integration.setVisible(advanced_mode)
+        self.checkBox_image_drift_correction.setVisible(advanced_mode)
+        self.spinBox_image_line_integration.setVisible(advanced_mode)
+        self.spinBox_image_scan_interlacing.setVisible(advanced_mode)
+        self.spinBox_image_frame_integration.setVisible(advanced_mode)
             
     def update_presets(self) -> None:
         beam_type = BeamType[self.selected_beam.currentText()]
@@ -305,11 +310,11 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             }
 
         # create initial layers, and select the ruler layer for interaction 
-        self.ruler_layer = self.viewer.add_points(data=data, 
+        self.ruler_layer = add_points_layer(self.viewer, data=data, 
                                                     name=RULER_LAYER_NAME,
                                                     size=IMAGING_RULER_LAYER_PROPERTIES["size"], 
                                                     face_color=IMAGING_RULER_LAYER_PROPERTIES["face_color"], 
-                                                    edge_color=IMAGING_RULER_LAYER_PROPERTIES["edge_color"], 
+                                                    border_color=IMAGING_RULER_LAYER_PROPERTIES["edge_color"], 
                                                     text=text)
         self.viewer.add_shapes(data, shape_type='line', edge_color='lime', name=RULER_LINE_LAYER_NAME,edge_width=5)
         self.ruler_layer.mouse_drag_callbacks.append(self.update_ruler_points)
@@ -461,14 +466,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         line_integration, scan_interlacing, frame_integration = None, None, None
         image_drift_correction = False
 
-        if ENABLE_ADVANCED_IMAGING_SETTINGS:
-            if self.checkBox_image_line_integration.isChecked():
-                line_integration = self.spinBox_image_line_integration.value()
-            if self.checkBox_image_scan_interlacing.isChecked():
-                scan_interlacing = self.spinBox_image_scan_interlacing.value()
-            if self.checkBox_image_frame_integration.isChecked():
-                frame_integration = self.spinBox_image_frame_integration.value()
-                image_drift_correction = self.checkBox_image_drift_correction.isChecked()
+        if self.checkBox_image_line_integration.isChecked():
+            line_integration = self.spinBox_image_line_integration.value()
+        if self.checkBox_image_scan_interlacing.isChecked():
+            scan_interlacing = self.spinBox_image_scan_interlacing.value()
+        if self.checkBox_image_frame_integration.isChecked():
+            frame_integration = self.spinBox_image_frame_integration.value()
+            image_drift_correction = self.checkBox_image_drift_correction.isChecked()
 
         # imaging settings
         self.image_settings = ImageSettings(
@@ -541,7 +545,8 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.checkBox_image_use_autogamma.setChecked(image_settings.autogamma)
         self.checkBox_image_save_image.setChecked(image_settings.save)
         self.lineEdit_image_path.setText(str(image_settings.path))
-        self.lineEdit_image_label.setText(image_settings.filename)
+        if self.lineEdit_image_label.text() == "":
+            self.lineEdit_image_label.setText(image_settings.filename)
 
         if image_settings.line_integration is not None:
             self.checkBox_image_line_integration.setChecked(True)
@@ -582,6 +587,32 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.lineEdit_image_path.setVisible(self.checkBox_image_save_image.isChecked())
         self.label_image_label.setVisible(self.checkBox_image_save_image.isChecked())
         self.lineEdit_image_label.setVisible(self.checkBox_image_save_image.isChecked())
+        self.checkBox_save_with_selected_lamella.setEnabled(self.checkBox_image_save_image.isChecked())
+
+        # disable lineedit path if saving with selected lamella
+        save_with_selected_lamella = self.checkBox_save_with_selected_lamella.isChecked()
+        self.lineEdit_image_path.setEnabled(not save_with_selected_lamella)
+        if save_with_selected_lamella:
+            try:
+                idx = self.parent.comboBox_current_lamella.currentIndex()
+                lamella = self.parent.experiment.positions[idx]
+                self.lineEdit_image_path.setText(str(lamella.path))
+            except Exception as e:
+                logging.debug(f"Error setting image path from selected lamella: {e}")
+                # add callback to update when lamella selection changes
+        else:
+            if hasattr(self.parent, "experiment") and self.parent.experiment is not None:
+                self.lineEdit_image_path.setText(str(self.parent.experiment.path))
+
+    def _on_current_lamella_changed(self, index: int):
+        """Update the image path when the selected lamella changes"""
+        try:
+            if self.checkBox_save_with_selected_lamella.isChecked():
+                lamella = self.parent.experiment.positions[index]
+                self.lineEdit_image_path.setText(str(lamella.path))
+                self.checkBox_save_with_selected_lamella.setText(F"Save with Selected Lamella ({lamella.name})")
+        except Exception as e:
+            logging.debug(f"Error updating image path from selected lamella: {e}")
 
     def update_detector_ui(self):
         """Update the detector ui based on currently selected beam"""
@@ -611,14 +642,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.set_detector_button.setEnabled(enable)
         self.button_set_beam_settings.setEnabled(enable)
         self.parent.movement_widget._toggle_interactions(enable, caller="ui")
-        if caller != "milling":
-            self.parent.milling_widget._toggle_interactions(enable, caller="ui")
+        # if caller != "milling":
+            # self.parent.milling_widget._toggle_interactions(enable, caller="ui")
         if enable:
             for btn in self.acquisition_buttons:
                 btn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
             self.set_detector_button.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
             self.button_set_beam_settings.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_take_image.setText("Acquire Image")
             self.pushButton_take_all_images.setText("Acquire All Images")
             self.pushButton_acquire_sem_image.setText("Acquire SEM Image")
             self.pushButton_acquire_fib_image.setText("Acquire FIB Image")
@@ -633,7 +663,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 btn.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
             self.set_detector_button.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
             self.button_set_beam_settings.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_take_image.setText("Acquire Image")
             self.pushButton_take_all_images.setText("Acquire All Images")
 
     def handle_acquisition_progress_update(self, ddict: dict):
@@ -684,6 +713,21 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         if beam_type is not None:
             self.image_settings.beam_type = beam_type
 
+        try:
+            filename = self.image_settings.filename
+            save_selected_lamella = self.checkBox_save_with_selected_lamella.isChecked()
+            if save_selected_lamella:
+                # QUERY: save as lamella-name-filename or reference-image-filename?
+                # idx = self.parent.comboBox_current_lamella.currentIndex()
+                # lamella = self.parent.experiment.positions[idx]
+                # self.image_settings.filename = f"{lamella.name}_{filename}"
+                self.image_settings.filename = f"ref_reference_image-{filename}"
+        except Exception as e:
+            logging.error(f"Error getting selected lamella for image saving: {e}")
+
+        ts = utils.current_timestamp_v3()
+        self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
+
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
         worker.finished.connect(self.acquisition_finished)
@@ -720,10 +764,15 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 ib_image=self.ib_image,
                 is_checked=self.scalebar_checkbox.isChecked(),
             )
+            fm_shape = None
+            if self.microscope.fm is not None:
+                fm_shape = self.microscope.fm.camera.resolution[::-1]
+
             draw_crosshair_in_napari(
                 viewer=self.viewer,
                 sem_shape=self.eb_image.data.shape,
                 fib_shape=self.ib_image.data.shape,
+                fm_shape=fm_shape,
                 is_checked=self.crosshair_checkbox.isChecked(),
             )
 
@@ -764,20 +813,21 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             points = np.array([[-20, 200], [-20, self.ib_layer.translate[1] + 150]])
 
             try:
-                self.viewer.layers['label'].data = points
-            except KeyError:    
-                self.viewer.add_points(
+                self.viewer.layers[IMAGE_TEXT_LAYER_PROPERTIES["name"]].data = points
+            except KeyError:
+                add_points_layer(
+                    viewer=self.viewer,
                     data=points,
                     name=IMAGE_TEXT_LAYER_PROPERTIES["name"],
                     size=IMAGE_TEXT_LAYER_PROPERTIES["size"],
                     text=IMAGE_TEXT_LAYER_PROPERTIES["text"],
-                    edge_width=IMAGE_TEXT_LAYER_PROPERTIES["edge_width"],
-                    edge_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
-                        "edge_width_is_relative"
+                    border_width=IMAGE_TEXT_LAYER_PROPERTIES["border_width"],
+                    border_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
+                        "border_width_is_relative"
                     ],
-                    edge_color=IMAGE_TEXT_LAYER_PROPERTIES["edge_color"],
+                    border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
                     face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
-                )   
+                )
 
         # set ui from image metadata
         if set_ui_from_image:

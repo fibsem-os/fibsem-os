@@ -50,7 +50,7 @@ imaging:
     hfw:                        150.0e-6                    
     dwell_time:                 1.0e-06                     
     imaging_current:            2.0e-11                     
-    autocontrast:               true                        
+    autocontrast:               false                        
     autogamma:                  false                       
     save:                       false                       
 milling:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import datetime
 import logging
@@ -7,11 +8,13 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+from scipy.ndimage import median_filter
 import numpy as np
 from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
 from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -23,23 +26,26 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 
+
 POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
 
 ##### TILED ACQUISITION
 def tiled_image_acquisition(
     microscope: FibsemMicroscope,
     image_settings: ImageSettings,
-    grid_size: float,
+    nrows: int,
+    ncols: int,
     tile_size: float,
     overlap: float = 0.0,
     cryo: bool = True,
     parent_ui: Optional['FibsemMinimapWidget']=None,
 ) -> dict: 
-    """Tiled image acquisition. Currently only supports square grids with no overlap.
+    """Tiled image acquisition.
     Args:
         microscope: The microscope connection.
         image_settings: The image settings.
-        grid_size: The size of the entire final image.
+        nrows: The number of rows in the grid.
+        ncols: The number of columns in the grid.
         tile_size: The size of the tiles.
         overlap: The overlap between tiles in pixels. Currently not supported.
         cryo: Whether to use cryo mode (histogram equalisation).
@@ -47,21 +53,20 @@ def tiled_image_acquisition(
     Returns:
         A dictionary containing the acquisition details for stitching."""
 
-    # TODO: OVERLAP + STITCH
-    n_rows, n_cols = int(grid_size // tile_size), int(grid_size // tile_size)
+    n_rows, n_cols = nrows, ncols
     dx, dy = image_settings.hfw, image_settings.hfw
 
     dy *= -1 # need to invert y-axis
 
     # fixed image settings
     image_settings.autogamma = False
+    total_fov = ncols * tile_size  # total hfw
 
     logging.info(f"TILE COLLECTION: {image_settings.filename}")
-    logging.info(f"Taking nrows={n_rows}, ncols={n_cols} ({n_rows*n_cols}) images. TotalFoV={grid_size*1e6} um, TileFoV={tile_size*1e6} um")
+    logging.info(f"Taking nrows={n_rows}, ncols={n_cols} ({n_rows*n_cols}) images. TotalFoV={total_fov*1e6} um, TileFoV={tile_size*1e6} um")
     logging.info(f"dx: {dx*1e6} um, dy: {dy*1e6} um")
 
     # start in the middle of the grid
-
     start_state = microscope.get_microscope_state()
     
     # we save all intermediates into a folder with the same name as the filename, then save the stitched image into the parent folder
@@ -71,18 +76,20 @@ def tiled_image_acquisition(
     prev_label = image_settings.filename
     
     # BIG_IMAGE FOR DEBUGGING ONLY
-    image_settings.hfw = grid_size
-    image_settings.filename = "big_image"
-    image_settings.save = False
-    big_image = acquire.new_image(microscope, image_settings)
+    # image_settings.hfw = grid_size
+    # image_settings.filename = "big_image"
+    # image_settings.save = False
+    # big_image = acquire.new_image(microscope, image_settings)
+    big_image = None
 
     # TOP LEFT CORNER START
     image_settings.hfw = tile_size
     image_settings.filename = prev_label
     image_settings.autocontrast = False # required for cryo
     image_settings.save = True
-    start_move = grid_size / 2 - tile_size / 2
-    dxg, dyg = start_move, start_move
+    start_move_x = (ncols * tile_size) / 2 - tile_size / 2
+    start_move_y = (nrows * tile_size) / 2 - tile_size / 2
+    dxg, dyg = start_move_x, start_move_y
     dyg *= -1
 
     microscope.stable_move(dx=-dxg, dy=-dyg, beam_type=image_settings.beam_type)
@@ -95,59 +102,65 @@ def tiled_image_acquisition(
     arr = np.zeros(shape=(full_shape), dtype=np.uint8)
     n_tiles_acquired = 0
     total_tiles = n_rows*n_cols
-    for i in range(n_rows):
+    try:
+        for i in range(n_rows):
 
-        microscope.safe_absolute_stage_movement(start_position)
-        
-        img_row = []
-        microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
+            microscope.safe_absolute_stage_movement(start_position)
 
-        for j in range(n_cols):
-            image_settings.filename = f"tile_{i}_{j}"
-            microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
+            img_row: list[FibsemImage] = []
+            microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
 
-            if parent_ui:
-                if parent_ui.STOP_ACQUISITION:
-                    raise Exception("User Stopped Acquisition")
+            for j in range(n_cols):
+                image_settings.filename = f"tile_{i}_{j}"
+                microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
 
-            logging.info(f"Acquiring Tilet {i}, {j}")
-            image = acquire.new_image(microscope, image_settings)
+                if parent_ui:
+                    if parent_ui._thread_stop_event.is_set():
+                        raise Exception("User Stopped Acquisition")
 
-            # stitch image
-            arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = image.data
+                logging.info(f"Acquiring Tile {i}, {j}")
+                image = acquire.acquire_image(microscope, image_settings)
 
-            if parent_ui:
-                n_tiles_acquired += 1
-                parent_ui.tile_acquisition_progress_signal.emit(
-                    {
-                        "msg": "Tile Collected",
-                        "i": i,
-                        "j": j,
-                        "n_rows": n_rows,
-                        "n_cols": n_cols,
-                        "image": arr,
-                        "counter": n_tiles_acquired,
-                        "total": total_tiles,
-                    }
-                )
-                time.sleep(1)
+                # stitch image
+                arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = median_filter(image.data, size=3)
 
-            img_row.append(image)
-        images.append(img_row)
+                if parent_ui:
+                    n_tiles_acquired += 1
+                    parent_ui.tile_acquisition_progress_signal.emit(
+                        {
+                            "msg": "Tile Collected",
+                            "i": i,
+                            "j": j,
+                            "n_rows": n_rows,
+                            "n_cols": n_cols,
+                            "image": arr,
+                            "counter": n_tiles_acquired,
+                            "total": total_tiles,
+                        }
+                    )
+                    if isinstance(microscope, DemoMicroscope):
+                        time.sleep(1)
 
-    # restore initial state
-    microscope.set_microscope_state(start_state)
+                img_row.append(image)
+            images.append(img_row)
+    except Exception as e:
+        logging.error(f"Tiled acquisition failed: {e}")
+        raise
+    finally:
+        logging.info(f"Tiled acquisition complete, restoring initial position: {start_state.stage_position.pretty}")
+        microscope.set_microscope_state(start_state)
     image_settings.path = prev_path
 
-    ddict = {"grid_size": grid_size, "tile_size": tile_size, "n_rows": n_rows, "n_cols": n_cols, 
+    ddict = {"total_fov": total_fov, "tile_size": tile_size, "n_rows": n_rows, "n_cols": n_cols, 
             "image_settings": image_settings, 
             "dx": dx, "dy": dy, "cryo": cryo,
-            "start_state": start_state, "prev-filename": prev_label, "start_move": start_move, "dxg": dxg, "dyg": dyg,
+            "start_state": start_state, "prev-filename": prev_label, 
+            "start_move_x": start_move_x, "start_move_y": start_move_y, 
+            "dxg": dxg, "dyg": dyg,
             "images": images, "big_image": big_image, "stitched_image": arr}
 
     return ddict
 
-# TODO: stitch while collecting
 def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optional['FibsemMinimapWidget'] = None) -> FibsemImage:
     """Stitch an array (2D) of images together. Assumes images are ordered in a grid with no overlap.
     Args:
@@ -162,21 +175,23 @@ def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optio
 
     # convert to fibsem image
     image = FibsemImage(data=arr, metadata=images[0][0].metadata)
+    if image.metadata is None:
+        raise ValueError("Image metadata is not set. Cannot update metadata for stitched image.")
     image.metadata.microscope_state = deepcopy(ddict["start_state"])
     image.metadata.image_settings = ddict["image_settings"]
-    image.metadata.image_settings.hfw = deepcopy(float(ddict["grid_size"]))
-    image.metadata.image_settings.resolution = deepcopy([arr.shape[0], arr.shape[1]])
+    image.metadata.image_settings.hfw = deepcopy(float(ddict["total_fov"]))
+    image.metadata.image_settings.resolution = deepcopy((arr.shape[0], arr.shape[1]))
 
     # TODO: support overwrite protection here, very annoying to overwrite
 
-    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}')
+    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}') # type: ignore
     image.save(filename)
     # for cryo need to histogram equalise
     if ddict.get("cryo", False):
         from fibsem.imaging.autogamma import auto_gamma
         image = auto_gamma(image, method="autogamma")
-    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}-autogamma')
-    image.save(filename)
+        filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}-autogamma') # type: ignore
+        image.save(filename)
 
     # for garbage collection
     del ddict["images"]
@@ -184,18 +199,19 @@ def stitch_images(images: List[List[FibsemImage]], ddict: dict, parent_ui: Optio
 
     return image
 
-# TODO: add support for overlap, nrows, ncols
 def tiled_image_acquisition_and_stitch(microscope: FibsemMicroscope, 
                                   image_settings: ImageSettings, 
-                                  grid_size: float, 
+                                  nrows: int, 
+                                  ncols: int, 
                                   tile_size: float, 
                                   overlap: float = 0, cryo: bool = True, 
                                   parent_ui: Optional['FibsemMinimapWidget'] = None) -> FibsemImage:
-    """Acquire a tiled image and stitch it together. Currently only supports square grids with no overlap.
+    """Acquire a tiled image and stitch it together.
     Args:
         microscope: The microscope connection.
         image_settings: The image settings.
-        grid_size: The size of the entire final image.
+        nrows: The number of rows in the grid.
+        ncols: The number of columns in the grid.
         tile_size: The size of the tiles.
         overlap: The overlap between tiles in pixels. Currently not supported.
         cryo: Whether to use cryo mode (histogram equalisation).
@@ -210,7 +226,7 @@ def tiled_image_acquisition_and_stitch(microscope: FibsemMicroscope,
 
     ddict = tiled_image_acquisition(microscope=microscope, 
                                     image_settings=image_settings, 
-                                    grid_size=grid_size, tile_size=tile_size, 
+                                    nrows=nrows, ncols=ncols, tile_size=tile_size, 
                                     cryo=cryo, parent_ui=parent_ui)
     image = stitch_images(images=ddict["images"], ddict=ddict, parent_ui=parent_ui)
 
@@ -478,35 +494,50 @@ def plot_minimap(
         grid_positions: Optional[List[FibsemStagePosition]] = None,
         show: bool = False,
         bound: bool = True,
-        color: Optional[str] = None,
+        color: str = "cyan",
         show_scalebar: bool = False,
         show_names: bool = True,
-        figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
+        show_grid_radius: bool = False,
+        fontsize: int = 12,
+        markersize: int = 20,
+        figsize: Optional[Tuple[int, int]] = (15, 15),
+        ax: Optional[plt.Axes] = None) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
         positions: The positions.
+        current_position: Optional current position to highlight
+        grid_positions: Optional grid positions to show
         show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
-        color: The color of the points. (None -> default colour cycle)
+        color: The color of the points.
+        show_scalebar: Whether to show a scalebar
+        show_names: Whether to show position names as labels
+        fontsize: Font size for position name labels (default: 14)
+        figsize: Figure size in inches (default: (15, 15))
     Returns:
         The matplotlib figure."""
     from fibsem.ui.napari.utilities import is_inside_image_bounds
     if image.metadata is None or image.metadata.microscope_state is None:
         raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
 
+    all_positions = list(positions)
     if current_position is not None:
-        positions.append(current_position)
+        all_positions.append(current_position)
     if grid_positions is not None:
-        positions.extend(grid_positions)
+        all_positions.extend(grid_positions)
 
-    # construct matplotlib figure
-    fig = plt.figure(figsize = figsize)
-    plt.imshow(image.data, cmap="gray")
+    # construct matplotlib figure/axes
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+    ax.imshow(image.data, cmap="gray")
 
     # reproject stage positions onto image 
-    points = reproject_stage_positions_onto_image2(image=image, positions=positions)
+    points = reproject_stage_positions_onto_image2(image=image, positions=all_positions)
 
+    marker_entries: List[dict] = []
     for i, pt in enumerate(points):
 
         # if points outside image, don't plot
@@ -516,33 +547,68 @@ def plot_minimap(
         if pt.name is None:
             pt.name = f"Position {i:02d}"
 
-        c = "cyan"
+        c = color
         if "Grid" in pt.name:
             c = "red"
         elif "Current Position" in pt.name:
             c = "yellow"
-        plt.plot(pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}")
+
+        marker_entries.append(
+            {
+                "point": (pt.x, pt.y),
+                "color": c,
+                "label": pt.name,
+            }
+        )
+
+        # show grid radius
+        if c == "red" and show_grid_radius:
+            r_pixels = 1000e-6 / image.metadata.pixel_size.x 
+            ax.add_artist(plt.Circle((pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5)
+            )
+
+    if marker_entries:
+        scatter_array = np.array([entry["point"] for entry in marker_entries])
+        scatter_colors = [entry["color"] for entry in marker_entries]
+        ax.scatter(
+            scatter_array[:, 0],
+            scatter_array[:, 1],
+            c=scatter_colors,
+            marker="+",
+            s=markersize ** 2,
+            linewidths=2,
+        )
 
         if show_names:
-            # draw position name next to point
-            plt.text(pt.x, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
+            for entry in marker_entries:
+                x, y = entry["point"]
+                ax.text(
+                    x + 10,
+                    y - 10,
+                    entry["label"],
+                    fontsize=fontsize,
+                    color=entry["color"],
+                    alpha=0.75,
+                    clip_on=True,
+                )
 
     if show_scalebar:
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
-            scalebar = ScaleBar(
-                dx=image.metadata.pixel_size.x,
-                color="black",
-                box_color="white",
-                box_alpha=0.5,
-                location="lower right",
+            ax.add_artist(
+                ScaleBar(
+                    dx=image.metadata.pixel_size.x,
+                    color="black",
+                    box_color="white",
+                    box_alpha=0.5,
+                    location="lower right",
+                )
             )
-            plt.gca().add_artist(scalebar)
         except Exception as e:
             logging.debug(f"Could not add scalebar: {e}")
 
-    plt.axis("off")
+    ax.axis("off")
     if show:
         plt.show()
 

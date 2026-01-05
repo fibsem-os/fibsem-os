@@ -7,7 +7,10 @@ similar to the MillingStrategy plugin system.
 
 import logging
 import typing
-from functools import cache
+try:
+    from functools import cache
+except ImportError:  # Python < 3.9 fallback
+    from functools import lru_cache as cache
 from typing import Dict, Type, Any, Optional
 
 from fibsem.milling.patterning.patterns2 import BasePattern
@@ -29,8 +32,8 @@ from fibsem.milling.patterning.patterns2 import (
     CloverPattern,
     TriForcePattern,
     BitmapPattern,
-    TrapezoidPattern,
     TrenchBitmapPattern,
+    TrenchTrapezoidPattern,
 )
 
 # Built-in patterns registry
@@ -50,8 +53,8 @@ BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
     CloverPattern.name: CloverPattern,
     TriForcePattern.name: TriForcePattern,
     BitmapPattern.name: BitmapPattern,
-    TrapezoidPattern.name: TrapezoidPattern,
     TrenchBitmapPattern.name: TrenchBitmapPattern,
+    TrenchTrapezoidPattern.name: TrenchTrapezoidPattern,
 }
 
 # Runtime registered patterns

@@ -23,6 +23,7 @@ from fibsem.structures import (
     FibsemImage,
     Point,
 )
+from fibsem.ui.napari.utilities import add_points_layer
 from fibsem.ui.qtdesigner_files import (
     FibsemEmbeddedDetectionWidget as FibsemEmbeddedDetectionWidgetUI,
 )
@@ -138,14 +139,15 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
             "translation": np.array([-30, 0]),
         }
 
-        self.features_layer = self.viewer.add_points(
-            data,
+        self.features_layer = add_points_layer(
+            viewer=self.viewer,
+            data=data,
             name="features",
             text=text,
             size=20,
-            edge_width=7,
-            edge_width_is_relative=False,
-            edge_color="transparent",
+            border_width=7,
+            border_width_is_relative=False,
+            border_color="transparent",
             face_color=[feature.color for feature in self.det.features],
             blending="translucent",
         )

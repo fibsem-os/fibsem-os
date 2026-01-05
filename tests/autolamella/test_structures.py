@@ -180,7 +180,7 @@ def test_is_ready_for():
     assert is_ready is True, f"Workflow: {workflow}: is_ready: {is_ready}"
     
     # if lamella is a failure, not ready for any workflow
-    lamella.is_failure = True
+    lamella.defect.has_defect = True
     workflow: AutoLamellaStage = AutoLamellaStage.SetupLamella
     is_ready = is_ready_for(lamella=lamella, method=method, workflow=workflow)
     assert is_ready is False, f"Workflow: {workflow}: is_ready: {is_ready}"

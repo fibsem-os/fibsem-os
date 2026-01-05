@@ -49,6 +49,7 @@ from fibsem.structures import ( #noqa
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
+    FibsemPolygonSettings,
     FibsemRectangle,
     FibsemRectangleSettings,
     FibsemStagePosition,
@@ -317,6 +318,10 @@ class TescanMicroscope(FibsemMicroscope):
         # reset beam shifts
         self.reset_beam_shifts()
         logging.debug({"msg": "connect_to_microscope", "ip_address": ip_address, "port": port, "system_info": self.system.info.to_dict()})
+
+    @property
+    def manufacturer(self) -> str:
+        return "Tescan"
 
     def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         """
@@ -641,11 +646,6 @@ class TescanMicroscope(FibsemMicroscope):
         # calculate vertical stage movement (not required for Tescan)
         z_move = FibsemStagePosition(x=dx, y=0, z=dy, r=0, t=0)
         self.move_stage_relative(z_move)
-
-    # TODO: make this generic?
-    def get_stage_orientation(self, stage_position: Optional[FibsemStagePosition] = None) -> str:
-        from fibsem.microscope import ThermoMicroscope
-        return ThermoMicroscope.get_stage_orientation(self, stage_position) # type: ignore
 
     def _y_corrected_stage_movement(
         self,
@@ -1293,6 +1293,9 @@ class TescanMicroscope(FibsemMicroscope):
 
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
         return NotImplemented
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
+        raise NotImplementedError("draw_polygon not implemented for Tescan API")
 
     def setup_sputter(self, protocol: dict):
         pass
