@@ -77,21 +77,12 @@ class FibsemMillingStageWidget(QWidget):
         self.parameters: Dict[str, Dict[str, Tuple[QLabel, QWidget, Optional[float]]]] = {} # param: label, control, scale
         self.microscope = microscope
         self._milling_stage = milling_stage
-        self._manufacturer = self._determine_manufacturer()
+        self._manufacturer = self.microscope.manufacturer
 
         self._create_widgets()
         self._initialise_widgets()
         self.setContentsMargins(0, 0, 0, 0)
         self.layout().setContentsMargins(0, 0, 0, 0)
-
-    def _determine_manufacturer(self) -> str:
-        """Determine the manufacturer of the microscope for dynamic parameter items."""
-        if hasattr(self.microscope, "manufacturer"):
-            return self.microscope.manufacturer
-        from fibsem.microscopes.tescan import TescanMicroscope
-        if isinstance(self.microscope, TescanMicroscope):
-            return "Tescan"
-        return "ThermoFisher"
 
     def _create_widgets(self):
         """Create the main widgets for the milling stage editor."""
