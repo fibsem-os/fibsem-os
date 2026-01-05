@@ -1248,6 +1248,11 @@ class FibsemMicroscope(ABC):
 
         return self.is_close_to_milling_angle(milling_angle)
 
+    def move_to_device(self, device: str) -> None:
+        """Move the stage to the predefined device position."""
+        logging.warning(f"move_to_device is not implemented for {self.__class__.__name__}.")
+        pass
+
     @property
     def current_grid(self) -> str:
         try:
