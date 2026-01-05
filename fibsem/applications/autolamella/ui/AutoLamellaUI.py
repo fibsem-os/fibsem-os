@@ -1132,7 +1132,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         if idx == -1:
             return
         lamella: Lamella = self.experiment.positions[idx]
-        stage_position = lamella.state.microscope_state.stage_position
+        stage_position = lamella.milling_pose.stage_position
 
         # confirmation dialog
         ret = QMessageBox.question(

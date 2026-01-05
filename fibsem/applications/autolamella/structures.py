@@ -577,7 +577,6 @@ class DefectState:
 @dataclass
 class Lamella:
     path: Path
-    state: LamellaState                                                     # TODO: deprecate, use poses instead
     number: int                                                             # TODO: deprecate, use petname instead
     petname: str
     alignment_area: FibsemRectangle = field(default_factory=FibsemRectangle)
@@ -619,11 +618,11 @@ class Lamella:
 
     @property
     def stage_position(self) -> FibsemStagePosition:
-        return self.state.microscope_state.stage_position # type: ignore
+        return self.milling_pose.stage_position # type: ignore
 
     @stage_position.setter
     def stage_position(self, value: FibsemStagePosition):
-        self.state.microscope_state.stage_position = value
+        self.milling_pose.stage_position = value
 
     def has_completed_task(self, task_name: str) -> bool:
         """Check if the lamella has completed a specific task."""
@@ -685,7 +684,6 @@ class Lamella:
     def to_dict(self):
         return {
             "petname": self.petname,
-            "state": self.state.to_dict(),
             "path": str(self.path),
             "alignment_area": self.alignment_area.to_dict(),
             "number": self.number,
@@ -719,8 +717,6 @@ class Lamella:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Lamella':
-        state = LamellaState.from_dict(data["state"])
-
         # backwards compatibility
         alignment_area_ddict = data.get("alignment_area", DEFAULT_ALIGNMENT_AREA)
         alignment_area = FibsemRectangle.from_dict(alignment_area_ddict)
@@ -729,7 +725,6 @@ class Lamella:
 
         return cls(
             petname=data["petname"],
-            state=state,
             path=data["path"],
             alignment_area=alignment_area,
             number=data.get("number", data.get("number", 0)),
@@ -941,7 +936,7 @@ class Experiment:
         """Get the milling stage positions for all lamellas in the experiment"""
         positions = []
         for p in self.positions:
-            pstate = p.poses.get("MILLING", p.state.microscope_state)
+            pstate = p.milling_pose
             if pstate is None or pstate.stage_position is None:
                 continue
             pos = pstate.stage_position
@@ -1026,8 +1021,8 @@ class Experiment:
         lamella = Lamella(petname=name,
                           path=path,
                           number=number,
-                          state=LamellaState(microscope_state=microscope_state),
                           task_config=deepcopy(task_config))
+        lamella.milling_pose = microscope_state
 
         # create the lamella directory
         os.makedirs(lamella.path, exist_ok=True)

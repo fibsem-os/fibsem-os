@@ -318,7 +318,6 @@ class AutoLamellaTask(ABC):
         # post-task
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.state.microscope_state = self.microscope.get_microscope_state() # TODO: get rid of this as a global thing, confusing and error prone
         self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
         self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
         self.lamella.task_state.status_message = ""

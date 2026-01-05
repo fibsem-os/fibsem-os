@@ -2,6 +2,10 @@ name: AutoLamella Protocol
 description: On Grid Lamella Preparation Protocol 
 version: '1.0'
 tasks:
+    Select Milling Position:
+        task_type: SELECT_MILLING_POSITION
+        parameters:
+            milling_angle: 15
     Acquire Reference Image:
         task_type: ACQUIRE_REFERENCE_IMAGE
         parameters:
@@ -149,6 +153,10 @@ workflow:
     name: ''
     description: ''
     tasks:
+    -   name: Select Milling Position
+        supervise: true
+        required: true
+        requires: []
     -   name: Acquire Reference Image
         supervise: false
         required: false
