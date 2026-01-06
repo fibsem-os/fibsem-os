@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os)
+
 # fibsemOS
 
 A universal API for FIBSEM Control, Development and Automation
