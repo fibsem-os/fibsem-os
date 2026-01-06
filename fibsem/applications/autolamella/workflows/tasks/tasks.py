@@ -140,7 +140,13 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
         metadata={
             "help": "The angle between the FIB and sample used for milling",
             "units": constants.DEGREE_SYMBOL,
-        },)    
+        },)
+    auto_milling_alignment: bool = field(
+        default=False,
+        metadata={
+            "label": "Auto Milling Angle Alignment", 
+            "help": "Whether to automatically align for a milling position"}, 
+    )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
 
@@ -901,20 +907,26 @@ class SelectMillingPositionTask(AutoLamellaTask):
         milling_angle = self.config.milling_angle
         is_close = self.microscope.is_close_to_milling_angle(milling_angle=milling_angle)
 
-        if not is_close and self.validate:
-            current_milling_angle = self.microscope.get_current_milling_angle()
-            ret = ask_user(parent_ui=self.parent_ui,
-                        msg=f"Tilt to specified milling angle ({milling_angle:.1f} {constants.DEGREE_SYMBOL})? "
-                        f"Current milling angle is {current_milling_angle:.1f} {constants.DEGREE_SYMBOL}.",
-                        pos="Tilt", neg="Skip")
-            if ret:
-                self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
-                # TODO: create an automated eucentric version of this...
-                # alignment._eucentric_tilt_alignment(microscope=self.microscope,
-                #                                     image_settings=self.image_settings,
-                #                                     target_angle=milling_angle,
-                #                                     step_size=3,
-                #                                     )
+        if not is_close:
+            if self.config.auto_milling_alignment:
+                from fibsem.transformations import get_stage_tilt_from_milling_angle
+                target_stage_tilt_degrees = np.degrees(get_stage_tilt_from_milling_angle(self.microscope, 
+                                                                                 np.radians(milling_angle)))
+                alignment._eucentric_tilt_alignment(microscope=self.microscope,
+                                                    image_settings=self.image_settings,
+                                                    target_angle=float(target_stage_tilt_degrees),
+                                                    step_size=3,
+                                                    )
+
+            elif self.validate:
+                current_milling_angle = self.microscope.get_current_milling_angle()
+                ret = ask_user(parent_ui=self.parent_ui,
+                            msg=f"Tilt to specified milling angle ({milling_angle:.1f} {constants.DEGREE_SYMBOL})? "
+                            f"Current milling angle is {current_milling_angle:.1f} {constants.DEGREE_SYMBOL}.",
+                            pos="Tilt", neg="Skip")
+                if ret:
+                    self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
+
 
         # acquire an image at the milling position
         self._acquire_reference_image(image_settings=self.image_settings,
