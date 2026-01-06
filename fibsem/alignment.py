@@ -538,7 +538,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
     stage_position = microscope.get_stage_position()
     current_angle = np.degrees(stage_position.t)
 
-    n_steps = abs(int(current_angle) - target_angle) // step_size
+    n_steps = int(abs(int(current_angle) - target_angle) // step_size)
 
     print(f"Current Tilt: {current_angle}, Target Tilt:  {target_angle}, Step Size: {step_size},  Num Steps: {n_steps}")
     steps = np.linspace(current_angle, target_angle, num=n_steps)
@@ -563,7 +563,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
     fib_images = []
     sem_images = []
 
-    for i, angle in enumerate(steps):
+    for i, angle in enumerate(steps[1:]):
         print(f"Moving to Angle: {angle}")
         microscope.move_stage_absolute(FibsemStagePosition(t=np.radians(angle)))
 
@@ -576,13 +576,13 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
         # we prob want to do sem-> stage, fib -> vertical
 
         sem_image, fib_image = acquire.acquire_channels(microscope, image_settings)
-        fig, ax = plt.subplots(1, 2, figsize=(10, 7))
 
-        ax[0].imshow(sem_image.data, cmap="gray")
-        ax[0].plot(sem_image.data.shape[1]//2, sem_image.data.shape[0]//2, "y+", ms=50)
-        ax[1].imshow(fib_image.data, cmap="gray")
-        ax[1].plot(fib_image.data.shape[1]//2, fib_image.data.shape[0]//2, "y+", ms=50)
-        plt.show()
+        # fig, ax = plt.subplots(1, 2, figsize=(10, 7))
+        # ax[0].imshow(sem_image.data, cmap="gray")
+        # ax[0].plot(sem_image.data.shape[1]//2, sem_image.data.shape[0]//2, "y+", ms=50)
+        # ax[1].imshow(fib_image.data, cmap="gray")
+        # ax[1].plot(fib_image.data.shape[1]//2, fib_image.data.shape[0]//2, "y+", ms=50)
+        # plt.show()
 
         sem_images.append(sem_image)
         fib_images.append(fib_image)
