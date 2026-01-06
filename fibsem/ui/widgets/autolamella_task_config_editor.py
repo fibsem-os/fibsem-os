@@ -29,6 +29,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import TASK_REGISTRY
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, ReferenceImageParameters
 from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE, GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE
+from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
@@ -198,6 +199,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_sync_to_lamella.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_sync_to_lamella.setToolTip("Update all existing lamella with the current task configuration")
 
+        self.pushButton_global_edit = QPushButton("Global Edit Imaging and Field of View")
+        self.pushButton_global_edit.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_global_edit.setToolTip("Edit reference imaging and milling field of view for all milling tasks")
+
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setVisible(False)
@@ -206,7 +211,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.button_layout = QGridLayout()
         self.button_layout.addWidget(self.pushButton_add_task, 0, 0)
         self.button_layout.addWidget(self.pushButton_remove_task, 0, 1)
-        self.button_layout.addWidget(self.pushButton_sync_to_lamella, 1, 0, 1, 2)
+        self.button_layout.addWidget(self.pushButton_global_edit, 1, 0, 1, 2)
+        self.button_layout.addWidget(self.pushButton_sync_to_lamella, 2, 0, 1, 2)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addWidget(self.label_protocol_name, 0, 0)
@@ -247,6 +253,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.pushButton_add_task.clicked.connect(self._on_add_task_clicked)
         self.pushButton_remove_task.clicked.connect(self._on_remove_task_clicked)
+        self.pushButton_global_edit.clicked.connect(self._on_global_edit_clicked)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
         self.lineEdit_protocol_name.editingFinished.connect(self._on_protocol_name_changed)
         self.lineEdit_protocol_description.editingFinished.connect(self._on_protocol_description_changed)
@@ -476,6 +483,32 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
                 logging.info(f"Removed task: {selected_task_name}")
 
+    def _on_global_edit_clicked(self):
+        """Show dialog for globally editing reference imaging and milling FoV."""
+        dialog = AutoLamellaGlobalTaskEditDialog(self.experiment, parent=self)
+
+        if dialog.exec_() == QDialog.Accepted:
+            # Apply changes to all tasks
+            updated_count = dialog.apply_changes()
+
+            # Save the experiment
+            self._save_experiment()
+
+            # Refresh the current task view to reflect changes
+            self._on_selected_task_changed()
+
+            # Show success message
+            selected_count = len(dialog.get_selected_tasks())
+            QMessageBox.information(
+                self,
+                "Global Edit Applied",
+                f"Successfully updated reference imaging for {selected_count} task(s) and milling FoV for {updated_count} task(s) with milling.",
+            )
+
+            logging.info(f"Global edit applied to {updated_count} task(s)")
+        else:
+            # User canceled - no changes were made
+            logging.info("Global edit canceled by user")
     def _on_protocol_name_changed(self):
         """Callback when the protocol name editing is finished."""
         text = self.lineEdit_protocol_name.text()
