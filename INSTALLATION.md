@@ -20,7 +20,7 @@ for more information.
 Create a new virutal environment from the Anaconda Prompt terminal:
 ```
 cd fibsem
-conda env create -f environment.yml
+conda env create -n fibsem python=3.11 pip
 conda activate fibsem
 pip install -e .
 ```

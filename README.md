@@ -1,5 +1,3 @@
-NOTE: This repository is being migrated to a new home at https://github.com/fibsem-os/fibsem-os. This will be kept updated as a mirror for the next few months (until ~September 2025) before being archived. 
-
 # fibsemOS
 
 A universal API for FIBSEM Control, Development and Automation
@@ -27,17 +25,22 @@ pip install fibsem
 Clone this repository, and checkout main:
 
 ```bash
-git clone https://github.com/DeMarcoLab/fibsem.git
+git clone https://github.com/fibsem-os/fibsem-os.git
 ```
 
 Install dependencies and package
 
 ```bash
-cd fibsem
-conda create -n fibsem python=3.9 pip
+cd path/to/fibsem/repository
+conda create -n fibsem python=3.11 pip
 conda activate fibsem
 pip install -e .[ui]
 
+```
+
+To run:
+```bash
+fibsem-autolamella-ui
 ```
 
 ### Offline Installation
@@ -47,13 +50,13 @@ On internet connected PC (Environment should match python version):
 ```bash
 mkdir pkg
 cd pkg
-pip download fibsem[ui] autolamella
+pip download fibsem[ui]
 ```
 On Support PC:
 Transfer the pkg directory to the support pc, and then change to the pkg directory
 ```bash
 cd pkg
-pip install --no-index --find-links . fibsem[ui] autolamella
+pip install --no-index --find-links . fibsem[ui]
 ```
 
 #### Napari Plugin
@@ -131,7 +134,7 @@ Contributions are welcome! Please open a pull request or issue.
 
 ## Docs
 
-fibsemOS is a large package with many features. For more detailed documentation, please see the [Documentation Website](https://demarcolab.github.io/openfibsem-docs).
+fibsemOS is a large package with many features. For more detailed documentation, please see the [Documentation Website](https://www.fibsemos.org).
 
 ## Citation
 
