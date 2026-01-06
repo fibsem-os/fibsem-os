@@ -1424,6 +1424,24 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         lamella.objective_position = value * 1e-3
         self.experiment.save()
 
+    def get_selected_lamella(self) -> Optional[Lamella]:
+        """Get the currently selected lamella from the combobox.
+
+        Returns:
+            The selected lamella, or None if no experiment, no positions, or invalid selection.
+        """
+        if self.experiment is None:
+            return None
+
+        if not self.experiment.positions:
+            return None
+
+        idx = self.comboBox_current_lamella.currentIndex()
+        if idx == -1 or idx >= len(self.experiment.positions):
+            return None
+
+        return self.experiment.positions[idx]
+
 #### PROTOCOL
     def load_protocol(self):
         """Load a protocol into the current experiment using the protocol loading dialog."""
