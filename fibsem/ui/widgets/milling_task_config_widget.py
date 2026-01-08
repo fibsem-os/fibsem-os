@@ -152,7 +152,11 @@ class MillingTaskConfigWidget(QWidget):
         self.advanced_checkbox.setToolTip("Show advanced configuration options (alignment, acquisition, strategy).")
         self.advanced_checkbox.setChecked(self._show_advanced)
         self.advanced_checkbox.toggled.connect(self.set_show_advanced)
-        basic_layout.addWidget(QLabel(""), 2, 0, 1, 1)  # empty spacer
+        self.show_patterns_checkbox = QCheckBox("Show Milling Patterns", self)
+        self.show_patterns_checkbox.setToolTip("Show milling patterns in the viewer.")
+        self.show_patterns_checkbox.setChecked(True)
+        self.show_patterns_checkbox.stateChanged.connect(self.toggle_pattern_visibility)
+        basic_layout.addWidget(self.show_patterns_checkbox, 2, 0, 1, 1)
         basic_layout.addWidget(self.advanced_checkbox, 2, 1, 1, 1)
         basic_layout.setColumnStretch(0, 1)  # Labels column - expandable
         basic_layout.setColumnStretch(1, 1)  # Input widgets column - expandable
@@ -339,6 +343,14 @@ class MillingTaskConfigWidget(QWidget):
             True if advanced settings are currently visible, False otherwise
         """
         return self._show_advanced
+
+    def toggle_pattern_visibility(self, visible: bool):
+        """Toggle the visibility of milling patterns in the viewer.
+
+        Args:
+            visible: True to show patterns, False to hide them
+        """
+        self.milling_editor_widget._toggle_pattern_visibility(visible)
 
     def _update_advanced_visibility(self):
         """Show or hide advanced sections based on the toggle state."""
