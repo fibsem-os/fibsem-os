@@ -147,6 +147,12 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             "label": "Auto Milling Angle Alignment", 
             "help": "Whether to automatically align for a milling position"}, 
     )
+    use_autofocus: bool = field(
+        default=True,
+        metadata={
+            "label": "Use Autofocus",
+            "help": "Whether to autofocus before moving to the milling position"},
+    )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
 
@@ -932,11 +938,10 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 if ret:
                     self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
 
-
-        # acquire an image at the milling position
-        self._acquire_reference_image(image_settings=self.image_settings,
-                                      filename=f"ref_{self.task_name}_initial_position",
-                                      field_of_view=self.config.reference_imaging.field_of_view1)
+            # reacquire image at milling angle
+            self._acquire_reference_image(image_settings=self.image_settings,
+                                        filename=f"ref_{self.task_name}_post_tilt",
+                                        field_of_view=self.config.reference_imaging.field_of_view1)
 
         # confirm with user to move to milling position
         if self.validate:
