@@ -531,7 +531,7 @@ def multi_step_alignment_v2(
 
 def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: ImageSettings, 
                               target_angle: float, step_size: float, 
-                              beam_type: Optional[BeamType] = None) -> None:
+                              beam_type: Optional[BeamType] = None, show: bool = False) -> None:
     """Perform eucentric tilt alignment by moving the stage in steps towards the target angle,
     acquiring images at each step, and performing alignment.
     Args:
@@ -540,6 +540,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
         target_angle (float): The target tilt angle in degrees.
         step_size (float): The step size in degrees.
         beam_type (Optional[BeamType]): The beam type to use for image acquisition. If None, both beams are used.
+        show (bool): Whether to show the images at each step. Defaults to False.
     Returns:
         None
     """
@@ -551,7 +552,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
 
     n_steps = int(abs(int(current_angle) - target_angle) // step_size)
 
-    print(f"Current Tilt: {current_angle}, Target Tilt:  {target_angle}, Step Size: {step_size},  Num Steps: {n_steps}")
+    logging.info(f"Current Tilt: {current_angle}, Target Tilt:  {target_angle}, Step Size: {step_size},  Num Steps: {n_steps}")
     steps = np.linspace(current_angle, target_angle, num=n_steps)
 
     # input()
@@ -562,7 +563,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
 
     # QUERY: should we be updating the ref image as we go?
 
-    image_settings.hfw = 80e-6
+    image_settings.hfw = 150e-6
     if beam_type is not None:
         image_settings.beam_type = beam_type
         reference_image = acquire.acquire_image(microscope, image_settings)
@@ -575,7 +576,6 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
     sem_images = []
 
     for i, angle in enumerate(steps[1:]):
-        print(f"Moving to Angle: {angle}")
         microscope.move_stage_absolute(FibsemStagePosition(t=np.radians(angle)))
 
         if beam_type is not None:
@@ -588,12 +588,13 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
 
         sem_image, fib_image = acquire.acquire_channels(microscope, image_settings)
 
-        # fig, ax = plt.subplots(1, 2, figsize=(10, 7))
-        # ax[0].imshow(sem_image.data, cmap="gray")
-        # ax[0].plot(sem_image.data.shape[1]//2, sem_image.data.shape[0]//2, "y+", ms=50)
-        # ax[1].imshow(fib_image.data, cmap="gray")
-        # ax[1].plot(fib_image.data.shape[1]//2, fib_image.data.shape[0]//2, "y+", ms=50)
-        # plt.show()
+        if show:
+            fig, ax = plt.subplots(1, 2, figsize=(10, 7))
+            ax[0].imshow(sem_image.data, cmap="gray")
+            ax[0].plot(sem_image.data.shape[1]//2, sem_image.data.shape[0]//2, "y+", ms=50)
+            ax[1].imshow(fib_image.data, cmap="gray")
+            ax[1].plot(fib_image.data.shape[1]//2, fib_image.data.shape[0]//2, "y+", ms=50)
+            plt.show()
 
         sem_images.append(sem_image)
         fib_images.append(fib_image)
@@ -606,7 +607,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
             reference_image = sem_image
         elif beam_type is BeamType.ION:
             reference_image = fib_image
-    
+
     # TODO: have a metric to measure if it failed? how??
     final_position = microscope.get_stage_position()
     diff = stage_position - final_position

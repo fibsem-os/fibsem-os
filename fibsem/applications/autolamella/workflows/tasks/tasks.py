@@ -897,15 +897,20 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.image_settings.path = self.lamella.path
 
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        stage_position = self.lamella.stage_position
-        if self.lamella.milling_pose is not None and self.lamella.milling_pose.stage_position is not None:
-            logging.info(f"Lamella {self.lamella.name} already has a milling pose set. Using existing milling pose.")
-            stage_position = self.lamella.milling_pose.stage_position
-        self.microscope.safe_absolute_stage_movement(stage_position)
+        if self.lamella.milling_pose is None:
+            raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
+        self.microscope.set_microscope_state(self.lamella.milling_pose)
 
         self.log_status_message("SELECT_POSITION", "Selecting Position...")
         milling_angle = self.config.milling_angle
         is_close = self.microscope.is_close_to_milling_angle(milling_angle=milling_angle)
+
+        # acquire an image at the milling position
+        if self.config.use_autofocus:
+            self.microscope.auto_focus(beam_type=BeamType.ION)
+        self._acquire_reference_image(image_settings=self.image_settings,
+                                      filename=f"ref_{self.task_name}_start",
+                                      field_of_view=self.config.reference_imaging.field_of_view1)
 
         if not is_close:
             if self.config.auto_milling_alignment:
