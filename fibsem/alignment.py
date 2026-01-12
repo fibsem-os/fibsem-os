@@ -54,6 +54,7 @@ def beam_shift_alignment_v2(
     ref_image: FibsemImage,
     alignment_current: Optional[float] = None,
     use_autocontrast: bool = False,
+    use_autofocus: bool = False,
     subsystem: Optional[str] = None,
 ):
     """Aligns the images by adjusting the beam shift instead of moving the stage.
@@ -77,7 +78,7 @@ def beam_shift_alignment_v2(
 
     time.sleep(2) # threading is too fast?
     image_settings = ImageSettings.fromFibsemImage(ref_image)
-    image_settings.autocontrast = use_autocontrast
+    image_settings.autocontrast = False
     image_settings.save = True
 
     # use the same named prefix for the filename for traceability (if possible)
@@ -92,6 +93,13 @@ def beam_shift_alignment_v2(
     if alignment_current is not None:
         initial_current = microscope.get_beam_current(image_settings.beam_type)
         microscope.set_beam_current(alignment_current, image_settings.beam_type)
+
+    if use_autocontrast:
+        microscope.autocontrast(beam_type=image_settings.beam_type,
+                                reduced_area=image_settings.reduced_area)
+
+    if use_autofocus:
+        microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
 
     new_image = acquire.new_image(microscope, settings=image_settings)
     dx, dy, _ = shift_from_crosscorrelation(
@@ -504,6 +512,7 @@ def multi_step_alignment_v2(
     alignment_current: Optional[float] = None,
     steps: int = 3,
     use_autocontrast: bool = False,
+    use_autofocus: bool = False,
     subsystem: Optional[str] = None,
     stop_event: Optional[ThreadingEvent] = None,
 ) -> None:
@@ -518,9 +527,11 @@ def multi_step_alignment_v2(
             break
         # only use autocontrast on first step
         use_autocontrast = use_autocontrast if i == 0 else False
+        use_autofocus = use_autofocus if i == 0 else False
         beam_shift_alignment_v2(microscope=microscope, 
                                 ref_image=ref_image, 
-                                use_autocontrast=use_autocontrast, 
+                                use_autocontrast=use_autocontrast,
+                                use_autofocus=use_autofocus,
                                 subsystem=subsystem)
 
     # reset beam current

@@ -2241,9 +2241,12 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits for x, y, z, t, r."""
+        from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE, STAGE_LIMITS_DEFAULT
         if self.stage_is_compustage:
-            from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE
             return STAGE_LIMITS_COMPUSTAGE
+        
+        if not hasattr(self.stage, "get_axis_limits"):
+            return STAGE_LIMITS_DEFAULT
 
         limits: Dict[str, RangeLimit] = {}
         for axis in ["x", "y", "z", "t"]:
@@ -2805,11 +2808,11 @@ class ThermoMicroscope(FibsemMicroscope):
         if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
             create_pattern_function = patterning_api.create_regular_cross_section
             self.set_patterning_mode("Serial") # parallel mode not supported for regular cross section
-            self.set_application_file("Si-multipass")
+            self.set_application_file("Si-multipass", strict=False)
         elif pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
             create_pattern_function = patterning_api.create_cleaning_cross_section
             self.set_patterning_mode("Serial") # parallel mode not supported for cleaning cross section
-            self.set_application_file("Si-ccs")
+            self.set_application_file("Si-ccs", strict=False)
         else:
             create_pattern_function = patterning_api.create_rectangle
 
