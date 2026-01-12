@@ -1302,8 +1302,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         )
         if ret != QMessageBox.Yes:
             return
-        
-        lamella.stage_position = deepcopy(current_position)
+
+        lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
 
         self.update_lamella_combobox()
         self.update_ui()
