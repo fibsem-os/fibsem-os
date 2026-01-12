@@ -35,7 +35,7 @@ dependencies = [
     "pyyaml>=6.0",
     "psygnal",
     "ome_types",
-    "lxml",
+    "lxml[html_clean]",
 ]
 
 [project.urls]
