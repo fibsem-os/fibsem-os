@@ -506,13 +506,7 @@ class OverviewImageWidget(QWidget):
 
             # Collect positions (always use MILLING state)
             self.stage_positions.clear()
-            for p in self.experiment.positions:
-                pstate = p.poses.get("MILLING", p.state.microscope_state)
-                if pstate is None or pstate.stage_position is None:
-                    continue
-                pos = pstate.stage_position
-                pos.name = p.name
-                self.stage_positions.append(pos)
+            self.stage_positions = self.experiment.get_milling_positions()
 
             filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
             filenames = [f for f in filenames if "autogamma" not in f]
