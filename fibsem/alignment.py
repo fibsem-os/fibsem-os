@@ -575,6 +575,7 @@ def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: Imag
     # QUERY: should we be updating the ref image as we go?
 
     image_settings.hfw = 150e-6
+    image_settings.save = False
     if beam_type is not None:
         image_settings.beam_type = beam_type
         reference_image = acquire.acquire_image(microscope, image_settings)

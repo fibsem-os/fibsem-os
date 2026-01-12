@@ -350,6 +350,7 @@ class AutoLamellaTask(ABC):
                 "task_type": self.task_type,
                 "task_name": self.task_name,
                 "task_config": self.config.to_dict(),
+                "supervised": self.validate,
             }
         )
 
@@ -1157,7 +1158,7 @@ class AcquireReferenceImageTask(AutoLamellaTask):
             task_name = self.lamella.last_completed_task.name.replace(" ", "-")
 
         # acquire reference images
-        filename = f"ref_reference_image-{task_name}-{utils.current_timestamp_v3()}"
+        filename = f"ref_ReferenceImage-{task_name}-{utils.current_timestamp_v3()}"
         self._acquire_set_of_reference_images(image_settings=image_settings, filename=filename)
 
 
