@@ -172,20 +172,12 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
         default=True,
         metadata={"help": "Whether to mill a fiducial marker for alignment"},
     )
-    align_to_reference: bool = field(
-        default=True,
-        metadata={"help": "Whether to align to a reference image before milling the fiducial"},
-    )
     alignment_expansion: float = field(
-        default=30.0,
+        default=100.0,
         metadata={
             "help": "The percentage to expand the alignment area around the fiducial",
             "units": "%",
         },
-    )
-    display_fluorescence: bool = field(
-        default=True,
-        metadata={"help": "Whether to display fluorescence images for lamella setup (if available)"},
     )
     task_type: ClassVar[str] = "SETUP_LAMELLA"
     display_name: ClassVar[str] = "Setup Lamella"
@@ -485,7 +477,16 @@ class AutoLamellaTask(ABC):
         """Align to a reference image."""
         # beam_shift alignment
         self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
-        ref_image = FibsemImage.load(os.path.join(self.lamella.path, filename))
+        full_filename = os.path.join(self.lamella.path, filename)
+
+        # validate reference image exists
+        if not os.path.exists(full_filename):
+            logging.warning(f"Reference image {full_filename} for alignment does not exist" "" \
+            f"but was requested by {self.task_name}. Skipping alignment.")
+            return
+
+        # load reference image, align
+        ref_image = FibsemImage.load(full_filename)
         alignment.multi_step_alignment_v2(microscope=self.microscope, 
                                         ref_image=ref_image, 
                                         beam_type=BeamType.ION, 
@@ -570,6 +571,42 @@ class AutoLamellaTask(ABC):
         if self.lamella.milling_pose is None:
             raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
         self.microscope.set_microscope_state(self.lamella.milling_pose)
+
+    def _acquire_alignment_reference_image(self, 
+                                            image_settings: ImageSettings, 
+                                            field_of_view: float, 
+                                            reduced_area: FibsemRectangle) -> FibsemImage:
+        """Acquire alignment reference image with reduced area.
+        Args:
+            image_settings (ImageSettings): The image settings to use for acquisition.
+            field_of_view (float): The field of view to use for acquisition.
+            reduced_area (FibsemRectangle): The reduced area to use for acquisition.
+        Returns:
+            FibsemImage: The acquired alignment reference image.
+        """
+        self.log_status_message("ACQUIRE_ALIGNMENT_REFERENCE_IMAGE", "Acquiring Alignment Reference Image...")
+        alignment_image_settings = deepcopy(image_settings)
+
+        # set reduced area for fiducial alignment
+        alignment_image_settings.reduced_area = reduced_area
+
+        # acquire reference image for alignment
+        alignment_image_settings.beam_type = BeamType.ION
+        alignment_image_settings.save = True
+        alignment_image_settings.hfw = field_of_view
+        alignment_image_settings.filename = "ref_alignment"
+        alignment_image_settings.autocontrast = False # disable autocontrast for alignment
+        fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
+
+        return fib_image
+    
+    def _validate_alignment_area(self) -> None:
+        """Validate the alignment area with the user."""
+        self.log_status_message("VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image...")
+        self.lamella.alignment_area = update_alignment_area_ui(alignment_area=self.lamella.alignment_area,
+                                                parent_ui=self.parent_ui,
+                                                msg="Edit Alignment Area. Press Continue when done.", 
+                                                validate=self.validate)
 
 
 class MillTrenchTask(AutoLamellaTask):
@@ -950,6 +987,14 @@ class SelectMillingPositionTask(AutoLamellaTask):
                         f"Press Continue when done.",
                     pos="Continue")
 
+        # validate alignment area
+        self._validate_alignment_area()
+
+        # acquire alignment reference image
+        self._acquire_alignment_reference_image(image_settings=self.image_settings,
+                                      reduced_area=self.lamella.alignment_area,
+                                      field_of_view=self.config.reference_imaging.field_of_view1)
+
         # reference images
         self._acquire_set_of_reference_images(self.image_settings)
 
@@ -967,7 +1012,7 @@ class SetupLamellaTask(AutoLamellaTask):
         """Run the task to setup the lamella for milling."""
 
         # bookkeeping
-        checkpoint = "autolamella-waffle-20240107.pt" # TODO: where should this come from? .options?
+        # checkpoint = "autolamella-waffle-20240107.pt" # TODO: where should this come from? .options?
 
         image_settings: ImageSettings = self.config.imaging
         image_settings.path = self.lamella.path
@@ -976,18 +1021,18 @@ class SetupLamellaTask(AutoLamellaTask):
         self._move_to_milling_pose()
 
         # beam_shift alignment
-        filenames = sorted(glob.glob(os.path.join(self.lamella.path, "ref_reference_image*_ib.tif")))
-        if filenames and self.config.align_to_reference:
-            self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
-            ref_image = FibsemImage.load(filenames[-1])
+        # filenames = sorted(glob.glob(os.path.join(self.lamella.path, "ref_reference_image*_ib.tif")))
+        # if filenames and self.config.align_to_reference:
+        #     self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
+        #     ref_image = FibsemImage.load(filenames[-1])
 
-            # confirm that we are close to the reference image stage position before aligning
-            image_stage_position = ref_image.metadata.stage_position
-            if image_stage_position.is_close2(self.microscope.get_stage_position()):
-                alignment.multi_step_alignment_v2(microscope=self.microscope,
-                                                ref_image=ref_image,
-                                                beam_type=BeamType.ION,
-                                                steps=MAX_ALIGNMENT_ATTEMPTS)
+        #     # confirm that we are close to the reference image stage position before aligning
+        #     image_stage_position = ref_image.metadata.stage_position
+        #     if image_stage_position.is_close2(self.microscope.get_stage_position()):
+        #         alignment.multi_step_alignment_v2(microscope=self.microscope,
+        #                                         ref_image=ref_image,
+        #                                         beam_type=BeamType.ION,
+        #                                         steps=MAX_ALIGNMENT_ATTEMPTS)
 
         self.log_status_message("SELECT_POSITION", "Selecting Position...")
         milling_angle = self.config.milling_angle
@@ -1040,10 +1085,6 @@ class SetupLamellaTask(AutoLamellaTask):
 
         fiducial_task_config = self.config.milling[FIDUCIAL_KEY]
 
-        # assert np.isclose(rough_milling_task_config.field_of_view, polishing_milling_task_config.field_of_view, atol=1e-6), \
-        #     "Rough and polishing milling tasks must have the same field of view."
-        # assert np.isclose(rough_milling_task_config.field_of_view, fiducial_task_config.field_of_view, atol=1e-6), \
-        #     "Rough milling and fiducial tasks must have the same field of view."
 
         self._acquire_reference_image(image_settings, field_of_view=fiducial_task_config.field_of_view)
 
@@ -1056,9 +1097,9 @@ class SetupLamellaTask(AutoLamellaTask):
 
         # TODO: display milling task config to display lamella milling tasks
 
-        # display max intensity projections of any fluorescence images for the lamella
-        if self.config.display_fluorescence:
-            self._display_fluorescence_images()
+        # # display max intensity projections of any fluorescence images for the lamella
+        # if self.config.display_fluorescence:
+        #     self._display_fluorescence_images()
 
         # fiducial
         if self.config.use_fiducial:
@@ -1078,14 +1119,13 @@ class SetupLamellaTask(AutoLamellaTask):
         else:
             # non-fiducial based alignment
             self.lamella.alignment_area = FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
-            alignment_hfw = 150e-6 #, #rough_milling_task_config.field_of_view
+            alignment_hfw = self.config.reference_imaging.field_of_view1
 
         if not self.lamella.alignment_area.is_valid_reduced_area:
             raise ValueError(f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern.")
 
         # update alignment area
         self.log_status_message("ACQUIRE_ALIGNMENT_IMAGE", "Acquiring Alignment Image...")
-        logging.info(f"alignment_area: {self.lamella.alignment_area}")
         self.lamella.alignment_area = update_alignment_area_ui(alignment_area=self.lamella.alignment_area,
                                                 parent_ui=self.parent_ui,
                                                 msg="Edit Alignment Area. Press Continue when done.", 
@@ -1103,6 +1143,15 @@ class SetupLamellaTask(AutoLamellaTask):
         fib_image = acquire.acquire_image(self.microscope, image_settings)
         image_settings.reduced_area = None
         image_settings.autocontrast = True
+
+        # TODO: replace with method calls
+        # # validate alignment area
+        # self._validate_alignment_area()
+
+        # # acquire alignment reference image
+        # self._acquire_alignment_reference_image(image_settings=image_settings,
+        #                               reduced_area=self.lamella.alignment_area,
+        #                               field_of_view=alignment_hfw)
 
         # sync alignment area to rough and polishing milling tasks (QUERY: should we sync all tasks?)
         if rough_milling_task_config is not None and rough_milling_name is not None:
