@@ -564,6 +564,13 @@ class AutoLamellaTask(ABC):
         sem_image, fib_image = images[-1] # last acquired image
         set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
 
+    def _move_to_milling_pose(self) -> None:
+        """Move to the lamella milling pose."""
+        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
+        if self.lamella.milling_pose is None:
+            raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
+        self.microscope.set_microscope_state(self.lamella.milling_pose)
+
 
 class MillTrenchTask(AutoLamellaTask):
     """Task to mill the trench for a lamella."""
@@ -748,10 +755,7 @@ class MillRoughTask(AutoLamellaTask):
         self.image_settings.path = self.lamella.path
 
         # move to lamella milling position
-        self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
-        if self.lamella.milling_pose is None or self.lamella.milling_pose.stage_position is None:
-            raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        self.microscope.set_microscope_state(self.lamella.milling_pose)
+        self._move_to_milling_pose()
 
         # beam_shift alignment
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
@@ -827,10 +831,7 @@ class MillPolishingTask(AutoLamellaTask):
         image_settings.path = self.lamella.path
 
         # move to lamella milling position
-        self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
-        if self.lamella.milling_pose is None or self.lamella.milling_pose.stage_position is None:
-            raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        self.microscope.set_microscope_state(self.lamella.milling_pose)
+        self._move_to_milling_pose()
 
         # beam_shift alignment
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
@@ -903,10 +904,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.image_settings: ImageSettings = self.config.imaging
         self.image_settings.path = self.lamella.path
 
-        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        if self.lamella.milling_pose is None:
-            raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
-        self.microscope.set_microscope_state(self.lamella.milling_pose)
+        # move to lamella milling position
+        self._move_to_milling_pose()
 
         self.log_status_message("SELECT_POSITION", "Selecting Position...")
         milling_angle = self.config.milling_angle
@@ -973,12 +972,8 @@ class SetupLamellaTask(AutoLamellaTask):
         image_settings: ImageSettings = self.config.imaging
         image_settings.path = self.lamella.path
 
-        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        stage_position = self.lamella.stage_position
-        if self.lamella.milling_pose is not None and self.lamella.milling_pose.stage_position is not None:
-            logging.info(f"Lamella {self.lamella.name} already has a milling pose set. Using existing milling pose.")
-            stage_position = self.lamella.milling_pose.stage_position
-        self.microscope.safe_absolute_stage_movement(stage_position)
+        # move to lamella milling position
+        self._move_to_milling_pose()
 
         # beam_shift alignment
         filenames = sorted(glob.glob(os.path.join(self.lamella.path, "ref_reference_image*_ib.tif")))
@@ -1136,9 +1131,7 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         """Run the task to acquire reference image with the specified settings."""
 
         # move to position
-        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        stage_position = self.lamella.stage_position
-        self.microscope.safe_absolute_stage_movement(stage_position) # TODO: use orientation/pose instead
+        self._move_to_milling_pose()
 
         if self.validate:
             ask_user(self.parent_ui,
