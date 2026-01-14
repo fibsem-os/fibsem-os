@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
+    QMenuBar,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -25,6 +26,8 @@ from superqt import QCollapsible
 
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella import config as cfg
+from fibsem.ui import utils as fui
 from fibsem.applications.autolamella.workflows.tasks.tasks import TASK_REGISTRY
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, ReferenceImageParameters
@@ -199,10 +202,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_sync_to_lamella.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_sync_to_lamella.setToolTip("Update all existing lamella with the current task configuration")
 
-        self.pushButton_global_edit = QPushButton("Global Edit Imaging and Field of View")
-        self.pushButton_global_edit.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_global_edit.setToolTip("Edit reference imaging and milling field of view for all milling tasks")
-
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setVisible(False)
@@ -211,8 +210,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.button_layout = QGridLayout()
         self.button_layout.addWidget(self.pushButton_add_task, 0, 0)
         self.button_layout.addWidget(self.pushButton_remove_task, 0, 1)
-        self.button_layout.addWidget(self.pushButton_global_edit, 1, 0, 1, 2)
-        self.button_layout.addWidget(self.pushButton_sync_to_lamella, 2, 0, 1, 2)
+        self.button_layout.addWidget(self.pushButton_sync_to_lamella, 1, 0, 1, 2)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addWidget(self.label_protocol_name, 0, 0)
@@ -253,7 +251,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.pushButton_add_task.clicked.connect(self._on_add_task_clicked)
         self.pushButton_remove_task.clicked.connect(self._on_remove_task_clicked)
-        self.pushButton_global_edit.clicked.connect(self._on_global_edit_clicked)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
         self.lineEdit_protocol_name.editingFinished.connect(self._on_protocol_name_changed)
         self.lineEdit_protocol_description.editingFinished.connect(self._on_protocol_description_changed)
@@ -638,7 +635,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
     # TODO: support position sync between milling tasks, e.g. sync trench position between rough milling and polishing
 
 
-class AutoLamellaProtocolEditorTabWidget(QTabWidget):
+class AutoLamellaProtocolEditorTabWidget(QWidget):
     def __init__(self, parent_widget: Optional['AutoLamellaUI'] = None):
         super().__init__(parent_widget)
         self.parent_widget = parent_widget
@@ -646,16 +643,81 @@ class AutoLamellaProtocolEditorTabWidget(QTabWidget):
         self.task_widget: AutoLamellaProtocolTaskConfigEditor
         self.lamella_widget : AutoLamellaProtocolEditorWidget
 
+        # Create menu bar
+        self.menu_bar = QMenuBar(self)
+        self.file_menu = self.menu_bar.addMenu("File")
+
+        # Add Global Edit action to File menu
+        self.action_global_edit = self.file_menu.addAction("Global Editor...")
+        self.action_global_edit.setToolTip("Edit reference imaging and milling field of view for all milling tasks")
+
+        # Add Export Protocol action to File menu
+        self.action_export_protocol = self.file_menu.addAction("Export Protocol...")
+        self.action_export_protocol.setToolTip("Export the current protocol to a file")
+
+        # Create tab widget
+        self.tab_widget = QTabWidget(self)
+
+        # Create main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.menu_bar)
+        main_layout.addWidget(self.tab_widget)
+        self.setLayout(main_layout)
+
         # Connect to tab change signal
-        self.currentChanged.connect(self._on_tab_changed)
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+        # Connect menu actions
+        self.action_global_edit.triggered.connect(self._on_global_edit_triggered)
+        self.action_export_protocol.triggered.connect(self._on_export_protocol_triggered)
+
+    def addTab(self, widget: QWidget, label: str):
+        """Add a tab to the internal tab widget."""
+        return self.tab_widget.addTab(widget, label)
+
+    def _on_global_edit_triggered(self):
+        """Handle global edit menu action."""
+        if hasattr(self, 'task_widget') and self.task_widget is not None:
+            self.task_widget._on_global_edit_clicked()
+
+    def _on_export_protocol_triggered(self):
+        """Handle export protocol menu action."""
+        if self.parent_widget is None:
+            napari.utils.notifications.show_warning("No parent widget available")
+            return
+
+        experiment = self.parent_widget.experiment
+        if experiment is None or experiment.task_protocol is None:
+            napari.utils.notifications.show_info("No protocol loaded.")
+            return
+
+        protocol_path = fui.open_save_file_dialog(
+            msg="Select a protocol file",
+            path=str(cfg.TASK_PROTOCOL_PATH),
+            _filter="*.yaml",
+            parent=self,
+        )
+
+        if protocol_path == "":
+            return
+
+        try:
+            experiment.task_protocol.save(protocol_path)
+            napari.utils.notifications.show_info(
+                f"Saved Protocol to {os.path.basename(protocol_path)}"
+            )
+        except Exception as e:
+            napari.utils.notifications.show_error(f"Failed to save protocol: {e}")
+            logging.error(f"Failed to save protocol to {protocol_path}: {e}")
 
     def _on_tab_changed(self, index: int):
         """Handle tab change event."""
-        tab_name = self.tabText(index)
+        tab_name = self.tab_widget.tabText(index)
 
         try:
-            for i in range(self.count()):
-                w: Union[AutoLamellaProtocolTaskConfigEditor, AutoLamellaProtocolEditorWidget] = self.widget(i)
+            for i in range(self.tab_widget.count()):
+                w: Union[AutoLamellaProtocolTaskConfigEditor, AutoLamellaProtocolEditorWidget] = self.tab_widget.widget(i)
                 if w is None or isinstance(w, AutoLamellaWorkflowWidget):
                     continue
                 milling_editor = w.milling_task_editor.config_widget.milling_editor_widget
