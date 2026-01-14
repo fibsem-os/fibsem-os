@@ -579,7 +579,7 @@ class Lamella:
     path: Path
     number: int                                                             # TODO: deprecate, use petname instead
     petname: str
-    alignment_area: FibsemRectangle = field(default_factory=FibsemRectangle)
+    alignment_area: FibsemRectangle = field(default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA))
     _id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, 'AutoLamellaTaskConfig'] = field(default_factory=lambda: EventedDict())
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
