@@ -8,7 +8,7 @@ from typing import Dict, Tuple
 
 import pandas as pd
 
-from fibsem.applications.autolamella.structures import Experiment, Lamella, LamellaState
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 
 
 class PythonLiteralJSONDecoder(json.JSONDecoder):

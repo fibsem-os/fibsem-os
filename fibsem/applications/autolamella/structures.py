@@ -44,53 +44,6 @@ from fibsem.structures import (
 from fibsem.utils import configure_logging, format_duration
 
 
-# TODO: deprecate this for .poses
-@evented
-@dataclass
-class LamellaState:
-    microscope_state: MicroscopeState = field(default_factory=MicroscopeState)
-    stage: AutoLamellaStage = AutoLamellaStage.PositionReady
-    start_timestamp: float = datetime.timestamp(datetime.now())
-    end_timestamp: Optional[float] = None
-
-    @property
-    def completed(self) -> str:
-        return f"{self.stage.name} ({self.completed_at})"
-
-    @property
-    def completed_at(self) -> str:
-        if self.end_timestamp is None:
-            return "in progress"
-        return datetime.fromtimestamp(self.end_timestamp).strftime('%I:%M%p')
-    
-    @property
-    def started_at(self) -> str:
-        return datetime.fromtimestamp(self.start_timestamp).strftime('%I:%M%p')
-
-    @property
-    def duration(self) -> float:
-        if self.end_timestamp is None:
-            return 0
-        return self.end_timestamp - self.start_timestamp
-
-    @property
-    def duration_str(self) -> str:
-        return format_duration(self.duration)
-
-    def to_dict(self):
-        return {
-            "microscope_state": self.microscope_state.to_dict() if self.microscope_state is not None else "not defined",
-            "start_timestamp": self.start_timestamp,
-            "end_timestamp": self.end_timestamp,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'LamellaState':
-        return cls(
-            microscope_state=MicroscopeState.from_dict(data["microscope_state"]),
-            start_timestamp=data["start_timestamp"],
-            end_timestamp=data["end_timestamp"]
-        )
 
 
 class AutoLamellaTaskStatus(Enum):
