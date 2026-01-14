@@ -311,8 +311,8 @@ class FibsemMillingTask:
         filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}_{current_timestamp_v3(timeonly=True)}".replace(' ', '-')
         image_settings = ImageSettings(
             hfw=self.config.field_of_view,
-            dwell_time=1e-6,
-            resolution=(1536, 1024),
+            dwell_time=self.config.alignment.imaging.dwell_time,
+            resolution=self.config.alignment.imaging.resolution,
             beam_type=self.config.channel,
             reduced_area=self.config.alignment.rect,
             save=True,

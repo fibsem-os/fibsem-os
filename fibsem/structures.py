@@ -2285,7 +2285,7 @@ class MillingAlignment:
     use_autocontrast: bool = True
     use_autofocus: bool = False
     steps: int = 3
-    # imaging: ImageSettings = field(default_factory=ImageSettings)
+    imaging: ImageSettings = field(default_factory=ImageSettings)
 
     def to_dict(self):
         return {"enabled": self.enabled, 
@@ -2295,6 +2295,7 @@ class MillingAlignment:
                 "use_autocontrast": self.use_autocontrast,
                 "use_autofocus": self.use_autofocus,
                 "steps": self.steps,
+                "imaging": self.imaging.to_dict(),
                 }
 
     @staticmethod
@@ -2307,6 +2308,7 @@ class MillingAlignment:
             use_autocontrast=d.get("use_autocontrast", True),
             use_autofocus=d.get("use_autofocus", False),
             steps=d.get("steps", 3),
+            imaging=ImageSettings.from_dict(d.get("imaging", {})),
         )
 
 @dataclass

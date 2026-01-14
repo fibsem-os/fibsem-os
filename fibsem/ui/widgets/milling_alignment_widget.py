@@ -2,28 +2,25 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
 
 from fibsem.structures import MillingAlignment
+from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
-    "interval": {
-        "range": (10, 3600),  # 10 seconds to 1 hour
-        "default": 30,
-        "suffix": " s",
-    },
-    "enabled": {"default": True, "label": "Enable Initial Alignment", 
+    "enabled": {"default": True, "label": "Enable Initial Alignment",
                 "tooltip": "Align between imaging and milling current before starting milling"},
-    "interval_enabled": {"default": False, "label": "Enable Interval Alignment"},
-    "rect_precision": 3,  # Decimal places for rectangle display
-    "use_contrast": {"default": True, "label": "Use Autocontrast", 
+    "use_contrast": {"default": True, "label": "Use Autocontrast",
                      "tooltip": "Autocontrast before acquiring alignment image"},
+    "use_autofocus": {"default": False, "label": "Use Autofocus",
+                      "tooltip": "Autofocus before acquiring alignment image"},
+    "steps": {"range": (1, 9), "default": 3},
 }
 
 
 class FibsemMillingAlignmentWidget(QWidget):
     """Widget for editing MillingAlignment settings.
 
-    Contains enabled checkbox, interval settings, and a label
-    displaying the rectangle values for drift correction alignment.
+    Contains enabled checkbox, autocontrast/autofocus options,
+    and alignment imaging settings (resolution and dwell time).
     """
 
     settings_changed = pyqtSignal(MillingAlignment)
@@ -33,7 +30,7 @@ class FibsemMillingAlignmentWidget(QWidget):
 
         Args:
             parent: Parent widget
-            show_advanced: Whether to show advanced settings (interval settings and rectangle)
+            show_advanced: Currently unused, kept for compatibility
         """
         super().__init__(parent)
         self._settings = MillingAlignment()
@@ -47,10 +44,9 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def _setup_ui(self):
         """Create and configure all UI elements.
-        
-        Sets up the grid layout with enabled checkbox, interval controls,
-        and rectangle display. Advanced controls are initially visible
-        but will be hidden based on show_advanced flag.
+
+        Sets up the grid layout with enabled checkbox, autocontrast/autofocus options,
+        and alignment imaging settings widget.
         """
         layout = QGridLayout()
         self.setLayout(layout)
@@ -60,111 +56,71 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.enabled_checkbox = QCheckBox(enabled_config["label"])
         self.enabled_checkbox.setChecked(enabled_config["default"])
         self.enabled_checkbox.setToolTip(enabled_config["tooltip"])
-        layout.addWidget(self.enabled_checkbox, 0, 0, 1, 1)
+        layout.addWidget(self.enabled_checkbox, 0, 0, 1, 2)
 
-        # use autocontrast
+        # use autocontrast and use autofocus on the same row
         use_contrast_config = WIDGET_CONFIG["use_contrast"]
         self.autocontrast_checkbox = QCheckBox(use_contrast_config["label"])
         self.autocontrast_checkbox.setChecked(use_contrast_config["default"])
         self.autocontrast_checkbox.setToolTip(use_contrast_config["tooltip"])
-        layout.addWidget(self.autocontrast_checkbox, 0, 1, 1, 1)
+        layout.addWidget(self.autocontrast_checkbox, 1, 0, 1, 1)
 
-        # Interval enabled checkbox
-        interval_enabled_config = WIDGET_CONFIG["interval_enabled"]
-        self.interval_enabled_checkbox = QCheckBox(interval_enabled_config["label"])
-        self.interval_enabled_checkbox.setChecked(interval_enabled_config["default"])
-        layout.addWidget(self.interval_enabled_checkbox, 1, 0, 1, 2)
+        use_autofocus_config = WIDGET_CONFIG["use_autofocus"]
+        self.autofocus_checkbox = QCheckBox(use_autofocus_config["label"])
+        self.autofocus_checkbox.setChecked(use_autofocus_config["default"])
+        self.autofocus_checkbox.setToolTip(use_autofocus_config["tooltip"])
+        layout.addWidget(self.autofocus_checkbox, 1, 1, 1, 1)
 
-        # Interval spinbox
-        self.interval_label = QLabel("Interval")
-        layout.addWidget(self.interval_label, 2, 0)
-        self.interval_spinbox = QSpinBox()
-        interval_config = WIDGET_CONFIG["interval"]
-        self.interval_spinbox.setRange(*interval_config["range"])
-        self.interval_spinbox.setValue(interval_config["default"])
-        self.interval_spinbox.setSuffix(interval_config["suffix"])
-        layout.addWidget(self.interval_spinbox, 2, 1)
+        # Alignment steps
+        self.steps_label = QLabel("Alignment Steps")
+        layout.addWidget(self.steps_label, 2, 0)
+        self.steps_spinbox = QSpinBox()
+        steps_config = WIDGET_CONFIG["steps"]
+        self.steps_spinbox.setRange(*steps_config["range"])
+        self.steps_spinbox.setValue(steps_config["default"])
+        layout.addWidget(self.steps_spinbox, 2, 1)
 
-        # Rectangle display
-        self.rect_display_label = QLabel("Rectangle:")
-        layout.addWidget(self.rect_display_label, 3, 0)
-        self.rect_label = QLabel("left=0.0, top=0.0, width=1.0, height=1.0")
-        # self.rect_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 5px; border: 1px solid #ccc; }")
-        layout.addWidget(self.rect_label, 3, 1)
-
-        # currently hidden advanced settings
-        self.interval_enabled_checkbox.setVisible(False)
-        self.interval_label.setVisible(False)
-        self.interval_spinbox.setVisible(False)
-        self.rect_display_label.setVisible(False)
-        self.rect_label.setVisible(False)
+        # Image settings widget
+        self.image_settings_widget = ImageSettingsWidget(show_advanced=False)
+        # Hide HFW, autocontrast, and drift correction - only show resolution and dwell time
+        self.image_settings_widget.show_field_of_view(False)
+        self.image_settings_widget.autocontrast_check.setVisible(False)
+        self.image_settings_widget.drift_correction_check.setVisible(False)
+        layout.addWidget(self.image_settings_widget, 3, 0, 1, 2)
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers.
-        
+
         Connects checkbox and spinbox signals to update methods and
         settings change emission. Each control change triggers both
         UI updates and settings change notifications.
         """
         self.enabled_checkbox.toggled.connect(self._emit_settings_changed)
         self.enabled_checkbox.toggled.connect(self._update_controls_enabled)
-        self.interval_enabled_checkbox.toggled.connect(self._emit_settings_changed)
-        self.interval_enabled_checkbox.toggled.connect(self._update_interval_enabled)
-        self.interval_spinbox.valueChanged.connect(self._emit_settings_changed)
         self.autocontrast_checkbox.toggled.connect(self._emit_settings_changed)
+        self.autofocus_checkbox.toggled.connect(self._emit_settings_changed)
+        self.steps_spinbox.valueChanged.connect(self._emit_settings_changed)
+        self.image_settings_widget.settings_changed.connect(self._emit_settings_changed)
 
     def _update_advanced_visibility(self):
         """Show/hide advanced settings based on the show_advanced flag.
-        
-        Advanced settings include: interval settings and rectangle display.
+
+        Image settings are always shown but with limited fields.
         """
-        # self.interval_enabled_checkbox.setVisible(self._show_advanced)
-        # self.interval_label.setVisible(self._show_advanced)
-        # self.interval_spinbox.setVisible(self._show_advanced)
-        # self.rect_display_label.setVisible(self._show_advanced)
-        # self.rect_label.setVisible(self._show_advanced)
         pass
 
     def _update_controls_enabled(self):
         """Enable/disable controls based on the enabled checkbox.
-        
+
         When the main enabled checkbox is unchecked, all other controls
-        (interval settings and rectangle display) are disabled to provide
-        clear visual feedback that alignment is turned off.
+        are disabled to provide clear visual feedback that alignment is turned off.
         """
         enabled = self.enabled_checkbox.isChecked()
-        self.interval_enabled_checkbox.setEnabled(enabled)
-        self.interval_label.setEnabled(enabled)
-        self.interval_spinbox.setEnabled(enabled)
-        self.rect_display_label.setEnabled(enabled)
-        self.rect_label.setEnabled(enabled)
         self.autocontrast_checkbox.setEnabled(enabled)
-        self._update_interval_enabled()
-
-    def _update_interval_enabled(self):
-        """Enable/disable interval spinbox based on interval enabled checkbox.
-        
-        The interval spinbox is only enabled when both the main alignment
-        is enabled AND the interval alignment checkbox is checked.
-        """
-        interval_enabled = (
-            self.interval_enabled_checkbox.isChecked()
-            and self.enabled_checkbox.isChecked()
-        )
-        self.interval_spinbox.setEnabled(interval_enabled)
-
-    def _update_rect_label(self):
-        """Update the rectangle label text with current rectangle values.
-        
-        Formats the rectangle coordinates and dimensions using the configured
-        precision for display. Shows left, top, width, and height values.
-        """
-        rect = self._settings.rect
-        precision = WIDGET_CONFIG["rect_precision"]
-        self.rect_label.setText(
-            f"left={rect.left:.{precision}f}, top={rect.top:.{precision}f}, "
-            f"width={rect.width:.{precision}f}, height={rect.height:.{precision}f}"
-        )
+        self.autofocus_checkbox.setEnabled(enabled)
+        self.steps_label.setEnabled(enabled)
+        self.steps_spinbox.setEnabled(enabled)
+        self.image_settings_widget.setEnabled(enabled)
 
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings.
@@ -185,10 +141,11 @@ class FibsemMillingAlignmentWidget(QWidget):
         """
         # Update only the fields controlled by this widget
         self._settings.enabled = self.enabled_checkbox.isChecked()
-        self._settings.interval_enabled = self.interval_enabled_checkbox.isChecked()
-        self._settings.interval = self.interval_spinbox.value()
-        # rect is preserved as-is since it's display-only
         self._settings.use_autocontrast = self.autocontrast_checkbox.isChecked()
+        self._settings.use_autofocus = self.autofocus_checkbox.isChecked()
+        self._settings.steps = self.steps_spinbox.value()
+        self._settings.imaging = self.image_settings_widget.get_settings()
+        # interval_enabled, interval, and rect are preserved from stored settings
         return self._settings
 
     def update_from_settings(self, settings: MillingAlignment):
@@ -197,23 +154,22 @@ class FibsemMillingAlignmentWidget(QWidget):
         Args:
             settings: MillingAlignment object to load values from.
                      All checkbox and spinbox values are updated from the settings.
-                     Rectangle display is refreshed with the new rectangle data.
         """
         self._settings = settings
 
         # Block signals to prevent recursive updates
         self.enabled_checkbox.blockSignals(True)
-        self.interval_enabled_checkbox.blockSignals(True)
-        self.interval_spinbox.blockSignals(True)
         self.autocontrast_checkbox.blockSignals(True)
+        self.autofocus_checkbox.blockSignals(True)
+        self.steps_spinbox.blockSignals(True)
 
         self.enabled_checkbox.setChecked(settings.enabled)
-        self.interval_enabled_checkbox.setChecked(settings.interval_enabled)
-        self.interval_spinbox.setValue(settings.interval)
         self.autocontrast_checkbox.setChecked(settings.use_autocontrast)
+        self.autofocus_checkbox.setChecked(settings.use_autofocus)
+        self.steps_spinbox.setValue(settings.steps)
 
-        # Update rectangle display
-        self._update_rect_label()
+        # Update image settings widget
+        self.image_settings_widget.update_from_settings(settings.imaging)
 
         # Update enabled states
         self._update_controls_enabled()
@@ -222,9 +178,9 @@ class FibsemMillingAlignmentWidget(QWidget):
         self._update_advanced_visibility()
 
         self.enabled_checkbox.blockSignals(False)
-        self.interval_enabled_checkbox.blockSignals(False)
-        self.interval_spinbox.blockSignals(False)
         self.autocontrast_checkbox.blockSignals(False)
+        self.autofocus_checkbox.blockSignals(False)
+        self.steps_spinbox.blockSignals(False)
 
     def set_show_advanced(self, show_advanced: bool):
         """Set the visibility of advanced settings.
