@@ -70,14 +70,14 @@ class AutoLamellaDefectStateWidget(QtWidgets.QGroupBox):
             return
 
         has_defect = self.checkbox_has_defect.isChecked()
-        requires_rework = bool(self.checkbox_requires_rework.isChecked()) if has_defect else False
-        description = self.line_description.text().strip() if has_defect else ""
+        requires_rework = self.checkbox_requires_rework.isChecked()
+        description = self.line_description.text().strip() if (has_defect or requires_rework) else ""
 
         self._defect_state.has_defect = has_defect
         self._defect_state.requires_rework = requires_rework
         self._defect_state.description = description
 
-        if has_defect:
+        if has_defect or requires_rework:
             self._defect_state.updated_at = datetime.timestamp(datetime.now())
         else:
             self._defect_state.updated_at = None
@@ -91,8 +91,7 @@ class AutoLamellaDefectStateWidget(QtWidgets.QGroupBox):
         state = self._defect_state or DefectState()
         self.checkbox_has_defect.setChecked(state.has_defect)
         self.checkbox_requires_rework.setChecked(state.requires_rework)
-        self.checkbox_requires_rework.setEnabled(state.has_defect)
-        self.line_description.setEnabled(state.has_defect)
+        self.line_description.setEnabled(state.has_defect or state.requires_rework)
         self.line_description.setText(state.description or "")
 
         self._updating = False
