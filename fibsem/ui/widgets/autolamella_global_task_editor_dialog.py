@@ -6,6 +6,7 @@ from typing import List, Optional
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -112,6 +113,25 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.label_info.setStyleSheet("color: gray; font-style: italic;")
         self.label_info.setWordWrap(True)
 
+        # Checkbox for updating existing lamella configurations
+        self.checkbox_update_existing = QCheckBox("Also update existing lamella configurations")
+        self.checkbox_update_existing.setToolTip(
+            "When enabled, applies these settings to existing lamella positions that have already been created. "
+            "This will update the task configurations for all positions in the experiment."
+        )
+
+        # Disable checkbox if there are no positions in the experiment
+        if not self.experiment.positions or len(self.experiment.positions) == 0:
+            self.checkbox_update_existing.setChecked(False)
+            self.checkbox_update_existing.setEnabled(False)
+            self.checkbox_update_existing.setToolTip(
+                "No existing lamella positions found in the experiment. "
+                "This option is only available when positions have been created."
+            )
+        else:
+            # Enable by default when positions exist
+            self.checkbox_update_existing.setChecked(True)
+
         # Dialog buttons
         self.button_box = QDialogButtonBox(self)
         self.pushButton_apply = QPushButton("Apply to Selected Tasks")
@@ -161,6 +181,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
 
         # Add info label
         main_layout.addWidget(self.label_info)
+
+        # Add checkbox for updating existing lamella configurations
+        main_layout.addWidget(self.checkbox_update_existing)
 
         # Add stretch and buttons
         main_layout.addStretch()
@@ -287,10 +310,6 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
                     milling_config.field_of_view = new_milling_fov
                 updated_count += 1
 
-        logging.info(
-            f"Global edit applied: Updated reference imaging for {len(selected_tasks)} task(s) and "
-            f"milling FoV to {self.spinbox_milling_fov.value():.1f} μm for {updated_count} task(s) with milling"
-        )
 
         return updated_count
 

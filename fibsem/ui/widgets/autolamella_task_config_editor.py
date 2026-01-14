@@ -491,6 +491,13 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             # Apply changes to all tasks
             updated_count = dialog.apply_changes()
 
+            # apply to existing lamella if selected
+            update_lamella = dialog.checkbox_update_existing.isChecked()
+            if update_lamella:
+                selected_task_names = dialog.get_selected_tasks()
+                for task_name in selected_task_names:
+                    self._sync_existing_lamella_task_config(task_name)
+
             # Save the experiment
             self._save_experiment()
 
@@ -499,16 +506,15 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
             # Show success message
             selected_count = len(dialog.get_selected_tasks())
+            msg = f"Successfully updated reference imaging for {selected_count} task(s) and milling FoV for {updated_count} task(s) with milling."
+            if update_lamella:
+                msg += "\nExisting lamella configurations were also updated."
             QMessageBox.information(
                 self,
                 "Global Edit Applied",
-                f"Successfully updated reference imaging for {selected_count} task(s) and milling FoV for {updated_count} task(s) with milling.",
+                msg,
             )
 
-            logging.info(f"Global edit applied to {updated_count} task(s)")
-        else:
-            # User canceled - no changes were made
-            logging.info("Global edit canceled by user")
     def _on_protocol_name_changed(self):
         """Callback when the protocol name editing is finished."""
         text = self.lineEdit_protocol_name.text()
@@ -549,8 +555,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             )
             return
 
-        # Get the current task config
-        current_task_config = self.experiment.task_protocol.task_config[selected_task_name]
 
         # Show confirmation dialog
         num_lamella = len(self.experiment.positions)
@@ -567,37 +571,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
 
         if reply == QMessageBox.Yes:
-            # Update task_config for each lamella
-            updated_count = 0
-            for lamella in self.experiment.positions:
-                # TODO: add selective lamella selection instead of all lamella
-                existing_task_config = lamella.task_config.get(selected_task_name)
-                new_task_config = copy.deepcopy(current_task_config)
 
-                if existing_task_config is not None:
-                    for milling_name, new_milling_config in new_task_config.milling.items():
-                        existing_milling_config = existing_task_config.milling.get(milling_name)
-                        if existing_milling_config is None:
-                            continue
-
-                        existing_stage_lookup = {
-                            (stage.num, stage.name): stage for stage in existing_milling_config.stages
-                        }
-
-                        for new_stage in new_milling_config.stages:
-                            existing_stage = existing_stage_lookup.get((new_stage.num, new_stage.name))
-                            if existing_stage is None:
-                                continue
-
-                            if (
-                                type(existing_stage.pattern) is type(new_stage.pattern)
-                                and hasattr(existing_stage.pattern, "point")
-                            ):
-                                new_stage.pattern.point = copy.deepcopy(existing_stage.pattern.point)
-
-                # Deep copy the task config to avoid reference issues
-                lamella.task_config[selected_task_name] = new_task_config
-                updated_count += 1
+            # Perform the sync
+            updated_count = self._sync_existing_lamella_task_config(selected_task_name)
 
             # Save the experiment
             self._save_experiment()
@@ -610,6 +586,53 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             )
 
             logging.info(f"Synced task configuration '{selected_task_name}' to {updated_count} lamella")
+
+    def _sync_existing_lamella_task_config(self, selected_task_name: str):
+        """Sync the current task configuration to all existing lamella, preserving milling pattern positions.
+        Args:
+            selected_task_name (str): The name of the task to sync.
+        Returns:
+            int: The number of lamella updated.
+        """
+        # TODO: add selective lamella selection instead of all lamella
+        # TODO: add a two way sync option to also update the protocol from lamella
+
+        # Get the current task config
+        current_task_config = self.experiment.task_protocol.task_config[selected_task_name]
+
+        # Update task_config for each lamella
+        updated_count = 0
+        for lamella in self.experiment.positions:
+            existing_task_config = lamella.task_config.get(selected_task_name)
+            new_task_config = copy.deepcopy(current_task_config)
+
+            if existing_task_config is not None:
+                for milling_name, new_milling_config in new_task_config.milling.items():
+                    existing_milling_config = existing_task_config.milling.get(milling_name)
+                    if existing_milling_config is None:
+                        continue
+
+                    existing_stage_lookup = {
+                        (stage.num, stage.name): stage for stage in existing_milling_config.stages
+                    }
+
+                    for new_stage in new_milling_config.stages:
+                        existing_stage = existing_stage_lookup.get((new_stage.num, new_stage.name))
+                        if existing_stage is None:
+                            continue
+
+                        if (
+                            type(existing_stage.pattern) is type(new_stage.pattern)
+                            and hasattr(existing_stage.pattern, "point")
+                        ):
+                            new_stage.pattern.point = copy.deepcopy(existing_stage.pattern.point)
+
+            # Deep copy the task config to avoid reference issues
+            lamella.task_config[selected_task_name] = new_task_config
+            updated_count += 1
+
+        return updated_count
+
 
     # TODO: we should integrate both milling and parameter updates into a single config update method
     # TODO: support position sync between milling tasks, e.g. sync trench position between rough milling and polishing
