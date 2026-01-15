@@ -38,6 +38,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
+    Point,
     ReferenceImages,
     ReferenceImageParameters,
 )
@@ -406,7 +407,6 @@ class AutoLamellaTaskProtocol:
             rough_milling_task = MillRoughTaskConfig(
                 task_name=ROUGH_MILLING_TASK_NAME,
                 milling={MILL_ROUGH_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_ROUGH_KEY], name="Rough Milling")},
-                orientation="MILLING",
             )
 
             if protocol.options.use_microexpansion:
@@ -417,7 +417,6 @@ class AutoLamellaTaskProtocol:
             polishing_milling_task = MillPolishingTaskConfig(
                 task_name=POLISHING_TASK_NAME,
                 milling={MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_POLISHING_KEY], name="Polishing")},
-                orientation="MILLING",
             )
 
             setup_lamella_task = SetupLamellaTaskConfig(
@@ -541,6 +540,7 @@ class Lamella:
     defect: DefectState = field(default_factory=DefectState)
     objective_position: Optional[float] = None  # TODO: deprecate, use poses instead
     milling_angle: Optional[float] = None
+    poi: Point = field(default_factory=lambda: Point(0,0))  # point of interest within lamella area (milling coordinate system)
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -648,6 +648,7 @@ class Lamella:
             "defect": self.defect.to_dict(),
             "objective_position": self.objective_position,
             "milling_angle": self.milling_angle,
+            "poi": self.poi.to_dict(),
         }
 
     @property
@@ -689,6 +690,7 @@ class Lamella:
             defect=DefectState.from_dict(data.get("defect", {})),
             objective_position=data.get("objective_position", None),
             milling_angle=data.get("milling_angle", None),
+            poi=Point.from_dict(data.get("poi", {"x":0,"y":0})),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -956,6 +958,10 @@ class Experiment:
         logging.info(f"Created new experiment {experiment.name} at {experiment.path}")
 
         return experiment
+
+    def save_protocol(self) -> None:
+        """Save the task protocol to disk in the experiment directory."""
+        self.task_protocol.save(os.path.join(self.path, "protocol.yaml"))
 
 ###### TASK REFACTORING ##########
 
