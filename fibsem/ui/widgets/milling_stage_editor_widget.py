@@ -904,9 +904,9 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         self.image = image
         try:
-            self.image_layer.data = image.data # type: ignore
+            self.image_layer.data = image.filtered_data # type: ignore
         except Exception as e:
-            self.image_layer = self.viewer.add_image(name="FIB Image", data=image.data, opacity=0.7) # type: ignore
+            self.image_layer = self.viewer.add_image(name="FIB Image", data=image.filtered_data, opacity=0.7) # type: ignore
         self.update_milling_stage_display()
 
     @property
