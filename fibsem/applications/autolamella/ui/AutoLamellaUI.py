@@ -83,7 +83,7 @@ except Exception as e:
 
 # instructions
 INSTRUCTIONS = {
-    "NOT_CONNECTED": "Please connect to the microscope (System -> Connect to Microscope).",
+    "NOT_CONNECTED": "Please connect to the microscope (Connection -> Connect to Microscope).",
     "NO_EXPERIMENT": "Please create or load an experiment (File -> Create / Load Experiment)",
     "NO_PROTOCOL": "Please load a protocol (File -> Load Protocol).",
     "NO_LAMELLA": "Please Add Lamella Positions (Experiment -> Add Lamella).",
@@ -93,9 +93,6 @@ INSTRUCTIONS = {
     "AUTOLAMELLA_READY": "Lamella Positions Selected. Ready to Run AutoLamella.",
 }
 
-FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True
-FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
-FEATURE_POSE_CONTROLS_ENABLED = False
 
 class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
@@ -327,7 +324,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
         """Update the lamella display in the live fib view."""
 
-        if not FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
+        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
             return
 
         if self.experiment is None:
@@ -750,7 +747,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         if self.experiment is None:
             return
 
-        if not FEATURE_MINIMAP_PLOT_WIDGET_ENABLED:
+        if not cfg.FEATURE_MINIMAP_PLOT_WIDGET_ENABLED:
             return
 
         try:
@@ -823,7 +820,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.pushButton_stop_workflow.setVisible(True)
         self.pushButton_run_setup_autolamella.setEnabled(False)
-        self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
 
         # clear milling task config
         self.milling_task_config_widget.clear()
@@ -943,18 +939,17 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.groupBox_setup.setVisible(is_experiment_ready)
         self.groupBox_lamella.setVisible(has_lamella)
         self.groupBox_selected_lamella.setVisible(has_lamella)
+        
+        # workflow buttons
+        self.label_run_autolamella_info.setVisible(has_lamella)
+        self.pushButton_run_setup_autolamella.setVisible(is_experiment_ready)
+        self.pushButton_run_setup_autolamella.setEnabled(has_lamella)
+        self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
 
         # disable lamella controls while workflow is running
         self.groupBox_setup.setEnabled(not self.is_workflow_running)
         self.groupBox_lamella.setEnabled(not self.is_workflow_running)
         self.groupBox_selected_lamella.setEnabled(not self.is_workflow_running)
-
-        # workflow buttons
-        if is_experiment_ready:
-            self.pushButton_run_setup_autolamella.setVisible(True)
-            self.pushButton_run_setup_autolamella.setEnabled(True)
-            self.label_run_autolamella_info.setVisible(True)
-            self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
@@ -962,10 +957,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             estimated_time = self.experiment.estimate_remaining_time()
             txt = f"Estimated time remaining: {utils.format_duration(estimated_time)}"
             self.label_run_autolamella_info.setText(txt)
+            self.pushButton_run_setup_autolamella.setToolTip("Run the AutoLamella workflow on the selected lamella positions.")
+        else:
+            self.pushButton_run_setup_autolamella.setToolTip("Please add at least one lamella position to run the AutoLamella workflow.")
 
         if self.is_workflow_running:
             self.pushButton_run_setup_autolamella.setEnabled(False)
-            self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
             return
 
         if not is_microscope_connected:
@@ -988,15 +985,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
             return
-        logging.info("-"* 40)
-        logging.info(wcfg.name)
-        logging.info(wcfg.description)
-        for t in wcfg.tasks:
-            logging.info(f"  - {t.name}: required={t.required}, supervise={t.supervise}")
-        logging.info("-"* 40)
         self.experiment.task_protocol.workflow_config = wcfg
         self.experiment.save()
-        self.experiment.task_protocol.save(os.path.join(self.experiment.path, "protocol.yaml"))
+        self.experiment.save_protocol()
 
         self.update_ui()
 
@@ -1005,7 +996,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             return
         self.experiment.task_protocol.options = options
         self.experiment.save()
-        self.experiment.task_protocol.save(os.path.join(self.experiment.path, "protocol.yaml")) # TODO: consolidate protocol into exp?
+        self.experiment.save_protocol()
 
     def update_lamella_combobox(self, latest: bool = False):
         if self.experiment is None or self.experiment.positions == []:
@@ -1082,7 +1073,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.comboBox_lamella_pose.blockSignals(False)
 
         # hide pose controls if no poses
-        enable_pose_controls = bool(lamella.poses) and FEATURE_POSE_CONTROLS_ENABLED
+        enable_pose_controls = bool(lamella.poses) and cfg.FEATURE_POSE_CONTROLS_ENABLED
         self.label_lamella_pose.setVisible(enable_pose_controls)
         self.comboBox_lamella_pose.setVisible(enable_pose_controls)
         self.label_lamella_pose_position.setVisible(enable_pose_controls)
