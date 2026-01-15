@@ -1597,16 +1597,14 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         sem_image = info.get("sem_image", None)
         if sem_image is not None:
             self.image_widget.eb_image = sem_image
-            self.image_widget.update_viewer(arr=sem_image.filtered_data, 
-                                            beam_type=BeamType.ELECTRON, 
-                                            set_ui_from_image=True)
+            self.image_widget._on_acquire(sem_image)
+            self.image_widget._update_ui_from_images(beam_type=BeamType.ELECTRON, set_ui_from_image=True)
 
         fib_image = info.get("fib_image", None)
         if fib_image is not None:
             self.image_widget.ib_image = fib_image
-            self.image_widget.update_viewer(arr=fib_image.filtered_data, 
-                                            beam_type=BeamType.ION, 
-                                            set_ui_from_image=True)
+            self.image_widget._on_acquire(fib_image)
+            self.image_widget._update_ui_from_images(beam_type=BeamType.ION, set_ui_from_image=True)
 
         # what?
         enable_milling = info.get("milling_enabled", None)

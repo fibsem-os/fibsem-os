@@ -90,9 +90,11 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.update_detector_ui() # TODO: can this be removed?
 
         # register initial images
-        self.update_viewer(self.ib_image.data, BeamType.ION)
-        self.update_viewer(self.eb_image.data, BeamType.ELECTRON)
-    
+        self.eb_layer = self.viewer.add_image(self.eb_image.data, name = BeamType.ELECTRON.name, blending='additive')
+        self.ib_layer = self.viewer.add_image(self.ib_image.data, name = BeamType.ION.name, blending='additive')
+        self._on_acquire(self.eb_image)
+        self._on_acquire(self.ib_image)
+
     def setup_connections(self) -> None:
         """Set up the connections for the UI components, signals and initialise the UI"""
 
@@ -214,8 +216,18 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             # Update existing layer
             layer = self.viewer.layers[image.metadata.beam_type.name]
             layer.data = image.filtered_data
+            # # update images reference QUERY: test if this works as expected
+            # if self.microscope.is_acquiring:
+            #     if image.metadata.beam_type is BeamType.ELECTRON:
+            #         self.eb_image = image
+            #     elif image.metadata.beam_type is BeamType.ION:
+            #         self.ib_image = image
         except Exception as e:
             logging.error(f"Error updating image layer: {e}")
+
+        self._update_layer_positions()
+        self.restore_active_layer_for_movement()
+        self.viewer_update_signal.emit()
 
     def start_live_acquisition(self, event=None):
         # Start acquisition logic
@@ -624,14 +636,14 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         available_detector_types = self.microscope.get_available_values("detector_type", beam_type=beam_type)
         self.detector_type_combobox.clear()
         self.detector_type_combobox.addItems(available_detector_types)
-        self.detector_type_combobox.setCurrentText(self.microscope.get("detector_type", beam_type=beam_type))
+        self.detector_type_combobox.setCurrentText(self.microscope.get_detector_type(beam_type=beam_type))
         
         available_detector_modes = self.microscope.get_available_values("detector_mode", beam_type=beam_type)
         if available_detector_modes is None: 
             available_detector_modes = ["N/A"]
         self.detector_mode_combobox.clear()
         self.detector_mode_combobox.addItems(available_detector_modes)
-        self.detector_mode_combobox.setCurrentText(self.microscope.get("detector_mode", beam_type=beam_type))
+        self.detector_mode_combobox.setCurrentText(self.microscope.get_detector_mode(beam_type=beam_type))
 
         self.set_ui_from_settings(self.image_settings, beam_type)
 
@@ -679,9 +691,9 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
     def acquisition_finished(self) -> None:
         """Imaging has finished, update the viewer and re-enable interactions"""
         if self.ib_image is not None:
-            self.update_viewer(self.ib_image.filtered_data, BeamType.ION)
+            self._on_acquire(self.ib_image)
         if self.eb_image is not None:
-            self.update_viewer(self.eb_image.filtered_data, BeamType.ELECTRON)
+            self._on_acquire(self.eb_image)
         self._toggle_interactions(True)
         self.is_acquiring = False
 
@@ -780,53 +792,28 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         # restore active layer for movement
         self.restore_active_layer_for_movement()
 
+    @ensure_main_thread
     def update_viewer(self, arr: np.ndarray, beam_type: BeamType, set_ui_from_image: bool = False):
         """Update the viewer with the given image array"""
-
+        logging.warning("This method is deprecated. Use _on_acquire instead.")
         try:
             self.viewer.layers[beam_type.name].data = arr
         except KeyError:    
-            layer = self.viewer.add_image(arr, name = beam_type.name, blending='additive')
+            raise KeyError(f"No layer found for beam type: {beam_type.name}")
 
-        layer = self.viewer.layers[beam_type.name]
-        if self.eb_layer is None and beam_type is BeamType.ELECTRON:
-            self.eb_layer = layer
-        if self.ib_layer is None and beam_type is BeamType.ION:
-            self.ib_layer = layer
+        self._update_ui_from_images(beam_type, set_ui_from_image=set_ui_from_image)
 
-        # centre the camera
-        if self.eb_layer:
-            self.viewer.reset_view()
+        # update layer positions (translation, set correct layer for movements)
+        self._update_layer_positions()
+        self.restore_active_layer_for_movement()
+        self.viewer_update_signal.emit()
 
-        if self.ib_layer:
-            translation = (
-                self.viewer.layers[BeamType.ELECTRON.name].data.shape[1]
-                if self.eb_layer
-                else arr.shape[1]
-            )
-            self.ib_layer.translate = [0.0, translation]       
-
-
-        if self.eb_layer:
-            points = np.array([[-20, 200], [-20, self.ib_layer.translate[1] + 150]])
-
-            try:
-                self.viewer.layers[IMAGE_TEXT_LAYER_PROPERTIES["name"]].data = points
-            except KeyError:
-                add_points_layer(
-                    viewer=self.viewer,
-                    data=points,
-                    name=IMAGE_TEXT_LAYER_PROPERTIES["name"],
-                    size=IMAGE_TEXT_LAYER_PROPERTIES["size"],
-                    text=IMAGE_TEXT_LAYER_PROPERTIES["text"],
-                    border_width=IMAGE_TEXT_LAYER_PROPERTIES["border_width"],
-                    border_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
-                        "border_width_is_relative"
-                    ],
-                    border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
-                    face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
-                )
-
+    def _update_ui_from_images(self, beam_type: BeamType, set_ui_from_image: bool = False) -> None:
+        """Update the UI elements from the image metadata.
+        Args:
+            beam_type (BeamType): The beam type of the image to update from.
+            set_ui_from_image (bool): Whether to set the UI from the image metadata.
+        """
         # set ui from image metadata
         if set_ui_from_image:
             if beam_type is BeamType.ELECTRON:
@@ -853,10 +840,32 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             detector_settings=detector_settings,
         )
 
-        # set the active layer to the electron beam (for movement)
-        self.restore_active_layer_for_movement()
+    def _update_layer_positions(self):
+        """Update the positions of the image layers in the viewer. Ion beam to the right of electron beam."""
+        # translate ion beam layer to the right of electron beam, adjust the camera
+        if self.eb_layer and self.ib_layer:
+            self.ib_layer.translate = [0.0, self.eb_layer.data.shape[1]]
 
-        self.viewer_update_signal.emit()
+            # position the image text layer
+            points = np.array([[-20, 200], [-20, self.ib_layer.translate[1] + 150]])
+
+            try:
+                self.viewer.layers[IMAGE_TEXT_LAYER_PROPERTIES["name"]].data = points
+            except KeyError:
+                add_points_layer(
+                    viewer=self.viewer,
+                    data=points,
+                    name=IMAGE_TEXT_LAYER_PROPERTIES["name"],
+                    size=IMAGE_TEXT_LAYER_PROPERTIES["size"],
+                    text=IMAGE_TEXT_LAYER_PROPERTIES["text"],
+                    border_width=IMAGE_TEXT_LAYER_PROPERTIES["border_width"],
+                    border_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
+                        "border_width_is_relative"
+                    ],
+                    border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
+                    face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
+                )
+            self.viewer.reset_view()
 
     def get_data_from_coord(self, coords: Tuple[float, float]) -> Tuple[Tuple[float, float], BeamType, FibsemImage]:
         
