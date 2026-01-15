@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, ReferenceImageParameters
+from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
@@ -136,6 +136,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.milling_task_editor.task_configs_changed.connect(self._on_milling_task_config_updated)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
+        self.milling_task_editor.config_widget.correlation_result_updated_signal.connect(self._on_point_of_interest_updated)
+
 
         if self.comboBox_selected_lamella.count() > 0:
             self.comboBox_selected_lamella.setCurrentIndex(0)
@@ -385,6 +387,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Save the experiment
         self._save_experiment()
 
+    def _on_point_of_interest_updated(self, point: Point):
+        """Callback when the point of interest is updated."""
+        selected_task_name = self.comboBox_selected_task.currentText()
+        selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
+        logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task, Point of Interest: {point}")
+
+        # update point of interest in the task config
+        selected_lamella.poi = point
+
+        self._save_experiment()
     def _save_experiment(self):
         """Save the experiment."""
         # save the experiment

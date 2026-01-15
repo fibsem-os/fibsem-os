@@ -65,6 +65,7 @@ class MillingTaskConfigWidget(QWidget):
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
     milling_progress_signal = pyqtSignal(dict)
+    correlation_result_updated_signal = pyqtSignal(Point)
 
     def __init__(self, microscope: FibsemMicroscope, 
                  milling_task_config: Optional[FibsemMillingTaskConfig] = None,
@@ -249,7 +250,7 @@ class MillingTaskConfigWidget(QWidget):
     def _on_viewer_image_updated(self):
         try:
             fib_image = self.parent_widget.image_widget.ib_image
-            self.milling_editor_widget.set_image(fib_image)
+            self.milling_editor_widget.image = fib_image
             self.milling_editor_widget.update_milling_stage_display()
         except Exception as e:
             logging.error(f"An error occured when updating the image from the viewer: {e}")
@@ -449,6 +450,7 @@ class MillingTaskConfigWidget(QWidget):
         self._emit_settings_changed()
 
         self._close_correlation_widget()
+        self.correlation_result_updated_signal.emit(point)
 
     def _close_correlation_widget(self):
         """Close the correlation widget and clean up."""
