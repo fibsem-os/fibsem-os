@@ -759,8 +759,10 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         if self.eb_image is not None and self.ib_image is not None:
             draw_scalebar_in_napari(
                 viewer=self.viewer,
-                eb_image=self.eb_image,
-                ib_image=self.ib_image,
+                sem_shape=self.eb_image.data.shape,
+                fib_shape=self.ib_image.data.shape,
+                sem_fov=self.eb_image.metadata.image_settings.hfw,
+                fib_fov=self.ib_image.metadata.image_settings.hfw,
                 is_checked=self.scalebar_checkbox.isChecked(),
             )
             fm_shape = None

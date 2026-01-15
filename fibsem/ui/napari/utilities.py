@@ -100,7 +100,7 @@ def draw_crosshair_in_napari(
         viewer.layers[CROSSHAIR_LAYER_NAME].data = crosshairs
         viewer.layers[CROSSHAIR_LAYER_NAME].opacity = 0.8
 
-def _scale_length_value(hfw: float) -> float:
+def _scale_length_value(hfw: float) -> Tuple[float, float]:
     scale_length_value = hfw * constants.METRE_TO_MICRON * 0.2
 
     if scale_length_value > 0 and scale_length_value < 100:
@@ -116,19 +116,17 @@ def _scale_length_value(hfw: float) -> float:
 
 def draw_scalebar_in_napari(
     viewer: napari.Viewer,
-    eb_image: FibsemImage,
-    ib_image: FibsemImage,
+    sem_shape: Tuple[int, int],
+    sem_fov: float,
+    fib_shape: Tuple[int, int],
+    fib_fov: float,
     is_checked: bool = False,
     width: float = 0.1,
-) -> np.ndarray:
+) -> None:
     """Draw a scalebar in napari viewer for each image independently."""
     layers_in_napari = []
     for layer in viewer.layers:
         layers_in_napari.append(layer.name)
-
-    if eb_image.metadata is None or ib_image.metadata is None:
-        logging.debug("No metadata available for scalebar")
-        return
 
     # if not showing the scalebar, hide the layer and return
     if not is_checked:
@@ -136,8 +134,6 @@ def draw_scalebar_in_napari(
             viewer.layers[SCALEBAR_LAYER_NAME].opacity = 0
         return
 
-    sem_shape = eb_image.data.shape
-    fib_shape = ib_image.data.shape
     h, w = 0.9, 0.15
     location_points = [
         [int(sem_shape[0] * h), int(sem_shape[1] * w)],
@@ -152,14 +148,10 @@ def draw_scalebar_in_napari(
 
     for i, pt in enumerate(location_points):
         if i == 0:
-            scale_ratio, scale_value = _scale_length_value(
-                eb_image.metadata.image_settings.hfw
-            )
+            scale_ratio, scale_value = _scale_length_value(sem_fov)
             length = scale_ratio * sem_shape[1]
         else:
-            scale_ratio, scale_value = _scale_length_value(
-                ib_image.metadata.image_settings.hfw
-            )
+            scale_ratio, scale_value = _scale_length_value(fib_fov)
             length = scale_ratio * fib_shape[1]
 
         hwidth = 0.5 * length
