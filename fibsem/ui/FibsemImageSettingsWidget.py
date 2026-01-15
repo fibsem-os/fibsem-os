@@ -11,7 +11,6 @@ from napari.layers import Shapes as NapariShapesLayer
 from napari.qt.threading import thread_worker
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
-from scipy.ndimage import median_filter
 from superqt import ensure_main_thread
 
 from fibsem import acquire, constants, utils
@@ -213,8 +212,8 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         """Update the viewer from the main thread"""
         try:
             # Update existing layer
-            layer = self.viewer.layers[image.metadata.image_settings.beam_type.name]
-            layer.data = median_filter(image.data, size=3)
+            layer = self.viewer.layers[image.metadata.beam_type.name]
+            layer.data = image.filtered_data
         except Exception as e:
             logging.error(f"Error updating image layer: {e}")
 
@@ -680,9 +679,9 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
     def acquisition_finished(self) -> None:
         """Imaging has finished, update the viewer and re-enable interactions"""
         if self.ib_image is not None:
-            self.update_viewer(self.ib_image.data, BeamType.ION)
+            self.update_viewer(self.ib_image.filtered_data, BeamType.ION)
         if self.eb_image is not None:
-            self.update_viewer(self.eb_image.data, BeamType.ELECTRON)
+            self.update_viewer(self.eb_image.filtered_data, BeamType.ELECTRON)
         self._toggle_interactions(True)
         self.is_acquiring = False
 
@@ -781,9 +780,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
     def update_viewer(self, arr: np.ndarray, beam_type: BeamType, set_ui_from_image: bool = False):
         """Update the viewer with the given image array"""
-
-        # median filter for display
-        arr = median_filter(arr, size=3)
 
         try:
             self.viewer.layers[beam_type.name].data = arr

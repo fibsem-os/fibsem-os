@@ -122,7 +122,7 @@ def tiled_image_acquisition(
                 image = acquire.acquire_image(microscope, image_settings)
 
                 # stitch image
-                arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = median_filter(image.data, size=3)
+                arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = image.filtered_data
 
                 if parent_ui:
                     n_tiles_acquired += 1

@@ -258,10 +258,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.image = FibsemImage.generate_blank_image(hfw=150e-6, random=True)
 
         self.viewer.layers.clear()
-        self.viewer.add_image(self.image.data,
-                              name="Reference Image (FIB)",
-                              colormap='gray',
-                              blending="additive")
+        self.viewer.add_image(
+            data=self.image.filtered_data,
+            name="Reference Image (FIB)",
+            colormap="gray",
+            blending="additive",
+        )
 
         self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
         self._on_selected_task_changed()

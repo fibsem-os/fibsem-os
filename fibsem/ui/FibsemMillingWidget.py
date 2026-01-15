@@ -1253,7 +1253,7 @@ class FibsemMillingWidget(FibsemMillingWidgetUI.Ui_Form, QtWidgets.QWidget):
             md = fib_image.metadata.image_settings
             filename = os.path.join(md.path, md.filename)
             self.correlation_widget.set_project_path(str(md.path))
-            self.correlation_widget.load_fib_image(image=median_filter(fib_image.data, size=3), 
+            self.correlation_widget.load_fib_image(image=fib_image.filtered_data,
                                                     pixel_size=fib_image.metadata.pixel_size.x, 
                                                     filename=filename)
         # else:

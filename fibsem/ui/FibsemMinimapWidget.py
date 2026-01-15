@@ -593,11 +593,6 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
             if not tmp:
                 self.image = image
-
-                # apply a median filter to the image 
-                # TODO: migrate to apply to each image tile during acquisition, rather than the full stitch
-                # arr = median_filter(image.data, size=OVERVIEW_IMAGE_LAYER_PROPERTIES["median_filter_size"])
-            # else:
             arr = image.data
 
             try:

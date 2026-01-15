@@ -415,7 +415,7 @@ class MillingTaskConfigWidget(QWidget):
                 filename = "FIB Image"
                 project_path = ""
             self.correlation_widget.set_project_path(project_path)
-            self.correlation_widget.load_fib_image(image=median_filter(fib_image.data, size=3),
+            self.correlation_widget.load_fib_image(image=fib_image.filtered_data,
                                                     pixel_size=fib_image.metadata.pixel_size.x,
                                                     filename=filename)
         # create a button to run correlation

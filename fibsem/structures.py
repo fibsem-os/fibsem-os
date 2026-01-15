@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, 
 import numpy as np
 import tifffile as tff
 from numpy.typing import NDArray
+from scipy.ndimage import median_filter
 
 import fibsem
 from fibsem.config import METADATA_VERSION, SUPPORTED_COORDINATE_SYSTEMS
@@ -1903,6 +1904,11 @@ class FibsemImage:
             self.metadata = metadata
         else:
             self.metadata = None
+
+    @property
+    def filtered_data(self) -> NDArray:
+        """Returns a median filtered version of the image data. Typically used for display purposes."""
+        return median_filter(self.data, size=3)
 
     @classmethod
     def load(cls, tiff_path: str) -> "FibsemImage":
