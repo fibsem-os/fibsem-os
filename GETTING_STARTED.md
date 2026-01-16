@@ -1,12 +1,13 @@
 # Getting Started
+Work in Progress: Add Images
+This guide will walk you through the complete workflow for automated cryo-lamella preparation using fibsemOS and AutoLamella. From connecting to your microscope to producing electron-transparent lamellae ready for cryo-electron tomography, you'll learn how to set up experiments, configure milling protocols, and run automated workflows. Whether you're preparing your first lamella or optimising an existing protocol for a new sample type, this guide covers the essential steps and controls you need to get started.
 
-WIP: add images, better descriptions
+## On-Grid Lamella Milling Walkthrough
 
-Walkthrough for on-grid lamella milling
-
-This walkthrough assumes you have installed the application, and configured your microscope. Please see the relevant pages here:
 
 ### Initial Setup
+This walkthrough assumes you have installed the application, and configured your microscope. Please see the README for instructions.
+
 ### Running the Application
 
 Open Anaconda Prompt:
@@ -15,7 +16,7 @@ conda activate fibsem
 fibsem-autolamella-ui
 ```
 
-If you used a different environment manager (e.g. venv, uv), replace with the relevant instructions for activate the environment.
+If you used a different environment manager (e.g. venv, uv), replace with the relevant instructions to activate the environment.
 
 ### Connecting to the Microscope
 - To connect to the microscope, first navigate to the 'Connection' tab. 
@@ -32,12 +33,12 @@ If you used a different environment manager (e.g. venv, uv), replace with the re
 ### Protocol Files
  - Protocols are stored in yaml files
  - Protocols contain three sections: tasks, workflow, and options
- - Tasks: The configuration of individuail tasks in the workflow, e.g. Rough Milling Task -> contains milling patterns for rough milling, Select Milling Position -> milling angle
+ - Tasks: The configuration of individual tasks in the workflow, e.g. Rough Milling Task -> contains milling patterns for rough milling, Select Milling Position -> milling angle
  - Workflow: The ordering of tasks in the workflow, and any restrictions on the execution. E.g. requiring a task to run before another
  - Options: Global set of options that apply to the entire experiment
  - For more information on editing the protocol see Protocol Editor section below
  - For more information on Tasks and Workflow see the workflow section below. 
-
+ - If you have a protocol from the previous versions of AutoLamella, you can load them using the 'Load Legacy Protocol' button.
 
 ### Loading an Experiment
 - You can reload experiments to continue with a previous experiment. All experiment and protocol data is automatically saved so you can reload / restart easily.
@@ -51,29 +52,35 @@ If you used a different environment manager (e.g. venv, uv), replace with the re
 - Most actions are restricted until you connect to the microscope. 
 
 ### Experiment Tab
-- 
-- Lamella Controls
-- Lamella Status
-- Workflow Controls:
+The experiment tab shows information about lamella and controls the execution of the workflow.
+- **Lamella Controls**: Add, remove, and select lamellae for the experiment.
+- **Lamella Status**: View the current state and progress of each lamella.
+- **Workflow Controls**: Start, pause, and manage the automated workflow execution.
 
 ### Imaging Tab
 - The imaging tab is used to acquire images (SEM and FIB) and set beam parameters (e.g. current, voltage, detectors)
 
 ### Movement Tab
 - The movement tab is used to control the stage movement of the system. 
-- You can control each axis individiually, move to specified orientations (SEM, FIB, MILLING) and save known positions.
+- You can control each axis individually, move to specified orientations (SEM, FIB, MILLING) and save known positions.
 
 ### Milling Tab
 - The milling tab is used to control milling patterns and the milling execution.
 - Milling is a complicated topic, please see the dedicated milling page for details.
 
 ## Tools
+There are two other windows that are used in the workflow. The Minimap and Protocol Editor.
 ### Minimap
+The minimap widget controls overview (tiled) image acquisition and allows selecting lamella positions.
+To open the minimap: Tools -> Open Minimap
+
 #### Overview Acquisition
+Prepare for overview acquisition.
 - Move to SEM Orientation
 - Move to centre of the grid
 - Ensure SEM/FIB coincidence
 #### Tiled Image Acquisition
+To acquire an overview image of the grid:
 - Select imaging parameters, beam type, rows, columns, etc
 - Acquire
 - Wait for stitch
@@ -94,11 +101,15 @@ The protocol defines the configuration for the tasks and workflow. Each lamella 
 
 #### Tasks
 
-
-
 Defines the complete task-based workflow protocol for an AutoLamella experiment. Contains task configurations (milling patterns, imaging parameters), workflow definition (task order, dependencies, supervision requirements), and workflow options. Can be saved/loaded from YAML files and shared across experiments. Supports conversion from legacy protocols.
 
+Task configuration can be edited in the 'Protocol' tab.
 
+To apply the protocol to existing lamellae press 'Sync Config to Existing Lamella'. This will update the parameters, and milling parameters but not the position of the milling patterns. 
+
+To globally edit some parameters (imaging conditions) for all tasks, use File -> Global Edit...
+
+To export the protocol to a file, use File -> Export Protocol. The protocol is automatically saved to the experiment directory, so you don't need to save these changes manually. This option is primarily for exporting a protocol to another location, or for use in another experiment.
 
 #### **Workflow**
 
@@ -109,19 +120,24 @@ Defines the execution order and dependencies between tasks in an AutoLamella wor
     - Task Name: The name of the task. Must match the corresponding task in the task-config.
     - Required: Flag whether the task is required for the workflow to be complete. Allows for 'optional' tasks that may only be required for some specific workflows or samples.
     - Supervised: When a task is run in 'supervised' mode the execution will pause at pre-determined points (before milling, before/after stage movements) allowing you to control the microscope to modify. For example, you can adjust the stage position, or re-run milling. 
-    - Requirements: Specified which tasks must be run before this task can be run. For example, 'Rough Milling' requires 'Setup Lamella' which means that must be run beforehand. 
+    - Requirements: Specifies which tasks must be run before this task can be run. For example, 'Rough Milling' requires 'Setup Lamella' which means that must be run beforehand. 
 
-You can edit the workflow tasks in workflow tab of the Protocol Editor.
+You can edit the workflow tasks in the Workflow tab of the Protocol Editor.
 
 #### **Options**
 
 Contains optional workflow-level settings that apply globally to all tasks. Currently includes options like whether to turn beams off after workflow completion. Extensible for adding future global workflow parameters such as safety settings or default behavior configurations.
 
-You can edit the options in the workflow tab of the Protocol Editor.
+You can edit the options in the Workflow tab of the Protocol Editor.
+
 ---
 
 #### Lamella
+The lamella tab allows editing the configuration for each individual lamella.
 
+As the workflow is executed, acquired images will be available to view in this tab. You can then edit the configuration viewing the real images. In particular, you will want to adjust the position of the milling patterns (Rough Milling and Fiducial) for each cell. 
+
+It is recommended to select the milling position before starting to edit each lamella. The lamella configurations can be edited while the workflow is running. 
 
 ## Running the Workflow
 The workflow tasks can be run individually or sequentially.
@@ -131,13 +147,17 @@ The workflow tasks can be run individually or sequentially.
 - You can select the lamella and task combinations you want to run.
 
 The on-grid lamella milling workflow consists of the following tasks:
-Select Milling Position -> Setup Lamella -> Rough Milling -> Polishing
+
+1. Select Milling Position
+2. Setup Lamella
+3. Rough Milling
+4. Polishing
 
 When first starting a new protocol, it is recommended you run each step supervised for a lamella to confirm it works as expected. Once you have adjusted the protocol to your sample, you can run everything except Select Milling Position automated, and adjust pattern positions in the protocol editor.
 
 These are included in the default protocol file (task-protocol.yaml).
 
-### **Select Milling Position**
+#### **Select Milling Position**
 
 **Summary:**
 Selects and validates the milling position for the lamella by moving to the specified milling angle and allowing user confirmation. This task prepares the lamella for subsequent setup and milling operations by establishing the correct geometric orientation.
@@ -151,7 +171,7 @@ Selects and validates the milling position for the lamella by moving to the spec
 
 ---
 
-## **Acquire Reference Image**
+#### **Acquire Reference Image**
 
 **Summary:**
 Acquires high-resolution reference images at the lamella position for documentation and tracking purposes. 
@@ -164,7 +184,7 @@ Acquires high-resolution reference images at the lamella position for documentat
 
 ---
 
-### **Setup Lamella**
+#### **Setup Lamella**
 
 **Summary:**
 Prepares the lamella for milling by optionally milling a fiducial marker, establishing an alignment area, and acquiring a reference image for beam-shift alignment. This task sets up all necessary references and parameters for subsequent automated milling operations.
@@ -178,7 +198,7 @@ Prepares the lamella for milling by optionally milling a fiducial marker, establ
 
 ---
 
-### **Rough Milling**
+#### **Rough Milling**
 
 **Summary:**
 Performs the initial high-current milling to create the rough lamella structure by removing bulk material. This task aligns to the fiducial marker and executes the rough milling patterns with optional stress relief features. Rough Milling includes what other software refer to as 'Rough Milling', 'Fine Milling', etc as 'Rough Milling 01', 'Rough Milling 02'.
@@ -192,7 +212,7 @@ Performs the initial high-current milling to create the rough lamella structure 
 
 ---
 
-### **Polishing**
+#### **Polishing**
 
 **Summary:**
 Performs fine polishing milling to thin the lamella to the final target thickness using low-current milling. This task uses the alignment reference to precisely position polishing patterns relative to the rough-milled lamella.
@@ -205,23 +225,16 @@ Performs fine polishing milling to thin the lamella to the final target thicknes
 5. Acquire final reference images documenting the polished lamella
 
 
+## Cheat Sheet (Controls)
 
-
-# Cheat Sheet (Controls)
-
-
-Stage Movement
+### Stage Movement
 - Double Click: Move stage to selected position (along sample plane)
 - Alt + Double Click: Move stage vertically in chamber (correct coincidence)
 - Acquire image after stage movement: Toggle in Movement Tab
 
-Milling Patterns
+### Milling Patterns
 - Shift + Left Click: Move Selected Pattern
 - Ctrl + Shift + Left Click: Move all Patterns (maintains orientation)
 
-Image Acquisition
-- F6: Acquire Selected Image
-- F7: AutoFocus
-
-Fluorescence Imaging
+### Fluorescence Imaging
 - Shift + Scroll: Move Objective by Step Size

@@ -1,4 +1,4 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 # fibsemOS
 
@@ -6,15 +6,15 @@ A universal API for FIBSEM Control, Development and Automation
 
 ## Overview
 
-fibsemOS is a Python package for controlling and automating FIB/SEM microscopes. It is designed to be a universal API for FIBSEM control, development and automation. fibsemOS is designed to abstract away the details of the microscope and provide a simple, intuitive interface for controlling the microscope, as well as reuseable modules for common workflows and operations. fibsemOS is designed to be extensible and can be easily adapted to support new microscopes.
+fibsemOS is a Python package for controlling and automating FIB/SEM microscopes. It provides a universal API for FIBSEM control, development and automation, abstracting away the details of the microscope hardware to provide a simple, intuitive interface. The package includes reusable modules for common workflows and operations, and is extensible to support new microscopes.
 
-We currently support the [TESCAN Automation SDK](https://www.tescan.com/en/products/automation-sdk/) and [ThermoFisher AutoScript](https://www.tescan.com/en/products/autoscript/). Support for other FIBSEM systems is planned.
+We currently aim to support  [ThermoFisher AutoScript](https://www.thermofisher.com/at/en/home/electron-microscopy/products/software-em-3d-vis/autoscript-4-software.html), [TESCAN Automation SDK](https://tescan.com/product-portfolio/fib-sem), and [Zeiss Python API](https://www.zeiss.com/metrology/en/software/zeiss-inspect/features/python-interface.html). Support for other FIBSEM systems is planned.
 
-## Install
+For more information see the [website](https://www.fibsemos.org).
 
-### Install fibsemOS
+## Installation
 
-There are several ways to install fibsemOS depending on your application and needs.
+There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.9+.
 
 #### PyPI (For Users)
 
@@ -24,20 +24,19 @@ pip install fibsem
 
 #### Github (For Development)
 
-Clone this repository, and checkout main:
+Clone this repository:
 
 ```bash
 git clone https://github.com/fibsem-os/fibsem-os.git
+cd fibsem-os
 ```
 
-Install dependencies and package
+Install dependencies and package:
 
 ```bash
-cd path/to/fibsem/repository
 conda create -n fibsem python=3.11 pip
 conda activate fibsem
 pip install -e .[ui]
-
 ```
 
 To run:
@@ -61,27 +60,21 @@ cd pkg
 pip install --no-index --find-links . fibsem[ui]
 ```
 
-#### Napari Plugin
-
-The fibsemOS tools and user interface are also available as a napari plugin:
-
-```bash
-pip install napari-openfibsem
-```
-
-Or use napari plugin manager
-
 #### Additional Installation Information
 
 For detailed instructions on installation, and installing the commercial microscope APIs, see [Installation Guide](INSTALLATION.md).
 
 ## Getting Started
 
-To get started, see the example/example.py:
+For a complete walkthrough of the AutoLamella workflow, see the [Getting Started Guide](GETTING_STARTED.md).
 
-Recommended: You can start an offline demo microscope by speciying manufacturer: "Demo" in the configuration yaml file (fibsem/config/microscope-configuration.yaml). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly.
+### Getting Started with the API
 
-This example shows you how to connect to the microscope, take an image with both beams, and then plot.
+To get started with the fibsemOS API, see the example/example.py:
+
+You can start an offline demo microscope by specifying manufacturer: "Demo" in the configuration yaml file (fibsem/config/microscope-configuration.yaml). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly.
+
+This example shows you how to connect to the microscope, take an image with both beams, and plot the results.
 
 ```python
 from fibsem import utils, acquire
@@ -93,12 +86,12 @@ def main():
     microscope, settings = utils.setup_session(ip_address="localhost", manufacturer="Demo")
 
     # take image with both beams
-    eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
+    sem_image, fib_image = acquire.take_reference_images(microscope, settings.image)
 
     # show images
     fig, ax = plt.subplots(1, 2, figsize=(7, 5))
-    ax[0].imshow(eb_image.data, cmap="gray")
-    ax[1].imshow(ib_image.data, cmap="gray")
+    ax[0].imshow(sem_image.data, cmap="gray")
+    ax[1].imshow(fib_image.data, cmap="gray")
     plt.show()
 
 
@@ -108,7 +101,7 @@ if __name__ == "__main__":
 ```
 
 This example is available as a script in example/example.py.
-For more detailed examples, see the Examples sections below.
+For more detailed examples, see the Examples section below.
 
 ## Examples
 
@@ -116,19 +109,12 @@ For more detailed examples, see the Examples sections below.
 
 For examples of core functionality please see:
 
-- example/example_imaging.py: image acqusition
+- example/example_imaging.py: image acquisition
 - example/example_movement.py: stage movement
 - example/example_milling.py: drawing patterns and beam milling
 - example/autolamella.py: recreation of [AutoLamella V1](https://github.com/DeMarcoLab/autolamella) (automated cryo-lamella preparation) in ~150 lines of code
 
 Additional example scripts and notebooks are available.
-
-## Projects using fibsemOS
-
-We are currently working on a number of projects using fibsemOS. If you are using fibsemOS in your research, please let us know!
-
-- [AutoLamella v2: Automated cryo-lamella preparation](www.github.com/DeMarcoLab/autolamella)
-- [Salami: Volume Electron Microscopy](www.github.com/DeMarcoLab/salami)
 
 ## Contributing
 
@@ -138,25 +124,14 @@ Contributions are welcome! Please open a pull request or issue.
 
 fibsemOS is a large package with many features. For more detailed documentation, please see the [Documentation Website](https://www.fibsemos.org).
 
-## Citation
+## Related Projects and Publications
 
-If you find this work useful, please cite:
-
-```bibtex
-@article{CLEEVE2023107967,
-title = {OpenFIBSEM: A universal API for FIBSEM control},
-journal = {Journal of Structural Biology},
-volume = {215},
-number = {3},
-pages = {107967},
-year = {2023},
-issn = {1047-8477},
-doi = {https://doi.org/10.1016/j.jsb.2023.107967},
-url = {https://www.sciencedirect.com/science/article/pii/S1047847723000308},
-author = {Patrick Cleeve and David Dierickx and Lucile Naegele and Rohit Kannachel and Lachlan Burne and Genevieve Buckley and Sergey Gorelick and James C. Whisstock and Alex {de Marco}},
-keywords = {Focused Ion Beam microscopy, Automation, Python, API, Microscopy, Controller},
-abstract = {This paper introduces OpenFIBSEM, a universal API to control Focused Ion Beam Scanning Electron Microscopes (FIBSEM). OpenFIBSEM aims to improve the programmability and automation of electron microscopy workflows in structural biology research. The API is designed to be cross-platform, composable, and extendable: allowing users to use any portion of OpenFIBSEM to develop or integrate with other software tools. The package provides core functionality such as imaging, movement, milling, and manipulator control, as well as system calibration, alignment, and image analysis modules. Further, a library of reusable user interface components integrated with napari is provided, ensuring easy and efficient application development. OpenFIBSEM currently supports ThermoFisher and TESCAN hardware, with support for other manufacturers planned. To demonstrate the improved automation capabilities enabled by OpenFIBSEM, several example applications that are compatible with multiple hardware manufacturers are discussed. We argue that OpenFIBSEM provides the foundation for a cross-platform operating system and development ecosystem for FIBSEM systems. The API and applications are open-source and available on GitHub (https://github.com/DeMarcoLab/fibsem).}
-}
-```
-
-enjoy :)
+| Name | Full Title | Date |
+|------|------------|------|
+| 3DCT | [Site-Specific Cryo-focused Ion Beam Sample Preparation Guided by 3D Correlative Microscopy](https://doi.org/10.1016/j.bpj.2015.10.053) | 2016 |
+| AutoLamella | [Automated cryo-lamella preparation for high-throughput in-situ structural biology](https://doi.org/10.1016/j.jsb.2020.107488) | 2020 |
+| SerialFIB | [A modular platform for automated cryo-FIB workflows](https://elifesciences.org/articles/70506) | 2021 |
+| PFIB-SEM | [Cryo-plasma FIB/SEM volume imaging of biological specimens](https://doi.org/10.7554/eLife.83623) | 2023 |
+| OpenFIBSEM | [OpenFIBSEM: A universal API for FIBSEM control](https://doi.org/10.1016/j.jsb.2023.107967) | 2023 |
+| SEM Charging | [Reduction of SEM charging artefacts in native cryogenic biological samples](https://www.nature.com/articles/s41467-025-60545-3) | 2025 |
+| Fillets | [Mind the corner: Fillets in cryo-FIB lamella preparation to minimise sample loss](https://doi.org/10.1016/j.jsb.2025.108249) | 2025 |
