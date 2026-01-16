@@ -62,7 +62,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             widget=self.minimap_widget, 
             area="right", 
             add_vertical_stretch=True, 
-            name="OpenFIBSEM Minimap"
+            name="fibsemOS Minimap"
         )
         napari.run(max_loop_level=2)
 

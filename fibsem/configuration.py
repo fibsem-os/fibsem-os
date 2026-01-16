@@ -111,7 +111,7 @@ def gen_config_cli(path: str = None):
     if not os.path.exists(path):
         raise ValueError(f"Path does not exist: {path}")
 
-    print("OpenFIBSEM Configuration Generator\n")
+    print("fibsemOS Configuration Generator\n")
 
     user_config = get_user_config()
     

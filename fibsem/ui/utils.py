@@ -208,8 +208,8 @@ def open_information_dialog(microscope: FibsemMicroscope, parent: Optional[QWidg
     info: SystemInfo = microscope.system.info
 
     text = f"""
-    OpenFIBSEM Information:
-    OpenFIBSEM: {fibsem_version}
+    fibsemOS Information:
+    fibsemOS: {fibsem_version}
     AutoLamella: {fibsem_version}
 
     Microscope Information:

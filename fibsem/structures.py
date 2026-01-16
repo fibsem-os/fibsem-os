@@ -1717,7 +1717,7 @@ class FibsemExperiment:
     id: Optional[str] = None
     method: Optional[str] = None
     date: float = datetime.timestamp(datetime.now())
-    application: str = "OpenFIBSEM"
+    application: str = "fibsemOS"
     fibsem_version: str = fibsem.__version__
     application_version: Optional[str] = None
 
@@ -1739,7 +1739,7 @@ class FibsemExperiment:
             id=settings.get("id", "Unknown"),
             method=settings.get("method", "Unknown"),
             date=settings.get("date", "Unknown"),
-            application=settings.get("application", "OpenFIBSEM"),
+            application=settings.get("application", "fibsemOS"),
             fibsem_version=settings.get("fibsem_version", fibsem.__version__),
             application_version=settings.get("application_version", None),
         )
@@ -2032,7 +2032,7 @@ class FibsemImage:
 
         sa = StructuredAnnotations()
         mapAnnotation=[MapAnnotation(id="Annotation:0", 
-                        value={"OpenFIBSEM": json.dumps(md.to_dict())}
+                        value={"fibsemOS": json.dumps(md.to_dict())}
                 )]
         sa.map_annotations = mapAnnotation
 
@@ -2068,13 +2068,13 @@ class FibsemImage:
     def _load_from_ome_tiff(cls, path: str) -> 'FibsemImage':
         import ome_types
 
-        # read ome-xml, extract openfibsem metadata
+        # read ome-xml, extract fibsemOS metadata
         try:
             ome = ome_types.from_tiff(path)
-            openfibsem_md = json.loads(ome.structured_annotations.map_annotations[0].value['OpenFIBSEM'])
+            fibsemos_md = json.loads(ome.structured_annotations.map_annotations[0].value['fibsemOS'])
             
             # parse metadata to struct
-            md = FibsemImageMetadata.from_dict(openfibsem_md)
+            md = FibsemImageMetadata.from_dict(fibsemos_md)
         except Exception as e:
             import logging
             logging.warning(f"Failing to load metadata from OME-TIFF: {e}")
