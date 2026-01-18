@@ -261,20 +261,13 @@ class FibsemMicroscope(ABC):
             holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, grids={"Grid-01": grid01})
             loader = SampleGridLoader(parent=self)
         else:
+            from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
             orientation = self.get_orientation("SEM")
-            grid01 = SampleGrid(name="Grid-01", index=1, 
-                                position=FibsemStagePosition(name="Grid-01", x=-5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
-            grid02 = SampleGrid(name="Grid-02", index=2, 
-                                position=FibsemStagePosition(name="Grid-02", x=+5e-3, y=0.0, z=0.0, r=orientation.r, t=orientation.t))
-            # grid01 = SampleGrid(name="Grid-01", index=1, 
-            #                     position=FibsemStagePosition(name="Grid-01", x=-0.36502e-3, y=-1.74115e-3, z=7.32e-3, r=orientation.r, t=orientation.t))
-            # grid02 = SampleGrid(name="Grid-02", index=2, 
-            #                     position=FibsemStagePosition(name="Grid-02", x=+10.3e-3, y=-1.74115e-3, z=7.32e-3, r=orientation.r, t=orientation.t))
+            holder = SampleHolder.load(SAMPLE_HOLDER_CONFIGURATION_PATH)
+            for grid_name, grid in holder.grids.items():
+                grid.position.r = orientation.r
+                grid.position.t = orientation.t
 
-            holder = SampleHolder(name="Pre-Tilted Holder",
-                                pre_tilt=self.system.stage.shuttle_pre_tilt,
-                                reference_rotation=self.system.stage.rotation_reference,
-                                grids={"Grid-01": grid01, "Grid-02": grid02})
             loader = None
 
         self._stage = Stage(parent=self, holder=holder, loader=loader)

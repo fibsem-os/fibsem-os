@@ -1,26 +1,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from pathlib import Path
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
+import yaml
 from psygnal import Signal
 
 from fibsem import constants
-from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
+from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 GRID_RADIUS = 1e-3  # 1mm
 
+
 @dataclass
 class SampleGrid:
     name: str
     index: int
     position: FibsemStagePosition
-    radius: float = field(default=GRID_RADIUS, metadata={"units": "mm",
-                                                         "tooltip": "Radius of the sample grid", 
-                                                         "scale": 1e3})
+    radius: float = field(
+        default=GRID_RADIUS,
+        metadata={"units": "mm", "tooltip": "Radius of the sample grid", "scale": 1e3},
+    )
     description: str = ""
 
     def to_dict(self) -> dict:
@@ -34,26 +38,45 @@ class SampleGrid:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleGrid":
-        return SampleGrid(
+        grid = SampleGrid(
             name=data.get("name", ""),
             index=data.get("index", 0),
             position=FibsemStagePosition(**data.get("position", {})),
             radius=data.get("radius", GRID_RADIUS),
-            description=data.get("description", "")
+            description=data.get("description", ""),
         )
+        grid.position.name = grid.name  # Ensure position name matches grid name
+        return grid
+
 
 @dataclass
 class SampleHolder:
-    name: str = field(default="Sample Holder", metadata={"tooltip": "Name of the sample holder"})
-    description: str = field(default="", metadata={"tooltip": "Description of the sample holder"})
-    pre_tilt: float = field(default=0.0, 
-                            metadata={"units": constants.DEGREE_SYMBOL, 
-                                      "minimum": 0.0, "maximum": 90.0, "decimals": 0,
-                                        "tooltip": "Pre-tilt angle of the sample holder"})
-    reference_rotation: float = field(default=0.0, 
-                                      metadata={"units": constants.DEGREE_SYMBOL,
-                                        "minimum": 0.0, "maximum": 360.0, "decimals": 0,
-                                        "tooltip": "Reference rotation angle of the sample holder"})
+    name: str = field(
+        default="Sample Holder", metadata={"tooltip": "Name of the sample holder"}
+    )
+    description: str = field(
+        default="", metadata={"tooltip": "Description of the sample holder"}
+    )
+    pre_tilt: float = field(
+        default=0.0,
+        metadata={
+            "units": constants.DEGREE_SYMBOL,
+            "minimum": 0.0,
+            "maximum": 90.0,
+            "decimals": 0,
+            "tooltip": "Pre-tilt angle of the sample holder",
+        },
+    )
+    reference_rotation: float = field(
+        default=0.0,
+        metadata={
+            "units": constants.DEGREE_SYMBOL,
+            "minimum": 0.0,
+            "maximum": 360.0,
+            "decimals": 0,
+            "tooltip": "Reference rotation angle of the sample holder",
+        },
+    )
     grids: dict[str, SampleGrid] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -67,14 +90,48 @@ class SampleHolder:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleHolder":
-        grids = {name: SampleGrid.from_dict(grid_data)
-                 for name, grid_data in data.get("grids", {}).items()}
+        grids = {
+            name: SampleGrid.from_dict(grid_data)
+            for name, grid_data in data.get("grids", {}).items()
+        }
         return SampleHolder(
             name=data.get("name", "Sample Holder"),
             pre_tilt=data.get("pre_tilt", 0.0),
             reference_rotation=data.get("reference_rotation", 0.0),
-            grids=grids
+            grids=grids,
+            description=data.get("description", ""),
         )
+
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> "SampleHolder":
+        """Load a SampleHolder configuration from a YAML file.
+
+        Args:
+            path: Path to the YAML configuration file.
+
+        Returns:
+            SampleHolder instance with grids loaded from the file.
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Sample holder config not found: {path}")
+
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+
+        return cls.from_dict(data)
+
+    def save(self, path: Union[str, Path]) -> None:
+        """Save the SampleHolder configuration to a YAML file.
+
+        Args:
+            path: Path to save the YAML configuration file.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path, "w") as f:
+            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
 
 
 @dataclass
@@ -102,15 +159,18 @@ class SampleGridLoader:
 
 class Stage:
     parent: "FibsemMicroscope"
-    holder: 'SampleHolder'
+    holder: "SampleHolder"
     loader: Optional[SampleGridLoader] = None
     _position: Optional[FibsemStagePosition] = None
     position_changed = Signal(FibsemStagePosition)
     limits: dict[str, RangeLimit] = field(default_factory=dict)
 
-    def __init__(self, parent: "FibsemMicroscope",
-                 holder: SampleHolder,
-                 loader: Optional[SampleGridLoader] = None) -> None:
+    def __init__(
+        self,
+        parent: "FibsemMicroscope",
+        holder: SampleHolder,
+        loader: Optional[SampleGridLoader] = None,
+    ) -> None:
         self.parent = parent
         self.holder = holder
         self.loader = loader
@@ -147,14 +207,16 @@ class Stage:
 
         stage_position = self.position
         for name, grid in self.holder.grids.items():
-            if stage_position.is_close2(grid.position, tol=GRID_RADIUS, axes=['x', 'y']):
+            if stage_position.is_close2(
+                grid.position, tol=GRID_RADIUS, axes=["x", "y"]
+            ):
                 return grid
         return None
 
     @property
     def is_homed(self) -> bool:
         """Check if the stage is homed."""
-        return self.parent.get("stage_homed") # type: ignore
+        return self.parent.get("stage_homed")  # type: ignore
 
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to an absolute position."""
@@ -163,8 +225,10 @@ class Stage:
     def move_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by a relative delta."""
         return self.parent.move_stage_relative(position)
-    
-    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
+
+    def stable_move(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemStagePosition:
         """Perform a stable move of the stage."""
         return self.parent.stable_move(dx, dy, beam_type)
 
@@ -179,18 +243,24 @@ class Stage:
     def home(self) -> bool:
         """Home the stage."""
         return self.parent.home()
-    
-    def project_stable_move(self, dx: float, dy: float, beam_type: BeamType, base_position: FibsemStagePosition) -> FibsemStagePosition:
+
+    def project_stable_move(
+        self,
+        dx: float,
+        dy: float,
+        beam_type: BeamType,
+        base_position: FibsemStagePosition,
+    ) -> FibsemStagePosition:
         """Project a stable move of the stage."""
         return self.parent.project_stable_move(dx, dy, beam_type, base_position)
-    
+
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to a specific grid."""
         if self.holder is None:
             raise ValueError("No sample holder defined.")
         if grid_name not in self.holder.grids:
             raise ValueError(f"Grid '{grid_name}' not found in sample holder.")
-        
+
         grid = self.holder.grids[grid_name]
         self.move_absolute(grid.position)
 

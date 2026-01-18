@@ -1,0 +1,26 @@
+# Sample Holder Configuration
+# This file defines sample holder geometry and grid positions
+
+name: "Pre-Tilted 35deg Shuttle"
+description: "Standard 35 degree pre-tilt shuttle with 2 grid positions"
+pre_tilt: 35.0  # degrees
+reference_rotation: 0.0  # degrees
+
+grids:
+  Grid-01:
+    name: "Grid-01"
+    index: 0
+    position:
+      x: -5.0e-3
+      y: 0.0
+      z: 0.0
+
+  Grid-02:
+    name: "Grid-02"
+    index: 1
+    position:
+      x: 5.0e-3
+      y: 0.0
+      z: 0.0
+
+

@@ -71,6 +71,9 @@ MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
 )
+SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
+    CONFIG_PATH, "sample-holder.yaml"
+)
 
 # Alignment reference image filename
 REFERENCE_FILENAME = "alignment_reference"
