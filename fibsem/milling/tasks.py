@@ -233,13 +233,18 @@ class FibsemMillingTask:
             if self.parent_ui:
                 self.microscope.milling_progress_signal.disconnect(self.parent_ui._on_milling_progress)
 
-            try:
-                # acquire an image after finishing the task, if not already done
-                if not self.config.acquisition.enabled and not self.config.acquisition.acquire_fib:
-                    fib_image = self.microscope.acquire_image(image_settings=None, beam_type=self.config.channel)
-                    self.microscope.fib_acquisition_signal.emit(fib_image)
-            except Exception as e:
-                logging.error(f"Error acquiring image after milling task: {e}")
+            self._post_task_acquisition()
+
+    def _post_task_acquisition(self) -> None:
+        """Acquire an image after finishing the milling task."""
+        try:
+            # acquire an image after finishing the task, if not already done
+            if not self.config.acquisition.enabled and not self.config.acquisition.acquire_fib:
+                self.microscope.autocontrast(beam_type=self.config.channel)
+                fib_image = self.microscope.acquire_image(image_settings=None, beam_type=self.config.channel)
+                self.microscope.fib_acquisition_signal.emit(fib_image)
+        except Exception as e:
+            logging.error(f"Error acquiring image after milling task: {e}")
 
     def _mill_stage(self, stage: FibsemMillingStage, idx: int) -> None:
         """Run a single milling stage with progress updates.
