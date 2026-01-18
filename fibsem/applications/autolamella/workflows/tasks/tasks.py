@@ -923,12 +923,6 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         self._acquire_set_of_reference_images(image_settings)
 
 
-# TODO: we need to split this into select position and setup lamella tasks:
-# select position: move to milling angle, correct coincidence, acquire base image
-# setup lamella: mill fiducial, acquire alignment image, set alignment area
-# then allow the user to modify the other patterns (rough mill, polishing) asynchronously in gui
-
-
 class SelectMillingPositionTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
     config: SelectMillingPositionTaskConfig
@@ -1012,27 +1006,11 @@ class SetupLamellaTask(AutoLamellaTask):
         """Run the task to setup the lamella for milling."""
 
         # bookkeeping
-        # checkpoint = "autolamella-waffle-20240107.pt" # TODO: where should this come from? .options?
-
         image_settings: ImageSettings = self.config.imaging
         image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()
-
-        # beam_shift alignment
-        # filenames = sorted(glob.glob(os.path.join(self.lamella.path, "ref_reference_image*_ib.tif")))
-        # if filenames and self.config.align_to_reference:
-        #     self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
-        #     ref_image = FibsemImage.load(filenames[-1])
-
-        #     # confirm that we are close to the reference image stage position before aligning
-        #     image_stage_position = ref_image.metadata.stage_position
-        #     if image_stage_position.is_close2(self.microscope.get_stage_position()):
-        #         alignment.multi_step_alignment_v2(microscope=self.microscope,
-        #                                         ref_image=ref_image,
-        #                                         beam_type=BeamType.ION,
-        #                                         steps=MAX_ALIGNMENT_ATTEMPTS)
 
         self.log_status_message("SELECT_POSITION", "Selecting Position...")
         milling_angle = self.config.milling_angle
@@ -1046,23 +1024,11 @@ class SetupLamellaTask(AutoLamellaTask):
                         pos="Tilt", neg="Skip")
             if ret:
                 self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
-                # TODO: create an automated eucentric version of this...
-                # alignment._eucentric_tilt_alignment(microscope=self.microscope,
-                #                                     image_settings=image_settings,
-                #                                     target_angle=milling_angle,
-                #                                     step_size=3,
-                #                                     )
 
-            # move_to_milling_angle(microscope=self.microscope, milling_angle=np.radians(milling_angle))
-            # lamella = align_feature_coincident(microscope=microscope, 
-            #                                 image_settings=image_settings, 
-            #                                 lamella=lamella, 
-            #                                 checkpoint=protocol.options.checkpoint, 
-            #                                 parent_ui=parent_ui, 
-            #                                 validate=validate)
         self.lamella.milling_pose = self.microscope.get_microscope_state()
 
-        # TODO: this assumes the lamella is always aligned coincidentally at the milling angle?
+        # beam_shift alignment
+        self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         self.log_status_message("SETUP_PATTERNS", "Setting up Lamella Patterns...")
 
@@ -1071,7 +1037,8 @@ class SetupLamellaTask(AutoLamellaTask):
         polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
         polishing_milling_name = None
         try:
-            # TODO: we need to store these task names, so we can then update them if they are changed in the gui    
+            # find MILL_ROUGH and MILL_POLISHING task configs
+            # we need to store these task names, so we can then update them if they are changed in the gui    
             for task_name, task_config in self.lamella.task_config.items():
                 if task_config.task_type == MillRoughTaskConfig.task_type:
                     rough_milling_task_config = task_config.milling[MILL_ROUGH_KEY]
@@ -1081,10 +1048,8 @@ class SetupLamellaTask(AutoLamellaTask):
                     polishing_milling_name = task_name
         except Exception as e:
             logging.warning(f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}")
-        # find MILL_ROUGH and MILL_POLISHING task configs
 
         fiducial_task_config = self.config.milling[FIDUCIAL_KEY]
-
 
         self._acquire_reference_image(image_settings, field_of_view=fiducial_task_config.field_of_view)
 
@@ -1094,12 +1059,6 @@ class SetupLamellaTask(AutoLamellaTask):
                                                                 msg=f"Review the rough milling pattern for {self.lamella.name}. Press Continue when done.",
                                                                 milling_enabled=False)
             self.lamella.task_config[rough_milling_name].milling[MILL_ROUGH_KEY] = deepcopy(milling_task_config)
-
-        # TODO: display milling task config to display lamella milling tasks
-
-        # # display max intensity projections of any fluorescence images for the lamella
-        # if self.config.display_fluorescence:
-        #     self._display_fluorescence_images()
 
         # fiducial
         if self.config.use_fiducial:
@@ -1165,10 +1124,6 @@ class SetupLamellaTask(AutoLamellaTask):
         # store milling angle and pose
         self.lamella.milling_angle = self.microscope.get_current_milling_angle()
         self.lamella.milling_pose = self.microscope.get_microscope_state()
-
-    def _display_fluorescence_images(self, latest_only: bool = True) -> None:
-        """Display fluorescence images in the FM control widget."""
-        return
 
 
 class AcquireReferenceImageTask(AutoLamellaTask):
