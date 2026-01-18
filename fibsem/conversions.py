@@ -75,6 +75,28 @@ def image_to_microscope_image_coordinates2(
 
     return point_m
 
+def microscope_image_to_image_coordinates(point: Point, image_shape: Tuple[int, int], pixel_size: float) -> Point:
+    """
+    Convert a microscope image coordinate to an image pixel coordinate. 
+    The microscope image coordinate system is centered on the image with positive Y-axis pointing upwards.
+    Args:
+        point (Point): A Point object representing the microscope image coordinates in metres.
+        image_shape (Tuple[int, int]): A tuple representing the shape of the image (height, width).
+        pixel_size (float): The pixel size in metres.
+    Returns:
+        Point: A Point object representing the corresponding pixel coordinates in the original image.
+    """
+    # position in metres from image centre
+    mx, my = point.x, point.y
+    pmx, pmy = mx / pixel_size, my / pixel_size
+
+    # convert to image coordinates
+    cy, cx = image_shape[0] // 2, image_shape[1] // 2
+    px = cx + pmx
+    py = cy - pmy
+
+    return Point(x=px, y=py)
+
 def get_lamella_size_in_pixels(
     img: FibsemImage, protocol: dict, use_trench_height: bool = False
 ) -> Tuple[int]:
