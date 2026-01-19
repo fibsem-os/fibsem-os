@@ -374,16 +374,18 @@ def draw_milling_patterns_in_napari(
     background_milling_stages: Optional[List[FibsemMillingStage]] = None,
     colors: Optional[List[str]] = None,
     alignment_area: Optional[FibsemRectangle] = None,
+    selected_index: Optional[int] = None,
 ) -> List[str]:
     """Draw the milling patterns in napari as a combination of Shapes and Label layers.
     Args:
         viewer: napari viewer instance
         image: image to draw patterns on
         translation: translation of the FIB image layer
-        milling_stages): list of milling stages
+        milling_stages: list of milling stages
         draw_crosshair: draw crosshair on the image
         background_milling_stages: optional list of background milling stages to draw
         alignment_area: optional alignment area to draw
+        selected_index: index of the selected milling stage (0-based), draws with thicker border
     Returns:
         List[str]: list of milling pattern layers
     """
@@ -457,10 +459,13 @@ def draw_milling_patterns_in_napari(
         opacity = SHAPES_LAYER_PROPERTIES["opacity"]
         blending = SHAPES_LAYER_PROPERTIES["blending"]
         edge_width = SHAPES_LAYER_PROPERTIES["edge_width"]
+        selected_edge_width = edge_width * 3  # thicker border for selected stage
         shapes_list: List[np.ndarray] = []
         shape_types: List[str] = []
         shape_colours: list[str] = []
+        edge_widths: List[float] = []
         for i, (layer_name, patterns) in enumerate(all_napari_patterns.items()):
+            is_selected = (selected_index is not None and i == selected_index)
             image_list: List[NapariPattern] = []
             for pattern in patterns:
                 if pattern.shape_type in IMAGE_PATTERN_TYPES:
@@ -469,6 +474,7 @@ def draw_milling_patterns_in_napari(
                     shapes_list.append(pattern.shape)
                     shape_types.append(pattern.shape_type)
                     shape_colours.append(pattern.colour)
+                    edge_widths.append(selected_edge_width if is_selected else edge_width)
 
             for shape in image_list:
                 # Napari applies translate before affine, which causes issues
@@ -506,6 +512,7 @@ def draw_milling_patterns_in_napari(
                 viewer.layers[layer_name].data = []
                 viewer.layers[layer_name].data = shapes_list
                 viewer.layers[layer_name].shape_type = shape_types
+                viewer.layers[layer_name].edge_width = edge_widths
                 viewer.layers[layer_name].edge_color = shape_colours
                 viewer.layers[layer_name].face_color = shape_colours
                 viewer.layers[layer_name].translate = translation
@@ -516,7 +523,7 @@ def draw_milling_patterns_in_napari(
                     data=shapes_list,
                     name=layer_name,
                     shape_type=shape_types,
-                    edge_width=edge_width,
+                    edge_width=edge_widths,
                     edge_color=shape_colours,
                     face_color=shape_colours,
                     opacity=opacity,

@@ -867,6 +867,10 @@ class FibsemMillingStageEditorWidget(QWidget):
         # logging.info(f"Background milling stages: {[stage.name for stage in self._background_milling_stages]}")
         # logging.info(f"Updating milling stage display with image HFW: {self.image.metadata.image_settings.hfw*1e6} um and pixel size: {self.image.metadata.pixel_size.x} m")
 
+        selected_index = self.list_widget_milling_stages.currentRow()
+        if selected_index < 0:
+            selected_index = None
+
         self.milling_pattern_layers = draw_milling_patterns_in_napari(
             viewer=self.viewer,
             image_layer=self.image_layer,
@@ -875,6 +879,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             draw_crosshair=self.checkBox_show_milling_crosshair.isChecked(),
             background_milling_stages=self._background_milling_stages,
             alignment_area=alignment_area, # NOTE: we need to update this for each milling task, rather than read from lamella.alignment_area
+            selected_index=selected_index,
         )
 
         if self.image_widget is not None:
@@ -919,7 +924,11 @@ class FibsemMillingStageEditorWidget(QWidget):
         return False
 
     def _on_single_click(self, viewer: napari.Viewer, event):
-        """Handle single click events to move milling patterns."""
+        """Handle single click events to move milling patterns.
+
+        Shift+Click: Move selected pattern only
+        Shift+Control+Click: Move all patterns (maintaining relative positions)
+        """
         if event.button != 1 or 'Shift' not in event.modifiers or self._milling_stages == []:
             return
 
@@ -930,7 +939,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         if self.is_movement_locked:
             logging.warning("Movement is locked. Cannot move milling patterns.")
             return
-        
+
         if self.is_correlation_open:
             logging.info("Correlation tool is open, ignoring click event.")
             return
@@ -945,7 +954,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             logging.warning("No milling stage selected or index out of range.")
             return
 
-        if self.image.metadata is None:
+        if self.image is None or self.image.metadata is None:
             logging.warning("Image metadata is not set. Cannot convert coordinates.")
             return
 
