@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import threading
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -704,6 +705,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             self._update_position_display()
         elif add_new_position:
             self.parent_widget.add_new_lamella(stage_position)
+            # NOTE: PY_38 doesnt support callback for experiment.events required to refresh the display, so we
+            # are hacking it here, by force calling the update display
+            if sys.version_info < (3, 9):
+                self._update_position_display()
 
     def on_double_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
         """Callback for double click on the image layer.
