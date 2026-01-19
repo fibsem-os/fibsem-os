@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 
 import yaml
 
@@ -255,3 +256,13 @@ def save_user_preferences(preferences: dict) -> None:
             yaml.safe_dump(preferences, f)
     except Exception as e:
         logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")
+
+
+### AUTOLAMELLA APPLICATION PATHS
+AUTOLAMELLA_BASE_PATH: Path = os.path.join(os.path.dirname(__file__), "applications", "autolamella")
+AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, 'log')
+AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
+AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml")
+AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml")
+
+os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)

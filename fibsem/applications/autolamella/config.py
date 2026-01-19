@@ -1,18 +1,10 @@
-import os
-from pathlib import Path
-
-from fibsem.config import DEFAULT_CHECKPOINT
-
-from fibsem.applications import autolamella
-
-BASE_PATH: Path = os.path.dirname(__file__)
-LOG_PATH: Path = os.path.join(BASE_PATH, 'log')
-CONFIG_PATH: Path = os.path.join(BASE_PATH)
-PROTOCOL_PATH: Path = os.path.join(BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml")
-DESKTOP_SHORTCUT_PATH= os.path.dirname(autolamella.__path__[0])
-TASK_PROTOCOL_PATH: Path = os.path.join(BASE_PATH, "protocol", "task-protocol.yaml")
-
-os.makedirs(LOG_PATH, exist_ok=True)
+from fibsem.config import (
+    AUTOLAMELLA_BASE_PATH as BASE_PATH,
+    AUTOLAMELLA_CONFIG_PATH as CONFIG_PATH,
+    AUTOLAMELLA_LOG_PATH as LOG_PATH,
+    AUTOLAMELLA_PROTOCOL_PATH as PROTOCOL_PATH,
+    AUTOLAMELLA_TASK_PROTOCOL_PATH as TASK_PROTOCOL_PATH,
+)
 
 EXPERIMENT_NAME = "AutoLamella"
 
