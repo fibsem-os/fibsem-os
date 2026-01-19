@@ -769,7 +769,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             if selected_name is not None:
                 self.minimap_plot_widget.selected_name = selected_name
             self.minimap_plot_widget.lamella_positions = self.experiment.get_milling_positions()
-            if self.minimap_plot_widget.grid_positions is None:
+            if self.minimap_plot_widget.grid_positions is None and cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER:
                 self.minimap_plot_widget.grid_positions = [g.position for g in self.microscope._stage.holder.grids.values()]
             self.minimap_plot_widget.fov_width = fov
             if stage_position is not None:

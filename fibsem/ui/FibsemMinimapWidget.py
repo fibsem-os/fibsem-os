@@ -16,7 +16,6 @@ from napari.utils.events import Event as NapariEvent
 from psygnal import EmissionInfo
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QWidget
-from scipy.ndimage import median_filter
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
@@ -28,6 +27,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     MILL_ROUGH_KEY,
     TRENCH_KEY,
 )
+from fibsem.applications.autolamella.config import FEATURE_DISPLAY_GRID_CENTER_MARKER
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, Lamella
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
@@ -1006,17 +1006,18 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             ))
 
         # grid positions
-        grid_positions = [g.position for g in self.microscope._stage.holder.grids.values()]
-        grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
-        for i, grid_point in enumerate(grid_points):
-            grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)
-            for line, txt in zip(grid_lines, [grid_positions[i].name, ""]):
-                overlays.append(NapariShapeOverlay(
-                    shape=line,
-                    color=CROSSHAIR_CONFIG["colors"]["grid"],
-                    label=txt,
-                    shape_type="line"
-                ))
+        if FEATURE_DISPLAY_GRID_CENTER_MARKER:
+            grid_positions = [g.position for g in self.microscope._stage.holder.grids.values()]
+            grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
+            for i, grid_point in enumerate(grid_points):
+                grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)
+                for line, txt in zip(grid_lines, [grid_positions[i].name, ""]):
+                    overlays.append(NapariShapeOverlay(
+                        shape=line,
+                        color=CROSSHAIR_CONFIG["colors"]["grid"],
+                        label=txt,
+                        shape_type="line"
+                    ))
 
         # current stage position
         current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)
