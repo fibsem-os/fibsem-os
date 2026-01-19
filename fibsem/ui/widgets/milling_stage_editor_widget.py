@@ -324,7 +324,7 @@ class FibsemMillingStageWidget(QWidget):
             # add combobox controls
             if items:
                 if items == "dynamic":
-                    items = self.microscope.get_available_values(parameter_mapping, BeamType.ION)
+                    items = self.microscope.get_available_values_cached(parameter_mapping, BeamType.ION)
                 control = _create_combobox_control(value, items, units, format_fn)
 
             # add line edit controls

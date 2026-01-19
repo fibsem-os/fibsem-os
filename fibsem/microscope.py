@@ -508,6 +508,42 @@ class FibsemMicroscope(ABC):
     def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float, int]]:
         pass
 
+    def get_available_values_cached(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float, int]]:
+        """Get available values with caching to avoid repeated microscope queries.
+
+        Args:
+            key: The parameter key to get available values for.
+            beam_type: The beam type (optional).
+
+        Returns:
+            List of available values for the given key.
+        """
+        if not hasattr(self, '_available_values_cache'):
+            logging.info("Initializing available values cache.")
+            self._available_values_cache: Dict[str, List[Union[str, float, int]]] = {}
+
+        cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
+        if cache_key not in self._available_values_cache:
+            logging.info(f"Caching available values for key: {key}, beam_type: {beam_type}")
+            self._available_values_cache[cache_key] = self.get_available_values(key, beam_type)
+        return self._available_values_cache[cache_key]
+
+    def clear_available_values_cache(self, key: Optional[str] = None, beam_type: Optional[BeamType] = None) -> None:
+        """Clear the available values cache.
+
+        Args:
+            key: If provided, only clear cache for this key. Otherwise clear all.
+            beam_type: The beam type (used with key to clear specific entry).
+        """
+        if not hasattr(self, '_available_values_cache'):
+            return
+
+        if key is None:
+            self._available_values_cache.clear()
+        else:
+            cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
+            self._available_values_cache.pop(cache_key, None)
+
     # TODO: use a decorator instead?
     def get(self, key: str, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list, tuple, Point]:
         """Get wrapper for logging."""
