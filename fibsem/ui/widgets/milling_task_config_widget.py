@@ -396,7 +396,6 @@ class MillingTaskConfigWidget(QWidget):
         from fibsem.correlation.app import CorrelationUI
         self.correlation_widget = CorrelationUI(viewer=self.viewer, parent_ui=self)
         self.correlation_widget.continue_pressed_signal.connect(self.handle_correlation_continue_signal)
-        from scipy.ndimage import median_filter
 
         # load fib image, if available
         if (self.parent_widget is not None
