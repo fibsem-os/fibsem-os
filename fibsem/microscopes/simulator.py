@@ -1235,3 +1235,16 @@ class DemoMicroscope(FibsemMicroscope):
     def home(self):
         self.stage_system.is_homed = True
         return
+
+    def run_sputter_coater(self, time_seconds: int) -> None:
+        """Run the sputter coater for a given time in seconds.
+        Args:
+            time_seconds (int): The time to run the sputter coater in seconds.
+        Returns:
+            None
+        Raises:
+            NotImplementedError: If the system is not an Arctis system.
+        """
+        logging.info(f"Running sputter coater for {time_seconds} seconds...")
+        time.sleep(time_seconds)
+        logging.info("Sputter coating complete.")

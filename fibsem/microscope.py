@@ -501,6 +501,9 @@ class FibsemMicroscope(ABC):
     def finish_sputter(self):
         pass
 
+    def run_sputter_coater(self, time_seconds: int) -> None:
+        raise NotImplementedError("Sputter coater not implemented for this microscope.")
+
     @abstractmethod
     def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float, int]]:
         pass
@@ -3822,3 +3825,33 @@ class ThermoMicroscope(FibsemMicroscope):
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
 
         return offset
+    
+    def run_sputter_coater(self, time_seconds: int) -> None:
+        """Run the sputter coater for a given time in seconds.
+        Args:
+            time_seconds (int): The time to run the sputter coater in seconds.
+        Returns:
+            None
+        Raises:
+            NotImplementedError: If the system is not an Arctis system.
+        """
+
+        if not hasattr(self.connection.specimen, "sputter_coater"):
+            raise NotImplementedError("Sputter coater not available on this microscope.")
+
+        # check if system is Arctis
+        if "Arctis" not in self.system.info.model:
+            self.connection.specimen.sputter_coater.run(time_seconds)
+            return
+
+        # Prepare for sputtering
+        self.connection.specimen.sputter_coater.prepare()
+
+        # Change chamber pressure to 20 Pa and sputter current to 10 mA
+        # self.connection.vacuum.pump(VacuumSettings(pressure=20))
+        # self.connection.specimen.sputter_coater.current.value = 0.01
+        # Perform sputtering procedure with 10 second run time
+        self.connection.specimen.sputter_coater.run(time_seconds)
+
+        # Recover from sputtering
+        self.connection.specimen.sputter_coater.recover()
