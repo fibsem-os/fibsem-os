@@ -6,11 +6,6 @@ tasks:
         task_type: SELECT_MILLING_POSITION
         parameters:
             milling_angle: 15
-    Acquire Reference Image:
-        task_type: ACQUIRE_REFERENCE_IMAGE
-        parameters:
-            orientation: MILLING
-        milling: {}
     Setup Lamella:
         task_type: SETUP_LAMELLA
         parameters:
@@ -21,7 +16,7 @@ tasks:
         milling:
             fiducial:
                 name: Fiducial
-                field_of_view: 80.0e-6
+                field_of_view: 120.0e-6
                 alignment:
                     enabled: false
                 stages:
@@ -50,7 +45,7 @@ tasks:
         milling:
             mill_rough:
                 name: Rough Milling
-                field_of_view: 80.0e-6
+                field_of_view: 120.0e-6
                 channel: ION
                 alignment:
                     enabled: true
@@ -78,7 +73,6 @@ tasks:
                 -   name: Rough Mill 02
                     milling:
                         milling_current: 2.0e-10
-                        hfw: 80.0e-6
                         application_file: Si-ccs
                         milling_voltage: 30000.0
                     pattern:
@@ -120,7 +114,7 @@ tasks:
         milling:
             mill_polishing:
                 name: Polishing
-                field_of_view: 80.0e-6
+                field_of_view: 120.0e-6
                 channel: ION
                 alignment:
                     enabled: true
@@ -156,10 +150,6 @@ workflow:
     -   name: Select Milling Position
         supervise: true
         required: true
-        requires: []
-    -   name: Acquire Reference Image
-        supervise: false
-        required: false
         requires: []
     -   name: Setup Lamella
         supervise: true
