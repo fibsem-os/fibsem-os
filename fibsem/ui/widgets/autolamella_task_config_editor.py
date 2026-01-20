@@ -636,8 +636,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
 
 class AutoLamellaProtocolEditorTabWidget(QWidget):
-    def __init__(self, parent_widget: Optional['AutoLamellaUI'] = None):
+    def __init__(self, viewer: napari.Viewer, parent_widget: Optional['AutoLamellaUI'] = None):
         super().__init__(parent_widget)
+        self.viewer = viewer
         self.parent_widget = parent_widget
         self.workflow_widget: AutoLamellaWorkflowWidget
         self.task_widget: AutoLamellaProtocolTaskConfigEditor
@@ -751,7 +752,7 @@ def show_protocol_editor(parent: 'AutoLamellaUI'):
     workflow_widget = AutoLamellaWorkflowWidget(experiment=parent.experiment, parent=parent)
     workflow_widget.workflow_config_changed.connect(parent._on_workflow_config_changed)
     workflow_widget.workflow_options_changed.connect(parent._on_workflow_options_changed)
-    tab_widget = AutoLamellaProtocolEditorTabWidget(parent_widget=parent)
+    tab_widget = AutoLamellaProtocolEditorTabWidget(viewer=viewer, parent_widget=parent)
     tab_widget.addTab(task_widget, "Protocol")
     tab_widget.addTab(workflow_widget, "Workflow")
     tab_widget.addTab(lamella_widget, "Lamella")

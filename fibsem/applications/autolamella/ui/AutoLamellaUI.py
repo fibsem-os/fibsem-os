@@ -675,8 +675,11 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def _open_protocol_editor(self):
         """Open the protocol editor dialog."""
 
+        if self.protocol_editor_widget is not None:
+            napari.utils.notifications.show_info("Protocol editor is already open.")
+            self.protocol_editor_widget.viewer.window.activate()
+            return
         show_protocol_editor(parent=self)
-
 
     def _open_experiment_directory(self) -> None:
         """Open the experiment directory in the system file explorer."""
