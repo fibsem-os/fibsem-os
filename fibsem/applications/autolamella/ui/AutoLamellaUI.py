@@ -728,6 +728,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             )
             return
 
+        if self.minimap_widget is not None:
+            napari.utils.notifications.show_info("Minimap is already open.")
+            self.minimap_widget.viewer.window.activate()
+            return
+
+         # create minimap viewer
         self.viewer_minimap = napari.Viewer(ndisplay=2, title="AutoLamella Minimap")
         self.minimap_widget = FibsemMinimapWidget(
             viewer=self.viewer_minimap,
@@ -739,8 +745,14 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             add_vertical_stretch=True,
             name="AutoLamella Minimap",
         )
+        self.viewer_minimap.window._qt_window.destroyed.connect(self._on_minimap_closed)
 
         self.viewer_minimap.window.activate()
+
+    def _on_minimap_closed(self):
+        if self.minimap_widget is not None:
+            self.viewer_minimap = None
+            self.minimap_widget = None
 
     def _update_minimap_data(self,
                              stage_position: Optional[FibsemStagePosition] = None, 
