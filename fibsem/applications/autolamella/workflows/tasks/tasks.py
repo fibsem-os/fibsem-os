@@ -191,7 +191,15 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
     sync_polishing_position: bool = field(
         default=True,
-        metadata={"help": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
+        metadata={
+            "label": "Synchronize Polishing Position",
+            "help": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
+    )
+    sync_to_poi: bool = field(
+        default=True,
+        metadata={
+            "label": "Link to Point of Interest",
+            "help": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
     display_name: ClassVar[str] = "Rough Milling"
@@ -203,6 +211,12 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
 @dataclass
 class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
+    sync_to_poi: bool = field(
+        default=True,
+        metadata={
+            "label": "Link to Point of Interest",
+            "help": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
+    )
     task_type: ClassVar[str] = "MILL_POLISHING"
     display_name: ClassVar[str] = "Polishing"
 

@@ -18,11 +18,13 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import QCollapsible
-
+from fibsem import conversions
+from fibsem.ui.napari.utilities import is_inside_image_bounds, add_points_layer
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
     Lamella,
 )
+import fibsem.applications.autolamella.config as cfg
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
 from fibsem.ui.widgets.autolamella_task_config_widget import (
@@ -138,6 +140,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.milling_task_editor.config_widget.correlation_result_updated_signal.connect(self._on_point_of_interest_updated)
 
+        if cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
+            self.viewer.mouse_drag_callbacks.append(self._on_single_click)
 
         if self.comboBox_selected_lamella.count() > 0:
             self.comboBox_selected_lamella.setCurrentIndex(0)
@@ -246,6 +250,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fib_filenames_label.setVisible(len(fib_filenames) > 0)
 
         self._on_image_selected(0)
+        self._draw_point_of_interest(selected_lamella.poi)
 
     def _on_image_selected(self, index):
         """Callback when an image is selected."""
@@ -398,7 +403,129 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # update point of interest in the task config
         selected_lamella.poi = point
 
+        # move patterns for tasks with sync_to_poi enabled
+        # self._sync_task_patterns_to_poi(selected_lamella, point)
+        self._draw_point_of_interest(point)
+
         self._save_experiment()
+
+    def _draw_point_of_interest(self, point: Point):
+        """Draw the point of interest on the viewer."""
+
+        if cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED is False:
+            if "Point of Interest" in self.viewer.layers:
+                self.viewer.layers.remove("Point of Interest")  # type: ignore
+            return
+
+        image_coords = conversions.microscope_image_to_image_coordinates(
+            point=point,
+            image_shape=self.image.data.shape,
+            pixel_size=self.image.metadata.pixel_size.x,
+        )
+
+        if "Point of Interest" in self.viewer.layers:
+            self.viewer.layers["Point of Interest"].data = np.array([[image_coords.y, image_coords.x]])  # yx format
+        else:
+            add_points_layer(
+                viewer=self.viewer,
+                data=np.array([[image_coords.y, image_coords.x]]),  # yx format
+                name="Point of Interest",
+                size=20,
+                face_color='magenta',
+                border_color='white',
+                symbol='cross',
+                blending='additive',
+                border_width=None,
+                border_width_is_relative=False,
+            )
+
+    def _on_single_click(self, viewer, event):
+        """Handle single click events in the viewer."""
+
+        if "Reference Image (FIB)" not in self.viewer.layers:
+            return
+
+        if event.button != 2 or event.type != "mouse_press":  # Right click only
+            return
+
+        if self.milling_task_editor.config_widget.milling_editor_widget.is_movement_locked:
+            logging.warning("Movement is locked. Cannot move milling patterns.")
+            return
+
+        if self.milling_task_editor.config_widget.milling_editor_widget.is_correlation_open:
+            logging.info("Correlation tool is open, ignoring click event.")
+            return
+
+        event.handled = True
+
+        # convert from image coordinates to microscope coordinates
+        coords = self.viewer.layers["Reference Image (FIB)"].world_to_data(event.position)
+
+        if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
+            logging.info(f"Clicked outside image bounds: {coords}, not updating point of interest.")
+            return
+
+        point_clicked = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=coords[1], y=coords[0]), # yx required
+            image=self.image.data,
+            pixelsize=self.image.metadata.pixel_size.x,
+        )
+
+        # Show context menu
+        from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
+
+        config = ContextMenuConfig()
+        config.add_action(
+            "Move Point of Interest Here",
+            callback=lambda: self._on_point_of_interest_updated(point_clicked),
+        )
+        config.add_action(
+            "Move All Patterns Here",
+            callback=lambda: self._move_milling_patterns_to_point(point_clicked),
+        )
+        selected_stage_name = self.milling_task_editor.config_widget.milling_editor_widget.selected_stage_name
+        move_selected_label = f"Move Selected Pattern Here ({selected_stage_name})" if selected_stage_name else "Move Selected Pattern"
+        config.add_action(
+            move_selected_label,
+            callback=lambda: self._move_milling_patterns_to_point(point_clicked, move_all=False),
+        )
+
+        menu = ContextMenu(config, parent=self)
+        menu.show_at_cursor()
+
+    def _move_milling_patterns_to_point(self, point: Point, move_all: bool = True):
+        """Move the milling patterns to the specified point."""
+        self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point, move_all=move_all)
+
+    def _sync_task_patterns_to_poi(self, lamella: Lamella, point: Point):
+        """Move milling patterns to the point of interest for tasks with sync_to_poi enabled."""
+        synced_tasks = []
+        current_task_name = self.comboBox_selected_task.currentText()
+
+        for task_name, task_config in lamella.task_config.items():
+            # check if task has sync_to_poi enabled
+            if not getattr(task_config, "sync_to_poi", False):
+                continue
+            if not task_config.milling:
+                continue
+
+            for milling_config in task_config.milling.values():
+                if not milling_config.stages:
+                    continue
+                # calculate offset from the first stage's pattern point
+                diff = point - milling_config.stages[0].pattern.point
+                for stage in milling_config.stages:
+                    stage.pattern.point = stage.pattern.point + diff
+
+            synced_tasks.append(task_name)
+
+            # if currently viewing this task, update the display
+            if current_task_name == task_name:
+                self.milling_task_editor.set_task_configs(task_config.milling)
+
+        if synced_tasks:
+            logging.info(f"Synced patterns to POI for tasks: {synced_tasks}")
+
     def _save_experiment(self):
         """Save the experiment."""
         # save the experiment
