@@ -829,6 +829,14 @@ class FibsemMillingStageEditorWidget(QWidget):
         """Public method to get the currently selected milling stages."""
         return self._get_selected_milling_stages()
 
+    @property
+    def selected_stage_name(self) -> Optional[str]:
+        """Return the name of the currently selected milling stage."""
+        selected_idx = self.list_widget_milling_stages.currentRow()
+        if selected_idx >= 0 and selected_idx < len(self._milling_stages):
+            return self._milling_stages[selected_idx].name
+        return None
+
     def update_milling_stage_display(self):
         """Update the display of milling stages in the viewer."""
         if self.is_updating_pattern:
@@ -844,6 +852,8 @@ class FibsemMillingStageEditorWidget(QWidget):
                 for layer in self.milling_pattern_layers:
                     if layer in self.viewer.layers:
                         self.viewer.layers.remove(layer)
+                if "Milling Alignment Area" in self.viewer.layers:
+                    self.viewer.layers.remove("Milling Alignment Area") # type: ignore
             except Exception as e:
                 logging.debug(f"Error removing milling pattern layers: {e}")
             self.milling_pattern_layers = []

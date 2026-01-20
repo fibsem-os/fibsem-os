@@ -324,6 +324,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.milling_task_collapsible.setVisible(False)
             if "Milling Patterns" in self.viewer.layers:
                 self.viewer.layers.remove("Milling Patterns") # type: ignore
+            if "Milling Alignment Area" in self.viewer.layers:
+                self.viewer.layers.remove("Milling Alignment Area") # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # display label showing task has been completed
