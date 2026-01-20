@@ -976,62 +976,9 @@ class FibsemMillingStageEditorWidget(QWidget):
             pixelsize=self.image.metadata.pixel_size.x,
         )
 
-        # conditions to move:
-        #   all moved patterns are within the fib image
-        new_points: List[Point] = []
-        has_valid_patterns: bool = True
-        is_moving_all_patterns: bool = bool('Control' in event.modifiers)
-        use_relative_movement: bool = True
-
-        # calculate the difference between the clicked point and the current pattern point (used for relative movement)
-        diff = point_clicked - self._milling_stages[current_idx].pattern.point
-
-        # loop to check through all patterns to see if they are in bounds
-        for idx, milling_stage in enumerate(self._milling_stages):
-            if not is_moving_all_patterns:
-                if idx != current_idx:
-                    continue
-
-            pattern_renew = copy.deepcopy(milling_stage.pattern)
-
-            # special case: if the pattern is a line, we also need to update start_x, start_y, end_x, end_y to move with the click
-            if isinstance(pattern_renew, LinePattern):
-                pattern_renew.start_x += diff.x
-                pattern_renew.start_y += diff.y
-                pattern_renew.end_x += diff.x
-                pattern_renew.end_y += diff.y
-
-                # TODO: resolve line special cases
-                # this doesnt work if the line is rotated at all
-                # if the line goes out of bounds it is not reset correctly, need to fix this
-
-            # update the pattern point
-            point = pattern_renew.point + diff if use_relative_movement else point_clicked
-            pattern_renew.point = point
-            
-            # test if the pattern is within the image bounds
-            if not is_pattern_placement_valid(pattern=pattern_renew, image=self.image):
-                has_valid_patterns = False
-                msg = f"{milling_stage.name} pattern is not within the FIB image."
-                logging.warning(msg)
-                napari.utils.notifications.show_warning(msg)
-                break
-            # otherwise, add the new point to the list
-            new_points.append(copy.deepcopy(point))
-
-        if has_valid_patterns:
-    
-            # block redraw until all patterns are updated
-            self.is_updating_pattern = True
-            if is_moving_all_patterns:
-                for idx, new_point in enumerate(new_points):
-                    self._widgets[idx].set_point(new_point)
-            else: # only moving selected pattern
-                self._widgets[current_idx].set_point(point_clicked)
-
-        self.is_updating_pattern = False
-        self._on_milling_stage_updated()
-        self.update_milling_stage_display()  # force refresh the milling stages display
+        # Control modifier: move all patterns, otherwise move only selected
+        move_all = bool('Control' in event.modifiers)
+        self.move_patterns_to_point(point_clicked, move_all=move_all)
 
     def _on_milling_stage_updated(self, milling_stage: Optional[FibsemMillingStage] = None):
         """Callback when a milling stage is updated."""
@@ -1042,3 +989,76 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         milling_stages = self.get_milling_stages()
         self._milling_stages_updated.emit(milling_stages)
+
+    def move_patterns_to_point(self, point: Point, move_all: bool = True) -> bool:
+        """Move milling patterns to a specified point.
+
+        Args:
+            point: The target point in microscope coordinates.
+            move_all: If True, move all patterns relative to the selected pattern.
+                      If False, only move the currently selected pattern.
+
+        Returns:
+            True if patterns were successfully moved, False otherwise.
+        """
+        if not self._milling_stages:
+            logging.warning("No milling stages to move.")
+            return False
+
+        current_idx = self.list_widget_milling_stages.currentRow()
+        if current_idx < 0 or current_idx >= len(self._milling_stages):
+            current_idx = 0
+
+        if self.image is None or self.image.metadata is None:
+            logging.warning("Image metadata is not set. Cannot validate pattern placement.")
+            return False
+
+        # calculate the difference between the target point and the current pattern point
+        diff = point - self._milling_stages[current_idx].pattern.point
+
+        # validate that patterns will be within bounds after moving
+        new_points: List[Tuple[int, Point]] = []  # (index, new_point)
+        for idx, milling_stage in enumerate(self._milling_stages):
+            if not move_all and idx != current_idx:
+                continue
+
+            pattern_copy = copy.deepcopy(milling_stage.pattern)
+
+            # handle LinePattern special case
+            if isinstance(pattern_copy, LinePattern):
+                pattern_copy.start_x += diff.x
+                pattern_copy.start_y += diff.y
+                pattern_copy.end_x += diff.x
+                pattern_copy.end_y += diff.y
+
+            new_point = pattern_copy.point + diff
+            pattern_copy.point = new_point
+
+            if not is_pattern_placement_valid(pattern=pattern_copy, image=self.image):
+                msg = f"{milling_stage.name} pattern would be outside the FIB image."
+                logging.warning(msg)
+                napari.utils.notifications.show_warning(msg)
+                return False
+
+            new_points.append((idx, new_point))
+
+        # apply the movement to patterns
+        self.is_updating_pattern = True
+        for idx, new_point in new_points:
+            self._widgets[idx].set_point(new_point)
+
+            # handle LinePattern special case
+            pattern = self._milling_stages[idx].pattern
+            if isinstance(pattern, LinePattern):
+                pattern.start_x += diff.x
+                pattern.start_y += diff.y
+                pattern.end_x += diff.x
+                pattern.end_y += diff.y
+
+        self.is_updating_pattern = False
+        self._on_milling_stage_updated()
+        self.update_milling_stage_display()
+
+        num_moved = len(new_points)
+        logging.info(f"Moved {num_moved} pattern(s) to {point}")
+        return True
