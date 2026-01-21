@@ -327,11 +327,6 @@
     </property>
     <addaction name="actionCryo_Deposition"/>
     <addaction name="separator"/>
-    <addaction name="actionOpen_Minimap"/>
-    <addaction name="separator"/>
-    <addaction name="actionGenerate_Report"/>
-    <addaction name="actionGenerate_Overview_Plot"/>
-    <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -371,14 +366,9 @@
     <string>Load Protocol</string>
    </property>
   </action>
-  <action name="actionLoad_Positions">
-   <property name="text">
-    <string>Load Positions</string>
-   </property>
-  </action>
   <action name="actionOpen_Minimap">
    <property name="text">
-    <string>Open Minimap</string>
+    <string>Open Overview Acquisition</string>
    </property>
   </action>
   <action name="actionSave_Protocol">
@@ -386,64 +376,14 @@
     <string>Export Protocol</string>
    </property>
   </action>
-  <action name="actionLoad_Minimap_Image">
-   <property name="text">
-    <string>Load Minimap Image</string>
-   </property>
-  </action>
-  <action name="actionStop_Workflow">
-   <property name="text">
-    <string>Stop Workflow</string>
-   </property>
-  </action>
-  <action name="actionLoad_Milling_Stage">
-   <property name="text">
-    <string>Load Milling Stage</string>
-   </property>
-  </action>
-  <action name="actionLoad_Milling_Pattern">
-   <property name="text">
-    <string>Load Milling Pattern</string>
-   </property>
-  </action>
-  <action name="actionSave_Milling_Pattern">
-   <property name="text">
-    <string>Save Milling Pattern</string>
-   </property>
-  </action>
   <action name="actionInformation">
    <property name="text">
     <string>Information</string>
    </property>
   </action>
-  <action name="actionGenerate_Report">
-   <property name="text">
-    <string>Generate Report</string>
-   </property>
-  </action>
-  <action name="actionGenerate_Overview_Plot">
-   <property name="text">
-    <string>Generate Overview Plot</string>
-   </property>
-  </action>
-  <action name="actionSpot_Burn">
-   <property name="text">
-    <string>Spot Burn</string>
-   </property>
-  </action>
   <action name="actionAdd_Lamella_from_Odemis">
    <property name="text">
     <string>Add Lamella from Odemis</string>
-   </property>
-  </action>
-  <action name="actionUpdateMilling_Protocol">
-   <property name="text">
-    <string>Update Milling Protocol</string>
-   </property>
-  </action>
-  <action name="actionRun_Spot_Burn_Workflow">
-   <property name="text">
-    <string>Run Spot Burn Workflow</string>
    </property>
   </action>
  </widget>

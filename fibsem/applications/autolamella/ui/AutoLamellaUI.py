@@ -179,16 +179,20 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.actionCryo_Deposition.triggered.connect(self.cryo_deposition)
         self.actionCryo_Deposition.setEnabled(False) # TMP: disable until tested
         self.actionCryo_Deposition.setToolTip("Cryo Deposition is currently disabled via the UI.")
-        self.actionOpen_Minimap.triggered.connect(self.open_minimap_widget)
-        self.actionGenerate_Report.triggered.connect(self.action_generate_report)
-        self.actionGenerate_Overview_Plot.triggered.connect(self.action_generate_overview_plot)
-
-        # self.actionSelectLandingPositions = QAction(text="Select Landing Positions", parent=self)
-        # self.actionSelectLandingPositions.triggered.connect(
-        #     lambda: self._run_workflow(workflow="select-landing-positions")
-        # )
-        # self.menuDevelopment.addAction(self.actionSelectLandingPositions)
-        # self.actionSelectLandingPositions.setVisible(False)  # TMP: disable until tested
+        self.actionOpen_Minimap = QAction( # type: ignore
+            text="Open Overview Acquisition",
+            parent=self,
+            triggered=self.open_minimap_widget)
+        self.actionGenerate_Report = QAction( # type: ignore
+            text="Generate Report", 
+            parent=self,
+            triggered=self.action_generate_report
+        )
+        self.actionGenerate_Overview_Plot = QAction( # type: ignore
+            text="Generate Overview Plot",
+            parent=self,
+            triggered=self.action_generate_overview_plot,
+        )
 
         # task config editor
         self.action_open_protocol_editor = QAction(  # type: ignore
@@ -206,26 +210,33 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # add to menu
         if os.name == "posix":
             self.menuBar().setNativeMenuBar(False) # required for macOS
-        self.menuDevelopment.addSeparator()
-        self.menuDevelopment.addAction(self.action_open_experiment_directory)
+        self.menuAutoLamella.addSeparator()
+        self.menuAutoLamella.addAction(self.action_open_experiment_directory)
 
         # reporting
         self.action_open_experiment_workflow_summary = QAction(  # type: ignore
-            "Open Workflow Summary",
+            text="Open Workflow Summary",
             parent=self,
             triggered=self._open_experiment_workflow_summary,
         )
 
-        self.menuTools.addSeparator()
+        # tools menu
+        self.menuTools.setToolTipsVisible(True)
+        self.menuTools.addAction(self.actionOpen_Minimap)
         self.menuTools.addAction(self.action_open_protocol_editor)
         self.menuTools.addAction(self.action_open_experiment_workflow_summary)
+
+        # submenu for reporting
+        self.menuTools.addSeparator()
+        self.menuReporting = self.menuTools.addMenu("Reporting")
+        self.menuReporting.addAction(self.actionGenerate_Report)
+        self.menuReporting.addAction(self.actionGenerate_Overview_Plot)
+        self.menuReporting.setVisible(REPORTING_AVAILABLE)
         self.action_open_experiment_workflow_summary.setVisible(REPORTING_AVAILABLE)
 
         # development
         self.menuDevelopment.setVisible(False)
         self.actionAdd_Lamella_from_Odemis.setVisible(False)    # TMP: disable until tested
-        self.actionSpot_Burn.setVisible(False)                  # TMP: disable until tested
-        self.actionRun_Spot_Burn_Workflow.setVisible(False)     # TMP: disable until tested
         self.actionAdd_Lamella_from_Odemis.triggered.connect(self._add_lamella_from_odemis)
         # help menu
         self.actionInformation.triggered.connect(
@@ -915,12 +926,20 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # file menu
         self.actionLoad_Protocol.setVisible(is_experiment_loaded)
         self.actionSave_Protocol.setVisible(is_protocol_loaded)
-        self.actionUpdateMilling_Protocol.setVisible(is_protocol_loaded)
         # tool menu
         self.actionCryo_Deposition.setVisible(True)
-        self.actionOpen_Minimap.setVisible(is_protocol_loaded)
-        self.actionLoad_Minimap_Image.setVisible(is_protocol_loaded)
-        self.actionLoad_Positions.setVisible(is_protocol_loaded)
+        self.actionOpen_Minimap.setEnabled(is_experiment_ready)
+        self.action_open_protocol_editor.setEnabled(is_experiment_ready)
+        self.menuReporting.setEnabled(is_experiment_ready and REPORTING_AVAILABLE)
+        self.action_open_experiment_workflow_summary.setEnabled(is_experiment_ready and REPORTING_AVAILABLE)
+
+        # tooltips for disabled tools menu items
+        tools_disabled_tooltip = ""
+        if not is_experiment_ready:
+            tools_disabled_tooltip = "Create or load an experiment first. \nFile -> Create Experiment or Load Experiment"
+        self.actionOpen_Minimap.setToolTip(tools_disabled_tooltip)
+        self.action_open_protocol_editor.setToolTip(tools_disabled_tooltip)
+        self.action_open_experiment_workflow_summary.setToolTip(tools_disabled_tooltip)
         # help menu
         self.actionGenerate_Report.setVisible(is_experiment_ready and REPORTING_AVAILABLE)
         self.actionGenerate_Overview_Plot.setVisible(is_experiment_ready and REPORTING_AVAILABLE)
