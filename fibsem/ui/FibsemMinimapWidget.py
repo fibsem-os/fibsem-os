@@ -682,10 +682,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             return
 
         # get the stage position (xyzrt) based on the clicked point and projection
-        stage_position = self.microscope.project_stable_move( 
-                    dx=point.x, dy=point.y, 
-                    beam_type=self.image.metadata.image_settings.beam_type, 
-                    base_position=self.image.metadata.stage_position)            
+        stage_position = self.microscope.project_stable_move(
+                    dx=point.x, dy=point.y,
+                    beam_type=self.image.metadata.image_settings.beam_type,
+                    base_position=self.image.metadata.stage_position)
 
         # handle case where multiple modifiers are pressed
         if update_position and add_new_position:
@@ -694,6 +694,11 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         if self.parent_widget is None or self.parent_widget.experiment is None:
             return # prevent editing positions directly if not using autolamella
+
+        # check if position is within stage limits
+        if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
+            napari.utils.notifications.show_warning("Position is outside stage limits. Please select a position within the stage limits.")
+            return
 
         if update_position:
             idx = self.comboBox_tile_position.currentIndex()
@@ -730,10 +735,15 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             return
 
         beam_type = self.image.metadata.image_settings.beam_type
-        stage_position = self.microscope.project_stable_move( 
-            dx=point.x, dy=point.y, 
-            beam_type=beam_type, 
-            base_position=self.image.metadata.stage_position)   
+        stage_position = self.microscope.project_stable_move(
+            dx=point.x, dy=point.y,
+            beam_type=beam_type,
+            base_position=self.image.metadata.stage_position)
+
+        # check if position is within stage limits
+        if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
+            napari.utils.notifications.show_warning("Position is outside stage limits. Please select a position within the stage limits.")
+            return
 
         self.move_to_stage_position(stage_position)
 

@@ -348,6 +348,33 @@ class FibsemStagePosition:
 
         return True
 
+    def is_within_limits(self, limits: Dict[str, 'RangeLimit'], axes: Optional[List[str]] = None) -> bool:
+        """Check if the position is within the specified limits.
+
+        Args:
+            limits: Dictionary mapping axis names to RangeLimit objects.
+            axes: List of axes to check. If None, checks all axes present in limits.
+
+        Returns:
+            True if position is within limits for all specified axes, False otherwise.
+        """
+        if axes is None:
+            axes = list(limits.keys())
+
+        for axis in axes:
+            if axis not in limits:
+                continue
+
+            pos_val = getattr(self, axis, None)
+            if pos_val is None:
+                continue
+
+            limit = limits[axis]
+            if pos_val < limit.min or pos_val > limit.max:
+                return False
+
+        return True
+
     @property
     def pretty_string(self) -> str:
         """Returns a pretty string representation of the stage position."""
