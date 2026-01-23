@@ -23,14 +23,15 @@ from PyQt5.QtWidgets import (
     QTabWidget,
 )
 from superqt import QCollapsible
-
+from fibsem import conversions
+from fibsem.ui.napari.utilities import is_inside_image_bounds
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella import config as cfg
 from fibsem.ui import utils as fui
 from fibsem.applications.autolamella.workflows.tasks.tasks import TASK_REGISTRY
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, ReferenceImageParameters
+from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
 from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE, GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.autolamella_task_config_widget import (
@@ -38,6 +39,7 @@ from fibsem.ui.widgets.autolamella_task_config_widget import (
 )
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import AutoLamellaProtocolEditorWidget
 from fibsem.ui.widgets.autolamella_workflow_widget import AutoLamellaWorkflowWidget
+from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
@@ -154,6 +156,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.parent_widget.experiment.task_protocol is None):
             raise ValueError("Experiment is None, cannot open protocol editor.")
         self.experiment: Experiment = self.parent_widget.experiment
+        self.image: FibsemImage
 
         self._create_widgets()
         self._setup_connections()
@@ -255,6 +258,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.lineEdit_protocol_name.editingFinished.connect(self._on_protocol_name_changed)
         self.lineEdit_protocol_description.editingFinished.connect(self._on_protocol_description_changed)
         self.lineEdit_protocol_version.editingFinished.connect(self._on_protocol_version_changed)
+        
+        if cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
+            self.viewer.mouse_drag_callbacks.append(self._on_single_click)
 
     def _initialise_widgets(self):
         """Initialise the widgets based on the current experiment protocol."""
@@ -309,7 +315,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # clear existing image layers
         self.viewer.layers.clear()
         self.image = FibsemImage.generate_blank_image(hfw=field_of_view, random=True)
-        self.viewer.add_image(self.image.data, name="Reference Image (FIB)", colormap='gray')
+        self.viewer.add_image(self.image.filtered_data, name="Reference Image (FIB)", colormap='gray')
 
         self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
         self.viewer.reset_view()
@@ -421,7 +427,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
             self.parent_widget.experiment.save()
             self.parent_widget.experiment.save_protocol()
-            self.parent_widget.protocol_editor_widget.workflow_widget._refresh_from_state()
+            if self.parent_widget.protocol_editor_widget is not None and \
+               hasattr(self.parent_widget.protocol_editor_widget, "workflow_widget") and \
+               self.parent_widget.protocol_editor_widget.workflow_widget is not None:
+                self.parent_widget.protocol_editor_widget.workflow_widget._refresh_from_state()
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
@@ -629,6 +638,66 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             updated_count += 1
 
         return updated_count
+
+    def _on_single_click(self, viewer, event):
+        """Handle single click events in the viewer."""
+
+        if "Reference Image (FIB)" not in self.viewer.layers:
+            return
+
+        if event.button != 2 or event.type != "mouse_press":  # Right click only
+            return
+
+        if self.milling_task_editor.config_widget.milling_editor_widget.is_movement_locked:
+            logging.warning("Movement is locked. Cannot move milling patterns.")
+            return
+
+        if self.milling_task_editor.config_widget.milling_editor_widget.is_correlation_open:
+            logging.info("Correlation tool is open, ignoring click event.")
+            return
+
+        event.handled = True
+
+        # convert from image coordinates to microscope coordinates
+        coords = self.viewer.layers["Reference Image (FIB)"].world_to_data(
+            event.position
+        )
+
+        if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
+            logging.info(
+                f"Clicked outside image bounds: {coords}, not updating point of interest."
+            )
+            return
+
+        point_clicked = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=coords[1], y=coords[0]),  # yx required
+            image=self.image.data,
+            pixelsize=self.image.metadata.pixel_size.x,
+        )
+
+        # Show context menu
+        config = ContextMenuConfig()
+        config.add_action(
+            "Move All Patterns Here",
+            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(
+                point_clicked
+            ),
+        )
+        selected_stage_name = self.milling_task_editor.config_widget.milling_editor_widget.selected_stage_name
+        move_selected_label = (
+            f"Move Selected Pattern Here ({selected_stage_name})"
+            if selected_stage_name
+            else "Move Selected Pattern"
+        )
+        config.add_action(
+            move_selected_label,
+            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(
+                point_clicked, move_all=False
+            ),
+        )
+
+        menu = ContextMenu(config, parent=self)
+        menu.show_at_cursor()
 
 
     # TODO: we should integrate both milling and parameter updates into a single config update method

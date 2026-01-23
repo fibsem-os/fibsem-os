@@ -27,7 +27,10 @@ from fibsem.applications.autolamella.protocol.constants import (
     MILL_ROUGH_KEY,
     TRENCH_KEY,
 )
-from fibsem.applications.autolamella.config import FEATURE_DISPLAY_GRID_CENTER_MARKER
+from fibsem.applications.autolamella.config import (
+    FEATURE_DISPLAY_GRID_CENTER_MARKER,
+    FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED,
+)
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, Lamella
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
@@ -59,6 +62,7 @@ from fibsem.ui.napari.utilities import (
     is_inside_image_bounds,
     update_text_overlay,
 )
+from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.qtdesigner_files import FibsemMinimapWidget as FibsemMinimapWidgetUI
 
 if TYPE_CHECKING:
@@ -316,6 +320,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         # set italics for instructions
         self.label_instructions.setStyleSheet("font-style: italic;")
         self.scrollArea.setHorizontalScrollBarPolicy(1)  # always off
+
+        # right-click context menu
+        if FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
+            self.viewer.mouse_drag_callbacks.append(self._on_right_click)
 
         self._update_position_display()
         self.toggle_interaction(enable=True)
@@ -746,6 +754,95 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             return
 
         self.move_to_stage_position(stage_position)
+
+    def _on_right_click(self, viewer, event: NapariEvent) -> None:
+        """Callback for right-click on the viewer.
+        Shows a context menu with options to add a new position or move selected position.
+        Args:
+            viewer: The napari viewer.
+            event: The event object.
+        """
+        # Only handle right-click press events
+        if event.button != 2 or event.type != "mouse_press":
+            return
+
+        # Check if we have an image loaded
+        if self.image is None or self.image.metadata is None:
+            return
+
+        # Check if overview image layer exists
+        if self.image_layer is None or self.image_layer not in self.viewer.layers:
+            return
+
+        # Get coordinates in image space
+        coords = self.image_layer.world_to_data(event.position)
+
+        # Check if clicked point is inside image
+        if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
+            napari.utils.notifications.show_warning("Position is outside image bounds. Please select a position within the image.")
+            return
+
+        event.handled = True
+
+        # Convert to microscope coordinates
+        point = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=coords[1], y=coords[0]),
+            image=self.image.data,
+            pixelsize=self.image.metadata.pixel_size.x,
+        )
+
+        # Calculate the stage position for the clicked point
+        stage_position = self.microscope.project_stable_move(
+            dx=point.x, dy=point.y,
+            beam_type=self.image.metadata.image_settings.beam_type,
+            base_position=self.image.metadata.stage_position)
+
+        # Check if position is within stage limits
+        if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
+            napari.utils.notifications.show_warning("Position is outside stage limits. Please select a position within the stage limits.")
+            return
+
+        # Build context menu
+        config = ContextMenuConfig()
+        config.add_action(
+            "Add New Position Here",
+            callback=lambda: self._add_position_at_stage_position(stage_position),
+        )
+
+        # Only show "Move Selected Position" if there are positions to move
+        if len(self.positions) > 0:
+            selected_name = self.comboBox_tile_position.currentText()
+            config.add_action(
+                f"Move Selected Position Here ({selected_name})",
+                callback=lambda: self._update_selected_position(stage_position),
+            )
+
+        menu = ContextMenu(config, parent=self)
+        menu.show_at_cursor()
+
+    def _add_position_at_stage_position(self, stage_position: FibsemStagePosition) -> None:
+        """Add a new position at the given stage position."""
+        if self.parent_widget is None or self.parent_widget.experiment is None:
+            return
+
+        self.parent_widget.add_new_lamella(stage_position)
+        # NOTE: PY_38 doesnt support callback for experiment.events required to refresh the display
+        if sys.version_info < (3, 9):
+            self._update_position_display()
+
+    def _update_selected_position(self, stage_position: FibsemStagePosition) -> None:
+        """Update the currently selected position to the given stage position."""
+        if self.parent_widget is None or self.parent_widget.experiment is None:
+            return
+
+        idx = self.comboBox_tile_position.currentIndex()
+        if idx == -1:
+            logging.debug("No position selected to update.")
+            return
+
+        self.parent_widget.experiment.positions[idx].stage_position = stage_position
+        self.parent_widget.experiment.save()
+        self._update_position_display()
 
     def update_current_selected_position(self):
         """Update the currently selected position."""

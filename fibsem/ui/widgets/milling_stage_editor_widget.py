@@ -49,7 +49,13 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import QFilePathLineEdit, _create_combobox_control
+from fibsem.ui.widgets.custom_widgets import (
+    ContextMenu,
+    ContextMenuConfig,
+    QFilePathLineEdit,
+    _create_combobox_control,
+)
+from fibsem.applications.autolamella import config as cfg
 from fibsem.ui.utils import WheelBlocker
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
@@ -612,6 +618,8 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.list_widget_milling_stages.itemChanged.connect(self._on_milling_stage_updated)
         if self.viewer is not None:
             self.viewer.mouse_drag_callbacks.append(self._on_single_click)
+            if self.image_widget is not None and cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
+                self.viewer.mouse_drag_callbacks.append(self._on_right_click)
 
         # set initial selection to the first item
         if self.list_widget_milling_stages.count() > 0:
@@ -979,6 +987,62 @@ class FibsemMillingStageEditorWidget(QWidget):
         # Control modifier: move all patterns, otherwise move only selected
         move_all = bool('Control' in event.modifiers)
         self.move_patterns_to_point(point_clicked, move_all=move_all)
+
+    def _on_right_click(self, viewer: napari.Viewer, event):
+        """Handle right-click events to show context menu for moving milling patterns.
+
+        Shows a context menu with options to:
+        - Move All Patterns Here
+        - Move Selected Pattern Here
+        """
+        if event.button != 2 or event.type != "mouse_press":
+            return
+
+        if not self._milling_stages:
+            return
+
+        if not self.image_layer:
+            return
+
+        if self.is_movement_locked:
+            logging.warning("Movement is locked. Cannot move milling patterns.")
+            return
+
+        if self.is_correlation_open:
+            logging.info("Correlation tool is open, ignoring click event.")
+            return
+
+        if not is_position_inside_layer(event.position, self.image_layer):
+            return
+
+        if self.image is None or self.image.metadata is None:
+            return
+
+        event.handled = True
+
+        # Convert from image coordinates to microscope coordinates
+        coords = self.image_layer.world_to_data(event.position)
+        point_clicked = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=coords[1], y=coords[0]),
+            image=self.image.data,
+            pixelsize=self.image.metadata.pixel_size.x,
+        )
+
+        # Build context menu
+        config = ContextMenuConfig()
+        config.add_action(
+            "Move All Patterns Here",
+            callback=lambda: self.move_patterns_to_point(point_clicked, move_all=True),
+        )
+
+        selected_name = self.selected_stage_name or "Selected"
+        config.add_action(
+            f"Move Selected Pattern Here ({selected_name})",
+            callback=lambda: self.move_patterns_to_point(point_clicked, move_all=False),
+        )
+
+        menu = ContextMenu(config, parent=self)
+        menu.show_at_cursor()
 
     def _on_milling_stage_updated(self, milling_stage: Optional[FibsemMillingStage] = None):
         """Callback when a milling stage is updated."""

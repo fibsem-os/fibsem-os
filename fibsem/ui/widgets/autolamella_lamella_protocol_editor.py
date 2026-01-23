@@ -30,6 +30,7 @@ from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
+from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
@@ -472,30 +473,25 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
 
         # Show context menu
-        from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
-
         config = ContextMenuConfig()
-        config.add_action(
-            "Move Point of Interest Here",
-            callback=lambda: self._on_point_of_interest_updated(point_clicked),
-        )
+        if cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED:
+            config.add_action(
+                "Move Point of Interest Here",
+                callback=lambda: self._on_point_of_interest_updated(point_clicked),
+            )
         config.add_action(
             "Move All Patterns Here",
-            callback=lambda: self._move_milling_patterns_to_point(point_clicked),
+            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked),
         )
         selected_stage_name = self.milling_task_editor.config_widget.milling_editor_widget.selected_stage_name
         move_selected_label = f"Move Selected Pattern Here ({selected_stage_name})" if selected_stage_name else "Move Selected Pattern"
         config.add_action(
             move_selected_label,
-            callback=lambda: self._move_milling_patterns_to_point(point_clicked, move_all=False),
+            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked, move_all=False),
         )
 
         menu = ContextMenu(config, parent=self)
         menu.show_at_cursor()
-
-    def _move_milling_patterns_to_point(self, point: Point, move_all: bool = True):
-        """Move the milling patterns to the specified point."""
-        self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point, move_all=move_all)
 
     def _sync_task_patterns_to_poi(self, lamella: Lamella, point: Point):
         """Move milling patterns to the point of interest for tasks with sync_to_poi enabled."""
