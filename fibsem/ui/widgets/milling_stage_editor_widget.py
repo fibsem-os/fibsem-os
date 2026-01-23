@@ -347,6 +347,7 @@ class FibsemMillingStageWidget(QWidget):
             elif isinstance(value, (float, int)):
 
                 control = QDoubleSpinBox()
+                control.installEventFilter(WheelBlocker(parent=control))
                 if display_unit is not None:
                     control.setSuffix(f' {display_unit}')
                 if scale is not None:

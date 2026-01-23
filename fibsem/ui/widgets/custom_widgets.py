@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.ui.utils import WheelBlocker
 from fibsem.utils import format_value
 
 
@@ -90,6 +91,7 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
         logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
         idx = 0
     control.setCurrentIndex(idx)
+    control.installEventFilter(WheelBlocker(parent=control))
 
     return control
 
