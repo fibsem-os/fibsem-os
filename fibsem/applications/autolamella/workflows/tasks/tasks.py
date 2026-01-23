@@ -88,6 +88,18 @@ ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
 
 # feature flags
 
+# def wait_until(target_time: datetime) -> None:
+#     """Wait until the specified target time, sleeping in 10-second intervals.
+
+#     Args:
+#         target_time: The datetime to wait until.
+#     """
+#     while datetime.now() < target_time:
+#         remaining = (target_time - datetime.now()).total_seconds()
+#         logging.info(f"Waiting until {target_time.strftime('%Y-%m-%d %H:%M:%S')}... {remaining:.0f}s remaining")
+#         time.sleep(10)
+
+
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillTrenchTask."""
@@ -1336,6 +1348,20 @@ def run_tasks(microscope: FibsemMicroscope,
     # TODO: clear the task state for all required lamella, and mark as not started with
 
     for task_name in task_names:
+
+        # if task_name == "Rough Milling":
+        #     start_time = datetime.now() + timedelta(seconds=20)  # for testing, start in 10 seconds
+        #     logging.info(f"Starting Rough Milling at {start_time.strftime('%Y-%m-%d %H:%M:%S')} for lamellas: {required_lamella}")
+        #     if start_time is not None:
+        #         wait_until(start_time)
+
+            # ret = ask_user(parent_ui=parent_ui,
+            #             msg=f"Start Rough Milling for the selected lamellas? ",
+            #             pos="Start", neg="Exit")
+            # if not ret:
+            #     logging.info("User exited before starting Rough Milling.")
+            #     break
+
         for lamella in experiment.positions:
 
 
@@ -1383,6 +1409,9 @@ def run_tasks(microscope: FibsemMicroscope,
 
             err: Optional[Exception] = None
             try:
+                # if random.random() < 0.3: 
+                #     time.sleep(5)
+                #     raise ValueError("Simulated task error for testing.")
                 run_task(microscope=microscope,
                         task_name=task_name,
                         lamella=lamella,

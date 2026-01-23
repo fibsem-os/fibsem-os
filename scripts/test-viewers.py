@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenuBar,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -740,6 +741,66 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Hello Microscope Control")
 
+        # Add progress bar to status bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumWidth(200)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #3d4251;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #1e2027;
+                color: #d6d6d6;
+            }
+            QProgressBar::chunk {
+                background-color: #50a6ff;
+            }
+        """)
+        self.progress_bar.hide()  # Hidden by default
+        self.status_bar.addPermanentWidget(self.progress_bar)
+
+        # Add stop workflow button
+        self.stop_workflow_btn = QPushButton("Stop Workflow")
+        self.stop_workflow_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+            QPushButton:pressed {
+                background-color: #b71c1c;
+            }
+        """)
+        self.stop_workflow_btn.hide()  # Hidden by default
+        self.stop_workflow_btn.clicked.connect(self._on_stop_workflow_clicked)
+        self.status_bar.addPermanentWidget(self.stop_workflow_btn)
+
+    def _on_stop_workflow_clicked(self):
+        """Handle stop workflow button click."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.stop_task_workflow()
+
+    def set_progress(self, value: int, message: str = None):
+        """Show and update the progress bar."""
+        self.progress_bar.show()
+        self.stop_workflow_btn.show()
+        self.progress_bar.setValue(value)
+        if message:
+            self.status_bar.showMessage(message)
+
+    def hide_progress(self):
+        """Hide the progress bar and stop button."""
+        self.progress_bar.hide()
+        self.stop_workflow_btn.hide()
+
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
         tab_name = self.tab_widget.tabText(index)
@@ -769,6 +830,7 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             if self.autolamella_ui is not None:
                 self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
                 self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
+                self.autolamella_ui._workflow_finished_signal.connect(self._on_workflow_finished)
 
             # Add it as a dock widget to the viewer
             self.main_viewer.window.add_dock_widget(
@@ -1029,6 +1091,10 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             if hasattr(self, 'workflow_status_bar'):
                 self.workflow_status_bar.showMessage(txt)
 
+            if current_lamella_index is not None and total_lamellae is not None:
+                progress = int(((current_lamella_index + 1) / total_lamellae) * 100)
+                self.set_progress(progress, txt)
+
             # Show toast notification - error if present, otherwise info
             msg_type = "info"
             if status is AutoLamellaTaskStatus.Completed:
@@ -1038,6 +1104,33 @@ class AutoLamellaEmbeddedExample(QMainWindow):
                 msg = error_msg if error_msg is not None else msg
             toast_msg = f"{task_name} - {lamella_name}: {msg}"
             self.show_toast(toast_msg, msg_type)
+
+        # Check if waiting for user response and update status bar color
+        if self.autolamella_ui is not None:
+            if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+                # Orange status bar when waiting for user
+                self.status_bar.setStyleSheet("""
+                    QStatusBar {
+                        background-color: #ff9800;
+                        color: #1e2027;
+                        border-top: 1px solid #ffb74d;
+                    }
+                """)
+            else:
+                # Reset to original dark theme
+                self.status_bar.setStyleSheet("""
+                    QStatusBar {
+                        background-color: #1e2027;
+                        color: #d6d6d6;
+                        border-top: 1px solid #3d4251;
+                    }
+                """)
+
+    def _on_workflow_finished(self):
+        """Handle workflow finished signal."""
+        self.hide_progress()
+        if hasattr(self, 'workflow_status_bar'):
+            self.workflow_status_bar.showMessage("Workflow: Finished")
 
     def add_minimap_tab(self):
         """Add the minimap as a separate tab with its own viewer."""
