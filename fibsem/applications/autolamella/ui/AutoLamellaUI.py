@@ -98,6 +98,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
     detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal()
+    experiment_update_signal = pyqtSignal()
 
     def __init__(self, viewer: napari.Viewer) -> None:
         super().__init__()
@@ -531,6 +532,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
 
+        self.experiment_update_signal.emit()
+
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
         if self.microscope is None:
@@ -555,6 +558,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
+
+        self.experiment_update_signal.emit()
 
     ##################################################################
 

@@ -1314,11 +1314,11 @@ def sync_lamella_config_updates(lamella: 'Lamella', parent_ui: Optional['AutoLam
 
 
 # TODO: create a TaskManager class to handle this?
-def run_tasks(microscope: FibsemMicroscope, 
-            experiment: 'Experiment', 
+def run_tasks(microscope: FibsemMicroscope,
+            experiment: 'Experiment',
             task_names: List[str],
             required_lamella: Optional[List[str]] = None,
-            parent_ui: Optional['AutoLamellaUI'] = None) -> 'Experiment':
+            parent_ui: Optional['AutoLamellaUI'] = None,) -> 'Experiment':
     """Run the specified tasks for all lamellas in the experiment.
     Args:
         microscope (FibsemMicroscope): The microscope instance.
@@ -1329,6 +1329,7 @@ def run_tasks(microscope: FibsemMicroscope,
     Returns:
         Experiment: The updated experiment with task results.
     """
+
     if required_lamella is None:
         required_lamella = [p.name for p in experiment.positions]
 
@@ -1336,21 +1337,7 @@ def run_tasks(microscope: FibsemMicroscope,
 
     for task_name in task_names:
         for lamella in experiment.positions:
-            # Sync config updates from GUI before processing this lamella
-            lamella = sync_lamella_config_updates(lamella, parent_ui)
 
-            # if parent_ui:
-            #     parent_ui.workflow_update_signal.emit({"msg": f"Starting task {task_name} for lamella {lamella.name}.",
-            #         "status": {"task_name": task_name, 
-            #                     "task_names": task_names,
-            #                     "total_tasks": len(task_names),
-            #                     "current_task_index": task_names.index(task_name),
-            #                     "lamella_name": lamella.name,
-            #                     "lamella_names": required_lamella,
-            #                     "current_lamella_index": required_lamella.index(lamella.name),
-            #                     "total_lamellas": len(required_lamella)
-            #                     }
-            #                 })
 
             if required_lamella and lamella.name not in required_lamella:
                 logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Not in required lamella list.")
@@ -1377,6 +1364,24 @@ def run_tasks(microscope: FibsemMicroscope,
             # - how to define the workflow and required tasks
             # - how to mark the workflow as 'completed'
             # - how to handle supervision: only enabled when parent_ui available
+
+            # Emit status update for this lamella (after skip checks pass)
+            if parent_ui:
+                parent_ui.workflow_update_signal.emit({"msg": f"Starting task {task_name} for Lamella {lamella.name}.",
+                    "status": {"task_name": task_name,
+                                "task_names": task_names,
+                                "total_tasks": len(task_names),
+                                "current_task_index": task_names.index(task_name),
+                                "lamella_name": lamella.name,
+                                "lamella_names": required_lamella,
+                                "current_lamella_index": required_lamella.index(lamella.name),
+                                "total_lamellas": len(required_lamella),
+                                "error_message": None,
+                                "status": AutoLamellaTaskStatus.InProgress
+                                }
+                            })
+
+            err: Optional[Exception] = None
             try:
                 run_task(microscope=microscope,
                         task_name=task_name,
@@ -1387,7 +1392,35 @@ def run_tasks(microscope: FibsemMicroscope,
                 logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
                 lamella.task_state.status = AutoLamellaTaskStatus.Failed
                 lamella.task_state.status_message = str(e)
+                err = e
                 experiment.save()
+
+            if parent_ui:
+                if err is None:
+                    msg = f"Completed task {task_name} for Lamella {lamella.name}."
+                else:
+                    msg = f"Error in task {task_name} for Lamella {lamella.name}."
+
+                parent_ui.workflow_update_signal.emit({"msg": msg,
+                "status": {"task_name": task_name, 
+                            "task_names": task_names,
+                            "total_tasks": len(task_names),
+                            "current_task_index": task_names.index(task_name),
+                            "lamella_name": lamella.name,
+                            "lamella_names": required_lamella,
+                            "current_lamella_index": required_lamella.index(lamella.name),
+                            "total_lamellas": len(required_lamella),
+                            "error_message": lamella.task_state.status_message,
+                            "status": lamella.task_state.status
+                            }
+                        })
+
+            if parent_ui and parent_ui._workflow_stop_event.is_set():
+                logging.info("Workflow stop event set. Exiting task loop.")
+                break
+        if parent_ui and parent_ui._workflow_stop_event.is_set():
+            logging.info("Workflow stop event set. Exiting task loop.")
+            break
 
     update_status_ui(parent_ui, "", workflow_info="All tasks completed.")
 

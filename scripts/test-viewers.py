@@ -34,6 +34,13 @@ from PyQt5.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
+import fibsem
+from fibsem.ui.widgets.autolamella_task_config_editor import (
+    AutoLamellaWorkflowWidget,
+    AutoLamellaProtocolTaskConfigEditor,
+)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
 
 class ToastNotification(QWidget):
     """A toast notification widget that appears in the bottom-right corner."""
@@ -621,7 +628,7 @@ class AutoLamellaEmbeddedExample(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AutoLamella Embedded")
+        self.setWindowTitle(f"AutoLamella v{fibsem.__version__} ")
         self.resize(1600, 1000)
 
         # Apply napari-style dark theme
@@ -758,6 +765,11 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             # Create the AutoLamellaUI widget
             self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer)
 
+            # Connect to workflow update signal from AutoLamellaUI
+            if self.autolamella_ui is not None:
+                self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
+                self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
+
             # Add it as a dock widget to the viewer
             self.main_viewer.window.add_dock_widget(
                 widget=self.autolamella_ui,
@@ -784,6 +796,13 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         layout.addWidget(self.main_status_bar)
 
         self.tab_widget.addTab(container, QIconifyIcon("mdi:microscope", color="#d6d6d6"), "Microscope")
+
+    def _on_experiment_update(self):
+
+        self._on_add_minimap_clicked()
+        self._on_add_protocol_editor_clicked()
+        self._on_add_lamella_clicked()
+        self._on_add_workflow_clicked()
 
     def _add_tab_buttons(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
@@ -858,38 +877,16 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         self.viewers.append(self.editor_viewer)
 
         try:
-            from fibsem.ui.widgets.autolamella_task_config_editor import (
-                AutoLamellaProtocolEditorTabWidget,
-                AutoLamellaProtocolTaskConfigEditor,
-                AutoLamellaWorkflowWidget
-            )
 
             # Create the protocol editor widgets (without lamella widget - it's in its own tab now)
             task_widget = AutoLamellaProtocolTaskConfigEditor(
                 viewer=self.editor_viewer,
                 parent=self.autolamella_ui
             )
-            workflow_widget = AutoLamellaWorkflowWidget(
-                experiment=self.autolamella_ui.experiment,
-                parent=self.autolamella_ui
-            )
-
-            # Create tab widget for protocol editor sub-tabs
-            editor_tab_widget = AutoLamellaProtocolEditorTabWidget(
-                viewer=self.editor_viewer,
-                parent_widget=self.autolamella_ui
-            )
-            editor_tab_widget.addTab(task_widget, "Protocol")
-            editor_tab_widget.addTab(workflow_widget, "Workflow")
-
-            # Store references
-            editor_tab_widget.workflow_widget = workflow_widget
-            editor_tab_widget.task_widget = task_widget
-            self.autolamella_ui.protocol_editor_widget = editor_tab_widget
 
             # Add to viewer dock
             self.editor_viewer.window.add_dock_widget(
-                editor_tab_widget,
+                task_widget,
                 area='right',
                 name='Protocol Editor'
             )
@@ -950,7 +947,6 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             print(f"Could not create lamella editor: {e}")
             import traceback
             traceback.print_exc()
-            from PyQt5.QtWidgets import QLabel
             self.lamella_viewer.window.add_dock_widget(
                 QLabel(f"Lamella Editor not available: {e}"),
                 area="right",
@@ -970,12 +966,34 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         """Add an empty workflow tab with just a header."""
         container = QWidget()
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Header label
         header = QLabel("Workflow")
         header.setStyleSheet("color: #d6d6d6; font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
+
+        try:
+            self.workflow_widget = AutoLamellaWorkflowWidget(
+                experiment=self.autolamella_ui.experiment,
+                parent=self.autolamella_ui
+            )
+            if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
+                self.workflow_widget.workflow_config_changed.connect(self.autolamella_ui._on_workflow_config_changed)
+                self.workflow_widget.workflow_options_changed.connect(self.autolamella_ui._on_workflow_options_changed)
+                self.workflow_widget.setStyleSheet(NAPARI_STYLE)
+
+        except Exception as e:
+            print(f"Could not create protocol editor: {e}")
+            self.workflow_widget = QLabel(f"Workflow widget not available: {e}")
+
+        # add horizontal layout for workflow widget
+        grid_layout = QHBoxLayout()
+        if hasattr(self, 'workflow_widget') and self.workflow_widget is not None:
+            grid_layout.addWidget(self.workflow_widget)
+            # add horizontal stretch
+            grid_layout.addStretch()
+        layout.addLayout(grid_layout)
 
         # Add stretch to push header to top
         layout.addStretch()
@@ -985,16 +1003,13 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         self.workflow_status_bar.showMessage("Workflow: No workflow running")
         layout.addWidget(self.workflow_status_bar)
 
-        # Connect to workflow update signal from AutoLamellaUI
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
 
         self.tab_widget.addTab(container, QIconifyIcon("mdi:play-circle-outline", color="#d6d6d6"), "Workflow")
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
         status_msg = info.get("status", None)
-        if status_msg is not None and hasattr(self, 'workflow_status_bar'):
+        if status_msg is not None:
             task_name = status_msg.get("task_name", "Unknown Task")
             lamella_name = status_msg.get("lamella_name", "Unknown Lamella")
             current_lamella_index = status_msg.get("current_lamella_index", None)
@@ -1002,6 +1017,8 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             current_task_index = status_msg.get("current_task_index", None)
             total_tasks = status_msg.get("total_tasks", None)
             error_msg = status_msg.get("error_message", None)
+            msg = info.get("msg", "No message")
+            status = status_msg.get("status", "info")
 
             txt = f"Workflow: {task_name} | {lamella_name}"
             if current_lamella_index is not None and total_lamellae is not None:
@@ -1009,15 +1026,18 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             if current_task_index is not None and total_tasks is not None:
                 txt += f" | Task {current_task_index + 1}/{total_tasks}"
 
-            self.workflow_status_bar.showMessage(txt)
+            if hasattr(self, 'workflow_status_bar'):
+                self.workflow_status_bar.showMessage(txt)
 
             # Show toast notification - error if present, otherwise info
-            if error_msg is not None:
-                toast_msg = f"{task_name} - {lamella_name}: {error_msg}"
-                self.show_toast(toast_msg, "error")
-            else:
-                toast_msg = f"{task_name} - {lamella_name}"
-                self.show_toast(toast_msg, "info")
+            msg_type = "info"
+            if status is AutoLamellaTaskStatus.Completed:
+                msg_type = "success"
+            if status is AutoLamellaTaskStatus.Failed:
+                msg_type = "error"
+                msg = error_msg if error_msg is not None else msg
+            toast_msg = f"{task_name} - {lamella_name}: {msg}"
+            self.show_toast(toast_msg, msg_type)
 
     def add_minimap_tab(self):
         """Add the minimap as a separate tab with its own viewer."""
@@ -1056,7 +1076,6 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             print(f"Could not create minimap: {e}")
             import traceback
             traceback.print_exc()
-            from PyQt5.QtWidgets import QLabel
             self.minimap_viewer.window.add_dock_widget(
                 QLabel(f"Minimap not available: {e}"),
                 area="right",
@@ -1070,7 +1089,7 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         self.minimap_status_bar.showMessage("Minimap: No overview acquired")
         layout.addWidget(self.minimap_status_bar)
 
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:map", color="#d6d6d6"), "Minimap")
+        self.tab_widget.addTab(container, QIconifyIcon("mdi:map", color="#d6d6d6"), "Overview")
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
