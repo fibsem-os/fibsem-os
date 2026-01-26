@@ -168,11 +168,13 @@ class ToastNotification(QWidget):
         # Adjust size to content
         self.adjustSize()
 
-        # Position in bottom-right corner of parent
+        # Position in bottom-right corner of parent (using global coordinates)
         if self.parent():
             parent_rect = self.parent().rect()
-            x = parent_rect.width() - self.width() - 20
-            y = parent_rect.height() - self.height() - 20
+            # Convert to global screen coordinates
+            global_pos = self.parent().mapToGlobal(QPoint(0, 0))
+            x = global_pos.x() + parent_rect.width() - self.width() - 20
+            y = global_pos.y() + parent_rect.height() - self.height() - 20
             self.move(x, y)
 
         # Fade in
@@ -497,12 +499,14 @@ class ToastManager:
             return
 
         parent_rect = self.parent.rect()
+        # Convert to global screen coordinates
+        global_pos = self.parent.mapToGlobal(QPoint(0, 0))
         y_offset = 60  # Leave room for notification bell
 
         for toast in reversed(self.toasts):
             if toast.isVisible():
-                x = parent_rect.width() - toast.width() - 20
-                y = parent_rect.height() - toast.height() - y_offset
+                x = global_pos.x() + parent_rect.width() - toast.width() - 20
+                y = global_pos.y() + parent_rect.height() - toast.height() - y_offset
                 toast.move(x, y)
                 y_offset += toast.height() + self.spacing
 
@@ -646,6 +650,11 @@ class AutoLamellaEmbeddedExample(QMainWindow):
 
         # Toast notification manager
         self.toast_manager = ToastManager(self)
+
+        # Status bar pulse animation for user attention
+        self._status_pulse_timer = QTimer(self)
+        self._status_pulse_timer.timeout.connect(self._toggle_status_pulse)
+        self._status_pulse_state = False  # False = original, True = orange
 
         # Create menu bar (includes notification bell)
         self._create_menu_bar()
@@ -1095,29 +1104,28 @@ class AutoLamellaEmbeddedExample(QMainWindow):
                 progress = int(((current_lamella_index + 1) / total_lamellae) * 100)
                 self.set_progress(progress, txt)
 
-            # Show toast notification - error if present, otherwise info
+            # Show toast notification based on status
             msg_type = "info"
             if status is AutoLamellaTaskStatus.Completed:
                 msg_type = "success"
-            if status is AutoLamellaTaskStatus.Failed:
+            elif status is AutoLamellaTaskStatus.Failed:
                 msg_type = "error"
                 msg = error_msg if error_msg is not None else msg
+            elif status is AutoLamellaTaskStatus.Skipped:
+                msg_type = "warning"
             toast_msg = f"{task_name} - {lamella_name}: {msg}"
             self.show_toast(toast_msg, msg_type)
 
-        # Check if waiting for user response and update status bar color
+        # Check if waiting for user response and start/stop pulse animation
         if self.autolamella_ui is not None:
             if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
-                # Orange status bar when waiting for user
-                self.status_bar.setStyleSheet("""
-                    QStatusBar {
-                        background-color: #ff9800;
-                        color: #1e2027;
-                        border-top: 1px solid #ffb74d;
-                    }
-                """)
+                # Start pulsing animation if not already running
+                if not self._status_pulse_timer.isActive():
+                    self._status_pulse_timer.start(500)  # Toggle every 500ms
             else:
-                # Reset to original dark theme
+                # Stop pulsing and reset to original dark theme
+                self._status_pulse_timer.stop()
+                self._status_pulse_state = False
                 self.status_bar.setStyleSheet("""
                     QStatusBar {
                         background-color: #1e2027;
@@ -1126,9 +1134,41 @@ class AutoLamellaEmbeddedExample(QMainWindow):
                     }
                 """)
 
+    def _toggle_status_pulse(self):
+        """Toggle status bar color for pulse animation."""
+        self._status_pulse_state = not self._status_pulse_state
+        if self._status_pulse_state:
+            # Orange
+            self.status_bar.setStyleSheet("""
+                QStatusBar {
+                    background-color: #ff9800;
+                    color: #1e2027;
+                    border-top: 1px solid #ffb74d;
+                }
+            """)
+        else:
+            # Original dark theme
+            self.status_bar.setStyleSheet("""
+                QStatusBar {
+                    background-color: #1e2027;
+                    color: #d6d6d6;
+                    border-top: 1px solid #3d4251;
+                }
+            """)
+
     def _on_workflow_finished(self):
         """Handle workflow finished signal."""
         self.hide_progress()
+        # Stop pulse animation if running
+        self._status_pulse_timer.stop()
+        self._status_pulse_state = False
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                background-color: #1e2027;
+                color: #d6d6d6;
+                border-top: 1px solid #3d4251;
+            }
+        """)
         if hasattr(self, 'workflow_status_bar'):
             self.workflow_status_bar.showMessage("Workflow: Finished")
 
