@@ -43,6 +43,11 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
 
+def play_notification_sound():
+    """Play a notification sound to alert the user."""
+    QApplication.beep()
+
+
 class ToastNotification(QWidget):
     """A toast notification widget that appears in the bottom-right corner."""
 
@@ -591,38 +596,7 @@ QStatusBar {
 }
 """
 
-
-class EmbeddedViewerTab(QWidget):
-    """A tab containing an embedded napari viewer with an optional side widget."""
-
-    def __init__(self, title: str = "Viewer", parent=None):
-        super().__init__(parent)
-        self.title = title
-
-        # Create napari viewer without showing its window
-        self.viewer = napari.Viewer(show=False, title=title)
-
-        # Get the Qt widget from the viewer
-        self._qt_viewer = self.viewer.window._qt_window
-
-        # Layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._qt_viewer)
-
-    def add_dock_widget(self, widget: QWidget, area: str = "right", name: str = "Widget"):
-        """Add a dock widget to this tab's viewer."""
-        self.viewer.window.add_dock_widget(widget, area=area, name=name)
-
-    def close_viewer(self):
-        """Clean up the viewer when done."""
-        try:
-            self.viewer.close()
-        except Exception:
-            pass
-
-
-class AutoLamellaEmbeddedExample(QMainWindow):
+class AutoLamellaSingleWindowUI(QMainWindow):
     """
     Example showing how to embed the actual AutoLamellaUI and Protocol Editor
     in a single window with tabs.
@@ -655,6 +629,8 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         self._status_pulse_timer = QTimer(self)
         self._status_pulse_timer.timeout.connect(self._toggle_status_pulse)
         self._status_pulse_state = False  # False = original, True = orange
+        self._user_interaction_sound_played = False  # Track if sound was played
+        self._sound_enabled = True  # Toggle for notification sounds
 
         # Create menu bar (includes notification bell)
         self._create_menu_bar()
@@ -720,6 +696,22 @@ class AutoLamellaEmbeddedExample(QMainWindow):
         self.action_toast_error = QAction("Toast: Error", self)
         self.action_toast_error.triggered.connect(lambda: self.show_toast("Error: Something went wrong", "error"))
         test_menu.addAction(self.action_toast_error)
+
+        test_menu.addSeparator()
+
+        self.action_beep = QAction("Play Beep", self)
+        self.action_beep.triggered.connect(play_notification_sound)
+        test_menu.addAction(self.action_beep)
+
+        self.action_sound_toggle = QAction("Sound Enabled", self)
+        self.action_sound_toggle.setCheckable(True)
+        self.action_sound_toggle.setChecked(True)
+        self.action_sound_toggle.triggered.connect(self._on_sound_toggle)
+        test_menu.addAction(self.action_sound_toggle)
+
+    def _on_sound_toggle(self, checked: bool):
+        """Handle sound toggle."""
+        self._sound_enabled = checked
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -833,7 +825,7 @@ class AutoLamellaEmbeddedExample(QMainWindow):
             from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
             # Create the AutoLamellaUI widget
-            self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer)
+            self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer, parent_ui=self)
 
             # Connect to workflow update signal from AutoLamellaUI
             if self.autolamella_ui is not None:
@@ -1122,10 +1114,15 @@ class AutoLamellaEmbeddedExample(QMainWindow):
                 # Start pulsing animation if not already running
                 if not self._status_pulse_timer.isActive():
                     self._status_pulse_timer.start(500)  # Toggle every 500ms
+                # Play notification sound once when entering waiting state
+                if not self._user_interaction_sound_played and self._sound_enabled:
+                    play_notification_sound()
+                    self._user_interaction_sound_played = True
             else:
                 # Stop pulsing and reset to original dark theme
                 self._status_pulse_timer.stop()
                 self._status_pulse_state = False
+                self._user_interaction_sound_played = False  # Reset for next time
                 self.status_bar.setStyleSheet("""
                     QStatusBar {
                         background-color: #1e2027;
@@ -1237,7 +1234,7 @@ class AutoLamellaEmbeddedExample(QMainWindow):
 def run_autolamella_example():
     """Run the AutoLamella embedded example."""
     app = QApplication.instance() or QApplication(sys.argv)
-    window = AutoLamellaEmbeddedExample()
+    window = AutoLamellaSingleWindowUI()
     window.show()
     app.exec_()
 
