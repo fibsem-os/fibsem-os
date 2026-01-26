@@ -354,6 +354,9 @@ class NapariPattern:
             pixelsize=pixelsize,
             translation=translation,
         )
+        
+        if hasattr(pattern_settings, "is_exclusion") and pattern_settings.is_exclusion:
+            colour = "black"
 
         return cls(
             name=name,

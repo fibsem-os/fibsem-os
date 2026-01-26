@@ -197,6 +197,9 @@ def _add_rectangle_mpl(
         shape, pixel_size, image_shape
     )
 
+    if shape.is_exclusion:
+        colour = "black"
+
     patch = mpatches.Rectangle(
         (px - width / 2, py - height / 2),
         width=width,
@@ -232,6 +235,10 @@ def _add_circle_mpl(
     px, py, radius_px, inner_radius_px, start_angle, end_angle = (
         _circle_pattern_to_image_pixels(shape, pixel_size, image_shape)
     )
+
+    if shape.is_exclusion:
+        colour = "black"
+
 
     if inner_radius_px > 0:
         # annulus/ring pattern
