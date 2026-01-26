@@ -435,7 +435,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         try:
             self.parent_widget.parent_widget.workflow_widget._refresh_from_state()
         except Exception as e:
-            logging.warning(f"Could not refresh workflow widget: {e}")
             pass
 
     def _on_add_task_clicked(self):
