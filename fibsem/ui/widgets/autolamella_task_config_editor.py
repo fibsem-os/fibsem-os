@@ -432,6 +432,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                self.parent_widget.protocol_editor_widget.workflow_widget is not None:
                 self.parent_widget.protocol_editor_widget.workflow_widget._refresh_from_state()
 
+        try:
+            self.parent_widget.parent_widget.workflow_widget._refresh_from_state()
+        except Exception as e:
+            logging.warning(f"Could not refresh workflow widget: {e}")
+            pass
+
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
         dialog = AddTaskDialog(self.experiment.task_protocol.task_config, parent=self) # type: ignore

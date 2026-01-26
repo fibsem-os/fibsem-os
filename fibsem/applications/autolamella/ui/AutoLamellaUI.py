@@ -100,10 +100,11 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     _workflow_finished_signal = pyqtSignal()
     experiment_update_signal = pyqtSignal()
 
-    def __init__(self, viewer: napari.Viewer) -> None:
+    def __init__(self, viewer: napari.Viewer, parent_ui: Optional['QWidget'] = None) -> None:
         super().__init__()
 
         self.setupUi(self)
+        self.parent_widget = parent_ui
 
         self._protocol_lock = threading.RLock()
 
