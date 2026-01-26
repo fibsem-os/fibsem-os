@@ -2,11 +2,11 @@ name: AutoLamella Protocol
 description: On Grid Lamella Preparation Protocol 
 version: '1.0'
 tasks:
-    Select Milling Position:
+    Setup Lamella Position:
         task_type: SELECT_MILLING_POSITION
         parameters:
             milling_angle: 15
-    Setup Lamella:
+    Mill Fiducial:
         task_type: SETUP_LAMELLA
         parameters:
             milling_angle: 15
@@ -147,11 +147,11 @@ workflow:
     name: ''
     description: ''
     tasks:
-    -   name: Select Milling Position
+    -   name: Setup Lamella Position
         supervise: true
         required: true
         requires: []
-    -   name: Setup Lamella
+    -   name: Mill Fiducial
         supervise: true
         required: true
         requires: []
@@ -159,7 +159,7 @@ workflow:
         supervise: true
         required: true
         requires:
-        - Setup Lamella
+        - Mill Fiducial
     -   name: Polishing
         supervise: true
         required: true
