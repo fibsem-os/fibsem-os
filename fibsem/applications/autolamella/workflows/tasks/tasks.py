@@ -1377,10 +1377,23 @@ def run_tasks(microscope: FibsemMicroscope,
                 # logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Already completed.")
                 # continue
 
-            # check if this lamella has completed required tasks 
+            # check if this lamella has completed required tasks
             task_requirements = experiment.task_protocol.workflow_config.requirements(task_name)
             if task_requirements and not all(lamella.has_completed_task(req) for req in task_requirements):
                 logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed.")
+                if parent_ui:
+                    missing_tasks = [req for req in task_requirements if not lamella.has_completed_task(req)]
+                    parent_ui.workflow_update_signal.emit({
+                        "msg": f"Skipping {lamella.name}: required tasks {missing_tasks} not completed.",
+                        "status": {
+                            "task_name": task_name,
+                            "lamella_name": lamella.name,
+                            "current_lamella_index": required_lamella.index(lamella.name) if lamella.name in required_lamella else None,
+                            "total_lamellas": len(required_lamella) if required_lamella else None,
+                            "error_message": None,
+                            "status": AutoLamellaTaskStatus.Skipped
+                        }
+                    })
                 continue
 
             # TODO: how to handle:

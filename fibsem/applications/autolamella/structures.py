@@ -52,6 +52,7 @@ class AutoLamellaTaskStatus(Enum):
     InProgress = auto()
     Completed = auto()
     Failed = auto()
+    Skipped = auto()
 
 
 @evented
