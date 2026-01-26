@@ -17,7 +17,6 @@ from PyQt5.QtWidgets import (
     QWidget,
     QGroupBox,
 )
-from superqt import QCollapsible, QIconifyIcon
 
 from fibsem import constants, utils
 from fibsem.microscope import FibsemMicroscope
@@ -31,6 +30,7 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
     FibsemMillingTaskAcquisitionSettingsWidget,
 )
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+from fibsem.ui.widgets.custom_widgets import WheelBlocker
 
 
 if TYPE_CHECKING:
@@ -143,6 +143,7 @@ class MillingTaskConfigWidget(QWidget):
         self.field_of_view_spinbox.setSuffix(fov_config["suffix"])
         self.field_of_view_spinbox.setToolTip(fov_config["tooltip"])
         self.field_of_view_spinbox.setKeyboardTracking(fov_config["keyboard_tracking"])
+        self.field_of_view_spinbox.installEventFilter(WheelBlocker(self.field_of_view_spinbox))
 
         basic_layout.addWidget(QLabel("Name"), 0, 0)
         basic_layout.addWidget(self.name_edit, 0, 1)
@@ -475,6 +476,7 @@ if __name__ == "__main__":
         Experiment,
         cfg
     )
+    from superqt import QCollapsible, QIconifyIcon
 
     viewer = napari.Viewer()
     main_widget = QTabWidget()
