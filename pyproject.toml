@@ -76,6 +76,7 @@ fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
 fibsem-generate-config = "fibsem.configuration:gen_config_cli"
 fibsem-config-ui = "fibsem.ui.FibsemMicroscopeConfigurationWidget:main"
 fibsem-autolamella-ui = "fibsem.applications.autolamella.ui.run_ui:main"
+fibsem-test-ui = "fibsem.applications.autolamella.ui.AutoLamellaMainUI:run_ui"
 
 [tool.setuptools]
 packages = ["fibsem"]

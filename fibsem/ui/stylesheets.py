@@ -85,3 +85,85 @@ QCheckBox::indicator:checked {
 }"""
 
 LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""
+
+
+# Napari-style dark theme stylesheet
+NAPARI_STYLE = """
+QMainWindow {
+    background-color: #262930;
+}
+
+QMenuBar {
+    background-color: #262930;
+    color: #d6d6d6;
+    border-bottom: 1px solid #3d4251;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 10px;
+}
+
+QMenuBar::item:selected {
+    background-color: #3d4251;
+}
+
+QMenu {
+    background-color: #262930;
+    color: #d6d6d6;
+    border: 1px solid #3d4251;
+}
+
+QMenu::item:selected {
+    background-color: #3d4251;
+}
+
+QTabWidget::pane {
+    border: none;
+    background-color: #262930;
+}
+
+QTabBar::tab {
+    background-color: #1e2027;
+    color: #d6d6d6;
+    padding: 8px 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+
+QTabBar::tab:selected {
+    background-color: #262930;
+    border-bottom: 2px solid #50a6ff;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #2d313b;
+}
+
+QPushButton {
+    background-color: #3d4251;
+    color: #d6d6d6;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 3px;
+}
+
+QPushButton:hover {
+    background-color: #4a5168;
+}
+
+QPushButton:pressed {
+    background-color: #50a6ff;
+}
+
+QPushButton:disabled {
+    background-color: #2d313b;
+    color: #6b6b6b;
+}
+
+QStatusBar {
+    background-color: #1e2027;
+    color: #d6d6d6;
+    border-top: 1px solid #3d4251;
+}
+"""
