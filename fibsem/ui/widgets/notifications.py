@@ -60,7 +60,8 @@ class ToastNotification(QWidget):
         layout.addWidget(self.message_label, 1)
 
         # Close button
-        self.close_btn = QPushButton("×")
+        self.close_btn = QToolButton()
+        self.close_btn.setIcon(QIconifyIcon("mdi:close", color="#888"))
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.hide_toast)
         self.close_btn.setCursor(Qt.PointingHandCursor)
