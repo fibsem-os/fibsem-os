@@ -47,14 +47,7 @@ def play_notification_sound():
     QApplication.beep()
 
 class AutoLamellaSingleWindowUI(QMainWindow):
-    """
-    Example showing how to embed the actual AutoLamellaUI and Protocol Editor
-    in a single window with tabs.
-
-    Note: This requires a valid microscope connection to fully work.
-    For demo purposes, you can use manufacturer="Demo".
-    """
-
+    """Main window for AutoLamella UI with embedded napari viewers."""
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"AutoLamella v{fibsem.__version__} ")
@@ -69,8 +62,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.viewers = []
         self.autolamella_ui = None
-        self.minimap_widget = None
-        self.minimap_viewer = None
+        self.minimap_widget: FibsemMinimapWidget
+        self.minimap_viewer: napari.Viewer
 
         # Toast notification manager
         self.toast_manager = ToastManager(self)
@@ -78,7 +71,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Status bar pulse animation for user attention
         self._status_pulse_timer = QTimer(self)
         self._status_pulse_timer.timeout.connect(self._toggle_status_pulse)
-        self._status_pulse_state = False  # False = original, True = orange
+        self._status_pulse_state = False  # False = original, True = light cyan
+        self._status_pulse_enabled = False  # Toggle for pulse animation
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = True  # Toggle for notification sounds
 
@@ -89,11 +83,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Create status bar
         self._create_status_bar()
 
-        # Tab 1: Main AutoLamella viewer with AutoLamellaUI docked
-        self._create_main_tab()
+        # Create tabs
+        self.create_tabs()
 
-        # Add buttons to add tabs dynamically
-        self._add_tab_buttons()
+        # Hide main menu bar from AutoLamellaUI viewer
+        self.autolamella_ui.menuBar().setVisible(False)
 
         # Connect tab change to status bar update
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
@@ -129,6 +123,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_exit.triggered.connect(self.close)
         file_menu.addAction(self.action_exit)
 
+        # add tools menu
+        tools_menu = menu_bar.addMenu("Tools")
+        # add reporting sub menu
+        reporting_menu = tools_menu.addMenu("Reporting")
+        self.action_generate_report = QAction("Generate Report", self, triggered=self._on_generate_report)
+        self.action_generate_overview_plot = QAction("Generate Overview Plot", self, triggered=self._on_generate_overview_plot)
+        reporting_menu.addAction(self.action_generate_report)
+        reporting_menu.addAction(self.action_generate_overview_plot)
+
+        # add help menu
+        help_menu = menu_bar.addMenu("Help")
+        self.action_about = QAction("About", self, triggered=self._show_about_dialog) # type: ignore
+        help_menu.addAction(self.action_about)
+
     def _create_test_menu(self):        
         """Create a test menu for toast notifications and sounds."""
         menu_bar = self.menuBar()
@@ -163,9 +171,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_sound_toggle.triggered.connect(self._on_sound_toggle)
         test_menu.addAction(self.action_sound_toggle)
 
+        self.action_pulse_toggle = QAction("Pulse Animation Enabled", self)
+        self.action_pulse_toggle.setCheckable(True)
+        self.action_pulse_toggle.setChecked(True)
+        self.action_pulse_toggle.triggered.connect(self._on_pulse_toggle)
+        test_menu.addAction(self.action_pulse_toggle)
+
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
+
+    def _on_pulse_toggle(self, checked: bool):
+        """Handle pulse animation toggle."""
+        self._status_pulse_enabled = checked
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -190,6 +208,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Save Protocol action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.export_protocol_ui()
+
+    def _show_about_dialog(self):
+        """Show the About dialog."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.actionInformation.trigger()
+
+    def _on_generate_report(self):
+        """Handle Generate Report action."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.actionGenerate_Report.trigger()
+    
+    def _on_generate_overview_plot(self):
+        """Handle Generate Overview Plot action."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.actionGenerate_Overview_Plot.trigger()
 
     def _create_status_bar(self):
         """Create the status bar."""
@@ -301,14 +334,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.tab_widget.addTab(container, QIconifyIcon("mdi:microscope", color="#d6d6d6"), "Microscope")
 
+    def create_tabs(self):
+        """Create the tabs for the AutoLamella UI."""
+        self._create_main_tab()
+        self.add_minimap_tab()
+        self.add_protocol_editor_tab()
+        self.add_lamella_tab()
+        self.add_workflow_tab()
+
+        # add notification button to tab bar
+        self.create_notification_button()
+
     def _on_experiment_update(self):
+        """Handle experiment update signal and propagate to tabs."""
 
-        self._on_add_minimap_clicked()
-        self._on_add_protocol_editor_clicked()
-        self._on_add_lamella_clicked()
-        self._on_add_workflow_clicked()
+        self.minimap_widget.set_experiment()
+        self.task_widget.set_experiment(self.autolamella_ui.experiment)
+        self.lamella_widget.set_experiment()
+        self.workflow_widget.set_experiment(self.autolamella_ui.experiment)
 
-    def _add_tab_buttons(self):
+        # enable all the tabs
+        for i in range(self.tab_widget.count()):
+            self.tab_widget.setTabEnabled(i, True)
+
+    def create_notification_button(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
         # Create button container widget
         button_widget = QWidget()
@@ -316,25 +365,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         button_layout.setContentsMargins(5, 0, 5, 0)
         button_layout.setSpacing(5)
 
-        # Protocol Editor button
-        self.btn_add_protocol_editor = QPushButton("+ Protocol Editor")
-        self.btn_add_protocol_editor.clicked.connect(self._on_add_protocol_editor_clicked)
-        button_layout.addWidget(self.btn_add_protocol_editor)
-
-        # Lamella button
-        self.btn_add_lamella = QPushButton("+ Lamella")
-        self.btn_add_lamella.clicked.connect(self._on_add_lamella_clicked)
-        button_layout.addWidget(self.btn_add_lamella)
-
-        # Workflow button
-        self.btn_add_workflow = QPushButton("+ Workflow")
-        self.btn_add_workflow.clicked.connect(self._on_add_workflow_clicked)
-        button_layout.addWidget(self.btn_add_workflow)
-
-        # Minimap button
-        self.btn_add_minimap = QPushButton("+ Minimap")
-        self.btn_add_minimap.clicked.connect(self._on_add_minimap_clicked)
-        button_layout.addWidget(self.btn_add_minimap)
 
         # Notification bell
         self.notification_bell = NotificationBell(self)
@@ -344,29 +374,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Add to tab widget corner
         self.tab_widget.setCornerWidget(button_widget)
 
-    def _on_add_protocol_editor_clicked(self):
-        """Handle click on Add Protocol Editor button."""
-        self.add_protocol_editor_tab()
-        self.btn_add_protocol_editor.setEnabled(False)
-        self.btn_add_protocol_editor.setText("Protocol Editor ✓")
-
-    def _on_add_lamella_clicked(self):
-        """Handle click on Add Lamella button."""
-        self.add_lamella_tab()
-        self.btn_add_lamella.setEnabled(False)
-        self.btn_add_lamella.setText("Lamella ✓")
-
-    def _on_add_workflow_clicked(self):
-        """Handle click on Add Workflow button."""
-        self.add_workflow_tab()
-        self.btn_add_workflow.setEnabled(False)
-        self.btn_add_workflow.setText("Workflow ✓")
-
-    def _on_add_minimap_clicked(self):
-        """Handle click on Add Minimap button."""
-        self.add_minimap_tab()
-        self.btn_add_minimap.setEnabled(False)
-        self.btn_add_minimap.setText("Minimap ✓")
 
     def add_protocol_editor_tab(self):
         """Add the protocol editor as a separate tab with its own viewer."""
@@ -380,16 +387,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.editor_viewer.window._qt_window.statusBar().hide()
         self.viewers.append(self.editor_viewer)
 
-        # Create the protocol editor widgets (without lamella widget - it's in its own tab now)
-        task_widget = AutoLamellaProtocolTaskConfigEditor(
+        # Create the protocol editor widget
+        self.task_widget = AutoLamellaProtocolTaskConfigEditor(
             viewer=self.editor_viewer,
             parent=self.autolamella_ui
         )
         self.editor_viewer.window.add_dock_widget(
-            task_widget,
+            self.task_widget,
             area='right',
             name='Protocol Editor'
         )
+        self.autolamella_ui.system_widget.connected_signal.connect(self.task_widget._on_microscope_connected)
         layout.addWidget(self.editor_viewer.window._qt_window)
 
         # Add status bar for this tab
@@ -398,6 +406,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(self.editor_status_bar)
 
         self.tab_widget.addTab(container, QIconifyIcon("mdi:file-document-edit", color="#d6d6d6"), "Protocol")
+
+        # disable the tab by default
+        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
     def add_lamella_tab(self):
         """Add the lamella editor as a separate tab with its own viewer."""
@@ -412,18 +423,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.viewers.append(self.lamella_viewer)
 
         # Create the lamella editor widget
-        lamella_widget = AutoLamellaProtocolEditorWidget(
+        self.lamella_widget = AutoLamellaProtocolEditorWidget(
             viewer=self.lamella_viewer,
             parent=self.autolamella_ui
         )
 
         # Store reference in the protocol editor widget if it exists
         if hasattr(self.autolamella_ui, 'protocol_editor_widget') and self.autolamella_ui.protocol_editor_widget:
-            self.autolamella_ui.protocol_editor_widget.lamella_widget = lamella_widget
+            self.autolamella_ui.protocol_editor_widget.lamella_widget = self.lamella_widget
+        self.autolamella_ui.system_widget.connected_signal.connect(self.lamella_widget._on_microscope_connected)
 
         # Add to viewer dock
         self.lamella_viewer.window.add_dock_widget(
-            lamella_widget,
+            self.lamella_widget,
             area='right',
             name='Lamella Editor'
         )
@@ -436,6 +448,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(self.lamella_status_bar)
 
         self.tab_widget.addTab(container, QIconifyIcon("mdi:layers", color="#d6d6d6"), "Lamella")
+
+        # disable the tab by default
+        index = self.tab_widget.indexOf(container)
+        self.tab_widget.setTabEnabled(index, False)
 
     def add_workflow_tab(self):
         """Add an empty workflow tab with just a header."""
@@ -473,8 +489,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_status_bar.showMessage("Workflow: No workflow running")
         layout.addWidget(self.workflow_status_bar)
 
-
         self.tab_widget.addTab(container, QIconifyIcon("mdi:play-circle-outline", color="#d6d6d6"), "Workflow")
+
+        # disable the workflow tab by default
+        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
@@ -518,9 +536,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Check if waiting for user response and start/stop pulse animation
         if self.autolamella_ui is not None:
             if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
-                # Start pulsing animation if not already running
-                if not self._status_pulse_timer.isActive():
-                    self._status_pulse_timer.start(500)  # Toggle every 500ms
+                if self._status_pulse_enabled:
+                    # Start pulsing animation if not already running
+                    if not self._status_pulse_timer.isActive():
+                        self._status_pulse_timer.start(500)  # Toggle every 500ms
+                else:
+                    # Show constant light cyan color (no pulse)
+                    self._status_pulse_timer.stop()
+                    self.status_bar.setStyleSheet("""
+                        QStatusBar {
+                            background-color: #4dd0e1;
+                            color: #1e2027;
+                            border-top: 1px solid #80deea;
+                        }
+                    """)
                 # Play notification sound once when entering waiting state
                 if not self._user_interaction_sound_played and self._sound_enabled:
                     play_notification_sound()
@@ -542,12 +571,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Toggle status bar color for pulse animation."""
         self._status_pulse_state = not self._status_pulse_state
         if self._status_pulse_state:
-            # Orange
+            # Light cyan
             self.status_bar.setStyleSheet("""
                 QStatusBar {
-                    background-color: #ff9800;
+                    background-color: #4dd0e1;
                     color: #1e2027;
-                    border-top: 1px solid #ffb74d;
+                    border-top: 1px solid #80deea;
                 }
             """)
         else:
@@ -566,11 +595,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Stop pulse animation if running
         self._status_pulse_timer.stop()
         self._status_pulse_state = False
+        # Green for workflow complete
+        self.status_bar.showMessage("Workflow: Finished")
         self.status_bar.setStyleSheet("""
             QStatusBar {
-                background-color: #1e2027;
-                color: #d6d6d6;
-                border-top: 1px solid #3d4251;
+                background-color: #4caf50;
+                color: #1e2027;
+                border-top: 1px solid #81c784;
             }
         """)
         if hasattr(self, 'workflow_status_bar'):
@@ -588,35 +619,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.minimap_viewer.window._qt_window.statusBar().hide()
         self.viewers.append(self.minimap_viewer)
 
-        try:
+        # Create the minimap widget
+        self.minimap_widget = FibsemMinimapWidget(
+            viewer=self.minimap_viewer,
+            parent=self.autolamella_ui
+        )
 
-            # Create the minimap widget
-            self.minimap_widget = FibsemMinimapWidget(
-                viewer=self.minimap_viewer,
-                parent=self.autolamella_ui
-            )
+        # Store reference in the parent AutoLamellaUI
+        self.autolamella_ui.minimap_widget = self.minimap_widget
+        self.autolamella_ui.viewer_minimap = self.minimap_viewer
 
-            # Store reference in the parent AutoLamellaUI
-            self.autolamella_ui.minimap_widget = self.minimap_widget
-            self.autolamella_ui.viewer_minimap = self.minimap_viewer
-
-            # Add to viewer dock
-            self.minimap_viewer.window.add_dock_widget(
-                self.minimap_widget,
-                area='right',
-                add_vertical_stretch=True,
-                name='AutoLamella Minimap'
-            )
-
-        except Exception as e:
-            logging.error(f"Could not create minimap: {e}")
-            traceback.print_exc()
-            self.minimap_viewer.window.add_dock_widget(
-                QLabel(f"Minimap not available: {e}"),
-                area="right",
-                name="Placeholder"
-            )
-
+        # Add to viewer dock
+        self.minimap_viewer.window.add_dock_widget(
+            self.minimap_widget,
+            area='right',
+            add_vertical_stretch=True,
+            name='AutoLamella Overview'
+        )
         layout.addWidget(self.minimap_viewer.window._qt_window)
 
         # Add status bar for this tab
@@ -624,7 +643,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.minimap_status_bar.showMessage("Minimap: No overview acquired")
         layout.addWidget(self.minimap_status_bar)
 
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:map", color="#d6d6d6"), "Overview")
+        self.tab_widget.insertTab(1, container, QIconifyIcon("mdi:map", color="#d6d6d6"), "Overview")
+
+        # disable the tab by default
+        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
