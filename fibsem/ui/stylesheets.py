@@ -140,6 +140,10 @@ QTabBar::tab:hover:!selected {
     background-color: #2d313b;
 }
 
+QTabBar::tab:disabled {
+    color: #6b6b6b;
+}
+
 QPushButton {
     background-color: #3d4251;
     color: #d6d6d6;
