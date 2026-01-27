@@ -186,8 +186,13 @@ class MillingTaskConfigWidget(QWidget):
         # self.acquisition_group.setContentsMargins(0, 0, 0, 0)
 
         # Milling stages editor
+        try:
+            viewer = self.parent_widget.parent_widget.viewer
+        except Exception:        
+            viewer = napari.current_viewer()
+
         self.milling_editor_widget = FibsemMillingStageEditorWidget(
-            viewer=napari.current_viewer(),
+            viewer=viewer,
             microscope=self.microscope,
             milling_stages=[],
             parent=self
