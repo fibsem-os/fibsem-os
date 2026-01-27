@@ -159,17 +159,6 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.setupUi(self)
 
         self.parent_widget = parent
-        if self.parent_widget is None:
-            raise ValueError("Parent widget is None, cannot proceed.")
-        
-        if self.parent_widget.microscope is None:
-            raise ValueError("Microscope in parent widget is None, cannot proceed.")
-
-        if self.parent_widget.experiment is None:
-            raise ValueError("Experiment in parent widget is None, cannot proceed.")
-
-        self.microscope: FibsemMicroscope = self.parent_widget.microscope
-        self.movement_widget: FibsemMovementWidget = self.parent_widget.movement_widget
 
         self.viewer = viewer
         self.viewer.window._qt_viewer.dockLayerList.setVisible(False)
@@ -192,6 +181,13 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.show_circle_overlays: bool = True
         self.show_histogram: bool = False
 
+        if (
+            self.parent_widget is None
+            or self.parent_widget.microscope is None
+            or self.parent_widget.experiment is None
+        ):
+            return
+
         self.setup_connections()
 
         self.draw_blank_image() # TMP: disable until better workflow + testing
@@ -209,7 +205,24 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         image.metadata.microscope_state = ms                # type: ignore
         image.metadata.system = self.microscope.system      # type: ignore
         self.update_viewer(image=image)
-    
+
+    def set_experiment(self):
+        if self.parent_widget is None:
+            raise ValueError("Parent widget is None, cannot proceed.")
+        if self.parent_widget.experiment is None:
+            raise ValueError("Experiment in parent widget is None, cannot proceed.")
+
+        self.setup_connections()
+        self.draw_blank_image()
+
+    @property
+    def microscope(self) -> FibsemMicroscope:
+        return self.parent_widget.microscope
+
+    @property
+    def movement_widget(self) -> FibsemMovementWidget:
+        return self.parent_widget.movement_widget
+
     @property
     def protocol(self) -> Optional[AutoLamellaTaskProtocol]:
         if self.parent_widget is None:

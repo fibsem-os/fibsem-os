@@ -149,17 +149,34 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         super().__init__(parent)
         self.parent_widget = parent
         self.viewer = viewer
+        self.viewer.window._qt_viewer.dockLayerList.setVisible(False)
+        self.viewer.window._qt_viewer.dockLayerControls.setVisible(False)
+
         if self.parent_widget.microscope is None:
-            raise ValueError("Microscope is None, cannot open protocol editor.")
+            return
         self.microscope = self.parent_widget.microscope
         if (self.parent_widget.experiment is None or
             self.parent_widget.experiment.task_protocol is None):
-            raise ValueError("Experiment is None, cannot open protocol editor.")
+        
+            return
         self.experiment: Experiment = self.parent_widget.experiment
         self.image: FibsemImage
 
         self._create_widgets()
         self._setup_connections()
+        self._initialise_widgets()
+        self._on_selected_task_changed()
+
+    def _on_microscope_connected(self):
+        if self.parent_widget.microscope is None:
+            raise ValueError("Microscope is None, cannot open protocol editor.")
+        self.microscope = self.parent_widget.microscope
+        self._create_widgets()
+        self._setup_connections()
+
+    def set_experiment(self, experiment: Experiment):
+        """Set the experiment for the protocol editor."""
+        self.experiment = experiment
         self._initialise_widgets()
         self._on_selected_task_changed()
 

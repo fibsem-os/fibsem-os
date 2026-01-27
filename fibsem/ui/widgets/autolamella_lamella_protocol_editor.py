@@ -49,12 +49,25 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         super().__init__(parent)
         self.parent_widget = parent
         self.viewer = viewer
-        if self.parent_widget.microscope is None:
-            raise ValueError("Microscope is None, cannot open protocol editor.")
-        self.microscope = self.parent_widget.microscope
+        self.viewer.window._qt_viewer.dockLayerList.setVisible(False)
+        self.viewer.window._qt_viewer.dockLayerControls.setVisible(False)
 
+        if self.parent_widget.microscope is None:
+            return
+
+        self._on_microscope_connected()
+
+    def _on_microscope_connected(self):
+        """Callback when the microscope is connected."""
+        if self.parent_widget.microscope is None:
+            raise ValueError("Microscope in parent widget is None, cannot proceed.")
+        self.microscope = self.parent_widget.microscope
         self._create_widgets()
         self._initialise_widgets()
+
+    def set_experiment(self):
+        """Set the experiment for the protocol editor."""
+        self._refresh_experiment_positions()
 
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
@@ -147,7 +160,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.comboBox_selected_lamella.count() > 0:
             self.comboBox_selected_lamella.setCurrentIndex(0)
 
-        if self.parent_widget.experiment.positions:  # type: ignore
+        if self.parent_widget.experiment is not None and self.parent_widget.experiment.positions:  # type: ignore
             self._on_selected_lamella_changed()
 
     def _refresh_experiment_positions(self):
