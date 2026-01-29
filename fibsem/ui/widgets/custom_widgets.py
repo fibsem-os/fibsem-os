@@ -96,8 +96,8 @@ def _find_closest_string_match(value: str, items: list) -> any:
         if str_value in str_item or str_item in str_value:
             return item
     
-    # Default to first item
-    return items[0]
+    # No match found
+    raise ValueError(f"No matching item found for value '{value}' in items {items}")
 
 
 def _create_combobox_control(value: Union[str, int, float, Enum], 
@@ -138,7 +138,11 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
         logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
         idx = 0
     control.setCurrentIndex(idx)
-    control.installEventFilter(WheelBlocker(parent=control))
+    
+    try:
+        control.installEventFilter(WheelBlocker(parent=control))
+    except (ImportError, AttributeError, NameError) as e:
+        logging.warning(f"Failed to install WheelBlocker event filter: {e}")
 
     return control
 
