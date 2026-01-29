@@ -14,6 +14,7 @@ from fibsem.detection import detection
 from fibsem.segmentation.model import load_model
 from fibsem.segmentation.utils import decode_segmap_v2
 from fibsem.structures import FibsemImage, Point
+from fibsem.utils import removesuffix
 
 import tifffile as tff
 
@@ -30,7 +31,7 @@ def _run_evaluation(path:Path, image_path: Path, checkpoints: List[dict], plot: 
     filenames = []
     
     for fname in image_fnames:
-        fname = fname.removesuffix(".tif")
+        fname = removesuffix(fname, ".tif")
         filenames += glob.glob(os.path.join(image_path, f"{fname}*.tif"))
     
     print(f"Found {len(filenames)} images (test)")
@@ -44,7 +45,7 @@ def _run_evaluation(path:Path, image_path: Path, checkpoints: List[dict], plot: 
     _prog = tqdm(sorted(filenames))
     for i, fname in enumerate(_prog):
         
-        image_fname = os.path.basename(fname).removesuffix(".tif")
+        image_fname = removesuffix(os.path.basename(fname), ".tif")
 
         # if suffix is either _eb or _ib, remove it
         if image_fname.endswith("_eb") or image_fname.endswith("_ib"):
@@ -100,7 +101,7 @@ def _run_evaluation(path:Path, image_path: Path, checkpoints: List[dict], plot: 
             dets.append(det)
         
         if plot or save:
-            fig = detection.plot_detections(dets, titles=["Ground Truth"] + [os.path.basename(ckpt["checkpoint"].removesuffix(".pt")) for ckpt in checkpoints])
+            fig = detection.plot_detections(dets, titles=["Ground Truth"] + [removesuffix(os.path.basename(ckpt["checkpoint"]), ".pt") for ckpt in checkpoints])
             if plot:
                 plt.show()
 
@@ -165,7 +166,7 @@ def run_evaluation_v2(path:Path, image_path: Path, checkpoints: List[dict], labe
     # TODO: keep track of whether .tif ext was recorded in the csv
 
     for fname in image_fnames:
-        fname = fname.removesuffix(".tif")
+        fname = removesuffix(fname, ".tif")
         filenames += glob.glob(os.path.join(image_path, f"{fname}*.tif"))
     
     print(f"Found {len(filenames)} images (test)")
@@ -241,7 +242,7 @@ def run_evaluation_v2(path:Path, image_path: Path, checkpoints: List[dict], labe
             dets.append(det)
         
         if plot or save:
-            fig = detection.plot_detections(dets, titles=["Ground Truth"] + [os.path.basename(ckpt["checkpoint"].removesuffix(".pt")) for ckpt in checkpoints])
+            fig = detection.plot_detections(dets, titles=["Ground Truth"] + [removesuffix(os.path.basename(ckpt["checkpoint"]), ".pt") for ckpt in checkpoints])
             if plot:
                 plt.show()
 

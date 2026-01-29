@@ -27,6 +27,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.FibsemSegmentationModelWidget import FibsemSegmentationModelWidget
 from fibsem.ui.qtdesigner_files import FibsemLabellingUI as FibsemLabellingDialog
 from fibsem.ui.utils import open_existing_directory_dialog, open_existing_file_dialog
+from fibsem.utils import removesuffix
 
 # setup a basic logger
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -338,7 +339,7 @@ class FibsemLabellingUI(FibsemLabellingDialog.Ui_Dialog, QtWidgets.QDialog):
         idx = self.last_idx
         fname = self.filenames[idx]
         file_ext = CONFIGURATION["IMAGES"]["FILE_EXT"]
-        bname = os.path.basename(fname).removesuffix(file_ext)
+        bname = removesuffix(os.path.basename(fname), file_ext)
 
         # only resave the labels...
         label = np.asarray(self.mask_layer.data).astype(np.uint8)

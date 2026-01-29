@@ -1102,7 +1102,18 @@ class FibsemPatternSettings(ABC):
         kwargs = {}
         for f in fields(cls):
             if f.name in data:
-                kwargs[f.name] = data[f.name]
+                value = data[f.name]
+                # Convert string values to appropriate numeric types
+                if value is not None and f.type in (float, int):
+                    try:
+                        if f.type == float:
+                            value = float(value)
+                        elif f.type == int:
+                            value = int(value)
+                    except (ValueError, TypeError):
+                        # If conversion fails, use the original value
+                        pass
+                kwargs[f.name] = value
 
         # Construct objects
         cross_section = kwargs.pop("cross_section", None)
@@ -1136,6 +1147,23 @@ class FibsemRectangleSettings(FibsemPatternSettings):
     time: float = 0.0
     is_exclusion: bool = False
 
+    def __post_init__(self):
+        """Ensure numeric types for dimensions to prevent type errors."""
+        if self.width is not None:
+            self.width = float(self.width)
+        if self.height is not None:
+            self.height = float(self.height)
+        if self.depth is not None:
+            self.depth = float(self.depth)
+        if self.centre_x is not None:
+            self.centre_x = float(self.centre_x)
+        if self.centre_y is not None:
+            self.centre_y = float(self.centre_y)
+        if self.rotation is not None:
+            self.rotation = float(self.rotation)
+        if self.time is not None:
+            self.time = float(self.time)
+
     @property
     def volume(self) -> float:
         return self.width * self.height * self.depth
@@ -1148,6 +1176,18 @@ class FibsemLineSettings(FibsemPatternSettings):
     end_y: float
     depth: float
 
+    def __post_init__(self):
+        """Ensure numeric types for dimensions to prevent type errors."""
+        if self.start_x is not None:
+            self.start_x = float(self.start_x)
+        if self.end_x is not None:
+            self.end_x = float(self.end_x)
+        if self.start_y is not None:
+            self.start_y = float(self.start_y)
+        if self.end_y is not None:
+            self.end_y = float(self.end_y)
+        if self.depth is not None:
+            self.depth = float(self.depth)
     
     @property
     def volume(self) -> float:
@@ -1164,6 +1204,25 @@ class FibsemCircleSettings(FibsemPatternSettings):
     end_angle: float = 360.0
     rotation: float = 0.0           # annulus -> thickness !=0
     is_exclusion: bool = False
+
+    def __post_init__(self):
+        """Ensure numeric types for dimensions to prevent type errors."""
+        if self.radius is not None:
+            self.radius = float(self.radius)
+        if self.depth is not None:
+            self.depth = float(self.depth)
+        if self.centre_x is not None:
+            self.centre_x = float(self.centre_x)
+        if self.centre_y is not None:
+            self.centre_y = float(self.centre_y)
+        if self.thickness is not None:
+            self.thickness = float(self.thickness)
+        if self.start_angle is not None:
+            self.start_angle = float(self.start_angle)
+        if self.end_angle is not None:
+            self.end_angle = float(self.end_angle)
+        if self.rotation is not None:
+            self.rotation = float(self.rotation)
 
     @property
     def volume(self) -> float:
@@ -1191,6 +1250,22 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     def __post_init__(
         self, path: Optional[Union[str, os.PathLike]], array: Optional[NDArray[Any]]
     ) -> None:
+        # Ensure numeric types for dimensions to prevent type errors
+        if self.width is not None:
+            self.width = float(self.width)
+        if self.height is not None:
+            self.height = float(self.height)
+        if self.depth is not None:
+            self.depth = float(self.depth)
+        if self.centre_x is not None:
+            self.centre_x = float(self.centre_x)
+        if self.centre_y is not None:
+            self.centre_y = float(self.centre_y)
+        if self.rotation is not None:
+            self.rotation = float(self.rotation)
+        if self.time is not None:
+            self.time = float(self.time)
+        
         if array is None:
             if path is None:
                 # Fallback on empty array
@@ -1235,7 +1310,7 @@ class FibsemPolygonSettings(FibsemPatternSettings):
     def from_dict(data: dict) -> "FibsemPolygonSettings":
         return FibsemPolygonSettings(
             vertices=np.asarray(data["vertices"], dtype=float),
-            depth=data["depth"],
+            depth=float(data["depth"]),
             is_exclusion=data.get("is_exclusion", False),
         )
 

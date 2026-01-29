@@ -529,6 +529,26 @@ def _napari_supports_border_width() -> bool:
         return False
 
 
+def _napari_supports_projection_mode() -> bool:
+    """Return True if the installed napari version supports projection_mode parameter."""
+    version_str = napari.__version__
+    if Version is not None:
+        try:
+            # projection_mode was added in napari 0.4.18
+            return Version(version_str) >= Version("0.4.18")
+        except InvalidVersion:
+            logging.debug("Unable to parse napari version with packaging: %s", version_str)
+
+    try:
+        parts = version_str.split(".")
+        parts = [int("".join(filter(str.isdigit, p)) or 0) for p in parts[:3]]
+        parts.extend([0] * (3 - len(parts)))
+        return tuple(parts[:3]) >= (0, 4, 18)
+    except Exception:
+        logging.debug("Unable to parse napari version string: %s", version_str)
+        return False
+
+
 def add_points_layer(
     viewer: napari.Viewer,
     data: np.ndarray,
@@ -600,5 +620,13 @@ def add_points_layer(
         )
 
     layer_kwargs.update(kwargs)
+
+    # Remove projection_mode if napari version doesn't support it
+    if not _napari_supports_projection_mode() and "projection_mode" in layer_kwargs:
+        logging.debug(
+            "Removing projection_mode parameter - not supported in napari %s",
+            napari.__version__
+        )
+        layer_kwargs.pop("projection_mode")
 
     return viewer.add_points(**layer_kwargs)
