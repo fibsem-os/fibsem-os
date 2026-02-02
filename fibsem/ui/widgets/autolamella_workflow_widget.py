@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pprint import pprint
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
@@ -35,6 +35,8 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.ui import stylesheets
 from superqt import QIconifyIcon
 
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.ui import AutoLamellaUI
 
 class TaskListWidget(QListWidget):
     """List widget with drag-and-drop reorder signal."""
@@ -301,13 +303,14 @@ class AutoLamellaWorkflowWidget(QWidget):
     def __init__(
         self,
         experiment: Optional[Experiment] = None,
-        parent: Optional[QWidget] = None,
+        parent: Optional['AutoLamellaUI'] = None,
     ) -> None:
         super().__init__(parent)
         self.experiment: Optional[Experiment] = experiment
         self.workflow_config: AutoLamellaWorkflowConfig
         self.workflow_options: AutoLamellaWorkflowOptions
         self._updating_ui = False
+        self.parent_widget = parent
 
         self._attach_data_sources()
         self._setup_ui()
@@ -376,6 +379,13 @@ class AutoLamellaWorkflowWidget(QWidget):
 
         main_layout.addWidget(tasks_group)
 
+        # Run workflow button
+        self.run_workflow_button = QPushButton("Run Workflow")
+        self.run_workflow_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.run_workflow_button.setToolTip("Run the AutoLamella workflow")
+        self.run_workflow_button.setVisible(False) # Hide by default; shown in main UI
+        main_layout.addWidget(self.run_workflow_button)
+
         main_layout.addStretch(1)
 
     def _connect_signals(self) -> None:
@@ -386,6 +396,7 @@ class AutoLamellaWorkflowWidget(QWidget):
         )
         self.add_task_button.clicked.connect(self._on_add_task)
         self.task_list.order_changed.connect(self._sync_order_from_list)
+        self.run_workflow_button.clicked.connect(self._on_run_workflow)
 
     def _refresh_from_state(self) -> None:
         self._updating_ui = True
@@ -452,6 +463,11 @@ class AutoLamellaWorkflowWidget(QWidget):
             return
         self.workflow_options.turn_beams_off = checked
         self.workflow_options_changed.emit(self.workflow_options)
+
+    def _on_run_workflow(self) -> None:
+        """Run the workflow by calling parent widget's run_task_workflow method."""
+        if self.parent_widget is not None:
+            self.parent_widget.run_task_workflow()
 
     def _on_add_task(self) -> None:
         available = self._available_task_names()

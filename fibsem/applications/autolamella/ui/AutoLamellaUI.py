@@ -817,6 +817,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
     def run_task_workflow(self):
 
+        if self.is_workflow_running:
+            napari.utils.notifications.show_warning(
+                "A workflow is already running... [Workflow Running]"
+            )
+            return
+
         if self.microscope is None or self.experiment is None or self.protocol is None or self.experiment.task_protocol is None:
             napari.utils.notifications.show_warning(
                 "Please connect to a microscope and load an experiment first... [No Microscope or Experiment]"
@@ -1681,7 +1687,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
         if info.get("clear_milling_config", False):
             self.milling_task_config_widget.clear()
-            self.milling_task_config_widget.setEnabled(False)
+            # self.milling_task_config_widget.setEnabled(False)
             self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
 
         # no specific interaction, just update the ui
