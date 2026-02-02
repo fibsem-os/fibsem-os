@@ -122,6 +122,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_exit.triggered.connect(self.close)
         file_menu.addAction(self.action_exit)
 
+        # View menu
+        view_menu = menu_bar.addMenu("View")
+
+        self.action_show_minimap = QAction("Show Minimap Widget", self)
+        self.action_show_minimap.setCheckable(True)
+        self.action_show_minimap.setChecked(True)
+        self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
+        view_menu.addAction(self.action_show_minimap)
+
         # add tools menu
         tools_menu = menu_bar.addMenu("Tools")
         # add reporting sub menu
@@ -202,6 +211,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Show the About dialog."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.actionInformation.trigger()
+
+    def _on_toggle_minimap_widget(self, checked: bool):
+        """Toggle the minimap plot dock widget visibility."""
+        if self.autolamella_ui is not None and hasattr(self.autolamella_ui, 'minimap_plot_dock'):
+            self.autolamella_ui.minimap_plot_dock.setVisible(checked)
+            self.autolamella_ui.minimap_plot_dock.activateWindow()
 
     def _on_generate_report(self):
         """Handle Generate Report action."""
