@@ -25,9 +25,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import ensure_main_thread
 from superqt.iconify import QIconifyIcon
 
 import fibsem
+from fibsem.utils import format_duration
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.ui import FibsemMinimapWidget
@@ -40,6 +42,7 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaWorkflowWidget,
 )
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
+from fibsem.ui.widgets.task_history_table_widget import TaskHistoryTableWidget
 
 
 def play_notification_sound():
@@ -215,13 +218,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Hello Microscope Control")
 
-        # Add progress bar to status bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setMaximumWidth(200)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setStyleSheet("""
+        # Add milling progress bar
+        self.milling_progress_bar = QProgressBar()
+        self.milling_progress_bar.setMaximumWidth(400)
+        self.milling_progress_bar.setMaximum(100)
+        self.milling_progress_bar.setValue(0)
+        self.milling_progress_bar.setTextVisible(True)
+        self.milling_progress_bar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #3d4251;
                 border-radius: 3px;
@@ -230,11 +233,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 color: #d6d6d6;
             }
             QProgressBar::chunk {
-                background-color: #50a6ff;
+                background-color: #4caf50;
             }
         """)
-        self.progress_bar.hide()  # Hidden by default
-        self.status_bar.addPermanentWidget(self.progress_bar)
+        self.milling_progress_bar.hide()  # Hidden by default
+        self.status_bar.addPermanentWidget(self.milling_progress_bar)
 
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
@@ -255,12 +258,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             }
         """)
         self.user_attention_btn.hide()  # Hidden by default
+        self.user_attention_btn.setToolTip("User Input Required - Click to go to Microscope tab")
         self.user_attention_btn.clicked.connect(self._on_user_attention_clicked)
         self.status_bar.addPermanentWidget(self.user_attention_btn)
 
         # TODO: add task history widget
-        # TODO: milling progress bar
-
 
         # Add stop workflow button
         self.stop_workflow_btn = QPushButton("Stop Workflow")
@@ -299,18 +301,52 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle user attention button click - switch to Microscope tab."""
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
 
-    def set_progress(self, value: int, message: str = None):
-        """Show and update the progress bar."""
-        self.progress_bar.show()
+    def set_workflow_running(self, message: str = None):
+        """Show stop button and update status message."""
         self.stop_workflow_btn.show()
-        self.progress_bar.setValue(value)
         if message:
             self.status_bar.showMessage(message)
 
-    def hide_progress(self):
-        """Hide the progress bar and stop button."""
-        self.progress_bar.hide()
+    def hide_workflow_running(self):
+        """Hide the stop button."""
         self.stop_workflow_btn.hide()
+
+    def _on_microscope_connected(self):
+        """Handle microscope connection and connect milling progress signal."""
+        if self.autolamella_ui is not None and self.autolamella_ui.microscope is not None:
+            self.autolamella_ui.microscope.milling_progress_signal.connect(self._on_milling_progress)
+
+    @ensure_main_thread
+    def _on_milling_progress(self, progress: dict):
+        """Handle milling progress updates from the microscope."""
+        progress_info = progress.get("progress", None)
+        if progress_info is None:
+            return
+
+        state = progress_info.get("state", None)
+
+        if state == "start":
+            msg = progress.get("msg", "Milling...")
+            current_stage = progress_info.get("current_stage", 0)
+            total_stages = progress_info.get("total_stages", 1)
+            self.milling_progress_bar.setVisible(True)
+            self.milling_progress_bar.setValue(0)
+            self.milling_progress_bar.setFormat(msg)
+            self.milling_progress_bar.setToolTip(f"Milling Stage: {current_stage + 1}/{total_stages}")
+
+        elif state == "update":
+            estimated_time = progress_info.get("estimated_time", None)
+            remaining_time = progress_info.get("remaining_time", None)
+
+            if remaining_time is not None and estimated_time is not None and estimated_time > 0:
+                percent_complete = int((1 - (remaining_time / estimated_time)) * 100)
+                self.milling_progress_bar.setValue(percent_complete)
+                self.milling_progress_bar.setFormat(
+                    f"Milling: {format_duration(remaining_time)} remaining"
+                )
+
+        elif state == "finished":
+            self.milling_progress_bar.setVisible(False)
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
@@ -345,6 +381,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
             self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
             self.autolamella_ui._workflow_finished_signal.connect(self._on_workflow_finished)
+            self.autolamella_ui.system_widget.connected_signal.connect(self._on_microscope_connected)
 
         # Add it as a dock widget to the viewer
         self.main_viewer.window.add_dock_widget(
@@ -382,6 +419,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         self.workflow_widget.set_experiment(self.autolamella_ui.experiment)
+        self.task_history_widget.set_experiment(self.autolamella_ui.experiment)
+
+        # Set widget minimum widths (allows resize)
+        self.task_widget.setMinimumWidth(500)
+        self.lamella_widget.setMinimumWidth(500)
 
         if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
             self.workflow_widget.workflow_config_changed.connect(self.autolamella_ui._on_workflow_config_changed)
@@ -503,17 +545,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self.autolamella_ui
         )
         self.workflow_widget.setStyleSheet(NAPARI_STYLE)
+        self.workflow_widget.setMinimumWidth(600)
 
-        # add horizontal layout for workflow widget
+        # add horizontal layout for workflow widget and task history
         grid_layout = QHBoxLayout()
         if hasattr(self, 'workflow_widget') and self.workflow_widget is not None:
             grid_layout.addWidget(self.workflow_widget)
-            # add horizontal stretch
-            grid_layout.addStretch()
-        layout.addLayout(grid_layout)
 
-        # Add stretch to push header to top
-        layout.addStretch()
+        # Add task history table widget on the right
+        self.task_history_widget = TaskHistoryTableWidget(
+            experiment=self.autolamella_ui.experiment,
+            parent=self
+        )
+        self.task_history_widget.setStyleSheet(NAPARI_STYLE)
+        grid_layout.addWidget(self.task_history_widget)
+
+        layout.addLayout(grid_layout, stretch=1)
 
         # Add status bar for this tab
         self.workflow_status_bar = QStatusBar()
@@ -549,8 +596,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.workflow_status_bar.showMessage(txt)
 
             if current_lamella_index is not None and total_lamellae is not None:
-                progress = int(((current_lamella_index + 1) / total_lamellae) * 100)
-                self.set_progress(progress, txt)
+                self.set_workflow_running(txt)
 
             # Show toast notification based on status
             msg_type = "info"
@@ -563,6 +609,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 msg_type = "warning"
             # toast_msg = f"{task_name} - {lamella_name}: {msg}"
             self.show_toast(msg, msg_type)
+
+            # Refresh task history widget
+            if hasattr(self, 'task_history_widget'):
+                self.task_history_widget.refresh()
 
         # Check if waiting for user response and update status bar
         if self.autolamella_ui is not None:
@@ -594,7 +644,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_workflow_finished(self):
         """Handle workflow finished signal."""
-        self.hide_progress()
+        self.hide_workflow_running()
         # Hide user attention button
         self.user_attention_btn.hide()
         # Green for workflow complete
