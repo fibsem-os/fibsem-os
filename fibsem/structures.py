@@ -405,6 +405,12 @@ class FibsemStagePosition:
         tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}°" if self.t is not None else "T:None"
         return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
 
+    def euclidean_distance(self, other: 'FibsemStagePosition') -> float:
+        """Calculate the euclidean distance between two stage positions."""
+        dx = (self.x - other.x) if self.x is not None and other.x is not None else 0.0
+        dy = (self.y - other.y) if self.y is not None and other.y is not None else 0.0
+        dz = (self.z - other.z) if self.z is not None and other.z is not None else 0.0
+        return float(np.linalg.norm([dx, dy, dz]))
 
 @dataclass
 class FibsemManipulatorPosition:
