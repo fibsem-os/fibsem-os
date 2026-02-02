@@ -1253,14 +1253,6 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         else:
             key = list(milling_config.keys())[0]
             selected_milling_stages = deepcopy(milling_config[key].stages)
-        try:
-            if selected_pattern != "Setup Lamella (Mill Fiducial)" and "Setup Lamella (Mill Fiducial)" in task_config:
-                # always add fiducial milling stages if they exist
-                selected_milling_stages.extend(deepcopy(task_config["Setup Lamella (Mill Fiducial)"].milling[FIDUCIAL_KEY].stages))
-        except Exception as e:
-            napari.utils.notifications.show_warning("No fiducial milling stages found in protocol...")
-            pass
-
         points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
 
         # TODO: this should show the real milling patterns for each lamella, rather than the same one for all.
