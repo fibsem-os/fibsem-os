@@ -196,6 +196,7 @@ class FibsemMillingTask:
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         try:
+            # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
             if self.parent_ui and hasattr(self.parent_ui, "_on_milling_progress"):
                 self.microscope.milling_progress_signal.connect(self.parent_ui._on_milling_progress) # THIS is 100% broken and causes recursive emits, need to fix to just use the microscope signal
             else:
@@ -230,7 +231,7 @@ class FibsemMillingTask:
             # restore initial beam shift
             if self.initial_beam_shift is not None:
                 self.microscope.set_beam_shift(self.initial_beam_shift, beam_type=self.config.channel)
-            if self.parent_ui:
+            if self.parent_ui:  # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
                 self.microscope.milling_progress_signal.disconnect(self.parent_ui._on_milling_progress)
 
             self._post_task_acquisition()
