@@ -1605,6 +1605,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self._workflow_stop_event.clear()
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
         self.pushButton_stop_workflow.setVisible(False)
+        self.WAITING_FOR_USER_INTERACTION = False
 
         # clear milling task config
         if self.milling_task_config_widget is not None:
