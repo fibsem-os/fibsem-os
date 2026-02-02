@@ -11,13 +11,13 @@ import logging
 import traceback
 
 import napari
-from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QStatusBar,
@@ -68,13 +68,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Toast notification manager
         self.toast_manager = ToastManager(self)
 
-        # Status bar pulse animation for user attention
-        self._status_pulse_timer = QTimer(self)
-        self._status_pulse_timer.timeout.connect(self._toggle_status_pulse)
-        self._status_pulse_state = False  # False = original, True = light cyan
-        self._status_pulse_enabled = False  # Toggle for pulse animation
+        # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
-        self._sound_enabled = True  # Toggle for notification sounds
+        self._sound_enabled = False  # Toggle for notification sounds
 
         # Create menu bar (includes notification bell)
         self._create_menu_bar()
@@ -171,19 +167,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_sound_toggle.triggered.connect(self._on_sound_toggle)
         test_menu.addAction(self.action_sound_toggle)
 
-        self.action_pulse_toggle = QAction("Pulse Animation Enabled", self)
-        self.action_pulse_toggle.setCheckable(True)
-        self.action_pulse_toggle.setChecked(True)
-        self.action_pulse_toggle.triggered.connect(self._on_pulse_toggle)
-        test_menu.addAction(self.action_pulse_toggle)
-
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
-
-    def _on_pulse_toggle(self, checked: bool):
-        """Handle pulse animation toggle."""
-        self._status_pulse_enabled = checked
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -250,6 +236,32 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.progress_bar.hide()  # Hidden by default
         self.status_bar.addPermanentWidget(self.progress_bar)
 
+        # Add user attention button (shown when waiting for user interaction)
+        self.user_attention_btn = QPushButton("Attention Required")
+        self.user_attention_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff9800;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f57c00;
+            }
+            QPushButton:pressed {
+                background-color: #e65100;
+            }
+        """)
+        self.user_attention_btn.hide()  # Hidden by default
+        self.user_attention_btn.clicked.connect(self._on_user_attention_clicked)
+        self.status_bar.addPermanentWidget(self.user_attention_btn)
+
+        # TODO: add task history widget
+        # TODO: milling progress bar
+
+
         # Add stop workflow button
         self.stop_workflow_btn = QPushButton("Stop Workflow")
         self.stop_workflow_btn.setStyleSheet("""
@@ -272,9 +284,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar.addPermanentWidget(self.stop_workflow_btn)
 
     def _on_stop_workflow_clicked(self):
-        """Handle stop workflow button click."""
-        if self.autolamella_ui is not None:
+        """Handle stop workflow button click with confirmation."""
+        reply = QMessageBox.question(
+            self,
+            "Stop Workflow",
+            "Are you sure you want to stop the workflow?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes and self.autolamella_ui is not None:
             self.autolamella_ui.stop_task_workflow()
+
+    def _on_user_attention_clicked(self):
+        """Handle user attention button click - switch to Microscope tab."""
+        self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
 
     def set_progress(self, value: int, message: str = None):
         """Show and update the progress bar."""
@@ -293,6 +316,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle tab change and update status bar."""
         tab_name = self.tab_widget.tabText(index)
         self.status_bar.showMessage(f"Hello {tab_name}")
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                background-color: #1e2027;
+                color: #d6d6d6;
+                border-top: 1px solid #3d4251;
+            }
+        """)
 
     def _create_main_tab(self):
         """Create the main AutoLamella tab."""
@@ -352,6 +382,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         self.workflow_widget.set_experiment(self.autolamella_ui.experiment)
+
+        if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
+            self.workflow_widget.workflow_config_changed.connect(self.autolamella_ui._on_workflow_config_changed)
+            self.workflow_widget.workflow_options_changed.connect(self.autolamella_ui._on_workflow_options_changed)
 
         # enable all the tabs
         for i in range(self.tab_widget.count()):
@@ -457,7 +491,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Add an empty workflow tab with just a header."""
         container = QWidget()
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # layout.setContentsMargins(0, 0, 0, 0)
 
         # Header label
         header = QLabel("Workflow")
@@ -468,10 +502,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             experiment=self.autolamella_ui.experiment,
             parent=self.autolamella_ui
         )
-        if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
-            self.workflow_widget.workflow_config_changed.connect(self.autolamella_ui._on_workflow_config_changed)
-            self.workflow_widget.workflow_options_changed.connect(self.autolamella_ui._on_workflow_options_changed)
-            self.workflow_widget.setStyleSheet(NAPARI_STYLE)
+        self.workflow_widget.setStyleSheet(NAPARI_STYLE)
 
         # add horizontal layout for workflow widget
         grid_layout = QHBoxLayout()
@@ -533,31 +564,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # toast_msg = f"{task_name} - {lamella_name}: {msg}"
             self.show_toast(msg, msg_type)
 
-        # Check if waiting for user response and start/stop pulse animation
+        # Check if waiting for user response and update status bar
         if self.autolamella_ui is not None:
             if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
-                if self._status_pulse_enabled:
-                    # Start pulsing animation if not already running
-                    if not self._status_pulse_timer.isActive():
-                        self._status_pulse_timer.start(500)  # Toggle every 500ms
-                else:
-                    # Show constant light cyan color (no pulse)
-                    self._status_pulse_timer.stop()
-                    self.status_bar.setStyleSheet("""
-                        QStatusBar {
-                            background-color: #4dd0e1;
-                            color: #1e2027;
-                            border-top: 1px solid #80deea;
-                        }
-                    """)
+                # Show user attention button and change status bar color
+                self.user_attention_btn.show()
+                # self.status_bar.setStyleSheet("""
+                #     QStatusBar {
+                #         background-color: #4dd0e1;
+                #         color: #1e2027;
+                #         border-top: 1px solid #80deea;
+                #     }
+                # """)
                 # Play notification sound once when entering waiting state
                 if not self._user_interaction_sound_played and self._sound_enabled:
                     play_notification_sound()
                     self._user_interaction_sound_played = True
             else:
-                # Stop pulsing and reset to original dark theme
-                self._status_pulse_timer.stop()
-                self._status_pulse_state = False
+                # Hide user attention button and reset to original dark theme
+                self.user_attention_btn.hide()
                 self._user_interaction_sound_played = False  # Reset for next time
                 self.status_bar.setStyleSheet("""
                     QStatusBar {
@@ -567,34 +592,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                     }
                 """)
 
-    def _toggle_status_pulse(self):
-        """Toggle status bar color for pulse animation."""
-        self._status_pulse_state = not self._status_pulse_state
-        if self._status_pulse_state:
-            # Light cyan
-            self.status_bar.setStyleSheet("""
-                QStatusBar {
-                    background-color: #4dd0e1;
-                    color: #1e2027;
-                    border-top: 1px solid #80deea;
-                }
-            """)
-        else:
-            # Original dark theme
-            self.status_bar.setStyleSheet("""
-                QStatusBar {
-                    background-color: #1e2027;
-                    color: #d6d6d6;
-                    border-top: 1px solid #3d4251;
-                }
-            """)
-
     def _on_workflow_finished(self):
         """Handle workflow finished signal."""
         self.hide_progress()
-        # Stop pulse animation if running
-        self._status_pulse_timer.stop()
-        self._status_pulse_state = False
+        # Hide user attention button
+        self.user_attention_btn.hide()
         # Green for workflow complete
         self.status_bar.showMessage("Workflow: Finished")
         self.status_bar.setStyleSheet("""
