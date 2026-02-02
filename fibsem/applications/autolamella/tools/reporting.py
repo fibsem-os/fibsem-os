@@ -702,7 +702,7 @@ def generate_final_overview_image(exp: Experiment,
 
     sem_positions = []
     for p in exp.positions:
-        pstate = p.poses.get(state, p.state.microscope_state)
+        pstate = p.poses.get(state, p.milling_pose)
         if pstate is None or pstate.stage_position is None:
             continue
         pos = pstate.stage_position
