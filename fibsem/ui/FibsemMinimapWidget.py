@@ -680,8 +680,9 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         return coords, point
 
     def on_single_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
-        """Callback for single click on the image layer. 
+        """Callback for single click on the image layer.
         Supports adding and updating positions with Shift and Alt modifiers.
+        No modifier: checks closest experiment position.
         Args:
             layer: The image layer.
             event: The event object.
@@ -689,11 +690,12 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         update_position: bool = "Shift" in event.modifiers
         add_new_position: bool = "Alt" in event.modifiers
+        no_modifier: bool = len(event.modifiers) == 0
 
-        # left click + (alt or shift)
-        if event.button != 1 or not (add_new_position or update_position):
+        # left click only
+        if event.button != 1:
             return
-        
+
         coords, point = self.get_coordinate_in_microscope_coordinates(layer, event)
 
         if point is False: # clicked outside image
@@ -707,6 +709,11 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
                     dx=point.x, dy=point.y,
                     beam_type=self.image.metadata.image_settings.beam_type,
                     base_position=self.image.metadata.stage_position)
+
+        # no modifier: check closest position
+        if no_modifier:
+            self.check_closest_experiment_position(stage_position)
+            return
 
         # handle case where multiple modifiers are pressed
         if update_position and add_new_position:
@@ -735,6 +742,51 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             # are hacking it here, by force calling the update display
             if sys.version_info < (3, 9):
                 self._update_position_display()
+
+    def check_closest_experiment_position(self, clicked_position: FibsemStagePosition) -> None:
+        """Check and print distances to all experiment positions, highlighting the closest one.
+
+        Args:
+            clicked_position: The stage position that was clicked on the minimap.
+        """
+        if not FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
+            return
+
+        if not self.positions:
+            logging.info("No experiment positions to compare.")
+            return
+
+        # Calculate distances to all positions
+        distances = []
+        for pos in self.positions:
+            distance = clicked_position.euclidean_distance(pos)
+            distances.append((pos.name, distance))
+
+        # Sort by distance
+        distances.sort(key=lambda x: x[1])
+
+        # Print all distances
+        logging.info("=" * 50)
+        logging.info("Distance to experiment positions:")
+        for name, dist in distances:
+            logging.info(f"  {name}: {dist * constants.SI_TO_MICRO:.1f} um")
+
+        # Highlight the closest
+        closest_name, closest_dist = distances[0]
+        logging.info("-" * 50)
+        logging.info(f"Closest position: {closest_name} ({closest_dist * constants.SI_TO_MICRO:.1f} um)")
+        logging.info("=" * 50)
+
+        # If closest position is within 5um, select it
+        SELECTED_POSITION_THRESHOLD_MICRONS = 5.0
+        if closest_dist < SELECTED_POSITION_THRESHOLD_MICRONS * constants.MICRO_TO_SI:
+            idx = self.comboBox_tile_position.findText(closest_name)
+            if idx != -1:
+                self.comboBox_tile_position.setCurrentIndex(idx)
+                napari.utils.notifications.show_info(f"Selected: {closest_name} ({closest_dist * constants.SI_TO_MICRO:.1f} um)")
+                return
+
+        napari.utils.notifications.show_info(f"Closest: {closest_name} ({closest_dist * constants.SI_TO_MICRO:.1f} um)")
 
     def on_double_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
         """Callback for double click on the image layer.
