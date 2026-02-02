@@ -631,7 +631,7 @@ class AutoLamellaTask(ABC):
         self.log_status_message("VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image...")
         self.lamella.alignment_area = update_alignment_area_ui(alignment_area=self.lamella.alignment_area,
                                                 parent_ui=self.parent_ui,
-                                                msg="Edit Alignment Area. Press Continue when done.", 
+                                                msg="Drag to edit the Alignment Area. Press Continue when done.", 
                                                 validate=self.validate)
 
 
@@ -1006,7 +1006,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # confirm with user to move to milling position
         if self.validate:
             ask_user(parent_ui=self.parent_ui,
-                    msg=f"Move to the milling position for {self.lamella.name} in the microscope UI. "
+                    msg=f"Double click the image to move to the milling position for {self.lamella.name}. "
                         f"Press Continue when done.",
                     pos="Continue")
 
@@ -1116,7 +1116,7 @@ class SetupLamellaTask(AutoLamellaTask):
         self.log_status_message("ACQUIRE_ALIGNMENT_IMAGE", "Acquiring Alignment Image...")
         self.lamella.alignment_area = update_alignment_area_ui(alignment_area=self.lamella.alignment_area,
                                                 parent_ui=self.parent_ui,
-                                                msg="Edit Alignment Area. Press Continue when done.", 
+                                                msg="Drag to edit the Alignment Area. Press Continue when done.", 
                                                 validate=self.validate)
 
         # set reduced area for fiducial alignment
