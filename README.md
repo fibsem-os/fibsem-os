@@ -36,7 +36,7 @@ Install dependencies and package:
 ```bash
 conda create -n fibsem python=3.11 pip
 conda activate fibsem
-pip install -e .[ui]
+pip install -e '.[ui]'
 ```
 
 To run:
