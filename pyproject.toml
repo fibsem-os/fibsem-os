@@ -64,10 +64,8 @@ odemis = [
 ]
 
 reporting = [
-    "plotly>=5.14.1",
     "reportlab<3.6.13; python_version < '3.9'",
     "reportlab>=3.6.13; python_version >= '3.9'",
-    "kaleido==0.2.0"
 ]
 
 [project.scripts]

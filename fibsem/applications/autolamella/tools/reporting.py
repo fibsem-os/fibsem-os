@@ -2,19 +2,14 @@ import glob
 import io
 import logging
 import os
-from copy import deepcopy
 from datetime import datetime
-from pprint import pprint
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from matplotlib.figure import Figure
 from matplotlib_scalebar.scalebar import ScaleBar
-from plotly.subplots import make_subplots
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -171,7 +166,7 @@ class PDFReportGenerator:
         self.story.append(Image(buf, width=width, height=height))
         self.story.append(Spacer(1, 20))
 
-    def add_plotly_figure(self, fig: go.Figure, title=None, width=6.5*inch, height=4*inch) -> None:
+    def add_plotly_figure(self, fig: 'go.Figure', title=None, width=6.5*inch, height=4*inch) -> None:
         """Add a Plotly figure to the PDF"""
         if title:
             self.add_heading(title, 3)
@@ -740,152 +735,3 @@ def save_final_overview_image(exp: Experiment,
     fig.savefig(output_path, dpi=300)
 
     return fig
-
-
-
-######## legacy reporting - for old protocol – to be deleted ######
-
-
-def plot_multi_gantt(df: pd.DataFrame, color_by='piece_id', barmode='group') -> go.Figure:
-    """
-    Create a Gantt chart for multiple pieces/processes
-    
-    Parameters:
-    - df: DataFrame with columns [piece_id, step, timestamp, end_time]
-    - color_by: Column to use for color coding ('piece_id' or 'step')
-    - barmode: 'group' or 'overlay' for how bars should be displayed
-    """
-    fig = px.timeline(
-        df, 
-        x_start='start_time',
-        x_end='end_time',
-        y='step',
-        color=color_by,
-        # title='Multi-Process Timeline',
-        # hover_data=['duration']  # Uncomment to show duration in hover
-    )
-
-    # Update layout
-    fig.update_layout(
-        title_x=0.5,
-        xaxis_title='Time',
-        yaxis_title='Workflow Step',
-        height=400,
-        barmode=barmode,  # 'group' or 'overlay'
-        yaxis={'categoryorder': 'array', 
-               'categoryarray': df['step'].unique()},
-        showlegend=True,
-        # legend_title_text='Piece ID'
-    )
-
-    # Reverse y-axis so first step is at top
-    fig.update_yaxes(autorange="reversed")
-    
-    return fig
-
-def generate_workflow_steps_timeline(df: pd.DataFrame) -> Dict[str, go.Figure]:
-
-    timezone = datetime.now().astimezone().tzinfo
-
-    df["start_time"] = pd.to_datetime(df["timestamp"], unit="s").dt.tz_localize("UTC").dt.tz_convert(timezone)
-    df['end_time'] = df['start_time'] + pd.to_timedelta(df['duration'], unit='s')
-
-    # # drop step in Created, Finished
-    df = df[~df["stage"].isin(["Created", "PreSetupLamella", "SetupLamella", "PositionReady", "Finished"])]
-    # drop step in [STARTED, FINISHED, NULL_END]
-    df = df[~df["step"].isin(["STARTED", "FINISHED", "NULL_END"])]
-
-    WORKFLOW_STEPS_FIGURES = {}
-
-    for stage_name in df["stage"].unique():
-        df1 = df[df["stage"] == stage_name]
-        fig = plot_multi_gantt(df1, color_by='step', barmode='overlay')
-        
-        WORKFLOW_STEPS_FIGURES[stage_name] = fig
-
-    return WORKFLOW_STEPS_FIGURES    
-
-
-def generate_workflow_timeline(df: pd.DataFrame) -> go.Figure:
-
-    # drop rows with duration over 1 day
-    df = df[df["duration"] < 86400]
-
-    timezone = datetime.now().astimezone().tzinfo
-    df["start_time"] = pd.to_datetime(df["start"], unit="s").dt.tz_localize("UTC").dt.tz_convert(timezone)
-    df["end_time"] = pd.to_datetime(df["end"], unit="s").dt.tz_localize("UTC").dt.tz_convert(timezone)
-
-    df.rename({"stage": "step"}, axis=1, inplace=True)
-
-    # drop step in Created, Finished
-    df = df[~df["step"].isin(["Created", "Finished"])]
-
-    fig = plot_multi_gantt(df, color_by='step', barmode='overlay')
-    
-    return fig
-
-def generate_report_timeline(df: pd.DataFrame):
-    # plot time series with x= step_n and y = timestamp with step  as hover text
-    df.dropna(inplace=True)
-    df.duration = df.duration.astype(int)
-
-    # convert timestamp to datetime, aus timezone 
-    df.timestamp = pd.to_datetime(df.timestamp, unit="s")
-
-    # convert timestamp to current timezone
-     # get current timezone?
-    timezone = datetime.now().astimezone().tzinfo
-    df.timestamp = df.timestamp.dt.tz_localize("UTC").dt.tz_convert(timezone)
-
-    df.rename(columns={"stage": "Workflow"}, inplace=True)
-
-    fig_timeline = px.scatter(df, x="step_n", y="timestamp", color="Workflow", symbol="lamella",
-        # title="AutoLamella Timeline", 
-        hover_name="Workflow", hover_data=df.columns)
-        # size = "duration", size_max=20)
-    return fig_timeline
-
-def generate_interaction_timeline(df: pd.DataFrame) -> Optional[go.Figure]:
-
-    if len(df) == 0:
-        return None
-    
-    df.dropna(inplace=True)
-
-    # convert timestamp to datetime, aus timezone 
-    df.timestamp = pd.to_datetime(df.timestamp, unit="s")
-
-    # convert timestamp to australian timezone
-    timezone = datetime.now().astimezone().tzinfo
-    df.timestamp = df.timestamp.dt.tz_localize("UTC").dt.tz_convert(timezone)
-
-    df["magnitude"] = np.sqrt(df["dm_x"]**2 + df["dm_y"]**2)
-
-    fig_timeline = px.scatter(df, x="timestamp", y="magnitude", color="stage", symbol="type",
-        # title="AutoLamella Interaction Timeline", 
-        hover_name="stage", hover_data=df.columns,)
-        # size = "duration", size_max=20)
-
-    return fig_timeline
-
-def generate_duration_data(df: pd.DataFrame) -> Tuple[pd.DataFrame, go.Figure]:
-    df = df.copy()
-    df.rename(columns={"petname": "Name", "stage": "Workflow"}, inplace=True)
-
-    # convert duration to hr;min;sec
-    df["duration"] = pd.to_timedelta(df["duration"], unit='s')
-    df["Duration"] = df["duration"].apply(lambda x: f"{x.components.hours:02d}:{x.components.minutes:02d}:{x.components.seconds:02d}")
-
-    # drop Workflow in ["Created", "SetupLamella", "Finished"]
-    # TODO: better handling of SetupLamella
-    columns_to_drop = ["Created", "PositionReady","Finished"]
-    # if "ReadyLamella" in df["Workflow"].unique():
-        # print("DROPPING OLD STAGES")
-        # columns_to_drop = ["PreSetupLamella", "SetupLamella", "ReadyTrench", "Finished"]
-    df = df[~df["Workflow"].isin(columns_to_drop)]
-
-
-    fig_duration = px.bar(df, x="Name", y="duration", 
-                        color="Workflow", barmode="group")
-    
-    return df[["Name", "Workflow", "Duration"]], fig_duration
