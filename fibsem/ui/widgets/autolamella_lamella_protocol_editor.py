@@ -490,17 +490,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 "Move Point of Interest Here",
                 callback=lambda: self._on_point_of_interest_updated(point_clicked),
             )
-        config.add_action(
-            "Move All Patterns Here",
-            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked),
-        )
         selected_stage_name = self.milling_task_editor.config_widget.milling_editor_widget.selected_stage_name
-        move_selected_label = f"Move Selected Pattern Here ({selected_stage_name})" if selected_stage_name else "Move Selected Pattern"
-        config.add_action(
-            move_selected_label,
-            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked, move_all=False),
-        )
-
+        num_stages = len(self.milling_task_editor.config_widget.milling_editor_widget._milling_stages)
+        if num_stages > 1:
+            config.add_action(
+                "Move All Patterns Here",
+                callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked),
+            )
+        if selected_stage_name is not None and num_stages > 0:
+            config.add_action(
+                label=f"Move {selected_stage_name} Pattern Here",
+                callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked, move_all=False),
+            )
         menu = ContextMenu(config, parent=self)
         menu.show_at_cursor()
 
