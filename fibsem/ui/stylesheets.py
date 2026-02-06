@@ -306,3 +306,113 @@ QToolTip {
     border-radius: 3px;
 }
 """
+
+MILLING_PROGRESS_BAR_STYLESHEET = """
+            QProgressBar {
+                border: 1px solid #3d4251;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #1e2027;
+                color: #d6d6d6;
+            }
+            QProgressBar::chunk {
+                background-color: #4caf50;
+            }
+        """
+
+USER_ATTENTION_BUTTON_STYLESHEET = """
+            QPushButton {
+                background-color: #ff9800;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f57c00;
+            }
+            QPushButton:pressed {
+                background-color: #e65100;
+            }
+        """
+
+RUN_WORKFLOW_BUTTON_STYLESHEET = """
+            QPushButton {
+                background-color: #4caf50;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #388e3c;
+            }
+            QPushButton:pressed {
+                background-color: #2e7d32;
+            }
+            QPushButton:disabled {
+                background-color: #2d313b;
+                color: #6b6b6b;
+            }
+        """
+
+
+STOP_WORKFLOW_BUTTON_STYLESHEET = """
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+            QPushButton:pressed {
+                background-color: #b71c1c;
+            }
+        """
+
+SUPERVISION_STATUS_SUPERVISED_STYLESHEET = """
+                QPushButton {
+                    background-color: #2196f3;
+                    color: white;
+                    border: none;
+                    padding: 4px 12px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #1976d2;
+                }
+                QPushButton:pressed {
+                    background-color: #1565c0;
+                }
+            """
+
+SUPERVISION_STATUS_AUTOMATED_STYLESHEET = """
+                QPushButton {
+                    background-color: #4caf50;
+                    color: white;
+                    border: none;
+                    padding: 4px 12px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #388e3c;
+                }
+                QPushButton:pressed {
+                    background-color: #2e7d32;
+                }
+            """
+
+STATUS_BAR_STYLESHEET = """
+                QStatusBar {
+                    background-color: #1e2027;
+                        color: #d6d6d6;
+                        border-top: 1px solid #3d4251;
+                    }
+                """
