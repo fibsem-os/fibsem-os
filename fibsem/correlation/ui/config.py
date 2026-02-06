@@ -14,7 +14,7 @@ USER_PREFERENCES = {
     "default_path": PATH,
     "show_corresponding_points": True,
     "show_thick_dims": True,
-    "use_z_gauss_optim": True,
+    "use_z_gauss_optim": False,
     "use_mip": False,
 }
 
