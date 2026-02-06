@@ -713,10 +713,10 @@ def convert_shape_to_image_area(shape: List[List[int]], image_shape: Tuple[int, 
     logging.debug(f"convert shape data: {x0}, {x1}, {y0}, {y1}, fib shape: {image_shape}")
         
     # convert to percentage of image
-    x0 = x0 / image_shape[1]
-    x1 = x1 / image_shape[1]
-    y0 = y0 / image_shape[0]
-    y1 = y1 / image_shape[0]
+    x0 = float(x0 / image_shape[1])
+    x1 = float(x1 / image_shape[1])
+    y0 = float(y0 / image_shape[0])
+    y1 = float(y1 / image_shape[0])
     w = x1 - x0
     h = y1 - y0
 
