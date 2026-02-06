@@ -149,8 +149,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         super().__init__(parent)
         self.parent_widget = parent
         self.viewer = viewer
-        self.viewer.window._qt_viewer.dockLayerList.setVisible(False)
-        self.viewer.window._qt_viewer.dockLayerControls.setVisible(False)
 
         if self.parent_widget.microscope is None:
             return
