@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
 from fibsem.structures import ReferenceImageParameters
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.custom_widgets import WheelBlocker
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -103,6 +104,7 @@ class ReferenceImageParametersWidget(QWidget):
         self.fov1_spinbox.setSuffix(fov1_config["suffix"])
         self.fov1_spinbox.setToolTip(fov1_config["tooltip"])
         self.fov1_spinbox.setKeyboardTracking(False)  # Only emit signal when editing is finished
+        self.fov1_spinbox.installEventFilter(WheelBlocker(parent=self.fov1_spinbox))
 
         # Image 2 Options
         self.acquire_image2_label = QLabel("Acquire Image 2")
@@ -122,6 +124,7 @@ class ReferenceImageParametersWidget(QWidget):
         self.fov2_spinbox.setSuffix(fov2_config["suffix"])
         self.fov2_spinbox.setToolTip(fov2_config["tooltip"])
         self.fov2_spinbox.setKeyboardTracking(False)  # Only emit signal when editing is finished
+        self.fov2_spinbox.installEventFilter(WheelBlocker(parent=self.fov2_spinbox))
 
         # Info/Warning label for acquisition information
         self.info_label = QLabel()

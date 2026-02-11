@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 from fibsem.config import STANDARD_RESOLUTIONS_LIST
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ImageSettings
+from fibsem.ui.widgets.custom_widgets import WheelBlocker
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -73,11 +74,13 @@ class ImageSettingsWidget(QWidget):
         default_index = self.resolution_combo.findData(default_resolution)
         if default_index >= 0:
             self.resolution_combo.setCurrentIndex(default_index)
+        self.resolution_combo.installEventFilter(WheelBlocker(parent=self.resolution_combo))
         layout.addWidget(self.resolution_combo, 0, 1)
 
         # Dwell time
         layout.addWidget(QLabel("Dwell Time"), 1, 0)
         self.dwell_time_spinbox = QDoubleSpinBox()
+        self.dwell_time_spinbox.installEventFilter(WheelBlocker(parent=self.dwell_time_spinbox))
         dwell_config = WIDGET_CONFIG["dwell_time"]
         self.dwell_time_spinbox.setRange(*dwell_config["range"])
         self.dwell_time_spinbox.setDecimals(dwell_config["decimals"])
@@ -89,6 +92,7 @@ class ImageSettingsWidget(QWidget):
         # Field of View
         layout.addWidget(QLabel("Field of View"), 2, 0)
         self.hfw_spinbox = QDoubleSpinBox()
+        self.hfw_spinbox.installEventFilter(WheelBlocker(parent=self.hfw_spinbox))
         hfw_config = WIDGET_CONFIG["hfw"]
         self.hfw_spinbox.setRange(*hfw_config["range"])
         self.hfw_spinbox.setDecimals(hfw_config["decimals"])
@@ -101,6 +105,7 @@ class ImageSettingsWidget(QWidget):
         self.line_integration_label = QLabel("Line Integration")
         layout.addWidget(self.line_integration_label, 3, 0)
         self.line_integration_spinbox = QSpinBox()
+        self.line_integration_spinbox.installEventFilter(WheelBlocker(parent=self.line_integration_spinbox))
         line_config = WIDGET_CONFIG["line_integration"]
         self.line_integration_spinbox.setRange(*line_config["range"])
         self.line_integration_spinbox.setValue(line_config["default"])
@@ -110,6 +115,7 @@ class ImageSettingsWidget(QWidget):
         self.scan_interlacing_label = QLabel("Scan Interlacing")
         layout.addWidget(self.scan_interlacing_label, 4, 0)
         self.scan_interlacing_spinbox = QSpinBox()
+        self.scan_interlacing_spinbox.installEventFilter(WheelBlocker(parent=self.scan_interlacing_spinbox))
         scan_config = WIDGET_CONFIG["scan_interlacing"]
         self.scan_interlacing_spinbox.setRange(*scan_config["range"])
         self.scan_interlacing_spinbox.setValue(scan_config["default"])
@@ -119,6 +125,7 @@ class ImageSettingsWidget(QWidget):
         self.frame_integration_label = QLabel("Frame Integration")
         layout.addWidget(self.frame_integration_label, 5, 0)
         self.frame_integration_spinbox = QSpinBox()
+        self.frame_integration_spinbox.installEventFilter(WheelBlocker(parent=self.frame_integration_spinbox))
         frame_config = WIDGET_CONFIG["frame_integration"]
         self.frame_integration_spinbox.setRange(*frame_config["range"])
         self.frame_integration_spinbox.setValue(frame_config["default"])

@@ -22,7 +22,7 @@ from superqt import QCollapsible
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-
+from fibsem.ui.widgets.custom_widgets import WheelBlocker
 
 class ParameterWidget:
     """Base class for parameter editing widgets."""
@@ -69,6 +69,7 @@ class IntParameterWidget(ParameterWidget):
         self.widget.setRange(-2147483648, 2147483647)  # 32-bit int range
         self.widget.setValue(int(self.value))
         self.widget.setKeyboardTracking(False)
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
         return self.widget
 
     def get_value(self) -> int:
@@ -110,6 +111,7 @@ class FloatParameterWidget(ParameterWidget):
         self.widget.setRange(-1e10, 1e10)
         self.widget.setDecimals(2)
         self.widget.setKeyboardTracking(False)
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
         
         # Apply scaling for display (multiply by scale to show user-friendly values)
         display_value = float(self.value) * self.scale
@@ -165,6 +167,7 @@ class EnumParameterWidget(ParameterWidget):
                 current_index = i
                 break
         self.widget.setCurrentIndex(current_index)
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
         
         return self.widget
         
