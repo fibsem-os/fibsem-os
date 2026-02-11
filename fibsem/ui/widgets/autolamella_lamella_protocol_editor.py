@@ -322,41 +322,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
         self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
 
-        # background_milling_stages = []
-
-        # rough_milling_config = None
-        # polishing_config = None
-        # setup_milling_config = None
-
-        # setup_config = selected_lamella.task_config.get("Setup Lamella", None)
-        # if setup_config is not None and setup_config.milling:
-        #     setup_milling_config = setup_config.milling.get("fiducial", None)
-        # polishing = selected_lamella.task_config.get("Polishing", None)
-        # if polishing is not None and polishing.milling:
-        #     polishing_config = polishing.milling.get("mill_polishing", None)
-        # rough_milling = selected_lamella.task_config.get("Rough Milling", None)
-        # if rough_milling is not None and rough_milling.milling:
-        #     rough_milling_config = rough_milling.milling.get("mill_rough", None)
-
-        # if selected_stage_name == "Setup Lamella":
-        #     if polishing_config is not None:
-        #         background_milling_stages.extend(polishing_config.stages)
-        #     if rough_milling_config is not None:
-        #         background_milling_stages.extend(rough_milling_config.stages)
-        # elif selected_stage_name == "Rough Milling":
-        #     if polishing_config is not None:
-        #         background_milling_stages.extend(polishing_config.stages)
-        #     if setup_milling_config is not None:
-        #         background_milling_stages.extend(setup_milling_config.stages)
-        # elif selected_stage_name == "Polishing":
-        #     if rough_milling_config is not None:
-        #         background_milling_stages.extend(rough_milling_config.stages)
-        #     if setup_milling_config is not None:
-        #         background_milling_stages.extend(setup_milling_config.stages)
-
-        # self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
-        # self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
-
         if task_config.milling:
             self._on_milling_fov_changed(task_config.milling)
             self.milling_task_collapsible.setVisible(True)
@@ -373,6 +338,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_stage_name in [t.name for t in selected_lamella.task_history]:
             msg = f"Task '{selected_stage_name}' has been completed."
         self.label_status.setText(msg)
+
+        # draw point of interest
+        self._draw_point_of_interest(selected_lamella.poi)
 
     def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
         """Display a warning if the milling FoV does not match the image FoV."""
@@ -439,7 +407,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_lamella.poi = point
 
         # move patterns for tasks with sync_to_poi enabled
-        # self._sync_task_patterns_to_poi(selected_lamella, point)
+        self._sync_task_patterns_to_poi(selected_lamella, point)
         self._draw_point_of_interest(point)
 
         self._save_experiment()

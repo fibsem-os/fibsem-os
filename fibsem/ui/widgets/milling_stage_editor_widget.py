@@ -1038,7 +1038,7 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         selected_name = self.selected_stage_name or "Selected"
         config.add_action(
-            f"Move Selected Pattern Here ({selected_name})",
+            f"Move {selected_name} Here ({selected_name})",
             callback=lambda: self.move_patterns_to_point(point_clicked, move_all=False),
         )
 
