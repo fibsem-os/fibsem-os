@@ -174,10 +174,6 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
 class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillFiducialTask."""
 
-    use_fiducial: bool = field(
-        default=True,
-        metadata={"help": "Whether to mill a fiducial marker for alignment"},
-    )
     alignment_expansion: float = field(
         default=100.0,
         metadata={
@@ -189,7 +185,7 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Mill Fiducial"
 
     def __post_init__(self):
-        if self.milling == {} and self.use_fiducial:
+        if self.milling == {}:
             self.milling = deepcopy({FIDUCIAL_KEY: DEFAULT_MILLING_CONFIG[FIDUCIAL_KEY]})
 
 @dataclass
@@ -1058,25 +1054,18 @@ class MillFiducialTask(AutoLamellaTask):
         self._acquire_reference_image(image_settings, field_of_view=fiducial_task_config.field_of_view)
 
         # fiducial
-        if self.config.use_fiducial:
+        self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
+        msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
+        fiducial_task_config.alignment.rect = self.lamella.alignment_area
+        fiducial_task_config.acquisition.imaging.path = self.lamella.path
+        milling_task_config = self.update_milling_config_ui(fiducial_task_config, msg=msg)
+        self.config.milling[FIDUCIAL_KEY] = deepcopy(milling_task_config)
 
-            # mill the fiducial
-            self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
-            msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
-            fiducial_task_config.alignment.rect = self.lamella.alignment_area
-            fiducial_task_config.acquisition.imaging.path = self.lamella.path
-            milling_task_config = self.update_milling_config_ui(fiducial_task_config, msg=msg)
-            self.config.milling[FIDUCIAL_KEY] = deepcopy(milling_task_config)
-
-            alignment_hfw = milling_task_config.field_of_view
-            # get alignment area based on fiducial bounding box
-            self.lamella.alignment_area = get_pattern_reduced_area(pattern=milling_task_config.stages[0].pattern,
-                                                            image=FibsemImage.generate_blank_image(hfw=alignment_hfw),
-                                                            expand_percent=int(self.config.alignment_expansion))
-        else:
-            # non-fiducial based alignment
-            self.lamella.alignment_area = FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
-            alignment_hfw = self.config.reference_imaging.field_of_view1
+        alignment_hfw = milling_task_config.field_of_view
+        # get alignment area based on fiducial bounding box
+        self.lamella.alignment_area = get_pattern_reduced_area(pattern=milling_task_config.stages[0].pattern,
+                                                        image=FibsemImage.generate_blank_image(hfw=alignment_hfw),
+                                                        expand_percent=int(self.config.alignment_expansion))
 
         if not self.lamella.alignment_area.is_valid_reduced_area:
             raise ValueError(f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern.")
