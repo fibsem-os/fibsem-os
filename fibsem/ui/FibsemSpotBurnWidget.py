@@ -91,6 +91,25 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
         self.parent.image_widget.restore_active_layer_for_movement()
 
+    def update_parameters(self, parameters: dict):
+        """Update the parameters for the spot burn."""
+        milling_current = parameters.get("milling_current", None)
+        exposure_time = parameters.get("exposure_time", None)
+
+        if milling_current is not None:
+            index = self.comboBox_beam_current.findData(milling_current)
+            if index != -1:
+                self.comboBox_beam_current.setCurrentIndex(index)
+
+        if exposure_time is not None:
+            self.doubleSpinBox_exposure_time.setValue(exposure_time)
+
+    def clear_points_layer(self):
+        """Clear the points layer."""
+        if SPOT_BURN_POINTS_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers.remove(SPOT_BURN_POINTS_LAYER_NAME)
+            self.pts_layer = None
+
     def _on_data_changed(self, event = None):
         """Called when the data in the points layer changes."""
         coordinates = self.pts_layer.data

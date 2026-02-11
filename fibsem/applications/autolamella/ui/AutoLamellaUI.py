@@ -1680,6 +1680,11 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
+        spot_burn_parameters = info.get("spot_burn_parameters", None)
+        if spot_burn_parameters is not None and self.spot_burn_widget is not None:
+            self.spot_burn_widget.update_parameters(spot_burn_parameters)
+        if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
+            self.spot_burn_widget.clear_points_layer()
 
         milling_config = info.get("milling_config", None)
         if milling_config is not None:

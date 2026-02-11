@@ -54,6 +54,7 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
     update_status_ui,
 )
+from fibsem.applications.autolamella.workflows.ui import update_spot_burn_parameters, clear_spot_burn_ui
 from fibsem.detection.detection import (
     Feature,
     LamellaBottomEdge,
@@ -250,8 +251,8 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             'scale': 1
         }
     )
-    orientation: Literal["SEM", "FIB", "FM", None] = field(
-        default="FIB",
+    orientation: Literal["SEM", "FIB", "FM", "MILLING", None] = field(
+        default="MILLING",
         metadata={"help": "The orientation to perform spot burning in"},
     )
 
@@ -936,13 +937,25 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         # acquire images, set ui
         self._acquire_reference_image(image_settings, field_of_view=fcfg.REFERENCE_HFW_HIGH)
 
-        self.log_status_message("SPOT_BURN_FIDUCIAL")
+
+        # update the spot burn parameters in the UI # TODO: allow user to store spot positions?
+        params = deepcopy({"milling_current": self.config.milling_current, 
+                           "exposure_time": self.config.exposure_time})
+        self.update_spot_burn_parameters_ui(params)
+        
+        # acquire final reference images
+        self._acquire_set_of_reference_images(image_settings)
+
+    def update_spot_burn_parameters_ui(self, parameters: dict):
+        """Update the spot burn parameters in the UI."""
+        update_spot_burn_parameters(parent_ui=self.parent_ui, parameters=parameters)
+
         # ask the user to select the position/parameters for spot burns
         msg = f"Run the spot burn workflow for {self.lamella.name}. Press continue when finished."
         ask_user(self.parent_ui, msg=msg, pos="Continue", spot_burn=True)
 
-        # acquire final reference images
-        self._acquire_set_of_reference_images(image_settings)
+        # clear the spot burn parameters from the UI
+        clear_spot_burn_ui(self.parent_ui)
 
 
 class SelectMillingPositionTask(AutoLamellaTask):
