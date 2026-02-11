@@ -54,7 +54,8 @@ ml = [
     "transformers>=4.36.2",
 ]
 ui = [
-    "napari>=0.4.17,<=0.5.3",
+    "napari>=0.4.17; python_version < '3.9'",         # Python 3.8 support stops after 0.4.19
+    "napari>=0.5.1,<=0.6.6; python_version >= '3.9'", # NumPy 2 well supported from 0.5.1
     "pyqt5>=5.15.9",
     "matplotlib_scalebar>=0.8.1",
 ]
