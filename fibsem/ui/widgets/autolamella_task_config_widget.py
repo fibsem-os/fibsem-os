@@ -581,12 +581,11 @@ if __name__ == "__main__":
 
     from fibsem.applications.autolamella.workflows.tasks.tasks import (
         AcquireReferenceImageConfig,
-        SetupLamellaTaskConfig,
+        MillFiducialTaskConfig,
     )
 
     # Create test config
-    test_config = SetupLamellaTaskConfig(
-        milling_angle=15.0,
+    test_config = MillFiducialTaskConfig(
         use_fiducial=True
     )
     acquire_config = AcquireReferenceImageConfig()

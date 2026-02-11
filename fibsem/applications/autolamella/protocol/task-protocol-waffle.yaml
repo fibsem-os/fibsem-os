@@ -78,13 +78,11 @@ tasks:
             exposure_time: 10
             orientation: null
         milling: {}
-    Setup Lamella:
-        task_type: SETUP_LAMELLA
+    Mill Fiducial:
+        task_type: MILL_FIDUCIAL
         parameters:
-            milling_angle: 15
             use_fiducial: true
-            align_to_reference: true
-            alignment_expansion: 50
+            alignment_expansion: 100
         milling:
             fiducial:
                 name: Fiducial

@@ -170,16 +170,9 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
 
 
 @dataclass
-class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
-    """Configuration for the SetupLamellaTask."""
+class MillFiducialTaskConfig(AutoLamellaTaskConfig):
+    """Configuration for the MillFiducialTask."""
 
-    milling_angle: float = field(
-        default=15,
-        metadata={
-            "help": "The angle between the FIB and sample used for milling",
-            "units": constants.DEGREE_SYMBOL,
-        },
-    )
     use_fiducial: bool = field(
         default=True,
         metadata={"help": "Whether to mill a fiducial marker for alignment"},
@@ -191,8 +184,8 @@ class SetupLamellaTaskConfig(AutoLamellaTaskConfig):
             "units": "%",
         },
     )
-    task_type: ClassVar[str] = "SETUP_LAMELLA"
-    display_name: ClassVar[str] = "Setup Lamella"
+    task_type: ClassVar[str] = "MILL_FIDUCIAL"
+    display_name: ClassVar[str] = "Mill Fiducial"
 
     def __post_init__(self):
         if self.milling == {} and self.use_fiducial:
@@ -515,8 +508,9 @@ class AutoLamellaTask(ABC):
         ref_image = FibsemImage.load(full_filename)
         alignment.multi_step_alignment_v2(microscope=self.microscope, 
                                         ref_image=ref_image, 
-                                        beam_type=BeamType.ION, 
+                                        beam_type=BeamType.ION,
                                         alignment_current=None,
+                                        use_autocontrast=True,
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
                                         stop_event=self._stop_event)
 
@@ -621,7 +615,9 @@ class AutoLamellaTask(ABC):
         alignment_image_settings.save = True
         alignment_image_settings.hfw = field_of_view
         alignment_image_settings.filename = "ref_alignment"
-        alignment_image_settings.autocontrast = False # disable autocontrast for alignment
+        alignment_image_settings.resolution = (1536, 1024)
+        alignment_image_settings.dwell_time = 1e-6
+        alignment_image_settings.autocontrast = True # enable autocontrast for alignment
         fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
 
         return fib_image
@@ -1026,10 +1022,10 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.lamella.milling_pose = self.microscope.get_microscope_state()
 
 
-class SetupLamellaTask(AutoLamellaTask):
+class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
-    config: SetupLamellaTaskConfig
-    config_cls: ClassVar[Type[SetupLamellaTaskConfig]] = SetupLamellaTaskConfig
+    config: MillFiducialTaskConfig
+    config_cls: ClassVar[Type[MillFiducialTaskConfig]] = MillFiducialTaskConfig
 
     def _run(self) -> None:
         """Run the task to setup the lamella for milling."""
@@ -1041,53 +1037,12 @@ class SetupLamellaTask(AutoLamellaTask):
         # move to lamella milling position
         self._move_to_milling_pose()
 
-        self.log_status_message("SELECT_POSITION", "Selecting Position...")
-        milling_angle = self.config.milling_angle
-        is_close = self.microscope.is_close_to_milling_angle(milling_angle=milling_angle)
-
-        if not is_close and self.validate:
-            current_milling_angle = self.microscope.get_current_milling_angle()
-            ret = ask_user(parent_ui=self.parent_ui,
-                        msg=f"Tilt to specified milling angle ({milling_angle:.1f} {constants.DEGREE_SYMBOL})? "
-                        f"Current milling angle is {current_milling_angle:.1f} {constants.DEGREE_SYMBOL}.",
-                        pos="Tilt", neg="Skip")
-            if ret:
-                self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
-
-        self.lamella.milling_pose = self.microscope.get_microscope_state()
-
         # beam_shift alignment
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
-
-        self.log_status_message("SETUP_PATTERNS", "Setting up Lamella Patterns...")
-
-        rough_milling_task_config: Optional[FibsemMillingTaskConfig] = None
-        rough_milling_name = None
-        polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
-        polishing_milling_name = None
-        try:
-            # find MILL_ROUGH and MILL_POLISHING task configs
-            # we need to store these task names, so we can then update them if they are changed in the gui    
-            for task_name, task_config in self.lamella.task_config.items():
-                if task_config.task_type == MillRoughTaskConfig.task_type:
-                    rough_milling_task_config = task_config.milling[MILL_ROUGH_KEY]
-                    rough_milling_name = task_name
-                elif task_config.task_type == MillPolishingTaskConfig.task_type:
-                    polishing_milling_task_config = task_config.milling[MILL_POLISHING_KEY]
-                    polishing_milling_name = task_name
-        except Exception as e:
-            logging.warning(f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}")
 
         fiducial_task_config = self.config.milling[FIDUCIAL_KEY]
 
         self._acquire_reference_image(image_settings, field_of_view=fiducial_task_config.field_of_view)
-
-        # review rough milling pattern
-        if self.validate and rough_milling_task_config is not None and rough_milling_name is not None:
-            milling_task_config = self.update_milling_config_ui(rough_milling_task_config,
-                                                                msg=f"Review the rough milling pattern for {self.lamella.name}. Press Continue when done.",
-                                                                milling_enabled=False)
-            self.lamella.task_config[rough_milling_name].milling[MILL_ROUGH_KEY] = deepcopy(milling_task_config)
 
         # fiducial
         if self.config.use_fiducial:
@@ -1095,6 +1050,7 @@ class SetupLamellaTask(AutoLamellaTask):
             # mill the fiducial
             self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
             msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
+            fiducial_task_config.alignment.rect = self.lamella.alignment_area
             fiducial_task_config.acquisition.imaging.path = self.lamella.path
             milling_task_config = self.update_milling_config_ui(fiducial_task_config, msg=msg)
             self.config.milling[FIDUCIAL_KEY] = deepcopy(milling_task_config)
@@ -1112,36 +1068,32 @@ class SetupLamellaTask(AutoLamellaTask):
         if not self.lamella.alignment_area.is_valid_reduced_area:
             raise ValueError(f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern.")
 
-        # update alignment area
-        self.log_status_message("ACQUIRE_ALIGNMENT_IMAGE", "Acquiring Alignment Image...")
-        self.lamella.alignment_area = update_alignment_area_ui(alignment_area=self.lamella.alignment_area,
-                                                parent_ui=self.parent_ui,
-                                                msg="Drag to edit the Alignment Area. Press Continue when done.", 
-                                                validate=self.validate)
-
-        # set reduced area for fiducial alignment
-        image_settings.reduced_area = self.lamella.alignment_area
-
-        # acquire reference image for alignment
-        image_settings.beam_type = BeamType.ION
-        image_settings.save = True
-        image_settings.hfw = alignment_hfw
-        image_settings.filename = "ref_alignment"
-        image_settings.autocontrast = False # disable autocontrast for alignment
-        fib_image = acquire.acquire_image(self.microscope, image_settings)
-        image_settings.reduced_area = None
-        image_settings.autocontrast = True
-
-        # TODO: replace with method calls
-        # # validate alignment area
-        # self._validate_alignment_area()
+        # validate alignment area
+        self._validate_alignment_area()
 
         # # acquire alignment reference image
-        # self._acquire_alignment_reference_image(image_settings=image_settings,
-        #                               reduced_area=self.lamella.alignment_area,
-        #                               field_of_view=alignment_hfw)
+        self._acquire_alignment_reference_image(image_settings=image_settings,
+                                      reduced_area=self.lamella.alignment_area,
+                                      field_of_view=alignment_hfw)
 
         # sync alignment area to rough and polishing milling tasks (QUERY: should we sync all tasks?)
+        rough_milling_task_config: Optional[FibsemMillingTaskConfig] = None
+        rough_milling_name = None
+        polishing_milling_task_config: Optional[FibsemMillingTaskConfig] = None
+        polishing_milling_name = None
+        try:
+            # find MILL_ROUGH and MILL_POLISHING task configs
+            # we need to store these task names, so we can then update them if they are changed in the gui    
+            for task_name, task_config in self.lamella.task_config.items():
+                if task_config.task_type == MillRoughTaskConfig.task_type:
+                    rough_milling_task_config = task_config.milling[MILL_ROUGH_KEY]
+                    rough_milling_name = task_name
+                elif task_config.task_type == MillPolishingTaskConfig.task_type:
+                    polishing_milling_task_config = task_config.milling[MILL_POLISHING_KEY]
+                    polishing_milling_name = task_name
+        except Exception as e:
+            logging.warning(f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}")
+
         if rough_milling_task_config is not None and rough_milling_name is not None:
             self.lamella.task_config[rough_milling_name].milling[MILL_ROUGH_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
         if polishing_milling_task_config is not None and polishing_milling_name is not None:
@@ -1153,7 +1105,6 @@ class SetupLamellaTask(AutoLamellaTask):
         # store milling angle and pose
         self.lamella.milling_angle = self.microscope.get_current_milling_angle()
         self.lamella.milling_pose = self.microscope.get_microscope_state()
-
 
 class AcquireReferenceImageTask(AutoLamellaTask):
     """Task to acquire reference image with specified settings."""
@@ -1269,10 +1220,11 @@ TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = {
     MillRoughTaskConfig.task_type: MillRoughTask,
     MillPolishingTaskConfig.task_type: MillPolishingTask,
     SpotBurnFiducialTaskConfig.task_type: SpotBurnFiducialTask,
-    SetupLamellaTaskConfig.task_type: SetupLamellaTask,
+    MillFiducialTaskConfig.task_type: MillFiducialTask,
     AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
     BasicMillingTaskConfig.task_type: BasicMillingTask,
     SelectMillingPositionTaskConfig.task_type: SelectMillingPositionTask,
+    "SETUP_LAMELLA": MillFiducialTask, # BACKWARDS_COMPATIBILITY
     # Add other tasks here as needed
 }
 

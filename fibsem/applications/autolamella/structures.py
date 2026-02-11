@@ -379,7 +379,7 @@ class AutoLamellaTaskProtocol:
             MillRoughTaskConfig,
             MillTrenchTaskConfig,
             MillUndercutTaskConfig,
-            SetupLamellaTaskConfig,
+            MillFiducialTaskConfig,
         )
         protocol = AutoLamellaProtocol.load(path)
 
@@ -420,11 +420,10 @@ class AutoLamellaTaskProtocol:
                 milling={MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_POLISHING_KEY], name="Polishing")},
             )
 
-            setup_lamella_task = SetupLamellaTaskConfig(
+            setup_lamella_task = MillFiducialTaskConfig(
                 task_name=SETUP_LAMELLA_TASK_NAME,
                 milling={FIDUCIAL_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[FIDUCIAL_KEY], name="Fiducial")},
                 use_fiducial=protocol.options.use_fiducial,
-                milling_angle=protocol.options.milling_angle,
             )
 
             task_config[ROUGH_MILLING_TASK_NAME] = rough_milling_task

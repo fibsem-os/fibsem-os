@@ -121,7 +121,7 @@ def main():
         AcquireFluorescenceImageConfig,
         AcquireReferenceImageConfig,
         MillRoughTaskConfig,
-        SetupLamellaTaskConfig,
+        MillFiducialTaskConfig,
         SpotBurnFiducialTaskConfig,
     )
     protocol = AutoLamellaTaskProtocol(
@@ -141,9 +141,8 @@ def main():
                     milling_current=60e-12,
                     exposure_time=10,
                     orientation=None),
-    SETUP_LAMELLA_TASK: SetupLamellaTaskConfig(
+    SETUP_LAMELLA_TASK: MillFiducialTaskConfig(
         task_name=SETUP_LAMELLA_TASK,
-        milling_angle=15,
         use_fiducial=True,
     ),
     MILL_ROUGH_TASK: MillRoughTaskConfig(
