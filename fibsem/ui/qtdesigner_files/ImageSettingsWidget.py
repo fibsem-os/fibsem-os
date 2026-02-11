@@ -281,6 +281,12 @@ class Ui_Form(object):
         self.pushButton_stop_acquisition = QtWidgets.QPushButton(Form)
         self.pushButton_stop_acquisition.setObjectName("pushButton_stop_acquisition")
         self.gridLayout.addWidget(self.pushButton_stop_acquisition, 31, 1, 1, 1)
+        self.pushButton_run_autocontrast = QtWidgets.QPushButton(Form)
+        self.pushButton_run_autocontrast.setObjectName("pushButton_run_autocontrast")
+        self.gridLayout.addWidget(self.pushButton_run_autocontrast, 3, 0, 1, 1)
+        self.pushButton_run_autofocus = QtWidgets.QPushButton(Form)
+        self.pushButton_run_autofocus.setObjectName("pushButton_run_autofocus")
+        self.gridLayout.addWidget(self.pushButton_run_autofocus, 3, 1, 1, 1)
 
         self.retranslateUi(Form)
         QtCore.QMetaObject.connectSlotsByName(Form)
@@ -342,3 +348,5 @@ class Ui_Form(object):
         self.pushButton_take_all_images.setText(_translate("Form", "Acquire All Images"))
         self.pushButton_acquire_sem_image.setText(_translate("Form", "Acquire SEM Image"))
         self.pushButton_stop_acquisition.setText(_translate("Form", "Stop Acquisition"))
+        self.pushButton_run_autocontrast.setText(_translate("Form", "Run AutoContrast"))
+        self.pushButton_run_autofocus.setText(_translate("Form", "Run AutoFocus"))

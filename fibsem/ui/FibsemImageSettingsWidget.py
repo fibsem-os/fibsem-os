@@ -27,6 +27,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui import stylesheets as stylesheets
+from fibsem.ui.widgets.custom_widgets import WheelBlocker
 from fibsem.ui.napari.patterns import (
     convert_reduced_area_to_napari_shape,
     convert_shape_to_image_area,
@@ -136,12 +137,18 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.checkBox_advanced_settings.stateChanged.connect(self.toggle_mode)
         self.toggle_mode()
 
+        # auto functions
+        self.pushButton_run_autocontrast.clicked.connect(self.run_autocontrast)
+        self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
+
         # set ui stylesheets
         self.pushButton_acquire_sem_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         self.pushButton_acquire_fib_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         self.pushButton_take_all_images.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         self.set_detector_button.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
         self.button_set_beam_settings.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_run_autocontrast.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_run_autofocus.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
 
         self.IS_TESCAN = isinstance(self.microscope, TescanMicroscope)
         if self.IS_TESCAN:
@@ -185,6 +192,32 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.parent.comboBox_current_lamella.currentIndexChanged.connect(self._on_current_lamella_changed)
         except Exception as e:
             logging.debug(f"Error connecting to lamella selection changes: {e}")
+
+        # install wheel blockers on spinboxes and comboboxes
+        for widget in [
+            # imaging
+            self.comboBox_image_resolution,
+            self.comboBox_presets,
+            self.doubleSpinBox_image_dwell_time,
+            self.doubleSpinBox_image_hfw,
+            self.spinBox_image_line_integration,
+            self.spinBox_image_scan_interlacing,
+            self.spinBox_image_frame_integration,
+            # beam
+            self.selected_beam,
+            self.doubleSpinBox_working_distance,
+            self.doubleSpinBox_beam_current,
+            self.doubleSpinBox_beam_voltage,
+            self.doubleSpinBox_stigmation_x,
+            self.doubleSpinBox_stigmation_y,
+            self.doubleSpinBox_shift_x,
+            self.doubleSpinBox_shift_y,
+            self.spinBox_beam_scan_rotation,
+            # detector
+            self.detector_type_combobox,
+            self.detector_mode_combobox,
+        ]:
+            widget.installEventFilter(WheelBlocker(parent=widget))
 
         # feature flags
         self.pushButton_show_alignment_area.setVisible(False)
@@ -412,6 +445,34 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.microscope.blank(beam_type)
 
         self.update_beam_ui_components()
+
+    def run_autocontrast(self) -> None:
+        """Run autocontrast for the selected beam type."""
+        beam_type = BeamType[self.selected_beam.currentText()]
+        self._toggle_interactions(enable=False)
+        worker = self._autocontrast_worker(beam_type)
+        worker.finished.connect(lambda: self._on_auto_function_finished("AutoContrast"))
+        worker.start()
+
+    def run_autofocus(self) -> None:
+        """Run autofocus for the selected beam type."""
+        beam_type = BeamType[self.selected_beam.currentText()]
+        self._toggle_interactions(enable=False)
+        worker = self._autofocus_worker(beam_type)
+        worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus"))
+        worker.start()
+
+    @thread_worker
+    def _autocontrast_worker(self, beam_type: BeamType):
+        self.microscope.autocontrast(beam_type)
+
+    @thread_worker
+    def _autofocus_worker(self, beam_type: BeamType):
+        self.microscope.auto_focus(beam_type)
+
+    def _on_auto_function_finished(self, name: str) -> None:
+        self._toggle_interactions(enable=True)
+        napari.utils.notifications.show_info(f"{name} Complete")
 
     def update_beam_ui_components(self):
         """Update beam ui (on/off and blanked/unblanked)"""
