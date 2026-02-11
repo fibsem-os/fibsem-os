@@ -295,9 +295,32 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         task_config = selected_lamella.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
-        self.milling_task_editor.set_task_configs(task_config.milling)
         self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
 
+
+        # display milling stages from other tasks as background in the milling task editor for context
+        milling_task_config = copy.deepcopy(task_config.milling)
+        background_milling_stages = []
+
+        from fibsem.applications.autolamella.workflows.tasks.tasks import MillRoughTaskConfig, MillFiducialTaskConfig, MillPolishingTaskConfig
+        RELATED_TASK_CONFIGS = {
+            MillFiducialTaskConfig: [MillRoughTaskConfig, MillPolishingTaskConfig],
+            MillRoughTaskConfig: [MillFiducialTaskConfig, MillPolishingTaskConfig],
+            MillPolishingTaskConfig: [MillFiducialTaskConfig, MillRoughTaskConfig],
+        }
+
+        if type(task_config) in RELATED_TASK_CONFIGS:
+            related_configs = RELATED_TASK_CONFIGS[type(task_config)]
+            for related_task_name, related_task_config in selected_lamella.task_config.items():
+                if isinstance(related_task_config, tuple(related_configs)):
+                    cfg = selected_lamella.task_config.get(related_task_name, None)
+                    if cfg is not None and cfg.milling:
+                        for mcfg in cfg.milling.values():
+                            background_milling_stages.extend(mcfg.stages)
+
+        self.milling_task_editor.set_task_configs(milling_task_config)
+        self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
+        self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
 
         # background_milling_stages = []
 
@@ -508,7 +531,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _sync_task_patterns_to_poi(self, lamella: Lamella, point: Point):
         """Move milling patterns to the point of interest for tasks with sync_to_poi enabled."""
         synced_tasks = []
-        current_task_name = self.comboBox_selected_task.currentText()
 
         for task_name, task_config in lamella.task_config.items():
             # check if task has sync_to_poi enabled
@@ -527,12 +549,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
             synced_tasks.append(task_name)
 
-            # if currently viewing this task, update the display
-            if current_task_name == task_name:
-                self.milling_task_editor.set_task_configs(task_config.milling)
 
         if synced_tasks:
             logging.info(f"Synced patterns to POI for tasks: {synced_tasks}")
+            self._on_selected_task_changed()  # refresh milling task editor to show updated pattern positions
 
     def _save_experiment(self):
         """Save the experiment."""
