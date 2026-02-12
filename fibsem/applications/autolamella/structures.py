@@ -380,6 +380,7 @@ class AutoLamellaTaskProtocol:
             MillTrenchTaskConfig,
             MillUndercutTaskConfig,
             MillFiducialTaskConfig,
+            SelectMillingPositionTaskConfig,
         )
         protocol = AutoLamellaProtocol.load(path)
 
@@ -398,8 +399,9 @@ class AutoLamellaTaskProtocol:
         ROUGH_MILLING_TASK_NAME = "Rough Milling"
         POLISHING_TASK_NAME = "Polishing"
         TRENCH_MILLING_TASK_NAME = "Trench Milling"
-        SETUP_LAMELLA_TASK_NAME = "Setup Lamella"
+        MILL_FIDUCIAL_TASK_NAME = "Mill Fiducial"
         UNDERCUT_TASK_NAME = "Undercut"
+        SETUP_LAMELLA_POSITION_TASK_NAME = "Setup Lamella Position"
 
         workflow_config = AutoLamellaWorkflowConfig()
         task_config = EventedDict({})
@@ -420,19 +422,25 @@ class AutoLamellaTaskProtocol:
                 milling={MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_POLISHING_KEY], name="Polishing")},
             )
 
-            setup_lamella_task = MillFiducialTaskConfig(
-                task_name=SETUP_LAMELLA_TASK_NAME,
+            mill_fiducial_task = MillFiducialTaskConfig(
+                task_name=MILL_FIDUCIAL_TASK_NAME,
                 milling={FIDUCIAL_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[FIDUCIAL_KEY], name="Fiducial")},
-                use_fiducial=protocol.options.use_fiducial,
+            )
+            setup_lamella_task = SelectMillingPositionTaskConfig(
+                task_name=SETUP_LAMELLA_POSITION_TASK_NAME,
+                milling={},
+                milling_angle=protocol.options.milling_angle,
             )
 
             task_config[ROUGH_MILLING_TASK_NAME] = rough_milling_task
             task_config[POLISHING_TASK_NAME] = polishing_milling_task
-            task_config[SETUP_LAMELLA_TASK_NAME] = setup_lamella_task
+            task_config[MILL_FIDUCIAL_TASK_NAME] = mill_fiducial_task
+            task_config[SETUP_LAMELLA_POSITION_TASK_NAME] = setup_lamella_task
 
             workflow_config.tasks = [
-                AutoLamellaTaskDescription(name=SETUP_LAMELLA_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
-                AutoLamellaTaskDescription(name=ROUGH_MILLING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillRough], required=True, requires=[SETUP_LAMELLA_TASK_NAME]),
+                AutoLamellaTaskDescription(name=SETUP_LAMELLA_POSITION_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
+                AutoLamellaTaskDescription(name=MILL_FIDUCIAL_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
+                AutoLamellaTaskDescription(name=ROUGH_MILLING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillRough], required=True, requires=[MILL_FIDUCIAL_TASK_NAME]),
                 AutoLamellaTaskDescription(name=POLISHING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillPolishing], required=True, requires=[ROUGH_MILLING_TASK_NAME]),
             ]
 
