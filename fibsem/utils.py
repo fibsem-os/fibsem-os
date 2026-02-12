@@ -26,6 +26,41 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
+# Python 3.8 compatibility helpers
+def removesuffix(s: str, suffix: str) -> str:
+    """Remove suffix from string (Python 3.8 compatible).
+    
+    Polyfill for str.removesuffix() which was added in Python 3.9.
+    
+    Args:
+        s: The string to process
+        suffix: The suffix to remove
+        
+    Returns:
+        String with suffix removed if it exists, otherwise the original string
+    """
+    if suffix and s.endswith(suffix):
+        return s[:-len(suffix)]
+    return s
+
+
+def removeprefix(s: str, prefix: str) -> str:
+    """Remove prefix from string (Python 3.8 compatible).
+    
+    Polyfill for str.removeprefix() which was added in Python 3.9.
+    
+    Args:
+        s: The string to process
+        prefix: The prefix to remove
+        
+    Returns:
+        String with prefix removed if it exists, otherwise the original string
+    """
+    if prefix and s.startswith(prefix):
+        return s[len(prefix):]
+    return s
+
+
 def current_timestamp():
     """Returns current time in a specific string format
 

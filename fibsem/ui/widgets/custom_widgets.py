@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from difflib import get_close_matches
 from enum import Enum
 from typing import Optional, Union
 
@@ -63,6 +64,42 @@ class QFilePathLineEdit(QWidget):
         self.lineEdit.setText(text)
 
 
+def _find_closest_string_match(value: str, items: list) -> any:
+    """Find the closest matching string value from a list of items using fuzzy matching.
+    
+    Args:
+        value: The value to match
+        items: List of items to search through
+        
+    Returns:
+        The closest matching item from the list
+    """
+    if not items:
+        return value
+    
+    str_value = str(value).lower()
+    str_items = [str(item).lower() for item in items]
+    
+    # Try exact match (case-insensitive)
+    for item, str_item in zip(items, str_items):
+        if str_item == str_value:
+            return item
+    
+    # Try fuzzy matching with difflib
+    matches = get_close_matches(str_value, str_items, n=1, cutoff=0.6)
+    if matches:
+        idx = str_items.index(matches[0])
+        return items[idx]
+    
+    # Try substring match (bidirectional)
+    for item, str_item in zip(items, str_items):
+        if str_value in str_item or str_item in str_value:
+            return item
+    
+    # No match found
+    raise ValueError(f"No matching item found for value '{value}' in items {items}")
+
+
 def _create_combobox_control(value: Union[str, int, float, Enum], 
                              items: list, 
                              units: Optional[str], 
@@ -83,17 +120,29 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
     if isinstance(value, tuple) and len(value) == 2:
         value = list(value)  # Convert tuple to list for easier handling
 
-    # find the closest match to the current value (should only be used for numerical values)
+    # find the closest match to the current value
     idx = control.findData(value)
     if idx == -1:
         # get the closest value
-        closest_value = min(items, key=lambda x: abs(x - value))
+        if items:
+            if isinstance(value, (int, float)) and all(isinstance(x, (int, float)) for x in items):
+                # numeric comparison
+                closest_value = min(items, key=lambda x: abs(x - value))
+            else:
+                # string comparison - use fuzzy matching for better results
+                closest_value = _find_closest_string_match(str(value), items)
+        else:
+            closest_value = value
         idx = control.findData(closest_value)
     if idx == -1:
         logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
         idx = 0
     control.setCurrentIndex(idx)
-    control.installEventFilter(WheelBlocker(parent=control))
+    
+    try:
+        control.installEventFilter(WheelBlocker(parent=control))
+    except (ImportError, AttributeError, NameError) as e:
+        logging.warning(f"Failed to install WheelBlocker event filter: {e}")
 
     return control
 
