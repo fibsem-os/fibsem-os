@@ -41,10 +41,10 @@ from fibsem.applications.autolamella.protocol.validation import (
     UNDERCUT_KEY,
 )
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaStage,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.protocol.legacy import AutoLamellaStage
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     set_images_ui,

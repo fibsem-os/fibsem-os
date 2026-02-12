@@ -16,9 +16,6 @@ from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.protocol.legacy import (
-    AutoLamellaStage,
-)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
