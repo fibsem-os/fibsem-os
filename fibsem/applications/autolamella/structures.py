@@ -111,6 +111,7 @@ class AutoLamellaTaskConfig(ABC):
     """Configuration for AutoLamella tasks."""
     task_type: ClassVar[str]
     display_name: ClassVar[str]
+    related_tasks: ClassVar[list[type['AutoLamellaTaskConfig']]] = []
     task_name: str = "" # unique name for identifying in multi-task workflows
     milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
     reference_imaging: ReferenceImageParameters = field(default_factory=ReferenceImageParameters)
@@ -887,6 +888,104 @@ class Experiment:
                 logging.warning(f"Failed to load task protocol from {protocol_path}: {e}")
 
         return experiment
+
+    def apply_lamella_config(
+        self,
+        lamella_names: List[str],
+        task_names: List[str],
+        source_lamella_name: Optional[str] = None,
+        update_base_protocol: bool = False,
+    ) -> int:
+        """Apply task configurations to lamella, preserving existing milling pattern positions.
+
+        If source_lamella_name is provided, copies from that lamella's config.
+        If None, copies from the base protocol.
+
+        Args:
+            lamella_names: Names of the target lamella to apply configurations to.
+            task_names: The task names to apply.
+            source_lamella_name: Name of the source lamella. If None, uses the base protocol.
+            update_base_protocol: Whether to also update the base protocol.
+
+        Returns:
+            The number of lamella updated.
+        """
+        # Resolve the source task config
+        if source_lamella_name is not None:
+            source_lamella = next(
+                (p for p in self.positions if p.name == source_lamella_name), None
+            )
+            if source_lamella is None:
+                logging.warning(f"Source lamella '{source_lamella_name}' not found.")
+                return 0
+            source_task_config = source_lamella.task_config
+            source_display_name = source_lamella_name
+        else:
+            if self.task_protocol is None:
+                logging.warning("No base protocol available.")
+                return 0
+            source_task_config = self.task_protocol.task_config
+            source_display_name = "base protocol"
+
+        target_names = set(lamella_names)
+        updated_count = 0
+        for lamella in self.positions:
+            if lamella.name not in target_names:
+                continue
+
+            for task_name in task_names:
+                source_config = source_task_config.get(task_name)
+                if source_config is None:
+                    continue
+
+                new_config = deepcopy(source_config)
+                existing_config = lamella.task_config.get(task_name)
+
+                # Preserve existing milling pattern positions
+                if existing_config is not None and new_config.milling:
+                    for milling_name, new_milling_config in new_config.milling.items():
+                        existing_milling_config = existing_config.milling.get(milling_name)
+                        if existing_milling_config is None:
+                            continue
+
+                        existing_stage_lookup = {
+                            (stage.num, stage.name): stage
+                            for stage in existing_milling_config.stages
+                        }
+
+                        for new_stage in new_milling_config.stages:
+                            existing_stage = existing_stage_lookup.get(
+                                (new_stage.num, new_stage.name)
+                            )
+                            if existing_stage is None:
+                                continue
+
+                            if (
+                                type(existing_stage.pattern) is type(new_stage.pattern)
+                                and hasattr(existing_stage.pattern, "point")
+                            ):
+                                new_stage.pattern.point = deepcopy(
+                                    existing_stage.pattern.point
+                                )
+
+                lamella.task_config[task_name] = new_config
+
+            updated_count += 1
+            logging.info(
+                f"Applied config from '{source_display_name}' to '{lamella.name}' "
+                f"for tasks: {task_names}"
+            )
+
+        # Update base protocol if requested (skip if source is already the base protocol)
+        if update_base_protocol and self.task_protocol is not None and source_lamella_name is not None:
+            for task_name in task_names:
+                if task_name in source_task_config:
+                    self.task_protocol.task_config[task_name] = deepcopy(
+                        source_task_config[task_name]
+                    )
+            logging.info(f"Updated base protocol tasks: {task_names}")
+
+        return updated_count
 
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""

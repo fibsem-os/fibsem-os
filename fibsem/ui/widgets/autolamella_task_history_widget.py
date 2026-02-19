@@ -102,7 +102,7 @@ def main():
     ACQUIRE_REFERENCE_TASK = "Acquire Reference Image (FIB)"
     SPOT_BURN_TASK = "Spot Burn Fiducial"
     FLUORESCENCE_TASK = "Acquire Fluorescence Image"
-    SETUP_LAMELLA_TASK = "Setup Lamella (Mill Fiducial)"
+    MILL_FIDUCIAL_TASK = "Mill Fiducial"
     MILL_ROUGH_TASK = "Rough Milling"
     from fibsem.applications.autolamella.protocol.constants import (
         FIDUCIAL_KEY,
@@ -141,8 +141,9 @@ def main():
                     milling_current=60e-12,
                     exposure_time=10,
                     orientation=None),
-    SETUP_LAMELLA_TASK: MillFiducialTaskConfig(
-        task_name=SETUP_LAMELLA_TASK,
+    MILL_FIDUCIAL_TASK: MillFiducialTaskConfig(
+        task_name=MILL_FIDUCIAL_TASK,
+        alignment_expansion=100,
         use_fiducial=True,
     ),
     MILL_ROUGH_TASK: MillRoughTaskConfig(
@@ -153,8 +154,8 @@ def main():
         AutoLamellaTaskDescription(name=ACQUIRE_REFERENCE_TASK, supervise=False, required=False),
         AutoLamellaTaskDescription(name=SPOT_BURN_TASK, supervise=False, required=False),
         AutoLamellaTaskDescription(name=FLUORESCENCE_TASK, supervise=False, required=False),
-        AutoLamellaTaskDescription(name=SETUP_LAMELLA_TASK, supervise=True, required=True),
-        AutoLamellaTaskDescription(name=MILL_ROUGH_TASK, supervise=True, required=True, requires=[SETUP_LAMELLA_TASK])
+        AutoLamellaTaskDescription(name=MILL_FIDUCIAL_TASK, supervise=True, required=True),
+        AutoLamellaTaskDescription(name=MILL_ROUGH_TASK, supervise=True, required=True, requires=[MILL_FIDUCIAL_TASK])
         ])
         )
 

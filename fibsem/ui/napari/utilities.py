@@ -472,7 +472,7 @@ def create_circle_shape(
     shape = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]
     return np.array(shape)
 
-def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> None:
+def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, objective_position: float | None = None) -> None:
     """Update the text overlay in the napari viewer with current stage position and orientation.
     Args:
         viewer: napari viewer object
@@ -489,7 +489,8 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope) -> 
         milling_angle = microscope.get_current_milling_angle()
         obj_txt = ""
         if microscope.fm is not None:
-            objective_position = microscope.fm.objective.position
+            if objective_position is None:
+                objective_position = microscope.fm.objective.position
             obj_txt = f"OBJECTIVE: {objective_position*1e3:.3f} mm"
 
         # Create combined text for overlay

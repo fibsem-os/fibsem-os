@@ -18,9 +18,9 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
-    QTabWidget,
 )
 from superqt import QCollapsible
 from fibsem import conversions
@@ -37,7 +37,7 @@ from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaG
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
-from fibsem.ui.widgets.autolamella_lamella_protocol_editor import AutoLamellaProtocolEditorWidget
+from fibsem.ui.widgets.autolamella_lamella_protocol_editor import AutoLamellaProtocolEditorWidget, REFERENCE_IMAGE_LAYER_NAME
 from fibsem.ui.widgets.autolamella_workflow_widget import AutoLamellaWorkflowWidget
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
@@ -220,6 +220,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_sync_to_lamella.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
         self.pushButton_sync_to_lamella.setToolTip("Update all existing lamella with the current task configuration")
 
+        self.pushButton_open_global_editor = QPushButton("Global Edit")
+        self.pushButton_open_global_editor.setToolTip("Globally edit reference imaging settings and milling FoV across multiple tasks.")
+
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setVisible(False)
@@ -229,6 +232,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.button_layout.addWidget(self.pushButton_add_task, 0, 0)
         self.button_layout.addWidget(self.pushButton_remove_task, 0, 1)
         self.button_layout.addWidget(self.pushButton_sync_to_lamella, 1, 0, 1, 2)
+        self.button_layout.addWidget(self.pushButton_open_global_editor, 2, 0, 1, 2)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addWidget(self.label_protocol_name, 0, 0)
@@ -270,10 +274,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_add_task.clicked.connect(self._on_add_task_clicked)
         self.pushButton_remove_task.clicked.connect(self._on_remove_task_clicked)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
+        self.pushButton_open_global_editor.clicked.connect(self._on_global_edit_clicked)
         self.lineEdit_protocol_name.editingFinished.connect(self._on_protocol_name_changed)
         self.lineEdit_protocol_description.editingFinished.connect(self._on_protocol_description_changed)
         self.lineEdit_protocol_version.editingFinished.connect(self._on_protocol_version_changed)
-        
+
         if cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
             self.viewer.mouse_drag_callbacks.append(self._on_single_click)
 
@@ -330,51 +335,13 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # clear existing image layers
         self.viewer.layers.clear()
         self.image = FibsemImage.generate_blank_image(hfw=field_of_view, random=True)
-        self.viewer.add_image(self.image.filtered_data, name="Reference Image (FIB)", colormap='gray')
+        self.viewer.add_image(self.image.filtered_data, name=REFERENCE_IMAGE_LAYER_NAME, colormap='gray')
 
         self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
         self.viewer.reset_view()
 
         # set milling task config
         self.milling_task_editor.set_task_configs(task_config.milling)
-
-
-        # # TODO: turn this into a helper function to get background milling stages -> background = related stages
-        # # depending on selected stage
-        # background_milling_stages = []
-
-        # rough_milling_config = None
-        # polishing_config = None
-        # setup_milling_config = None
-
-        # setup_config = self.experiment.task_protocol.task_config.get("Setup Lamella", None)
-        # if setup_config is not None and setup_config.milling:
-        #     setup_milling_config = setup_config.milling.get("fiducial", None)
-        # polishing = self.experiment.task_protocol.task_config.get("Polishing", None)
-        # if polishing is not None and polishing.milling:
-        #     polishing_config = polishing.milling.get("mill_polishing", None)
-        # rough_milling = self.experiment.task_protocol.task_config.get("Rough Milling", None)
-        # if rough_milling is not None and rough_milling.milling:
-        #     rough_milling_config = rough_milling.milling.get("mill_rough", None)
-
-        # if selected_stage_name == "Setup Lamella":
-        #     if polishing_config is not None:
-        #         background_milling_stages.extend(polishing_config.stages)
-        #     if rough_milling_config is not None:
-        #         background_milling_stages.extend(rough_milling_config.stages)
-        # elif selected_stage_name == "Rough Milling":
-        #     if polishing_config is not None:
-        #         background_milling_stages.extend(polishing_config.stages)
-        #     if setup_milling_config is not None:
-        #         background_milling_stages.extend(setup_milling_config.stages)
-        # elif selected_stage_name == "Polishing":
-        #     if rough_milling_config is not None:
-        #         background_milling_stages.extend(rough_milling_config.stages)
-        #     if setup_milling_config is not None:
-        #         background_milling_stages.extend(setup_milling_config.stages)
-
-        # self.milling_task_editor.config_widget.set_background_milling_stages(background_milling_stages)
-        # self.milling_task_editor.config_widget.milling_editor_widget.update_milling_stage_display()
 
         if task_config.milling:
             self._on_milling_fov_changed(task_config.milling)
@@ -389,7 +356,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         try:
             key = list(config.keys())[0]
             milling_fov = config[key].field_of_view
-            image_hfw = self.milling_task_editor.config_widget.milling_editor_widget.image.metadata.image_settings.hfw
+            image_hfw = self.milling_task_editor.config_widget.milling_editor_widget.image.metadata.image_settings.hfw # type: ignore
             if not np.isclose(milling_fov, image_hfw):
                 milling_fov_um = format_value(milling_fov, unit='m', precision=0)
                 image_fov_um = format_value(image_hfw, unit='m', precision=0)
@@ -430,11 +397,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_ref_image_settings_changed(self, settings: ReferenceImageParameters):
         """Callback when the image settings are changed."""
-        # # Update the image settings in the task config
+        # Update the image settings in the task config
         selected_task_name = self.comboBox_selected_task.currentText()
         self.experiment.task_protocol.task_config[selected_task_name].reference_imaging = settings
 
-        # # Save the experiment
+        # Save the experiment
         self._save_experiment()
 
     def _save_experiment(self):
@@ -460,7 +427,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             if task_type and task_name:
                 # Create new task config from registry
                 task_cls = TASK_REGISTRY[task_type]
-                new_task_config = task_cls.config_cls()
+                new_task_config = task_cls.config_cls()  # type: ignore
                 new_task_config.task_name = task_name
 
                 # Add to experiment
@@ -477,7 +444,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 # Refresh widgets
                 self._initialise_widgets()
                 self.comboBox_selected_task.setCurrentText(task_name)
-
                 logging.info(f"Added new task: {task_name} ({task_type})")
 
     def _on_remove_task_clicked(self):
@@ -521,8 +487,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             update_lamella = dialog.checkbox_update_existing.isChecked()
             if update_lamella:
                 selected_task_names = dialog.get_selected_tasks()
-                for task_name in selected_task_names:
-                    self._sync_existing_lamella_task_config(task_name)
+                all_lamella_names = [p.name for p in self.experiment.positions]
+                self.experiment.apply_lamella_config(
+                    lamella_names=all_lamella_names,
+                    task_names=selected_task_names,
+                )
 
             # Save the experiment
             self._save_experiment()
@@ -598,8 +567,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         if reply == QMessageBox.Yes:
 
-            # Perform the sync
-            updated_count = self._sync_existing_lamella_task_config(selected_task_name)
+            # Perform the sync (from base protocol to all lamella)
+            all_lamella_names = [p.name for p in self.experiment.positions]
+            updated_count = self.experiment.apply_lamella_config(
+                lamella_names=all_lamella_names,
+                task_names=[selected_task_name],
+            )
 
             # Save the experiment
             self._save_experiment()
@@ -613,56 +586,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
             logging.info(f"Synced task configuration '{selected_task_name}' to {updated_count} lamella")
 
-    def _sync_existing_lamella_task_config(self, selected_task_name: str):
-        """Sync the current task configuration to all existing lamella, preserving milling pattern positions.
-        Args:
-            selected_task_name (str): The name of the task to sync.
-        Returns:
-            int: The number of lamella updated.
-        """
-        # TODO: add selective lamella selection instead of all lamella
-        # TODO: add a two way sync option to also update the protocol from lamella
-
-        # Get the current task config
-        current_task_config = self.experiment.task_protocol.task_config[selected_task_name]
-
-        # Update task_config for each lamella
-        updated_count = 0
-        for lamella in self.experiment.positions:
-            existing_task_config = lamella.task_config.get(selected_task_name)
-            new_task_config = copy.deepcopy(current_task_config)
-
-            if existing_task_config is not None:
-                for milling_name, new_milling_config in new_task_config.milling.items():
-                    existing_milling_config = existing_task_config.milling.get(milling_name)
-                    if existing_milling_config is None:
-                        continue
-
-                    existing_stage_lookup = {
-                        (stage.num, stage.name): stage for stage in existing_milling_config.stages
-                    }
-
-                    for new_stage in new_milling_config.stages:
-                        existing_stage = existing_stage_lookup.get((new_stage.num, new_stage.name))
-                        if existing_stage is None:
-                            continue
-
-                        if (
-                            type(existing_stage.pattern) is type(new_stage.pattern)
-                            and hasattr(existing_stage.pattern, "point")
-                        ):
-                            new_stage.pattern.point = copy.deepcopy(existing_stage.pattern.point)
-
-            # Deep copy the task config to avoid reference issues
-            lamella.task_config[selected_task_name] = new_task_config
-            updated_count += 1
-
-        return updated_count
-
     def _on_single_click(self, viewer, event):
         """Handle single click events in the viewer."""
 
-        if "Reference Image (FIB)" not in self.viewer.layers:
+        if REFERENCE_IMAGE_LAYER_NAME not in self.viewer.layers:
             return
 
         if event.button != 2 or event.type != "mouse_press":  # Right click only
@@ -679,7 +606,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         event.handled = True
 
         # convert from image coordinates to microscope coordinates
-        coords = self.viewer.layers["Reference Image (FIB)"].world_to_data(
+        coords = self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].world_to_data(
             event.position
         )
 
@@ -697,31 +624,21 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         # Show context menu
         config = ContextMenuConfig()
-        config.add_action(
-            "Move All Patterns Here",
-            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(
-                point_clicked
-            ),
-        )
         selected_stage_name = self.milling_task_editor.config_widget.milling_editor_widget.selected_stage_name
-        move_selected_label = (
-            f"Move Selected Pattern Here ({selected_stage_name})"
-            if selected_stage_name
-            else "Move Selected Pattern"
-        )
-        config.add_action(
-            move_selected_label,
-            callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(
-                point_clicked, move_all=False
-            ),
-        )
+        num_stages = len(self.milling_task_editor.config_widget.milling_editor_widget._milling_stages)
+        if num_stages > 1:
+            config.add_action(
+                "Move All Patterns Here",
+                callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked),
+            )
+        if selected_stage_name is not None and num_stages > 0:
+            config.add_action(
+                label=f"Move {selected_stage_name} Pattern Here",
+                callback=lambda: self.milling_task_editor.config_widget.milling_editor_widget.move_patterns_to_point(point_clicked, move_all=False),
+            )
 
         menu = ContextMenu(config, parent=self)
         menu.show_at_cursor()
-
-
-    # TODO: we should integrate both milling and parameter updates into a single config update method
-    # TODO: support position sync between milling tasks, e.g. sync trench position between rough milling and polishing
 
 
 class AutoLamellaProtocolEditorTabWidget(QWidget):

@@ -51,6 +51,7 @@ def setup_milling(
             steps=milling_stage.alignment.steps,
             use_autocontrast=milling_stage.alignment.use_autocontrast,
             use_autofocus=milling_stage.alignment.use_autofocus,
+            plot_title=f"{milling_stage.name} - {milling_stage.milling.milling_current*1e9:.2e}nA",
         )  # high current -> damaging
 
 

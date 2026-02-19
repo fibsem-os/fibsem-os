@@ -387,6 +387,12 @@ class FibsemMillingTaskWidget(QWidget):
 
         self.config_widget.set_background_milling_stages(background_stages)
 
+    def remove_all_tasks(self):
+        """Remove all task configurations from the widget."""
+        self._task_configs.clear()
+        self._populate_task_list()
+        self.task_configs_changed.emit(self._task_configs)
+
     def set_movement_lock(self, locked: bool):
         """Set whether movement is locked in the milling stage editor.
 

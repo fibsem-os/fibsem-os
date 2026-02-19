@@ -9,7 +9,6 @@ tasks:
     Mill Fiducial:
         task_type: MILL_FIDUCIAL
         parameters:
-            use_fiducial: true
             alignment_expansion: 100
         milling:
             fiducial:
@@ -59,7 +58,7 @@ tasks:
                             y: 0.0
                             name: null
                         width: 1.0e-05
-                        depth: 6.5e-07
+                        depth: 2.0e-06
                         spacing: 4.6e-06
                         upper_trench_height: 3.5e-06
                         lower_trench_height: 3.5e-06
@@ -79,7 +78,7 @@ tasks:
                             y: 0.0
                             name: null
                         width: 9.5e-06
-                        depth: 6.5e-07
+                        depth: 2.0e-06
                         spacing: 1.6e-06
                         upper_trench_height: 2.0e-06
                         lower_trench_height: 2.0e-06
@@ -128,7 +127,7 @@ tasks:
                             y: 0.0
                             name: null
                         width: 9.0e-06
-                        depth: 4.0e-07
+                        depth: 1.0e-06
                         spacing: 3.0e-07
                         upper_trench_height: 7.0e-07
                         lower_trench_height: 7.0e-07
