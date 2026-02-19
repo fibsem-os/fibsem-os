@@ -588,9 +588,7 @@ if __name__ == "__main__":
     )
 
     # Create test config
-    test_config = MillFiducialTaskConfig(
-        use_fiducial=True
-    )
+    test_config = MillFiducialTaskConfig()
     acquire_config = AcquireReferenceImageConfig()
     # test_config = DEFAULT_PROTOCOL.task_config['MILL_ROUGH']
 
