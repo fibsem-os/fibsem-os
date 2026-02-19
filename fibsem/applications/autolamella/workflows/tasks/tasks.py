@@ -1216,6 +1216,10 @@ def get_task_config(task_type: str) -> Type[AutoLamellaTaskConfig]:
         raise TaskNotRegisteredError(task_type)
     return TASK_REGISTRY[task_type].config_cls  # type: ignore
 
+# related tasks (must be defined after task definitions, due to circular nature)
+MillFiducialTaskConfig.related_tasks = [MillRoughTaskConfig, MillPolishingTaskConfig]
+MillRoughTaskConfig.related_tasks = [MillFiducialTaskConfig, MillPolishingTaskConfig]
+MillPolishingTaskConfig.related_tasks = [MillFiducialTaskConfig, MillRoughTaskConfig]
 
 TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = {
     MillTrenchTaskConfig.task_type: MillTrenchTask,

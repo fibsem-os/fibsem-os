@@ -584,7 +584,7 @@ class DemoMicroscope(FibsemMicroscope):
             return STAGE_LIMITS_COMPUSTAGE
         return STAGE_LIMITS_DEFAULT
 
-    def move_stage_absolute(self, position: FibsemStagePosition) -> None:
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to the specified position."""
 
         # only assign if not None
