@@ -503,13 +503,14 @@ class AutoLamellaTask(ABC):
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        alignment.multi_step_alignment_v2(microscope=self.microscope, 
+        alignment.multi_step_alignment_v2(microscope=self.microscope,
                                         ref_image=ref_image, 
                                         beam_type=BeamType.ION,
                                         alignment_current=None,
                                         use_autocontrast=True,
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
-                                        stop_event=self._stop_event)
+                                        stop_event=self._stop_event,
+                                        plot_title=f"{self.lamella.name} - {self.task_name}")
 
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""

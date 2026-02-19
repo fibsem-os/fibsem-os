@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from typing import Optional, Tuple, Union
 
@@ -19,6 +20,8 @@ from fibsem.structures import (
 )
 from threading import Event as ThreadingEvent
 
+
+ALIGNMENT_SUBDIR = "Alignment"
 
 def auto_eucentric_correction(
     microscope: FibsemMicroscope,
@@ -76,10 +79,15 @@ def beam_shift_alignment_v2(
 
     """
 
-    time.sleep(2) # threading is too fast?
+    # time.sleep(2) # threading is too fast?
     image_settings = ImageSettings.fromFibsemImage(ref_image)
     image_settings.autocontrast = False
     image_settings.save = True
+
+    # save new images in Alignment subdir next to the reference image
+    ref_path = image_settings.path if image_settings.path is not None else os.getcwd()
+    image_settings.path = os.path.join(ref_path, ALIGNMENT_SUBDIR)
+    os.makedirs(image_settings.path, exist_ok=True)
 
     # use the same named prefix for the filename for traceability (if possible)
     if REFERENCE_FILENAME in image_settings.filename:
@@ -102,7 +110,7 @@ def beam_shift_alignment_v2(
         microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
 
     new_image = acquire.new_image(microscope, settings=image_settings)
-    dx, dy, _ = shift_from_crosscorrelation(
+    dx, dy, xcorr = shift_from_crosscorrelation(
         ref_image, new_image,
         lowpass=50,
         highpass=4,
@@ -130,6 +138,8 @@ def beam_shift_alignment_v2(
     logging.info(f"Beam Shift Alignment: dx: {dx}, dy: {dy}")
     msgd = {"msg": "beam_shift_alignment", "dx": dx, "dy": dy, "image_settings": image_settings.to_dict()}
     logging.debug(msgd)
+
+    return new_image, xcorr, dx, dy
 
 
 def correct_stage_drift(
@@ -515,6 +525,8 @@ def multi_step_alignment_v2(
     use_autofocus: bool = False,
     subsystem: Optional[str] = None,
     stop_event: Optional[ThreadingEvent] = None,
+    save_plot: bool = True,
+    plot_title: Optional[str] = None,
 ) -> None:
     """Runs the beam shift alignment multiple times. Optionally sets the beam current before alignment."""
     # set alignment current
@@ -522,22 +534,111 @@ def multi_step_alignment_v2(
         initial_current = microscope.get_beam_current(beam_type)
         microscope.set_beam_current(alignment_current, beam_type)
 
+    alignment_results = []
     for i in range(steps):
         if stop_event is not None and stop_event.is_set():
             break
         # only use autocontrast on first step
         use_autocontrast = use_autocontrast if i == 0 else False
         use_autofocus = use_autofocus if i == 0 else False
-        beam_shift_alignment_v2(microscope=microscope, 
-                                ref_image=ref_image, 
-                                use_autocontrast=use_autocontrast,
-                                use_autofocus=use_autofocus,
-                                subsystem=subsystem)
+        new_image, xcorr, dx, dy = beam_shift_alignment_v2(
+            microscope=microscope,
+            ref_image=ref_image,
+            use_autocontrast=use_autocontrast,
+            use_autofocus=use_autofocus,
+            subsystem=subsystem,
+        )
+        alignment_results.append((new_image, xcorr, dx, dy))
 
     # reset beam current
     if alignment_current is not None:
         microscope.set_beam_current(initial_current, beam_type)
 
+    if save_plot:
+        plot_multi_step_alignment(ref_image, alignment_results, save=save_plot, title=plot_title)
+
+
+def plot_multi_step_alignment(
+    ref_image: FibsemImage,
+    alignment_results: list,
+    title: Optional[str] = None,
+    save: bool = True,
+):
+    """Plot the reference image and each alignment step with cross-correlation maps.
+
+    Args:
+        ref_image: The reference image used for alignment.
+        alignment_results: List of (new_image, xcorr, dx, dy) tuples from multi_step_alignment_v2.
+        save: Whether to save the figure to disk. Defaults to True.
+        show: Whether to call plt.show(). Defaults to False.
+
+    Returns:
+        matplotlib.figure.Figure
+    """
+    import os
+    from datetime import datetime
+
+    from matplotlib.figure import Figure
+
+    def _plot_image_with_crosshair(ax, data, title):
+        """Plot an image with a yellow crosshair at the centre."""
+        ax.imshow(data, cmap="gray")
+        cy, cx = data.shape[0] // 2, data.shape[1] // 2
+        ax.axhline(cy, color="yellow", linewidth=2, alpha=0.7)
+        ax.axvline(cx, color="yellow", linewidth=2, alpha=0.7)
+        ax.set_title(title)
+        ax.axis("off")
+
+    # build title and save path from the reference image filename/path
+    ref_settings = ImageSettings.fromFibsemImage(ref_image)
+    ref_filename = ref_settings.filename
+    ref_path = ref_settings.path if ref_settings.path is not None else os.getcwd()
+    ref_path = os.path.join(ref_path, ALIGNMENT_SUBDIR)
+    os.makedirs(ref_path, exist_ok=True)
+    if REFERENCE_FILENAME in ref_filename:
+        prefix = ref_filename.split(REFERENCE_FILENAME)[0]
+    else:
+        prefix = ref_filename + "_"
+    ts = utils.current_timestamp_v2()
+    timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if title is None:
+        title = f"Multi-Step Alignment — {ref_filename} — {timestamp_str}"
+    else:
+        title = f"{title} — {timestamp_str}"
+
+    # row 0 = images (reference + each step), row 1 = xcorr for each step
+    n_steps = len(alignment_results)
+    n_cols = 1 + n_steps
+    fig = Figure(figsize=(4 * n_cols, 8))
+    axes = fig.subplots(2, n_cols)
+    fig.suptitle(title)
+    _plot_image_with_crosshair(axes[0, 0], ref_image.data, "Reference")
+
+    # convergence plot in the spare cell
+    shifts_dx = [r[2] for r in alignment_results]
+    shifts_dy = [r[3] for r in alignment_results]
+    step_nums = list(range(1, len(alignment_results) + 1))
+    ax_conv = axes[1, 0]
+    ax_conv.plot(step_nums, [abs(d) * 1e9 for d in shifts_dx], "o-", label="dx")
+    ax_conv.plot(step_nums, [abs(d) * 1e9 for d in shifts_dy], "s-", label="dy")
+    ax_conv.set_xlabel("Step")
+    ax_conv.set_ylabel("Shift (nm)")
+    ax_conv.set_title("Convergence")
+    ax_conv.legend(fontsize="small")
+    ax_conv.set_xticks(step_nums)
+
+    for i, (new_image, xcorr, dx, dy) in enumerate(alignment_results):
+        col = 1 + i
+        _plot_image_with_crosshair(axes[0, col], new_image.data, f"Step {i + 1}")
+        axes[1, col].imshow(xcorr, cmap="inferno")
+        axes[1, col].set_title(f"XCorr {i + 1}\ndx={dx*1e9:.1f}nm, dy={dy*1e9:.1f}nm", fontsize="small")
+        axes[1, col].axis("off")
+
+    fig.tight_layout()
+    if save:
+        save_path = os.path.join(ref_path, f"{prefix}multi_step_alignment_{ts}.png")
+        fig.savefig(save_path, dpi=80)
+    return fig
 
 
 def _eucentric_tilt_alignment(microscope: FibsemMicroscope, image_settings: ImageSettings, 
