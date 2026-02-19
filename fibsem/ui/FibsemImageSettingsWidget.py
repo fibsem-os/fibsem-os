@@ -114,6 +114,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.selected_beam.currentIndexChanged.connect(self.update_detector_ui)
         self.checkBox_image_save_image.toggled.connect(self.update_ui_saving_settings)
         self.button_set_beam_settings.clicked.connect(self.apply_beam_settings)
+        self.doubleSpinBox_working_distance.valueChanged.connect(self._on_working_distance_changed)
 
         self.pushButton_beam_is_on.clicked.connect(self._toggle_beam_on)
         self.pushButton_beam_blanked.clicked.connect(self._toggle_beam_blank)
@@ -446,6 +447,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
         self.update_beam_ui_components()
 
+    def _on_working_distance_changed(self, value: float) -> None:
+        """Update the microscope working distance when the spinbox value changes."""
+        beam_type = BeamType[self.selected_beam.currentText()]
+        wd = value * constants.MILLI_TO_SI
+        self.microscope.set_working_distance(wd, beam_type)
+        logging.info({"msg": "_on_working_distance_changed", "beam_type": beam_type.name, "working_distance": wd})
+
     def run_autocontrast(self) -> None:
         """Run autocontrast for the selected beam type."""
         beam_type = BeamType[self.selected_beam.currentText()]
@@ -464,11 +472,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
     @thread_worker
     def _autocontrast_worker(self, beam_type: BeamType):
-        self.microscope.autocontrast(beam_type)
+        self.microscope.autocontrast(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
 
     @thread_worker
     def _autofocus_worker(self, beam_type: BeamType):
-        self.microscope.auto_focus(beam_type)
+        import time
+        time.sleep(3)
+        self.microscope.auto_focus(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
 
     def _on_auto_function_finished(self, name: str) -> None:
         self._toggle_interactions(enable=True)
@@ -643,7 +653,9 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.spinBox_beam_scan_rotation.setValue(int(np.degrees(beam_settings.scan_rotation)))
         
         if beam_settings.working_distance is not None:
+            self.doubleSpinBox_working_distance.blockSignals(True)
             self.doubleSpinBox_working_distance.setValue(beam_settings.working_distance * constants.METRE_TO_MILLIMETRE)
+            self.doubleSpinBox_working_distance.blockSignals(False)
         if beam_settings.shift is not None:
             self.doubleSpinBox_shift_x.setValue(beam_settings.shift.x * constants.SI_TO_MICRO)
             self.doubleSpinBox_shift_y.setValue(beam_settings.shift.y * constants.SI_TO_MICRO)
@@ -710,6 +722,8 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
     def _toggle_interactions(self, enable: bool, caller: str = None, imaging: bool = False):
         for btn in self.acquisition_buttons:
+            btn.setEnabled(enable)
+        for btn in [self.pushButton_run_autocontrast, self.pushButton_run_autofocus]:
             btn.setEnabled(enable)
         self.set_detector_button.setEnabled(enable)
         self.button_set_beam_settings.setEnabled(enable)
@@ -991,7 +1005,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area,
                                                     image_shape=self.ib_image.data.shape,
                                                    )
-        if self.alignment_layer is None:
+        if self.alignment_layer is None or ALIGNMENT_LAYER_PROPERTIES["name"] not in self.viewer.layers:
             self.alignment_layer = self.viewer.add_shapes(data=data, 
                                                           name=ALIGNMENT_LAYER_PROPERTIES["name"], 
                         shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"], 
@@ -1008,6 +1022,9 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
         if editable:
             self.viewer.layers.selection.active = self.alignment_layer
+            # from napari.layers.shapes.shapes import Mode as NapariShapesMode
+            # self.alignment_layer.mode = NapariShapesMode.SELECT
+            # self.alignment_layer.selected_data = {0} # select the rectangle
             self.alignment_layer.mode = "select"
             self.alignment_layer.selected_data.clear()
         # TODO: prevent rotation of rectangles?
