@@ -76,3 +76,5 @@ projects/*
 tmp/*
 
 fibsem/applications/test-data/*
+database_migration.md
+fibsem/ui/OFFLINE_ICONS.md
