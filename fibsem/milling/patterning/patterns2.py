@@ -1361,7 +1361,7 @@ class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
 
 
 @dataclass
-class ArrayPattern(BasePattern[FibsemRectangleSettings]):
+class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettings]]):
     width: float = field(
         default=2.0e-6,
         metadata={
@@ -1444,12 +1444,20 @@ class ArrayPattern(BasePattern[FibsemRectangleSettings]):
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
     )
+    use_circle: bool = field(
+        default=False,
+        metadata={
+            "label": "Use Circle",
+            "type": bool,
+            "tooltip": "If true, use circular patterns instead of rectangular.",
+        },
+    )
 
     name: ClassVar[str] = "ArrayPattern"
     # ref: spotweld terminology https://www.researchgate.net/publication/351737991_A_Modular_Platform_for_Streamlining_Automated_Cryo-FIB_Workflows#pf14
     # ref: weld cross-section/ passes: https://www.nature.com/articles/s41592-023-02113-5
 
-    def define(self) -> List[FibsemRectangleSettings]:
+    def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
         
         point = self.point
         width = self.width
@@ -1478,20 +1486,28 @@ class ArrayPattern(BasePattern[FibsemRectangleSettings]):
         # create patterns
         self.shapes = []
         for pt in points:
-            pattern_settings = FibsemRectangleSettings(
-                width=width,
-                height=height,
-                depth=depth,
-                centre_x=pt.x,
-                centre_y=pt.y,  
-                scan_direction=scan_direction,
-                rotation=rotation,
-                passes=passes,
-                cross_section=cross_section,
-            )
+            if self.use_circle:
+                pattern_settings = FibsemCircleSettings(
+                    radius=width / 2,
+                    depth=depth,
+                    centre_x=pt.x,
+                    centre_y=pt.y,
+                )
+            else:
+                pattern_settings = FibsemRectangleSettings(
+                    width=width,
+                    height=height,
+                    depth=depth,
+                    centre_x=pt.x,
+                    centre_y=pt.y,  
+                    scan_direction=scan_direction,
+                    rotation=rotation,
+                    passes=passes,
+                    cross_section=cross_section,
+                )
             self.shapes.append(pattern_settings)
 
-        return self.shapes
+        return self.shapes # type: ignore
 
 
 @dataclass
