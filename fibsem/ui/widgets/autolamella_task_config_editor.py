@@ -29,7 +29,7 @@ from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella import config as cfg
 from fibsem.ui import utils as fui
-from fibsem.applications.autolamella.workflows.tasks.tasks import TASK_REGISTRY
+from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
 from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE, GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE
@@ -60,8 +60,8 @@ class AddTaskDialog(QDialog):
         self.label_task_type = QLabel("Task Type:")
         self.comboBox_task_type = QComboBox()
 
-        # Populate task types from TASK_REGISTRY
-        for task_type, task_cls in TASK_REGISTRY.items():
+        # Populate task types from registry (includes plugins and runtime registrations)
+        for task_type, task_cls in get_tasks().items():
             display_name = task_cls.config_cls.display_name
             self.comboBox_task_type.addItem(f"{display_name} ({task_type})", task_type)
 
@@ -101,8 +101,9 @@ class AddTaskDialog(QDialog):
     def update_default_task_name(self):
         """Update the default task name based on the selected task type."""
         task_type = self.comboBox_task_type.currentData()
-        if task_type and task_type in TASK_REGISTRY:
-            display_name = TASK_REGISTRY[task_type].config_cls.display_name
+        task_registry = get_tasks()
+        if task_type and task_type in task_registry:
+            display_name = task_registry[task_type].config_cls.display_name
             self.lineEdit_task_name.setText(display_name)
 
     def validate_task_name(self):
@@ -426,7 +427,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             task_type, task_name = dialog.get_task_info()
             if task_type and task_name:
                 # Create new task config from registry
-                task_cls = TASK_REGISTRY[task_type]
+                task_cls = get_tasks()[task_type]
                 new_task_config = task_cls.config_cls()  # type: ignore
                 new_task_config.task_name = task_name
 

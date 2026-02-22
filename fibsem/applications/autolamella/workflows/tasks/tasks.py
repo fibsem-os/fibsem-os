@@ -1193,14 +1193,15 @@ class TaskNotRegisteredError(Exception):
 
 def load_task_config(ddict: Dict[str, Any]) -> EventedDict[str, AutoLamellaTaskConfig]:
     """Load task configurations from a dictionary."""
+    from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    task_registry = get_tasks()
     task_config = EventedDict()
     for name, v in ddict.items():
         task_type = v.get("task_type")
-        if task_type not in TASK_REGISTRY:
-            # raise ValueError(f"Task '{name}' is not registered.")
+        if task_type not in task_registry:
             logging.warning(f"Task '{name}' is not registered. Skipping.")
             continue
-        config_class = TASK_REGISTRY[task_type].config_cls
+        config_class = task_registry[task_type].config_cls
         task_config[name] = config_class.from_dict(v)
         task_config[name].task_name = name
     return task_config
@@ -1212,28 +1213,17 @@ def load_config(task_type: str, ddict: Dict[str, Any]) -> AutoLamellaTaskConfig:
 
 def get_task_config(task_type: str) -> Type[AutoLamellaTaskConfig]:
     """Get the task configuration by name."""
-    if task_type not in TASK_REGISTRY:
+    from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    task_registry = get_tasks()
+    if task_type not in task_registry:
         raise TaskNotRegisteredError(task_type)
-    return TASK_REGISTRY[task_type].config_cls  # type: ignore
+    return task_registry[task_type].config_cls  # type: ignore
 
 # related tasks (must be defined after task definitions, due to circular nature)
 MillFiducialTaskConfig.related_tasks = [MillRoughTaskConfig, MillPolishingTaskConfig]
 MillRoughTaskConfig.related_tasks = [MillFiducialTaskConfig, MillPolishingTaskConfig]
 MillPolishingTaskConfig.related_tasks = [MillFiducialTaskConfig, MillRoughTaskConfig]
 
-TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = {
-    MillTrenchTaskConfig.task_type: MillTrenchTask,
-    MillUndercutTaskConfig.task_type: MillUndercutTask,
-    MillRoughTaskConfig.task_type: MillRoughTask,
-    MillPolishingTaskConfig.task_type: MillPolishingTask,
-    SpotBurnFiducialTaskConfig.task_type: SpotBurnFiducialTask,
-    MillFiducialTaskConfig.task_type: MillFiducialTask,
-    AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
-    BasicMillingTaskConfig.task_type: BasicMillingTask,
-    SelectMillingPositionTaskConfig.task_type: SelectMillingPositionTask,
-    "SETUP_LAMELLA": MillFiducialTask, # BACKWARDS_COMPATIBILITY
-    # Add other tasks here as needed
-}
 
 def run_task(microscope: FibsemMicroscope, 
           task_name: str, 
@@ -1245,7 +1235,8 @@ def run_task(microscope: FibsemMicroscope,
     if task_config is None:
         raise ValueError(f"Task configuration for {task_name} not found in lamella tasks.")
 
-    task_cls = TASK_REGISTRY.get(task_config.task_type)
+    from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    task_cls = get_tasks().get(task_config.task_type)
     if task_cls is None:
         raise ValueError(f"Task {task_config.task_type} is not registered.")
 
@@ -1254,35 +1245,6 @@ def run_task(microscope: FibsemMicroscope,
                     lamella=lamella,
                     parent_ui=parent_ui)
     task.run()
-
-def sync_lamella_config_updates(lamella: 'Lamella', parent_ui: Optional['AutoLamellaUI'] = None) -> 'Lamella':
-    """Sync config updates from GUI to lamella before processing.
-    
-    This is a placeholder implementation that can be extended to:
-    - Check for pending config updates in the UI
-    - Apply updates to milling parameters, imaging settings, etc.
-    - Validate updates for safety during processing
-    
-    Args:
-        lamella: The lamella to update
-        parent_ui: Parent UI containing updated configurations
-        
-    Returns:
-        Updated lamella with synced configuration
-    """
-    if parent_ui is None:
-        return lamella
-        
-    # TODO: Implement actual config sync logic here
-    # Example areas to sync:
-    # - Milling currents and patterns from UI widgets
-    # - Imaging parameters (HFW, resolution, etc.)
-    # - Task-specific settings from protocol editor
-    # - Lamella-specific overrides
-    
-    logging.debug(f"Config sync check for lamella {lamella.name} (placeholder)")
-    return lamella
-
 
 # TODO: create a TaskManager class to handle this?
 def run_tasks(microscope: FibsemMicroscope,
