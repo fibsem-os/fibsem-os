@@ -65,6 +65,7 @@ try:
         MultiChemInsertPosition,
         PatterningState,
         RegularCrossSectionScanMethod,
+        ImagingState,
     )
     from autoscript_sdb_microscope_client.structures import (
         AdornedImage,
@@ -1828,6 +1829,13 @@ class ThermoMicroscope(FibsemMicroscope):
                 if self._stop_acquisition_event.is_set():
                     break
 
+                # fast continuous acquisition
+                USE_FAST_ACQUISITION = False
+                if USE_FAST_ACQUISITION:
+                    self._fast_acquisition_worker(beam_type=beam_type)
+                    if self._stop_acquisition_event.is_set():
+                        break
+
                 # acquire image using current beam settings # TODO: migrate to start_acquisition while loop
                 image = self.acquire_image(beam_type=beam_type, image_settings=None)
 
@@ -1839,6 +1847,50 @@ class ThermoMicroscope(FibsemMicroscope):
 
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
+
+    def _fast_acquisition_worker(self, beam_type: BeamType):
+        try:
+            with self._threading_lock:
+                self.set_channel(channel=beam_type)  # re-force active channel...?
+                self.connection.imaging.start_acquisition()
+
+            while self.connection.imaging.state == ImagingState.ACQUIRING:
+                if self._stop_acquisition_event.is_set():
+                    self.connection.imaging.stop_acquisition()
+                    break
+                with self._threading_lock:
+                    self.set_channel(channel=beam_type)  # re-force active channel...?
+                    adorned_image = self.connection.imaging.get_image()
+                    image = self._construct_image(adorned_image, beam_type=beam_type)
+
+                    # emit the acquired image
+                    if beam_type is BeamType.ELECTRON:
+                        self.sem_acquisition_signal.emit(image)
+                    if beam_type is BeamType.ION:
+                        self.fib_acquisition_signal.emit(image)
+        except Exception as e:
+                logging.error(f"Exception occurred during fast acquisition: {e}")
+        finally:
+            self.connection.imaging.stop_acquisition()
+
+    def _construct_image(self, adorned_image: AdornedImage, beam_type: BeamType) -> FibsemImage:
+        """Construct a FibsemImage from an AdornedImage and the current microscope state."""
+        # get the required metadata, convert to FibsemImage
+        state = self.get_microscope_state(beam_type=beam_type)
+        image_settings = self.get_imaging_settings(beam_type=beam_type)
+
+        image = FibsemImage.fromAdornedImage(
+            copy.deepcopy(adorned_image), 
+            copy.deepcopy(image_settings), 
+            copy.deepcopy(state),
+        )
+
+        # set additional metadata
+        image.metadata.user = self.user
+        image.metadata.experiment = self.experiment
+        image.metadata.system = self.system
+
+        return image
 
     def autocontrast(self, beam_type: BeamType, reduced_area: FibsemRectangle = None) -> None:
         """
