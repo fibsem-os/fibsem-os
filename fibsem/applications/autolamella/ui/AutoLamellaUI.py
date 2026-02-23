@@ -1,5 +1,5 @@
 import sys
-
+import warnings
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -61,6 +61,14 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import run_tasks
 from fibsem.applications.autolamella.ui.qt import AutoLamellaUI as AutoLamellaMainUI
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
+
+# Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
+warnings.filterwarnings(
+    "ignore",
+    message=r"'where' used without 'out', expect uninitialized memory in output\. If this is intentional, use out=None\.",
+    category=UserWarning,
+    module=r"napari\.layers\.shapes\._shapes_utils",
+)
 
 REPORTING_AVAILABLE: bool = False
 try:
