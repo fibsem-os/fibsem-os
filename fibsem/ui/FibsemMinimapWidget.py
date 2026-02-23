@@ -765,17 +765,8 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         # Sort by distance
         distances.sort(key=lambda x: x[1])
 
-        # Print all distances
-        logging.info("=" * 50)
-        logging.info("Distance to experiment positions:")
-        for name, dist in distances:
-            logging.info(f"  {name}: {dist * constants.SI_TO_MICRO:.1f} um")
-
         # Highlight the closest
         closest_name, closest_dist = distances[0]
-        logging.info("-" * 50)
-        logging.info(f"Closest position: {closest_name} ({closest_dist * constants.SI_TO_MICRO:.1f} um)")
-        logging.info("=" * 50)
 
         # If closest position is within 5um, select it
         SELECTED_POSITION_THRESHOLD_MICRONS = 5.0
