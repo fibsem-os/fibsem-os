@@ -115,6 +115,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.checkBox_image_save_image.toggled.connect(self.update_ui_saving_settings)
         self.button_set_beam_settings.clicked.connect(self.apply_beam_settings)
         self.doubleSpinBox_working_distance.valueChanged.connect(self._on_working_distance_changed)
+        self.doubleSpinBox_working_distance.setKeyboardTracking(False)
 
         self.pushButton_beam_is_on.clicked.connect(self._toggle_beam_on)
         self.pushButton_beam_blanked.clicked.connect(self._toggle_beam_blank)
@@ -124,6 +125,8 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.set_detector_button.clicked.connect(self.apply_detector_settings)
         self.detector_contrast_slider.valueChanged.connect(self.update_labels)
         self.detector_brightness_slider.valueChanged.connect(self.update_labels)
+        # self.detector_brightness_slider.valueChanged.connect(self._on_detector_brightness_changed)
+        # self.detector_contrast_slider.valueChanged.connect(self._on_detector_contrast_changed)
         
         # util
         self.checkBox_enable_ruler.toggled.connect(self.update_ruler)
@@ -251,14 +254,15 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             layer = self.viewer.layers[image.metadata.beam_type.name]
             layer.data = image.filtered_data
             # # update images reference QUERY: test if this works as expected
-            # if self.microscope.is_acquiring:
-            #     if image.metadata.beam_type is BeamType.ELECTRON:
-            #         self.eb_image = image
-            #     elif image.metadata.beam_type is BeamType.ION:
-            #         self.ib_image = image
+            if self.microscope.is_acquiring:
+                if image.metadata.beam_type is BeamType.ELECTRON:
+                    self.eb_image = image
+                elif image.metadata.beam_type is BeamType.ION:
+                    self.ib_image = image
         except Exception as e:
             logging.error(f"Error updating image layer: {e}")
 
+        # dont reset view when live acq
         self._update_layer_positions()
         self.restore_active_layer_for_movement()
         self.viewer_update_signal.emit()
@@ -451,15 +455,27 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         """Update the microscope working distance when the spinbox value changes."""
         beam_type = BeamType[self.selected_beam.currentText()]
         wd = value * constants.MILLI_TO_SI
-        self.microscope.set_working_distance(wd, beam_type)
+        self.microscope.set_working_distance(wd, beam_type) # TODO: check the limits before trying to set
         logging.info({"msg": "_on_working_distance_changed", "beam_type": beam_type.name, "working_distance": wd})
+
+    def _on_detector_brightness_changed(self, value: int) -> None:
+        """Update the microscope detector brightness when the slider value changes"""
+        beam_type = BeamType[self.selected_beam.currentText()]
+        brightness = value / 100 # percentage int to float (0-1)
+        self.microscope.set_detector_brightness(brightness, beam_type)
+    
+    def _on_detector_contrast_changed(self, value: int) -> None:
+        """Update the microscope detector contrast when the slider value changes"""
+        beam_type = BeamType[self.selected_beam.currentText()]
+        contrast = value / 100 # percentage int to float (0-1)
+        self.microscope.set_detector_contrast(contrast, beam_type)
 
     def run_autocontrast(self) -> None:
         """Run autocontrast for the selected beam type."""
         beam_type = BeamType[self.selected_beam.currentText()]
         self._toggle_interactions(enable=False)
         worker = self._autocontrast_worker(beam_type)
-        worker.finished.connect(lambda: self._on_auto_function_finished("AutoContrast"))
+        worker.finished.connect(lambda: self._on_auto_function_finished("AutoContrast", beam_type=beam_type))
         worker.start()
 
     def run_autofocus(self) -> None:
@@ -467,7 +483,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         beam_type = BeamType[self.selected_beam.currentText()]
         self._toggle_interactions(enable=False)
         worker = self._autofocus_worker(beam_type)
-        worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus"))
+        worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type))
         worker.start()
 
     @thread_worker
@@ -476,13 +492,27 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
     @thread_worker
     def _autofocus_worker(self, beam_type: BeamType):
-        import time
-        time.sleep(3)
         self.microscope.auto_focus(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
 
-    def _on_auto_function_finished(self, name: str) -> None:
+    def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
         self._toggle_interactions(enable=True)
-        napari.utils.notifications.show_info(f"{name} Complete")
+        # update focus / brightness / contrast values for gui when this finishes
+        if name == "AutoFocus":
+            wd = self.microscope.get_working_distance(beam_type=beam_type)
+            self.doubleSpinBox_working_distance.blockSignals(True)
+            self.doubleSpinBox_working_distance.setValue(wd * constants.METRE_TO_MILLIMETRE)
+            self.doubleSpinBox_working_distance.blockSignals(False)
+            napari.utils.notifications.show_info(f"{name} Complete. Best WD: {wd*constants.METRE_TO_MILLIMETRE:.2f}mm")
+        if name == "AutoContrast":
+            brightness = self.microscope.get_detector_brightness(beam_type=beam_type)
+            contrast = self.microscope.get_detector_contrast(beam_type=beam_type)
+            # self.detector_contrast_slider.blockSignals(True)
+            # self.detector_brightness_slider.blockSignals(True)
+            self.detector_contrast_slider.setValue(int(contrast * 100))
+            self.detector_brightness_slider.setValue(int(brightness * 100))
+            # self.detector_contrast_slider.blockSignals(False)
+            # self.detector_brightness_slider.blockSignals(False)
+            napari.utils.notifications.show_info(f"{name} Complete. Brightness: {brightness}, Contrast: {contrast}")
 
     def update_beam_ui_components(self):
         """Update beam ui (on/off and blanked/unblanked)"""
@@ -644,9 +674,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         # detector settings
         self.detector_type_combobox.setCurrentText(detector_settings.type)
         self.detector_mode_combobox.setCurrentText(detector_settings.mode)
+        # self.detector_brightness_slider.blockSignals(True)
+        # self.detector_contrast_slider.blockSignals(True)
         self.detector_contrast_slider.setValue(int(detector_settings.contrast * 100))
         self.detector_brightness_slider.setValue(int(detector_settings.brightness * 100))
-        
+        # self.detector_brightness_slider.blockSignals(False)
+        # self.detector_contrast_slider.blockSignals(False)
+
         # beam settings
         self.doubleSpinBox_beam_current.setValue(beam_settings.beam_current * constants.SI_TO_PICO)
         self.doubleSpinBox_beam_voltage.setValue(beam_settings.voltage * constants.SI_TO_KILO)
@@ -940,7 +974,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                     border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
                     face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
                 )
-            self.viewer.reset_view()
+                self.viewer.reset_view()
 
     def get_data_from_coord(self, coords: Tuple[float, float]) -> Tuple[Tuple[float, float], BeamType, FibsemImage]:
         

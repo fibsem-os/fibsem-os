@@ -77,6 +77,7 @@ try:
         MoveSettings,
         Rectangle,
         StagePosition,
+        GetImageSettings,
     )
     THERMO_API_AVAILABLE = True
 except AutoScriptException as e:
@@ -1830,7 +1831,7 @@ class ThermoMicroscope(FibsemMicroscope):
                     break
 
                 # fast continuous acquisition
-                USE_FAST_ACQUISITION = False
+                USE_FAST_ACQUISITION = True
                 if USE_FAST_ACQUISITION:
                     self._fast_acquisition_worker(beam_type=beam_type)
                     if self._stop_acquisition_event.is_set():
@@ -1860,9 +1861,10 @@ class ThermoMicroscope(FibsemMicroscope):
                     break
                 with self._threading_lock:
                     self.set_channel(channel=beam_type)  # re-force active channel...?
-                    adorned_image = self.connection.imaging.get_image()
+                    adorned_image = self.connection.imaging.get_image(GetImageSettings(wait_for_frame=True))
                     image = self._construct_image(adorned_image, beam_type=beam_type)
 
+                    logging.info(f"Acquired Image: {image.data.shape}")
                     # emit the acquired image
                     if beam_type is BeamType.ELECTRON:
                         self.sem_acquisition_signal.emit(image)
