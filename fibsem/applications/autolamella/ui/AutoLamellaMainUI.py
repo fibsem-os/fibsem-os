@@ -54,6 +54,7 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
     AutoLamellaWorkflowWidget,
 )
+from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.task_history_table_widget import TaskHistoryTableWidget
 from fibsem.utils import format_duration
@@ -554,6 +555,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self._update_instructions()
 
+        # Rebuild lamella list and wire position events for the new experiment
+        self._rebuild_lamella_list()
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        if experiment is not self._lamella_list_experiment:
+            # Disconnect from the old experiment's position events
+            if self._lamella_list_experiment is not None:
+                try:
+                    self._lamella_list_experiment.positions.events.inserted.disconnect(self._rebuild_lamella_list)
+                    self._lamella_list_experiment.positions.events.removed.disconnect(self._rebuild_lamella_list)
+                except Exception:
+                    pass
+            # Connect to the new experiment's position events
+            if experiment is not None:
+                experiment.positions.events.inserted.connect(lambda *_: self._rebuild_lamella_list())
+                experiment.positions.events.removed.connect(lambda *_: self._rebuild_lamella_list())
+            self._lamella_list_experiment = experiment
+
     def create_notification_button(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
         # Create button container widget
@@ -673,10 +691,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_widget.setStyleSheet(NAPARI_STYLE)
         self.workflow_widget.setMinimumWidth(600)
 
-        # add horizontal layout for workflow widget and task history
-        grid_layout = QHBoxLayout()
-        if hasattr(self, 'workflow_widget') and self.workflow_widget is not None:
-            grid_layout.addWidget(self.workflow_widget)
+        # Lamella list widget — sits below the workflow widget
+        self.lamella_list_widget = LamellaListWidget()
+        self.lamella_list_widget.move_to_requested.connect(self._on_lamella_move_to)
+        self.lamella_list_widget.edit_requested.connect(self._on_lamella_edit)
+        self.lamella_list_widget.remove_requested.connect(self._on_lamella_remove_requested)
+        self.lamella_list_widget.defect_changed.connect(self._on_lamella_defect_changed)
+
+        # Left column: workflow config on top, lamella list below
+        left_layout = QVBoxLayout()
+        left_layout.addWidget(self.workflow_widget)
+        left_layout.addWidget(self.lamella_list_widget)
 
         # Add task history table widget on the right
         self.task_history_widget = TaskHistoryTableWidget(
@@ -684,6 +709,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self
         )
         self.task_history_widget.setStyleSheet(NAPARI_STYLE)
+
+        grid_layout = QHBoxLayout()
+        grid_layout.addLayout(left_layout)
         grid_layout.addWidget(self.task_history_widget)
 
         layout.addLayout(grid_layout, stretch=1)
@@ -691,6 +719,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # disable the workflow tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
+
+        # Track which experiment's position events we're connected to
+        self._lamella_list_experiment = None
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
@@ -731,9 +762,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if msg_type is not None:
                 self.show_toast(msg, msg_type)
 
-            # Refresh task history widget
-            # if hasattr(self, 'task_history_widget'):
-                # self.task_history_widget.refresh()
+            # Refresh task history and lamella list
+            if hasattr(self, 'lamella_list_widget'):
+                self.lamella_list_widget.refresh_all()
 
         # refresh the supervised status chip
         self._update_supervised_status()
@@ -752,10 +783,77 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.user_attention_btn.hide()
                 self._user_interaction_sound_played = False  # Reset for next time
 
+    def _rebuild_lamella_list(self):
+        """Clear and repopulate the lamella list widget from the current experiment."""
+        if not hasattr(self, 'lamella_list_widget'):
+            return
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        self.lamella_list_widget.clear()
+        if experiment is None:
+            return
+        for lamella in experiment.positions:
+            self.lamella_list_widget.add_lamella(lamella)
+
+    def _on_lamella_move_to(self, lamella):
+        """Move the stage to the given lamella's milling position."""
+        if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
+            return
+        try:
+            idx = self.autolamella_ui.experiment.positions.index(lamella)
+        except ValueError:
+            return
+        self.autolamella_ui.comboBox_current_lamella.setCurrentIndex(idx)
+        self.autolamella_ui.move_to_lamella_position()
+
+    def _on_lamella_edit(self, lamella):
+        """Switch to the Lamella tab and select the given lamella in the protocol editor."""
+        if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
+            return
+        try:
+            idx = self.autolamella_ui.experiment.positions.index(lamella)
+        except ValueError:
+            return
+        self.autolamella_ui.comboBox_current_lamella.setCurrentIndex(idx)
+
+        # Select the lamella in the protocol editor combobox
+        if hasattr(self, "lamella_widget"):
+            cb = self.lamella_widget.comboBox_selected_lamella
+            for i in range(cb.count()):
+                if cb.itemData(i) is lamella or cb.itemData(i).name == lamella.name:
+                    cb.setCurrentIndex(i)
+                    break
+
+        # Switch to the Lamella tab
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "Lamella":
+                self.tab_widget.setCurrentIndex(i)
+                break
+
+    def _on_lamella_defect_changed(self, lamella):
+        """Persist defect state change to disk."""
+        if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
+            return
+        self.autolamella_ui.experiment.save()
+
+    def _on_lamella_remove_requested(self, lamella):
+        """Remove the given lamella from the experiment after the list widget has already removed its row."""
+        if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
+            return
+        try:
+            idx = self.autolamella_ui.experiment.positions.index(lamella)
+        except ValueError:
+            return
+        self.autolamella_ui.experiment.positions.pop(idx)
+        self.autolamella_ui.experiment.save()
+        self.autolamella_ui.update_lamella_combobox(latest=True)
+        self.autolamella_ui.update_ui()
+
     def _on_workflow_finished(self):
         """Handle workflow finished signal."""
         self.hide_workflow_running()
         self.user_attention_btn.hide()
+        if hasattr(self, 'lamella_list_widget'):
+            self.lamella_list_widget.refresh_all()
         if self.status_bar is not None:
             self.status_bar.showMessage("Workflow: Finished")
             self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
