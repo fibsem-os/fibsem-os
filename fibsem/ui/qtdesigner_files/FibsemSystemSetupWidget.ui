@@ -25,7 +25,7 @@
    <string>Form</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
-   <item row="4" column="0" colspan="3">
+   <item row="7" column="0" colspan="3">
     <spacer name="verticalSpacer_5">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
@@ -38,8 +38,17 @@
      </property>
     </spacer>
    </item>
-   <item row="0" column="1">
-    <widget class="QComboBox" name="comboBox_configuration"/>
+   <item row="6" column="0" colspan="3">
+    <widget class="QLabel" name="label_connection_information">
+     <property name="font">
+      <font>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="text">
+      <string>No Connected</string>
+     </property>
+    </widget>
    </item>
    <item row="1" column="0" colspan="3">
     <widget class="QPushButton" name="pushButton_connect_to_microscope">
@@ -53,10 +62,23 @@
      </property>
     </widget>
    </item>
-   <item row="0" column="2">
-    <widget class="QToolButton" name="toolButton_import_configuration">
+   <item row="5" column="0" colspan="3">
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item row="0" column="0">
+    <widget class="QLabel" name="label_configuration">
      <property name="text">
-      <string>...</string>
+      <string>Configuration</string>
      </property>
     </widget>
    </item>
@@ -72,22 +94,20 @@
      </property>
     </widget>
    </item>
-   <item row="0" column="0">
-    <widget class="QLabel" name="label_configuration">
+   <item row="0" column="1">
+    <widget class="QComboBox" name="comboBox_configuration"/>
+   </item>
+   <item row="0" column="2">
+    <widget class="QToolButton" name="toolButton_import_configuration">
      <property name="text">
-      <string>Configuration</string>
+      <string>...</string>
      </property>
     </widget>
    </item>
-   <item row="5" column="0" colspan="3">
-    <widget class="QLabel" name="label_connection_information">
-     <property name="font">
-      <font>
-       <pointsize>10</pointsize>
-      </font>
-     </property>
+   <item row="4" column="0" colspan="3">
+    <widget class="QLabel" name="label_connection_status">
      <property name="text">
-      <string>No Connected</string>
+      <string>TextLabel</string>
      </property>
     </widget>
    </item>
