@@ -41,13 +41,12 @@ from fibsem.ui.napari.properties import (
 )
 from fibsem.ui.napari.utilities import draw_crosshair_in_napari, draw_scalebar_in_napari, add_points_layer
 from fibsem.ui.qtdesigner_files import ImageSettingsWidget as ImageSettingsWidgetUI
+from fibsem.ui.widgets.custom_widgets import _create_combobox_control
 
-# feature flags
 
 class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget):
     viewer_update_signal = pyqtSignal()             # when the viewer is updated
     acquisition_progress_signal = pyqtSignal(dict)  # TODO: add progress indicator
-    image_received = pyqtSignal(object)
     alignment_area_updated = pyqtSignal(FibsemRectangle)
 
     def __init__(
@@ -89,6 +88,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.image_settings = image_settings
             self.set_ui_from_settings(image_settings = image_settings, beam_type = BeamType.ELECTRON)
         self.update_detector_ui() # TODO: can this be removed?
+        # self._update_beam_settings_ui()
 
         # register initial images
         self.eb_layer = self.viewer.add_image(self.eb_image.data, name = BeamType.ELECTRON.name, blending='additive')
@@ -105,12 +105,18 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.comboBox_image_resolution.setCurrentText(cfg.DEFAULT_STANDARD_RESOLUTION)
         self.doubleSpinBox_beam_current.setRange(0.1, 10000.0) # TODO: convert to combobox
 
+        # TODO: add comboboxes for beam current and beam voltage
+        self.comboBox_beam_current.currentIndexChanged.connect(self._on_beam_current_changed)
+        self.comboBox_beam_current.setVisible(False) # hide until we can test with microscope
+        self.comboBox_beam_voltage.setVisible(False)
+
         # buttons
         self.pushButton_acquire_sem_image.clicked.connect(self.acquire_sem_image)
         self.pushButton_acquire_fib_image.clicked.connect(self.acquire_fib_image)
         self.pushButton_take_all_images.clicked.connect(self.acquire_reference_images)
-                        
+
         # image / beam settings
+        # self.selected_beam.currentIndexChanged.connect(self._update_beam_settings_ui) # TODO: CHANGE_BEAM_CURRENT_COMBOBOX
         self.selected_beam.currentIndexChanged.connect(self.update_detector_ui)
         self.checkBox_image_save_image.toggled.connect(self.update_ui_saving_settings)
         self.button_set_beam_settings.clicked.connect(self.apply_beam_settings)
@@ -122,21 +128,22 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.update_beam_ui_components()
 
         # detector
-        self.set_detector_button.clicked.connect(self.apply_detector_settings)
-        self.detector_contrast_slider.valueChanged.connect(self.update_labels)
-        self.detector_brightness_slider.valueChanged.connect(self.update_labels)
-        # self.detector_brightness_slider.valueChanged.connect(self._on_detector_brightness_changed)
-        # self.detector_contrast_slider.valueChanged.connect(self._on_detector_contrast_changed)
-        
+        self.detector_contrast_slider.valueChanged.connect(self._update_detector_slider_labels)
+        self.detector_brightness_slider.valueChanged.connect(self._update_detector_slider_labels)
+        self.detector_brightness_slider.valueChanged.connect(self._on_detector_brightness_changed)
+        self.detector_contrast_slider.valueChanged.connect(self._on_detector_contrast_changed)
+        self.detector_type_combobox.currentTextChanged.connect(self._on_detector_type_changed)
+        self.detector_mode_combobox.currentTextChanged.connect(self._on_detector_mode_changed)
+
         # util
         self.checkBox_enable_ruler.toggled.connect(self.update_ruler)
         self.scalebar_checkbox.toggled.connect(self.update_ui_tools)
         self.crosshair_checkbox.toggled.connect(self.update_ui_tools)
-        
+
         # signals
         self.acquisition_progress_signal.connect(self.handle_acquisition_progress_update)
         self.viewer_update_signal.connect(self.update_ui_tools)
-                
+
         # advanced settings
         self.checkBox_advanced_settings.stateChanged.connect(self.toggle_mode)
         self.toggle_mode()
@@ -146,13 +153,12 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
 
         # set ui stylesheets
-        self.pushButton_acquire_sem_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_acquire_fib_image.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_take_all_images.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.set_detector_button.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.button_set_beam_settings.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_run_autocontrast.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_run_autofocus.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_acquire_sem_image.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_acquire_fib_image.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_take_all_images.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.button_set_beam_settings.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_run_autocontrast.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_run_autofocus.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
         self.IS_TESCAN = isinstance(self.microscope, TescanMicroscope)
         if self.IS_TESCAN:
@@ -237,14 +243,16 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         # live acquisition
         LIVE_ACQUISITION_ENABLED = True
         self.pushButton_start_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
-        self.pushButton_stop_acquisition.setVisible(LIVE_ACQUISITION_ENABLED)
-        self.pushButton_start_acquisition.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_stop_acquisition.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_start_acquisition.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.microscope.sem_acquisition_signal.connect(self._on_acquire)
         self.microscope.fib_acquisition_signal.connect(self._on_acquire)
-        self.pushButton_start_acquisition.clicked.connect(self.start_live_acquisition)
-        self.pushButton_stop_acquisition.clicked.connect(self.stop_acquisition)
+        self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
         # TODO: support real-time parameter updates too
+
+        # set suffixes for units
+        self.spinBox_beam_scan_rotation.setSuffix(constants.DEGREE_SYMBOL)
+        self.doubleSpinBox_shift_x.setSuffix(constants.MICRON_SYMBOL)
+        self.doubleSpinBox_shift_y.setSuffix(constants.MICRON_SYMBOL)
 
     @ensure_main_thread
     def _on_acquire(self, image: FibsemImage):
@@ -267,20 +275,20 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.restore_active_layer_for_movement()
         self.viewer_update_signal.emit()
 
-    def start_live_acquisition(self, event=None):
+    def toggle_live_acquisition(self, event=None):
         # Start acquisition logic
-        self.pushButton_start_acquisition.setEnabled(False)
-        self.pushButton_stop_acquisition.setEnabled(True)
+        if self.microscope.is_acquiring:
+            logging.info("Microscope is already acquiring. Stopping acquisition...")
+            self.microscope.stop_acquisition()
+            self.pushButton_start_acquisition.setText("Start Acquisition")
+            self.pushButton_start_acquisition.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+            return
 
         # Start acquisition in the microscope
         beam_type = BeamType[self.selected_beam.currentText()]
         self.microscope.start_acquisition(beam_type)
-
-    def stop_acquisition(self):
-        # Stop acquisition logic
-        self.pushButton_start_acquisition.setEnabled(True)
-        self.pushButton_stop_acquisition.setEnabled(False)
-        self.microscope.stop_acquisition()
+        self.pushButton_start_acquisition.setText("Stop Acquisition")
+        self.pushButton_start_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
 
 ###########
 
@@ -313,7 +321,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.spinBox_image_line_integration.setVisible(advanced_mode)
         self.spinBox_image_scan_interlacing.setVisible(advanced_mode)
         self.spinBox_image_frame_integration.setVisible(advanced_mode)
-            
+
     def update_presets(self) -> None:
         beam_type = BeamType[self.selected_beam.currentText()]
         self.microscope.set("preset", self.comboBox_presets.currentText(), beam_type)
@@ -426,7 +434,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             dragged = True
             yield
 
-    def update_labels(self) -> None:
+    def _update_detector_slider_labels(self) -> None:
         """"Update the labels for the detector contrast and brightness"""
         self.detector_contrast_label.setText(f"{self.detector_contrast_slider.value()}%")
         self.detector_brightness_label.setText(f"{self.detector_brightness_slider.value()}%")
@@ -451,6 +459,12 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
         self.update_beam_ui_components()
 
+    def _on_beam_current_changed(self, index: int) -> None:
+        """Update the microscope beam current when the combobox value changes"""
+        beam_type = BeamType[self.selected_beam.currentText()]
+        current = self.comboBox_beam_current.itemData(index)
+        self.microscope.set_beam_current(current, beam_type)
+
     def _on_working_distance_changed(self, value: float) -> None:
         """Update the microscope working distance when the spinbox value changes."""
         beam_type = BeamType[self.selected_beam.currentText()]
@@ -461,14 +475,28 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
     def _on_detector_brightness_changed(self, value: int) -> None:
         """Update the microscope detector brightness when the slider value changes"""
         beam_type = BeamType[self.selected_beam.currentText()]
-        brightness = value / 100 # percentage int to float (0-1)
+        brightness = value * constants.FROM_PERCENTAGES # percentage int to float (0-1)
         self.microscope.set_detector_brightness(brightness, beam_type)
-    
+
     def _on_detector_contrast_changed(self, value: int) -> None:
         """Update the microscope detector contrast when the slider value changes"""
         beam_type = BeamType[self.selected_beam.currentText()]
-        contrast = value / 100 # percentage int to float (0-1)
+        contrast = value * constants.FROM_PERCENTAGES # percentage int to float (0-1)
         self.microscope.set_detector_contrast(contrast, beam_type)
+
+    def _on_detector_type_changed(self, detector_type: str) -> None:
+        """Update the microscope detector type when the combobox value changes"""
+        if not detector_type:
+            return
+        beam_type = BeamType[self.selected_beam.currentText()]
+        self.microscope.set_detector_type(detector_type, beam_type)
+
+    def _on_detector_mode_changed(self, mode: str) -> None:
+        """Update the microscope detector mode when the combobox value changes"""
+        if not mode or mode == "N/A":
+            return
+        beam_type = BeamType[self.selected_beam.currentText()]
+        self.microscope.set_detector_mode(mode, beam_type)
 
     def run_autocontrast(self) -> None:
         """Run autocontrast for the selected beam type."""
@@ -506,12 +534,13 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         if name == "AutoContrast":
             brightness = self.microscope.get_detector_brightness(beam_type=beam_type)
             contrast = self.microscope.get_detector_contrast(beam_type=beam_type)
-            # self.detector_contrast_slider.blockSignals(True)
-            # self.detector_brightness_slider.blockSignals(True)
+            self.detector_contrast_slider.blockSignals(True)
+            self.detector_brightness_slider.blockSignals(True)
             self.detector_contrast_slider.setValue(int(contrast * 100))
             self.detector_brightness_slider.setValue(int(brightness * 100))
-            # self.detector_contrast_slider.blockSignals(False)
-            # self.detector_brightness_slider.blockSignals(False)
+            self._update_detector_slider_labels()
+            self.detector_contrast_slider.blockSignals(False)
+            self.detector_brightness_slider.blockSignals(False)
             napari.utils.notifications.show_info(f"{name} Complete. Brightness: {brightness}, Contrast: {contrast}")
 
     def update_beam_ui_components(self):
@@ -636,9 +665,9 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         """Update the ui from the image, beam and detector settings"""
 
         # disconnect beam type combobox
-        self.selected_beam.currentIndexChanged.disconnect()
+        self.selected_beam.blockSignals(True)
         self.selected_beam.setCurrentText(beam_type.name)
-        self.selected_beam.currentIndexChanged.connect(self.update_detector_ui)
+        self.selected_beam.blockSignals(False)
 
         if beam_settings is None:
             beam_settings = self.microscope.get_beam_settings(beam_type)
@@ -672,14 +701,19 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.checkBox_image_drift_correction.setChecked(image_settings.drift_correction)
 
         # detector settings
+        self.detector_type_combobox.blockSignals(True)
+        self.detector_mode_combobox.blockSignals(True)
         self.detector_type_combobox.setCurrentText(detector_settings.type)
         self.detector_mode_combobox.setCurrentText(detector_settings.mode)
-        # self.detector_brightness_slider.blockSignals(True)
-        # self.detector_contrast_slider.blockSignals(True)
+        self.detector_type_combobox.blockSignals(False)
+        self.detector_mode_combobox.blockSignals(False)
+        self.detector_brightness_slider.blockSignals(True)
+        self.detector_contrast_slider.blockSignals(True)
         self.detector_contrast_slider.setValue(int(detector_settings.contrast * 100))
         self.detector_brightness_slider.setValue(int(detector_settings.brightness * 100))
-        # self.detector_brightness_slider.blockSignals(False)
-        # self.detector_contrast_slider.blockSignals(False)
+        self._update_detector_slider_labels()
+        self.detector_brightness_slider.blockSignals(False)
+        self.detector_contrast_slider.blockSignals(False)
 
         # beam settings
         self.doubleSpinBox_beam_current.setValue(beam_settings.beam_current * constants.SI_TO_PICO)
@@ -740,55 +774,78 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.comboBox_presets.setVisible(is_fib and self.IS_TESCAN)
         self.label_presets.setVisible(is_fib and self.IS_TESCAN)
 
+        self.detector_type_combobox.blockSignals(True)
         available_detector_types = self.microscope.get_available_values("detector_type", beam_type=beam_type)
         self.detector_type_combobox.clear()
         self.detector_type_combobox.addItems(available_detector_types)
         self.detector_type_combobox.setCurrentText(self.microscope.get_detector_type(beam_type=beam_type))
-        
+        self.detector_type_combobox.blockSignals(False)
+
+        self.detector_mode_combobox.blockSignals(True)
         available_detector_modes = self.microscope.get_available_values("detector_mode", beam_type=beam_type)
-        if available_detector_modes is None: 
+        if available_detector_modes is None:
             available_detector_modes = ["N/A"]
         self.detector_mode_combobox.clear()
         self.detector_mode_combobox.addItems(available_detector_modes)
         self.detector_mode_combobox.setCurrentText(self.microscope.get_detector_mode(beam_type=beam_type))
+        self.detector_mode_combobox.blockSignals(False)
 
         self.set_ui_from_settings(self.image_settings, beam_type)
+
+    def _update_beam_settings_ui(self) -> None:
+        """Update the beam settings ui components based on the current microscope state"""
+
+        return # TODO: hide until we can test with microscope
+
+        beam_type = BeamType[self.selected_beam.currentText()]
+
+        # set current controls
+        self.comboBox_beam_current.blockSignals(True)
+        self.comboBox_beam_current.clear()
+        print(self.microscope.get_beam_current(beam_type))
+        _create_combobox_control(value=self.microscope.get_beam_current(beam_type),   
+                        items=self.microscope.get_available_values_cached("current", beam_type),
+                        units="A",
+                        format_fn=utils.format_value,
+                        control= self.comboBox_beam_current)
+        self.comboBox_beam_current.blockSignals(False)
+
+        # set voltage controls
+        self.comboBox_beam_voltage.setVisible(False) # TODO: hide until we can test with microscope
+        # self.comboBox_beam_voltage.blockSignals(True)
+        # _create_combobox_control(value=self.microscope.get_beam_voltage(beam_type),
+        #                 items=self.microscope.get_available_values_cached("voltage", beam_type),
+        #                 units="V",
+        #                 format_fn=utils.format_value,
+        #                 control=self.comboBox_beam_voltage)
+        # self.comboBox_beam_voltage.blockSignals(False)
 
     def _toggle_interactions(self, enable: bool, caller: str = None, imaging: bool = False):
         for btn in self.acquisition_buttons:
             btn.setEnabled(enable)
         for btn in [self.pushButton_run_autocontrast, self.pushButton_run_autofocus]:
             btn.setEnabled(enable)
-        self.set_detector_button.setEnabled(enable)
         self.button_set_beam_settings.setEnabled(enable)
         self.parent.movement_widget._toggle_interactions(enable, caller="ui")
         # if caller != "milling":
             # self.parent.milling_widget._toggle_interactions(enable, caller="ui")
         if enable:
             for btn in self.acquisition_buttons:
-                btn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-            self.set_detector_button.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-            self.button_set_beam_settings.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+                btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
             self.pushButton_take_all_images.setText("Acquire All Images")
             self.pushButton_acquire_sem_image.setText("Acquire SEM Image")
             self.pushButton_acquire_fib_image.setText("Acquire FIB Image")
         elif imaging:
             for btn in self.acquisition_buttons:
-                btn.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
+                btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
                 btn.setText("Acquiring...")
-            self.set_detector_button.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
-            self.button_set_beam_settings.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
         else:
-            for btn in self.acquisition_buttons:
-                btn.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
-            self.set_detector_button.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
-            self.button_set_beam_settings.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
             self.pushButton_take_all_images.setText("Acquire All Images")
 
     def handle_acquisition_progress_update(self, ddict: dict):
         """Handle the acquisition progress update"""
         logging.debug(f"Acquisition Progress Update: {ddict}")
-        
+
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
@@ -841,7 +898,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 # idx = self.parent.comboBox_current_lamella.currentIndex()
                 # lamella = self.parent.experiment.positions[idx]
                 # self.image_settings.filename = f"{lamella.name}_{filename}"
-                self.image_settings.filename = f"ref_reference_image-{filename}"
+                self.image_settings.filename = f"ref_{filename}"
         except Exception as e:
             logging.error(f"Error getting selected lamella for image saving: {e}")
 
@@ -900,22 +957,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
         # restore active layer for movement
         self.restore_active_layer_for_movement()
-
-    @ensure_main_thread
-    def update_viewer(self, arr: np.ndarray, beam_type: BeamType, set_ui_from_image: bool = False):
-        """Update the viewer with the given image array"""
-        logging.warning("This method is deprecated. Use _on_acquire instead.")
-        try:
-            self.viewer.layers[beam_type.name].data = arr
-        except KeyError:    
-            raise KeyError(f"No layer found for beam type: {beam_type.name}")
-
-        self._update_ui_from_images(beam_type, set_ui_from_image=set_ui_from_image)
-
-        # update layer positions (translation, set correct layer for movements)
-        self._update_layer_positions()
-        self.restore_active_layer_for_movement()
-        self.viewer_update_signal.emit()
 
     def _update_ui_from_images(self, beam_type: BeamType, set_ui_from_image: bool = False) -> None:
         """Update the UI elements from the image metadata.
