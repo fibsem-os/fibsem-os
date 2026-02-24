@@ -9,6 +9,7 @@ except Exception:
 
 import logging
 import traceback
+import warnings
 
 import napari
 from PyQt5.QtCore import Qt
@@ -55,6 +56,13 @@ from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.task_history_table_widget import TaskHistoryTableWidget
 from fibsem.utils import format_duration
 
+# Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
+warnings.filterwarnings(
+    "ignore",
+    message=r"'where' used without 'out', expect unit?ialized memory in output\. If this is intentional, use out=None\.",
+    category=UserWarning,
+    module=r"napari\.layers\.shapes\._shapes_utils",
+)
 
 def play_notification_sound():
     """Play a notification sound to alert the user."""
@@ -401,6 +409,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle microscope connection and connect milling progress signal."""
         if self.autolamella_ui is not None and self.autolamella_ui.microscope is not None:
             self.autolamella_ui.microscope.milling_progress_signal.connect(self._on_milling_progress)
+        self.btn_create_experiment.setEnabled(True)
+        self.btn_load_experiment.setEnabled(True)
 
     @ensure_main_thread
     def _on_milling_progress(self, progress: dict):
@@ -499,12 +509,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_history_widget.set_experiment(self.autolamella_ui.experiment)
 
         # Set widget minimum widths (allows resize)
+        self.autolamella_ui.setMinimumWidth(500)
         self.task_widget.setMinimumWidth(500)
         self.lamella_widget.setMinimumWidth(500)
 
         if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
             self.workflow_widget.workflow_config_changed.connect(self.autolamella_ui._on_workflow_config_changed)
             self.workflow_widget.workflow_options_changed.connect(self.autolamella_ui._on_workflow_options_changed)
+
+        # Update experiment name label
+        if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
+            self.experiment_name_label.setText(f"Experiment: {self.autolamella_ui.experiment.name}")
+        else:
+            self.experiment_name_label.setText("No Experiment")
 
         # Show run workflow button when experiment is loaded
         self.run_workflow_btn.show()
@@ -521,9 +538,29 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         button_layout.setContentsMargins(5, 0, 5, 0)
         button_layout.setSpacing(5)
 
+        # Create / Load experiment buttons
+        self.btn_create_experiment = QPushButton("Create Experiment")
+        self.btn_create_experiment.setToolTip("Create a new experiment")
+        self.btn_create_experiment.setEnabled(False)
+        self.btn_create_experiment.clicked.connect(self._on_new_experiment)
+
+        self.btn_load_experiment = QPushButton("Load Experiment")
+        self.btn_load_experiment.setToolTip("Load an existing experiment")
+        self.btn_load_experiment.setEnabled(False)
+        self.btn_load_experiment.clicked.connect(self._on_load_experiment)
+
+        # Experiment name label
+        self.experiment_name_label = QLabel("No Experiment")
+        self.experiment_name_label.setStyleSheet("color: #d6d6d6; font-size: 12px;")
+
         # Notification bell
         self.notification_bell = NotificationBell(self)
         self.toast_manager.set_notification_bell(self.notification_bell)
+
+        # Add widgets to layout
+        button_layout.addWidget(self.experiment_name_label)
+        button_layout.addWidget(self.btn_create_experiment)
+        button_layout.addWidget(self.btn_load_experiment)
         button_layout.addWidget(self.notification_bell)
 
         # Add to tab widget corner

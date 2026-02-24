@@ -13,7 +13,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.ui import utils as fui
-from fibsem.ui.stylesheets import GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE, BLUE_PUSHBUTTON_STYLE, ORANGE_PUSHBUTTON_STYLE
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 
 # Error message constants
 ERROR_PROTOCOL_NOT_FOUND_TITLE = "Protocol Not Found"
@@ -87,7 +87,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addStretch()
         self.btn_select_experiment = QtWidgets.QPushButton("Select Experiment")
-        self.btn_select_experiment.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.btn_select_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         button_layout.addWidget(self.btn_select_experiment)
         exp_layout.addLayout(button_layout)
 
@@ -152,11 +152,11 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.protocol_button_layout.addStretch()
 
         self.btn_select_legacy_protocol = QtWidgets.QPushButton("Select Legacy Protocol")
-        self.btn_select_legacy_protocol.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
 
         self.btn_select_protocol = QtWidgets.QPushButton("Select Protocol")
-        self.btn_select_protocol.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.btn_select_protocol.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.protocol_button_layout.addWidget(self.btn_select_protocol)
 
         protocol_layout.addLayout(self.protocol_button_layout)
@@ -202,13 +202,13 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         # Dialog buttons (OK/Cancel)
         button_box = QtWidgets.QDialogButtonBox()
 
-        self.btn_ok = QtWidgets.QPushButton("Load")
-        self.btn_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.btn_ok = QtWidgets.QPushButton("Load Experiment")
+        self.btn_ok.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(False)  # Disabled until experiment is loaded
 
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
         button_box.addButton(self.btn_ok, QtWidgets.QDialogButtonBox.AcceptRole)
         button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)

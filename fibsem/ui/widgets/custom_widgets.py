@@ -63,6 +63,42 @@ class QFilePathLineEdit(QWidget):
         self.lineEdit.setText(text)
 
 
+class QDirectoryLineEdit(QWidget):
+    textChanged = pyqtSignal(str)
+    editingFinished = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QHBoxLayout(self)
+        self.lineEdit = QLineEdit(self)
+        self.button_browse = QToolButton(self)
+        self.button_browse.setText("...")
+        self.button_browse.setMaximumWidth(80)
+        layout.addWidget(self.lineEdit)
+        layout.addWidget(self.button_browse)
+
+        self.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+
+        self.button_browse.clicked.connect(self.browse_directory)
+        self.lineEdit.textChanged.connect(self.textChanged.emit)
+        self.lineEdit.editingFinished.connect(self.editingFinished.emit)
+
+    def browse_directory(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Directory", self.lineEdit.text())
+        if directory:
+            self.lineEdit.setText(directory)
+            self.textChanged.emit(directory)
+            self.editingFinished.emit()
+
+    def text(self) -> str:
+        return self.lineEdit.text()
+
+    def setText(self, text: str) -> None:
+        self.lineEdit.setText(text)
+
 def _create_combobox_control(value: Union[str, int, float, Enum], 
                              items: list, 
                              units: Optional[str], 
