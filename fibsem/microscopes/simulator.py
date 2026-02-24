@@ -4,6 +4,7 @@ import copy
 import glob
 import logging
 import os
+import random
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -547,6 +548,9 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
         logging.info(f"Autocontrasting {beam_type.name} beam.")
+        self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
+        self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
+
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
@@ -555,6 +559,11 @@ class DemoMicroscope(FibsemMicroscope):
         if reduced_area is not None:
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-focus
+        wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
+        focus_adjustment = random.uniform(-100e-6, 100e-6)
+        new_wd = wd + focus_adjustment
+        self.set_working_distance(new_wd, beam_type)
+
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
