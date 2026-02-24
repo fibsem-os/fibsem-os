@@ -752,7 +752,7 @@ class Lamella:
         """Save a thumbnail of the given image to disk as thumbnail.png."""
         from PIL import Image
         import numpy as np
-        data = image.data
+        data = image.filtered_data
         if data.ndim == 2:
             data = np.stack([data, data, data], axis=2)
         Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
