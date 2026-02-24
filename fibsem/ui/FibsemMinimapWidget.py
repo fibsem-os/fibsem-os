@@ -298,7 +298,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.actionLoad_Correlation_Image.triggered.connect(self.load_image)
         self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
         self.pushButton_enable_correlation.clicked.connect(self._toggle_correlation_mode)
-        self.viewer.bind_key("C", self._toggle_correlation_mode)
+        self.viewer.bind_key("C", self._toggle_correlation_mode, overwrite=True)
         self.pushButton_enable_correlation.setEnabled(False) # disabled until correlation images added
 
         # gridbar controls
