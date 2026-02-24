@@ -317,13 +317,13 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.groupBox_correlation.setToolTip("Correlation Controls are disabled until an image is acquired or loaded.")
 
         # set styles
-        self.pushButton_update_position.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_run_tile_collection.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_cancel_acquisition.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_update_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_cancel_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.progressBar_acquisition.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
-        self.pushButton_remove_position.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
-        self.pushButton_move_to_position.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_enable_correlation.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_remove_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_enable_correlation.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
         # add a file menu for display options
         self.actionDisplay_Options = QAction("Display Options", self)
@@ -578,10 +578,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.progressBar_acquisition.setValue(0)
 
         if enable:
-            self.pushButton_run_tile_collection.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+            self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
             self.pushButton_run_tile_collection.setText("Run Tile Collection")
         else:
-            self.pushButton_run_tile_collection.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
+            # self.pushButton_run_tile_collection.setStyleSheet(stylesheets.DISABLED_PUSHBUTTON_STYLE)
             self.pushButton_run_tile_collection.setText("Running Tile Collection...")
 
         if self.image is None:
@@ -768,16 +768,13 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         # Highlight the closest
         closest_name, closest_dist = distances[0]
 
-        # If closest position is within 5um, select it
-        SELECTED_POSITION_THRESHOLD_MICRONS = 5.0
+        # If closest position is within 50um, select it
+        SELECTED_POSITION_THRESHOLD_MICRONS = 50.0
         if closest_dist < SELECTED_POSITION_THRESHOLD_MICRONS * constants.MICRO_TO_SI:
             idx = self.comboBox_tile_position.findText(closest_name)
             if idx != -1:
                 self.comboBox_tile_position.setCurrentIndex(idx)
-                napari.utils.notifications.show_info(f"Selected: {closest_name} ({closest_dist * constants.SI_TO_MICRO:.1f} um)")
                 return
-
-        napari.utils.notifications.show_info(f"Closest: {closest_name} ({closest_dist * constants.SI_TO_MICRO:.1f} um)")
 
     def on_double_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
         """Callback for double click on the image layer.
@@ -923,7 +920,11 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.pushButton_move_to_position.setEnabled(has_positions)
         self.pushButton_remove_position.setEnabled(has_positions)
         self.pushButton_update_position.setEnabled(has_positions)
-        self.groupBox_positions.setVisible(has_positions)
+        self.groupBox_positions.setEnabled(has_positions)
+        if not has_positions:
+            self.groupBox_positions.setToolTip("No positions available. Please add a position via Right Click on the image.")
+        else:
+            self.groupBox_positions.setToolTip("")
 
         idx = self.comboBox_tile_position.currentIndex()
         self.comboBox_tile_position.clear()
@@ -1393,7 +1394,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             self.pushButton_enable_correlation.setText("Disable Correlation Mode")
             self.comboBox_correlation_selected_layer.setEnabled(False)
         else:
-            self.pushButton_enable_correlation.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_enable_correlation.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
             self.pushButton_enable_correlation.setText("Enable Correlation Mode")
             self.comboBox_correlation_selected_layer.setEnabled(True)
 

@@ -354,7 +354,7 @@ class AutoLamellaWorkflowWidget(QWidget):
         controls_layout = QHBoxLayout()
         controls_layout.addStretch(1)
         self.add_task_button = QPushButton("Add Task")
-        self.add_task_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.add_task_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         controls_layout.addWidget(self.add_task_button)
         tasks_layout.addLayout(controls_layout)
 
@@ -381,7 +381,7 @@ class AutoLamellaWorkflowWidget(QWidget):
 
         # Run workflow button
         self.run_workflow_button = QPushButton("Run Workflow")
-        self.run_workflow_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.run_workflow_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.run_workflow_button.setToolTip("Run the AutoLamella workflow")
         self.run_workflow_button.setVisible(False) # Hide by default; shown in main UI
         main_layout.addWidget(self.run_workflow_button)

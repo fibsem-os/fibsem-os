@@ -111,9 +111,9 @@ class AutoLamellaTaskSelectionDialog(QDialog):
         self.accept_button = QPushButton("Run Workflow")
         self.accept_button.setDefault(True)
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.cancel_button.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
-        self.accept_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.accept_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         button_box.addButton(self.accept_button, QDialogButtonBox.AcceptRole)
         button_box.addButton(self.cancel_button, QDialogButtonBox.RejectRole)
         button_box.accepted.connect(self.accept)

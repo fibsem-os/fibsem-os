@@ -32,7 +32,7 @@ from superqt.iconify import QIconifyIcon
 
 import fibsem
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
 from fibsem.ui.stylesheets import (
@@ -44,6 +44,8 @@ from fibsem.ui.stylesheets import (
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
     USER_ATTENTION_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
@@ -100,6 +102,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._create_test_menu()
         self._create_status_bar()
         self.create_tabs()
+        self._update_instructions()
 
         # Connect tab change to status bar update
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
@@ -325,7 +328,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add run workflow button (visible when workflow is not running)
         self.run_workflow_btn = QPushButton("Run Workflow")
-        self.run_workflow_btn.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.run_workflow_btn.hide()  # Hidden by default
         self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
         self.run_workflow_btn.clicked.connect(self._on_run_workflow_clicked)
@@ -405,12 +408,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if hasattr(self, 'workflow_widget'):
             self.workflow_widget.set_workflow_config(protocol.workflow_config)
 
+    def _update_instructions(self):
+        """Update the status bar with the current instruction based on application state."""
+        if self.autolamella_ui is None or self.status_bar is None:
+            return
+        is_connected = self.autolamella_ui.microscope is not None
+        experiment = self.autolamella_ui.experiment
+        is_experiment_loaded = experiment is not None
+        has_positions = is_experiment_loaded and len(experiment.positions) > 0
+
+        if not is_connected:
+            msg = INSTRUCTIONS["NOT_CONNECTED"]
+        elif not is_experiment_loaded:
+            msg = INSTRUCTIONS["NO_EXPERIMENT"]
+        elif not has_positions:
+            msg = INSTRUCTIONS["NO_LAMELLA"]
+        else:
+            msg = INSTRUCTIONS["AUTOLAMELLA_READY"]
+
+        self.status_bar.showMessage(msg)
+
     def _on_microscope_connected(self):
         """Handle microscope connection and connect milling progress signal."""
         if self.autolamella_ui is not None and self.autolamella_ui.microscope is not None:
             self.autolamella_ui.microscope.milling_progress_signal.connect(self._on_milling_progress)
         self.btn_create_experiment.setEnabled(True)
         self.btn_load_experiment.setEnabled(True)
+        self._update_instructions()
 
     @ensure_main_thread
     def _on_milling_progress(self, progress: dict):
@@ -446,8 +470,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
-        tab_name = self.tab_widget.tabText(index)
-        self.status_bar.showMessage(f"Hello {tab_name}")        # type: ignore
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)    # type: ignore
 
     def _create_main_tab(self):
@@ -529,6 +551,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # enable all the tabs
         for i in range(self.tab_widget.count()):
             self.tab_widget.setTabEnabled(i, True)
+
+        self._update_instructions()
 
     def create_notification_button(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
@@ -683,10 +707,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             status = status_msg.get("status", "info")
 
             txt = f"Workflow: {task_name} | {lamella_name}"
-            if current_lamella_index is not None and total_lamellae is not None:
-                txt += f" ({current_lamella_index + 1}/{total_lamellae})"
             if current_task_index is not None and total_tasks is not None:
                 txt += f" | Task {current_task_index + 1}/{total_tasks}"
+            if current_lamella_index is not None and total_lamellae is not None:
+                txt += f" ({current_lamella_index + 1}/{total_lamellae})"
 
             if current_lamella_index is not None and total_lamellae is not None:
                 self.set_workflow_running(txt)
@@ -708,8 +732,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.show_toast(msg, msg_type)
 
             # Refresh task history widget
-            if hasattr(self, 'task_history_widget'):
-                self.task_history_widget.refresh()
+            # if hasattr(self, 'task_history_widget'):
+                # self.task_history_widget.refresh()
 
         # refresh the supervised status chip
         self._update_supervised_status()
@@ -732,8 +756,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle workflow finished signal."""
         self.hide_workflow_running()
         self.user_attention_btn.hide()
-        self.status_bar.showMessage("Workflow: Finished")
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+        if self.status_bar is not None:
+            self.status_bar.showMessage("Workflow: Finished")
+            self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
 
     def add_minimap_tab(self):
         """Add the minimap as a separate tab with its own viewer."""

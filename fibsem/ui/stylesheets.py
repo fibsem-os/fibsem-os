@@ -456,3 +456,19 @@ STATUS_BAR_STYLESHEET = """
                         border-top: 1px solid #3d4251;
                     }
                 """
+
+
+INDETERMINATE_PROGRESS_BAR_STYLESHEET = """
+    QProgressBar {
+        border: 1px solid #3d4251;
+        border-radius: 3px;
+        background-color: #1e2027;
+        color: #d6d6d6;
+        text-align: center;
+        height: 6px;
+    }
+    QProgressBar::chunk {
+        background-color: #50a6ff;
+        border-radius: 3px;
+    }
+"""

@@ -1,5 +1,6 @@
 
 import logging
+import os
 from copy import deepcopy
 from typing import List, Optional
 
@@ -25,9 +26,11 @@ from fibsem.ui.stylesheets import (
     DISABLED_PUSHBUTTON_STYLE,
     GRAY_PUSHBUTTON_STYLE,
     GREEN_PUSHBUTTON_STYLE,
-    ORANGE_PUSHBUTTON_STYLE,
-    RED_PUSHBUTTON_STYLE,
     LABEL_INSTRUCTIONS_STYLE,
+    ORANGE_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    RED_PUSHBUTTON_STYLE,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import (
     WheelBlocker,
@@ -130,10 +133,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             self.doubleSpinBox_movement_stage_rotation.setVisible(False)
 
         # stylesheets
-        self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_move_flat_ion.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_move_flat_electron.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_move_to_milling_angle.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_move_flat_ion.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_flat_electron.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_refresh_stage_position_data.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.pushButton_save_position.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_remove_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
@@ -223,11 +226,11 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             # self.parent.milling_widget._toggle_interactions(enable, caller="movement")
             self.parent.image_widget._toggle_interactions(enable, caller="movement")
         if enable:
-            self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_ion.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_electron.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_move_to_milling_angle.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_go_to.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+            self.pushButton_move_flat_ion.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_move_flat_electron.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_go_to.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         else:
             self.pushButton_move.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
             self.pushButton_move_flat_ion.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
@@ -533,7 +536,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         logging.info(f"Positions saved to {path}")
 
-    def import_positions(self, path: str = None):
+    def import_positions(self, path: Optional[str] = None):
         """Import saved positions from a file"""
         
         if path is None:
@@ -543,8 +546,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             napari.utils.notifications.show_info("No file selected, positions not loaded")
             return
 
-        def load_saved_positions_from_yaml(path: str = None) -> List[FibsemStagePosition]:
+        def load_saved_positions_from_yaml(path: Optional[str] = None) -> List[FibsemStagePosition]:
             import yaml
+            if path is None or not os.path.exists(path):
+                return []
             with open(path, "r") as f:
                 ddict = yaml.safe_load(f)
             return [FibsemStagePosition.from_dict(pdict) for pdict in ddict]

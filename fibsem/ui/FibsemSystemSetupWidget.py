@@ -1,6 +1,7 @@
 import logging
 import os
 from pprint import pprint
+from typing import Optional
 
 import napari
 import napari.utils.notifications
@@ -15,7 +16,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.qtdesigner_files import (
     FibsemSystemSetupWidget as FibsemSystemSetupWidgetUI,
 )
-from fibsem.ui.utils import open_existing_file_dialog
+from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 
 
 class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidget):
@@ -29,8 +30,8 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
         self.setupUi(self)
 
         self.parent = parent
-        self.microscope: FibsemMicroscope = None
-        self.settings: MicroscopeSettings = None
+        self.microscope: Optional[FibsemMicroscope] = None
+        self.settings: Optional[MicroscopeSettings] = None
 
         self.setup_connections()
         self.update_ui()
@@ -49,7 +50,7 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
         self.pushButton_apply_configuration.clicked.connect(lambda: self.apply_microscope_configuration(None))
         self.pushButton_apply_configuration.setToolTip("Apply configuration can take some time. Please make sure the microscope beams are both on.")
 
-    def load_configuration(self, configuration_name: str):
+    def load_configuration(self, configuration_name: Optional[str] = None) -> Optional[str]:
         if configuration_name is None:
             configuration_name = self.comboBox_configuration.currentText()
         
@@ -69,7 +70,10 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
     def import_configuration_from_file(self):
     
         path = open_existing_file_dialog(msg="Select microscope configuration file", 
-            path=cfg.CONFIG_PATH, _filter="YAML (*.yaml *.yml)")
+            path=cfg.CONFIG_PATH,
+            _filter="YAML (*.yaml *.yml)",
+            parent=self
+        )
 
         if path == "":
             napari.utils.notifications.show_error("No file selected. Configuration not loaded.")
@@ -84,9 +88,8 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
             configuration_name = os.path.basename(path).replace(".yaml", "")
 
         if configuration_name not in cfg.USER_CONFIGURATIONS: 
-            from fibsem.ui.utils import message_box_ui
             msg = "Would you like to add this configuration to the user configurations?"
-            ret = message_box_ui(text=msg, title="Add to user configurations?")
+            ret = message_box_ui(text=msg, title="Add to user configurations?", parent=self)
 
             # add to user configurations
             if ret:
@@ -94,7 +97,7 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
                 
                 # set default configuration
                 msg = "Would you like to make this the default configuration?"
-                ret = message_box_ui(text=msg, title="Set default configuration?")
+                ret = message_box_ui(text=msg, title="Set default configuration?", parent=self)
                 
                 if ret:
                     cfg.set_default_configuration(configuration_name=configuration_name)
@@ -133,7 +136,7 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
         self.update_ui()
             
 
-    def apply_microscope_configuration(self, system_settings: SystemSettings = None):
+    def apply_microscope_configuration(self, system_settings: Optional[SystemSettings] = None):
         """Apply the microscope configuration to the microscope."""
 
         if self.microscope is None:
@@ -142,25 +145,6 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
         
         # apply the configuration
         self.microscope.apply_configuration(system_settings=system_settings)
-    
-
-
-
-    # def apply_defaults_settings(self):
-    #     microscope_settings = self.get_default_settings_from_ui()
-
-    #     self.microscope.set_beam_system_settings(microscope_settings.system.ion)
-    #     self.microscope.set_beam_system_settings(microscope_settings.system.electron)
-        
-    #     # TODO: complete this system setting
-    #     if self.parent:
-    #         if self.parent.image_widget:
-    #             self.parent.image_widget.set_ui_from_settings(microscope_settings.image, beam_type=microscope_settings.image.beam_type)
-    #         if self.parent.milling_widget:
-    #             self.parent.milling_widget.set_milling_settings_ui(microscope_settings.milling)
-
-    #     self.get_stage_settings_from_ui()
-    #     self.get_model_from_ui()
 
     def update_ui(self):
 
@@ -171,7 +155,7 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setText("Microscope Connected")
             self.pushButton_connect_to_microscope.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-            self.pushButton_apply_configuration.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_apply_configuration.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
             self.connected_signal.emit()
             
             info = self.microscope.system.info
@@ -179,8 +163,8 @@ class FibsemSystemSetupWidget(FibsemSystemSetupWidgetUI.Ui_Form, QtWidgets.QWidg
 
         else:
             self.pushButton_connect_to_microscope.setText("Connect To Microscope")
-            self.pushButton_connect_to_microscope.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_apply_configuration.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
+            self.pushButton_connect_to_microscope.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+            self.pushButton_apply_configuration.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
             self.disconnected_signal.emit()
             self.label_connection_information.setText("Not connected to microscope")
 

@@ -263,10 +263,10 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
-        self.pushButton_stop_workflow.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
-        self.pushButton_add_lamella.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_remove_lamella.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
-        self.pushButton_go_to_lamella.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_stop_workflow.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_add_lamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_remove_lamella.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_go_to_lamella.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
         # labels and placeholders
         self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
@@ -274,8 +274,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.lineEdit_protocol_name.setReadOnly(True)
         self.lineEdit_experiment_name.setReadOnly(True)
 
-        self.task_history_widget = AutoLamellaWorkflowDisplayWidget(experiment=None, parent=self)
-        self.scrollArea_lamella_info.setWidget(self.task_history_widget)
+        # self.task_history_widget = AutoLamellaWorkflowDisplayWidget(experiment=None, parent=self)
+        # self.scrollArea_lamella_info.setWidget(self.task_history_widget)
 
 
         # workflow info
@@ -300,8 +300,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.pushButton_lamella_move_to_pose.clicked.connect(self._move_to_lamella_pose)
         self.pushButton_lamella_move_to_pose.setToolTip("Move the stage to the lamella pose position.")
-        self.pushButton_lamella_set_pose.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_lamella_move_to_pose.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_lamella_set_pose.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_lamella_move_to_pose.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.label_lamella_pose_position.setWordWrap(True)
 
 ##########
@@ -964,7 +964,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.lineEdit_experiment_name.setToolTip(f"Experiment Directory: {self.experiment.path}")
             self.comboBox_current_lamella.setVisible(has_lamella)
 
-            self.task_history_widget.set_experiment(self.experiment)
+            # self.task_history_widget.set_experiment(self.experiment)
             self.groupBox_lamella.setMinimumHeight(min(200, 150 + 10 * len(self.experiment.positions)))
 
         if self.protocol is not None:
@@ -991,7 +991,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.label_run_autolamella_info.setVisible(has_lamella)
         self.pushButton_run_setup_autolamella.setVisible(is_experiment_ready)
         self.pushButton_run_setup_autolamella.setEnabled(has_lamella)
-        self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         # disable lamella controls while workflow is running
         self.groupBox_setup.setEnabled(not self.is_workflow_running)
@@ -1084,7 +1084,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # buttons
         self.pushButton_save_position.setText("Update Position")
-        self.pushButton_save_position.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
+        self.pushButton_save_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_save_position.setEnabled(True)
 
         # set objective position (show as mm)
@@ -1518,7 +1518,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         if pos == "Run Milling":
             self.pushButton_yes.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         else:
-            self.pushButton_yes.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+            self.pushButton_yes.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
     def set_current_workflow_message(self, msg: Optional[str] = None, show: bool = True):
         """Set the current workflow information message"""
