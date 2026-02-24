@@ -339,19 +339,19 @@ class NotificationBell(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(40, 40)
+        self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
 
         # Bell icon button using QToolButton with QIconifyIcon
         self.bell_btn = QToolButton()
         self.bell_btn.setIcon(QIconifyIcon("mdi:bell", color="#d6d6d6"))
-        self.bell_btn.setFixedSize(36, 36)
-        self.bell_btn.setIconSize(self.bell_btn.size() * 0.6)
+        self.bell_btn.setFixedSize(24, 24)
+        self.bell_btn.setIconSize(self.bell_btn.size() * 0.7)
         self.bell_btn.clicked.connect(self._on_clicked)
 
         # Badge
         self.badge = QLabel("0")
-        self.badge.setFixedSize(18, 18)
+        self.badge.setFixedSize(14, 14)
         self.badge.setAlignment(Qt.AlignCenter)
         self.badge.hide()
 
@@ -362,7 +362,7 @@ class NotificationBell(QWidget):
 
         # Position badge in top-right
         self.badge.setParent(self)
-        self.badge.move(22, 0)
+        self.badge.move(14, 0)
 
         # Popup
         self.popup = NotificationHistoryPopup()
@@ -389,7 +389,7 @@ class NotificationBell(QWidget):
                 color: white;
                 font-size: 10px;
                 font-weight: bold;
-                border-radius: 9px;
+                border-radius: 7px;
             }
         """)
 

@@ -409,6 +409,46 @@ SUPERVISION_STATUS_AUTOMATED_STYLESHEET = """
                 }
             """
 
+PRIMARY_BUTTON_STYLESHEET = """
+    QPushButton {
+        background-color: #50a6ff;
+        color: white;
+        border: none;
+        padding: 5px 12px;
+        border-radius: 3px;
+    }
+    QPushButton:hover {
+        background-color: #3d8fe0;
+    }
+    QPushButton:pressed {
+        background-color: #2d72c4;
+    }
+    QPushButton:disabled {
+        background-color: #2d313b;
+        color: #6b6b6b;
+    }
+"""
+
+SECONDARY_BUTTON_STYLESHEET = """
+    QPushButton {
+        background-color: #3d4251;
+        color: #d6d6d6;
+        border: none;
+        padding: 5px 12px;
+        border-radius: 3px;
+    }
+    QPushButton:hover {
+        background-color: #4a5168;
+    }
+    QPushButton:pressed {
+        background-color: #50a6ff;
+    }
+    QPushButton:disabled {
+        background-color: #2d313b;
+        color: #6b6b6b;
+    }
+"""
+
 STATUS_BAR_STYLESHEET = """
                 QStatusBar {
                     background-color: #1e2027;
