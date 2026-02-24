@@ -705,13 +705,13 @@ class Lamella:
             fname: str
                 the filename of the reference image to load
         Returns:
-            adorned_img: AdornedImage
-                the reference image loaded as an AdornedImage
+            image: FibsemImage
+                the reference image loaded as a FibsemImage
         """
 
-        adorned_img = FibsemImage.load(os.path.join(self.path, f"{fname}.tif"))
+        image = FibsemImage.load(os.path.join(self.path, f"{fname}.tif"))
 
-        return adorned_img
+        return image
 
     # convert to method
     def get_reference_images(self, filename: str) -> ReferenceImages:
