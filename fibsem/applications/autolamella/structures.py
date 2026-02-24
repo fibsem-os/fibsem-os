@@ -531,6 +531,25 @@ class DefectState:
         self.updated_at = datetime.timestamp(datetime.now())
 
 
+def _make_thumbnail_placeholder():
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (256, 170), color=(30, 30, 30))
+    draw = ImageDraw.Draw(img)
+    text = "No Data"
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", size=20)
+    except OSError:
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((256 - tw) // 2, (170 - th) // 2), text, fill=(100, 100, 100), font=font)
+    return np.asarray(img)
+
+
+_THUMBNAIL_PLACEHOLDER = None
+
+
 @evented
 @dataclass
 class Lamella:
@@ -719,11 +738,14 @@ class Lamella:
         Returns:
             np.ndarray (H, W, 3) RGB, or a blank array if no thumbnail exists.
         """
+        global _THUMBNAIL_PLACEHOLDER
         thumb_path = os.path.join(self.path, "thumbnail.png")
         import numpy as np
-        if not os.path.exists(thumb_path):
-            return np.zeros((170, 256, 3), dtype=np.uint8)
         from PIL import Image
+        if not os.path.exists(thumb_path):
+            if _THUMBNAIL_PLACEHOLDER is None:
+                _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
+            return _THUMBNAIL_PLACEHOLDER
         return np.asarray(Image.open(thumb_path).convert("RGB"))
 
     def save_thumbnail(self, image: "FibsemImage") -> None:
