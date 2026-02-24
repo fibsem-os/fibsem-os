@@ -46,7 +46,6 @@ from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment
 from fibsem.ui.widgets.autolamella_load_task_protocol_widget import load_task_protocol_dialog
 from fibsem.ui.widgets.autolamella_task_config_editor import show_protocol_editor, AutoLamellaProtocolEditorTabWidget
 from fibsem.ui.widgets.autolamella_task_history_widget import AutoLamellaWorkflowDisplayWidget
-from fibsem.ui.widgets.autolamella_defect_state_widget import AutoLamellaDefectStateWidget
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -55,7 +54,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
-    DefectState,
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import run_tasks
 from fibsem.applications.autolamella.ui.qt import AutoLamellaUI as AutoLamellaMainUI
@@ -65,7 +63,7 @@ from superqt import ensure_main_thread
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
 warnings.filterwarnings(
     "ignore",
-    message=r"'where' used without 'out', expect uninitialized memory in output\. If this is intentional, use out=None\.",
+    message=r"'where' used without 'out', expect unit?ialized memory in output\. If this is intentional, use out=None\.",
     category=UserWarning,
     module=r"napari\.layers\.shapes\._shapes_utils",
 )
@@ -305,11 +303,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_lamella_set_pose.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
         self.pushButton_lamella_move_to_pose.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
         self.label_lamella_pose_position.setWordWrap(True)
-
-        rows = self.gridLayout_7.rowCount()
-        self.lamella_defect_widget = AutoLamellaDefectStateWidget(parent=self)
-        self.gridLayout_7.addWidget(self.lamella_defect_widget, rows, 0, 1, 2)
-        self.lamella_defect_widget.defect_state_changed.connect(self._on_defect_state_changed)
 
 ##########
 
@@ -1134,22 +1127,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_lamella_move_to_pose.setVisible(enable_pose_controls)
         self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
 
-        # defect state
-        self.lamella_defect_widget.set_defect_state(lamella.defect)
-
         self._update_minimap_data(selected_name=lamella.name)
         self._update_lamella_display(selected_name=lamella.name)
-
-    def _on_defect_state_changed(self, defect: 'DefectState'):
-        if self.experiment is None:
-            return
-        idx = self.comboBox_current_lamella.currentIndex()
-        if idx == -1:
-            return
-        lamella = self.experiment.positions[idx]
-        lamella.defect = defect
-        self.experiment.save()
-        self.update_ui()
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -1283,38 +1262,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         logging.debug("Lamella removed from experiment")
         self.update_lamella_combobox(latest=True)
-        self.update_ui()
-
-    def fail_lamella_ui(self):
-        """Toggle the defect state of the selected lamella."""
-        idx = self.comboBox_current_lamella.currentIndex()
-        if idx == -1:
-            return
-
-        if self.experiment is None or self.experiment.positions == []:
-            return
-
-        # get the current state
-        lamella = self.experiment.positions[idx]
-        is_failure = lamella.defect.has_defect
-
-        # if marking as failure, get user reason for failure
-        if not is_failure:
-            msg, ret = fui.open_text_input_dialog(
-                msg="Enter defect reason:",
-                title=f"Mark Lamella {lamella.name} as defect?",
-                default="",
-                parent=self,
-            )
-
-            if ret is False:
-                logging.debug(f"User cancelled marking lamella {lamella.name} as failure.")
-                return
-
-            lamella.defect.set_defect(msg)
-        else:
-            lamella.defect.clear()
-        self.experiment.save()
         self.update_ui()
 
     def save_lamella_ui(self):

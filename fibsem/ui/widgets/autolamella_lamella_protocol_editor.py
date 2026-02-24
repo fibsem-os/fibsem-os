@@ -31,6 +31,7 @@ from fibsem import conversions
 from fibsem.ui.napari.utilities import is_inside_image_bounds, add_points_layer
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
+    DefectState,
     Lamella,
 )
 import fibsem.applications.autolamella.config as cfg
@@ -39,7 +40,8 @@ from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
-from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE
+from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE, PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.widgets.autolamella_defect_state_widget import AutoLamellaDefectStateWidget
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
@@ -50,6 +52,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
 REFERENCE_IMAGE_LAYER_NAME = "Reference Image (FIB)"
+REFERENCE_IMAGE_SEM_LAYER_NAME = "Reference Image (SEM)"
 
 
 class ApplyLamellaConfigDialog(QDialog):
@@ -308,13 +311,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.pushButton_refresh_positions.setToolTip("Refresh the list of lamella positions from the experiment (and associated data).")
         self.pushButton_refresh_positions.clicked.connect(self._refresh_experiment_positions)
         self.pushButton_apply_to_other = QPushButton("Apply Config to Other Lamella")
-        self.pushButton_apply_to_other.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_apply_to_other.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_apply_to_other.setToolTip(
             "Apply this lamella's task configurations to other lamella in the experiment."
         )
         self.pushButton_apply_to_other.clicked.connect(self._on_apply_to_other_clicked)
         self.pushButton_open_correlation = QPushButton("Open Correlation")
-        self.pushButton_open_correlation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_open_correlation.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_open_correlation.setToolTip(
             "Open the 3D correlation tool to align the FIB and FM images."
         )
@@ -330,6 +333,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fib_filenames_label = QLabel("FIB Image")
         self.combobox_fib_filenames.currentIndexChanged.connect(self._on_image_selected)
 
+        self.combobox_sem_filenames = QComboBox()
+        self.combobox_sem_filenames_label = QLabel("SEM Image")
+        self.combobox_sem_filenames.currentIndexChanged.connect(self._on_image_selected)
+
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setWordWrap(True)
@@ -342,15 +349,20 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.comboBox_selected_lamella, 0, 1)
         self.grid_layout.addWidget(self.combobox_fib_filenames_label, 1, 0, 1, 1)
         self.grid_layout.addWidget(self.combobox_fib_filenames, 1, 1, 1, 1)
-        self.grid_layout.addWidget(self.combobox_fm_filenames_label, 2, 0, 1, 1)
-        self.grid_layout.addWidget(self.combobox_fm_filenames, 2, 1, 1, 1)
-        self.grid_layout.addWidget(self.label_selected_milling, 3, 0)
-        self.grid_layout.addWidget(self.comboBox_selected_task, 3, 1)
+        self.grid_layout.addWidget(self.combobox_sem_filenames_label, 2, 0, 1, 1)
+        self.grid_layout.addWidget(self.combobox_sem_filenames, 2, 1, 1, 1)
+        self.grid_layout.addWidget(self.combobox_fm_filenames_label, 3, 0, 1, 1)
+        self.grid_layout.addWidget(self.combobox_fm_filenames, 3, 1, 1, 1)
+        self.grid_layout.addWidget(self.label_selected_milling, 4, 0)
+        self.grid_layout.addWidget(self.comboBox_selected_task, 4, 1)
         self.grid_layout.addWidget(self.label_status, 5, 0, 1, 2)
         self.grid_layout.addWidget(self.label_warning, 6, 0, 1, 2)
         self.grid_layout.addWidget(self.pushButton_refresh_positions, 7, 0, 1, 2)
         self.grid_layout.addWidget(self.pushButton_apply_to_other, 8, 0, 1, 2)
         self.grid_layout.addWidget(self.pushButton_open_correlation, 9, 0, 1, 2)
+
+        self.lamella_defect_widget = AutoLamellaDefectStateWidget(parent=self)
+        self.grid_layout.addWidget(self.lamella_defect_widget, 10, 0, 1, 2)
 
         # main layout
         self.main_layout = QVBoxLayout(self)
@@ -382,9 +394,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.milling_task_editor.config_widget.correlation_result_updated_signal.connect(self._on_point_of_interest_updated)
-
-        if cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
-            self.viewer.mouse_drag_callbacks.append(self._on_single_click)
+        self.lamella_defect_widget.defect_state_changed.connect(self._on_defect_state_changed)
+        self.viewer.mouse_drag_callbacks.append(self._on_single_click)
 
         if self.comboBox_selected_lamella.count() > 0:
             self.comboBox_selected_lamella.setCurrentIndex(0)
@@ -486,19 +497,52 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fib_filenames.setCurrentText(default_filename)
         self.combobox_fib_filenames.blockSignals(False)
 
+        # load sem reference image
+        self.combobox_sem_filenames.blockSignals(True)
+        sem_filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*_eb.tif")))
+        sem_filenames = [f for f in sem_filenames if "alignment" not in f]
+
+        selected_sem_filename = self.combobox_sem_filenames.currentText()
+        self.combobox_sem_filenames.clear()
+        for f in sem_filenames:
+            self.combobox_sem_filenames.addItem(os.path.basename(f))
+
+        sem_base_filenames = [os.path.basename(f) for f in sem_filenames]
+
+        latest_sem_task_filename = ""
+        if selected_lamella.last_completed_task is not None:
+            last_task_name = selected_lamella.last_completed_task.name
+            reference_sem_filename = f"ref_{last_task_name}_final_res_*_eb.tif"
+            matching_sem_filenames = glob.glob(os.path.join(selected_lamella.path, reference_sem_filename))
+            if len(matching_sem_filenames) > 0:
+                latest_sem_task_filename = os.path.basename(sorted(matching_sem_filenames, key=os.path.getmtime)[-1])
+
+        default_sem_filename = sem_filenames[-1] if sem_filenames else ""
+        if latest_sem_task_filename in sem_base_filenames:
+            default_sem_filename = latest_sem_task_filename
+        elif selected_sem_filename in sem_base_filenames:
+            default_sem_filename = selected_sem_filename
+
+        self.combobox_sem_filenames.setCurrentText(default_sem_filename)
+        self.combobox_sem_filenames.blockSignals(False)
+
         # hide if no filenames
         self.combobox_fm_filenames.setVisible(len(filenames) > 0)
         self.combobox_fm_filenames_label.setVisible(len(filenames) > 0)
         self.combobox_fib_filenames.setVisible(len(fib_filenames) > 0)
         self.combobox_fib_filenames_label.setVisible(len(fib_filenames) > 0)
+        self.combobox_sem_filenames.setVisible(len(sem_filenames) > 0)
+        self.combobox_sem_filenames_label.setVisible(len(sem_filenames) > 0)
 
         self._on_image_selected(0)
         self._draw_point_of_interest(selected_lamella.poi)
+        self.lamella_defect_widget.set_defect_state(selected_lamella.defect)
 
     def _on_image_selected(self, index):
         """Callback when an image is selected."""
         p: Lamella = self.comboBox_selected_lamella.currentData()
         fib_filename = self.combobox_fib_filenames.currentText()
+        sem_filename = self.combobox_sem_filenames.currentText()
 
         # load the fib reference image
         reference_image_path = os.path.join(p.path, fib_filename)
@@ -507,6 +551,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         else:
             self.image = FibsemImage.generate_blank_image(hfw=150e-6, random=True)
 
+        # load the sem reference image
+        sem_image = None
+        if sem_filename:
+            sem_image_path = os.path.join(p.path, sem_filename)
+            if os.path.exists(sem_image_path) and os.path.isfile(sem_image_path):
+                sem_image = FibsemImage.load(sem_image_path)
+
         self.viewer.layers.clear()
         self.viewer.add_image(
             data=self.image.filtered_data,
@@ -514,6 +565,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             colormap="gray",
             blending="additive",
         )
+
+        if sem_image is not None:
+            self.viewer.add_image(
+                data=sem_image.filtered_data,
+                name=REFERENCE_IMAGE_SEM_LAYER_NAME,
+                colormap="gray",
+                blending="additive",
+                translate=(0, -sem_image.data.shape[1]),
+            )
 
         self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
         self._on_selected_task_changed()
@@ -562,6 +622,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_stage_name in [t.name for t in selected_lamella.task_history]:
             msg = f"Task '{selected_stage_name}' has been completed."
         self.label_status.setText(msg)
+        self.label_status.setVisible(bool(msg))
 
         self._draw_point_of_interest(selected_lamella.poi)
 
@@ -868,8 +929,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         QMessageBox.information(self, "Apply Complete", msg)
         logging.info(msg)
 
-        # Update the status label
-        self.label_status.setText(msg)
+    def _on_defect_state_changed(self, defect: DefectState):
+        """Callback when the defect state is changed."""
+        selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
+        if selected_lamella is None:
+            return
+        selected_lamella.defect = defect
+        self._save_experiment()
 
     def _save_experiment(self):
         """Save the experiment."""
