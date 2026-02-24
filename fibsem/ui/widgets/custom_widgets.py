@@ -130,7 +130,6 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
     if idx == -1:
         logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
         idx = 0
-    print(f"Setting combobox to value {value} (closest match: {control.itemData(idx)})")
     control.setCurrentIndex(idx)
     control.installEventFilter(WheelBlocker(parent=control))
 
