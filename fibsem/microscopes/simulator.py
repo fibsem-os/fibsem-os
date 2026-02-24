@@ -197,7 +197,7 @@ class DemoMicroscope(FibsemMicroscope):
             beam=BeamSettings(
                 beam_type=BeamType.ELECTRON,
                 working_distance=4.0e-3,
-                beam_current=1e-12,
+                beam_current=100e-12,
                 voltage=2000,
                 hfw=150e-6,
                 resolution=(1536, 1024),

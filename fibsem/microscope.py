@@ -740,7 +740,7 @@ class FibsemMicroscope(ABC):
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
         """Reset the microscope state to the provided state."""
-            
+
         if self.is_available("electron_beam"):
             if microscope_state.electron_beam is not None:
                 self.set_beam_settings(microscope_state.electron_beam)
@@ -1046,6 +1046,11 @@ class FibsemMicroscope(ABC):
         """Set the detector brightness for the specified beam type."""
         self.set("detector_brightness", brightness, beam_type)
         return self.get("detector_brightness", beam_type)
+
+    def set_preset(self, preset: str, beam_type: BeamType) -> str:
+        """Set the preset for the specified beam type."""
+        self.set("preset", preset, beam_type)
+        return self.get("preset", beam_type)
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         return FibsemStagePosition(x=0, y=0) # assume no offset to rotation centre
