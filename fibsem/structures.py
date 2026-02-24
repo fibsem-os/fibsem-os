@@ -1306,6 +1306,7 @@ class FibsemMillingSettings:
     patterning_mode: str = field(default="Serial", 
                                 metadata={"label": "Patterning Mode",
                                         "type": str,
+                                        "advanced": True,
                                         "items": ["Serial", "Parallel"],
                                         "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
                                         })
