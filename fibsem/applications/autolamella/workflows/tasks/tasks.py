@@ -995,11 +995,13 @@ class SelectMillingPositionTask(AutoLamellaTask):
             elif self.validate:
                 current_milling_angle = self.microscope.get_current_milling_angle()
                 ret = ask_user(parent_ui=self.parent_ui,
-                            msg=f"Tilt to specified milling angle ({milling_angle:.1f} {constants.DEGREE_SYMBOL})? "
-                            f"Current milling angle is {current_milling_angle:.1f} {constants.DEGREE_SYMBOL}.",
+                            msg=f"Tilt to specified milling angle ({milling_angle:.1f}{constants.DEGREE_SYMBOL})? "
+                            f"Current milling angle is {current_milling_angle:.1f}{constants.DEGREE_SYMBOL}.",
                             pos="Tilt", neg="Skip")
                 if ret:
                     self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
+            else:
+                self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
 
             if self.config.use_autofocus:
                 self.microscope.auto_focus(beam_type=BeamType.ION)
