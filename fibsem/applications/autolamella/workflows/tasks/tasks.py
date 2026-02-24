@@ -290,6 +290,7 @@ class AutoLamellaTask(ABC):
         self.parent_ui = parent_ui
         self.task_id = str(uuid.uuid4())
         self._stop_event = self.parent_ui._workflow_stop_event if self.parent_ui else None
+        self._last_fib_image: Optional[FibsemImage] = None
 
     @property
     def task_type(self) -> str:
@@ -344,7 +345,9 @@ class AutoLamellaTask(ABC):
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
-        self.lamella.task_history.append(deepcopy(self.lamella.task_state)) # TODO: append to the history if task fails?
+        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
+        if self._last_fib_image is not None:
+            self.lamella.save_thumbnail(self._last_fib_image) # TODO: append to the history if task fails?
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""
@@ -556,6 +559,8 @@ class AutoLamellaTask(ABC):
                                                         image_settings,
                                                         acquire_sem=acquire_sem,
                                                         acquire_fib=acquire_fib)
+        if fib_image is not None:
+            self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)
 
     def _acquire_set_of_channels(self, image_settings: ImageSettings, 
@@ -581,6 +586,8 @@ class AutoLamellaTask(ABC):
         )
 
         sem_image, fib_image = images[-1] # last acquired image
+        if fib_image is not None:
+            self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
 
     def _move_to_milling_pose(self) -> None:

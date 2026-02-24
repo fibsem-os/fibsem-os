@@ -713,6 +713,28 @@ class Lamella:
 
         return image
 
+    def get_thumbnail(self) -> "np.ndarray":
+        """Load the thumbnail image for this lamella if available.
+
+        Returns:
+            np.ndarray (H, W, 3) RGB, or a blank array if no thumbnail exists.
+        """
+        thumb_path = os.path.join(self.path, "thumbnail.png")
+        import numpy as np
+        if not os.path.exists(thumb_path):
+            return np.zeros((170, 256, 3), dtype=np.uint8)
+        from PIL import Image
+        return np.asarray(Image.open(thumb_path).convert("RGB"))
+
+    def save_thumbnail(self, image: "FibsemImage") -> None:
+        """Save a thumbnail of the given image to disk as thumbnail.png."""
+        from PIL import Image
+        import numpy as np
+        data = image.data
+        if data.ndim == 2:
+            data = np.stack([data, data, data], axis=2)
+        Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
+
     # convert to method
     def get_reference_images(self, filename: str) -> ReferenceImages:
         reference_images = ReferenceImages(
