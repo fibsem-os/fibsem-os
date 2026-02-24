@@ -232,7 +232,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         return self.parent_widget.experiment.task_protocol
 
     def setup_connections(self):
-        
+
+        self.label_title.setVisible(False)
+        self.label_tile_overlap.setVisible(False)
+
         # acquisition buttons
         self.pushButton_run_tile_collection.clicked.connect(self.run_tile_collection)
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
@@ -258,16 +261,14 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.doubleSpinBox_tile_fov.valueChanged.connect(self.update_imaging_display)
         self.update_imaging_display() # update the total fov
 
+        # suffixes
+        self.doubleSpinBox_tile_dwell_time.setSuffix(f" {constants.MICROSECOND_SYMBOL}")
+        self.doubleSpinBox_tile_fov.setSuffix(f" {constants.MICRON_SYMBOL}")
 
         # position buttons
         self.pushButton_move_to_position.clicked.connect(self.move_to_position_pressed)
         self.comboBox_tile_position.currentIndexChanged.connect(self.update_current_selected_position)
         self.pushButton_remove_position.clicked.connect(self.remove_selected_position_pressed)
-
-        # disable updating position name:
-        self.label_position_name.setVisible(False)
-        self.lineEdit_tile_position_name.setVisible(False)
-        self.pushButton_update_position.setVisible(False)
 
         # signals
         self.tile_acquisition_progress_signal.connect(self.handle_tile_acquisition_progress)
