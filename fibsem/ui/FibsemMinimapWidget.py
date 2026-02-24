@@ -318,7 +318,6 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.groupBox_correlation.setToolTip("Correlation Controls are disabled until an image is acquired or loaded.")
 
         # set styles
-        self.pushButton_update_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_cancel_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.progressBar_acquisition.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
@@ -902,10 +901,8 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         """Update the currently selected position."""
         idx = self.comboBox_tile_position.currentIndex()
         if idx == -1 or len(self.positions) == 0:
-            self.lineEdit_tile_position_name.setText("")
             return
 
-        self.lineEdit_tile_position_name.setText(self.positions[idx].name)
         self.pushButton_move_to_position.setText(f"Move to {self.positions[idx].name}")
         self.label_position_info.setText(f"{self.positions[idx].name}: {self.positions[idx].pretty_string}")
 
@@ -920,7 +917,6 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         has_positions = len(self.positions) > 0
         self.pushButton_move_to_position.setEnabled(has_positions)
         self.pushButton_remove_position.setEnabled(has_positions)
-        self.pushButton_update_position.setEnabled(has_positions)
         self.groupBox_positions.setEnabled(has_positions)
         if not has_positions:
             self.groupBox_positions.setToolTip("No positions available. Please add a position via Right Click on the image.")
