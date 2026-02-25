@@ -59,6 +59,7 @@ from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
     create_crosshair_shape,
     create_rectangle_shape,
+    create_circle_shape,
     is_inside_image_bounds,
     update_text_overlay,
 )
@@ -241,12 +242,14 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
         self.actionLoad_Image.triggered.connect(self.load_image)
 
-        self.comboBox_tile_beam_type.addItems([beam_type.name for beam_type in BeamType])
+        for beam_type in BeamType:
+            self.comboBox_tile_beam_type.addItem(beam_type.name, beam_type)
         path = str(self.parent_widget.experiment.path) if self.parent_widget.experiment is not None else os.getcwd()
         self.lineEdit_tile_path.setText(path)
         self.doubleSpinBox_tile_fov.setValue(OVERVIEW_IMAGE_PARAMETERS["fov"])
         self.doubleSpinBox_tile_dwell_time.setValue(OVERVIEW_IMAGE_PARAMETERS["dwell_time"])
-        self.comboBox_tile_resolution.addItems(cfg.SQUARE_RESOLUTIONS)
+        for res_str, res_data in cfg.SQUARE_RESOLUTIONS_ZIP:
+            self.comboBox_tile_resolution.addItem(res_str, res_data)
         self.comboBox_tile_resolution.setCurrentText(cfg.DEFAULT_SQUARE_RESOLUTION)
         self.checkBox_tile_autogamma.setChecked(OVERVIEW_IMAGE_PARAMETERS["autogamma"])
         self.checkBox_tile_autocontrast.setChecked(OVERVIEW_IMAGE_PARAMETERS["autocontrast"])
@@ -393,10 +396,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         """Get the imaging parameters from the UI."""
         return {
             "fov": self.doubleSpinBox_tile_fov.value() * constants.MICRO_TO_SI,
-            "resolution": list(map(int, self.comboBox_tile_resolution.currentText().split("x"))),
+            "resolution": self.comboBox_tile_resolution.currentData(),
             "tile_count": (self.spinBox_tile_nrows.value(), self.spinBox_tile_ncols.value()),
             "dwell_time": self.doubleSpinBox_tile_dwell_time.value() * constants.MICRO_TO_SI,
-            "beam_type": BeamType[self.comboBox_tile_beam_type.currentText()],
+            "beam_type": self.comboBox_tile_beam_type.currentData(),
             "cryo": self.checkBox_tile_autogamma.isChecked(),
             "autocontrast": self.checkBox_tile_autocontrast.isChecked(),
             "path": self.lineEdit_tile_path.text(),
@@ -409,7 +412,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         imaging_params = self.get_imaging_parameters()
         fov = imaging_params["fov"] 
         nrows, ncols = imaging_params["tile_count"]
-        total_fov = f"{nrows * fov * constants.SI_TO_MICRO:.0f} x {ncols * fov * constants.SI_TO_MICRO:.0f} um"
+        total_fov = f"{nrows * fov * constants.SI_TO_MICRO:.0f} x {ncols * fov * constants.SI_TO_MICRO:.0f} {constants.MICRON_SYMBOL}"
         self.label_tile_total_fov.setText(f"Total Field of View: {total_fov}")
         self.draw_current_stage_position()
         # TODO: calculate estimate time for acquisition
@@ -1053,6 +1056,16 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
                 label="Stage Limits",
                 shape_type='rectangle')
             )
+            if self.show_circle_overlays:
+                # grid boundary circle (red)
+                origin_radius = 1000e-6 / pixelsize  # 1000μm in meters
+                origin_circle = create_circle_shape(grid_centre, origin_radius, None)
+                overlays.append(NapariShapeOverlay(
+                    shape=origin_circle,
+                    color="red",
+                    label="Grid Boundary",
+                    shape_type="ellipse"
+                ))
 
         if self.show_saved_positions_fov:
             points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
