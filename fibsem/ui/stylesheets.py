@@ -364,7 +364,7 @@ STOP_WORKFLOW_BUTTON_STYLESHEET = """
                 background-color: #f44336;
                 color: white;
                 border: none;
-                padding: 4px 12px;
+                padding: 5px 12px;
                 border-radius: 3px;
             }
             QPushButton:hover {
@@ -377,10 +377,10 @@ STOP_WORKFLOW_BUTTON_STYLESHEET = """
 
 SUPERVISION_STATUS_SUPERVISED_STYLESHEET = """
                 QPushButton {
-                    background-color: #2196f3;
+                    background-color: #007ACC;
                     color: white;
                     border: none;
-                    padding: 4px 12px;
+                    padding: 5px 12px;
                     border-radius: 3px;
                     font-weight: bold;
                 }
@@ -397,7 +397,7 @@ SUPERVISION_STATUS_AUTOMATED_STYLESHEET = """
                     background-color: #4caf50;
                     color: white;
                     border: none;
-                    padding: 4px 12px;
+                    padding: 5px 12px;
                     border-radius: 3px;
                     font-weight: bold;
                 }
