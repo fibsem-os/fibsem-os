@@ -3471,7 +3471,13 @@ class ThermoMicroscope(FibsemMicroscope):
             # technically we can set any value, but primarily people would use what is on microscope
             # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
             # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-            return (limits.min, limits.max) 
+            if beam_type is BeamType.ION:
+                VALUES = (500, 1000, 2000, 8000, 16000, 30000)
+            if beam_type is BeamType.ELECTRON:
+                VALUES =  (1000, 2000, 3000, 5000, 10000, 20000, 30000)
+            # filter values to be within limits
+            values = [v for v in VALUES if limits.min <= v <= limits.max]
+            return values
         
         if key == "detector_type":
             values = self.connection.detector.type.available_values
