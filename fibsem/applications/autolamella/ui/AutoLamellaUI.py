@@ -856,14 +856,15 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             logging.info("No tasks selected or no lamella selected.")
             return
         logging.info(f"Selected tasks: {selected_tasks}, for lamella: {selected_lamella}")
+        self._start_run_workflow_thread(selected_tasks, selected_lamella)
 
+    def _start_run_workflow_thread(self, selected_tasks: List[str], selected_lamella: List[str]) -> None:
+        """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
         self.pushButton_stop_workflow.setVisible(True)
         self.pushButton_run_setup_autolamella.setEnabled(False)
 
         # clear milling task config
-        self.milling_task_config_widget.clear()
-
-        # TODO: disable other widgets??
+        self.milling_task_config_widget.clear() # type: ignore
 
         # Start acquisition thread
         self._task_worker_thread = threading.Thread(
