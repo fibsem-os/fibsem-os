@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
+    Experiment,
     Lamella,
 )
 from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
@@ -91,11 +92,15 @@ class LamellaWorkflowWidget(QWidget):
     task_supervised_changed = pyqtSignal(object)     # AutoLamellaTaskDescription
     task_edited = pyqtSignal(object)                 # AutoLamellaTaskDescription (after apply)
     task_remove_requested = pyqtSignal(object)       # AutoLamellaTaskDescription
+    task_added = pyqtSignal(object)                  # AutoLamellaTaskDescription
+    task_schedule_changed = pyqtSignal(object)       # AutoLamellaTaskDescription
     task_selection_changed = pyqtSignal(list)        # List[AutoLamellaTaskDescription]
     task_order_changed = pyqtSignal(list)            # List[AutoLamellaTaskDescription]
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+
+        self.experiment: Optional[Experiment] = None
 
         self._editor_dialog = _TaskEditorDialog(self)
         self._editor_dialog.editor.apply_clicked.connect(self._on_task_applied)
@@ -127,6 +132,22 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root.addWidget(self.workflow, 1)
 
+        # ── summary label ────────────────────────────────────────────────
+        self._summary_label = QLabel("0 lamella, 0 tasks selected")
+        self._summary_label.setStyleSheet(
+            "color: #007ACC; font-size: 11px; padding: 3px 6px;"
+        )
+        root.addWidget(self._summary_label)
+
+        # ── instructions ─────────────────────────────────────────────────
+        self._instructions_label = QLabel(
+            "Drag to reorder  \u2022  click supervision icon to toggle  \u2022  use \u270e to edit task details"
+        )
+        self._instructions_label.setStyleSheet(
+            "color: #a0a0a0; font-size: 10px; padding: 2px 6px 4px 6px;"
+        )
+        root.addWidget(self._instructions_label)
+
         # ── wire signals ─────────────────────────────────────────────────
         self.lamella_list.move_to_requested.connect(self.lamella_move_to_requested)
         self.lamella_list.edit_requested.connect(self.lamella_edit_requested)
@@ -137,21 +158,34 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.supervised_changed.connect(self.task_supervised_changed)
         self.workflow.edit_requested.connect(self._on_task_edit_requested)
         self.workflow.remove_requested.connect(self.task_remove_requested)
+        self.workflow.schedule_changed.connect(self.task_schedule_changed)
         self.workflow.selection_changed.connect(self.task_selection_changed)
         self.workflow.order_changed.connect(self.task_order_changed)
+        self.workflow.add_task_clicked.connect(self._on_add_task_clicked)
+
+        self.lamella_list.selection_changed.connect(lambda _: self._update_summary())
+        self.workflow.selection_changed.connect(lambda _: self._update_summary())
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
+    def set_experiment(self, experiment: Optional[Experiment]) -> None:
+        self.experiment = experiment
+
     def set_workflow_config(self, config: AutoLamellaWorkflowConfig) -> None:
         self.workflow.set_config(config)
+        self._update_summary()
 
     def add_lamella(self, lamella: Lamella, checked: bool = True):
-        return self.lamella_list.add_lamella(lamella, checked)
+        result = self.lamella_list.add_lamella(lamella, checked)
+        self._update_summary()
+        return result
 
     def add_task(self, task: AutoLamellaTaskDescription, checked: bool = True):
-        return self.workflow.add_task(task, checked)
+        result = self.workflow.add_task(task, checked)
+        self._update_summary()
+        return result
 
     def get_selected_lamella(self) -> List[Lamella]:
         return self.lamella_list.get_selected()
@@ -165,6 +199,7 @@ class LamellaWorkflowWidget(QWidget):
     def clear(self) -> None:
         self.lamella_list.clear()
         self.workflow.clear()
+        self._update_summary()
 
     def set_lamella_header(self, text: str) -> None:
         self._lamella_header.setText(text)
@@ -176,6 +211,34 @@ class LamellaWorkflowWidget(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
+    def _available_task_names(self) -> List[str]:
+        if self.experiment is None:
+            return []
+        return sorted(self.experiment.task_protocol.task_config.keys())
+
+    def _update_summary(self) -> None:
+        n_lam = len(self.lamella_list.get_selected())
+        n_task = len(self.workflow.get_selected())
+        if n_lam == 0 or n_task == 0:
+            missing = []
+            if n_lam == 0:
+                missing.append("a lamella")
+            if n_task == 0:
+                missing.append("a task")
+            self._summary_label.setStyleSheet(
+                "color: #f0a040; font-size: 11px; padding: 3px 6px;"
+            )
+            self._summary_label.setText(
+                f"Select {' and '.join(missing)} to run the workflow"
+            )
+        else:
+            self._summary_label.setStyleSheet(
+                "color: #007ACC; font-size: 11px; padding: 3px 6px;"
+            )
+            self._summary_label.setText(
+                f"{n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''} selected"
+            )
+
     def _on_task_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
         available = [t.name for t in self.workflow.get_tasks()]
         self._editor_dialog.open_for(task, available_tasks=available)
@@ -183,3 +246,24 @@ class LamellaWorkflowWidget(QWidget):
     def _on_task_applied(self, task: AutoLamellaTaskDescription) -> None:
         self.workflow.refresh_task(task)
         self.task_edited.emit(task)
+
+    def _on_add_task_clicked(self) -> None:
+        # Import here to avoid circular imports at module level
+        from fibsem.ui.widgets.autolamella_workflow_widget import AddTaskDialog
+
+        available = self._available_task_names()
+        dialog = AddTaskDialog(
+            available_tasks=available,
+            experiment=self.experiment,
+            parent=self,
+        )
+        if dialog.exec_() == QDialog.Accepted:
+            task_name = dialog.get_selected_task()
+            if task_name is None:
+                return
+            task = AutoLamellaTaskDescription(
+                name=task_name, supervise=True, required=True
+            )
+            self.workflow.add_task(task)
+            self.task_added.emit(task)
+            self._update_summary()

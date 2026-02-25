@@ -190,14 +190,22 @@ class AutoLamellaTaskDescription:
     supervise: bool
     required: bool
     requires: List[str] = field(default_factory=list)
+    scheduled_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("scheduled_at") is not None:
+            d["scheduled_at"] = self.scheduled_at.isoformat()
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskDescription':
         if data is None:
             return cls(name="", task_type="", supervise=False, required=False, requires=[])
+        data = dict(data)
+        sa = data.get("scheduled_at")
+        if isinstance(sa, str):
+            data["scheduled_at"] = datetime.fromisoformat(sa)
         return cls(**data)
 
 

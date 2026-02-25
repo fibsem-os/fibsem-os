@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSplitter,
     QStatusBar,
     QTabWidget,
     QVBoxLayout,
@@ -52,10 +53,9 @@ from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
 )
 from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
-    AutoLamellaWorkflowWidget,
 )
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
-from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
+from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 # from fibsem.ui.widgets.task_history_table_widget import TaskHistoryTableWidget
 from fibsem.utils import format_duration
@@ -331,7 +331,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Add run workflow button (visible when workflow is not running)
         self.run_workflow_btn = QPushButton("Run Workflow")
         self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.run_workflow_btn.hide()  # Hidden by default
+        self.run_workflow_btn.setEnabled(False)
         self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
         self.run_workflow_btn.clicked.connect(self._on_run_workflow_clicked)
         self.status_bar.addPermanentWidget(self.run_workflow_btn)
@@ -361,9 +361,59 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
 
     def _on_run_workflow_clicked(self):
-        """Handle run workflow button click."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.run_task_workflow()
+        """Run the workflow using the lamella and task selections from the workflow widget."""
+        ui = self.autolamella_ui
+        if ui is None:
+            return
+        if ui.is_workflow_running:
+            return
+        if ui.microscope is None or ui.experiment is None or ui.experiment.task_protocol is None:
+            return
+
+        selected_tasks = self.lamella_workflow_widget.get_selected_tasks()
+        selected_lamella = self.lamella_workflow_widget.get_selected_lamella()
+
+        if not selected_tasks or not selected_lamella:
+            return
+
+        task_names = [t.name for t in selected_tasks]
+        lamella_names = [lam.name for lam in selected_lamella]
+
+        confirm_msg = (
+            f"Run workflow for {len(lamella_names)} lamella "
+            f"with {len(task_names)} task(s)?\n\n"
+        )
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Run Workflow")
+        dlg.setText(confirm_msg)
+        dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        dlg.setDefaultButton(QMessageBox.No)
+        dlg.button(QMessageBox.Yes).setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        dlg.button(QMessageBox.No).setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        if dlg.exec_() != QMessageBox.Yes:
+            return
+
+        ui._start_run_workflow_thread(task_names, lamella_names)
+
+    def _on_workflow_selection_changed(self, _=None) -> None:
+        """Enable the run button only when at least one lamella and one task are selected."""
+        n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
+        n_task = len(self.lamella_workflow_widget.get_selected_tasks())
+        valid = n_lam > 0 and n_task > 0
+        self.run_workflow_btn.setEnabled(valid)
+        if valid:
+            self.run_workflow_btn.setToolTip(
+                f"Run workflow: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}"
+            )
+        else:
+            missing = []
+            if n_lam == 0:
+                missing.append("a lamella")
+            if n_task == 0:
+                missing.append("a task")
+            self.run_workflow_btn.setToolTip(
+                f"Select {' and '.join(missing)} to run the workflow"
+            )
 
     def set_workflow_running(self, message: str | None = None):
         """Show stop button and update status message."""
@@ -408,9 +458,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 task.supervise = not task.supervise
                 break
         self._update_supervised_status()
-        # Refresh the workflow widget to reflect the change
-        if hasattr(self, 'workflow_widget'):
-            self.workflow_widget.set_workflow_config(protocol.workflow_config)
+        # Refresh the workflow widget to reflect the toggled supervise state
+        if hasattr(self, 'lamella_workflow_widget'):
+            self.lamella_workflow_widget.workflow.refresh_all()
 
     def _update_instructions(self):
         """Update the status bar with the current instruction based on application state."""
@@ -529,20 +579,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_experiment_update(self):
         """Handle experiment update signal and propagate to tabs."""
 
+        if self.autolamella_ui is None:
+            return
+        if self.autolamella_ui.experiment is None:
+            return
+
         self.minimap_widget.set_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
-        self.workflow_widget.set_experiment(self.autolamella_ui.experiment)
+        experiment = self.autolamella_ui.experiment
+        if experiment is not None and experiment.task_protocol is not None:
+            self.lamella_workflow_widget.set_experiment(experiment)
+            self.lamella_workflow_widget.set_workflow_config(experiment.task_protocol.workflow_config)
         # self.task_history_widget.set_experiment(self.autolamella_ui.experiment)
 
         # Set widget minimum widths (allows resize)
         self.autolamella_ui.setMinimumWidth(500)
         self.task_widget.setMinimumWidth(500)
         self.lamella_widget.setMinimumWidth(500)
-
-        if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
-            self.workflow_widget.workflow_config_changed.connect(self.autolamella_ui._on_workflow_config_changed)
-            self.workflow_widget.workflow_options_changed.connect(self.autolamella_ui._on_workflow_options_changed)
+        self.lamella_workflow_widget.setMinimumWidth(600)
 
         # Update experiment name label
         if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
@@ -561,6 +616,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Rebuild lamella list and wire position events for the new experiment
         self._rebuild_lamella_list()
+        self._on_workflow_selection_changed()  # evaluate after lamella are populated
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
         if experiment is not self._lamella_list_experiment:
             # Disconnect from the old experiment's position events
@@ -679,34 +735,45 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(index, False)
 
     def add_workflow_tab(self):
-        """Add an empty workflow tab with just a header."""
+        """Add the workflow tab with the combined lamella + workflow widget."""
         container = QWidget()
         layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Header label
-        header = QLabel("Workflow")
-        header.setStyleSheet("color: #d6d6d6; font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
 
-        self.workflow_widget = AutoLamellaWorkflowWidget(
-            experiment=None,
-            parent=self.autolamella_ui
-        )
-        self.workflow_widget.setStyleSheet(NAPARI_STYLE)
-        self.workflow_widget.setMinimumWidth(400)
+        self.lamella_workflow_widget = LamellaWorkflowWidget()
+        self.lamella_workflow_widget.lamella_move_to_requested.connect(self._on_lamella_move_to)
+        self.lamella_workflow_widget.lamella_edit_requested.connect(self._on_lamella_edit)
+        self.lamella_workflow_widget.lamella_remove_requested.connect(self._on_lamella_remove_requested)
+        self.lamella_workflow_widget.lamella_defect_changed.connect(self._on_lamella_defect_changed)
 
-        # Lamella list widget — sits below the workflow widget
-        self.lamella_list_widget = LamellaListWidget()
-        self.lamella_list_widget.move_to_requested.connect(self._on_lamella_move_to)
-        self.lamella_list_widget.edit_requested.connect(self._on_lamella_edit)
-        self.lamella_list_widget.remove_requested.connect(self._on_lamella_remove_requested)
-        self.lamella_list_widget.defect_changed.connect(self._on_lamella_defect_changed)
+        # Alias so existing methods (_rebuild_lamella_list etc.) keep working unchanged
+        self.lamella_list_widget = self.lamella_workflow_widget.lamella_list
 
-        left_layout = QVBoxLayout()
-        left_layout.addWidget(self.lamella_list_widget)
-        left_layout.addWidget(self.workflow_widget)
+        # Workflow task signals — each change persists the updated config to disk
+        self.lamella_workflow_widget.task_supervised_changed.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_edited.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_remove_requested.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_order_changed.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_added.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_schedule_changed.connect(self._save_workflow_config)
 
-        layout.addLayout(left_layout, stretch=0)
+        # Selection signals — update run button enabled state
+        self.lamella_workflow_widget.lamella_selection_changed.connect(self._on_workflow_selection_changed)
+        self.lamella_workflow_widget.task_selection_changed.connect(self._on_workflow_selection_changed)
+
+        self.workflow_right_panel = QWidget()
+        self.workflow_right_panel.setStyleSheet("background: #2b2d31;")
+
+        splitter.addWidget(self.lamella_workflow_widget)
+        splitter.addWidget(self.workflow_right_panel)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        layout.addWidget(splitter)
         self.tab_widget.addTab(container, QIconifyIcon("mdi:play-circle-outline", color="#d6d6d6"), "Workflow")
 
         # disable the workflow tab by default
@@ -736,6 +803,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
+
+    def _save_workflow_config(self, *_args):
+        """Persist the current task list to the experiment protocol after any task change."""
+        if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
+            return
+        protocol = self.autolamella_ui.experiment.task_protocol
+        if protocol is None:
+            return
+        protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
+        self.autolamella_ui._on_workflow_config_changed(protocol.workflow_config)
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
@@ -810,6 +887,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         for lamella in experiment.positions:
             self.lamella_list_widget.add_lamella(lamella)
             self.lamella_card_container.add_lamella(lamella)
+        self._on_workflow_selection_changed()
 
     def _on_lamella_move_to(self, lamella):
         """Move the stage to the given lamella's milling position."""

@@ -2,16 +2,23 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from datetime import datetime
+from typing import Optional as _Opt
+
+from PyQt5.QtCore import QDateTime, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QDateTimeEdit,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -25,7 +32,7 @@ from fibsem.applications.autolamella.structures import (
 
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(26, 26)
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 3 + 8 * 2  # supervise + edit + remove + 2 gaps
+_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 4 + 8 * 3  # schedule + supervise + edit + remove + 3 gaps
 
 _BTN_STYLE = """
 QToolButton {
@@ -65,10 +72,77 @@ def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     return "mdi:robot", "#80c080", "Automated"
 
 
+class _ScheduleDialog(QDialog):
+    """Small dialog for setting or clearing a task's scheduled_at time."""
+
+    def __init__(
+        self,
+        task: "AutoLamellaTaskDescription",
+        parent: _Opt[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Schedule: {task.name}")
+        self.setModal(True)
+        self.setMinimumWidth(300)
+        self.setStyleSheet("background: #2b2d31; color: #d6d6d6;")
+
+        self._cleared = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 8)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel("Schedule task to start at:"))
+
+        self._dt_edit = QDateTimeEdit()
+        self._dt_edit.setDisplayFormat("yyyy-MM-dd  HH:mm")
+        self._dt_edit.setCalendarPopup(True)
+        initial = (
+            QDateTime(
+                task.scheduled_at.year,
+                task.scheduled_at.month,
+                task.scheduled_at.day,
+                task.scheduled_at.hour,
+                task.scheduled_at.minute,
+            )
+            if task.scheduled_at is not None
+            else QDateTime.currentDateTime()
+        )
+        self._dt_edit.setDateTime(initial)
+        layout.addWidget(self._dt_edit)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+
+        self._clear_btn = QPushButton("Clear")
+        self._clear_btn.setToolTip("Remove scheduled time")
+        self._clear_btn.clicked.connect(self._on_clear)
+        btn_row.addWidget(self._clear_btn)
+
+        btn_row.addStretch(1)
+
+        box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        btn_row.addWidget(box)
+
+        layout.addLayout(btn_row)
+
+    def _on_clear(self) -> None:
+        self._cleared = True
+        self.accept()
+
+    def get_scheduled_at(self) -> _Opt[datetime]:
+        if self._cleared:
+            return None
+        return self._dt_edit.dateTime().toPyDateTime().replace(second=0, microsecond=0)
+
+
 class WorkflowTaskRowWidget(QWidget):
     supervised_changed = pyqtSignal(object)       # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)             # AutoLamellaTaskDescription
     remove_clicked = pyqtSignal(object)           # AutoLamellaTaskDescription
+    schedule_changed = pyqtSignal(object)         # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
 
     def __init__(
@@ -105,6 +179,11 @@ class WorkflowTaskRowWidget(QWidget):
 
         layout.addStretch(1)
 
+        self.btn_schedule = QToolButton()
+        self.btn_schedule.setFixedSize(_BTN_SIZE)
+        self.btn_schedule.setStyleSheet(_BTN_STYLE)
+        layout.addWidget(self.btn_schedule)
+
         self.btn_supervise = QToolButton()
         self.btn_supervise.setFixedSize(_BTN_SIZE)
         self.btn_supervise.setStyleSheet(_BTN_STYLE)
@@ -127,11 +206,19 @@ class WorkflowTaskRowWidget(QWidget):
         self.checkbox.stateChanged.connect(
             lambda s: self.selection_changed.emit(self.task, bool(s))
         )
+        self.btn_schedule.clicked.connect(self._on_schedule_clicked)
         self.btn_supervise.clicked.connect(self._on_supervise_clicked)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
         self.refresh()
+
+    def _on_schedule_clicked(self) -> None:
+        dialog = _ScheduleDialog(self.task, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.task.scheduled_at = dialog.get_scheduled_at()
+            self.refresh()
+            self.schedule_changed.emit(self.task)
 
     def _on_supervise_clicked(self) -> None:
         self.task.supervise = not self.task.supervise
@@ -157,10 +244,19 @@ class WorkflowTaskRowWidget(QWidget):
         icon_name, icon_color, tooltip = _supervise_icon(self.task)
         self.btn_supervise.setIcon(QIconifyIcon(icon_name, color=icon_color))
         self.btn_supervise.setToolTip(tooltip)
+        if self.task.scheduled_at is not None:
+            self.btn_schedule.setIcon(QIconifyIcon("mdi:clock", color="#f0c040"))
+            self.btn_schedule.setToolTip(
+                f"Scheduled: {self.task.scheduled_at.strftime('%Y-%m-%d  %H:%M')}"
+            )
+        else:
+            self.btn_schedule.setIcon(QIconifyIcon("mdi:clock-outline", color="#606060"))
+            self.btn_schedule.setToolTip("Not scheduled — click to set")
 
 
 class _WorkflowTaskListHeader(QWidget):
     select_all_changed = pyqtSignal(bool)
+    add_task_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -178,13 +274,22 @@ class _WorkflowTaskListHeader(QWidget):
 
         layout.addStretch(1)
 
+        # Spacer covers all row buttons except the last, so btn_add aligns with btn_remove
         spacer = QWidget()
-        spacer.setFixedWidth(_BTN_SPACER_WIDTH)
+        spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
         layout.addWidget(spacer)
+
+        self.btn_add = QToolButton()
+        self.btn_add.setIcon(QIconifyIcon("mdi:plus", color="#c0c0c0"))
+        self.btn_add.setToolTip("Add Task")
+        self.btn_add.setFixedSize(_BTN_SIZE)
+        self.btn_add.setStyleSheet(_BTN_STYLE)
+        layout.addWidget(self.btn_add)
 
         self.checkbox_all.stateChanged.connect(
             lambda s: self.select_all_changed.emit(bool(s))
         )
+        self.btn_add.clicked.connect(self.add_task_clicked)
 
 
 class WorkflowConfigWidget(QWidget):
@@ -193,13 +298,16 @@ class WorkflowConfigWidget(QWidget):
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_requested = pyqtSignal(object)      # AutoLamellaTaskDescription
     remove_requested = pyqtSignal(object)    # AutoLamellaTaskDescription
+    schedule_changed = pyqtSignal(object)    # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(list)     # List[AutoLamellaTaskDescription]
     order_changed = pyqtSignal(list)         # List[AutoLamellaTaskDescription]
+    add_task_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         self._btn_visible = {
+            "schedule": False,
             "supervise": True,
             "edit": True,
             "remove": True,
@@ -247,6 +355,7 @@ class WorkflowConfigWidget(QWidget):
         layout.addWidget(self._list)
 
         self._header.select_all_changed.connect(self._on_select_all)
+        self._header.add_task_clicked.connect(self.add_task_clicked)
         self._list.reordered.connect(self._on_reordered)
 
     # ------------------------------------------------------------------
@@ -277,6 +386,7 @@ class WorkflowConfigWidget(QWidget):
         row.supervised_changed.connect(self.supervised_changed)
         row.edit_clicked.connect(self.edit_requested)
         row.remove_clicked.connect(self._on_remove_clicked)
+        row.schedule_changed.connect(self.schedule_changed)
         row.selection_changed.connect(self._on_row_selection_changed)
 
     def enable_supervise_button(self, visible: bool) -> None:
@@ -336,6 +446,7 @@ class WorkflowConfigWidget(QWidget):
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _apply_btn_visibility(self, row: WorkflowTaskRowWidget) -> None:
+        row.btn_schedule.setVisible(self._btn_visible["schedule"])
         row.btn_supervise.setVisible(self._btn_visible["supervise"])
         row.btn_edit.setVisible(self._btn_visible["edit"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
