@@ -16,11 +16,13 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
+    AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
 )
 from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
 from fibsem.ui.widgets.workflow_config_widget import WorkflowConfigWidget
+from fibsem.ui.widgets.workflow_info_widget import WorkflowInfoWidget
 from fibsem.ui.widgets.workflow_task_editor_widget import WorkflowTaskEditorWidget
 
 _SECTION_LABEL_STYLE = (
@@ -36,7 +38,8 @@ class _TaskEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Edit Task")
         self.setModal(True)
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(380)
+        self.setMinimumHeight(440)
         self.setStyleSheet("background: #2b2d31; color: #d6d6d6;")
 
         layout = QVBoxLayout(self)
@@ -49,7 +52,7 @@ class _TaskEditorDialog(QDialog):
         # Hide the built-in Apply/Cancel buttons — the dialog provides its own.
         self.editor._apply_btn.hide()
         self.editor._cancel_btn.hide()
-        layout.addWidget(self.editor)
+        layout.addWidget(self.editor, 1)
 
         self._btn_box = QDialogButtonBox(
             QDialogButtonBox.Apply | QDialogButtonBox.Cancel
@@ -97,6 +100,11 @@ class LamellaWorkflowWidget(QWidget):
     task_selection_changed = pyqtSignal(list)        # List[AutoLamellaTaskDescription]
     task_order_changed = pyqtSignal(list)            # List[AutoLamellaTaskDescription]
 
+    # ── workflow info signals ────────────────────────────────────────────
+    workflow_name_changed = pyqtSignal(str)
+    workflow_description_changed = pyqtSignal(str)
+    workflow_options_changed = pyqtSignal(object)    # AutoLamellaWorkflowOptions
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
@@ -123,8 +131,21 @@ class LamellaWorkflowWidget(QWidget):
         sep.setStyleSheet("color: #3a3d42;")
         root.addWidget(sep)
 
+        # ── workflow info section ────────────────────────────────────────
+        self._info_header = QLabel("Workflow")
+        self._info_header.setStyleSheet(_SECTION_LABEL_STYLE)
+        root.addWidget(self._info_header)
+
+        self.info = WorkflowInfoWidget()
+        root.addWidget(self.info)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet("color: #3a3d42;")
+        root.addWidget(sep2)
+
         # ── workflow section ─────────────────────────────────────────────
-        self._workflow_header = QLabel("Workflow")
+        self._workflow_header = QLabel("Tasks")
         self._workflow_header.setStyleSheet(_SECTION_LABEL_STYLE)
         root.addWidget(self._workflow_header)
 
@@ -166,6 +187,10 @@ class LamellaWorkflowWidget(QWidget):
         self.lamella_list.selection_changed.connect(lambda _: self._update_summary())
         self.workflow.selection_changed.connect(lambda _: self._update_summary())
 
+        self.info.name_changed.connect(self.workflow_name_changed)
+        self.info.description_changed.connect(self.workflow_description_changed)
+        self.info.options_changed.connect(self.workflow_options_changed)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -175,7 +200,11 @@ class LamellaWorkflowWidget(QWidget):
 
     def set_workflow_config(self, config: AutoLamellaWorkflowConfig) -> None:
         self.workflow.set_config(config)
+        self.info.set_config(config)
         self._update_summary()
+
+    def set_options(self, options: AutoLamellaWorkflowOptions) -> None:
+        self.info.set_options(options)
 
     def add_lamella(self, lamella: Lamella, checked: bool = True):
         result = self.lamella_list.add_lamella(lamella, checked)

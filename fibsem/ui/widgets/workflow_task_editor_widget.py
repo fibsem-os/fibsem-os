@@ -74,7 +74,7 @@ class _RequirementRowWidget(QWidget):
     def __init__(self, task_name: str, checked: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(8)
 
         self.checkbox = QCheckBox()
@@ -114,8 +114,8 @@ class WorkflowTaskEditorWidget(QWidget):
         self.setStyleSheet("background: #2b2d31;")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(12)
 
         # ── header ──────────────────────────────────────────────────────
         header_row = QHBoxLayout()
@@ -162,14 +162,15 @@ class WorkflowTaskEditorWidget(QWidget):
         self._req_list.setStyleSheet(_LIST_STYLE)
         self._req_list.setAlternatingRowColors(True)
         self._req_list.setFocusPolicy(Qt.NoFocus)
-        root.addWidget(self._req_list)
+        self._req_list.setMinimumHeight(120)
+        root.addWidget(self._req_list, 1)
 
         self._req_rows: List[_RequirementRowWidget] = []
         if self._available:
             for name in self._available:
                 row = _RequirementRowWidget(name, checked=(name in task.requires))
                 item = QListWidgetItem()
-                item.setSizeHint(row.sizeHint())
+                item.setSizeHint(QSize(0, 36))
                 self._req_list.addItem(item)
                 self._req_list.setItemWidget(item, row)
                 self._req_rows.append(row)
@@ -178,7 +179,7 @@ class WorkflowTaskEditorWidget(QWidget):
             empty.setStyleSheet("color: #606060; font-size: 11px; padding: 6px;")
             empty.setAlignment(Qt.AlignCenter)
             item = QListWidgetItem()
-            item.setSizeHint(empty.sizeHint())
+            item.setSizeHint(QSize(0, 36))
             self._req_list.addItem(item)
             self._req_list.setItemWidget(item, empty)
 
@@ -226,7 +227,7 @@ class WorkflowTaskEditorWidget(QWidget):
             for name in self._available:
                 row = _RequirementRowWidget(name, checked=(name in task.requires))
                 item = QListWidgetItem()
-                item.setSizeHint(row.sizeHint())
+                item.setSizeHint(QSize(0, 36))
                 self._req_list.addItem(item)
                 self._req_list.setItemWidget(item, row)
                 self._req_rows.append(row)
@@ -235,7 +236,7 @@ class WorkflowTaskEditorWidget(QWidget):
             empty.setStyleSheet("color: #606060; font-size: 11px; padding: 6px;")
             empty.setAlignment(Qt.AlignCenter)
             item = QListWidgetItem()
-            item.setSizeHint(empty.sizeHint())
+            item.setSizeHint(QSize(0, 36))
             self._req_list.addItem(item)
             self._req_list.setItemWidget(item, empty)
 
