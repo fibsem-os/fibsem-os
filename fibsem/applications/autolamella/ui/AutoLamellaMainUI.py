@@ -385,10 +385,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised:
+            self.supervised_status_btn.setIcon(QIconifyIcon("mdi:account-hard-hat", color="white"))
             self.supervised_status_btn.setText("Supervised")
             self.supervised_status_btn.setToolTip(f"{task_name} is running in supervised mode. Your input will be required. Click to toggle.")
             self.supervised_status_btn.setStyleSheet(SUPERVISION_STATUS_SUPERVISED_STYLESHEET)
         else:
+            self.supervised_status_btn.setIcon(QIconifyIcon("mdi:robot", color="white"))
             self.supervised_status_btn.setText("Automated")
             self.supervised_status_btn.setToolTip(f"{task_name} is running in automated mode. Click to toggle.")
             self.supervised_status_btn.setStyleSheet(SUPERVISION_STATUS_AUTOMATED_STYLESHEET)
