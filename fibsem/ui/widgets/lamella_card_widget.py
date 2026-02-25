@@ -33,6 +33,14 @@ QFrame#LamellaCard {
 }
 """
 
+_CARD_SELECTED_STYLE = """
+QFrame#LamellaCard {
+    background: #2b2d31;
+    border: 2px solid #007ACC;
+    border-radius: 8px;
+}
+"""
+
 _BTN_STYLE = """
 QToolButton {
     background: transparent;
@@ -61,6 +69,7 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
 class LamellaCardWidget(QWidget):
     """Modern card-style widget for a single Lamella."""
 
+    clicked = pyqtSignal(object)          # Lamella
     defect_changed = pyqtSignal(object)   # Lamella
 
     def __init__(self, lamella: Lamella, parent: Optional[QWidget] = None) -> None:
@@ -159,6 +168,15 @@ class LamellaCardWidget(QWidget):
             _arr_to_pixmap(arr, _CARD_WIDTH - 8 - _THUMB_PADDING * 2, _THUMB_HEIGHT)
         )
 
+    def mousePressEvent(self, event) -> None:
+        self.clicked.emit(self.lamella)
+        super().mousePressEvent(event)
+
+    def set_selected(self, selected: bool) -> None:
+        self._card.setStyleSheet(
+            _CARD_SELECTED_STYLE if selected else _CARD_STYLE
+        )
+
     def _on_defect_clicked(self) -> None:
         menu = QMenu(self)
         action_none = menu.addAction(
@@ -194,11 +212,14 @@ _N_COLS = 4
 class LamellaCardContainer(QWidget):
     """Grid container that displays LamellaCardWidget in 4 columns."""
 
+    lamella_selected = pyqtSignal(object)  # Lamella | None
     defect_changed = pyqtSignal(object)   # Lamella
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, columns: int = _N_COLS, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._cards: Dict[str, LamellaCardWidget] = {}   # lamella._id → card
+        self._selected_id: Optional[str] = None
+        self._n_cols: int = max(1, columns)
 
         self._grid = QGridLayout(self)
         self._grid.setSpacing(12)
@@ -212,6 +233,7 @@ class LamellaCardContainer(QWidget):
     def add_lamella(self, lamella: Lamella) -> LamellaCardWidget:
         card = LamellaCardWidget(lamella)
         card.defect_changed.connect(self.defect_changed)
+        card.clicked.connect(self._on_card_clicked)
         self._cards[lamella._id] = card
         self._rebuild_grid()
         return card
@@ -235,10 +257,30 @@ class LamellaCardContainer(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
+    def set_columns(self, n: int) -> None:
+        self._n_cols = max(1, n)
+        self._rebuild_grid()
+
+    def _on_card_clicked(self, lamella: Lamella) -> None:
+        prev_id = self._selected_id
+        new_id = lamella._id
+
+        if prev_id and prev_id in self._cards:
+            self._cards[prev_id].set_selected(False)
+
+        if prev_id == new_id:
+            # clicking the already-selected card deselects it
+            self._selected_id = None
+            self.lamella_selected.emit(None)
+        else:
+            self._selected_id = new_id
+            self._cards[new_id].set_selected(True)
+            self.lamella_selected.emit(lamella)
+
     def _rebuild_grid(self) -> None:
         # Remove all items from the layout without deleting widgets
         while self._grid.count():
             self._grid.takeAt(0)
         for i, card in enumerate(self._cards.values()):
-            row, col = divmod(i, _N_COLS)
+            row, col = divmod(i, self._n_cols)
             self._grid.addWidget(card, row, col)

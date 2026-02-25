@@ -411,14 +411,14 @@ SUPERVISION_STATUS_AUTOMATED_STYLESHEET = """
 
 PRIMARY_BUTTON_STYLESHEET = """
     QPushButton {
-        background-color: #50a6ff;
+        background-color: #007ACC;
         color: white;
         border: none;
         padding: 5px 12px;
         border-radius: 3px;
     }
     QPushButton:hover {
-        background-color: #3d8fe0;
+        background-color: #118FE4;
     }
     QPushButton:pressed {
         background-color: #2d72c4;
