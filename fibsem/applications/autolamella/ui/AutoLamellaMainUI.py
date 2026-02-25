@@ -559,6 +559,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
+        self.autolamella_ui.setMinimumWidth(500)
 
         # Add the viewer's Qt window to our layout
         layout.addWidget(self.main_viewer.window._qt_window)
@@ -591,6 +592,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(experiment.task_protocol.workflow_config)
+            self.lamella_workflow_widget.set_options(experiment.task_protocol.options)
         # self.task_history_widget.set_experiment(self.autolamella_ui.experiment)
 
         # Set widget minimum widths (allows resize)
@@ -617,6 +619,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Rebuild lamella list and wire position events for the new experiment
         self._rebuild_lamella_list()
         self._on_workflow_selection_changed()  # evaluate after lamella are populated
+        self.lamella_workflow_widget._update_summary()
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
         if experiment is not self._lamella_list_experiment:
             # Disconnect from the old experiment's position events
@@ -760,6 +763,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_workflow_widget.task_order_changed.connect(self._save_workflow_config)
         self.lamella_workflow_widget.task_added.connect(self._save_workflow_config)
         self.lamella_workflow_widget.task_schedule_changed.connect(self._save_workflow_config)
+
+        # Workflow info signals — name/description/options changes also persist
+        self.lamella_workflow_widget.workflow_name_changed.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.workflow_description_changed.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.workflow_options_changed.connect(self._save_workflow_config)
 
         # Selection signals — update run button enabled state
         self.lamella_workflow_widget.lamella_selection_changed.connect(self._on_workflow_selection_changed)
