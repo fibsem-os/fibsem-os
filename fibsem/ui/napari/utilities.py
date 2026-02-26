@@ -208,64 +208,64 @@ def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) 
     
     return False
 
-def draw_positions_in_napari(
-    viewer: napari.Viewer,
-    points: List[Point],
-    size_px: int = 100,
-    show_names: bool = False,
-    layer_name: Optional[str] = None,
-) -> None:
-    """Draw a list of positions in napari viewer as shapes
-    The crosshair is drawn using the shapes layer in napari.
-    Args:
-        viewer: napari viewer object
-        points: list of Point objects in image coordinates
-    """
+# def draw_positions_in_napari(
+#     viewer: napari.Viewer,
+#     points: List[Point],
+#     size_px: int = 100,
+#     show_names: bool = False,
+#     layer_name: Optional[str] = None,
+# ) -> None:
+#     """Draw a list of positions in napari viewer as shapes
+#     The crosshair is drawn using the shapes layer in napari.
+#     Args:
+#         viewer: napari viewer object
+#         points: list of Point objects in image coordinates
+#     """
 
-    positions = []
-    txt = []
-    for pt in points:
-        cy, cx = pt.y, pt.x # convert to image coordinates
-        horizontal_line = [[cy, cx - size_px], [cy, cx + size_px]]
-        vertical_line = [[cy - size_px, cx], [cy + size_px, cx]]
-        positions.extend([horizontal_line, vertical_line])
-        txt.extend((pt.name, ""))
+#     positions = []
+#     txt = []
+#     for pt in points:
+#         cy, cx = pt.y, pt.x # convert to image coordinates
+#         horizontal_line = [[cy, cx - size_px], [cy, cx + size_px]]
+#         vertical_line = [[cy - size_px, cx], [cy + size_px, cx]]
+#         positions.extend([horizontal_line, vertical_line])
+#         txt.extend((pt.name, ""))
 
-    text = None
-    if show_names:
-        text = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["text"]
-        text["string"] = txt
+#     text = None
+#     if show_names:
+#         text = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["text"]
+#         text["string"] = txt
 
-    if layer_name is None:
-        layer_name = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["name"]
+#     if layer_name is None:
+#         layer_name: str = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["name"]
 
-    color = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["edge_color"]
-    if "saved" in layer_name:
-        color = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["saved_color"]
+#     color = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["edge_color"]
+#     if "saved" in layer_name:
+#         color = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["saved_color"]
     
-    if layer_name not in viewer.layers:
-        viewer.add_shapes(
-            data=positions,
-            shape_type=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["shape_type"],
-            edge_width=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["edge_width"],
-            edge_color=color,
-            face_color=color,
-            opacity=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["opacity"],
-            blending=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["blending"],
-            name=layer_name,
-            text=text,
-        )
-    else:
-        viewer.layers[layer_name].data = positions
-        viewer.layers[layer_name].text = text
-        viewer.layers[layer_name].opacity = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["opacity"]
-        viewer.layers[layer_name].edge_color = color
-        viewer.layers[layer_name].face_color = color
-        viewer.layers[layer_name].edge_width = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["edge_width"]
-        viewer.layers[layer_name].blending = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["blending"]
-        viewer.layers[layer_name].shape_type = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["shape_type"]
+#     if layer_name not in viewer.layers:
+#         viewer.add_shapes(
+#             data=positions,
+#             shape_type=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["shape_type"],
+#             edge_width=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["edge_width"],
+#             edge_color=color,
+#             face_color=color,
+#             opacity=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["opacity"],
+#             blending=STAGE_POSITION_SHAPE_LAYER_PROPERTIES["blending"],
+#             name=layer_name,
+#             text=text,
+#         )
+#     else:
+#         viewer.layers[layer_name].data = positions
+#         viewer.layers[layer_name].text = text
+#         viewer.layers[layer_name].opacity = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["opacity"]
+#         viewer.layers[layer_name].edge_color = color
+#         viewer.layers[layer_name].face_color = color
+#         viewer.layers[layer_name].edge_width = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["edge_width"]
+#         viewer.layers[layer_name].blending = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["blending"]
+#         viewer.layers[layer_name].shape_type = STAGE_POSITION_SHAPE_LAYER_PROPERTIES["shape_type"]
 
-    return layer_name 
+#     return layer_name 
 
 
 def is_position_inside_layer(position: Tuple[float, float], target_layer) -> bool:
@@ -472,7 +472,7 @@ def create_circle_shape(
     shape = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]
     return np.array(shape)
 
-def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, objective_position: float | None = None) -> None:
+def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, objective_position: Optional[float] = None) -> None:
     """Update the text overlay in the napari viewer with current stage position and orientation.
     Args:
         viewer: napari viewer object
