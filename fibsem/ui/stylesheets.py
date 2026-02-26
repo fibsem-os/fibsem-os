@@ -236,23 +236,6 @@ QCheckBox {
     spacing: 6px;
 }
 
-QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border: 1px solid rgba(220, 220, 220, 0.7);
-    border-radius: 3px;
-    background-color: rgba(255, 255, 255, 0.05);
-}
-
-QCheckBox::indicator:hover {
-    border: 1px solid rgba(120, 180, 255, 0.9);
-}
-
-QCheckBox::indicator:checked {
-    background-color: #3a6ea5;
-    border: 1px solid #68a0dd;
-}
-
 QListWidget {
     background-color: #1e2027;
     color: #d6d6d6;
@@ -361,14 +344,14 @@ RUN_WORKFLOW_BUTTON_STYLESHEET = """
 
 STOP_WORKFLOW_BUTTON_STYLESHEET = """
             QPushButton {
-                background-color: #f44336;
+                background-color: #99121F;
                 color: white;
                 border: none;
                 padding: 5px 12px;
                 border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #d32f2f;
+                background-color: #BF2A38;
             }
             QPushButton:pressed {
                 background-color: #b71c1c;
@@ -472,3 +455,22 @@ INDETERMINATE_PROGRESS_BAR_STYLESHEET = """
         border-radius: 3px;
     }
 """
+
+# Color palette
+PRIMARY_COLOR = "#007ACC"
+PRIMARY_COLOR_HOVER = "#118FE4"
+PRIMARY_COLOR_PRESSED = "#2d72c4"
+GRAY_CANVAS_COLOR = "#000000"
+GRAY_CONSOLE_COLOR = "#121212"
+GRAY_BACKGROUND_COLOR = "#262930"
+GRAY_FOREGROUND_COLOR = "#414851"
+GRAY_PRIMARY_COLOR = "#5a626C"
+GRAY_HIGHLIGHT_COLOR = "#6A7380"
+GRAY_SECONDARY_COLOR = "#868E93"
+GRAY_ICON_COLOR = "#D1D2D4"
+GRAY_TEXT_COLOR = "#F0F1F2"
+GRAY_WHITE_COLOR = "#FFFFFF"
+SEMANTIC_ERROR_COLOR = "#99121F"
+SEMANTIC_ERROR_HOVER_COLOR = "#BF2A38"
+SEMANTIC_ERROR_PRESSED_COLOR = "#b71c1c"
+SEMANTIC_WARNING_COLOR = "#E3B617"

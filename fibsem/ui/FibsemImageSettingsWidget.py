@@ -16,7 +16,6 @@ from superqt import ensure_main_thread
 from fibsem import acquire, constants, utils
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -77,8 +76,8 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.ib_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
 
         # overlay layers
-        self.ruler_layer: NapariPointLayer = None
-        self.alignment_layer: NapariShapesLayer = None
+        self.ruler_layer: Optional[NapariPointLayer] = None
+        self.alignment_layer: Optional[NapariShapesLayer] = None
 
         self.is_acquiring: bool = False
 
@@ -86,7 +85,10 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
         if image_settings is not None:
             self.image_settings = image_settings
-            self.set_ui_from_settings(image_settings = image_settings, beam_type = BeamType.ELECTRON)
+            beam_settings = self.microscope.get_beam_settings(BeamType.ELECTRON)
+            detector_settings = self.microscope.get_detector_settings(BeamType.ELECTRON)
+            self.set_ui_from_settings(image_settings = image_settings, beam_type = BeamType.ELECTRON, 
+                                      beam_settings=beam_settings, detector_settings=detector_settings)
         self.update_detector_ui() # TODO: can this be removed?
         # self._update_beam_settings_ui()
 
@@ -171,7 +173,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.pushButton_run_autocontrast.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_run_autofocus.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
-        self.IS_TESCAN = isinstance(self.microscope, TescanMicroscope)
+        self.IS_TESCAN = self.microscope.manufacturer == "TESCAN"
         if self.IS_TESCAN:
             self.label_stigmation.hide()
             self.doubleSpinBox_stigmation_x.hide()
@@ -179,7 +181,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.doubleSpinBox_stigmation_x.setEnabled(False)
             self.doubleSpinBox_stigmation_y.setEnabled(False)
             available_presets = self.microscope.get_available_values("presets", beam_type=BeamType.ION)
-            self.comboBox_presets.addItems(available_presets)   
+            self.comboBox_presets.addItems(available_presets)
             self.comboBox_presets.currentTextChanged.connect(self.update_presets)
             self.checkBox_image_line_integration.setVisible(False)
             self.checkBox_image_scan_interlacing.setVisible(False)
@@ -699,19 +701,14 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
     def set_ui_from_settings(self, image_settings: ImageSettings, 
                              beam_type: BeamType, 
-                             beam_settings: BeamSettings=None, 
-                             detector_settings: FibsemDetectorSettings=None) -> None:
+                             beam_settings: Optional[BeamSettings] = None, 
+                             detector_settings: Optional[FibsemDetectorSettings] = None) -> None:
         """Update the ui from the image, beam and detector settings"""
 
         # disconnect beam type combobox
         self.selected_beam.blockSignals(True)
         self.selected_beam.setCurrentText(beam_type.name)
         self.selected_beam.blockSignals(False)
-
-        if beam_settings is None:
-            beam_settings = self.microscope.get_beam_settings(beam_type)
-        if detector_settings is None:
-            detector_settings = self.microscope.get_detector_settings(beam_type)
 
         # imaging settings
         res = image_settings.resolution
@@ -743,44 +740,54 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.spinBox_image_frame_integration.setValue(image_settings.frame_integration)
             self.checkBox_image_drift_correction.setChecked(image_settings.drift_correction)
 
-        # detector settings
-        self.detector_type_combobox.blockSignals(True)
-        self.detector_mode_combobox.blockSignals(True)
-        self.detector_type_combobox.setCurrentText(detector_settings.type)
-        self.detector_mode_combobox.setCurrentText(detector_settings.mode)
-        self.detector_type_combobox.blockSignals(False)
-        self.detector_mode_combobox.blockSignals(False)
-        self.detector_brightness_slider.blockSignals(True)
-        self.detector_contrast_slider.blockSignals(True)
-        self.detector_contrast_slider.setValue(int(detector_settings.contrast * 100))
-        self.detector_brightness_slider.setValue(int(detector_settings.brightness * 100))
-        self._update_detector_slider_labels()
-        self.detector_brightness_slider.blockSignals(False)
-        self.detector_contrast_slider.blockSignals(False)
+        if detector_settings is not None:
+            # detector_settings = self.microscope.get_detector_settings(beam_type)
 
-        # beam settings
-        self.doubleSpinBox_beam_current.setValue(beam_settings.beam_current * constants.SI_TO_PICO)
-        self.doubleSpinBox_beam_voltage.setValue(beam_settings.voltage * constants.SI_TO_KILO)
-        self.spinBox_beam_scan_rotation.setValue(int(np.degrees(beam_settings.scan_rotation)))
-        
-        if beam_settings.working_distance is not None:
-            self.doubleSpinBox_working_distance.blockSignals(True)
-            self.doubleSpinBox_working_distance.setValue(beam_settings.working_distance * constants.METRE_TO_MILLIMETRE)
-            self.doubleSpinBox_working_distance.blockSignals(False)
-        if beam_settings.shift is not None:
-            self.doubleSpinBox_shift_x.blockSignals(True)
-            self.doubleSpinBox_shift_y.blockSignals(True)
-            self.doubleSpinBox_shift_x.setValue(beam_settings.shift.x * constants.SI_TO_MICRO)
-            self.doubleSpinBox_shift_y.setValue(beam_settings.shift.y * constants.SI_TO_MICRO)
-            self.doubleSpinBox_shift_x.blockSignals(False)
-            self.doubleSpinBox_shift_y.blockSignals(False)
-        if beam_settings.stigmation is not None:
-            self.doubleSpinBox_stigmation_x.blockSignals(True)
-            self.doubleSpinBox_stigmation_y.blockSignals(True)
-            self.doubleSpinBox_stigmation_x.setValue(beam_settings.stigmation.x)
-            self.doubleSpinBox_stigmation_y.setValue(beam_settings.stigmation.y)
-            self.doubleSpinBox_stigmation_x.blockSignals(False)
-            self.doubleSpinBox_stigmation_y.blockSignals(False)
+            # detector settings
+            self.detector_type_combobox.blockSignals(True)
+            self.detector_mode_combobox.blockSignals(True)
+            self.detector_type_combobox.setCurrentText(detector_settings.type)
+            self.detector_mode_combobox.setCurrentText(detector_settings.mode)
+            self.detector_type_combobox.blockSignals(False)
+            self.detector_mode_combobox.blockSignals(False)
+            self.detector_brightness_slider.blockSignals(True)
+            self.detector_contrast_slider.blockSignals(True)
+            self.detector_contrast_slider.setValue(int(detector_settings.contrast * 100))
+            self.detector_brightness_slider.setValue(int(detector_settings.brightness * 100))
+            self._update_detector_slider_labels()
+            self.detector_brightness_slider.blockSignals(False)
+            self.detector_contrast_slider.blockSignals(False)
+
+        if beam_settings is not None:
+            # beam_settings = self.microscope.get_beam_settings(beam_type)
+            # beam settings
+            if beam_settings.beam_current is not None:
+                self.doubleSpinBox_beam_current.setValue(beam_settings.beam_current * constants.SI_TO_PICO)
+            if beam_settings.voltage is not None:
+                self.doubleSpinBox_beam_voltage.setValue(beam_settings.voltage * constants.SI_TO_KILO)
+            if beam_settings.scan_rotation is not None:
+                self.spinBox_beam_scan_rotation.blockSignals(True)
+                self.spinBox_beam_scan_rotation.setValue(int(np.degrees(beam_settings.scan_rotation)))
+                self.spinBox_beam_scan_rotation.blockSignals(False)
+
+            if beam_settings.working_distance is not None:
+                self.doubleSpinBox_working_distance.blockSignals(True)
+                self.doubleSpinBox_working_distance.setValue(beam_settings.working_distance * constants.METRE_TO_MILLIMETRE)
+                self.doubleSpinBox_working_distance.blockSignals(False)
+            if beam_settings.shift is not None:
+                self.doubleSpinBox_shift_x.blockSignals(True)
+                self.doubleSpinBox_shift_y.blockSignals(True)
+                self.doubleSpinBox_shift_x.setValue(beam_settings.shift.x * constants.SI_TO_MICRO)
+                self.doubleSpinBox_shift_y.setValue(beam_settings.shift.y * constants.SI_TO_MICRO)
+                self.doubleSpinBox_shift_x.blockSignals(False)
+                self.doubleSpinBox_shift_y.blockSignals(False)
+            if beam_settings.stigmation is not None:
+                self.doubleSpinBox_stigmation_x.blockSignals(True)
+                self.doubleSpinBox_stigmation_y.blockSignals(True)
+                self.doubleSpinBox_stigmation_x.setValue(beam_settings.stigmation.x)
+                self.doubleSpinBox_stigmation_y.setValue(beam_settings.stigmation.y)
+                self.doubleSpinBox_stigmation_x.blockSignals(False)
+                self.doubleSpinBox_stigmation_y.blockSignals(False)
 
         self.update_ui_saving_settings()
 
@@ -841,7 +848,11 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.detector_mode_combobox.setCurrentText(self.microscope.get_detector_mode(beam_type=beam_type))
         self.detector_mode_combobox.blockSignals(False)
 
-        self.set_ui_from_settings(self.image_settings, beam_type)
+        # get current settings and update ui
+        beam_settings = self.microscope.get_beam_settings(beam_type=beam_type)
+        detector_settings = self.microscope.get_detector_settings(beam_type=beam_type)
+        self.set_ui_from_settings(image_settings = self.image_settings, beam_type = beam_type, 
+                                    beam_settings=beam_settings, detector_settings=detector_settings)
 
     def _update_beam_settings_ui(self) -> None:
         """Update the beam settings ui components based on the current microscope state"""
@@ -1009,36 +1020,23 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         # restore active layer for movement
         self.restore_active_layer_for_movement()
 
-    def _update_ui_from_images(self, beam_type: BeamType, set_ui_from_image: bool = False) -> None:
+    def _update_ui_from_images(self, beam_type: BeamType) -> None:
         """Update the UI elements from the image metadata.
         Args:
             beam_type (BeamType): The beam type of the image to update from.
             set_ui_from_image (bool): Whether to set the UI from the image metadata.
         """
         # set ui from image metadata
-        if set_ui_from_image:
-            if beam_type is BeamType.ELECTRON:
-                self.image_settings = self.eb_image.metadata.image_settings
-                beam_settings = self.eb_image.metadata.microscope_state.electron_beam
-                detector_settings = (
-                    self.eb_image.metadata.microscope_state.electron_detector
-                )
-                beam_type = BeamType.ELECTRON
-            if beam_type is BeamType.ION:
-                self.image_settings = self.ib_image.metadata.image_settings
-                beam_settings = self.ib_image.metadata.microscope_state.ion_beam
-                detector_settings = self.ib_image.metadata.microscope_state.ion_detector
-                beam_type = BeamType.ION
-        else:
-            beam_type = self.selected_beam.currentData()
-            beam_settings, detector_settings = None, None
-            # QUERY: what is this doing?
+        if beam_type is BeamType.ELECTRON:
+            self.image_settings = self.eb_image.metadata.image_settings
+        if beam_type is BeamType.ION:
+            self.image_settings = self.ib_image.metadata.image_settings
 
         self.set_ui_from_settings(
             image_settings=self.image_settings,
             beam_type=beam_type,
-            beam_settings=beam_settings,
-            detector_settings=detector_settings,
+            beam_settings=None,
+            detector_settings=None,
         )
 
     def _update_layer_positions(self):
