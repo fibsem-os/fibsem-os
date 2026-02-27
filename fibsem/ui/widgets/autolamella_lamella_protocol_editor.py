@@ -31,7 +31,6 @@ from fibsem import conversions
 from fibsem.ui.napari.utilities import is_inside_image_bounds, add_points_layer
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
-    DefectState,
     Lamella,
 )
 import fibsem.applications.autolamella.config as cfg
@@ -41,7 +40,6 @@ from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE, PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
-from fibsem.ui.widgets.autolamella_defect_state_widget import AutoLamellaDefectStateWidget
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
@@ -361,9 +359,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.pushButton_apply_to_other, 8, 0, 1, 2)
         self.grid_layout.addWidget(self.pushButton_open_correlation, 9, 0, 1, 2)
 
-        self.lamella_defect_widget = AutoLamellaDefectStateWidget(parent=self)
-        self.grid_layout.addWidget(self.lamella_defect_widget, 10, 0, 1, 2)
-
         # main layout
         self.main_layout = QVBoxLayout(self)
         self.scroll_content_layout = QVBoxLayout()
@@ -394,7 +389,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.milling_task_editor.config_widget.correlation_result_updated_signal.connect(self._on_point_of_interest_updated)
-        self.lamella_defect_widget.defect_state_changed.connect(self._on_defect_state_changed)
         self.viewer.mouse_drag_callbacks.append(self._on_single_click)
 
         if self.comboBox_selected_lamella.count() > 0:
@@ -536,7 +530,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self._on_image_selected(0)
         self._draw_point_of_interest(selected_lamella.poi)
-        self.lamella_defect_widget.set_defect_state(selected_lamella.defect)
 
     def _on_image_selected(self, index):
         """Callback when an image is selected."""
@@ -928,14 +921,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             msg += "\nBase protocol was also updated."
         QMessageBox.information(self, "Apply Complete", msg)
         logging.info(msg)
-
-    def _on_defect_state_changed(self, defect: DefectState):
-        """Callback when the defect state is changed."""
-        selected_lamella: Lamella = self.comboBox_selected_lamella.currentData()
-        if selected_lamella is None:
-            return
-        selected_lamella.defect = defect
-        self._save_experiment()
 
     def _save_experiment(self):
         """Save the experiment."""
