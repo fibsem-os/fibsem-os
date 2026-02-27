@@ -5,13 +5,13 @@ try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
-import glob
 import logging
 import os
 import subprocess
 import threading
 from copy import deepcopy
 from typing import List, Optional
+import numpy as np
 import napari
 import napari.utils.notifications
 import fibsem
@@ -45,7 +45,6 @@ from fibsem.ui.widgets.autolamella_create_experiment_widget import create_experi
 from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_task_protocol_widget import load_task_protocol_dialog
 from fibsem.ui.widgets.autolamella_task_config_editor import show_protocol_editor, AutoLamellaProtocolEditorTabWidget
-from fibsem.ui.widgets.autolamella_task_history_widget import AutoLamellaWorkflowDisplayWidget
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -117,6 +116,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.label_title.setText(f"AutoLamella v{fibsem.__version__}")
         self.viewer = viewer
         self.viewer.title = f"AutoLamella v{fibsem.__version__}"
+
+        # add placeholder layer
+        self.viewer.add_image(np.zeros((10,10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -274,9 +276,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.lineEdit_protocol_name.setReadOnly(True)
         self.lineEdit_experiment_name.setReadOnly(True)
 
-        # self.task_history_widget = AutoLamellaWorkflowDisplayWidget(experiment=None, parent=self)
-        # self.scrollArea_lamella_info.setWidget(self.task_history_widget)
-
+        self.scrollArea_lamella_info.setVisible(False)
+        self.groupBox_lamella.setVisible(False)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -529,7 +530,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # Assign the experiment
         self.experiment = experiment
-        napari.utils.notifications.show_info(f"Experiment '{self.experiment.name}' created successfully.")
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -554,9 +554,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # Assign the experiment
         self.experiment = experiment
-        napari.utils.notifications.show_info(
-            f"Experiment '{self.experiment.name}' loaded with {len(self.experiment.positions)} lamella."
-        )
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -913,6 +910,13 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def update_ui(self):
         """Update the ui based on the current state of the application."""
 
+        if self.is_workflow_running:
+            self.groupBox_selected_lamella.setEnabled(False)
+            self.groupBox_setup.setEnabled(False)
+            self.pushButton_run_setup_autolamella.setEnabled(False)
+            self.pushButton_stop_workflow.setVisible(True)
+            return
+
         # state flags
         is_experiment_loaded = bool(self.experiment is not None)
         is_microscope_connected = bool(self.microscope is not None)
@@ -930,11 +934,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         if self.det_widget is not None:
             idx = self.tabWidget.indexOf(self.det_widget)
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
-
-        # workflow
-        # self.update_protocol_ui()
-
-        # setup experiment -> connect to microscope -> select lamella -> run autolamella
 
         # experiment loaded
         # file menu
@@ -965,9 +964,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.lineEdit_experiment_name.setToolTip(f"Experiment Directory: {self.experiment.path}")
             self.comboBox_current_lamella.setEnabled(has_lamella)
 
-            # self.task_history_widget.set_experiment(self.experiment)
-            self.groupBox_lamella.setMinimumHeight(min(200, 150 + 10 * len(self.experiment.positions)))
-
         if self.protocol is not None:
             self.lineEdit_protocol_name.setText(f"{self.protocol.name}")
 
@@ -985,7 +981,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.label_current_lamella_header.setEnabled(is_experiment_ready)
         self.comboBox_current_lamella.setEnabled(is_experiment_ready)
         self.groupBox_setup.setEnabled(is_experiment_ready)
-        self.groupBox_lamella.setEnabled(has_lamella)
         self.groupBox_selected_lamella.setEnabled(has_lamella)
 
         enable_pose_controls = bool(has_lamella) and cfg.FEATURE_POSE_CONTROLS_ENABLED
@@ -1003,7 +998,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         # disable lamella controls while workflow is running
-        self.groupBox_lamella.setEnabled(not self.is_workflow_running)
         self.groupBox_selected_lamella.setEnabled(not self.is_workflow_running)
 
         # Current Lamella Status
@@ -1057,6 +1051,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     def update_lamella_combobox(self, latest: bool = False):
         if self.experiment is None or self.experiment.positions == []:
             return
+        if self.is_workflow_running:
+            return
 
         # detail combobox
         idx = self.comboBox_current_lamella.currentIndex()
@@ -1083,7 +1079,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         if self.is_workflow_running:
             return
-        
+
         idx = self.comboBox_current_lamella.currentIndex()
         if idx == -1:
             return

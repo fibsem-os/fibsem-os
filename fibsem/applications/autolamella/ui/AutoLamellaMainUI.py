@@ -47,6 +47,7 @@ from fibsem.ui.stylesheets import (
     STATUS_BAR_STYLESHEET,
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
+    GRAY_ICON_COLOR,
 )
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
@@ -300,7 +301,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.status_bar is None:
             raise RuntimeError("Failed to create status bar for AutoLamella UI.")
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
-    
+
         # Add milling progress bar
         self.milling_progress_bar = QProgressBar(self.status_bar)
         self.milling_progress_bar.setMaximumWidth(400)
@@ -314,6 +315,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
         self.user_attention_btn.setStyleSheet(USER_ATTENTION_BUTTON_STYLESHEET)
+        self.user_attention_btn.setIcon(QIconifyIcon("mdi:alert-circle", color=GRAY_ICON_COLOR))
         self.user_attention_btn.hide()  # Hidden by default
         self.user_attention_btn.setToolTip("User Input Required - Click to go to Microscope tab")
         self.user_attention_btn.clicked.connect(self._on_user_attention_clicked)
@@ -331,6 +333,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Add run workflow button (visible when workflow is not running)
         self.run_workflow_btn = QPushButton("Run Workflow")
         self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self.run_workflow_btn.setIcon(QIconifyIcon("mdi:play-circle", color=GRAY_ICON_COLOR))
         self.run_workflow_btn.setEnabled(False)
         self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
         self.run_workflow_btn.clicked.connect(self._on_run_workflow_clicked)
@@ -339,6 +342,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Add stop workflow button
         self.stop_workflow_btn = QPushButton("Stop Workflow")
         self.stop_workflow_btn.setStyleSheet(STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.stop_workflow_btn.setIcon(QIconifyIcon("mdi:stop-circle", color=GRAY_ICON_COLOR))
         self.stop_workflow_btn.hide()  # Hidden by default
         self.stop_workflow_btn.setToolTip("Stop the current workflow. You will be asked to confirm.")
         self.stop_workflow_btn.clicked.connect(self._on_stop_workflow_clicked)
@@ -440,7 +444,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.supervised_status_btn.setToolTip(f"{task_name} is running in supervised mode. Your input will be required. Click to toggle.")
             self.supervised_status_btn.setStyleSheet(SUPERVISION_STATUS_SUPERVISED_STYLESHEET)
         else:
-            self.supervised_status_btn.setIcon(QIconifyIcon("mdi:robot", color="white"))
+            self.supervised_status_btn.setIcon(QIconifyIcon("mdi:refresh-auto", color="white"))
             self.supervised_status_btn.setText("Automated")
             self.supervised_status_btn.setToolTip(f"{task_name} is running in automated mode. Click to toggle.")
             self.supervised_status_btn.setStyleSheet(SUPERVISION_STATUS_AUTOMATED_STYLESHEET)
@@ -862,26 +866,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.show_toast(msg, msg_type)
 
             # Refresh lamella list and card container
-            if hasattr(self, 'lamella_list_widget'):
-                self.lamella_list_widget.refresh_all()
-                self.lamella_card_container.refresh_all()
+            self.lamella_list_widget.refresh_all()
+            self.lamella_card_container.refresh_all()
 
         # refresh the supervised status chip
         self._update_supervised_status()
 
         # Check if waiting for user response and update status bar
-        if self.autolamella_ui is not None:
-            if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
-                # Show user attention button and change status bar color
-                self.user_attention_btn.show()
-                # Play notification sound once when entering waiting state
-                if not self._user_interaction_sound_played and self._sound_enabled:
-                    play_notification_sound()
-                    self._user_interaction_sound_played = True
-            else:
-                # Hide user attention button and reset to original dark theme
-                self.user_attention_btn.hide()
-                self._user_interaction_sound_played = False  # Reset for next time
+        if self.autolamella_ui is None:
+            return
+
+        if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+            # Show user attention button and change status bar color
+            self.user_attention_btn.show()
+            # Play notification sound once when entering waiting state
+            if not self._user_interaction_sound_played and self._sound_enabled:
+                play_notification_sound()
+                self._user_interaction_sound_played = True
+        else:
+            # Hide user attention button and reset to original dark theme
+            self.user_attention_btn.hide()
+            self._user_interaction_sound_played = False  # Reset for next time
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""

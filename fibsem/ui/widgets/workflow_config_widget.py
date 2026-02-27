@@ -69,7 +69,7 @@ def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     """Return (icon_name, icon_color, tooltip) for the supervised/automated indicator."""
     if task.supervise:
         return "mdi:account-hard-hat", "#6aabdf", "Supervised"
-    return "mdi:robot", "#80c080", "Automated"
+    return "mdi:refresh-auto", "#80c080", "Automated"
 
 
 class _ScheduleDialog(QDialog):
