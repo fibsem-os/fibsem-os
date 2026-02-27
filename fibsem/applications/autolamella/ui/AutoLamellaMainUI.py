@@ -16,6 +16,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -48,6 +49,10 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
+    WORKFLOW_BORDER_IDLE_STYLESHEET,
+    WORKFLOW_BORDER_AUTOMATED_STYLESHEET,
+    WORKFLOW_BORDER_SUPERVISED_STYLESHEET,
+    WORKFLOW_BORDER_WAITING_STYLESHEET,
 )
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
@@ -83,9 +88,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Apply napari-style dark theme
         self.setStyleSheet(NAPARI_STYLE)
 
-        # Central tab widget
+        # Central tab widget wrapped in a QFrame so the border renders reliably
         self.tab_widget = QTabWidget()
-        self.setCentralWidget(self.tab_widget)
+        self._border_frame = QFrame()
+        self._border_frame.setObjectName("workflow_border_frame")
+        _frame_layout = QVBoxLayout(self._border_frame)
+        _frame_layout.setContentsMargins(0, 0, 0, 0)
+        _frame_layout.setSpacing(0)
+        _frame_layout.addWidget(self.tab_widget)
+        self.setCentralWidget(self._border_frame)
 
         self.viewers: list[napari.Viewer] = []
         self.autolamella_ui: AutoLamellaUI
@@ -98,7 +109,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = False  # Toggle for notification sounds
-        self._toasts_enabled = True  # Toggle for toast notifications
+        self._toasts_enabled = False  # Toggle for toast notifications
+        self._border_enabled = False  # Toggle for workflow border indicator
 
         # create menus, status bar, and tabs
         self._create_menu_bar()
@@ -214,17 +226,46 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_toasts_toggle.setChecked(self._toasts_enabled)
         self.action_toasts_toggle.triggered.connect(self._on_toasts_toggle)
 
+        # Border state test actions
+        self.action_border_toggle = QAction("Show Workflow Border", self)
+        self.action_border_toggle.setCheckable(True)
+        self.action_border_toggle.setChecked(self._border_enabled)
+        self.action_border_toggle.triggered.connect(self._on_border_toggle)
+
+        self.action_border_automated = QAction("Automated (green)", self)
+        self.action_border_automated.triggered.connect(lambda: self._set_border_state("automated"))
+
+        self.action_border_supervised = QAction("Supervised (blue)", self)
+        self.action_border_supervised.triggered.connect(lambda: self._set_border_state("supervised"))
+
+        self.action_border_waiting = QAction("Waiting for User (orange)", self)
+        self.action_border_waiting.triggered.connect(lambda: self._set_border_state("waiting"))
+
+        self.action_border_idle = QAction("Idle (no border)", self)
+        self.action_border_idle.triggered.connect(lambda: self._set_border_state("idle"))
+
         # add to menu bar
         menu_bar = self.menuBar()
         test_menu = menu_bar.addMenu("Test")                # type: ignore
-        test_menu.addAction(self.action_toast_info)         # type: ignore
-        test_menu.addAction(self.action_toast_success)      # type: ignore
-        test_menu.addAction(self.action_toast_warning)      # type: ignore
-        test_menu.addAction(self.action_toast_error)        # type: ignore
+
+        toast_menu = test_menu.addMenu("Toast")             # type: ignore
+        toast_menu.addAction(self.action_toast_info)        # type: ignore
+        toast_menu.addAction(self.action_toast_success)     # type: ignore
+        toast_menu.addAction(self.action_toast_warning)     # type: ignore
+        toast_menu.addAction(self.action_toast_error)       # type: ignore
+
+        border_menu = test_menu.addMenu("Border State")      # type: ignore
+        border_menu.addAction(self.action_border_toggle)    # type: ignore
+        border_menu.addSeparator()                          # type: ignore
+        border_menu.addAction(self.action_border_automated) # type: ignore
+        border_menu.addAction(self.action_border_supervised)# type: ignore
+        border_menu.addAction(self.action_border_waiting)   # type: ignore
+        border_menu.addAction(self.action_border_idle)      # type: ignore
+
         test_menu.addSeparator()                            # type: ignore
         test_menu.addAction(self.action_beep)               # type: ignore
         test_menu.addAction(self.action_sound_toggle)       # type: ignore
-        test_menu.addAction(self.action_toasts_toggle)      # type: ignore 
+        test_menu.addAction(self.action_toasts_toggle)      # type: ignore
 
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
@@ -233,6 +274,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_toasts_toggle(self, checked: bool):
         """Handle toasts toggle."""
         self._toasts_enabled = checked
+
+    def _on_border_toggle(self, checked: bool):
+        """Handle workflow border toggle."""
+        self._border_enabled = checked
+        self._set_border_state("idle")
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -297,9 +343,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _create_status_bar(self):
         """Create the status bar."""
-        self.status_bar = self.statusBar()
-        if self.status_bar is None:
+        status_bar = self.statusBar()
+        if status_bar is None:
             raise RuntimeError("Failed to create status bar for AutoLamella UI.")
+        self.status_bar = status_bar
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
 
         # Add milling progress bar
@@ -397,6 +444,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if dlg.exec_() != QMessageBox.Yes:
             return
 
+        initial_state = "supervised" if selected_tasks[0].supervise else "automated"
+        self._set_border_state(initial_state)
         ui._start_run_workflow_thread(task_names, lamella_names)
 
     def _on_workflow_selection_changed(self, _=None) -> None:
@@ -431,6 +480,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
+
+    def _set_border_state(self, state: str):
+        """Update the tab widget border to reflect current workflow state.
+
+        States: 'waiting', 'supervised', 'automated', 'idle'
+        """
+        if not self._border_enabled:
+            self._border_frame.setStyleSheet(WORKFLOW_BORDER_IDLE_STYLESHEET)
+            return
+        style_map = {
+            "waiting": WORKFLOW_BORDER_WAITING_STYLESHEET,
+            "supervised": WORKFLOW_BORDER_SUPERVISED_STYLESHEET,
+            "automated": WORKFLOW_BORDER_AUTOMATED_STYLESHEET,
+            "idle": WORKFLOW_BORDER_IDLE_STYLESHEET,
+        }
+        self._border_frame.setStyleSheet(style_map.get(state, WORKFLOW_BORDER_IDLE_STYLESHEET))
 
     def _update_supervised_status(self):
         """Update the supervised status chip for the current task."""
@@ -876,7 +941,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is None:
             return
 
-        if self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+        waiting = (
+            self.autolamella_ui.WAITING_FOR_USER_INTERACTION
+            or self.autolamella_ui.WAITING_FOR_UI_UPDATE
+        )
+        if waiting:
             # Show user attention button and change status bar color
             self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
@@ -887,6 +956,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # Hide user attention button and reset to original dark theme
             self.user_attention_btn.hide()
             self._user_interaction_sound_played = False  # Reset for next time
+
+        # Update border to reflect current workflow state
+        if waiting:
+            self._set_border_state("waiting")
+        elif self.autolamella_ui.is_workflow_running:
+            supervised = (
+                self._current_task_name is not None
+                and get_task_supervision(self._current_task_name, self.autolamella_ui)
+            )
+            self._set_border_state("supervised" if supervised else "automated")
+        else:
+            self._set_border_state("idle")
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
@@ -960,12 +1041,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle workflow finished signal."""
         self.hide_workflow_running()
         self.user_attention_btn.hide()
-        if hasattr(self, 'lamella_list_widget'):
-            self.lamella_list_widget.refresh_all()
-            self.lamella_card_container.refresh_all()
+        self.lamella_list_widget.refresh_all()
+        self.lamella_card_container.refresh_all()
         if self.status_bar is not None:
             self.status_bar.showMessage("Workflow: Finished")
             self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+        self._set_border_state("idle")
 
     def add_minimap_tab(self):
         """Add the minimap as a separate tab with its own viewer."""
