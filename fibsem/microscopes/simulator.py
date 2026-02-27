@@ -353,6 +353,7 @@ class DemoMicroscope(FibsemMicroscope):
             hfw=effective_image_settings.hfw,
             random=True
         )
+        time.sleep(effective_image_settings.dwell_time * effective_image_settings.resolution[0] * effective_image_settings.resolution[1])  # simulate acquisition time
 
         # generate the next image from the sequence iterator
         if self.use_image_sequence:
@@ -548,6 +549,7 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
         logging.info(f"Autocontrasting {beam_type.name} beam.")
+        time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-contrast
         self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
         self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
 
@@ -560,6 +562,7 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-focus
         wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
+        time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
         focus_adjustment = random.uniform(-100e-6, 100e-6)
         new_wd = wd + focus_adjustment
         self.set_working_distance(new_wd, beam_type)
