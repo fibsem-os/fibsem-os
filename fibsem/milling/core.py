@@ -14,9 +14,6 @@ from fibsem.structures import (
 )
 from fibsem.utils import current_timestamp_v2
 
-if TYPE_CHECKING:
-    from fibsem.ui.FibsemMillingWidget import FibsemMillingWidget
-
 ########################### SETUP
 
 
@@ -97,7 +94,7 @@ def draw_pattern(microscope: FibsemMicroscope, pattern: FibsemPatternSettings):
 def mill_stages(
     microscope: FibsemMicroscope,
     stages: List[FibsemMillingStage],
-    parent_ui: Optional['FibsemMillingWidget'] = None,
+    parent_ui=None,
 ):
     """Run a list of milling stages, with a progress bar and notifications."""
 
