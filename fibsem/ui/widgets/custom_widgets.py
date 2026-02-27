@@ -6,19 +6,22 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Union
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtGui import QCursor, QIcon
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QCursor, QIcon, QTransform
 from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMenu,
     QToolButton,
     QWidget,
 )
+from superqt import QIconifyIcon
 
+from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.utils import WheelBlocker
 from fibsem.utils import format_value
 
@@ -295,3 +298,35 @@ def show_context_menu(
     menu = ContextMenu(config, parent=parent)
     selected = menu.show_at_cursor()
     return selected.label if selected else None
+
+class _SpinnerLabel(QLabel):
+    """Rotating icon label used as a lightweight acquisition progress indicator."""
+
+    def __init__(self, icon_name="mdi:loading", color="#4fc3f7", size=24,
+                 step_deg=20, interval_ms=40, parent=None):
+        super().__init__(parent)
+        self._pixmap = QIconifyIcon(icon_name, color=color).pixmap(size, size)
+        self._angle = 0
+        self._step = step_deg
+        self._timer = QTimer(self)
+        self._timer.setInterval(interval_ms)
+        self._timer.timeout.connect(self._tick)
+        self.setFixedSize(size, size)
+        self.setAlignment(Qt.AlignCenter)
+        self._render()
+
+    def _tick(self):
+        self._angle = (self._angle + self._step) % 360
+        self._render()
+
+    def _render(self):
+        t = QTransform().rotate(self._angle)
+        self.setPixmap(self._pixmap.transformed(t, Qt.SmoothTransformation))
+
+    def start(self):
+        self._timer.start()
+
+    def stop(self):
+        self._timer.stop()
+        self._angle = 0
+        self._render()
