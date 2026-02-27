@@ -80,8 +80,10 @@ class FibsemBeamSettingsWidget(QWidget):
         super().__init__(parent)
         self.microscope = microscope
         self.beam_type = beam_type
+        self._advanced_visible = False
         self._setup_ui()
         self._connect_signals()
+        self._update_visibility()
 
     # ------------------------------------------------------------------
     # UI setup
@@ -154,24 +156,32 @@ class FibsemBeamSettingsWidget(QWidget):
         # --- Shift X / Y ---
         self.shift_x_spinbox = _make_spinbox("shift")
         self.shift_y_spinbox = _make_spinbox("shift")
-        shift_row = QWidget()
-        shift_row_layout = QHBoxLayout(shift_row)
+        self.shift_row = QWidget()
+        shift_row_layout = QHBoxLayout(self.shift_row)
         shift_row_layout.setContentsMargins(0, 0, 0, 0)
         shift_row_layout.addWidget(self.shift_x_spinbox)
         shift_row_layout.addWidget(self.shift_y_spinbox)
         self.shift_label = QLabel(WIDGET_CONFIG["shift"]["label"])
-        layout.addRow(self.shift_label, shift_row)
+        layout.addRow(self.shift_label, self.shift_row)
 
         # --- Stigmation X / Y ---
         self.stigmation_x_spinbox = _make_spinbox("stigmation")
         self.stigmation_y_spinbox = _make_spinbox("stigmation")
-        stigmation_row = QWidget()
-        stigmation_row_layout = QHBoxLayout(stigmation_row)
+        self.stigmation_row = QWidget()
+        stigmation_row_layout = QHBoxLayout(self.stigmation_row)
         stigmation_row_layout.setContentsMargins(0, 0, 0, 0)
         stigmation_row_layout.addWidget(self.stigmation_x_spinbox)
         stigmation_row_layout.addWidget(self.stigmation_y_spinbox)
         self.stigmation_label = QLabel(WIDGET_CONFIG["stigmation"]["label"])
-        layout.addRow(self.stigmation_label, stigmation_row)
+        layout.addRow(self.stigmation_label, self.stigmation_row)
+
+        # All widgets that are shown only when advanced mode is active
+        self._adv_widgets = [
+            self.scan_rotation_label, self.scan_rotation_spinbox,
+            self.shift_label, self.shift_row,
+            self.stigmation_label, self.stigmation_row,
+            self.beam_voltage_label, self.beam_voltage_combo,
+        ]
 
     # ------------------------------------------------------------------
     # Signal connections
@@ -377,6 +387,36 @@ class FibsemBeamSettingsWidget(QWidget):
 
         for w in widgets:
             w.blockSignals(False)
+
+    def set_advanced_visible(self, show: bool):
+        """Show or hide advanced controls."""
+        self._advanced_visible = show
+        self._update_visibility()
+
+    def _update_visibility(self):
+        """Apply visibility based on manufacturer and advanced-mode state."""
+        is_tescan = self.microscope.manufacturer == "TESCAN"
+        adv = self._advanced_visible
+
+        for w in self._adv_widgets:
+            w.setVisible(adv)
+
+        # Stigmation: also hidden for TESCAN
+        for w in [self.stigmation_label, self.stigmation_row]:
+            w.setVisible(adv and not is_tescan)
+            w.setEnabled(not is_tescan)
+
+        # Beam voltage: also hidden for TESCAN
+        for w in [self.beam_voltage_label, self.beam_voltage_combo]:
+            w.setVisible(adv and not is_tescan)
+
+        # Beam current: always visible, hidden for TESCAN
+        for w in [self.beam_current_label, self.beam_current_combo]:
+            w.setVisible(not is_tescan)
+
+        # Preset: TESCAN only
+        for w in [self.preset_label, self.preset_combo]:
+            w.setVisible(is_tescan)
 
     @staticmethod
     def _set_combo_closest(combo, value: float):
