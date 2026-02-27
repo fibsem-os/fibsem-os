@@ -166,29 +166,27 @@ class MillingTaskConfigWidget(QWidget):
         # Alignment settings group
         self.alignment_widget = FibsemMillingAlignmentWidget(
             parent=self,
-            show_advanced=self._show_advanced
+            show_advanced=False,
         )
-        # self.alignment_widget.setContentsMargins(0, 0, 0, 0)
+        self.alignment_widget.image_settings_widget.set_show_advanced_button(False)
         self.alignment_group = QGroupBox("Alignment", self)
         self.alignment_group.setLayout(QVBoxLayout())
-        self.alignment_group.layout().addWidget(self.alignment_widget)
-        # self.alignment_group.setContentsMargins(0, 0, 0, 0)
+        self.alignment_group.layout().addWidget(self.alignment_widget) # type: ignore
 
         # Acquisition settings group
         self.acquisition_widget = FibsemMillingTaskAcquisitionSettingsWidget(
             parent=self,
-            show_advanced=self._show_advanced
+            show_advanced=False,
         )
-        # self.acquisition_widget.setContentsMargins(0, 0, 0, 0)
+        self.acquisition_widget.image_settings_widget.set_show_advanced_button(False)
         self.acquisition_group = QGroupBox("Acquisition", self)
         self.acquisition_group.setLayout(QVBoxLayout())
-        self.acquisition_group.layout().addWidget(self.acquisition_widget)
-        # self.acquisition_group.setContentsMargins(0, 0, 0, 0)
+        self.acquisition_group.layout().addWidget(self.acquisition_widget) # type: ignore
 
         # Milling stages editor
         try:
             viewer = self.parent_widget.parent_widget.viewer
-        except Exception:        
+        except Exception:
             viewer = napari.current_viewer()
 
         self.milling_editor_widget = FibsemMillingStageEditorWidget(
@@ -273,7 +271,7 @@ class MillingTaskConfigWidget(QWidget):
     def get_config(self) -> FibsemMillingTaskConfig:
         """Alias for get_settings to match naming conventions."""
         return self.get_settings()
-    
+
     def set_config(self, config: FibsemMillingTaskConfig):
         """Alias for update_from_settings to match naming conventions."""
         self.update_from_settings(config)
@@ -331,7 +329,6 @@ class MillingTaskConfigWidget(QWidget):
             self.advanced_checkbox.setChecked(show_advanced)
             self.advanced_checkbox.blockSignals(False)
         self.alignment_widget.set_show_advanced(show_advanced)
-        self.acquisition_widget.set_show_advanced(show_advanced)
         self.milling_editor_widget.set_show_advanced(show_advanced)
         self._update_advanced_visibility()
 
