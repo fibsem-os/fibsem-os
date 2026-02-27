@@ -924,9 +924,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # force order: connect -> experiment -> protocol
         self.tabWidget.setTabVisible(self.tabWidget.indexOf(self.tab), is_microscope_connected)
-        self.actionNew_Experiment.setVisible(is_microscope_connected)
-        self.actionLoad_Experiment.setVisible(is_microscope_connected)
-        self.actionInformation.setVisible(is_microscope_connected)
+        self.actionNew_Experiment.setEnabled(is_microscope_connected)
+        self.actionLoad_Experiment.setEnabled(is_microscope_connected)
+        self.actionInformation.setEnabled(is_microscope_connected)
         if self.det_widget is not None:
             idx = self.tabWidget.indexOf(self.det_widget)
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
@@ -938,8 +938,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # experiment loaded
         # file menu
-        self.actionLoad_Protocol.setVisible(is_experiment_loaded)
-        self.actionSave_Protocol.setVisible(is_protocol_loaded)
+        self.actionLoad_Protocol.setEnabled(is_experiment_loaded)
+        self.actionSave_Protocol.setEnabled(is_protocol_loaded)
         # tool menu
         self.actionCryo_Deposition.setVisible(True)
         self.actionOpen_Minimap.setEnabled(is_experiment_ready)
@@ -955,15 +955,15 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.action_open_protocol_editor.setToolTip(tools_disabled_tooltip)
         self.action_open_experiment_workflow_summary.setToolTip(tools_disabled_tooltip)
         # help menu
-        self.actionGenerate_Report.setVisible(is_experiment_ready and REPORTING_AVAILABLE)
-        self.actionGenerate_Overview_Plot.setVisible(is_experiment_ready and REPORTING_AVAILABLE)
+        self.actionGenerate_Report.setEnabled(is_experiment_ready and REPORTING_AVAILABLE)
+        self.actionGenerate_Overview_Plot.setEnabled(is_experiment_ready and REPORTING_AVAILABLE)
 
         # labels
         self.lineEdit_experiment_name.setToolTip("No Experiment Loaded")
         if is_experiment_loaded and self.experiment is not None:
             self.lineEdit_experiment_name.setText(f"{self.experiment.name}")
             self.lineEdit_experiment_name.setToolTip(f"Experiment Directory: {self.experiment.path}")
-            self.comboBox_current_lamella.setVisible(has_lamella)
+            self.comboBox_current_lamella.setEnabled(has_lamella)
 
             # self.task_history_widget.set_experiment(self.experiment)
             self.groupBox_lamella.setMinimumHeight(min(200, 150 + 10 * len(self.experiment.positions)))
@@ -978,24 +978,31 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_go_to_lamella.setEnabled(has_lamella)
 
         # set visible if protocol loaded
-        self.pushButton_add_lamella.setVisible(is_experiment_ready)
-        self.pushButton_remove_lamella.setVisible(is_experiment_ready)
-        self.pushButton_save_position.setVisible(is_experiment_ready)
-        self.pushButton_go_to_lamella.setVisible(is_experiment_ready)
-        self.label_current_lamella_header.setVisible(is_experiment_ready)
-        self.comboBox_current_lamella.setVisible(is_experiment_ready)
-        self.groupBox_setup.setVisible(is_experiment_ready)
-        self.groupBox_lamella.setVisible(has_lamella)
-        self.groupBox_selected_lamella.setVisible(has_lamella)
-        
+        self.pushButton_add_lamella.setEnabled(is_experiment_ready)
+        self.pushButton_remove_lamella.setEnabled(is_experiment_ready)
+        self.pushButton_save_position.setEnabled(is_experiment_ready)
+        self.pushButton_go_to_lamella.setEnabled(is_experiment_ready)
+        self.label_current_lamella_header.setEnabled(is_experiment_ready)
+        self.comboBox_current_lamella.setEnabled(is_experiment_ready)
+        self.groupBox_setup.setEnabled(is_experiment_ready)
+        self.groupBox_lamella.setEnabled(has_lamella)
+        self.groupBox_selected_lamella.setEnabled(has_lamella)
+
+        enable_pose_controls = bool(has_lamella) and cfg.FEATURE_POSE_CONTROLS_ENABLED
+        self.label_lamella_pose.setVisible(enable_pose_controls)
+        self.comboBox_lamella_pose.setVisible(enable_pose_controls)
+        self.label_lamella_pose_position.setVisible(enable_pose_controls)
+        self.pushButton_lamella_move_to_pose.setVisible(enable_pose_controls)
+        self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
+        self.label_lamella_objective_position.setVisible(False)
+        self.doubleSpinBox_lamella_objective_position.setVisible(False)
+
         # workflow buttons
         self.label_run_autolamella_info.setVisible(has_lamella)
-        self.pushButton_run_setup_autolamella.setVisible(is_experiment_ready)
-        self.pushButton_run_setup_autolamella.setEnabled(has_lamella)
+        self.pushButton_run_setup_autolamella.setEnabled(is_experiment_ready and has_lamella)
         self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         # disable lamella controls while workflow is running
-        self.groupBox_setup.setEnabled(not self.is_workflow_running)
         self.groupBox_lamella.setEnabled(not self.is_workflow_running)
         self.groupBox_selected_lamella.setEnabled(not self.is_workflow_running)
 
@@ -1008,6 +1015,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.pushButton_run_setup_autolamella.setToolTip("Run the AutoLamella workflow on the selected lamella positions.")
         else:
             self.pushButton_run_setup_autolamella.setToolTip("Please add at least one lamella position to run the AutoLamella workflow.")
+            self.label_run_autolamella_info.setText("Please add at least one lamella position to run AutoLamella.")
 
         if self.is_workflow_running:
             self.pushButton_run_setup_autolamella.setEnabled(False)
@@ -1597,17 +1605,24 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             raise ValueError("No milling task config widget available. Please create a milling task config widget first.")
 
         # update the image viewer
-        sem_image = info.get("sem_image", None)
+        sem_image: FibsemImage = info.get("sem_image", None)    #type: ignore
         if sem_image is not None:
             self.image_widget.eb_image = sem_image
             self.image_widget._on_acquire(sem_image)
-            self.image_widget._update_ui_from_images(beam_type=BeamType.ELECTRON)
+            self.image_widget.set_ui_from_settings(
+                image_settings=sem_image.metadata.image_settings, # type: ignore
+                beam_type=BeamType.ELECTRON,
 
-        fib_image = info.get("fib_image", None)
+            )
+
+        fib_image: FibsemImage = info.get("fib_image", None)    # type: ignore
         if fib_image is not None:
             self.image_widget.ib_image = fib_image
             self.image_widget._on_acquire(fib_image)
-            self.image_widget._update_ui_from_images(beam_type=BeamType.ION)
+            self.image_widget.set_ui_from_settings(
+                image_settings=fib_image.metadata.image_settings, # type: ignore
+                beam_type=BeamType.ION,
+            )
 
         # what?
         enable_milling = info.get("milling_enabled", None)
