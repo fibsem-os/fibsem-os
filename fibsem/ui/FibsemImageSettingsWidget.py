@@ -8,7 +8,7 @@ from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointLayer
 from napari.layers import Shapes as NapariShapesLayer
 from napari.qt.threading import thread_worker
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import QIconifyIcon, ensure_main_thread
 
@@ -40,12 +40,11 @@ from fibsem.ui.napari.utilities import (
     draw_scalebar_in_napari,
 )
 from fibsem.ui.widgets.custom_widgets import _SpinnerLabel
-from fibsem.ui.qtdesigner_files import ImageSettingsWidget as ImageSettingsWidgetUI
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
-class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget):
+class FibsemImageSettingsWidget(QtWidgets.QWidget):
     viewer_update_signal = pyqtSignal()             # when the viewer is updated
     acquisition_progress_signal = pyqtSignal(dict)  # TODO: add progress indicator
     alignment_area_updated = pyqtSignal(FibsemRectangle)
@@ -57,8 +56,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
-        self.setupUi(self)
-
         if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
             raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
@@ -82,6 +79,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.alignment_layer: Optional[NapariShapesLayer] = None
 
         self.is_acquiring: bool = False
+        self._ruler_enabled: bool = False
 
         self._setup_ui()
         self.setup_connections()
@@ -118,20 +116,23 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
     def _setup_ui(self):
         """Set up the UI components and layout"""
 
-        # --- Spinner / status row (hidden by default) ---
-        self._spinner = _SpinnerLabel(parent=self)
-        self._status_label = QtWidgets.QLabel("Acquiring...")
-        self._status_label.setStyleSheet("color: #4fc3f7;")
-        status_row = QtWidgets.QWidget()
-        status_layout = QtWidgets.QHBoxLayout(status_row)
-        status_layout.setContentsMargins(0, 2, 0, 2)
-        status_layout.setSpacing(6)
-        status_layout.addStretch()
-        status_layout.addWidget(self._spinner)
-        status_layout.addWidget(self._status_label)
-        status_layout.addStretch()
-        self._status_row = status_row
-        self._status_row.setVisible(False)
+        # --- Outer layout + scroll area (previously from generated setupUi) ---
+        self.gridLayout = QtWidgets.QGridLayout(self)
+
+        self.scrollArea = QtWidgets.QScrollArea(self)
+        self.scrollArea.setMinimumSize(QtCore.QSize(0, 0))
+        self.scrollArea.setWidgetResizable(True)
+
+        self.scrollAreaWidgetContents = QtWidgets.QWidget()
+        self.gridLayout_2 = QtWidgets.QGridLayout(self.scrollAreaWidgetContents)
+
+        self.gridLayout_2.addItem(
+            QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
+            10, 0, 1, 2,
+        )
+
+        self.scrollArea.setWidget(self.scrollAreaWidgetContents)
+        self.gridLayout.addWidget(self.scrollArea, 1, 0, 1, 2)
 
         self.pushButton_start_acquisition = QtWidgets.QPushButton("Start Acquisition")
         self.pushButton_acquire_fib_image = QtWidgets.QPushButton("Acquire FIB Image")
@@ -141,16 +142,41 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         self.pushButton_run_autofocus = QtWidgets.QPushButton("Run AutoFocus")
         self.checkBox_save_with_selected_lamella = QtWidgets.QCheckBox("Save with Selected Lamella")
 
-        # add buttons and status row to layout
-        # scroll area occupies row 1 in gridLayout; all buttons go below at row 2+
-        self.gridLayout.addWidget(self.checkBox_save_with_selected_lamella, 2, 0, 1, 2)
-        self.gridLayout.addWidget(self._status_row, 3, 0, 1, 2)
-        self.gridLayout.addWidget(self.pushButton_run_autocontrast, 4, 0)
-        self.gridLayout.addWidget(self.pushButton_run_autofocus, 4, 1)
-        self.gridLayout.addWidget(self.pushButton_start_acquisition, 5, 0, 1, 2)
-        self.gridLayout.addWidget(self.pushButton_acquire_sem_image, 6, 0)
-        self.gridLayout.addWidget(self.pushButton_acquire_fib_image, 6, 1)
-        self.gridLayout.addWidget(self.pushButton_take_all_images, 7, 0, 1, 2)
+        # Spinner (hidden until acquiring / auto-function running)
+        self._spinner = _SpinnerLabel(parent=self)
+        self._spinner.setVisible(False)
+
+        # View tool buttons (scalebar, crosshair) + spinner — right-aligned alongside the lamella checkbox
+        self.btn_scalebar = QtWidgets.QToolButton()
+        self.btn_scalebar.setCheckable(True)
+        self.btn_scalebar.setChecked(False)
+        self.btn_scalebar.setIcon(QIconifyIcon("mdi:arrow-expand-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_scalebar.setToolTip("Scale Bar")
+
+        self.btn_crosshair = QtWidgets.QToolButton()
+        self.btn_crosshair.setCheckable(True)
+        self.btn_crosshair.setChecked(True)
+        self.btn_crosshair.setIcon(QIconifyIcon("mdi:target", color="#FFFFFF"))
+        self.btn_crosshair.setToolTip("Cross Hair")
+
+        tools_row = QtWidgets.QWidget()
+        tools_layout = QtWidgets.QHBoxLayout(tools_row)
+        tools_layout.setContentsMargins(0, 0, 0, 0)
+        tools_layout.setSpacing(4)
+        tools_layout.addWidget(self.checkBox_save_with_selected_lamella)
+        tools_layout.addStretch()
+        tools_layout.addWidget(self._spinner)
+        tools_layout.addWidget(self.btn_scalebar)
+        tools_layout.addWidget(self.btn_crosshair)
+
+        # add buttons to layout — scroll area at row 1, tools row at row 2, buttons below
+        self.gridLayout.addWidget(tools_row, 2, 0, 1, 2)
+        self.gridLayout.addWidget(self.pushButton_run_autocontrast, 3, 0)
+        self.gridLayout.addWidget(self.pushButton_run_autofocus, 3, 1)
+        self.gridLayout.addWidget(self.pushButton_start_acquisition, 4, 0, 1, 2)
+        self.gridLayout.addWidget(self.pushButton_acquire_sem_image, 5, 0)
+        self.gridLayout.addWidget(self.pushButton_acquire_fib_image, 5, 1)
+        self.gridLayout.addWidget(self.pushButton_take_all_images, 6, 0, 1, 2)
 
         # --- ImageSettingsWidget (resolution, dwell, hfw, integration, save) ---
         self.image_settings_widget = ImageSettingsWidget(
@@ -198,9 +224,12 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             logging.debug(f"Error connecting to lamella selection changes: {e}")
 
         # util
-        self.checkBox_enable_ruler.toggled.connect(self.update_ruler)
-        self.scalebar_checkbox.toggled.connect(self.update_ui_tools)
-        self.crosshair_checkbox.toggled.connect(self.update_ui_tools)
+        self.btn_scalebar.toggled.connect(self.update_ui_tools)
+        self.btn_crosshair.toggled.connect(self.update_ui_tools)
+        self.btn_scalebar.toggled.connect(lambda c: self.btn_scalebar.setIcon(
+            QIconifyIcon("mdi:arrow-expand-horizontal", color="#FFFFFF" if c else stylesheets.GRAY_ICON_COLOR)))
+        self.btn_crosshair.toggled.connect(lambda c: self.btn_crosshair.setIcon(
+            QIconifyIcon("mdi:target", color="#FFFFFF" if c else stylesheets.GRAY_ICON_COLOR)))
 
         # signals
         self.acquisition_progress_signal.connect(self.handle_acquisition_progress_update)
@@ -219,9 +248,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
         self.pushButton_run_autocontrast.setIcon(QIconifyIcon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR))
         self.pushButton_run_autofocus.setIcon(QIconifyIcon("mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR))
-
-        # feature flags
-        self.pushButton_show_alignment_area.setVisible(False)
 
         self.acquisition_buttons: List[QtWidgets.QPushButton] = [
             self.pushButton_take_all_images,
@@ -272,7 +298,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 btn.setEnabled(True)
             self.image_group.setEnabled(True)
             self._spinner.stop()
-            self._status_row.setVisible(False)
+            self._spinner.setVisible(False)
             return
 
         # disable other buttons while live acquisition is running
@@ -282,7 +308,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             btn.setEnabled(False)
         self.image_group.setEnabled(False)
         self._spinner.start()
-        self._status_row.setVisible(True)
+        self._spinner.setVisible(True)
 
         beam_type = self.dual_beam_widget.beam_type
         self.microscope.start_acquisition(beam_type)
@@ -296,9 +322,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
         # TODO: allow multiple rulers
         # TODO: re-do this and consolidate into napari.utilities
 
-        if not self.checkBox_enable_ruler.isChecked():
-            self.label_ruler_value.setText("Ruler: is off")
-            self.label_ruler_value.setVisible(False)
+        if not self._ruler_enabled:
             # remove the ruler layers
             try:
                 self.viewer.layers.remove(self.ruler_layer)
@@ -308,10 +332,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.ruler_layer = None
             self.restore_active_layer_for_movement()
             return
-
-        # enable the ruler
-        self.label_ruler_value.setText("Ruler: is on")
-        self.label_ruler_value.setVisible(True)
 
         # create an initial ruler in SEM image
         sem_shape = self.eb_image.data.shape
@@ -370,8 +390,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
 
             p1, p2 = data[0], data[1]
             dist_px = np.linalg.norm(p1-p2)
-            dx_px = abs(p2[1]-p1[1])
-            dy_px = abs(p2[0]-p1[0])
 
             if check_point_image_in_eb(p1):
                 pixelsize = self.eb_image.metadata.pixel_size.x
@@ -379,11 +397,6 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 pixelsize = self.ib_image.metadata.pixel_size.x
 
             dist_um = dist_px * pixelsize * constants.SI_TO_MICRO
-
-            # update the text labels
-            dx_um = dx_px * pixelsize * constants.SI_TO_MICRO
-            dy_um = dy_px * pixelsize * constants.SI_TO_MICRO
-            self.label_ruler_value.setText(f"Ruler: {dist_um:.2f} um  dx: {dx_um:.2f} um  dy: {dy_um:.2f} um")
 
             text = {
                 "string": [f"{dist_um:.2f} um", ""],
@@ -525,17 +538,17 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
             self.pushButton_acquire_sem_image.setText("Acquire SEM Image")
             self.pushButton_acquire_fib_image.setText("Acquire FIB Image")
             self._spinner.stop()
-            self._status_row.setVisible(False)
+            self._spinner.setVisible(False)
         elif imaging:
             for btn in self.acquisition_buttons:
                 btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
                 btn.setText("Acquiring...")
             self._spinner.start()
-            self._status_row.setVisible(True)
+            self._spinner.setVisible(True)
         else:
             self.pushButton_take_all_images.setText("Acquire All Images")
             self._spinner.start()
-            self._status_row.setVisible(True)
+            self._spinner.setVisible(True)
 
     def handle_acquisition_progress_update(self, ddict: dict):
         """Handle the acquisition progress update"""
@@ -628,7 +641,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 fib_shape=self.ib_image.data.shape,
                 sem_fov=self.eb_image.metadata.image_settings.hfw,
                 fib_fov=self.ib_image.metadata.image_settings.hfw,
-                is_checked=self.scalebar_checkbox.isChecked(),
+                is_checked=self.btn_scalebar.isChecked(),
             )
             fm_shape = None
             if self.microscope.fm is not None:
@@ -639,7 +652,7 @@ class FibsemImageSettingsWidget(ImageSettingsWidgetUI.Ui_Form, QtWidgets.QWidget
                 sem_shape=self.eb_image.data.shape,
                 fib_shape=self.ib_image.data.shape,
                 fm_shape=fm_shape,
-                is_checked=self.crosshair_checkbox.isChecked(),
+                is_checked=self.btn_crosshair.isChecked(),
             )
 
         # restore active layer for movement
