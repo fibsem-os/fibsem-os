@@ -156,8 +156,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.btn_crosshair = QtWidgets.QToolButton()
         self.btn_crosshair.setCheckable(True)
         self.btn_crosshair.setChecked(True)
-        self.btn_crosshair.setIcon(QIconifyIcon("mdi:target", color="#FFFFFF"))
+        self.btn_crosshair.setIcon(QIconifyIcon("mdi:target", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_crosshair.setToolTip("Cross Hair")
+        self.btn_scalebar.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_crosshair.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
 
         tools_row = QtWidgets.QWidget()
         tools_layout = QtWidgets.QHBoxLayout(tools_row)

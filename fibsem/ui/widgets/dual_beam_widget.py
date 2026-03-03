@@ -14,7 +14,7 @@ from superqt import QIconifyIcon
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
-
+from fibsem.ui import stylesheets
 
 class FibsemDualBeamWidget(QWidget):
     """Dual-beam widget with SEM / FIB radio buttons to switch between beam views.
@@ -76,23 +76,27 @@ class FibsemDualBeamWidget(QWidget):
 
         # --- Beam on / blanked buttons ---
         self.btn_beam_on = QToolButton()
-        self.btn_beam_on.setIcon(QIconifyIcon("mdi:power", color="#c0c0c0"))
+        self.btn_beam_on.setIcon(QIconifyIcon("mdi:power", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_beam_on.setToolTip("Toggle beam on/off")
 
         self.btn_beam_blanked = QToolButton()
-        self.btn_beam_blanked.setIcon(QIconifyIcon("mdi:eye", color="#c0c0c0"))
+        self.btn_beam_blanked.setIcon(QIconifyIcon("mdi:eye", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_beam_blanked.setToolTip("Toggle beam blank/unblank")
 
         # --- Refresh button ---
         self.btn_refresh = QToolButton()
-        self.btn_refresh.setIcon(QIconifyIcon("mdi:refresh", color="#c0c0c0"))
+        self.btn_refresh.setIcon(QIconifyIcon("mdi:refresh", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_refresh.setToolTip("Refresh from microscope")
 
         # --- Advanced toggle button ---
         self.btn_advanced = QToolButton()
-        self.btn_advanced.setIcon(QIconifyIcon("mdi:tune", color="#c0c0c0"))
+        self.btn_advanced.setIcon(QIconifyIcon("mdi:tune", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_advanced.setToolTip("Show advanced settings")
         self.btn_advanced.setCheckable(True)
+        self.btn_beam_on.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_beam_blanked.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_refresh.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_advanced.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
 
         radio_row = QWidget()
         radio_layout = QHBoxLayout(radio_row)

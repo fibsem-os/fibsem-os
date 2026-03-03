@@ -479,3 +479,20 @@ WORKFLOW_BORDER_IDLE_STYLESHEET = "QFrame#workflow_border_frame { border: 4px so
 WORKFLOW_BORDER_AUTOMATED_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #4caf50; }"
 WORKFLOW_BORDER_SUPERVISED_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #007ACC; }"
 WORKFLOW_BORDER_WAITING_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #ff9800; }"
+
+TOOLBUTTON_ICON_STYLESHEET = """
+    QToolButton {
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 2px 6px;
+        background-color: transparent;
+    }
+    QToolButton:hover {
+        border: 1px solid #6a6a6a;
+        background-color: rgba(255, 255, 255, 25);
+    }
+    QToolButton:checked {
+        border: 1px solid #8a8a8a;
+        background-color: rgba(255, 255, 255, 35);
+    }
+"""

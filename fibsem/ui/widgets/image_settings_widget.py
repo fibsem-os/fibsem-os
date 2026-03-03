@@ -19,6 +19,7 @@ from fibsem.config import STANDARD_RESOLUTIONS_ZIP
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ImageSettings
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, WheelBlocker
+from fibsem.ui import stylesheets
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -81,6 +82,7 @@ class ImageSettingsWidget(QWidget):
         self.btn_advanced.setIcon(QIconifyIcon("mdi:tune", color="#c0c0c0"))
         self.btn_advanced.setToolTip("Show advanced settings")
         self.btn_advanced.setCheckable(True)
+        self.btn_advanced.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
 
         header_row = QWidget()
         header_layout = QHBoxLayout(header_row)
@@ -186,6 +188,7 @@ class ImageSettingsWidget(QWidget):
         # Path
         self.path_label = QLabel("Path")
         self.path_edit = QDirectoryLineEdit()
+        self.path_edit.button_browse.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.path_label, 9, 0)
         layout.addWidget(self.path_edit, 9, 1)
 
