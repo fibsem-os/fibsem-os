@@ -1931,7 +1931,7 @@ class FibsemImage:
         if check_data_format(data):
             if data.ndim == 3 and data.shape[2] == 1:
                 data = data[:, :, 0]
-            self.data = data
+            self.data = data  # setter also populates _filtered_data
         else:
             raise Exception("Invalid Data format for Fibsem Image")
         if metadata is not None:
@@ -1940,9 +1940,36 @@ class FibsemImage:
             self.metadata = None
 
     @property
+    def shape(self) -> tuple[int, int]:
+        """Returns the shape of the image data."""
+        return self.data.shape
+    
+    @property
+    def dtype(self) -> np.dtype:
+        """Returns the data type of the image data."""
+        return self.data.dtype
+    
+    @property
+    def data(self) -> NDArray:
+        """Returns the image data as a numpy array."""
+        return self._data
+    
+    @data.setter
+    def data(self, value: NDArray) -> None:
+        if check_data_format(value):
+            self._data = value
+            self._filtered_data = self._filter_data(value)
+        else:
+            raise Exception("Invalid Data format for Fibsem Image")
+
+    @property
     def filtered_data(self) -> NDArray:
         """Returns a median filtered version of the image data. Typically used for display purposes."""
-        return gaussian_filter(median_filter(self.data, size=3), sigma=1)
+        return self._filtered_data
+
+    def _filter_data(self, data, size: int = 3, sigma: float = 1) -> NDArray:
+        """Returns a filtered version of the image data using a median filter followed by a gaussian filter. Can be used for display or processing purposes."""
+        return gaussian_filter(median_filter(data, size=size), sigma=sigma)
 
     @classmethod
     def load(cls, tiff_path: str) -> "FibsemImage":
