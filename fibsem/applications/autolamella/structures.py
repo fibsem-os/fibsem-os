@@ -512,30 +512,51 @@ class DefectType(Enum):
 @evented
 @dataclass
 class DefectState:
-    has_defect: bool = False
-    requires_rework: bool = False
+    state: DefectType = field(default=DefectType.NONE)
+    last_completed_task: str = ""
     description: str = ""
     updated_at: Optional[float] = None
 
     def to_dict(self) -> dict:
-        """Convert the defect state to a dictionary."""
-        return asdict(self)
+        return {
+            "state": self.state.name,
+            "last_completed_task": self.last_completed_task,
+            "description": self.description,
+            "updated_at": self.updated_at,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> 'DefectState':
-        """Create a defect state from a dictionary."""
-        return cls(**data)
+        if not data:
+            return cls()
+        # Backwards compatibility: old format used has_defect / requires_rework bools
+        if "has_defect" in data:
+            if data.get("has_defect"):
+                state = DefectType.REWORK if data.get("requires_rework") else DefectType.FAILURE
+            else:
+                state = DefectType.NONE
+            return cls(
+                state=state,
+                description=data.get("description", ""),
+                updated_at=data.get("updated_at", None),
+            )
+        state = DefectType[data.get("state", "NONE")]
+        return cls(
+            state=state,
+            last_completed_task=data.get("last_completed_task", ""),
+            description=data.get("description", ""),
+            updated_at=data.get("updated_at", None),
+        )
 
     def clear(self):
-        self.has_defect = False
+        self.state = DefectType.NONE
+        self.last_completed_task = ""
         self.description = ""
-        self.requires_rework = False
         self.updated_at = None
 
-    def set_defect(self, description: str = "", requires_rework: bool = False):
-        self.has_defect = True
+    def set_defect(self, description: str = "", state: DefectType = DefectType.FAILURE):
+        self.state = state
         self.description = description
-        self.requires_rework = requires_rework
         self.updated_at = datetime.timestamp(datetime.now())
 
 
@@ -600,7 +621,7 @@ class Lamella:
 
     @property
     def is_failure(self) -> bool:
-        return self.defect.has_defect
+        return self.defect.state != DefectType.NONE
 
     @property
     def stage_position(self) -> FibsemStagePosition:
@@ -1041,7 +1062,7 @@ class Experiment:
 
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""
-        return [lamella for lamella in self.positions if lamella.defect.has_defect]
+        return [lamella for lamella in self.positions if lamella.is_failure]
 
     def get_milling_positions(self) -> List[FibsemStagePosition]:
         """Get the milling stage positions for all lamellas in the experiment"""
@@ -1063,7 +1084,7 @@ class Experiment:
         for p in self.positions:
 
             # skip failed lamellas
-            if p.defect.has_defect:
+            if p.is_failure:
                 continue
 
             # remaining time for individual lamella
@@ -1186,7 +1207,7 @@ class Experiment:
                 "last_completed_task": p.last_completed_task.name if p.last_completed_task else None,
                 "last_completed_at": p.last_completed_task.completed_at if p.last_completed_task else None,
                 "is_completed": self.task_protocol.workflow_config.is_completed(p),
-                "is_failure": p.defect.has_defect,
+                "is_failure": p.is_failure,
                 "milling_angle": p.milling_angle,
             }
             edict.append(deepcopy(ddict))

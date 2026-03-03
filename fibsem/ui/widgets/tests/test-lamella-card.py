@@ -18,12 +18,13 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     DefectState,
+    DefectType,
     Lamella,
 )
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 
 
-def _make_lamella(number, petname, last_task="", in_progress="", has_defect=False, requires_rework=False):
+def _make_lamella(number, petname, last_task="", in_progress="", defect_state=DefectType.NONE):
     lamella = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
         state = AutoLamellaTaskState(name=last_task, status=AutoLamellaTaskStatus.Completed)
@@ -32,8 +33,8 @@ def _make_lamella(number, petname, last_task="", in_progress="", has_defect=Fals
     if in_progress:
         lamella.task_state.name = in_progress
         lamella.task_state.status = AutoLamellaTaskStatus.InProgress
-    if has_defect:
-        lamella.defect = DefectState(has_defect=True, requires_rework=requires_rework, description="test defect")
+    if defect_state != DefectType.NONE:
+        lamella.defect = DefectState(state=defect_state, description="test defect")
     return lamella
 
 
@@ -41,10 +42,10 @@ SAMPLE = [
     _make_lamella(1, "01-humble-molly"),
     _make_lamella(2, "01-hearty-wombat", last_task="Acquire Reference Image"),
     _make_lamella(3, "02-jolly-koala", last_task="Mill Rough", in_progress="Mill Polishing"),
-    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", has_defect=True, requires_rework=True),
-    _make_lamella(5, "04-eager-otter", last_task="Mill Polishing", has_defect=True),
+    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", defect_state=DefectType.REWORK),
+    _make_lamella(5, "04-eager-otter", last_task="Mill Polishing", defect_state=DefectType.FAILURE),
     _make_lamella(6, "05-swift-eagle", last_task="Mill Rough"),
-    _make_lamella(7, "06-bold-panda", last_task="Acquire Reference Image", has_defect=True, requires_rework=True),
+    _make_lamella(7, "06-bold-panda", last_task="Acquire Reference Image", defect_state=DefectType.REWORK),
 ]
 
 
@@ -129,8 +130,7 @@ class TestWindow(QWidget):
         lamella = _make_lamella(
             self._counter, name,
             last_task="Acquire Reference Image",
-            has_defect=random.random() < 0.3,
-            requires_rework=random.random() < 0.5,
+            defect_state=random.choice([DefectType.NONE, DefectType.REWORK, DefectType.FAILURE]),
         )
         self._container.add_lamella(lamella)
         self._counter += 1

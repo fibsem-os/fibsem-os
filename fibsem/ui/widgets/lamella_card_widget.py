@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QIconifyIcon
 
-from fibsem.applications.autolamella.structures import DefectState, Lamella
+from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
 from fibsem.ui.widgets.lamella_list_widget import _defect_icon, _status_text
 
 _CARD_WIDTH = 300
@@ -194,11 +194,11 @@ class LamellaCardWidget(QWidget):
         ))
 
         if chosen == action_none:
-            self.lamella.defect = DefectState(has_defect=False)
+            self.lamella.defect = DefectState(state=DefectType.NONE)
         elif chosen == action_rework:
-            self.lamella.defect = DefectState(has_defect=True, requires_rework=True)
+            self.lamella.defect = DefectState(state=DefectType.REWORK)
         elif chosen == action_failure:
-            self.lamella.defect = DefectState(has_defect=True, requires_rework=False)
+            self.lamella.defect = DefectState(state=DefectType.FAILURE)
         else:
             return
 

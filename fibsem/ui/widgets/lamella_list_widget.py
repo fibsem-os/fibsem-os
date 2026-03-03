@@ -23,6 +23,7 @@ from superqt import QIconifyIcon
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     DefectState,
+    DefectType,
     Lamella,
 )
 
@@ -98,9 +99,9 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
 def _defect_icon(lamella: Lamella) -> tuple[str, str, str]:
     """Return (icon_name, icon_color, tooltip) for the defect indicator button."""
     d = lamella.defect
-    if not d.has_defect:
+    if d.state == DefectType.NONE:
         return "mdi:check-circle", "#4caf50", "No defect"
-    if d.requires_rework:
+    if d.state == DefectType.REWORK:
         return "mdi:refresh-circle", "#e8a020", f"Rework required{': ' + d.description if d.description else ''}"
     return "mdi:close-circle", "#d04040", f"Failure{': ' + d.description if d.description else ''}"
 
@@ -204,11 +205,11 @@ class LamellaRowWidget(QWidget):
         ))
 
         if chosen == action_none:
-            self.lamella.defect = DefectState(has_defect=False)
+            self.lamella.defect = DefectState(state=DefectType.NONE)
         elif chosen == action_rework:
-            self.lamella.defect = DefectState(has_defect=True, requires_rework=True)
+            self.lamella.defect = DefectState(state=DefectType.REWORK)
         elif chosen == action_failure:
-            self.lamella.defect = DefectState(has_defect=True, requires_rework=False)
+            self.lamella.defect = DefectState(state=DefectType.FAILURE)
         else:
             return
 
@@ -329,7 +330,7 @@ class LamellaListWidget(QWidget):
                 background: transparent;
             }
         """)
-        self._list.setAlternatingRowColors(True)
+        self._list.setAlternatingRowColors(False)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 

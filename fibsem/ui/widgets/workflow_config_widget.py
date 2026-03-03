@@ -164,7 +164,7 @@ class WorkflowTaskRowWidget(QWidget):
 
         name_col = QVBoxLayout()
         name_col.setSpacing(1)
-        name_col.setContentsMargins(0, 0, 0, 0)
+        # name_col.setContentsMargins(0, 0, 0, 0)
 
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
@@ -350,7 +350,7 @@ class WorkflowConfigWidget(QWidget):
                 background: rgba(0, 122, 204, 60);
             }
         """)
-        self._list.setAlternatingRowColors(True)
+        self._list.setAlternatingRowColors(False)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 

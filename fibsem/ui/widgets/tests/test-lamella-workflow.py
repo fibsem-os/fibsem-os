@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     DefectState,
+    DefectType,
     Lamella,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
@@ -37,7 +38,7 @@ SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
 )
 
 
-def _make_lamella(number, petname, last_task="", in_progress="", has_defect=False, requires_rework=False):
+def _make_lamella(number, petname, last_task="", in_progress="", defect_state=DefectType.NONE):
     lam = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
         state = AutoLamellaTaskState(name=last_task, status=AutoLamellaTaskStatus.Completed)
@@ -46,8 +47,8 @@ def _make_lamella(number, petname, last_task="", in_progress="", has_defect=Fals
     if in_progress:
         lam.task_state.name = in_progress
         lam.task_state.status = AutoLamellaTaskStatus.InProgress
-    if has_defect:
-        lam.defect = DefectState(has_defect=True, requires_rework=requires_rework, description="test defect")
+    if defect_state != DefectType.NONE:
+        lam.defect = DefectState(state=defect_state, description="test defect")
     return lam
 
 
@@ -55,7 +56,7 @@ SAMPLE_LAMELLA = [
     _make_lamella(1, "01-humble-molly"),
     _make_lamella(2, "01-hearty-wombat", last_task="Acquire Reference Image"),
     _make_lamella(3, "02-jolly-koala", last_task="Mill Rough", in_progress="Mill Polishing"),
-    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", has_defect=True, requires_rework=True),
+    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", defect_state=DefectType.REWORK),
 ]
 
 
