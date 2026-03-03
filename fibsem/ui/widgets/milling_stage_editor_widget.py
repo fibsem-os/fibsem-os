@@ -731,6 +731,7 @@ class FibsemMillingStageEditorWidget(QWidget):
     def set_milling_stages(self, milling_stages: List[FibsemMillingStage]):
         """Set the milling stages to be displayed in the editor."""
 
+        self.is_updating_pattern = True  # block intermediate redraws
         self.clear_milling_stages()  # Clear existing milling stages
         self._milling_stages = copy.deepcopy(milling_stages)
         for milling_stage in self._milling_stages:
@@ -740,6 +741,8 @@ class FibsemMillingStageEditorWidget(QWidget):
         if self._milling_stages:
             self.list_widget_milling_stages.setCurrentRow(0)
         self._update_empty_state()
+        self.is_updating_pattern = False  # re-enable
+        self.update_milling_stage_display()  # single redraw at the end
 
     def set_background_milling_stages(self, milling_stages: List[FibsemMillingStage]):
         """Set the background milling stages to be displayed in the editor."""
