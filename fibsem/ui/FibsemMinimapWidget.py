@@ -520,7 +520,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         image = ddict.get("image", None)
         if image is not None:
-            self.update_viewer(FibsemImage(data=image), tmp=True) # TODO: this gets too slow when there are lots of tiles, update only the new tile
+            self.update_viewer(image, tmp=True)
 
     def cancel_acquisition(self):
         """Cancel the tiled acquisition."""
@@ -618,7 +618,9 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
             if not tmp:
                 self.image = image
-            arr = image.data
+                arr = image.filtered_data
+            else:
+                arr = image # np.array(image)
 
             try:
                 self.image_layer.data = arr
