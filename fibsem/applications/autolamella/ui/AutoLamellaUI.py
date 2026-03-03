@@ -140,6 +140,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
                                                                 area='left',
                                                                 add_vertical_stretch=False,
                                                                 tabify=True)
+        self.minimap_plot_dock.setVisible(False)
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
@@ -778,6 +779,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             return
 
         if not cfg.FEATURE_MINIMAP_PLOT_WIDGET_ENABLED:
+            return
+
+        if self.minimap_plot_widget is None:
+            return
+
+        if not self.minimap_plot_widget.isVisible():
             return
 
         try:
