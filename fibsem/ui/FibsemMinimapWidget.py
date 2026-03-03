@@ -787,6 +787,10 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             event: The event object.
         """
 
+        if self.parent_widget.is_workflow_running:
+            napari.utils.notifications.show_warning("Cannot move stage while workflow is running.")
+            return
+
         if event.button != 1: # left click only
             return
 
@@ -971,7 +975,9 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         if self.is_acquiring:
             return # do not update while acquiring
         try:
-            self.update_viewer()
+            self.draw_current_stage_position(stage_position=stage_position)
+            update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
+            self.set_active_layer_for_movement()
         except Exception as e:
             self.microscope.stage_position_changed.disconnect(self._on_stage_position_changed)
             logging.error(f"Error updating viewer on stage position change, signal disconnected: {e}")
@@ -986,7 +992,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             self.viewer.layers["Milling Patterns"].visible = False
         return
 
-    def draw_current_stage_position(self):
+    def draw_current_stage_position(self, stage_position: Optional[FibsemStagePosition] = None):
         """Draws the current stage position on the image."""
         if self.image is None or self.image.metadata is None:
             return
@@ -995,12 +1001,14 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
             self._hide_overlay_layers()
             return
 
+        if stage_position is None:
+            stage_position = self.microscope._stage_position
 
-        self._draw_overlay_shapes()
+        self._draw_overlay_shapes(stage_position=stage_position)
         self._draw_position_crosshairs()
         self._draw_milling_pattern_overlay()
 
-    def _collect_all_overlays(self) -> List[NapariShapeOverlay]:
+    def _collect_all_overlays(self, stage_position: FibsemStagePosition) -> List[NapariShapeOverlay]:
         """Collect all overlay shapes to be drawn on the image."""
 
         if self.image is None or self.image.metadata is None:
@@ -1013,9 +1021,8 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
                 self.show_stage_limits):
             return []
 
-        current_stage_position = deepcopy(self.microscope.get_stage_position())
-        current_stage_position.name = "Current Position"
-        points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position])
+        stage_position.name = "Current Position"
+        points = tiled.reproject_stage_positions_onto_image2(self.image, [stage_position])
 
         pixelsize = self.image.metadata.pixel_size.x
         current_position = points[0]
@@ -1082,7 +1089,8 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         return overlays
 
-    def _draw_overlay_shapes(self, layer_scale: Optional[Tuple[float, float]] = None):
+    def _draw_overlay_shapes(self, stage_position: FibsemStagePosition,
+                             layer_scale: Optional[Tuple[float, float]] = None):
         """Draw all overlay shapes (FOV boxes and circles) on a single layer.
 
         Creates overlays for:
@@ -1093,12 +1101,13 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
 
         Args:
             layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
+            stage_position: Optional FibsemStagePosition for the current stage position
         """
         layer_name = OVERLAY_CONFIG["layer_name"]
 
         try:
             # Collect all overlay shapes
-            overlays = self._collect_all_overlays()
+            overlays = self._collect_all_overlays(stage_position=stage_position)
 
             # Update or create the layer
             if not overlays:
@@ -1159,7 +1168,7 @@ class FibsemMinimapWidget(FibsemMinimapWidgetUI.Ui_MainWindow, QMainWindow):
         if self.image is None or self.image.metadata is None:
             return
 
-        current_stage_position = deepcopy(self.microscope.get_stage_position())
+        current_stage_position = deepcopy(self.microscope._stage_position)
         stage_origin = FibsemStagePosition(name="Origin", x=0, y=0, z=0, r=0, t=0)
         points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position, stage_origin])
 

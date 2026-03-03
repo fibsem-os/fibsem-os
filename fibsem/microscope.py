@@ -1230,16 +1230,19 @@ class FibsemMicroscope(ABC):
         self.system.stage.milling_angle = milling_angle
         self._update_orientations()
 
-    def get_current_milling_angle(self) -> float:
+    def get_current_milling_angle(self, stage_position: Optional[FibsemStagePosition] = None) -> float:
         """Get the current milling angle in degrees based on the current stage tilt."""
 
         from fibsem.transformations import convert_stage_tilt_to_milling_angle
 
+        if stage_position is None:
+            stage_position = self.get_stage_position()
+
         # NOTE: this is only valid for sem orientation
-        if self.get_stage_orientation() == "FIB":
+        if self.get_stage_orientation(stage_position=stage_position) == "FIB":
             return 90  # stage-tilt + pre-tilt + 90 - column-tilt
 
-        stage_tilt = self.get_stage_position().t
+        stage_tilt = stage_position.t
 
         if stage_tilt is None:
             raise ValueError("Stage tilt is not available. Cannot calculate milling angle.")

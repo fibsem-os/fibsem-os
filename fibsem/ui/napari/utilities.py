@@ -16,6 +16,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     FibsemImage,
+    FibsemStagePosition,
     Point,
 )
 from fibsem.ui.napari.properties import (
@@ -472,7 +473,9 @@ def create_circle_shape(
     shape = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]
     return np.array(shape)
 
-def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, objective_position: Optional[float] = None) -> None:
+def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, 
+                        stage_position: Optional[FibsemStagePosition] = None, 
+                        objective_position: Optional[float] = None) -> None:
     """Update the text overlay in the napari viewer with current stage position and orientation.
     Args:
         viewer: napari viewer object
@@ -483,10 +486,11 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, obj
         if isinstance(microscope, TescanMicroscope):
             return  # Tescan systems do not support stage position display yet
 
-        pos = microscope.get_stage_position()
-        orientation = microscope.get_stage_orientation()
+        if stage_position is None:
+            stage_position = microscope._stage_position
+        orientation = microscope.get_stage_orientation(stage_position=stage_position)
         current_grid = microscope.current_grid
-        milling_angle = microscope.get_current_milling_angle()
+        milling_angle = microscope.get_current_milling_angle(stage_position=stage_position)
         obj_txt = ""
         if microscope.fm is not None:
             if objective_position is None:
@@ -495,7 +499,7 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope, obj
 
         # Create combined text for overlay
         overlay_text = (
-            f"STAGE: {pos.pretty_string} [{orientation}] [{current_grid}]\n"
+            f"STAGE: {stage_position.pretty_string} [{orientation}] [{current_grid}]\n"
             f"MILLING ANGLE: {milling_angle:.1f}°\n"
             f"{obj_txt}\n"
         )

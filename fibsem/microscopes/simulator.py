@@ -915,7 +915,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return values
 
-    def _get(self, key, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list]:
+    def _get(self, key, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list, FibsemStagePosition]:
         """Get a value from the microscope."""
         # get beam
         if beam_type is not None:
@@ -988,6 +988,8 @@ class DemoMicroscope(FibsemMicroscope):
     
         # stage 
         if key == "stage_position":
+            logging.info(f"--------------GETTING STAGE POSITION--------------")
+            time.sleep(0.5)
             return self.stage_system.position
         if key == "stage_homed":
             return self.stage_system.is_homed

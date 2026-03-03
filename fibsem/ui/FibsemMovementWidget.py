@@ -77,7 +77,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
         self.pushButton_move_flat_ion.clicked.connect(self.move_flat_to_beam)
         self.pushButton_move_flat_electron.clicked.connect(self.move_flat_to_beam)
-        self.pushButton_refresh_stage_position_data.clicked.connect(self.update_ui)
+        self.pushButton_refresh_stage_position_data.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
         self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
@@ -257,9 +257,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         if is_finished:
             self.update_ui()
 
-    def update_ui(self):
+    def update_ui(self, stage_position: Optional[FibsemStagePosition] = None):
         """Update the UI with the current stage position and saved positions"""
-        stage_position: FibsemStagePosition = self.microscope.get_stage_position()
+        if stage_position is None:
+            stage_position = self.microscope.get_stage_position()
 
         self.doubleSpinBox_movement_stage_x.setValue(stage_position.x * constants.SI_TO_MILLI)
         self.doubleSpinBox_movement_stage_y.setValue(stage_position.y * constants.SI_TO_MILLI)
@@ -279,9 +280,9 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.lineEdit_position_name.setVisible(has_saved_positions)
 
         # update the current position label
-        update_text_overlay(self.viewer, self.microscope)
+        update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
 
-    def update_ui_after_movement(self, retake: bool = True): # TODO: PPP Refactor
+    def update_ui_after_movement(self, retake: bool = True):
         # disable taking images after movement here
         if (retake is False or self.microscope.is_acquiring):
             self.update_ui()
