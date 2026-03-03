@@ -165,7 +165,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # View menu
         self.action_show_minimap = QAction("Show Minimap Widget", self)
         self.action_show_minimap.setCheckable(True)
-        self.action_show_minimap.setChecked(True)
+        self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
 
         self.action_toggle_layer_controls = QAction("Show Layer Controls", self)
@@ -893,6 +893,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
+        logging.info(f"------WORKFLOW UPDATE: {info} ------")
         status_msg = info.get("status", None)
         if status_msg is not None:
             task_name = status_msg.get("task_name", "Unknown Task")
@@ -941,10 +942,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is None:
             return
 
-        waiting = (
-            self.autolamella_ui.WAITING_FOR_USER_INTERACTION
-            or self.autolamella_ui.WAITING_FOR_UI_UPDATE
-        )
+        waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
         if waiting:
             # Show user attention button and change status bar color
             self.user_attention_btn.show()
@@ -968,6 +966,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._set_border_state("supervised" if supervised else "automated")
         else:
             self._set_border_state("idle")
+
+        logging.info(f"------ END WORKFLOW UPDATE ------")
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
