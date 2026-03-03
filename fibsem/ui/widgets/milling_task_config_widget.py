@@ -52,7 +52,7 @@ WIDGET_CONFIG = {
     },
 }
 
-INSTRUCTIONS_TEXT = """Right Click to Move Current Pattern"""
+INSTRUCTIONS_TEXT = """Instructions: Right Click to Move Current Pattern"""
 
 
 class MillingTaskConfigWidget(QWidget):
@@ -97,12 +97,12 @@ class MillingTaskConfigWidget(QWidget):
         Creates a scroll area containing a vertical layout with basic settings at the top,
         followed by alignment and acquisition settings in group boxes.
         """
-        main_layout = QVBoxLayout()
-        self.setLayout(main_layout)
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
         # Create content widget that will be scrolled
         content_widget = QWidget()
         layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
         content_widget.setLayout(layout)
 
         use_scroll_area = True
@@ -118,11 +118,11 @@ class MillingTaskConfigWidget(QWidget):
             scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             # scroll_area.setContentsMargins(0, 0, 0, 0)
             scroll_area.setWidget(content_widget)
-            main_layout.addWidget(scroll_area)
+            self.main_layout.addWidget(scroll_area)
         else:
             layout.setContentsMargins(0, 0, 0, 0)
             content_widget.setContentsMargins(0, 0, 0, 0)
-            main_layout.addWidget(content_widget)
+            self.main_layout.addWidget(content_widget)
 
         # Basic settings group
         self.basic_group = QGroupBox("Task", self)
@@ -174,6 +174,10 @@ class MillingTaskConfigWidget(QWidget):
         basic_layout.addLayout(button_layout, 2, 0, 1, 2)
         basic_layout.setColumnStretch(0, 1)
         basic_layout.setColumnStretch(1, 1)
+        # add instructions label
+        self.label_instructions = QLabel(INSTRUCTIONS_TEXT, self) 
+        self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+        basic_layout.addWidget(self.label_instructions, 3, 0, 1, 2)
 
         # Alignment settings group
         self.alignment_widget = FibsemMillingAlignmentWidget(
@@ -229,7 +233,7 @@ class MillingTaskConfigWidget(QWidget):
         self.pushButton_open_correlation.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
         self._correlation_enabled = False
         self.enable_correlation_button(self._correlation_enabled)
-        main_layout.addWidget(self.pushButton_open_correlation)
+        self.main_layout.addWidget(self.pushButton_open_correlation)
 
         # NOTES: shouldn't know anything about viewer, or microscope
         # only need microscope to get 'dynamic' values such as milling current
@@ -238,16 +242,13 @@ class MillingTaskConfigWidget(QWidget):
         # could we do this at a higher level and just subscribe to the settings_changed signal?
         layout.addStretch()
 
-        # add instructions label
-        self.label_instructions = QLabel(INSTRUCTIONS_TEXT, self) 
-        self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
-        main_layout.addWidget(self.label_instructions)
+
 
         self.milling_widget = FibsemMillingWidget2(
             microscope=self.microscope,
             parent=self
         )
-        main_layout.addWidget(self.milling_widget)
+        self.main_layout.addWidget(self.milling_widget)
         self.milling_widget.setVisible(self._milling_enabled)
 
     def _connect_signals(self):
