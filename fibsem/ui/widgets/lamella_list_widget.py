@@ -26,21 +26,12 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
+from fibsem.ui import stylesheets
 
 _NAME_MIN_WIDTH = 160
-_BTN_SIZE = QSize(26, 26)
+_BTN_SIZE = QSize(32, 32)
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 4 + 8 * 3  # 4 buttons + 3 gaps
 
-_BTN_STYLE = """
-QToolButton {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 2px;
-}
-QToolButton:hover { background: rgba(255, 255, 255, 30); }
-QToolButton:pressed { background: rgba(255, 255, 255, 15); }
-"""
 
 
 class _LamellaTooltip(QWidget):
@@ -145,28 +136,28 @@ class LamellaRowWidget(QWidget):
         self.btn_defect = QToolButton()
         self.btn_defect.setIcon(QIconifyIcon("mdi:circle", color="#4caf50"))
         self.btn_defect.setFixedSize(_BTN_SIZE)
-        self.btn_defect.setStyleSheet(_BTN_STYLE)
+        self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_defect)
 
         self.btn_move = QToolButton()
-        self.btn_move.setIcon(QIconifyIcon("mdi:crosshairs-gps", color="#c0c0c0"))
+        self.btn_move.setIcon(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_move.setToolTip("Move to")
         self.btn_move.setFixedSize(_BTN_SIZE)
-        self.btn_move.setStyleSheet(_BTN_STYLE)
+        self.btn_move.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_move)
 
         self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color="#c0c0c0"))
+        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_edit.setToolTip("Edit")
         self.btn_edit.setFixedSize(_BTN_SIZE)
-        self.btn_edit.setStyleSheet(_BTN_STYLE)
+        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_edit)
 
         self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color="#c0c0c0"))
+        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_remove.setToolTip("Remove")
         self.btn_remove.setFixedSize(_BTN_SIZE)
-        self.btn_remove.setStyleSheet(_BTN_STYLE)
+        self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_remove)
 
         self.checkbox.stateChanged.connect(
