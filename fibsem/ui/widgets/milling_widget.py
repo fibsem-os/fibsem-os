@@ -2,7 +2,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QProgressBar,
@@ -61,7 +61,7 @@ class FibsemMillingWidget2(QWidget):
         )
         self.progressBar_milling.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
 
-        self.start_milling_signal.connect(self.run_milling)
+        self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection) # type: ignore
 
         # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
         # if self.parent_widget._milling_enabled:

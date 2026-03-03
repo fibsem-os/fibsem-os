@@ -429,12 +429,13 @@ class AutoLamellaTask(ABC):
             self.parent_ui.milling_task_config_widget.milling_widget.start_milling_signal.emit()
 
             # wait for milling to start
-            wait_for_milling_timeout = 5  # seconds
+            wait_for_milling_timeout = 60  # seconds
             start_wait = time.time()
             while not self.parent_ui.milling_task_config_widget.milling_widget.is_milling:
+                logging.info("Waiting for milling to start...")
                 if time.time() - start_wait > wait_for_milling_timeout:
                     logging.warning(f"Timed out waiting for milling to start after {wait_for_milling_timeout}s.")
-                    break
+                    raise TimeoutError("Timed out waiting for milling to start.")
                 self._check_for_abort()
                 time.sleep(0.1)
 
