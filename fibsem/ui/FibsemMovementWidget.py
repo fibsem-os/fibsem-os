@@ -7,6 +7,7 @@ from typing import List, Optional
 import napari
 import napari.utils.notifications
 import numpy as np
+import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 
@@ -20,7 +21,6 @@ from fibsem.structures import (
 )
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.napari.utilities import update_text_overlay
-from fibsem.ui.qtdesigner_files import FibsemMovementWidget as FibsemMovementWidgetUI
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     DISABLED_PUSHBUTTON_STYLE,
@@ -42,7 +42,7 @@ from fibsem.ui.utils import (
 INSTRUCTIONS_TEXT = """Double Click to Move. 
 Alt + Double Click to Move Vertically"""
 
-class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
+class FibsemMovementWidget(QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
     movement_progress_signal = QtCore.pyqtSignal(dict) # TODO: consolidate
 
@@ -52,12 +52,12 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
         self.parent = parent
 
-        if not hasattr(parent, 'image_widget') and not isinstance(parent.image_widget, FibsemImageSettingsWidget):
+        if not hasattr(parent, 'image_widget') or not isinstance(parent.image_widget, FibsemImageSettingsWidget):
             raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
-        if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
+        if not hasattr(parent, "viewer") or not isinstance(parent.viewer, napari.Viewer):
             raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.microscope = microscope
@@ -67,6 +67,158 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         self.import_positions(cfg.POSITION_PATH)
         self.setup_connections()
+
+    def _setup_ui(self):
+        # Outer layout
+        self.gridLayout = QtWidgets.QGridLayout(self)
+
+        # Scroll area
+        self.scrollArea = QtWidgets.QScrollArea(self)
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollAreaWidgetContents = QtWidgets.QWidget()
+        self.gridLayout_2 = QtWidgets.QGridLayout(self.scrollAreaWidgetContents)
+        self.scrollArea.setWidget(self.scrollAreaWidgetContents)
+        self.gridLayout.addWidget(self.scrollArea, 0, 0, 1, 2)
+
+        # --- GroupBox: Stage Movement ---
+        self.groupBox_stage_position = QtWidgets.QGroupBox("Stage Movement", self.scrollAreaWidgetContents)
+        self.gridLayout_3 = QtWidgets.QGridLayout(self.groupBox_stage_position)
+
+        self.label_movement_stage_x = QtWidgets.QLabel("X Coordinate")
+        self.doubleSpinBox_movement_stage_x = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_x.setDecimals(5)
+        self.doubleSpinBox_movement_stage_x.setMinimum(-1e10)
+        self.doubleSpinBox_movement_stage_x.setMaximum(1e17)
+        self.doubleSpinBox_movement_stage_x.setSingleStep(0.001)
+        self.doubleSpinBox_movement_stage_x.setSuffix(" mm")
+        self.gridLayout_3.addWidget(self.label_movement_stage_x, 0, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_x, 0, 1)
+
+        self.label_movement_stage_y = QtWidgets.QLabel("Y Coordinate")
+        self.doubleSpinBox_movement_stage_y = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_y.setDecimals(5)
+        self.doubleSpinBox_movement_stage_y.setMinimum(-1e20)
+        self.doubleSpinBox_movement_stage_y.setMaximum(1e25)
+        self.doubleSpinBox_movement_stage_y.setSingleStep(0.001)
+        self.doubleSpinBox_movement_stage_y.setSuffix(" mm")
+        self.gridLayout_3.addWidget(self.label_movement_stage_y, 1, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_y, 1, 1)
+
+        self.label_movement_stage_z = QtWidgets.QLabel("Z Coordinate")
+        self.doubleSpinBox_movement_stage_z = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_z.setDecimals(5)
+        self.doubleSpinBox_movement_stage_z.setMinimum(-1e17)
+        self.doubleSpinBox_movement_stage_z.setMaximum(1e23)
+        self.doubleSpinBox_movement_stage_z.setSingleStep(0.001)
+        self.doubleSpinBox_movement_stage_z.setSuffix(" mm")
+        self.gridLayout_3.addWidget(self.label_movement_stage_z, 2, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_z, 2, 1)
+
+        self.label_movement_stage_rotation = QtWidgets.QLabel("Rotation")
+        self.doubleSpinBox_movement_stage_rotation = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_rotation.setMinimum(-360.0)
+        self.doubleSpinBox_movement_stage_rotation.setMaximum(360.0)
+        self.doubleSpinBox_movement_stage_rotation.setSuffix(" deg")
+        self.gridLayout_3.addWidget(self.label_movement_stage_rotation, 3, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_rotation, 3, 1)
+
+        self.label_movement_stage_tilt = QtWidgets.QLabel("Tilt")
+        self.doubleSpinBox_movement_stage_tilt = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_tilt.setSuffix(" deg")
+        self.gridLayout_3.addWidget(self.label_movement_stage_tilt, 4, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_tilt, 4, 1)
+
+        self.pushButton_refresh_stage_position_data = QtWidgets.QPushButton("Refresh Stage Position Data")
+        self.pushButton_move = QtWidgets.QPushButton("Move to Position")
+        self.gridLayout_3.addWidget(self.pushButton_refresh_stage_position_data, 5, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move, 5, 1)
+
+        self.pushButton_move_flat_electron = QtWidgets.QPushButton("Move Flat to ELECTRON Beam")
+        self.pushButton_move_flat_ion = QtWidgets.QPushButton("Move Flat to ION Beam")
+        self.gridLayout_3.addWidget(self.pushButton_move_flat_electron, 6, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_flat_ion, 6, 1)
+
+        self.doubleSpinBox_milling_angle = QtWidgets.QDoubleSpinBox()
+        self.pushButton_move_to_milling_angle = QtWidgets.QPushButton("Move to Milling Angle")
+        self.gridLayout_3.addWidget(self.doubleSpinBox_milling_angle, 7, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_to_milling_angle, 7, 1)
+
+        self.label_movement_instructions = QtWidgets.QLabel()
+        self.label_movement_instructions.setWordWrap(True)
+        self.gridLayout_3.addWidget(self.label_movement_instructions, 8, 0, 1, 2)
+
+        self.gridLayout_2.addWidget(self.groupBox_stage_position, 0, 0)
+
+        # --- GroupBox: Options ---
+        self.groupBox_movement_options = QtWidgets.QGroupBox("Options", self.scrollAreaWidgetContents)
+        self.gridLayout_4 = QtWidgets.QGridLayout(self.groupBox_movement_options)
+
+        self.label_movement_images = QtWidgets.QLabel("Acquire images after moving:")
+        self.gridLayout_4.addWidget(self.label_movement_images, 0, 0, 1, 2)
+
+        self.checkBox_movement_acquire_electron = QtWidgets.QCheckBox("Electron Beam")
+        self.checkBox_movement_acquire_electron.setChecked(True)
+        self.checkBox_movement_acquire_ion = QtWidgets.QCheckBox("Ion Beam")
+        self.checkBox_movement_acquire_ion.setChecked(True)
+        self.gridLayout_4.addWidget(self.checkBox_movement_acquire_electron, 1, 0)
+        self.gridLayout_4.addWidget(self.checkBox_movement_acquire_ion, 1, 1)
+
+        self.gridLayout_2.addWidget(self.groupBox_movement_options, 1, 0)
+
+        # --- GroupBox: Saved Positions ---
+        self.groupBox_saved_positions = QtWidgets.QGroupBox("Saved Positions", self.scrollAreaWidgetContents)
+        font = QtWidgets.QApplication.font()
+        font.setBold(False)
+        self.groupBox_saved_positions.setFont(font)
+        self.gridLayout_5 = QtWidgets.QGridLayout(self.groupBox_saved_positions)
+
+        self.label_positions_header_info = QtWidgets.QLabel("All positions in mm and degrees")
+        self.gridLayout_5.addWidget(self.label_positions_header_info, 0, 0, 1, 2)
+
+        self.pushButton_save_position = QtWidgets.QPushButton("Add Position")
+        self.pushButton_remove_position = QtWidgets.QPushButton("Remove Position")
+        self.gridLayout_5.addWidget(self.pushButton_save_position, 1, 0)
+        self.gridLayout_5.addWidget(self.pushButton_remove_position, 1, 1)
+
+        self.label_saved_positions = QtWidgets.QLabel("Saved Positions")
+        self.comboBox_positions = QtWidgets.QComboBox()
+        self.gridLayout_5.addWidget(self.label_saved_positions, 2, 0)
+        self.gridLayout_5.addWidget(self.comboBox_positions, 2, 1)
+
+        self.pushButton_go_to = QtWidgets.QPushButton("Go To Position")
+        self.label_current_position = QtWidgets.QLabel("")
+        self.gridLayout_5.addWidget(self.pushButton_go_to, 3, 0)
+        self.gridLayout_5.addWidget(self.label_current_position, 3, 1)
+
+        self.pushButton_update_position = QtWidgets.QPushButton("Update Position")
+        self.lineEdit_position_name = QtWidgets.QLineEdit()
+        self.lineEdit_position_name.setSizePolicy(
+            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        )
+        self.gridLayout_5.addWidget(self.pushButton_update_position, 4, 0)
+        self.gridLayout_5.addWidget(self.lineEdit_position_name, 4, 1)
+
+        self.pushButton_import = QtWidgets.QPushButton("Import Positions")
+        self.pushButton_export = QtWidgets.QPushButton("Export Positions")
+        self.gridLayout_5.addWidget(self.pushButton_import, 5, 0)
+        self.gridLayout_5.addWidget(self.pushButton_export, 5, 1)
+
+        self.gridLayout_2.addWidget(self.groupBox_saved_positions, 2, 0)
+        self.groupBox_saved_positions.setVisible(False)
+
+        self._move_buttons = [
+            self.pushButton_move,
+            self.pushButton_move_flat_ion,
+            self.pushButton_move_flat_electron,
+            self.pushButton_move_to_milling_angle,
+            self.pushButton_go_to,
+        ]
+
+        # Bottom spacer
+        self.gridLayout_2.addItem(
+            QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
+            3, 0,
+        )
 
     def setup_connections(self):
 
@@ -216,27 +368,16 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
-        self.pushButton_move.setEnabled(enable)
-        self.pushButton_move_flat_ion.setEnabled(enable)
-        self.pushButton_move_flat_electron.setEnabled(enable)
-        self.pushButton_move_to_milling_angle.setEnabled(enable)
+        for btn in self._move_buttons:
+            btn.setEnabled(enable)
         self.doubleSpinBox_milling_angle.setEnabled(enable)
-        self.pushButton_go_to.setEnabled(enable)
         if caller is None:
             # self.parent.milling_widget._toggle_interactions(enable, caller="movement")
             self.parent.image_widget._toggle_interactions(enable, caller="movement")
-        if enable:
-            self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-            self.pushButton_move_flat_ion.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-            self.pushButton_move_flat_electron.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-            self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-            self.pushButton_go_to.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        else:
-            self.pushButton_move.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_ion.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_electron.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_move_to_milling_angle.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_go_to.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
+        for btn in self._move_buttons:
+            btn.setStyleSheet(DISABLED_PUSHBUTTON_STYLE if not enable else
+                              PRIMARY_BUTTON_STYLESHEET if btn is self.pushButton_move else
+                              SECONDARY_BUTTON_STYLESHEET)
 
     def handle_movement_progress_update(self, ddict: dict) -> None:
         """Handle movement progress updates from the microscope"""
@@ -548,7 +689,6 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             return
 
         def load_saved_positions_from_yaml(path: Optional[str] = None) -> List[FibsemStagePosition]:
-            import yaml
             if path is None or not os.path.exists(path):
                 return []
             with open(path, "r") as f:
