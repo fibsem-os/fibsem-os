@@ -234,6 +234,7 @@ class MillingStageListWidget(QWidget):
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.MoveAction)
         self._list.setSpacing(1)
+        self._list.setMinimumHeight(3 * 34 + 2)  # 3 rows × 34px + 2px spacing
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)

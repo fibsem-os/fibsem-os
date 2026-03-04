@@ -77,6 +77,7 @@ class FibsemMillingStagesWidget(QWidget):
 
         milling_panel = TitledPanel("Milling", content=self._milling_widget)
         milling_panel.add_header_widget(self._btn_advanced)
+        milling_panel._btn_collapse.setChecked(False)
         detail_layout.addWidget(milling_panel)
 
         # Pattern settings
@@ -92,6 +93,7 @@ class FibsemMillingStagesWidget(QWidget):
 
         pattern_panel = TitledPanel("Pattern", content=self._pattern_widget)
         pattern_panel.add_header_widget(self._btn_advanced_pattern)
+        pattern_panel._btn_collapse.setChecked(False)
         detail_layout.addWidget(pattern_panel)
 
         # Strategy settings
@@ -106,6 +108,7 @@ class FibsemMillingStagesWidget(QWidget):
 
         strategy_panel = TitledPanel("Strategy", content=self._strategy_widget)
         strategy_panel.add_header_widget(self._btn_advanced_strategy)
+        strategy_panel._btn_collapse.setChecked(False)
         detail_layout.addWidget(strategy_panel)
 
         layout.addWidget(self._detail_widget)
