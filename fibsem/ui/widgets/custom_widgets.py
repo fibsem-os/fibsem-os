@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMenu,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 from superqt import QIconifyIcon
@@ -363,6 +364,89 @@ def show_context_menu(
     menu = ContextMenu(config, parent=parent)
     selected = menu.show_at_cursor()
     return selected.label if selected else None
+
+@dataclass
+class FormRow:
+    """Shared form-row descriptor for metadata-driven settings widgets (milling, pattern, etc.)."""
+    label: QLabel
+    control: QWidget
+    field: str
+    advanced: bool
+    scale: Optional[float]      # effective scale (base_scale ** dims); None = no scaling
+    mfr: Optional[str] = None   # manufacturer filter; None = show for all
+
+
+class TitledPanel(QWidget):
+    """A styled panel with a dark header row (title label + optional widgets) and a collapsible content area.
+
+    Usage::
+
+        panel = TitledPanel("Milling", content=milling_widget)
+        panel.add_header_widget(btn_advanced)   # right-aligned, before collapse button
+
+        simple = TitledPanel("Pattern", content=QLabel("coming soon"))
+    """
+
+    def __init__(self, title: str, content: Optional[QWidget] = None, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("TitledPanel")
+        self.setStyleSheet(
+            "TitledPanel { border: 1px solid #3a3d42; border-radius: 4px; }"
+        )
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Header
+        self._header = QWidget()
+        self._header.setStyleSheet("background: #1e2124; border-radius: 3px 3px 0 0;")
+        self._header_layout = QHBoxLayout(self._header)
+        self._header_layout.setContentsMargins(8, 3, 4, 3)
+        self._header_layout.setSpacing(4)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: bold; background: transparent;")
+        self._header_layout.addWidget(title_label)
+        self._header_layout.addStretch()
+
+        # Collapse toggle — always the last item in the header; checked=expanded
+        self._btn_collapse = QToolButton()
+        self._btn_collapse.setCheckable(True)
+        self._btn_collapse.setChecked(True)
+        self._btn_collapse.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self._btn_collapse.toggled.connect(self._on_collapse_toggled)
+        self._header_layout.addWidget(self._btn_collapse)
+
+        outer.addWidget(self._header)
+
+        # Body
+        self._body = QWidget()
+        self._body_layout = QVBoxLayout(self._body)
+        self._body_layout.setContentsMargins(4, 4, 4, 4)
+        outer.addWidget(self._body)
+
+        self._on_collapse_toggled(True)  # set initial icon + body visibility
+
+        if content is not None:
+            self.set_content(content)
+
+    def _on_collapse_toggled(self, expanded: bool) -> None:
+        self._body.setVisible(expanded)
+        icon = "mdi:chevron-up" if expanded else "mdi:chevron-down"
+        self._btn_collapse.setIcon(QIconifyIcon(icon, color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_collapse.setToolTip("Collapse" if expanded else "Expand")
+
+    def add_header_widget(self, widget: QWidget) -> None:
+        """Add a widget to the right side of the header, before the collapse button."""
+        # Insert before the collapse button (always the last item)
+        self._header_layout.insertWidget(self._header_layout.count() - 1, widget)
+
+    def set_content(self, widget: QWidget) -> None:
+        """Replace the body content with widget."""
+        while self._body_layout.count():
+            self._body_layout.takeAt(0)
+        self._body_layout.addWidget(widget)
+
 
 class _SpinnerLabel(QLabel):
     """Rotating icon label used as a lightweight acquisition progress indicator."""
