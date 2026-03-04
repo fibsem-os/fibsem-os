@@ -101,6 +101,7 @@ INSTRUCTIONS = {
 
 class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
+    step_update_signal     = pyqtSignal(str)   # emits human-readable step label
     detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal()
     experiment_update_signal = pyqtSignal()

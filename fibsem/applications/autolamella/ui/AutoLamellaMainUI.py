@@ -61,6 +61,7 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
+from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
 # from fibsem.ui.widgets.task_history_table_widget import TaskHistoryTableWidget
 from fibsem.utils import format_duration
 
@@ -234,6 +235,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_toasts_toggle.setChecked(self._toasts_enabled)
         self.action_toasts_toggle.triggered.connect(self._on_toasts_toggle)
 
+        self.action_timeline_toggle = QAction("Workflow Timeline Enabled", self)
+        self.action_timeline_toggle.setCheckable(True)
+        self.action_timeline_toggle.setChecked(True)
+        self.action_timeline_toggle.triggered.connect(self._on_timeline_toggle)
+
         # Border state test actions
         self.action_border_toggle = QAction("Show Workflow Border", self)
         self.action_border_toggle.setCheckable(True)
@@ -274,6 +280,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         test_menu.addAction(self.action_beep)               # type: ignore
         test_menu.addAction(self.action_sound_toggle)       # type: ignore
         test_menu.addAction(self.action_toasts_toggle)      # type: ignore
+        test_menu.addAction(self.action_timeline_toggle)    # type: ignore
 
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
@@ -282,6 +289,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_toasts_toggle(self, checked: bool):
         """Handle toasts toggle."""
         self._toasts_enabled = checked
+
+    def _on_timeline_toggle(self, checked: bool):
+        """Handle workflow timeline toggle."""
+        self.workflow_timeline.setVisible(checked)
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
@@ -626,6 +637,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Connect to workflow update signal from AutoLamellaUI
         if self.autolamella_ui is not None:
             self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
+            self.autolamella_ui.step_update_signal.connect(self._on_step_update)
             self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
             self.autolamella_ui._workflow_finished_signal.connect(self._on_workflow_finished)
             self.autolamella_ui.system_widget.connected_signal.connect(self._on_microscope_connected)
@@ -857,6 +869,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_right_panel = QWidget()
         self.workflow_right_panel.setStyleSheet("background: #2b2d31;")
 
+        _rp_layout = QVBoxLayout(self.workflow_right_panel)
+        _rp_layout.setContentsMargins(0, 0, 0, 0)
+        _rp_layout.setSpacing(0)
+        self.workflow_timeline = WorkflowProgressWidget()
+        _rp_layout.addWidget(self.workflow_timeline)
+
         splitter.addWidget(self.lamella_workflow_widget)
         splitter.addWidget(self.workflow_right_panel)
         splitter.setStretchFactor(0, 0)
@@ -880,7 +898,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Horizontal)
 
-        self.lamella_card_container = LamellaCardContainer(columns=1)
+        self.lamella_card_container = LamellaCardContainer(columns=4)
         self.lamella_card_container.defect_changed.connect(self._on_lamella_defect_changed)
         self.lamella_card_container.lamella_selected.connect(self._on_lamella_card_selected)
 
@@ -889,7 +907,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         controls_layout.addWidget(QLabel("Columns:"))
         self.card_columns_spinbox = QSpinBox()
         self.card_columns_spinbox.setRange(1, 8)
-        self.card_columns_spinbox.setValue(1)
+        self.card_columns_spinbox.setValue(4)
         self.card_columns_spinbox.setFixedWidth(56)
         self.card_columns_spinbox.setReadOnly(True)
         self.card_columns_spinbox.setButtonSymbols(QSpinBox.NoButtons)
@@ -1009,6 +1027,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         timings = {}
         status_msg = info.get("status", None)
         if status_msg is not None:
+            _is_start = (
+                status_msg.get("current_task_index", -1) == 0
+                and status_msg.get("current_lamella_index", -1) == 0
+                and status_msg.get("status") == AutoLamellaTaskStatus.InProgress
+            )
+            if self.action_timeline_toggle.isChecked():
+                if _is_start:
+                    self.workflow_timeline.set_workflow(
+                        task_names=status_msg.get("task_names", []),
+                        lamella_names=status_msg.get("lamella_names", []),
+                    )
+                self.workflow_timeline.update_from_status(status_msg)
+
             task_name = status_msg.get("task_name", "Unknown Task")
             lamella_name = status_msg.get("lamella_name", "Unknown Lamella")
             current_lamella_index = status_msg.get("current_lamella_index", None)
@@ -1178,8 +1209,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.update_lamella_combobox(latest=True)
         self.autolamella_ui.update_ui()
 
+    def _on_step_update(self, label: str) -> None:
+        """Handle per-step update from the workflow worker thread."""
+        if self.action_timeline_toggle.isChecked():
+            self.workflow_timeline.update_step(label)
+
     def _on_workflow_finished(self):
         """Handle workflow finished signal."""
+        # Resolve any outer row left in ACTIVE state (e.g. if workflow was cancelled)
+        if self.action_timeline_toggle.isChecked():
+            self.workflow_timeline.finish_current_step(failed=False)
+            self.workflow_timeline.clear_steps()
         self.hide_workflow_running()
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()

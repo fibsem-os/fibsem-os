@@ -274,6 +274,9 @@ class BasicMillingTaskConfig(AutoLamellaTaskConfig):
             self.milling = deepcopy({"milling": DEFAULT_MILLING_CONFIG[TRENCH_KEY]})
 
 
+_LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
+
+
 class AutoLamellaTask(ABC):
     """Base class for AutoLamella tasks."""
     config_cls: ClassVar[AutoLamellaTaskConfig]
@@ -380,9 +383,15 @@ class AutoLamellaTask(ABC):
             self.lamella.task_state.step = message
             self.lamella.task_state.status_message = display_message if display_message is not None else ""
 
+        if message not in _LIFECYCLE_STEPS and self.parent_ui is not None:
+            self.parent_ui.step_update_signal.emit(display_message or message)
+
         if display_message is not None:
-            self.update_status_ui(message = display_message, 
+            self.update_status_ui(message = display_message,
                                   workflow_info = workflow_display_message)
+            # if random.random() > 0.9:
+            #     time.sleep(3) # simulate long-running task
+            #     raise ValueError("Randomly triggered abort check during status update for testing purposes.")
 
     def update_status_ui(self, message: str, workflow_info: Optional[str] = None) -> None:
         update_status_ui(parent_ui=self.parent_ui, 
@@ -1261,7 +1270,7 @@ def run_tasks(microscope: FibsemMicroscope,
             experiment: 'Experiment',
             task_names: List[str],
             required_lamella: Optional[List[str]] = None,
-            parent_ui: Optional['AutoLamellaUI'] = None,) -> 'Experiment':
+            parent_ui: Optional['AutoLamellaUI'] = None,) -> None:
     """Run the specified tasks for all lamellas in the experiment.
     Args:
         microscope (FibsemMicroscope): The microscope instance.
@@ -1398,4 +1407,3 @@ def run_tasks(microscope: FibsemMicroscope,
     update_status_ui(parent_ui, "", workflow_info="All tasks completed.")
 
     print(experiment.task_history_dataframe())
-    return experiment
