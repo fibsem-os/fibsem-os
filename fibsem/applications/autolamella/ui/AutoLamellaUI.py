@@ -1,6 +1,6 @@
 import sys
 import warnings
-
+import time
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
@@ -864,7 +864,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
     def _start_run_workflow_thread(self, selected_tasks: List[str], selected_lamella: List[str]) -> None:
         """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
-        self.pushButton_stop_workflow.setVisible(True)
+        self.pushButton_stop_workflow.setVisible(False)
         self.pushButton_run_setup_autolamella.setEnabled(False)
 
         # clear milling task config
@@ -893,7 +893,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
                 self.microscope.turn_on(BeamType.ION)
 
             logging.info(f"Starting tasks: {task_names}, for lamella: {lamella_names}")
-            napari.utils.notifications.show_info(f"Starting {len(task_names)} tasks...")
             run_tasks(microscope=self.microscope,
                       experiment=self.experiment,
                       task_names=task_names,
@@ -905,7 +904,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         finally:
             self._task_worker_thread = None
             self._workflow_finished_signal.emit()  # type: ignore
-            napari.utils.notifications.show_info("Tasks completed.")
 
     def stop_task_workflow(self):
         if not self.is_workflow_running:
@@ -921,7 +919,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.groupBox_selected_lamella.setEnabled(False)
             self.groupBox_setup.setEnabled(False)
             self.pushButton_run_setup_autolamella.setEnabled(False)
-            self.pushButton_stop_workflow.setVisible(True)
+            self.pushButton_stop_workflow.setVisible(False)
             return
 
         # state flags
@@ -1541,6 +1539,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""
+        self.pushButton_yes.setEnabled(False)
+        self.pushButton_no.setEnabled(False)
 
         # positve / negative response
         self.USER_RESPONSE = bool(self.sender() == self.pushButton_yes)
@@ -1601,6 +1601,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
     def handle_workflow_update(self, info: dict) -> None:
         """Update the UI with the given information, ready for user interaction"""
+
+        logging.info(f"---------- WORKFLOW UPDATE (AUTO UI) {info.get('msg', None)} ----------")
+        t1 = time.time()
 
         if self.image_widget is None:
             raise ValueError("No image widget available. Please create an image widget first.")
@@ -1684,23 +1687,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.WAITING_FOR_UI_UPDATE = False
 
-        # status_msg = info.get("status", None)
-        # if status_msg is not None:
-        #     logging.info(f"Workflow Status Update: {status_msg}")
-        #     task_name = status_msg.get("task_name", "Unknown Task")
-        #     lamella_name = status_msg.get("lamella_name", "Unknown Lamella")
-        #     # step_name = status_msg.get("step_name", "Unknown Step")
-        #     # step_status = status_msg.get("step_status", "Unknown Status")
-        #     current_lamella_index = status_msg.get("current_lamella_index", None)
-        #     current_task_index = status_msg.get("current_task_index", None)
-        #     total_lamellae = status_msg.get("total_lamellas", None)
-        #     total_tasks = status_msg.get("total_tasks", None)
-        #     txt = f"Workflow Running: {task_name} on {lamella_name}"
-        #     if (current_lamella_index is not None and total_lamellae is not None):
-        #         txt += f" | Lamella {current_lamella_index + 1}/{total_lamellae}"
-        #     if (current_task_index is not None and total_tasks is not None):
-        #         txt += f" | Task {current_task_index + 1}/{total_tasks}"
-        #     logging.info(txt)
+        t2 = time.time()
+        logging.info(f" --------- UI Update Time: {t2 - t1:.2f} seconds ---------")
 
 def main():
     autolamella_ui = AutoLamellaUI(viewer=napari.Viewer())
