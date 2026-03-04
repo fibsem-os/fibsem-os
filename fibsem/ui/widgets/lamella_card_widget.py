@@ -244,6 +244,11 @@ class LamellaCardContainer(QWidget):
             card.deleteLater()
             self._rebuild_grid()
 
+    def refresh_lamella(self, lamella: Lamella) -> None:
+        card = self._cards.get(lamella._id)
+        if card is not None:
+            card.refresh()
+
     def refresh_all(self) -> None:
         for card in self._cards.values():
             card.refresh()
