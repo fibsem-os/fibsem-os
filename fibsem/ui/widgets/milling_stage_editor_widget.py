@@ -481,6 +481,7 @@ class FibsemMillingStageWidget(QWidget):
             control.setObjectName(f"control-pattern-point.{attr}")
             control.setKeyboardTracking(False)
             control.setDecimals(decimals)
+            control.installEventFilter(WheelBlocker(parent=control))
             control.valueChanged.connect(self._update_setting)
 
             self.parameters[control_type][f"point.{attr}"] = (pt_label, control, scale)
