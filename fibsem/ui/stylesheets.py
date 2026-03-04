@@ -480,6 +480,13 @@ WORKFLOW_BORDER_AUTOMATED_STYLESHEET = "QFrame#workflow_border_frame { border: 4
 WORKFLOW_BORDER_SUPERVISED_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #007ACC; }"
 WORKFLOW_BORDER_WAITING_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #ff9800; }"
 
+WORKFLOW_BORDER_STYLESHEET = """
+    QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }
+    QFrame#workflow_border_frame[borderState="automated"]  { border: 4px solid #4caf50; }
+    QFrame#workflow_border_frame[borderState="supervised"] { border: 4px solid #007ACC; }
+    QFrame#workflow_border_frame[borderState="waiting"]    { border: 4px solid #ff9800; }
+"""
+
 TOOLBUTTON_ICON_STYLESHEET = """
     QToolButton {
         border: 1px solid transparent;
@@ -496,3 +503,18 @@ TOOLBUTTON_ICON_STYLESHEET = """
         background-color: rgba(255, 255, 255, 35);
     }
 """
+
+LIST_WIDGET_STYLESHEET = """
+            QListWidget {
+                background: #2b2d31;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item {
+                background: #2b2d31;
+                border-bottom: 1px solid #3a3d42;
+            }
+            QListWidget::item:selected {
+                background: transparent;
+            }
+        """

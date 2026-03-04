@@ -304,23 +304,7 @@ class LamellaListWidget(QWidget):
 
         self._list = QListWidget()
         self._list.setSpacing(1)
-        self._list.setStyleSheet("""
-            QListWidget {
-                background: #2b2d31;
-                border: none;
-                outline: none;
-            }
-            QListWidget::item {
-                background: #2b2d31;
-                border-bottom: 1px solid #3a3d42;
-            }
-            QListWidget::item:alternate {
-                background: #303338;
-            }
-            QListWidget::item:selected {
-                background: transparent;
-            }
-        """)
+        self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setAlternatingRowColors(False)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)

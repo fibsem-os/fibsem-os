@@ -29,6 +29,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
+from fibsem.ui import stylesheets
 
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(26, 26)
@@ -330,26 +331,7 @@ class WorkflowConfigWidget(QWidget):
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self._list.setSpacing(1)
-        self._list.setStyleSheet("""
-            QListWidget {
-                background: #2b2d31;
-                border: none;
-                outline: none;
-            }
-            QListWidget::item {
-                background: #2b2d31;
-                border-bottom: 1px solid #3a3d42;
-            }
-            QListWidget::item:alternate {
-                background: #303338;
-            }
-            QListWidget::item:selected {
-                background: rgba(0, 122, 204, 50);
-            }
-            QListWidget::item:selected:alternate {
-                background: rgba(0, 122, 204, 60);
-            }
-        """)
+        self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setAlternatingRowColors(False)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
