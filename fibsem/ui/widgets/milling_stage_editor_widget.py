@@ -603,44 +603,17 @@ class FibsemMillingStageEditorWidget(QWidget):
         button_layout.addWidget(self.pushButton_add)
         button_layout.addWidget(self.pushButton_remove)
 
-        # add checkboxes for show advanced settings, show milling crosshair, show milling patterns
-        self.checkBox_show_milling_crosshair = QCheckBox("Show Milling Crosshair", self)
-        self.checkBox_show_milling_crosshair.setChecked(True)
-        self.checkBox_show_milling_crosshair.setToolTip("Show the milling crosshair in the viewer.")
-        self.checkBox_show_milling_patterns = QCheckBox("Show Milling Patterns", self)
-        self.checkBox_show_milling_patterns.setChecked(True)
-        self.checkBox_show_milling_patterns.setToolTip("Show the milling patterns in the viewer.")
-        self.checkBox_show_milling_patterns.setVisible(False)
-        self.checkBox_show_milling_crosshair.setVisible(False)
-
-        self.checkbox_show_advanced = QCheckBox("Show Advanced Settings", self)
-        self.checkbox_show_advanced.setChecked(self._show_advanced)
-        self.checkbox_show_advanced.setToolTip("Show advanced settings for milling stages.")
-        self.checkbox_show_advanced.stateChanged.connect(self.set_show_advanced)
-        self.checkbox_show_advanced.setVisible(False)
         self.label_warning = QLabel(self)
         self.label_warning.setText("")
         self.label_warning.setStyleSheet("color: orange; font-style: italic;")
-        # callbacks for checkboxes
-        # self.checkBox_show_milling_crosshair.stateChanged.connect(self.update_milling_stage_display)
-        # self.checkBox_show_milling_patterns.stateChanged.connect(self._toggle_pattern_visibility)
-
-        # grid layout for checkboxes
-        self._grid_layout_checkboxes = QGridLayout()
-        self._grid_layout_checkboxes.addWidget(self.checkBox_show_milling_patterns, 0, 0, 1, 1)
-        self._grid_layout_checkboxes.addWidget(self.checkBox_show_milling_crosshair, 0, 1, 1, 1)
-        self._grid_layout_checkboxes.addWidget(self.checkbox_show_advanced, 1, 1, 1, 1)
-        self._grid_layout_checkboxes.addWidget(self.label_warning, 2, 0, 1, 2)
 
         # add widgets to main widget/layout
         self.main_layout = QVBoxLayout(self)
         self.main_layout.addLayout(button_layout)
-        self.main_layout.addLayout(self._grid_layout_checkboxes)
+        self.main_layout.addWidget(self.label_warning)
         self.main_layout.addWidget(self.list_widget_milling_stages)
         self.main_layout.addWidget(self.milling_stage_content)
 
-        # self.setContentsMargins(0, 0, 0, 0)
-        # self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.milling_stage_content.setContentsMargins(0, 0, 0, 0)
         self.milling_stage_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -959,7 +932,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             image_layer=self.image_layer,
             milling_stages=milling_stages,
             pixelsize=self.image.metadata.pixel_size.x,
-            draw_crosshair=self.checkBox_show_milling_crosshair.isChecked(),
+            draw_crosshair=True,
             background_milling_stages=self._background_milling_stages,
             alignment_area=alignment_area, # NOTE: we need to update this for each milling task, rather than read from lamella.alignment_area
             selected_index=selected_index,
