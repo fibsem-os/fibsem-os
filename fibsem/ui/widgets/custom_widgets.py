@@ -4,13 +4,14 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QIcon, QTransform
 from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -139,6 +140,70 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
     return control
 
 
+class ValueComboBox(QComboBox):
+    """QComboBox that stores raw values as item data and supports closest-match selection."""
+
+    def __init__(
+        self,
+        items: list,
+        value=None,
+        unit: Optional[str] = None,
+        format_fn: Optional[Callable] = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        for item in items:
+            if isinstance(item, (float, int)):
+                item_str = format_value(val=item, unit=unit, precision=1)
+            elif isinstance(item, Enum):
+                item_str = item.name
+            elif format_fn is not None:
+                item_str = format_fn(item)
+            else:
+                item_str = str(item)
+            self.addItem(item_str, item)
+        self.installEventFilter(WheelBlocker(parent=self))
+        if value is not None:
+            self.set_value(value)
+
+    def set_value(self, value) -> None:
+        """Select the item matching value; falls back to closest numeric match."""
+        idx = self.findData(value)
+        if idx == -1 and self.count() > 0:
+            items = [self.itemData(i) for i in range(self.count())]
+            if items and isinstance(items[0], (int, float)):
+                closest = min(items, key=lambda x: abs(x - value))
+                idx = self.findData(closest)
+        if idx != -1:
+            self.setCurrentIndex(idx)
+
+    def value(self):
+        """Return the raw value stored as item data for the current selection."""
+        return self.currentData()
+
+
+class ValueSpinBox(QDoubleSpinBox):
+    """QDoubleSpinBox with sensible defaults, WheelBlocker, and None-safe configuration."""
+
+    def __init__(
+        self,
+        suffix: Optional[str] = None,
+        minimum: Optional[float] = None,
+        maximum: Optional[float] = None,
+        step: Optional[float] = None,
+        decimals: Optional[int] = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        if suffix:
+            self.setSuffix(f" {suffix}")
+        self.setRange(minimum if minimum is not None else 0.0, maximum if maximum is not None else 1e6)
+        self.setSingleStep(step if step is not None else 0.01)
+        self.setDecimals(decimals if decimals is not None else 3)
+        self.setKeyboardTracking(False)
+        self.installEventFilter(WheelBlocker(parent=self))
+
+
 @dataclass
 class ContextMenuAction:
     """Represents a single action in a context menu."""
@@ -148,7 +213,7 @@ class ContextMenuAction:
     tooltip: Optional[str] = None
     enabled: bool = True
     separator_after: bool = False
-    data: Optional[any] = None
+    data: Optional[Any] = None
 
 
 @dataclass
@@ -164,7 +229,7 @@ class ContextMenuConfig:
         tooltip: Optional[str] = None,
         enabled: bool = True,
         separator_after: bool = False,
-        data: Optional[any] = None,
+        data: Optional[Any] = None,
     ) -> "ContextMenuConfig":
         """Add an action to the menu configuration. Returns self for chaining."""
         self.actions.append(ContextMenuAction(
