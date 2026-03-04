@@ -43,6 +43,7 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
                             "minimum": -1000.0,
                             "maximum": 1000.0,
                             "tooltip": "Point coordinates for the milling pattern.",
+                            "advanced" : True,
                          })
     shapes: Optional[List[TFibsemPatternSettings]] = field(default=None, init=False)
 
