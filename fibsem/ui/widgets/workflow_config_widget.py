@@ -32,20 +32,9 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.ui import stylesheets
 
 _NAME_MIN_WIDTH = 180
-_BTN_SIZE = QSize(26, 26)
+_BTN_SIZE = QSize(32, 32)
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 4 + 8 * 3  # schedule + supervise + edit + remove + 3 gaps
-
-_BTN_STYLE = """
-QToolButton {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 2px;
-}
-QToolButton:hover { background: rgba(255, 255, 255, 30); }
-QToolButton:pressed { background: rgba(255, 255, 255, 15); }
-"""
-
+_BTN_STYLE = stylesheets.TOOLBUTTON_ICON_STYLESHEET
 
 class _DraggableTaskList(QListWidget):
     """QListWidget with InternalMove drag-and-drop that emits the new task order after each drop.
@@ -69,8 +58,8 @@ class _DraggableTaskList(QListWidget):
 def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     """Return (icon_name, icon_color, tooltip) for the supervised/automated indicator."""
     if task.supervise:
-        return "mdi:account-hard-hat", "#6aabdf", "Supervised"
-    return "mdi:refresh-auto", "#80c080", "Automated"
+        return "mdi:account-hard-hat", stylesheets.PRIMARY_COLOR, "Supervised"
+    return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
 
 
 class _ScheduleDialog(QDialog):
@@ -191,14 +180,14 @@ class WorkflowTaskRowWidget(QWidget):
         layout.addWidget(self.btn_supervise)
 
         self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color="#c0c0c0"))
+        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_edit.setToolTip("Edit")
         self.btn_edit.setFixedSize(_BTN_SIZE)
         self.btn_edit.setStyleSheet(_BTN_STYLE)
         layout.addWidget(self.btn_edit)
 
         self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color="#c0c0c0"))
+        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_remove.setToolTip("Remove")
         self.btn_remove.setFixedSize(_BTN_SIZE)
         self.btn_remove.setStyleSheet(_BTN_STYLE)
@@ -281,7 +270,7 @@ class _WorkflowTaskListHeader(QWidget):
         layout.addWidget(spacer)
 
         self.btn_add = QToolButton()
-        self.btn_add.setIcon(QIconifyIcon("mdi:plus", color="#c0c0c0"))
+        self.btn_add.setIcon(QIconifyIcon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_add.setToolTip("Add Task")
         self.btn_add.setFixedSize(_BTN_SIZE)
         self.btn_add.setStyleSheet(_BTN_STYLE)

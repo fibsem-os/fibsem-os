@@ -1579,6 +1579,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # clear milling task config
         if self.milling_task_config_widget is not None:
             self.milling_task_config_widget.clear()
+            self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(True)
 
         # clear detection layers
         if self.det_widget is not None:

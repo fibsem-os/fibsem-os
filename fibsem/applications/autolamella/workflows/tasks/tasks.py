@@ -675,8 +675,6 @@ class MillTrenchTask(AutoLamellaTask):
                                             alignment_current=None,
                                             steps=1, subsystem="stage")
 
-        self.log_status_message("MILL_TRENCH", "Preparing to Mill Trench...")
-
         # get trench milling stages
         milling_task_config = self.config.milling[TRENCH_KEY]
 
@@ -684,6 +682,7 @@ class MillTrenchTask(AutoLamellaTask):
         self._acquire_reference_image(image_settings, field_of_view=milling_task_config.field_of_view)
 
         # log the task configuration
+        self.log_status_message("MILL_TRENCH", "Milling Trench...")
         msg = f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done."
         milling_task_config.acquisition.imaging.path = self.lamella.path
         milling_task_config = self.update_milling_config_ui(milling_task_config, 

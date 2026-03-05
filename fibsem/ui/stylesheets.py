@@ -474,17 +474,15 @@ SEMANTIC_ERROR_COLOR = "#99121F"
 SEMANTIC_ERROR_HOVER_COLOR = "#BF2A38"
 SEMANTIC_ERROR_PRESSED_COLOR = "#b71c1c"
 SEMANTIC_WARNING_COLOR = "#E3B617"
-
-WORKFLOW_BORDER_IDLE_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #262930; }"
-WORKFLOW_BORDER_AUTOMATED_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #4caf50; }"
-WORKFLOW_BORDER_SUPERVISED_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #007ACC; }"
-WORKFLOW_BORDER_WAITING_STYLESHEET = "QFrame#workflow_border_frame { border: 4px solid #ff9800; }"
+AUTOMATED_COLOR = "#4caf50"
+PURPLE_COLOR = "#7C3AED"
 
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }
     QFrame#workflow_border_frame[borderState="automated"]  { border: 4px solid #4caf50; }
     QFrame#workflow_border_frame[borderState="supervised"] { border: 4px solid #007ACC; }
     QFrame#workflow_border_frame[borderState="waiting"]    { border: 4px solid #ff9800; }
+    QFrame#workflow_border_frame[borderState="finished"]  { border: 4px solid #4caf50; }
 """
 
 TOOLBUTTON_ICON_STYLESHEET = """
