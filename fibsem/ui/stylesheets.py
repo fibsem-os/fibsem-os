@@ -476,6 +476,9 @@ SEMANTIC_ERROR_PRESSED_COLOR = "#b71c1c"
 SEMANTIC_WARNING_COLOR = "#E3B617"
 AUTOMATED_COLOR = "#4caf50"
 PURPLE_COLOR = "#7C3AED"
+GREEN_COLOR = "#4caf50"
+RED_COLOR = "#99121F
+ORANGE_COLOR = " #ff9800"
 
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }

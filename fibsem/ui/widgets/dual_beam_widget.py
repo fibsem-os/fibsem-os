@@ -228,12 +228,12 @@ class FibsemDualBeamWidget(QWidget):
         is_on = self.microscope.is_on(bt)
         is_blanked = self.microscope.is_blanked(bt)
 
-        power_color = "#4caf50" if is_on else "#ff9800"
+        power_color = stylesheets.GREEN_COLOR if is_on else stylesheets.ORANGE_COLOR
         self.btn_beam_on.setIcon(QIconifyIcon("mdi:power", color=power_color))
         self.btn_beam_on.setToolTip("Beam ON — click to turn off" if is_on else "Beam OFF — click to turn on")
 
         eye_icon = "mdi:eye-off" if is_blanked else "mdi:eye"
-        eye_color = "#ff9800" if is_blanked else "#c0c0c0"
+        eye_color = stylesheets.ORANGE_COLOR if is_blanked else stylesheets.GRAY_ICON_COLOR
         self.btn_beam_blanked.setIcon(QIconifyIcon(eye_icon, color=eye_color))
         self.btn_beam_blanked.setToolTip("Blanked — click to unblank" if is_blanked else "Unblanked — click to blank")
 

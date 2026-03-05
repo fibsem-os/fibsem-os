@@ -91,7 +91,7 @@ def _defect_icon(lamella: Lamella) -> tuple[str, str, str]:
     """Return (icon_name, icon_color, tooltip) for the defect indicator button."""
     d = lamella.defect
     if d.state == DefectType.NONE:
-        return "mdi:check-circle", "#4caf50", "No defect"
+        return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
     if d.state == DefectType.REWORK:
         return "mdi:refresh-circle", "#e8a020", f"Rework required{': ' + d.description if d.description else ''}"
     return "mdi:close-circle", "#d04040", f"Failure{': ' + d.description if d.description else ''}"
@@ -134,7 +134,7 @@ class LamellaRowWidget(QWidget):
         layout.addWidget(self.status_label, 1)
 
         self.btn_defect = QToolButton()
-        self.btn_defect.setIcon(QIconifyIcon("mdi:circle", color="#4caf50"))
+        self.btn_defect.setIcon(QIconifyIcon("mdi:circle", color=stylesheets.GREEN_COLOR))
         self.btn_defect.setFixedSize(_BTN_SIZE)
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_defect)
@@ -182,7 +182,7 @@ class LamellaRowWidget(QWidget):
     def _on_defect_clicked(self) -> None:
         menu = QMenu(self)
         action_none = menu.addAction(
-            QIconifyIcon("mdi:check-circle", color="#4caf50"), "No defect"
+            QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
             QIconifyIcon("mdi:refresh-circle", color="#e8a020"), "Rework required"

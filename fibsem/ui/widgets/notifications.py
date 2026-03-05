@@ -19,16 +19,17 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
+from fibsem.ui import stylesheets
 
 class ToastNotification(QWidget):
     """A toast notification widget that appears in the bottom-right corner."""
 
     # Notification types with colors
     TYPES = {
-        "info": "#50a6ff",      # Blue
-        "success": "#4caf50",   # Green
-        "warning": "#ff9800",   # Orange
-        "error": "#f44336",     # Red
+        "info": "#50a6ff",                      # Blue
+        "success": stylesheets.GREEN_COLOR,     # Green
+        "warning": stylesheets.ORANGE_COLOR,    # Orange
+        "error": "#f44336",                     # Red
     }
 
     def __init__(self, parent=None, duration: int = 5000):

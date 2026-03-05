@@ -19,6 +19,7 @@ from superqt import QIconifyIcon
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
 from fibsem.ui.widgets.lamella_list_widget import _defect_icon, _status_text
+from fibsem.ui import stylesheets
 
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6        # inset from card edges so rounded corners stay visible
@@ -180,7 +181,7 @@ class LamellaCardWidget(QWidget):
     def _on_defect_clicked(self) -> None:
         menu = QMenu(self)
         action_none = menu.addAction(
-            QIconifyIcon("mdi:check-circle", color="#4caf50"), "No defect"
+            QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
             QIconifyIcon("mdi:refresh-circle", color="#e8a020"), "Rework required"

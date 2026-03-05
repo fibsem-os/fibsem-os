@@ -240,7 +240,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
             info = self.microscope.system.info
             self._label_status_icon.setPixmap(
-                QIconifyIcon("mdi:check-circle", color="#4caf50").pixmap(20, 20)
+                QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(20, 20)
             )
             self._label_status_title.setText("Microscope Connected")
             self._label_status_subtitle.setText(

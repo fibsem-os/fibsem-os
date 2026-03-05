@@ -1277,6 +1277,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 def run_ui():
     """Run the AutoLamella embedded example."""
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyle("Fusion")
     window = AutoLamellaSingleWindowUI()
     window.show()
     app.exec_()

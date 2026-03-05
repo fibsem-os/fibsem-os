@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
 from fibsem.ui import stylesheets
 
 # ── Colours ──────────────────────────────────────────────────────────────────
-_DOT_COMPLETED = "#4caf50"   # green
+_DOT_COMPLETED = stylesheets.GREEN_COLOR   # green
 _DOT_ACTIVE    = "#ff9800"   # orange
 _DOT_PENDING   = "#606060"   # muted gray
 _DOT_FAILED    = "#99121F"   # red
