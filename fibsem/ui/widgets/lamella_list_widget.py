@@ -28,6 +28,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)
@@ -155,11 +156,7 @@ class LamellaRowWidget(QWidget):
         self.btn_actions.setMenu(actions_menu)
         layout.addWidget(self.btn_actions)
 
-        self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_remove.setToolTip("Remove")
-        self.btn_remove.setFixedSize(_BTN_SIZE)
-        self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_remove = IconToolButton(icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width())
         layout.addWidget(self.btn_remove)
 
         self.checkbox.stateChanged.connect(

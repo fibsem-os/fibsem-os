@@ -479,3 +479,83 @@ class _SpinnerLabel(QLabel):
         self._timer.stop()
         self._angle = 0
         self._render()
+
+
+class IconToolButton(QToolButton):
+    """QToolButton with Iconify icon and automatic checked-state icon/color/tooltip swapping.
+
+    Parameters
+    ----------
+    icon : str
+        Iconify icon name for unchecked/default state (e.g. ``"mdi:tune"``).
+    color : str, optional
+        Icon color for unchecked/default state. Defaults to ``GRAY_ICON_COLOR``.
+    checked_icon : str, optional
+        Icon name when checked. If ``None``, uses ``icon``.
+    checked_color : str, optional
+        Icon color when checked. Defaults to ``GRAY_WHITE_COLOR``.
+        Only applied when ``checked_icon`` or ``checked_color`` is provided, or
+        ``checkable=True``.
+    tooltip : str, optional
+        Tooltip for unchecked/default state.
+    checked_tooltip : str, optional
+        Tooltip when checked. Defaults to ``tooltip``.
+    checkable : bool, optional
+        Whether the button is checkable. Automatically ``True`` when
+        ``checked_icon`` or ``checked_color`` are provided.
+    checked : bool, optional
+        Initial checked state. Defaults to ``False``.
+    size : int, optional
+        If provided, calls ``setFixedSize(size, size)``.
+    parent : QWidget, optional
+    """
+
+    def __init__(
+        self,
+        icon: str,
+        color: str = stylesheets.GRAY_ICON_COLOR,
+        checked_icon: str | None = None,
+        checked_color: str | None = None,
+        tooltip: str | None = None,
+        checked_tooltip: str | None = None,
+        checkable: bool = False,
+        checked: bool = False,
+        size: int | None = None,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._icon = icon
+        self._color = color
+        self._checked_icon = checked_icon if checked_icon is not None else icon
+        self._checked_color = checked_color if checked_color is not None else stylesheets.GRAY_WHITE_COLOR
+        self._tooltip = tooltip
+        self._checked_tooltip = checked_tooltip if checked_tooltip is not None else tooltip
+
+        self._has_state = checkable or checked_icon is not None or checked_color is not None
+
+        self.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        if size is not None:
+            self.setFixedSize(size, size)
+
+        if self._has_state:
+            self.setCheckable(True)
+            self.toggled.connect(self._on_toggled)
+            # Suppress icon-swap during setChecked so _on_toggled drives it once below
+            super().setChecked(checked)
+            self._on_toggled(checked)
+        else:
+            self.setIcon(QIconifyIcon(self._icon, color=self._color))
+            if tooltip:
+                self.setToolTip(tooltip)
+
+    def _on_toggled(self, checked: bool) -> None:
+        icon = self._checked_icon if checked else self._icon
+        color = self._checked_color if checked else self._color
+        self.setIcon(QIconifyIcon(icon, color=color))
+        tip = self._checked_tooltip if checked else self._tooltip
+        if tip is not None:
+            self.setToolTip(tip)
+
+    def set_icon_state(self, checked: bool) -> None:
+        """Update icon/color/tooltip to match ``checked`` without emitting ``toggled``."""
+        self._on_toggled(checked)

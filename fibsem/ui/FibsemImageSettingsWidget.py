@@ -39,7 +39,7 @@ from fibsem.ui.napari.utilities import (
     draw_crosshair_in_napari,
     draw_scalebar_in_napari,
 )
-from fibsem.ui.widgets.custom_widgets import _SpinnerLabel
+from fibsem.ui.widgets.custom_widgets import IconToolButton, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
@@ -147,19 +147,18 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._spinner.setVisible(False)
 
         # View tool buttons (scalebar, crosshair) + spinner — right-aligned alongside the lamella checkbox
-        self.btn_scalebar = QtWidgets.QToolButton()
-        self.btn_scalebar.setCheckable(True)
-        self.btn_scalebar.setChecked(False)
-        self.btn_scalebar.setIcon(QIconifyIcon("mdi:arrow-expand-horizontal", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_scalebar.setToolTip("Scale Bar")
-
-        self.btn_crosshair = QtWidgets.QToolButton()
-        self.btn_crosshair.setCheckable(True)
-        self.btn_crosshair.setChecked(True)
-        self.btn_crosshair.setIcon(QIconifyIcon("mdi:target", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_crosshair.setToolTip("Cross Hair")
-        self.btn_scalebar.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_crosshair.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_scalebar = IconToolButton(
+            icon="mdi:arrow-expand-horizontal",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Scale Bar",
+            checked=False,
+        )
+        self.btn_crosshair = IconToolButton(
+            icon="mdi:target",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Cross Hair",
+            checked=True,
+        )
 
         tools_row = QtWidgets.QWidget()
         tools_layout = QtWidgets.QHBoxLayout(tools_row)
@@ -228,10 +227,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # util
         self.btn_scalebar.toggled.connect(self.update_ui_tools)
         self.btn_crosshair.toggled.connect(self.update_ui_tools)
-        self.btn_scalebar.toggled.connect(lambda c: self.btn_scalebar.setIcon(
-            QIconifyIcon("mdi:arrow-expand-horizontal", color="#FFFFFF" if c else stylesheets.GRAY_ICON_COLOR)))
-        self.btn_crosshair.toggled.connect(lambda c: self.btn_crosshair.setIcon(
-            QIconifyIcon("mdi:target", color="#FFFFFF" if c else stylesheets.GRAY_ICON_COLOR)))
 
         # signals
         self.acquisition_progress_signal.connect(self.handle_acquisition_progress_update)

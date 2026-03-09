@@ -15,6 +15,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 class FibsemDualBeamWidget(QWidget):
     """Dual-beam widget with SEM / FIB radio buttons to switch between beam views.
@@ -84,19 +85,18 @@ class FibsemDualBeamWidget(QWidget):
         self.btn_beam_blanked.setToolTip("Toggle beam blank/unblank")
 
         # --- Refresh button ---
-        self.btn_refresh = QToolButton()
-        self.btn_refresh.setIcon(QIconifyIcon("mdi:refresh", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_refresh.setToolTip("Refresh from microscope")
+        self.btn_refresh = IconToolButton(icon="mdi:refresh", tooltip="Refresh from microscope")
 
         # --- Advanced toggle button ---
-        self.btn_advanced = QToolButton()
-        self.btn_advanced.setIcon(QIconifyIcon("mdi:tune", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_advanced.setToolTip("Show advanced settings")
-        self.btn_advanced.setCheckable(True)
+        self.btn_advanced = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
         self.btn_beam_on.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         self.btn_beam_blanked.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_refresh.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_advanced.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
 
         radio_row = QWidget()
         radio_layout = QHBoxLayout(radio_row)
@@ -181,8 +181,6 @@ class FibsemDualBeamWidget(QWidget):
 
     def _on_advanced_toggled(self, checked: bool):
         self._advanced_visible = checked
-        tooltip = "Hide advanced settings" if checked else "Show advanced settings"
-        self.btn_advanced.setToolTip(tooltip)
         for beam_widget in [self.sem_widget, self.fib_widget]:
             beam_widget.beam_settings_widget.set_advanced_visible(checked)
             beam_widget.detector_settings_widget.set_advanced_visible(checked)

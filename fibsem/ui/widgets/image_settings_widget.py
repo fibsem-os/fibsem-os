@@ -8,17 +8,15 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QSpinBox,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
 from typing import Optional
 
 from fibsem.config import STANDARD_RESOLUTIONS_ZIP
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ImageSettings
-from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, WheelBlocker
+from fibsem.ui.widgets.custom_widgets import IconToolButton, QDirectoryLineEdit, WheelBlocker
 from fibsem.ui import stylesheets
 
 # GUI Configuration Constants
@@ -49,7 +47,8 @@ class ImageSettingsWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None,
                  show_advanced: bool = False,
-                 show_save: bool = False):
+                 show_save: bool = False,
+                 always_save: bool = False):
         """Initialize the ImageSettings widget.
 
         Args:
@@ -57,11 +56,15 @@ class ImageSettingsWidget(QWidget):
             show_advanced: Whether to show advanced settings (line integration,
                           scan interlacing, frame integration, drift correction)
             show_save: Whether to show save controls (save image, path, filename)
+            always_save: Hide the save checkbox and always return save=True.
+                         Path/filename controls remain visible and enabled.
+                         Implies show_save=True.
         """
         super().__init__(parent)
         self._settings = ImageSettings()
         self._show_advanced = show_advanced
-        self._show_save = show_save
+        self._always_save = always_save
+        self._show_save = show_save or always_save
         self._setup_ui()
         self._connect_signals()
         self.update_from_settings(self._settings)
@@ -78,11 +81,14 @@ class ImageSettingsWidget(QWidget):
         self.setLayout(outer_layout)
 
         # --- Header row ---
-        self.btn_advanced = QToolButton()
-        self.btn_advanced.setIcon(QIconifyIcon("mdi:tune", color="#c0c0c0"))
-        self.btn_advanced.setToolTip("Show advanced settings")
-        self.btn_advanced.setCheckable(True)
-        self.btn_advanced.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_advanced = IconToolButton(
+            icon="mdi:tune",
+            color="#c0c0c0",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
 
         header_row = QWidget()
         header_layout = QHBoxLayout(header_row)
@@ -266,8 +272,15 @@ class ImageSettingsWidget(QWidget):
 
     def _update_save_controls_visibility(self):
         """Show/hide all save controls (save image, path, filename)."""
-        for w in self._save_widgets:
-            w.setVisible(self._show_save)
+        if self._always_save:
+            self.save_image_label.setVisible(False)
+            self.save_image_check.setVisible(False)
+            for w in [self.path_label, self.path_edit, self.filename_label, self.filename_edit]:
+                w.setVisible(True)
+                w.setEnabled(True)
+        else:
+            for w in self._save_widgets:
+                w.setVisible(self._show_save)
 
     def set_show_advanced_button(self, show: bool):
         """Show or hide the advanced settings toggle button."""
@@ -279,8 +292,6 @@ class ImageSettingsWidget(QWidget):
         self._update_save_controls_visibility()
 
     def _on_advanced_toggled(self, checked: bool):
-        tooltip = "Hide advanced settings" if checked else "Show advanced settings"
-        self.btn_advanced.setToolTip(tooltip)
         self.set_show_advanced(checked)
 
     def set_show_advanced(self, show_advanced: bool):
@@ -293,6 +304,7 @@ class ImageSettingsWidget(QWidget):
         self.btn_advanced.blockSignals(True)
         self.btn_advanced.setChecked(show_advanced)
         self.btn_advanced.blockSignals(False)
+        self.btn_advanced.set_icon_state(show_advanced)
         self._update_advanced_visibility()
 
     def toggle_advanced(self):
@@ -367,7 +379,7 @@ class ImageSettingsWidget(QWidget):
         self._settings.scan_interlacing = scan_interlacing
         self._settings.frame_integration = frame_integration
         self._settings.drift_correction = self.drift_correction_check.isChecked()
-        self._settings.save = self.save_image_check.isChecked()
+        self._settings.save = True if self._always_save else self.save_image_check.isChecked()
         self._settings.path = self.path_edit.text() or None
         self._settings.filename = self.filename_edit.text()
 

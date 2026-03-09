@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
 )
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(32, 32)
@@ -179,18 +180,10 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_supervise.setStyleSheet(_BTN_STYLE)
         layout.addWidget(self.btn_supervise)
 
-        self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_edit.setToolTip("Edit")
-        self.btn_edit.setFixedSize(_BTN_SIZE)
-        self.btn_edit.setStyleSheet(_BTN_STYLE)
+        self.btn_edit = IconToolButton(icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width())
         layout.addWidget(self.btn_edit)
 
-        self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_remove.setToolTip("Remove")
-        self.btn_remove.setFixedSize(_BTN_SIZE)
-        self.btn_remove.setStyleSheet(_BTN_STYLE)
+        self.btn_remove = IconToolButton(icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width())
         layout.addWidget(self.btn_remove)
 
         self.checkbox.stateChanged.connect(
@@ -269,11 +262,7 @@ class _WorkflowTaskListHeader(QWidget):
         spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
         layout.addWidget(spacer)
 
-        self.btn_add = QToolButton()
-        self.btn_add.setIcon(QIconifyIcon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_add.setToolTip("Add Task")
-        self.btn_add.setFixedSize(_BTN_SIZE)
-        self.btn_add.setStyleSheet(_BTN_STYLE)
+        self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add Task", size=_BTN_SIZE.width())
         layout.addWidget(self.btn_add)
 
         self.checkbox_all.stateChanged.connect(
