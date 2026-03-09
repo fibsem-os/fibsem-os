@@ -1620,8 +1620,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.image_widget._on_acquire(sem_image)
             self.image_widget.set_ui_from_settings(
                 image_settings=sem_image.metadata.image_settings, # type: ignore
-                beam_type=BeamType.ELECTRON,
-
+                beam_type=BeamType.ELECTRON
             )
 
         fib_image: FibsemImage = info.get("fib_image", None)    # type: ignore
@@ -1630,7 +1629,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.image_widget._on_acquire(fib_image)
             self.image_widget.set_ui_from_settings(
                 image_settings=fib_image.metadata.image_settings, # type: ignore
-                beam_type=BeamType.ION,
+                beam_type=BeamType.ION
             )
 
         # what?
@@ -1651,7 +1650,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # update the alignment area
         alignment_area = info.get("alignment_area", None)
         if isinstance(alignment_area, FibsemRectangle):
-            self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.image_widget))
             self.image_widget.toggle_alignment_area(alignment_area)
         if alignment_area == "clear":
             self.image_widget.clear_alignment_area()
@@ -1673,15 +1671,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
         if info.get("clear_milling_config", False):
             self.milling_task_config_widget.clear()
-            # self.milling_task_config_widget.setEnabled(False)
-            self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
-
-        # no specific interaction, just update the ui
-        if (detections is None and
-            enable_milling is None and
-            alignment_area is None and
-            spot_burn is None):
-            self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab)) # NOTE: this is what causes the view to reset to this tab for milling
 
         # instruction message
         self.set_instructions_msg(info["msg"], info.get("pos", None), info.get("neg", None))
