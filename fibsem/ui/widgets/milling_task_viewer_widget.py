@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 import napari
 import napari.utils.notifications
@@ -15,12 +15,14 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, Point
-from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, is_pattern_placement_valid
+from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, is_pattern_placement_valid, MILLING_ALIGNMENT_AREA_LAYER_NAME
 from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
+if TYPE_CHECKING:
+    from fibsem.ui import FibsemImageSettingsWidget
 
 def _apply_diff_to_pattern(pattern, diff: Point) -> None:
     """Shift a pattern's position by diff (in-place). Handles LinePattern start/end offsets."""
@@ -55,12 +57,14 @@ class MillingTaskViewerWidget(QWidget):
         viewer: Optional[napari.Viewer] = None,
         milling_task_config: Optional[FibsemMillingTaskConfig] = None,
         milling_enabled: bool = True,
+        image_widget: Optional["FibsemImageSettingsWidget"] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.microscope = microscope
         self.viewer: Optional[napari.Viewer] = viewer or napari.current_viewer()
         self._milling_enabled = milling_enabled
+        self._image_widget = image_widget
 
         # Viewer / pattern state
         self._fib_image: Optional[FibsemImage] = None
@@ -104,14 +108,15 @@ class MillingTaskViewerWidget(QWidget):
         self.config_widget.settings_changed.connect(self._on_settings_changed)
 
     def _setup_viewer_integration(self) -> None:
-        """Try to discover an image_widget in the parent chain and connect to its update signal."""
-        try:
-            iw = self.parent().image_widget  # type: ignore[attr-defined]
-            self._fib_image = iw.ib_image
-            self._fib_image_layer = iw.ib_layer
-            iw.viewer_update_signal.connect(self._on_viewer_image_updated)
-        except Exception:
-            pass  # no image_widget available; call set_fib_image() manually
+        """Connect to image_widget (injected or discovered from parent chain)."""
+        iw = self._image_widget
+        if iw is not None:
+            try:
+                self._fib_image = iw.ib_image
+                self._fib_image_layer = iw.ib_layer
+                iw.viewer_update_signal.connect(self._on_viewer_image_updated)
+            except Exception:
+                pass
         self._register_right_click_callback()
 
     def closeEvent(self, event) -> None:
@@ -209,6 +214,10 @@ class MillingTaskViewerWidget(QWidget):
 
         # Refresh row display (inline spinboxes/labels) without full rebuild
         self.config_widget.milling_stages_widget._list.refresh_all()
+        # Re-sync the pattern settings panel to the selected stage
+        sw = self.config_widget.milling_stages_widget
+        if sw._selected_stage is not None:
+            sw._sync_panels_from_stage(sw._selected_stage)
         self._update_pattern_display()
         self.settings_changed.emit(self.config_widget.get_settings())
 
@@ -223,8 +232,13 @@ class MillingTaskViewerWidget(QWidget):
         self._update_pattern_display()
 
     def _on_viewer_image_updated(self) -> None:
+        iw = self._image_widget
+        if iw is None:
+            try:
+                iw = self.parent().image_widget  # type: ignore[attr-defined]
+            except Exception:
+                return
         try:
-            iw = self.parent().image_widget  # type: ignore[attr-defined]
             self._fib_image = iw.ib_image
             self._fib_image_layer = iw.ib_layer
             self._update_pattern_display()
@@ -237,6 +251,10 @@ class MillingTaskViewerWidget(QWidget):
         if self._fib_image is None or self._fib_image.metadata is None:
             return
         config = self.config_widget.get_settings()
+
+        if not config.stages:
+            self._clear_pattern_display()
+            return
 
         pixelsize = self._fib_image.metadata.pixel_size.x
         alignment_area = config.alignment.rect if config.alignment.enabled else None
@@ -252,6 +270,20 @@ class MillingTaskViewerWidget(QWidget):
             )
         except Exception as e:
             logging.error(f"MillingTaskViewerWidget: pattern display error: {e}")
+
+    def _clear_pattern_display(self) -> None:
+        """Remove milling pattern layers from the viewer."""
+        if self.viewer is None:
+            return
+        try:
+            for name in self._pattern_layer_names:
+                if name in self.viewer.layers:
+                    self.viewer.layers.remove(name) # type: ignore
+            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME)  # type: ignore
+        except Exception as e:
+            logging.debug(f"MillingTaskViewerWidget: error removing layers: {e}")
+        self._pattern_layer_names = []
 
     # ------------------------------------------------------------------
     # Slots
