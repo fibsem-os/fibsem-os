@@ -1488,6 +1488,18 @@ class FibsemMillingSettings:
         required_params = self.get_parameters_for_manufacturer(manufacturer)
         return {param: getattr(self, param) for param in required_params}
 
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        mc = format_value(self.milling_current, unit="A", precision=1)
+        mv = format_value(self.milling_voltage, unit="V", precision=1)
+        lines = [
+            "    Milling:",
+            f"        Current: {mc}",
+            f"        Voltage: {mv}",
+            f"        Patterning Mode: {self.patterning_mode}",
+        ]
+        return "\n".join(lines)
+
 
 @dataclass
 class StageSystemSettings:

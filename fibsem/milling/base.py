@@ -74,6 +74,24 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         config = cls.config_class.from_dict(d.get("config", {}))
         return cls(config=config)
 
+    def summary(self) -> str:
+        """Return a multi-line human-readable summary of the strategy and its config."""
+        from fibsem.utils import format_value
+        lines = [f"    Strategy: {self.name}"]
+        for attr in self.config.required_attributes:
+            if attr in self.config._hidden_attributes or attr in self.config.advanced_attributes:
+                continue
+            val = getattr(self.config, attr)
+            meta = self.config.field_metadata.get(attr, {})
+            unit = meta.get("unit", None)
+            label = meta.get("label", attr.replace("_", " ").title())
+            if isinstance(val, float) and unit:
+                val_str = format_value(val, unit=unit, precision=1)
+            else:
+                val_str = val.name if hasattr(val, "name") and not isinstance(val, float) else str(val)
+            lines.append(f"        {label}: {val_str}")
+        return "\n".join(lines)
+
     @abstractmethod
     def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False, parent_ui = None) -> None:
         pass
@@ -159,6 +177,16 @@ class FibsemMillingStage:
     def run(self, microscope: FibsemMicroscope, asynch: bool = False, parent_ui = None) -> None:
         """Run the milling stage strategy on the given microscope."""
         self.strategy.run(microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui)
+
+    @property
+    def summary(self) -> str:
+        """Return a multi-line human-readable summary of the milling stage parameters."""
+        return "\n".join([
+            self.name,
+            self.milling.summary(),
+            self.pattern.summary(),
+            self.strategy.summary(),
+        ])
 
     @property
     def pretty_name(self) -> str:

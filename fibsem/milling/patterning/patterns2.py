@@ -112,6 +112,26 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         """Return dataclass fields with metadata, filling any missing keys with defaults."""
         return get_fields_with_metadata(self.__class__)
 
+    def summary(self) -> str:
+        """Return a multi-line human-readable summary of key pattern parameters."""
+        from fibsem.utils import format_value
+        lines = [f"    Pattern: {self.name}"]
+        for attr in self.required_attributes:
+            if attr in self.advanced_attributes:
+                continue
+            val = getattr(self, attr)
+            meta = self.field_metadata.get(attr, {})
+            unit = meta.get("unit", None)
+            label = meta.get("label", attr.replace("_", " ").title())
+            if isinstance(val, float) and unit:
+                val_str = format_value(val, unit=unit, precision=1)
+            elif hasattr(val, "name"):  # Enum
+                val_str = val.name
+            else:
+                val_str = str(val)
+            lines.append(f"        {label}: {val_str}")
+        return "\n".join(lines)
+
 
 @dataclass
 class BitmapPattern(BasePattern[FibsemBitmapSettings]):
@@ -387,6 +407,16 @@ class RectanglePattern(BasePattern[FibsemRectangleSettings]):
     )
     name: ClassVar[str] = "Rectangle"
 
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+            f"        Width: {format_value(self.width, unit='m', precision=1)}",
+            f"        Height: {format_value(self.height, unit='m', precision=1)}",
+            f"        Cross Section: {self.cross_section.name}",
+        ])
+
     def define(self) -> List[FibsemRectangleSettings]:
 
         shape = FibsemRectangleSettings(
@@ -454,6 +484,13 @@ class LinePattern(BasePattern[FibsemLineSettings]):
     )
     name: ClassVar[str] = "Line"
 
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+        ])
+
     def define(self) -> List[FibsemLineSettings]:
         shape = FibsemLineSettings(
             start_x=self.start_x,
@@ -495,6 +532,14 @@ class CirclePattern(BasePattern[FibsemCircleSettings]):
     )
 
     name: ClassVar[str] = "Circle"
+
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Radius: {format_value(self.radius, unit='m', precision=1)}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+        ])
 
     def define(self) -> List[FibsemCircleSettings]:
         
@@ -567,6 +612,18 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
     )
 
     name: ClassVar[str] = "Trench"
+
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+            f"        Width: {format_value(self.width, unit='m', precision=1)}",
+            f"        Spacing: {format_value(self.spacing, unit='m', precision=1)}",
+            f"        Upper Trench Height: {format_value(self.upper_trench_height, unit='m', precision=1)}",
+            f"        Lower Trench Height: {format_value(self.lower_trench_height, unit='m', precision=1)}",
+            f"        Cross Section: {self.cross_section.name}",
+        ])
 
     def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
 
@@ -1114,6 +1171,7 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
         metadata={
             "label": "Asymmetric",
             "type": bool,
+            "advanced": True,
             "tooltip": "If true, make the fiducial mark y-shaped.",
         },
     )
