@@ -6,6 +6,7 @@ import numpy as np
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QImage, QPixmap
 from PyQt5.QtWidgets import (
+    QAction,
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -30,7 +31,7 @@ from fibsem.ui import stylesheets
 
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 4 + 8 * 3  # 4 buttons + 3 gaps
+_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 3 + 8 * 2  # 3 buttons + 2 gaps
 
 
 
@@ -139,19 +140,20 @@ class LamellaRowWidget(QWidget):
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_defect)
 
-        self.btn_move = QToolButton()
-        self.btn_move.setIcon(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_move.setToolTip("Move to")
-        self.btn_move.setFixedSize(_BTN_SIZE)
-        self.btn_move.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        layout.addWidget(self.btn_move)
-
-        self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_edit.setToolTip("Edit")
-        self.btn_edit.setFixedSize(_BTN_SIZE)
-        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        layout.addWidget(self.btn_edit)
+        self.btn_actions = QToolButton()
+        self.btn_actions.setIcon(QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_actions.setToolTip("Actions")
+        self.btn_actions.setFixedSize(_BTN_SIZE)
+        self.btn_actions.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET + " QToolButton::menu-indicator { image: none; }")
+        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
+        actions_menu = QMenu(self)
+        _move = actions_menu.addAction(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position")
+        _edit = actions_menu.addAction(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit Lamella")
+        assert _move is not None and _edit is not None
+        self._action_move: QAction = _move
+        self._action_edit: QAction = _edit
+        self.btn_actions.setMenu(actions_menu)
+        layout.addWidget(self.btn_actions)
 
         self.btn_remove = QToolButton()
         self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
@@ -165,8 +167,8 @@ class LamellaRowWidget(QWidget):
         )
         self.btn_defect.installEventFilter(self)
         self.btn_defect.clicked.connect(self._on_defect_clicked)
-        self.btn_move.clicked.connect(lambda: self.move_to_clicked.emit(self.lamella))
-        self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.lamella))
+        self._action_move.triggered.connect(lambda: self.move_to_clicked.emit(self.lamella))
+        self._action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
         # Connect to evented fields so only this row updates when its data changes.
@@ -312,6 +314,7 @@ class LamellaListWidget(QWidget):
         self._header.select_all_changed.connect(self._on_select_all)
 
         self._btn_visible = {
+            "actions": True,
             "move_to": True,
             "edit": True,
             "remove": True,
@@ -339,15 +342,24 @@ class LamellaListWidget(QWidget):
         self._sync_select_all()
         return row
 
-    def enable_move_to_button(self, visible: bool) -> None:
+    def enable_actions_button(self, visible: bool) -> None:
+        self._btn_visible["actions"] = visible
+        for i in range(self._list.count()):
+            self._row(i).btn_actions.setVisible(visible)
+
+    def enable_move_to_action(self, visible: bool) -> None:
         self._btn_visible["move_to"] = visible
         for i in range(self._list.count()):
-            self._row(i).btn_move.setVisible(visible)
+            row = self._row(i)
+            if row is not None:
+                row._action_move.setVisible(visible)
 
-    def enable_edit_button(self, visible: bool) -> None:
+    def enable_edit_action(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
         for i in range(self._list.count()):
-            self._row(i).btn_edit.setVisible(visible)
+            row = self._row(i)
+            if row is not None:
+                row._action_edit.setVisible(visible)
 
     def enable_remove_button(self, visible: bool) -> None:
         self._btn_visible["remove"] = visible
@@ -397,8 +409,7 @@ class LamellaListWidget(QWidget):
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _apply_btn_visibility(self, row: LamellaRowWidget) -> None:
-        row.btn_move.setVisible(self._btn_visible["move_to"])
-        row.btn_edit.setVisible(self._btn_visible["edit"])
+        row.btn_actions.setVisible(self._btn_visible["actions"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
         row.btn_defect.setVisible(self._btn_visible["defect"])
 

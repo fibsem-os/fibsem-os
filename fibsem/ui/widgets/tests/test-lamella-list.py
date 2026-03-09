@@ -104,8 +104,7 @@ class TestWindow(QWidget):
         toggle_row.setSpacing(6)
 
         for label, fn in [
-            ("Move To", self.lamella_list.enable_move_to_button),
-            ("Edit",    self.lamella_list.enable_edit_button),
+            ("Actions", self.lamella_list.enable_actions_button),
             ("Remove",  self.lamella_list.enable_remove_button),
             ("Defect",  self.lamella_list.enable_defect_button),
         ]:
