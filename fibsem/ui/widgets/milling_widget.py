@@ -40,16 +40,16 @@ class FibsemMillingWidget2(QWidget):
         # pushbutton for run milling
         self.pushButton_run_milling = QPushButton("Run Milling")
         self.pushButton_run_milling.clicked.connect(self.run_milling)
-        self.pushButton_run_milling.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_run_milling.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         self.pushButton_stop_milling = QPushButton("Stop Milling")
         self.pushButton_stop_milling.clicked.connect(self.stop_milling)
-        self.pushButton_stop_milling.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_stop_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.pushButton_stop_milling.setVisible(False)
 
         self.pushButton_pause_milling = QPushButton("Pause Milling")
         self.pushButton_pause_milling.clicked.connect(self.pause_resume_milling)
-        self.pushButton_pause_milling.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
+        self.pushButton_pause_milling.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_pause_milling.setVisible(False)
 
         self.progressBar_milling = QProgressBar(self)
@@ -57,9 +57,9 @@ class FibsemMillingWidget2(QWidget):
         self.progressBar_milling.setVisible(False)
         self.progressBar_milling_stages.setVisible(False)
         self.progressBar_milling_stages.setStyleSheet(
-            stylesheets.PROGRESS_BAR_BLUE_STYLE
+            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
         )
-        self.progressBar_milling.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
+        self.progressBar_milling.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
 
         self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection) # type: ignore
 
