@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -11,45 +11,44 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
-
-from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.base import FibsemMillingStage, get_strategy
+from fibsem.milling.patterning import get_pattern, get_pattern_names
+from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui import stylesheets
 from fibsem.ui.napari.patterns import COLOURS
-from fibsem.utils import format_value
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
-_NAME_MIN_WIDTH = 140
-_PATTERN_MIN_WIDTH = 100
-_DEPTH_MIN_WIDTH = 80
-_CURRENT_MIN_WIDTH = 80
-_STRATEGY_MIN_WIDTH = 100
+_NAME_MIN_WIDTH = 120
+_PATTERN_FIXED_WIDTH = 110
+_DEPTH_FIXED_WIDTH = 112
+_CURRENT_FIXED_WIDTH = 100
+_STRATEGY_FIXED_WIDTH = 110
 _BTN_SIZE = QSize(28, 28)
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # color + remove
 
-_SELECTED_BG = "#2d3f5c"
+_SELECTED_BG = stylesheets.GRAY_FOREGROUND_COLOR
 _NORMAL_BG = "transparent"
+
+_SI_TO_MICRO = 1e6
+_MICRO_TO_SI = 1e-6
+
+_NAME_EDIT_STYLE = (
+    "QLineEdit { background: transparent; border: none; }"
+    "QLineEdit:focus { background: #1e2124; border: 1px solid #555; border-radius: 2px; }"
+)
 
 
 def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
     px = QPixmap(size, size)
     px.fill(QColor(color_name))
     return QIcon(px)
-
-
-def _format_depth(stage: FibsemMillingStage) -> str:
-    if hasattr(stage.pattern, "depth") and stage.pattern.depth is not None:
-        return format_value(stage.pattern.depth, unit="m", precision=1)
-    return "—"
-
-
-def _format_current(stage: FibsemMillingStage) -> str:
-    return format_value(stage.milling.milling_current, unit="A", precision=1)
 
 
 class _DraggableStageList(QListWidget):
@@ -75,46 +74,60 @@ class MillingStageRowWidget(QWidget):
     enabled_changed = pyqtSignal(object, bool)   # FibsemMillingStage, enabled
     remove_clicked = pyqtSignal(object)          # FibsemMillingStage
     row_clicked = pyqtSignal(object)             # FibsemMillingStage
+    stage_changed = pyqtSignal(object)           # FibsemMillingStage after inline mutation
 
     def __init__(
         self,
         stage: FibsemMillingStage,
         index: int,
+        pattern_names: List[str],
+        strategy_names: List[str],
+        current_values: Optional[List[float]] = None,
         enabled: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.stage = stage
         self.index = index
+        self._pattern_names = pattern_names
+        self._strategy_names = strategy_names
+        self._current_values = current_values or []
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(8)
+        layout.setSpacing(4)
 
         self.checkbox = QCheckBox()
         self.checkbox.setChecked(enabled)
         self.checkbox.setToolTip("Enable/disable stage")
         layout.addWidget(self.checkbox)
 
-        self.name_label = QLabel()
-        self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
-        layout.addWidget(self.name_label)
+        self.name_edit = QLineEdit()
+        self.name_edit.setMinimumWidth(_NAME_MIN_WIDTH)
+        self.name_edit.setStyleSheet(_NAME_EDIT_STYLE)
+        self.name_edit.setToolTip("Stage name")
+        layout.addWidget(self.name_edit, 1)
 
-        self.pattern_label = QLabel()
-        self.pattern_label.setMinimumWidth(_PATTERN_MIN_WIDTH)
-        layout.addWidget(self.pattern_label)
+        self.pattern_combo = ValueComboBox(items=pattern_names)
+        self.pattern_combo.setFixedWidth(_PATTERN_FIXED_WIDTH)
+        self.pattern_combo.setToolTip("Pattern type")
+        layout.addWidget(self.pattern_combo)
 
-        self.depth_label = QLabel()
-        self.depth_label.setMinimumWidth(_DEPTH_MIN_WIDTH)
-        layout.addWidget(self.depth_label)
+        self.depth_spin = ValueSpinBox(suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1)
+        self.depth_spin.setFixedWidth(_DEPTH_FIXED_WIDTH)
+        self.depth_spin.setToolTip("Depth (µm)")
+        layout.addWidget(self.depth_spin)
 
-        self.current_label = QLabel()
-        self.current_label.setMinimumWidth(_CURRENT_MIN_WIDTH)
-        layout.addWidget(self.current_label)
+        _current_items = self._current_values if self._current_values else [stage.milling.milling_current]
+        self.current_combo = ValueComboBox(items=_current_items, unit="A")
+        self.current_combo.setFixedWidth(_CURRENT_FIXED_WIDTH)
+        self.current_combo.setToolTip("Milling current")
+        layout.addWidget(self.current_combo)
 
-        self.strategy_label = QLabel()
-        self.strategy_label.setMinimumWidth(_STRATEGY_MIN_WIDTH)
-        layout.addWidget(self.strategy_label, 1)
+        self.strategy_combo = ValueComboBox(items=strategy_names)
+        self.strategy_combo.setFixedWidth(_STRATEGY_FIXED_WIDTH)
+        self.strategy_combo.setToolTip("Strategy")
+        layout.addWidget(self.strategy_combo)
 
         self.btn_color = QToolButton()
         self.btn_color.setFixedSize(_BTN_SIZE)
@@ -122,11 +135,9 @@ class MillingStageRowWidget(QWidget):
         self.btn_color.setToolTip("Stage color")
         layout.addWidget(self.btn_color)
 
-        self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_remove.setToolTip("Remove stage")
-        self.btn_remove.setFixedSize(_BTN_SIZE)
-        self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_remove = IconToolButton(
+            icon="mdi:trash-can-outline", tooltip="Remove stage", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_remove)
 
         self.checkbox.stateChanged.connect(
@@ -134,24 +145,122 @@ class MillingStageRowWidget(QWidget):
         )
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.stage))
 
+        for w in (self.name_edit, self.pattern_combo, self.depth_spin,
+                  self.current_combo, self.strategy_combo):
+            w.installEventFilter(self)
+
+        self._connect_signals()
         self.refresh()
 
+    # ------------------------------------------------------------------
+    # Signal connections
+    # ------------------------------------------------------------------
+
+    def _connect_signals(self) -> None:
+        self.name_edit.editingFinished.connect(self._on_name_changed)
+        self.pattern_combo.currentIndexChanged.connect(self._on_pattern_type_changed)
+        self.depth_spin.editingFinished.connect(self._on_depth_changed)
+        self.current_combo.currentIndexChanged.connect(self._on_current_changed)
+        self.strategy_combo.currentIndexChanged.connect(self._on_strategy_changed)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _block_controls(self, block: bool) -> None:
+        for w in (self.name_edit, self.pattern_combo, self.depth_spin,
+                  self.current_combo, self.strategy_combo):
+            w.blockSignals(block)
+
+    def _update_depth_visibility(self) -> None:
+        has_depth = hasattr(self.stage.pattern, "depth") and self.stage.pattern.depth is not None
+        self.depth_spin.setVisible(has_depth)
+        self.depth_spin.setEnabled(has_depth)
+
+    # ------------------------------------------------------------------
+    # Qt overrides
+    # ------------------------------------------------------------------
+
     def mousePressEvent(self, event) -> None:
-        self.row_clicked.emit(self.stage)
+        child = self.childAt(event.pos())
+        if child is None or child is self:
+            self.row_clicked.emit(self.stage)
         super().mousePressEvent(event)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.FocusIn:
+            self.row_clicked.emit(self.stage)
+        return super().eventFilter(obj, event)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def set_selected(self, selected: bool) -> None:
         bg = _SELECTED_BG if selected else _NORMAL_BG
         self.setStyleSheet(f"background-color: {bg};")
 
     def refresh(self) -> None:
-        self.name_label.setText(self.stage.name)
-        self.pattern_label.setText(self.stage.pattern.name)
-        self.depth_label.setText(_format_depth(self.stage))
-        self.current_label.setText(_format_current(self.stage))
-        self.strategy_label.setText(self.stage.strategy.name)
+        self._block_controls(True)
+        self.name_edit.setText(self.stage.name)
+        self.name_edit.setToolTip(self.stage.summary)
+        self.pattern_combo.set_value(self.stage.pattern.name)
+        self.depth_spin.setValue(self.stage.pattern.depth * _SI_TO_MICRO)
+        self.current_combo.set_value(self.stage.milling.milling_current)
+        self.strategy_combo.set_value(self.stage.strategy.name)
+        self._update_depth_visibility()
         color = COLOURS[self.index % len(COLOURS)]
         self.btn_color.setIcon(_make_color_icon(color))
+        self._block_controls(False)
+
+    # ------------------------------------------------------------------
+    # Inline mutation handlers
+    # ------------------------------------------------------------------
+
+    def _on_name_changed(self) -> None:
+        text = self.name_edit.text().strip()
+        if not text:
+            self.name_edit.setText(self.stage.name)  # revert empty input
+            return
+        if text == self.stage.name:
+            return
+        self.stage.name = text
+        self.stage_changed.emit(self.stage)
+
+    def _on_pattern_type_changed(self) -> None:
+        new_name = self.pattern_combo.value()
+        if new_name is None or new_name == self.stage.pattern.name:
+            return
+        old_depth = getattr(self.stage.pattern, "depth", None)
+        new_pattern = get_pattern(new_name)
+        if old_depth is not None and hasattr(new_pattern, "depth"):
+            new_pattern.depth = old_depth
+        self.stage.pattern = new_pattern
+        self._update_depth_visibility()
+        self.stage_changed.emit(self.stage)
+
+    def _on_depth_changed(self) -> None:
+        if not hasattr(self.stage.pattern, "depth"):
+            return
+        new_depth = self.depth_spin.value() * _MICRO_TO_SI
+        if new_depth == self.stage.pattern.depth:
+            return
+        self.stage.pattern.depth = new_depth
+        self.stage_changed.emit(self.stage)
+
+    def _on_current_changed(self) -> None:
+        new_current = self.current_combo.value()
+        if new_current is None or new_current == self.stage.milling.milling_current:
+            return
+        self.stage.milling.milling_current = new_current
+        self.stage_changed.emit(self.stage)
+
+    def _on_strategy_changed(self) -> None:
+        new_name = self.strategy_combo.value()
+        if new_name is None or new_name == self.stage.strategy.name:
+            return
+        self.stage.strategy = get_strategy(new_name)
+        self.stage_changed.emit(self.stage)
 
 
 class _MillingStageListHeader(QWidget):
@@ -164,37 +273,37 @@ class _MillingStageListHeader(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
+        layout.setSpacing(4)
 
         self.checkbox_all = QCheckBox("Stage")
         self.checkbox_all.setChecked(True)
         self.checkbox_all.setStyleSheet("font-weight: bold;")
         self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
-        layout.addWidget(self.checkbox_all)
+        layout.addWidget(self.checkbox_all, 1)
 
-        for label_text, min_width in [
-            ("Pattern", _PATTERN_MIN_WIDTH),
-            ("Depth", _DEPTH_MIN_WIDTH),
-            ("Current", _CURRENT_MIN_WIDTH),
-            ("Strategy", _STRATEGY_MIN_WIDTH),
+        self.lbl_pattern = QLabel("Pattern")
+        self.lbl_pattern.setStyleSheet("font-weight: bold;")
+        self.lbl_pattern.setFixedWidth(_PATTERN_FIXED_WIDTH)
+        layout.addWidget(self.lbl_pattern)
+
+        for label_text, fixed_width in [
+            ("Depth", _DEPTH_FIXED_WIDTH),
+            ("Current", _CURRENT_FIXED_WIDTH),
+            ("Strategy", _STRATEGY_FIXED_WIDTH),
         ]:
             lbl = QLabel(label_text)
             lbl.setStyleSheet("font-weight: bold;")
-            lbl.setMinimumWidth(min_width)
+            lbl.setFixedWidth(fixed_width)
             layout.addWidget(lbl)
-
-        layout.addStretch(1)
 
         # spacer covers color button; btn_add aligns with remove button
         spacer = QWidget()
         spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
         layout.addWidget(spacer)
 
-        self.btn_add = QToolButton()
-        self.btn_add.setIcon(QIconifyIcon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_add.setToolTip("Add milling stage")
-        self.btn_add.setFixedSize(_BTN_SIZE)
-        self.btn_add.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_add = IconToolButton(
+            icon="mdi:plus", tooltip="Add milling stage", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_add)
 
         self.checkbox_all.stateChanged.connect(
@@ -209,20 +318,26 @@ class MillingStageListWidget(QWidget):
     stage_selected = pyqtSignal(object)    # FibsemMillingStage
     stage_added = pyqtSignal(object)       # FibsemMillingStage (new stage, distinct from selection)
     stage_removed = pyqtSignal(object)     # FibsemMillingStage
+    stage_changed = pyqtSignal(object)     # FibsemMillingStage (inline field edit)
     enabled_changed = pyqtSignal(list)     # List[FibsemMillingStage] (enabled only)
     order_changed = pyqtSignal(list)       # List[FibsemMillingStage] in new order
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, current_values: Optional[List[float]] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         self._checked: Dict[int, bool] = {}   # id(stage) -> bool
         self._selected_stage: Optional[FibsemMillingStage] = None
+        self._pattern_names: List[str] = get_pattern_names()
+        self._strategy_names: List[str] = get_strategy_names()
+        self._current_values: List[float] = current_values or []
+        self._show_pattern: bool = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self._header = _MillingStageListHeader()
+        self._header.lbl_pattern.setVisible(self._show_pattern)
         layout.addWidget(self._header)
 
         sep = QFrame()
@@ -268,7 +383,14 @@ class MillingStageListWidget(QWidget):
     ) -> MillingStageRowWidget:
         index = self._list.count()
         self._checked[id(stage)] = enabled
-        row = MillingStageRowWidget(stage, index=index, enabled=enabled)
+        row = MillingStageRowWidget(
+            stage, index=index,
+            pattern_names=self._pattern_names,
+            strategy_names=self._strategy_names,
+            current_values=self._current_values,
+            enabled=enabled,
+        )
+        row.pattern_combo.setVisible(self._show_pattern)
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, stage)
         item.setSizeHint(row.sizeHint())
@@ -324,6 +446,13 @@ class MillingStageListWidget(QWidget):
         self._selected_stage = None
         self._update_empty_state()
 
+    def set_pattern_column_visible(self, visible: bool) -> None:
+        """Show or hide the Pattern column in the header and all rows."""
+        self._show_pattern = visible
+        self._header.lbl_pattern.setVisible(visible)
+        for i in range(self._list.count()):
+            self._row(i).pattern_combo.setVisible(visible)
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -357,6 +486,7 @@ class MillingStageListWidget(QWidget):
         row.enabled_changed.connect(self._on_enabled_changed)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.row_clicked.connect(self._on_row_clicked)
+        row.stage_changed.connect(self.stage_changed.emit)
 
     def _row(self, i: int) -> MillingStageRowWidget:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
@@ -374,7 +504,14 @@ class MillingStageListWidget(QWidget):
             if item is None:
                 continue
             enabled = self._checked.get(id(stage), True)
-            row = MillingStageRowWidget(stage, index=i, enabled=enabled)
+            row = MillingStageRowWidget(
+                stage, index=i,
+                pattern_names=self._pattern_names,
+                strategy_names=self._strategy_names,
+                current_values=self._current_values,
+                enabled=enabled,
+            )
+            row.pattern_combo.setVisible(self._show_pattern)
             item.setSizeHint(row.sizeHint())
             self._list.setItemWidget(item, row)
             self._connect_row(row)

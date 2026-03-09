@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QScrollArea,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -20,7 +19,7 @@ from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import TitledPanel, WheelBlocker
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, WheelBlocker
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
@@ -145,18 +144,21 @@ class MillingTaskConfigWidget2(QWidget):
         )
         self.alignment_widget.image_settings_widget.set_show_advanced_button(False)
 
-        self._btn_enable_alignment = QToolButton()
-        self._btn_enable_alignment.setIcon(QIconifyIcon("mdi:checkboxes-blank-outline", color=stylesheets.GRAY_ICON_COLOR))
-        self._btn_enable_alignment.setToolTip("Disable alignment")
-        self._btn_enable_alignment.setCheckable(True)
-        self._btn_enable_alignment.setChecked(True)  # matches enabled_checkbox default
-        self._btn_enable_alignment.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-
-        self._btn_advanced_alignment = QToolButton()
-        self._btn_advanced_alignment.setIcon(QIconifyIcon("mdi:tune", color=stylesheets.GRAY_ICON_COLOR))
-        self._btn_advanced_alignment.setToolTip("Show advanced settings")
-        self._btn_advanced_alignment.setCheckable(True)
-        self._btn_advanced_alignment.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self._btn_enable_alignment = IconToolButton(
+            icon="mdi:checkbox-blank-outline",
+            checked_icon="mdi:checkbox-marked-outline",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Enable alignment",
+            checked_tooltip="Disable alignment",
+            checked=True,
+        )
+        self._btn_advanced_alignment = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
 
         alignment_panel = TitledPanel("Alignment", content=self.alignment_widget)
         alignment_panel.add_header_widget(self._btn_enable_alignment)
@@ -170,18 +172,21 @@ class MillingTaskConfigWidget2(QWidget):
         )
         self.acquisition_widget.image_settings_widget.set_show_advanced_button(False)
 
-        self._btn_enable_acquisition = QToolButton()
-        self._btn_enable_acquisition.setIcon(QIconifyIcon("mdi:camera", color=stylesheets.GRAY_ICON_COLOR))
-        self._btn_enable_acquisition.setToolTip("Disable acquisition")
-        self._btn_enable_acquisition.setCheckable(True)
-        self._btn_enable_acquisition.setChecked(True)  # both checkboxes default True
-        self._btn_enable_acquisition.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-
-        self._btn_advanced_acquisition = QToolButton()
-        self._btn_advanced_acquisition.setIcon(QIconifyIcon("mdi:tune", color=stylesheets.GRAY_ICON_COLOR))
-        self._btn_advanced_acquisition.setToolTip("Show advanced settings")
-        self._btn_advanced_acquisition.setCheckable(True)
-        self._btn_advanced_acquisition.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self._btn_enable_acquisition = IconToolButton(
+            icon="mdi:checkbox-blank-outline",
+            checked_icon="mdi:checkbox-marked-outline",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Enable acquisition",
+            checked_tooltip="Disable acquisition",
+            checked=True,
+        )
+        self._btn_advanced_acquisition = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
 
         acquisition_panel = TitledPanel("Acquisition", content=self.acquisition_widget)
         acquisition_panel.add_header_widget(self._btn_enable_acquisition)
@@ -193,9 +198,7 @@ class MillingTaskConfigWidget2(QWidget):
         self.milling_stages_widget = FibsemMillingStagesWidget(
             microscope=self.microscope, stages=[]
         )
-        self._btn_stage_count = QToolButton()
-        self._btn_stage_count.setFixedSize(32, 32)
-        self._btn_stage_count.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self._btn_stage_count = IconToolButton(icon="mdi:numeric-0-box-outline", size=32)
         self._btn_stage_count.setEnabled(False)
 
         milling_panel = TitledPanel("Milling Stages", content=self.milling_stages_widget)
@@ -237,9 +240,6 @@ class MillingTaskConfigWidget2(QWidget):
         self.settings_changed.emit(self.get_settings())
 
     def _on_enable_alignment_toggled(self, checked: bool) -> None:
-        color = stylesheets.GRAY_ICON_COLOR
-        self._btn_enable_alignment.setIcon(QIconifyIcon("mdi:checkboxes-blank-outline", color=color))
-        self._btn_enable_alignment.setToolTip("Disable alignment" if checked else "Enable alignment")
         self.alignment_widget.enabled_checkbox.blockSignals(True)
         self.alignment_widget.enabled_checkbox.setChecked(checked)
         self.alignment_widget.enabled_checkbox.blockSignals(False)
@@ -249,21 +249,12 @@ class MillingTaskConfigWidget2(QWidget):
         self._btn_enable_alignment.blockSignals(True)
         self._btn_enable_alignment.setChecked(checked)
         self._btn_enable_alignment.blockSignals(False)
-        color = stylesheets.GRAY_ICON_COLOR
-        self._btn_enable_alignment.setIcon(QIconifyIcon("mdi:checkboxes-blank-outline", color=color))
-        self._btn_enable_alignment.setToolTip("Disable alignment" if checked else "Enable alignment")
+        self._btn_enable_alignment.set_icon_state(checked)
 
     def _on_advanced_alignment_toggled(self, checked: bool) -> None:
-        icon = "mdi:tune-variant" if checked else "mdi:tune"
-        color = stylesheets.GRAY_ICON_COLOR
-        self._btn_advanced_alignment.setIcon(QIconifyIcon(icon, color=color))
-        self._btn_advanced_alignment.setToolTip("Hide advanced settings" if checked else "Show advanced settings")
         self.alignment_widget.set_show_advanced(checked)
 
     def _on_enable_acquisition_toggled(self, checked: bool) -> None:
-        color = stylesheets.GRAY_ICON_COLOR
-        self._btn_enable_acquisition.setIcon(QIconifyIcon("mdi:camera", color=color))
-        self._btn_enable_acquisition.setToolTip("Disable acquisition" if checked else "Enable acquisition")
         aw = self.acquisition_widget
         aw.acquire_sem_checkbox.blockSignals(True)
         aw.acquire_fib_checkbox.blockSignals(True)
@@ -279,15 +270,9 @@ class MillingTaskConfigWidget2(QWidget):
         self._btn_enable_acquisition.blockSignals(True)
         self._btn_enable_acquisition.setChecked(any_enabled)
         self._btn_enable_acquisition.blockSignals(False)
-        color = stylesheets.PRIMARY_COLOR if any_enabled else stylesheets.GRAY_ICON_COLOR
-        self._btn_enable_acquisition.setIcon(QIconifyIcon("mdi:camera", color=color))
-        self._btn_enable_acquisition.setToolTip("Disable acquisition" if any_enabled else "Enable acquisition")
+        self._btn_enable_acquisition.set_icon_state(any_enabled)
 
     def _on_advanced_acquisition_toggled(self, checked: bool) -> None:
-        icon = "mdi:tune-variant" if checked else "mdi:tune"
-        color = stylesheets.PRIMARY_COLOR if checked else stylesheets.GRAY_ICON_COLOR
-        self._btn_advanced_acquisition.setIcon(QIconifyIcon(icon, color=color))
-        self._btn_advanced_acquisition.setToolTip("Hide advanced settings" if checked else "Show advanced settings")
         self.acquisition_widget.set_show_advanced(checked)
 
     # ------------------------------------------------------------------
@@ -319,6 +304,8 @@ class MillingTaskConfigWidget2(QWidget):
         self.milling_stages_widget.set_stages(settings.stages)
         self._update_stage_count_icon(len(settings.stages))
         self.blockSignals(False)
+        self._on_alignment_checkbox_changed(settings.alignment.enabled)  # sync button state to loaded values
+        self._on_acquisition_checkbox_changed()  # sync button state to loaded values
 
     def set_config(self, config: FibsemMillingTaskConfig) -> None:
         self.update_from_settings(config)
