@@ -916,6 +916,10 @@ class Experiment:
         """Set the organisation name in metadata."""
         self.metadata["organisation"] = value
 
+    def get_lamella_by_name(self, name: str) -> Optional['Lamella']:
+        """Return the Lamella with the given name, or None if not found."""
+        return next((p for p in self.positions if p.name == name), None)
+
     def save(self) -> None:
         """Save the sample data to yaml file"""
 

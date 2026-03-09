@@ -1330,7 +1330,9 @@ def run_tasks(microscope: FibsemMicroscope,
                             "current_lamella_index": required_lamella.index(lamella.name) if lamella.name in required_lamella else None,
                             "total_lamellas": len(required_lamella) if required_lamella else None,
                             "error_message": None,
-                            "status": AutoLamellaTaskStatus.Skipped
+                            "status": AutoLamellaTaskStatus.Skipped,
+                            "timestamp": time.time(),
+                            "task_duration": None,
                         }
                     })
                 continue
@@ -1355,7 +1357,9 @@ def run_tasks(microscope: FibsemMicroscope,
                                 "current_lamella_index": required_lamella.index(lamella.name),
                                 "total_lamellas": len(required_lamella),
                                 "error_message": None,
-                                "status": AutoLamellaTaskStatus.InProgress
+                                "status": AutoLamellaTaskStatus.InProgress,
+                                "timestamp": time.time(),
+                                "task_duration": None,
                                 }
                             })
 
@@ -1383,7 +1387,7 @@ def run_tasks(microscope: FibsemMicroscope,
                     msg = f"Error in task {task_name} for Lamella {lamella.name}."
 
                 parent_ui.workflow_update_signal.emit({"msg": msg,
-                "status": {"task_name": task_name, 
+                "status": {"task_name": task_name,
                             "task_names": task_names,
                             "total_tasks": len(task_names),
                             "current_task_index": task_names.index(task_name),
@@ -1392,7 +1396,9 @@ def run_tasks(microscope: FibsemMicroscope,
                             "current_lamella_index": required_lamella.index(lamella.name),
                             "total_lamellas": len(required_lamella),
                             "error_message": lamella.task_state.status_message,
-                            "status": lamella.task_state.status
+                            "status": lamella.task_state.status,
+                            "timestamp": time.time(),
+                            "task_duration": lamella.task_state.duration,
                             }
                         })
 

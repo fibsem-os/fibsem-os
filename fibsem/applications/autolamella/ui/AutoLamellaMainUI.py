@@ -1047,6 +1047,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             current_task_index = status_msg.get("current_task_index", None)
             total_tasks = status_msg.get("total_tasks", None)
             error_msg = status_msg.get("error_message", None)
+            timestamp = status_msg.get("timestamp", None)
+            task_duration = status_msg.get("task_duration", None)
             msg = info.get("msg", "No message")
             status = status_msg.get("status", "info")
 
@@ -1068,6 +1070,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             msg_type = None
             if status is AutoLamellaTaskStatus.Completed:
                 msg_type = "success"
+                if task_duration is not None:
+                    from fibsem.utils import format_duration
+                    msg += f" ({format_duration(task_duration)})"
             elif status is AutoLamellaTaskStatus.Failed:
                 msg_type = "error"
                 msg = error_msg if error_msg is not None else msg
@@ -1081,11 +1086,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
             # Refresh only the affected lamella if we can identify it
             lamella = None
-            experiment = getattr(self.autolamella_ui, "experiment", None) if self.autolamella_ui is not None else None
-            if experiment is not None and current_lamella_index is not None:
-                positions = experiment.positions
-                if 0 <= current_lamella_index < len(positions):
-                    lamella = positions[current_lamella_index]
+            experiment = self.autolamella_ui.experiment
+            if experiment is not None and lamella_name is not None:
+                lamella = experiment.get_lamella_by_name(lamella_name)
 
             if lamella is not None:
                 self.lamella_list_widget.refresh_lamella(lamella)

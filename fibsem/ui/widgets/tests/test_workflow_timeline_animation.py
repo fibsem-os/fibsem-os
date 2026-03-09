@@ -155,7 +155,7 @@ class AnimatedDemo(QWidget):
                 it.status = StepStatus.PENDING
             self._progress._outer.set_step_status(i, it.status)
 
-        self._progress._inner.clear()
+        self._progress.set_active_outer(self._outer_idx)
         self._status_label.setText(
             f"[{item.lamella_name}] {item.task_name} — starting…"
         )
