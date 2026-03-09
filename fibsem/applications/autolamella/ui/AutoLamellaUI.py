@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import QMainWindow, QDialog, QVBoxLayout, QDialogButtonBox,
 if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if they are available
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget
 
-from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.autolamella_create_experiment_widget import create_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_task_protocol_widget import load_task_protocol_dialog
@@ -130,7 +130,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.minimap_widget: Optional[FibsemMinimapWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
-        self.milling_task_config_widget: Optional[MillingTaskConfigWidget] = None
+        self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional['FibsemEmbeddedDetectionWidget'] = None
         self.protocol_editor_widget: Optional[AutoLamellaProtocolEditorTabWidget] = None
 
@@ -598,8 +598,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
-            # TODO: replace this with MillingTaskWidget to support multi-task configuration
-            self.milling_task_config_widget = MillingTaskConfigWidget(microscope=self.microscope, parent=self)
+            self.milling_task_config_widget = MillingTaskViewerWidget(
+                microscope=self.microscope,
+                viewer=self.viewer,
+                image_widget=self.image_widget,
+                parent=self,
+            )
             self.tabWidget.addTab(self.milling_task_config_widget, "Milling")
 
             # add the detection widget if ml dependencies are available

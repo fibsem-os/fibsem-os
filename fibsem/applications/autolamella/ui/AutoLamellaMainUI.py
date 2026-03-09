@@ -62,7 +62,6 @@ from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
-# from fibsem.ui.widgets.task_history_table_widget import TaskHistoryTableWidget
 from fibsem.utils import format_duration
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
@@ -616,7 +615,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)    # type: ignore
+        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
 
     def _create_main_tab(self):
         """Create the main AutoLamella tab."""
@@ -652,7 +651,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
-        self.autolamella_ui.setMinimumWidth(500)
+        self.autolamella_ui.setMinimumWidth(550)
 
         # Add the viewer's Qt window to our layout
         layout.addWidget(self.main_viewer.window._qt_window)
