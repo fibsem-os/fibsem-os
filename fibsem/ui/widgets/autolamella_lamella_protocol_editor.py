@@ -621,26 +621,47 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             if os.path.exists(sem_image_path) and os.path.isfile(sem_image_path):
                 sem_image = FibsemImage.load(sem_image_path)
 
-        self.viewer.layers.clear()
-        self.viewer.add_image(
-            data=self.image.filtered_data,
-            name=REFERENCE_IMAGE_LAYER_NAME,
-            colormap="gray",
-            blending="additive",
-        )
+        # clear existing layers, except images to maintain the layer parameters (e.g. gamma, contrast limits)
+        for layer in list(self.viewer.layers): # type: ignore
+            if layer.name not in [REFERENCE_IMAGE_LAYER_NAME, REFERENCE_IMAGE_SEM_LAYER_NAME]:
+                self.viewer.layers.remove(layer) # type: ignore
 
-        if sem_image is not None:
+        self._update_fib_image_layer()
+        self._update_sem_image_layer(sem_image)
+
+        self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
+        self._on_selected_task_changed()
+        self.viewer.reset_view()
+
+    def _update_fib_image_layer(self):
+        """Update the FIB reference image layer with the currently selected image, or create it if it doesn't exist."""
+        if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].data = self.image.filtered_data # type: ignore
+        else:
+            self.viewer.add_image(
+                data=self.image.filtered_data,
+                name=REFERENCE_IMAGE_LAYER_NAME,
+                colormap="gray",
+                blending="additive",
+            )
+
+    def _update_sem_image_layer(self, sem_image: Optional[FibsemImage]):
+        """Add or update the SEM reference image layer, or remove it if no SEM image is provided."""
+        if sem_image is None:
+            if REFERENCE_IMAGE_SEM_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(REFERENCE_IMAGE_SEM_LAYER_NAME) # type: ignore
+            return
+            
+        if REFERENCE_IMAGE_SEM_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers[REFERENCE_IMAGE_SEM_LAYER_NAME].data = sem_image.filtered_data # type: ignore
+        else:
             self.viewer.add_image(
                 data=sem_image.filtered_data,
                 name=REFERENCE_IMAGE_SEM_LAYER_NAME,
                 colormap="gray",
                 blending="additive",
-                translate=(0, -sem_image.data.shape[1]),
-            )
-
-        self.milling_task_editor.config_widget.milling_editor_widget.set_image(self.image)
-        self._on_selected_task_changed()
-        self.viewer.reset_view()
+            translate=(0, -sem_image.data.shape[1]),
+        )
 
     def _get_selected_task_name(self) -> str:
         """Get the currently selected task name from the task list."""
