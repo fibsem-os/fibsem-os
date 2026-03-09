@@ -135,7 +135,7 @@ class MillingTaskConfigWidget2(QWidget):
         core_grid.setColumnStretch(1, 1)
 
         core_panel = TitledPanel("Task", content=core_content)
-        core_panel._btn_collapse.setChecked(False)
+        core_panel._btn_collapse.setChecked(True)
         layout.addWidget(core_panel)
 
         # ── Alignment panel ──────────────────────────────────────────
@@ -203,7 +203,7 @@ class MillingTaskConfigWidget2(QWidget):
 
         milling_panel = TitledPanel("Milling Stages", content=self.milling_stages_widget)
         milling_panel.add_header_widget(self._btn_stage_count)
-        milling_panel._btn_collapse.setChecked(False)
+        milling_panel._btn_collapse.setChecked(True)
         layout.addWidget(milling_panel)
 
         self._update_stage_count_icon(0)
