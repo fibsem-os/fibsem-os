@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 from fibsem import conversions
+from fibsem.ui.napari.patterns import MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.utilities import is_inside_image_bounds
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import Experiment
@@ -349,8 +350,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.milling_task_collapsible.setVisible(True)
         else:
             self.milling_task_collapsible.setVisible(False)
-            if "Milling Patterns" in self.viewer.layers:
-                self.viewer.layers.remove("Milling Patterns") # type: ignore
+            if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME) # type: ignore
 
     def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
         """Display a warning if the milling FoV does not match the image FoV."""

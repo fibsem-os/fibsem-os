@@ -49,7 +49,7 @@ from fibsem.structures import (
 )
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
-from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
+from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS, MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
     remove_all_napari_shapes_layers,
@@ -1039,8 +1039,8 @@ class FibsemMinimapWidget(QWidget):
             self.viewer.layers[OVERLAY_CONFIG["layer_name"]].visible = False
         if CROSSHAIR_CONFIG["layer_name"] in self.viewer.layers:
             self.viewer.layers[CROSSHAIR_CONFIG["layer_name"]].visible = False
-        if "Milling Patterns" in self.viewer.layers:
-            self.viewer.layers["Milling Patterns"].visible = False
+        if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = False
         return
 
     def draw_current_stage_position(self, stage_position: Optional[FibsemStagePosition] = None):
@@ -1343,8 +1343,8 @@ class FibsemMinimapWidget(QWidget):
         # we should delay that until the user requests it
 
         if not self.checkBox_pattern_overlay.isChecked():
-            if "Milling Patterns" in self.viewer.layers:
-                self.viewer.layers["Milling Patterns"].visible = False
+            if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = False
             return
 
         if not (self.image
@@ -1393,8 +1393,8 @@ class FibsemMinimapWidget(QWidget):
             draw_crosshair=False,
             colors=MILLING_PATTERN_COLOURS[:len(selected_milling_stages)],
             )
-        if "Milling Patterns" in self.viewer.layers:
-            self.viewer.layers["Milling Patterns"].visible = True
+        if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = True
 
         # set the image layer as the active layer for movement
         self.set_active_layer_for_movement()

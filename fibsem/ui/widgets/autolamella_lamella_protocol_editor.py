@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible, QIconifyIcon
 from fibsem import conversions
+from fibsem.ui.napari.patterns import MILLING_ALIGNMENT_AREA_LAYER_NAME, MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.utilities import is_inside_image_bounds, add_points_layer
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
@@ -721,10 +722,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         else:
             self.milling_task_editor.remove_all_tasks()
             self.milling_task_collapsible.setVisible(False)
-            if "Milling Patterns" in self.viewer.layers:
-                self.viewer.layers.remove("Milling Patterns") # type: ignore
-            if "Milling Alignment Area" in self.viewer.layers:
-                self.viewer.layers.remove("Milling Alignment Area") # type: ignore
+            if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME) # type: ignore
+            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME) # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # display label showing task has been completed

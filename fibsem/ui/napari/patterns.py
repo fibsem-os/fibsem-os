@@ -52,6 +52,8 @@ IMAGE_LAYER_PROPERTIES = {
     "cmap": {0: "black", 1: COLOURS[0]} # override with colour wheel
 }
 
+MILLING_ALIGNMENT_AREA_LAYER_NAME = "Milling Alignment Area"
+MILLING_PATTERN_LAYER_NAME = "Milling Patterns"
 IMAGE_PATTERN_TYPES = ("bitmap",)
 IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "alignment_area", "overlay-shapes", "bbox"] # ignore these layers when removing all shapes
 STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
@@ -509,7 +511,7 @@ def draw_milling_patterns_in_napari(
                 layer_names_used.add(layer_name)
 
         if shapes_list:
-            layer_name = "Milling Patterns"
+            layer_name = MILLING_PATTERN_LAYER_NAME
             if layer_name in viewer.layers:
                 # need to clear data before updating, to account for different shapes.
                 viewer.layers[layer_name].data = []
@@ -573,7 +575,7 @@ def draw_alignment_area(viewer: napari.Viewer,
     data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area,
                                                 image_shape=image_shape,
                                                 )
-    layer_name = "Milling Alignment Area"
+    layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
     if layer_name in viewer.layers:
         viewer.layers.remove(layer_name)
 
