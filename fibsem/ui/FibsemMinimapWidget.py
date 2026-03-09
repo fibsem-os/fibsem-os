@@ -3,7 +3,7 @@ import os
 import sys
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import napari
 import napari.utils.notifications
@@ -18,13 +18,14 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout,
-    QGroupBox, QLabel, QLineEdit, QProgressBar,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QGroupBox, QLabel, QProgressBar,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 from superqt import ensure_main_thread
 
-from fibsem import config as cfg
 from fibsem import constants, conversions
+from fibsem.structures import OverviewAcquisitionSettings
+from fibsem.ui.widgets.overview_acquisition_settings_widget import OverviewAcquisitionSettingsWidget
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -127,9 +128,24 @@ OVERLAY_CONFIG = {
 }
 
 LABEL_INSTRUCTIONS = {
-    "image-available": "Instructions: \nAlt+Click to Add a position, \nShift+Click to Update a position \nor Double Click to Move the Stage...",
+    "image-available": "Instructions: \nRight Click to Add/Move a Lamella Position or Double Click to Move the Stage...",
     "no-image": "Please take or load an overview image..."
 }
+DEFAULT_OVERVIEW_ACQUISITION_SETTINGS = OverviewAcquisitionSettings(
+    image_settings=ImageSettings(
+        hfw=OVERVIEW_IMAGE_PARAMETERS["fov"] * constants.MICRO_TO_SI,
+        dwell_time=OVERVIEW_IMAGE_PARAMETERS["dwell_time"] * constants.MICRO_TO_SI,
+        autocontrast=OVERVIEW_IMAGE_PARAMETERS["autocontrast"],
+        autogamma=OVERVIEW_IMAGE_PARAMETERS["autogamma"],
+        beam_type=BeamType.ELECTRON,
+        save=True,
+        path=None,  # will be set to experiment path when overview acquisition widget is initialized
+        filename="overview-image",
+    ),
+    nrows=OVERVIEW_IMAGE_PARAMETERS["nrows"],
+    ncols=OVERVIEW_IMAGE_PARAMETERS["ncols"],
+)
+
 
 def generate_gridbar_image(shape: Tuple[int, int], pixelsize: float, spacing: float, width: float) -> FibsemImage:
     """Generate an synthetic image of cryo gridbars."""
@@ -182,7 +198,6 @@ class FibsemMinimapWidget(QWidget):
         self.show_saved_positions_fov: bool = True
         self.show_stage_limits: bool = True
         self.show_circle_overlays: bool = True
-        self.show_histogram: bool = False
 
         if (
             self.parent_widget is None
@@ -192,8 +207,7 @@ class FibsemMinimapWidget(QWidget):
             return
 
         self.setup_connections()
-
-        self.draw_blank_image() # TMP: disable until better workflow + testing
+        self.draw_blank_image()
 
     def _setup_ui(self):
         # Main layout directly on self
@@ -221,72 +235,9 @@ class FibsemMinimapWidget(QWidget):
         self.progressBar_acquisition.setValue(24)
         self.gridLayout.addWidget(self.progressBar_acquisition, 4, 0)
 
-        # --- GroupBox: Acquisition ---
-        self.groupBox_acquisition = QGroupBox("Acquisition", self.scrollAreaWidgetContents)
-        self.gridLayout_6 = QGridLayout(self.groupBox_acquisition)
-
-        self.label_tile_beam_type = QLabel("Beam Type")
-        self.comboBox_tile_beam_type = QComboBox()
-        self.gridLayout_6.addWidget(self.label_tile_beam_type, 0, 0)
-        self.gridLayout_6.addWidget(self.comboBox_tile_beam_type, 0, 1, 1, 2)
-
-        self.label_tile_fov = QLabel("Field of View")
-        self.doubleSpinBox_tile_fov = QDoubleSpinBox()
-        self.doubleSpinBox_tile_fov.setDecimals(0)
-        self.doubleSpinBox_tile_fov.setMaximum(100000.0)
-        self.doubleSpinBox_tile_fov.setSingleStep(50.0)
-        self.doubleSpinBox_tile_fov.setValue(100.0)
-        self.doubleSpinBox_tile_fov.setSuffix(" um")
-        self.gridLayout_6.addWidget(self.label_tile_fov, 1, 0)
-        self.gridLayout_6.addWidget(self.doubleSpinBox_tile_fov, 1, 1, 1, 2)
-
-        self.label_tile_count = QLabel("Number of Tiles")
-        self.spinBox_tile_nrows = QSpinBox()
-        self.spinBox_tile_ncols = QSpinBox()
-        self.gridLayout_6.addWidget(self.label_tile_count, 2, 0)
-        self.gridLayout_6.addWidget(self.spinBox_tile_nrows, 2, 1)
-        self.gridLayout_6.addWidget(self.spinBox_tile_ncols, 2, 2)
-
-        self.label_tile_total_fov = QLabel("Total Field of View: ")
-        self.label_tile_total_fov.setAlignment(Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter)  # type: ignore
-        self.gridLayout_6.addWidget(self.label_tile_total_fov, 3, 0, 1, 3)
-
-        self.label_tile_resolution = QLabel("Resolution (px)")
-        self.comboBox_tile_resolution = QComboBox()
-        self.gridLayout_6.addWidget(self.label_tile_resolution, 4, 0)
-        self.gridLayout_6.addWidget(self.comboBox_tile_resolution, 4, 1, 1, 2)
-
-        self.label_tile_dwell_time = QLabel("Dwell Time")
-        self.doubleSpinBox_tile_dwell_time = QDoubleSpinBox()
-        self.doubleSpinBox_tile_dwell_time.setMaximum(100.0)
-        self.doubleSpinBox_tile_dwell_time.setValue(1.0)
-        self.doubleSpinBox_tile_dwell_time.setSuffix(" us")
-        self.gridLayout_6.addWidget(self.label_tile_dwell_time, 5, 0)
-        self.gridLayout_6.addWidget(self.doubleSpinBox_tile_dwell_time, 5, 1, 1, 2)
-
-        self.label_tile_overlap = QLabel("Overlap (%)")
-        self.gridLayout_6.addWidget(self.label_tile_overlap, 6, 0, 1, 3)
-
-        self.checkBox_tile_autocontrast = QCheckBox("AutoContrast")
-        self.checkBox_tile_autocontrast.setChecked(True)
-        self.checkBox_tile_autogamma = QCheckBox("AutoGamma")
-        self.checkBox_tile_autogamma.setChecked(True)
-        self.gridLayout_6.addWidget(self.checkBox_tile_autocontrast, 7, 0)
-        self.gridLayout_6.addWidget(self.checkBox_tile_autogamma, 7, 1, 1, 2)
-
-        self.label_tile_path = QLabel("Path")
-        self.lineEdit_tile_path = QLineEdit()
-        self.lineEdit_tile_path.setSizePolicy(QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed))
-        self.gridLayout_6.addWidget(self.label_tile_path, 8, 0)
-        self.gridLayout_6.addWidget(self.lineEdit_tile_path, 8, 1, 1, 2)
-
-        self.label_tile_filename = QLabel("Filename")
-        self.lineEdit_tile_filename = QLineEdit("overview-image")
-        self.lineEdit_tile_filename.setSizePolicy(QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed))
-        self.gridLayout_6.addWidget(self.label_tile_filename, 9, 0)
-        self.gridLayout_6.addWidget(self.lineEdit_tile_filename, 9, 1, 1, 2)
-
-        self.gridLayout_5.addWidget(self.groupBox_acquisition, 0, 0)
+        # --- Acquisition settings widget ---
+        self.overview_acquisition_widget = OverviewAcquisitionSettingsWidget(self)
+        self.gridLayout_5.addWidget(self.overview_acquisition_widget, 0, 0)
 
         # --- GroupBox: Positions ---
         self.groupBox_positions = QGroupBox("Positions", self.scrollAreaWidgetContents)
@@ -415,38 +366,16 @@ class FibsemMinimapWidget(QWidget):
 
     def setup_connections(self):
 
-        self.label_tile_overlap.setVisible(False)
-
         # acquisition buttons
         self.pushButton_run_tile_collection.clicked.connect(self.run_tile_collection)
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
         self.pushButton_load_image.clicked.connect(self.load_image)
 
-        for beam_type in BeamType:
-            self.comboBox_tile_beam_type.addItem(beam_type.name, beam_type)
+        # initialise overview acquisition widget with defaults
         path = str(self.parent_widget.experiment.path) if self.parent_widget.experiment is not None else os.getcwd()
-        self.lineEdit_tile_path.setText(path)
-        self.doubleSpinBox_tile_fov.setValue(OVERVIEW_IMAGE_PARAMETERS["fov"])
-        self.doubleSpinBox_tile_dwell_time.setValue(OVERVIEW_IMAGE_PARAMETERS["dwell_time"])
-        for res_str, res_data in cfg.SQUARE_RESOLUTIONS_ZIP:
-            self.comboBox_tile_resolution.addItem(res_str, res_data)
-        self.comboBox_tile_resolution.setCurrentText(cfg.DEFAULT_SQUARE_RESOLUTION)
-        self.checkBox_tile_autogamma.setChecked(OVERVIEW_IMAGE_PARAMETERS["autogamma"])
-        self.checkBox_tile_autocontrast.setChecked(OVERVIEW_IMAGE_PARAMETERS["autocontrast"])
-        self.spinBox_tile_nrows.setValue(OVERVIEW_IMAGE_PARAMETERS["nrows"])
-        self.spinBox_tile_ncols.setValue(OVERVIEW_IMAGE_PARAMETERS["ncols"])
-        self.spinBox_tile_nrows.valueChanged.connect(self.update_imaging_display)
-        self.spinBox_tile_ncols.valueChanged.connect(self.update_imaging_display)
-        self.spinBox_tile_nrows.setKeyboardTracking(False)
-        self.spinBox_tile_ncols.setKeyboardTracking(False)
-        self.spinBox_tile_nrows.setRange(1, 15)
-        self.spinBox_tile_ncols.setRange(1, 15)
-        self.doubleSpinBox_tile_fov.valueChanged.connect(self.update_imaging_display)
-        self.update_imaging_display() # update the total fov
-
-        # suffixes
-        self.doubleSpinBox_tile_dwell_time.setSuffix(f" {constants.MICROSECOND_SYMBOL}")
-        self.doubleSpinBox_tile_fov.setSuffix(f" {constants.MICRON_SYMBOL}")
+        DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path
+        self.overview_acquisition_widget.update_from_settings(DEFAULT_OVERVIEW_ACQUISITION_SETTINGS)
+        self.overview_acquisition_widget.settings_changed.connect(self.update_imaging_display)
 
         # position buttons
         self.pushButton_move_to_position.clicked.connect(self.move_to_position_pressed)
@@ -526,7 +455,6 @@ class FibsemMinimapWidget(QWidget):
         self._update_position_display()
         self.toggle_interaction(enable=True)
 
-
     def _on_display_option_toggled(self):
         self.show_overview_fov = self.checkBox_show_overview_fov.isChecked()
         self.show_saved_positions_fov = self.checkBox_show_saved_positions_fov.isChecked()
@@ -558,59 +486,23 @@ class FibsemMinimapWidget(QWidget):
             logging.error(f"Error logging experiment position change: {e}")
             self.parent_widget.experiment.events.disconnect(self._on_experiment_position_changed) # type: ignore
 
-    def get_imaging_parameters(self) -> Dict[str, Any]:
-        """Get the imaging parameters from the UI."""
-        return {
-            "fov": self.doubleSpinBox_tile_fov.value() * constants.MICRO_TO_SI,
-            "resolution": self.comboBox_tile_resolution.currentData(),
-            "tile_count": (self.spinBox_tile_nrows.value(), self.spinBox_tile_ncols.value()),
-            "dwell_time": self.doubleSpinBox_tile_dwell_time.value() * constants.MICRO_TO_SI,
-            "beam_type": self.comboBox_tile_beam_type.currentData(),
-            "cryo": self.checkBox_tile_autogamma.isChecked(),
-            "autocontrast": self.checkBox_tile_autocontrast.isChecked(),
-            "path": self.lineEdit_tile_path.text(),
-            "filename": self.lineEdit_tile_filename.text(),
-        }
+    def get_overview_settings(self) -> OverviewAcquisitionSettings:
+        """Get the current overview acquisition settings from the UI."""
+        return self.overview_acquisition_widget.get_settings()
 
     def update_imaging_display(self):
-        """Update the imaging parameters based on the field of view and tile count."""
-        # update imaging parameters based on fov and tile count
-        imaging_params = self.get_imaging_parameters()
-        fov = imaging_params["fov"] 
-        nrows, ncols = imaging_params["tile_count"]
-        total_fov = f"{nrows * fov * constants.SI_TO_MICRO:.0f} x {ncols * fov * constants.SI_TO_MICRO:.0f} {constants.MICRON_SYMBOL}"
-        self.label_tile_total_fov.setText(f"Total Field of View: {total_fov}")
+        """Refresh overlays whenever acquisition settings change."""
         self.draw_current_stage_position()
-        # TODO: calculate estimate time for acquisition
 
     def run_tile_collection(self):
         """Run the tiled acquisition."""
         logging.info("running tile collection")
 
-        imaging_params = self.get_imaging_parameters()
-        fov = imaging_params["fov"] 
-        resolution = imaging_params["resolution"]
-        dwell_time = imaging_params["dwell_time"]
-        beam_type = imaging_params["beam_type"]
-        cryo = imaging_params["cryo"]
-        autocontrast = imaging_params["autocontrast"]
-        path = imaging_params["path"]
-        filename = imaging_params["filename"]
-        nrows, ncols = imaging_params["tile_count"]
+        overview_settings = self.get_overview_settings()
+        image_settings = overview_settings.image_settings
+        image_settings.save = True
 
-        image_settings = ImageSettings(
-            hfw = fov,
-            resolution = resolution,
-            dwell_time = dwell_time,
-            beam_type = beam_type,
-            autocontrast = autocontrast,
-            save = True,
-            path = path,
-            filename = filename,
-        )
-
-        # TODO: support overlap, better stitching (non-existent)
-        if image_settings.filename == "":
+        if not image_settings.filename:
             napari.utils.notifications.show_error("Please enter a filename for the image")
             return
 
@@ -620,13 +512,10 @@ class FibsemMinimapWidget(QWidget):
 
         # TODO: migrate to threading.Thread, rather than napari thread_worker
         self._thread_stop_event.clear()
-        self._acquisition_worker = self.run_tile_collection_thread( # type: ignore
-            microscope=self.microscope, image_settings=image_settings, 
-            nrows=nrows,
-            ncols=ncols,
-            tile_size=fov, 
-            overlap=0, 
-            cryo=cryo)
+        self._acquisition_worker = self.run_tile_collection_thread(  # type: ignore
+            microscope=self.microscope,
+            overview_settings=overview_settings,
+        )
 
         self._acquisition_worker.finished.connect(self.tile_collection_finished) # type: ignore
         self._acquisition_worker.errored.connect(self.tile_collection_errored) # type: ignore
@@ -649,23 +538,19 @@ class FibsemMinimapWidget(QWidget):
     def run_tile_collection_thread(
         self,
         microscope: FibsemMicroscope,
-        image_settings: ImageSettings,
-        nrows: int,
-        ncols: int,
-        tile_size: float,
-        overlap: float = 0,
-        cryo: bool = True,
+        overview_settings: OverviewAcquisitionSettings,
     ):
         """Threaded worker for tiled acquisition and stitching."""
         try:
+            image_settings = overview_settings.image_settings
             self.image = tiled.tiled_image_acquisition_and_stitch(
                 microscope=microscope,
                 image_settings=image_settings,
-                nrows=nrows,
-                ncols=ncols,
-                tile_size=tile_size,
-                overlap=overlap,
-                cryo=cryo,
+                nrows=overview_settings.nrows,
+                ncols=overview_settings.ncols,
+                tile_size=image_settings.hfw,
+                overlap=overview_settings.overlap,
+                cryo=image_settings.autogamma,
                 parent_ui=self,
             )
         except Exception as e:
@@ -761,9 +646,9 @@ class FibsemMinimapWidget(QWidget):
         is_correlation = self.sender() == self.pushButton_load_correlation_image
 
         filename = ui_utils.open_existing_file_dialog(
-            msg="Select image to load", 
-            path=str(self.lineEdit_tile_path.text()), 
-            _filter="Image Files (*.tif *.tiff)", 
+            msg="Select image to load",
+            path=str(self.overview_acquisition_widget.get_settings().image_settings.path or os.getcwd()),
+            _filter="Image Files (*.tif *.tiff)",
             parent=self)
 
         if filename == "":
@@ -1199,9 +1084,9 @@ class FibsemMinimapWidget(QWidget):
 
         # current overview fov
         if self.show_overview_fov:
-            imaging_params = self.get_imaging_parameters()
-            fov = imaging_params["fov"]
-            nrows, ncols = imaging_params["tile_count"]
+            overview_settings = self.get_overview_settings()
+            fov = overview_settings.image_settings.hfw
+            nrows, ncols = overview_settings.nrows, overview_settings.ncols
             width = (ncols * fov) / pixelsize
             height = (nrows * fov) / pixelsize
             rect = create_rectangle_shape(current_position, width, height)
@@ -1564,7 +1449,7 @@ class FibsemMinimapWidget(QWidget):
             napari.utils.notifications.show_info("Please select a layer to correlate with update data...")
             return
 
-    def _toggle_correlation_mode(self, event: NapariEvent = None):
+    def _toggle_correlation_mode(self, event: Optional[NapariEvent] = None):
         """Toggle correlation mode on or off."""
         if self.image is None:
             napari.utils.notifications.show_warning("Please acquire an image first...")

@@ -833,6 +833,45 @@ class ImageSettings:
 
 
 @dataclass
+class OverviewAcquisitionSettings:
+    """Settings for a tiled overview acquisition.
+
+    Attributes:
+        image_settings: Per-tile image settings (hfw = tile FOV, beam_type, resolution, etc.)
+        nrows: Number of tile rows in the grid.
+        ncols: Number of tile columns in the grid.
+        overlap: Fractional overlap between adjacent tiles (0.0 = no overlap). Not yet supported.
+    """
+
+    image_settings: ImageSettings = field(default_factory=ImageSettings)
+    nrows: int = 3
+    ncols: int = 3
+    overlap: float = 0.0
+
+    @property
+    def total_fov(self) -> float:
+        """Total field of view in meters (width = ncols * tile_hfw)."""
+        return self.ncols * self.image_settings.hfw
+
+    @staticmethod
+    def from_dict(d: dict) -> "OverviewAcquisitionSettings":
+        return OverviewAcquisitionSettings(
+            image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
+            nrows=d.get("nrows", 3),
+            ncols=d.get("ncols", 3),
+            overlap=d.get("overlap", 0.0),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "image_settings": self.image_settings.to_dict(),
+            "nrows": self.nrows,
+            "ncols": self.ncols,
+            "overlap": self.overlap,
+        }
+
+
+@dataclass
 class BeamSettings:
     """
     Dataclass representing the beam settings for an imaging session.
