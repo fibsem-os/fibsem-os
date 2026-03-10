@@ -17,15 +17,24 @@ from psygnal import EmissionInfo
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout,
-    QGroupBox, QLabel, QProgressBar,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 from superqt import ensure_main_thread
 
 from fibsem import constants, conversions
-from fibsem.structures import OverviewAcquisitionSettings
-from fibsem.ui.widgets.overview_acquisition_settings_widget import OverviewAcquisitionSettingsWidget
+from fibsem.applications.autolamella.config import (
+    FEATURE_DISPLAY_GRID_CENTER_MARKER,
+)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -33,10 +42,11 @@ from fibsem.applications.autolamella.protocol.constants import (
     MILL_ROUGH_KEY,
     TRENCH_KEY,
 )
-from fibsem.applications.autolamella.config import (
-    FEATURE_DISPLAY_GRID_CENTER_MARKER,
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    DefectType,
+    Lamella,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, DefectType, Lamella
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
@@ -45,14 +55,15 @@ from fibsem.structures import (
     FibsemImage,
     FibsemStagePosition,
     ImageSettings,
+    OverviewAcquisitionSettings,
     Point,
 )
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
-from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS, MILLING_PATTERN_LAYER_NAME
+from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
 from fibsem.ui.napari.patterns import (
+    MILLING_PATTERN_LAYER_NAME,
     draw_milling_patterns_in_napari,
-    remove_all_napari_shapes_layers,
 )
 from fibsem.ui.napari.properties import (
     CORRELATION_IMAGE_LAYER_PROPERTIES,
@@ -61,13 +72,16 @@ from fibsem.ui.napari.properties import (
 )
 from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
+    create_circle_shape,
     create_crosshair_shape,
     create_rectangle_shape,
-    create_circle_shape,
     is_inside_image_bounds,
     update_text_overlay,
 )
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
+from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+    OverviewAcquisitionSettingsWidget,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -985,16 +999,10 @@ class FibsemMinimapWidget(QWidget):
             return
 
         self.pushButton_move_to_position.setText(f"Move to {lam.name}")
-        task_name = lam.task_state.name or "Not Started"
-        defect_str = f" [{lam.defect.state.name}]" if lam.defect.state != DefectType.NONE else ""
-        self.label_position_info.setText(
-            f"{lam.name}: {lam.stage_position.pretty_string}  |  {task_name}{defect_str}"
-        )
+        self.label_position_info.setText(f"{lam.name}: {lam.stage_position.pretty_string}")
 
         # redraw the positions to show the selected one
         self.draw_current_stage_position()
-
-        # QUERY: should this also update autolamella?
 
     def update_positions_combobox(self):
         """Update the positions combobox with the current positions."""
@@ -1457,7 +1465,7 @@ class FibsemMinimapWidget(QWidget):
         if idx != -1:
             self.comboBox_correlation_selected_layer.setCurrentIndex(idx)
         self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
-        
+
         # set the image layer as the active layer
         self.set_active_layer_for_movement()
         self.groupBox_correlation.setEnabled(True) # TODO: allow enabling grid-bar overlay separately
@@ -1479,7 +1487,7 @@ class FibsemMinimapWidget(QWidget):
         if self.image is None:
             napari.utils.notifications.show_warning("Please acquire an image first...")
             return
-        
+
         if not self.correlation_image_layers:
             napari.utils.notifications.show_warning("Please load a correlation image first...")
             return

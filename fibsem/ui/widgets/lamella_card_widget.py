@@ -184,10 +184,10 @@ class LamellaCardWidget(QWidget):
             QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            QIconifyIcon("mdi:refresh-circle", color="#e8a020"), "Rework required"
+            QIconifyIcon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
         )
         action_failure = menu.addAction(
-            QIconifyIcon("mdi:close-circle", color="#d04040"), "Failure"
+            QIconifyIcon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
         )
 
         chosen = menu.exec_(self._btn_defect.mapToGlobal(

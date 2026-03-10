@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Optional, TYPE_CHECKING, Union
+from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -26,8 +26,6 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
     FibsemMillingTaskAcquisitionSettingsWidget,
 )
 
-if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},
@@ -61,7 +59,7 @@ class MillingTaskConfigWidget2(QWidget):
         milling_task_config: Optional[FibsemMillingTaskConfig] = None,
         milling_enabled: bool = True,
         correlation_enabled: bool = True,
-        parent: Optional[Union[QWidget, "FibsemMillingTaskWidget"]] = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.microscope = microscope
@@ -84,23 +82,11 @@ class MillingTaskConfigWidget2(QWidget):
         layout = QVBoxLayout(content_widget)
         layout.setSpacing(4)
 
-        use_scroll_area = True
-        try:
-            from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-            use_scroll_area = not isinstance(self.parent_widget, FibsemMillingTaskWidget)
-        except Exception:
-            use_scroll_area = True
-
-        if use_scroll_area:
-            scroll_area = QScrollArea()
-            scroll_area.setWidgetResizable(True)
-            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            scroll_area.setWidget(content_widget)
-            main_layout.addWidget(scroll_area)
-        else:
-            layout.setContentsMargins(0, 0, 0, 0)
-            content_widget.setContentsMargins(0, 0, 0, 0)
-            main_layout.addWidget(content_widget)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
 
         # ── Core panel ──────────────────────────────────────────────
         core_content = QWidget()

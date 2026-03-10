@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import List, Optional, TYPE_CHECKING
+from typing import Callable, List, Optional, TYPE_CHECKING
 
 import napari
 import napari.utils.notifications
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem import conversions
@@ -45,7 +45,8 @@ class MillingTaskViewerWidget(QWidget):
     milling pattern Shapes layers in the napari viewer are redrawn.  A FIB image layer must be
     available (injected via ``set_fib_image()`` or discovered from the parent's ``image_widget``).
 
-    Right-click on the FIB image layer shows a context menu to move patterns.
+    Right-click on the FIB image layer shows a context menu to move patterns
+    and any extra actions injected by the parent widget.
     """
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
@@ -66,13 +67,16 @@ class MillingTaskViewerWidget(QWidget):
         self._milling_enabled = milling_enabled
         self._image_widget = image_widget
 
-        # Viewer / pattern state
         self._fib_image: Optional[FibsemImage] = None
         self._fib_image_layer: Optional[napari.layers.Image] = None
         self._pattern_layer_names: List[str] = []
         self._background_milling_stages: List[FibsemMillingStage] = []
+        self._pattern_update_inflight = False
+        self._pattern_update_pending = False
+        self._settings_emit_pending: bool = False
+        self._pending_settings: Optional[FibsemMillingTaskConfig] = None
+        self._right_click_menu_action_provider: Optional[Callable[[ContextMenuConfig, Point], None]] = None
 
-        # Right-click callback reference (kept for unregistration)
         self._right_click_callback = None
 
         self._setup_ui(milling_task_config)
@@ -88,7 +92,6 @@ class MillingTaskViewerWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Config widget (owns scroll area internally)
         self.config_widget = MillingTaskConfigWidget2(
             microscope=self.microscope,
             milling_task_config=milling_task_config,
@@ -96,7 +99,6 @@ class MillingTaskViewerWidget(QWidget):
         )
         layout.addWidget(self.config_widget)
 
-        # Milling widget
         self.milling_widget = FibsemMillingWidget2(
             microscope=self.microscope,
             parent=self,
@@ -130,6 +132,15 @@ class MillingTaskViewerWidget(QWidget):
     # ------------------------------------------------------------------
     # Right-click pattern movement
     # ------------------------------------------------------------------
+
+    def set_right_click_menu_actions(self, action_provider: Optional[Callable[[ContextMenuConfig, Point], None]]) -> None:
+        """
+        Register a callable that appends additional actions to the right-click context menu.
+
+        The provider receives the context menu config and the click point in
+        microscope image coordinates. Pass ``None`` to remove all custom actions.
+        """
+        self._right_click_menu_action_provider = action_provider
 
     def _register_right_click_callback(self) -> None:
         if self.viewer is None:
@@ -168,10 +179,19 @@ class MillingTaskViewerWidget(QWidget):
         selected_name = selected.name if selected is not None else stages[0].name
 
         cfg = ContextMenuConfig()
-        cfg.add_action(
-            "Move All Patterns Here",
-            callback=lambda: self._move_patterns(point_clicked, move_all=True),
-        )
+        if self._right_click_menu_action_provider is not None:
+            try:
+                self._right_click_menu_action_provider(cfg, point_clicked)
+            except Exception:
+                logging.exception("Failed to add custom context-menu actions.")
+                napari.utils.notifications.show_warning(
+                    "Failed to add point-of-interest menu action; pattern movement options will still be shown."
+                )
+        if len(stages) > 1:
+            cfg.add_action(
+                "Move All Patterns Here",
+                callback=lambda: self._move_patterns(point_clicked, move_all=True),
+            )
         cfg.add_action(
             f"Move '{selected_name}' Here",
             callback=lambda: self._move_patterns(point_clicked, move_all=False),
@@ -194,7 +214,6 @@ class MillingTaskViewerWidget(QWidget):
 
         diff = point - stages[ref_idx].pattern.point
 
-        # Validate all moves before applying any
         for idx, stage in enumerate(stages):
             if not move_all and idx != ref_idx:
                 continue
@@ -206,20 +225,16 @@ class MillingTaskViewerWidget(QWidget):
                 napari.utils.notifications.show_warning(msg)
                 return
 
-        # Apply to live stage objects
         for idx, stage in enumerate(stages):
             if not move_all and idx != ref_idx:
                 continue
             _apply_diff_to_pattern(stage.pattern, diff)
 
-        # Refresh row display (inline spinboxes/labels) without full rebuild
         self.config_widget.milling_stages_widget._list.refresh_all()
-        # Re-sync the pattern settings panel to the selected stage
         sw = self.config_widget.milling_stages_widget
         if sw._selected_stage is not None:
             sw._sync_panels_from_stage(sw._selected_stage)
-        self._update_pattern_display()
-        self.settings_changed.emit(self.config_widget.get_settings())
+        self._on_settings_changed(self.config_widget.get_settings())
 
     # ------------------------------------------------------------------
     # Viewer / pattern display
@@ -229,7 +244,7 @@ class MillingTaskViewerWidget(QWidget):
         """Inject a FIB image and its napari layer for pattern display."""
         self._fib_image = image
         self._fib_image_layer = image_layer
-        self._update_pattern_display()
+        self._schedule_pattern_update()
 
     def _on_viewer_image_updated(self) -> None:
         iw = self._image_widget
@@ -241,19 +256,25 @@ class MillingTaskViewerWidget(QWidget):
         try:
             self._fib_image = iw.ib_image
             self._fib_image_layer = iw.ib_layer
-            self._update_pattern_display()
+            self._schedule_pattern_update()
         except Exception as e:
             logging.error(f"MillingTaskViewerWidget: viewer image update error: {e}")
 
     def _update_pattern_display(self) -> None:
+        if self._pattern_update_inflight:
+            return
+        self._pattern_update_pending = False
         if self.viewer is None or self._fib_image_layer is None:
             return
         if self._fib_image is None or self._fib_image.metadata is None:
             return
+
+        self._pattern_update_inflight = True
         config = self.config_widget.get_settings()
 
         if not config.stages:
             self._clear_pattern_display()
+            self._pattern_update_inflight = False
             return
 
         pixelsize = self._fib_image.metadata.pixel_size.x
@@ -270,6 +291,13 @@ class MillingTaskViewerWidget(QWidget):
             )
         except Exception as e:
             logging.error(f"MillingTaskViewerWidget: pattern display error: {e}")
+        finally:
+            self._pattern_update_inflight = False
+            if self._pattern_update_pending:
+                self._schedule_pattern_update()
+
+        if self._image_widget is not None:
+            self._image_widget.restore_active_layer_for_movement()
 
     def _clear_pattern_display(self) -> None:
         """Remove milling pattern layers from the viewer."""
@@ -290,8 +318,26 @@ class MillingTaskViewerWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_settings_changed(self, config: FibsemMillingTaskConfig) -> None:
+        self._pending_settings = config
+        if self._settings_emit_pending:
+            return
+        self._settings_emit_pending = True
+        QTimer.singleShot(0, self._flush_settings_changed)
+        self._schedule_pattern_update()
+
+    def _flush_settings_changed(self) -> None:
+        self._settings_emit_pending = False
+        config = self._pending_settings
+        self._pending_settings = None
+        if config is None:
+            return
         self.settings_changed.emit(config)
-        self._update_pattern_display()
+
+    def _schedule_pattern_update(self) -> None:
+        if self._pattern_update_pending:
+            return
+        self._pattern_update_pending = True
+        QTimer.singleShot(0, self._update_pattern_display)
 
     # ------------------------------------------------------------------
     # Public API — required by FibsemMillingWidget2
@@ -309,19 +355,19 @@ class MillingTaskViewerWidget(QWidget):
 
     def set_config(self, config: FibsemMillingTaskConfig) -> None:
         self.config_widget.set_config(config)
-        self._update_pattern_display()
+        self._schedule_pattern_update()
 
     def update_from_settings(self, settings: FibsemMillingTaskConfig) -> None:
         self.config_widget.update_from_settings(settings)
-        self._update_pattern_display()
+        self._schedule_pattern_update()
 
     def clear(self) -> None:
         self.config_widget.clear()
-        self._update_pattern_display()
+        self._schedule_pattern_update()
 
     def set_background_milling_stages(self, stages: List[FibsemMillingStage]) -> None:
         self._background_milling_stages = stages
-        self._update_pattern_display()
+        self._schedule_pattern_update()
 
     def set_manufacturer(self, manufacturer: Optional[str]) -> None:
         self.config_widget.milling_stages_widget.set_manufacturer(manufacturer)

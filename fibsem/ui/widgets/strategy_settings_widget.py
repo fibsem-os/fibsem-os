@@ -77,9 +77,11 @@ class FibsemStrategySettingsWidget(QWidget):
 
     def _build_controls(self, strategy: MillingStrategy[Any]) -> None:
         """Clear and rebuild the config form for the given strategy."""
+        # Clear rows BEFORE removing form widgets (same reason as pattern_settings_widget:
+        # prevents re-entrant access to zombie C++ wrappers during focus-change events).
+        self._rows.clear()
         while self._config_form.rowCount():
             self._config_form.removeRow(0)
-        self._rows.clear()
 
         meta = strategy.config.field_metadata
         hidden_fields = {name for name, m in meta.items() if m.get("hidden", False)}

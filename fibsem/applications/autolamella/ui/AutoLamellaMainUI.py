@@ -34,7 +34,7 @@ from superqt import ensure_main_thread
 from superqt.iconify import QIconifyIcon
 
 import fibsem
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
@@ -655,7 +655,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add the viewer's Qt window to our layout
         layout.addWidget(self.main_viewer.window._qt_window)
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:microscope", color="#d6d6d6"), "Microscope")
+        self.tab_widget.addTab(container, QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR), "Microscope")
 
     def create_tabs(self):
         """Create the tabs for the AutoLamella UI."""
@@ -694,10 +694,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_workflow_widget.setMinimumWidth(600)
 
         # Update experiment name label
-        if self.autolamella_ui is not None and self.autolamella_ui.experiment is not None:
-            self.experiment_name_label.setText(f"Experiment: {self.autolamella_ui.experiment.name}")
-        else:
-            self.experiment_name_label.setText("No Experiment")
+        self.experiment_name_label.setText(f"Experiment: {self.autolamella_ui.experiment.name}")
+        self.btn_create_experiment.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.btn_load_experiment.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
         # Show run workflow button when experiment is loaded
         self.run_workflow_btn.show()
@@ -739,11 +738,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.btn_create_experiment = QPushButton("Create Experiment")
         self.btn_create_experiment.setToolTip("Create a new experiment")
         self.btn_create_experiment.setEnabled(False)
+        self.btn_create_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_create_experiment.clicked.connect(self._on_new_experiment)
 
         self.btn_load_experiment = QPushButton("Load Experiment")
         self.btn_load_experiment.setToolTip("Load an existing experiment")
         self.btn_load_experiment.setEnabled(False)
+        self.btn_load_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_load_experiment.clicked.connect(self._on_load_experiment)
 
         # Experiment name label
@@ -765,29 +766,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def add_protocol_editor_tab(self):
         """Add the protocol editor as a separate tab with its own viewer."""
-        container = QWidget()
+        container = QWidget(parent=self)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create separate napari viewer for protocol editor
-        self.editor_viewer = napari.Viewer(show=False, title="Protocol Editor")
-        self.editor_viewer.window._qt_window.menuBar().hide()
-        self.editor_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.editor_viewer)
-
-        # Create the protocol editor widget
+        # Create the protocol editor widget (viewer is created internally)
         self.task_widget = AutoLamellaProtocolTaskConfigEditor(
-            viewer=self.editor_viewer,
             parent=self.autolamella_ui
         )
-        self.editor_viewer.window.add_dock_widget(
-            self.task_widget,
-            area='right',
-            name='Protocol Editor'
+        self.autolamella_ui.system_widget.connected_signal.connect(
+            self.task_widget._on_microscope_connected
         )
-        self.autolamella_ui.system_widget.connected_signal.connect(self.task_widget._on_microscope_connected)
-        layout.addWidget(self.editor_viewer.window._qt_window)
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:file-document-edit", color="#d6d6d6"), "Protocol")
+        layout.addWidget(self.task_widget)
+        self.tab_widget.addTab(
+            container,
+            QIconifyIcon("mdi:file-document-edit", color=GRAY_ICON_COLOR),
+            "Protocol",
+        )
 
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
@@ -809,10 +804,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             viewer=self.lamella_viewer,
             parent=self.autolamella_ui
         )
-
-        # Store reference in the protocol editor widget if it exists
-        if hasattr(self.autolamella_ui, 'protocol_editor_widget') and self.autolamella_ui.protocol_editor_widget:
-            self.autolamella_ui.protocol_editor_widget.lamella_widget = self.lamella_widget
+        # Connect microscope signals to the lamella widget so it can update when microscope connects
         self.autolamella_ui.system_widget.connected_signal.connect(self.lamella_widget._on_microscope_connected)
 
         # Add to viewer dock
@@ -823,7 +815,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
         layout.addWidget(self.lamella_viewer.window._qt_window)
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:layers", color="#d6d6d6"), "Lamella")
+        self.tab_widget.addTab(container, QIconifyIcon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella")
 
         # disable the tab by default
         index = self.tab_widget.indexOf(container)
@@ -880,13 +872,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         splitter.setStretchFactor(1, 1)
 
         layout.addWidget(splitter)
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:play-circle-outline", color="#d6d6d6"), "Workflow")
+        self.tab_widget.addTab(container, QIconifyIcon("mdi:play-circle-outline", color=GRAY_ICON_COLOR), "Workflow")
 
         # disable the workflow tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
         # Track which experiment's position events we're connected to
         self._lamella_list_experiment = None
+
+        # Connect protocol editor → workflow tab (deferred here since task_widget is created first)
+        self.task_widget.workflow_config_changed.connect(
+            self.lamella_workflow_widget.set_workflow_config
+        )
 
     def add_lamella_cards_tab(self):
         """Add the lamella card container as a separate tab."""
@@ -949,7 +946,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(splitter)
         self._update_lamella_card_columns_from_width()
         self._on_lamella_card_selected(None)
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:card-multiple-outline", color="#d6d6d6"), "Lamella Cards")
+        self.tab_widget.addTab(container, QIconifyIcon("mdi:card-multiple-outline", color=GRAY_ICON_COLOR), "Lamella Cards")
 
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
@@ -1157,7 +1154,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_card_container.add_lamella(lamella)
         self._on_workflow_selection_changed()
 
-    def _on_lamella_move_to(self, lamella):
+    def _on_lamella_move_to(self, lamella: 'Lamella'):
         """Move the stage to the given lamella's milling position."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
@@ -1168,7 +1165,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.comboBox_current_lamella.setCurrentIndex(idx)
         self.autolamella_ui.move_to_lamella_position()
 
-    def _on_lamella_edit(self, lamella):
+    def _on_lamella_edit(self, lamella: 'Lamella'):
         """Switch to the Lamella tab and select the given lamella in the protocol editor."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
@@ -1178,13 +1175,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.autolamella_ui.comboBox_current_lamella.setCurrentIndex(idx)
 
-        # Select the lamella in the protocol editor combobox
-        if hasattr(self, "lamella_widget"):
-            cb = self.lamella_widget.comboBox_selected_lamella
-            for i in range(cb.count()):
-                if cb.itemData(i) is lamella or cb.itemData(i).name == lamella.name:
-                    cb.setCurrentIndex(i)
-                    break
+        # Select the lamella in the protocol editor
+        self.lamella_widget.lamella_list_widget.select(lamella.name)
 
         # Switch to the Lamella tab
         for i in range(self.tab_widget.count()):
@@ -1192,13 +1184,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.tab_widget.setCurrentIndex(i)
                 break
 
-    def _on_lamella_defect_changed(self, lamella):
+    def _on_lamella_defect_changed(self, lamella: 'Lamella'):
         """Persist defect state change to disk."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
         self.autolamella_ui.experiment.save()
 
-    def _on_lamella_remove_requested(self, lamella):
+    def _on_lamella_remove_requested(self, lamella: 'Lamella'):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
@@ -1249,10 +1241,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self.autolamella_ui
         )
 
-        # Store reference in the parent AutoLamellaUI
-        self.autolamella_ui.minimap_widget = self.minimap_widget
-        self.autolamella_ui.viewer_minimap = self.minimap_viewer
-
         # Add to viewer dock
         self.minimap_viewer.window.add_dock_widget(
             self.minimap_widget,
@@ -1260,8 +1248,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             add_vertical_stretch=True,
             name='AutoLamella Overview'
         )
+        # TODO: replace dock widget with splitter, and side widget? 
         layout.addWidget(self.minimap_viewer.window._qt_window)
-        self.tab_widget.insertTab(1, container, QIconifyIcon("mdi:map", color="#d6d6d6"), "Overview")
+        self.tab_widget.insertTab(1, container, QIconifyIcon("mdi:map", color=GRAY_ICON_COLOR), "Overview")
 
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)

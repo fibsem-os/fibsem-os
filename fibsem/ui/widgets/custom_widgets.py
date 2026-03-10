@@ -4,11 +4,12 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QIcon, QTransform
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QAction,
     QComboBox,
     QDoubleSpinBox,
@@ -16,6 +17,8 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QToolButton,
     QVBoxLayout,
@@ -311,7 +314,7 @@ class ContextMenu(QMenu):
         if menu_action:
             self.actionTriggered.emit(menu_action)
             if menu_action.callback:
-                menu_action.callback()
+                self._invoke_action_callback(menu_action)
 
         return menu_action
 
@@ -333,9 +336,23 @@ class ContextMenu(QMenu):
         if menu_action:
             self.actionTriggered.emit(menu_action)
             if menu_action.callback:
-                menu_action.callback()
+                self._invoke_action_callback(menu_action)
 
         return menu_action
+
+    def _invoke_action_callback(self, menu_action: ContextMenuAction) -> None:
+        """Execute callback safely so one action failure does not break caller flow."""
+        try:
+            if menu_action.callback is not None:
+                menu_action.callback()
+        except Exception:
+            logging.exception("Context menu action '%s' raised an exception.", menu_action.label)
+            try:
+                from napari.utils import notifications
+
+                notifications.show_warning(f"Action '{menu_action.label}' failed.")
+            except Exception:
+                pass
 
 
 def show_context_menu(
@@ -559,3 +576,180 @@ class IconToolButton(QToolButton):
     def set_icon_state(self, checked: bool) -> None:
         """Update icon/color/tooltip to match ``checked`` without emitting ``toggled``."""
         self._on_toggled(checked)
+
+
+class TaskNameListWidget(QWidget):
+    """Task-name list with a styled header containing a label and optional add/remove buttons.
+
+    Emits ``task_selected(str)`` when the selection changes.
+    Call ``set_tasks()`` to repopulate; the current selection is preserved if
+    still present, otherwise falls back to a preferred name →
+    ``"Rough Milling"`` → first row.
+    Call ``set_buttons_visible(add, remove)`` to show/hide the header buttons.
+    """
+
+    task_selected = pyqtSignal(str)
+    add_clicked = pyqtSignal()
+    remove_clicked = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Header
+        header = QWidget()
+        header.setStyleSheet("background: #1e2124;")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 3, 4, 3)
+        header_layout.setSpacing(4)
+        lbl = QLabel("Task Name")
+        lbl.setStyleSheet("font-weight: bold; background: transparent;")
+        header_layout.addWidget(lbl)
+        header_layout.addStretch()
+        self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=24)
+        self.btn_remove = IconToolButton("mdi:trash-can-outline", tooltip="Remove task", size=24)
+        header_layout.addWidget(self.btn_add)
+        header_layout.addWidget(self.btn_remove)
+        outer.addWidget(header)
+
+        # List
+        self._list = QListWidget()
+        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(self._list)
+
+        # Wire signals
+        self._list.itemSelectionChanged.connect(
+            lambda: self.task_selected.emit(self.selected_task)
+        )
+        self.btn_add.clicked.connect(self.add_clicked)
+        self.btn_remove.clicked.connect(self.remove_clicked)
+
+    def set_buttons_visible(self, add: bool, remove: bool) -> None:
+        """Show or hide the add and remove header buttons independently."""
+        self.btn_add.setVisible(add)
+        self.btn_remove.setVisible(remove)
+
+    @property
+    def selected_task(self) -> str:
+        """Return the currently selected task name, or ``""`` if nothing selected."""
+        item = self._list.currentItem()
+        return item.text() if item is not None else ""
+
+    def set_tasks(self, names: List[str], preferred: str = "") -> None:
+        """Populate the list, restoring selection intelligently.
+
+        Priority: current selection → *preferred* → ``"Rough Milling"`` → row 0.
+        Signals are suppressed during population.
+        """
+        current = self.selected_task or preferred
+        self._list.blockSignals(True)
+        self._list.clear()
+        for name in names:
+            self._list.addItem(name)
+        self._restore_selection(names, current)
+        self._list.blockSignals(False)
+
+    def select(self, name: str) -> None:
+        """Select the item with the given name (exact match)."""
+        items = self._list.findItems(name, Qt.MatchExactly)  # type: ignore
+        if items:
+            self._list.setCurrentItem(items[0])
+
+    def _restore_selection(self, names: List[str], preferred: str) -> None:
+        if preferred and preferred in names:
+            self.select(preferred)
+        elif "Rough Milling" in names:
+            self.select("Rough Milling")
+        elif self._list.count() > 0:
+            self._list.setCurrentRow(0)
+
+
+class LamellaNameListWidget(QWidget):
+    """Single-selection list widget for lamella names with smart restore logic.
+
+    Stores the associated object as ``Qt.UserRole`` data on each item so callers
+    can retrieve it via ``selected_lamella``.
+
+    Emits ``lamella_selected(object)`` when the selection changes.
+    Call ``set_lamella()`` to repopulate; the current selection is preserved by
+    name if still present, otherwise falls back to the first row.
+    """
+
+    lamella_selected = pyqtSignal(object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Header
+        header = QWidget()
+        header.setStyleSheet("background: #1e2124;")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 3, 4, 3)
+        header_layout.setSpacing(4)
+        lbl = QLabel("Lamella")
+        lbl.setStyleSheet("font-weight: bold; background: transparent;")
+        header_layout.addWidget(lbl)
+        header_layout.addStretch()
+        outer.addWidget(header)
+
+        # List
+        self._list = QListWidget()
+        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(self._list)
+
+        # Wire signals
+        self._list.itemSelectionChanged.connect(
+            lambda: self.lamella_selected.emit(self.selected_lamella)
+        )
+
+    @property
+    def selected_lamella(self) -> Any:
+        """Return the ``Qt.UserRole`` data of the current item, or ``None``."""
+        item = self._list.currentItem()
+        return item.data(Qt.UserRole) if item is not None else None  # type: ignore
+
+    @property
+    def selected_name(self) -> str:
+        """Return the display name of the current item, or ``""``."""
+        item = self._list.currentItem()
+        return item.text() if item is not None else ""
+
+    def set_lamella(self, positions, preferred_name: str = "") -> None:
+        """Populate the list from *positions*, restoring selection by name.
+
+        Priority: current selection → *preferred_name* → first row.
+        Signals are suppressed during population.
+        """
+        current = self.selected_name or preferred_name
+        self._list.blockSignals(True)
+        self._list.clear()
+        for pos in positions:
+            item = QListWidgetItem(pos.name)
+            item.setData(Qt.UserRole, pos)  # type: ignore
+            self._list.addItem(item)
+        self._restore_selection(current)
+        self._list.blockSignals(False)
+
+    def select(self, name: str) -> None:
+        """Select the item with the given name (exact match)."""
+        items = self._list.findItems(name, Qt.MatchExactly)  # type: ignore
+        if items:
+            self._list.setCurrentItem(items[0])
+
+    def _restore_selection(self, preferred: str) -> None:
+        if preferred:
+            items = self._list.findItems(preferred, Qt.MatchExactly)  # type: ignore
+            if items:
+                self._list.setCurrentItem(items[0])
+                return
+        if self._list.count() > 0:
+            self._list.setCurrentRow(0)

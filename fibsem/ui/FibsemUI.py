@@ -1,7 +1,7 @@
 import napari
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
-
+import napari.utils.notifications
 import fibsem
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings
@@ -32,8 +32,6 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         self.movement_widget: FibsemMovementWidget = None
         self.milling_widget: MillingTaskConfigWidget = None
         self.manipulator_widget: FibsemManipulatorWidget = None
-
-        self.minimap_widget: FibsemMinimapWidget = None
 
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.tabWidget.addTab(self.system_widget, "Connection")

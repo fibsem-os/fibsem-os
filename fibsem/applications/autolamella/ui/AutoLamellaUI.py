@@ -36,7 +36,7 @@ from fibsem.ui import (
 )
 from fibsem.ui import utils as fui
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QDialog, QVBoxLayout, QDialogButtonBox, QMessageBox, QAction
+from PyQt5.QtWidgets import QMainWindow, QMessageBox, QAction
 if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if they are available
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget
 
@@ -44,7 +44,6 @@ from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.autolamella_create_experiment_widget import create_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_task_protocol_widget import load_task_protocol_dialog
-from fibsem.ui.widgets.autolamella_task_config_editor import show_protocol_editor, AutoLamellaProtocolEditorTabWidget
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -128,11 +127,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
-        self.minimap_widget: Optional[FibsemMinimapWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional['FibsemEmbeddedDetectionWidget'] = None
-        self.protocol_editor_widget: Optional[AutoLamellaProtocolEditorTabWidget] = None
 
         # minimap plot widget
         self.minimap_plot_widget = MinimapPlotWidget(self)
@@ -326,6 +323,12 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         self.update_lamella_combobox()
         self.update_ui()
+
+    @property
+    def minimap_widget(self) -> Optional[FibsemMinimapWidget]:
+        if self.parent_widget is None:
+            return None
+        return self.parent_widget.minimap_widget
 
     @ensure_main_thread
     def _on_stage_position_updated(self, stage_position: FibsemStagePosition) -> None:
@@ -695,12 +698,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
     def _open_protocol_editor(self):
         """Open the protocol editor dialog."""
+        napari.utils.notifications.show_info("Protocol editor is under development and will be available in a future release.")
+        return
 
-        if self.protocol_editor_widget is not None:
-            napari.utils.notifications.show_info("Protocol editor is already open.")
-            self.protocol_editor_widget.viewer.window.activate()
-            return
-        show_protocol_editor(parent=self)
 
     def _open_experiment_directory(self) -> None:
         """Open the experiment directory in the system file explorer."""
@@ -731,49 +731,8 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 #### MINIMAP
 
     def open_minimap_widget(self):
-        if self.microscope is None:
-            napari.utils.notifications.show_warning(
-                "Please connect to a microscope first... [No Microscope Connected]"
-            )
-            return
-
-        if self.movement_widget is None:
-            napari.utils.notifications.show_warning(
-                "Please connect to a microscope first... [No Movement Widget]"
-            )
-            return
-
-        if self.experiment is None:
-            napari.utils.notifications.show_warning(
-                "Please load an experiment first... [No Experiment Loaded]"
-            )
-            return
-
-        if self.minimap_widget is not None:
-            napari.utils.notifications.show_info("Minimap is already open.")
-            self.minimap_widget.viewer.window.activate()
-            return
-
-         # create minimap viewer
-        self.viewer_minimap = napari.Viewer(ndisplay=2, title="AutoLamella Minimap")
-        self.minimap_widget = FibsemMinimapWidget(
-            viewer=self.viewer_minimap,
-            parent=self
-        )
-        self.viewer_minimap.window.add_dock_widget(
-            widget=self.minimap_widget,
-            area="right",
-            add_vertical_stretch=True,
-            name="AutoLamella Minimap",
-        )
-        self.viewer_minimap.window._qt_window.destroyed.connect(self._on_minimap_closed)
-
-        self.viewer_minimap.window.activate()
-
-    def _on_minimap_closed(self):
-        if self.minimap_widget is not None:
-            self.viewer_minimap = None
-            self.minimap_widget = None
+        napari.utils.notifications.show_info("Overview acquisition is under development and will be available in a future release.")
+        return
 
     def _update_minimap_data(self,
                              stage_position: Optional[FibsemStagePosition] = None, 
@@ -1035,12 +994,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             self.set_instructions_msg(INSTRUCTIONS["NO_LAMELLA"])
         elif has_lamella:
             self.set_instructions_msg(INSTRUCTIONS["AUTOLAMELLA_READY"])
-
-    def update_protocol_ui(self):
-        """Update the protocol editor ui based on the current experiment protocol."""
-        if self.protocol_editor_widget is not None and self.experiment is not None:
-            self.protocol_editor_widget.workflow_widget.set_experiment(self.experiment) 
-            self.protocol_editor_widget.task_widget._initialise_widgets()
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1476,7 +1429,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
         # Update UI
         self.update_ui()
-        self.update_protocol_ui()
 
     def export_protocol_ui(self):
         """Export the current protocol to file."""

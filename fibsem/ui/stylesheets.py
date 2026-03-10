@@ -89,6 +89,11 @@ LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"
 
 # Napari-style dark theme stylesheet
 NAPARI_STYLE = """
+QWidget {
+    background-color: #262930;
+    color: #d6d6d6;
+}
+
 QMainWindow {
     background-color: #262930;
 }
@@ -479,6 +484,8 @@ PURPLE_COLOR = "#7C3AED"
 GREEN_COLOR = "#4caf50"
 RED_COLOR = "#99121F"
 ORANGE_COLOR = " #ff9800"
+DEFECT_ORANGE_COLOR = "#e8a020"
+DEFECT_RED_COLOR = "#d04040"
 
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }

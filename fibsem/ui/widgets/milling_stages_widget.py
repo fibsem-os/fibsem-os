@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -38,6 +38,10 @@ class FibsemMillingStagesWidget(QWidget):
         super().__init__(parent)
         self.microscope = microscope
         self._selected_stage: Optional[FibsemMillingStage] = None
+        self._pending_inline_stage: Optional[FibsemMillingStage] = None
+        self._pending_inline_update: bool = False
+        self._pending_selected_stage: Optional[FibsemMillingStage] = None
+        self._pending_selection_update: bool = False
 
         self._setup_ui()
         self._connect_signals()
@@ -120,7 +124,7 @@ class FibsemMillingStagesWidget(QWidget):
         self._detail_widget.setVisible(False)
 
     def _connect_signals(self) -> None:
-        self._list.stage_selected.connect(self._on_stage_selected)
+        self._list.stage_selected.connect(self._on_row_selected)
         self._list.stage_added.connect(lambda _: self.stages_changed.emit(self._list.get_stages()))
         self._list.stage_removed.connect(self._on_stage_removed)
         self._list.order_changed.connect(self.stages_changed.emit)
@@ -143,6 +147,25 @@ class FibsemMillingStagesWidget(QWidget):
         self._pattern_widget.set_pattern(stage.pattern)
         self._strategy_widget.set_strategy(stage.strategy)
         self._detail_widget.setVisible(True)
+
+    def _on_row_selected(self, stage: Optional[FibsemMillingStage]) -> None:
+        if stage is None:
+            return
+        self._pending_selected_stage = stage
+        if self._pending_selection_update:
+            return
+        self._pending_selection_update = True
+        QTimer.singleShot(0, self._flush_row_selection)
+
+    def _flush_row_selection(self) -> None:
+        self._pending_selection_update = False
+        stage = self._pending_selected_stage
+        self._pending_selected_stage = None
+        if stage is None:
+            return
+        if stage not in self._list.get_stages():
+            return
+        self._on_stage_selected(stage)
 
     def _on_milling_settings_changed(self, settings: FibsemMillingSettings) -> None:
         if self._selected_stage is not None:
@@ -172,7 +195,21 @@ class FibsemMillingStagesWidget(QWidget):
         self._strategy_widget.set_advanced_visible(checked)
 
     def _on_inline_stage_changed(self, stage: FibsemMillingStage) -> None:
-        """Handle an inline field edit from the row widget — sync detail panels if selected."""
+        """Handle an inline field edit from the row widget and sync detail panels if selected."""
+        self._pending_inline_stage = stage
+        if self._pending_inline_update:
+            return
+        self._pending_inline_update = True
+        QTimer.singleShot(0, self._flush_inline_stage_changed)
+
+    def _flush_inline_stage_changed(self) -> None:
+        self._pending_inline_update = False
+        stage = self._pending_inline_stage
+        self._pending_inline_stage = None
+        if stage is None:
+            return
+        if stage not in self._list.get_stages():
+            return
         if self._selected_stage is stage:
             self._sync_panels_from_stage(stage)
         self.stages_changed.emit(self._list.get_stages())

@@ -95,8 +95,8 @@ def _defect_icon(lamella: Lamella) -> tuple[str, str, str]:
     if d.state == DefectType.NONE:
         return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
     if d.state == DefectType.REWORK:
-        return "mdi:refresh-circle", "#e8a020", f"Rework required{': ' + d.description if d.description else ''}"
-    return "mdi:close-circle", "#d04040", f"Failure{': ' + d.description if d.description else ''}"
+        return "mdi:refresh-circle", stylesheets.DEFECT_ORANGE_COLOR, f"Rework required{': ' + d.description if d.description else ''}"
+    return "mdi:close-circle", stylesheets.DEFECT_RED_COLOR, f"Failure{': ' + d.description if d.description else ''}"
 
 
 class LamellaRowWidget(QWidget):
@@ -184,10 +184,10 @@ class LamellaRowWidget(QWidget):
             QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            QIconifyIcon("mdi:refresh-circle", color="#e8a020"), "Rework required"
+            QIconifyIcon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
         )
         action_failure = menu.addAction(
-            QIconifyIcon("mdi:close-circle", color="#d04040"), "Failure"
+            QIconifyIcon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
         )
 
         chosen = menu.exec_(self.btn_defect.mapToGlobal(

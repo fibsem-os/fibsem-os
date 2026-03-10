@@ -1,7 +1,7 @@
 import copy
 import logging
 import os
-from typing import Optional, TYPE_CHECKING, Union
+from typing import Optional
 
 import napari
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -35,8 +35,6 @@ from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 from fibsem.ui.widgets.custom_widgets import WheelBlocker
 
 
-if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -67,11 +65,11 @@ class MillingTaskConfigWidget(QWidget):
     milling_progress_signal = pyqtSignal(dict)
     correlation_result_updated_signal = pyqtSignal(Point)
 
-    def __init__(self, microscope: FibsemMicroscope, 
+    def __init__(self, microscope: FibsemMicroscope,
                  milling_task_config: Optional[FibsemMillingTaskConfig] = None,
                  milling_enabled: bool = True,
-                correlation_enabled: bool = True,
-                 parent: Optional[Union[QWidget, 'FibsemMillingTaskWidget']] = None):
+                 correlation_enabled: bool = True,
+                 parent: Optional[QWidget] = None):
         """Initialize the MillingTaskConfig widget.
 
         Args:
@@ -105,24 +103,11 @@ class MillingTaskConfigWidget(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         content_widget.setLayout(layout)
 
-        use_scroll_area = True
-        try:
-            from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-            use_scroll_area = not isinstance(self.parent_widget, FibsemMillingTaskWidget)
-        except Exception:
-            use_scroll_area = True
-
-        if use_scroll_area:
-            scroll_area = QScrollArea()
-            scroll_area.setWidgetResizable(True)
-            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            # scroll_area.setContentsMargins(0, 0, 0, 0)
-            scroll_area.setWidget(content_widget)
-            self.main_layout.addWidget(scroll_area)
-        else:
-            layout.setContentsMargins(0, 0, 0, 0)
-            content_widget.setContentsMargins(0, 0, 0, 0)
-            self.main_layout.addWidget(content_widget)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setWidget(content_widget)
+        self.main_layout.addWidget(scroll_area)
 
         # Basic settings group
         self.basic_group = QGroupBox("Task", self)

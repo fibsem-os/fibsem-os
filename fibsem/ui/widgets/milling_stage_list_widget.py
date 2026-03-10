@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -327,6 +327,8 @@ class MillingStageListWidget(QWidget):
 
         self._checked: Dict[int, bool] = {}   # id(stage) -> bool
         self._selected_stage: Optional[FibsemMillingStage] = None
+        self._pending_stage: Optional[FibsemMillingStage] = None
+        self._stage_change_pending: bool = False
         self._pattern_names: List[str] = get_pattern_names()
         self._strategy_names: List[str] = get_strategy_names()
         self._current_values: List[float] = current_values or []
@@ -486,7 +488,7 @@ class MillingStageListWidget(QWidget):
         row.enabled_changed.connect(self._on_enabled_changed)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.row_clicked.connect(self._on_row_clicked)
-        row.stage_changed.connect(self.stage_changed.emit)
+        row.stage_changed.connect(self._on_row_stage_changed, type=Qt.QueuedConnection)
 
     def _row(self, i: int) -> MillingStageRowWidget:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
@@ -523,6 +525,21 @@ class MillingStageListWidget(QWidget):
     def _on_row_clicked(self, stage: FibsemMillingStage) -> None:
         self._set_selected(stage)
         self.stage_selected.emit(stage)
+
+    def _on_row_stage_changed(self, stage: FibsemMillingStage) -> None:
+        # Defer inline row mutation propagation to avoid re-entrant redraw paths.
+        self._pending_stage = stage
+        if self._stage_change_pending:
+            return
+        self._stage_change_pending = True
+        QTimer.singleShot(0, self._flush_pending_stage_change)
+
+    def _flush_pending_stage_change(self) -> None:
+        self._stage_change_pending = False
+        stage = self._pending_stage
+        self._pending_stage = None
+        if stage is not None:
+            self.stage_changed.emit(stage)
 
     def _on_remove_clicked(self, stage: FibsemMillingStage) -> None:
         self.remove_stage(stage)

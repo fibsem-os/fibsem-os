@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.structures import ReferenceImageParameters
-from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
 
@@ -135,7 +135,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         # Dialog buttons
         self.button_box = QDialogButtonBox(self)
         self.pushButton_apply = QPushButton("Apply to Selected Tasks")
-        self.pushButton_apply.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_apply.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_apply.setAutoDefault(False)  # Prevent Enter key from triggering
         self.pushButton_cancel = QPushButton("Cancel")
         self.pushButton_cancel.setAutoDefault(False)  # Prevent Enter key from triggering

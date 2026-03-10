@@ -97,10 +97,12 @@ class FibsemPatternSettingsWidget(QWidget):
 
     def _build_controls(self, pattern: BasePattern) -> None:
         """Clear and rebuild the fields form for the given pattern."""
-        # Clear existing rows
+        # Clear rows BEFORE removing form widgets: if Qt moves focus during removeRow(),
+        # a re-entrant set_pattern() call would iterate self._rows and call
+        # blockSignals() on already-deleted C++ wrappers → seg fault.
+        self._rows.clear()
         while self._fields_form.rowCount():
             self._fields_form.removeRow(0)
-        self._rows.clear()
 
         for field_name, m in pattern.field_metadata.items():
             if field_name in _HIDDEN_FIELDS or m.get("hidden", False):
