@@ -36,7 +36,7 @@ from fibsem.applications.autolamella.protocol.constants import (
 from fibsem.applications.autolamella.config import (
     FEATURE_DISPLAY_GRID_CENTER_MARKER,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, Lamella
+from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, DefectType, Lamella
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
@@ -410,7 +410,7 @@ class FibsemMinimapWidget(QWidget):
         self.pushButton_load_correlation_image.clicked.connect(self.load_image)
         self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
         self.pushButton_enable_correlation.clicked.connect(self._toggle_correlation_mode)
-        self.viewer.bind_key("C", self._toggle_correlation_mode, overwrite=True)
+        # self.viewer.bind_key("C", self._toggle_correlation_mode, overwrite=True)
         self.pushButton_enable_correlation.setEnabled(False) # disabled until correlation images added
 
         # gridbar controls
@@ -463,15 +463,38 @@ class FibsemMinimapWidget(QWidget):
         self.draw_current_stage_position()
 
     @property
-    def positions(self) -> List[FibsemStagePosition]:
+    def lamellas(self) -> List[Lamella]:
         if self.parent_widget is None or self.parent_widget.experiment is None:
             return []
+        return list(self.parent_widget.experiment.positions)
+
+    @property
+    def positions(self) -> List[FibsemStagePosition]:
         stage_positions = []
-        for p in self.parent_widget.experiment.positions:
-            stage_position = deepcopy(p.stage_position)
-            stage_position.name = p.name
-            stage_positions.append(stage_position)
-        return stage_positions # TODO: migrate to use Lamella directly?
+        for lam in self.lamellas:
+            sp = deepcopy(lam.stage_position)
+            sp.name = lam.name
+            stage_positions.append(sp)
+        return stage_positions
+
+    def _lamella_color(self, lamella: Lamella, selected: bool) -> str:
+        """Return a display color for a lamella based on its defect state and selection."""
+        if selected:
+            return CROSSHAIR_CONFIG["colors"]["saved_selected"]  # lime
+        if lamella.defect.state == DefectType.FAILURE:
+            return "red"
+        if lamella.defect.state == DefectType.REWORK:
+            return "orange"
+        return CROSSHAIR_CONFIG["colors"]["saved_unselected"]  # cyan
+
+    @property
+    def selected_lamella(self) -> Optional[Lamella]:
+        """Return the currently selected lamella, or None if nothing is selected."""
+        idx = self.comboBox_tile_position.currentIndex()
+        lamellas = self.lamellas
+        if idx == -1 or idx >= len(lamellas):
+            return None
+        return lamellas[idx]
 
     @ensure_main_thread
     def _on_experiment_position_changed(self, event: EmissionInfo):
@@ -921,7 +944,7 @@ class FibsemMinimapWidget(QWidget):
         )
 
         # Only show "Move Selected Position" if there are positions to move
-        if len(self.positions) > 0:
+        if len(self.lamellas) > 0:
             selected_name = self.comboBox_tile_position.currentText()
             config.add_action(
                 f"Move Selected Position Here ({selected_name})",
@@ -957,12 +980,16 @@ class FibsemMinimapWidget(QWidget):
 
     def update_current_selected_position(self):
         """Update the currently selected position."""
-        idx = self.comboBox_tile_position.currentIndex()
-        if idx == -1 or len(self.positions) == 0:
+        lam = self.selected_lamella
+        if lam is None:
             return
 
-        self.pushButton_move_to_position.setText(f"Move to {self.positions[idx].name}")
-        self.label_position_info.setText(f"{self.positions[idx].name}: {self.positions[idx].pretty_string}")
+        self.pushButton_move_to_position.setText(f"Move to {lam.name}")
+        task_name = lam.task_state.name or "Not Started"
+        defect_str = f" [{lam.defect.state.name}]" if lam.defect.state != DefectType.NONE else ""
+        self.label_position_info.setText(
+            f"{lam.name}: {lam.stage_position.pretty_string}  |  {task_name}{defect_str}"
+        )
 
         # redraw the positions to show the selected one
         self.draw_current_stage_position()
@@ -972,7 +999,8 @@ class FibsemMinimapWidget(QWidget):
     def update_positions_combobox(self):
         """Update the positions combobox with the current positions."""
 
-        has_positions = len(self.positions) > 0
+        lamellas = self.lamellas
+        has_positions = len(lamellas) > 0
         self.pushButton_move_to_position.setEnabled(has_positions)
         self.pushButton_remove_position.setEnabled(has_positions)
         self.groupBox_positions.setEnabled(has_positions)
@@ -983,7 +1011,7 @@ class FibsemMinimapWidget(QWidget):
 
         idx = self.comboBox_tile_position.currentIndex()
         self.comboBox_tile_position.clear()
-        self.comboBox_tile_position.addItems([pos.name for pos in self.positions])
+        self.comboBox_tile_position.addItems([lam.name for lam in lamellas])
         if idx == -1:
             return
         if idx < self.comboBox_tile_position.count():
@@ -1010,11 +1038,10 @@ class FibsemMinimapWidget(QWidget):
 
     def move_to_position_pressed(self) -> None:
         """Move the stage to the selected position."""
-        idx = self.comboBox_tile_position.currentIndex()
-        if idx == -1:
+        lam = self.selected_lamella
+        if lam is None:
             return
-        stage_position = self.positions[idx] # TODO: migrate to self.selected_stage_position
-        self.move_to_stage_position(stage_position)
+        self.move_to_stage_position(lam.stage_position)
 
     def move_to_stage_position(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to the selected position via movement widget."""
@@ -1131,12 +1158,12 @@ class FibsemMinimapWidget(QWidget):
         if self.show_saved_positions_fov:
             points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
             width = 80e-6 / pixelsize # TODO: make this match the milling fov
-            height = 1024/1536 * width 
-            selected_position = self.comboBox_tile_position.currentText()
-            for point in points:
+            height = 1024/1536 * width
+            selected_index = self.comboBox_tile_position.currentIndex()
+            for i, (lam, point) in enumerate(zip(self.lamellas, points)):
                 overlays.append(NapariShapeOverlay(
                     shape=create_rectangle_shape(point, width=width, height=height),
-                    color="lime" if point.name == selected_position else "cyan",
+                    color=self._lamella_color(lam, selected=i == selected_index),
                     label=point.name,
                     shape_type='rectangle')
                 )
@@ -1268,17 +1295,15 @@ class FibsemMinimapWidget(QWidget):
 
         # saved positions
         selected_index = self.comboBox_tile_position.currentIndex()
-        pts = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
-        for i, (saved_pos, saved_point) in enumerate(zip(self.positions, pts)):
+        lamellas = self.lamellas
+        positions = self.positions
+        pts = tiled.reproject_stage_positions_onto_image2(self.image, positions)
+        for i, (lam, saved_point) in enumerate(zip(lamellas, pts)):
             saved_lines = create_crosshair_shape(saved_point, crosshair_size, layer_scale)
-
-            # Use lime for selected position, cyan for others
-            color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-            if i == selected_index:
-                color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
+            color = self._lamella_color(lam, selected=i == selected_index)
 
             # Show position name on crosshair if saved position FOV is disabled
-            label = saved_pos.name if not self.show_saved_positions_fov else ""
+            label = lam.name if not self.show_saved_positions_fov else ""
 
             for line, txt in zip(saved_lines, [label, ""]):
                 overlays.append(NapariShapeOverlay(
