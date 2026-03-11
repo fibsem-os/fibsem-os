@@ -1,3 +1,10 @@
+import warnings
+warnings.warn(
+    "milling_task_config_widget is deprecated. Use milling_task_config_widget2 instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import copy
 import logging
 import os

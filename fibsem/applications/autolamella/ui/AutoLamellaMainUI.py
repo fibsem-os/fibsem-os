@@ -24,11 +24,12 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSplitter,
-    QStatusBar,
     QTabWidget,
     QVBoxLayout,
     QWidget,
+    QSpinBox
 )
 from superqt import ensure_main_thread
 from superqt.iconify import QIconifyIcon
@@ -41,7 +42,6 @@ from fibsem.ui import FibsemMinimapWidget
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
     NAPARI_STYLE,
-    RUN_WORKFLOW_BUTTON_STYLESHEET,
     STOP_WORKFLOW_BUTTON_STYLESHEET,
     SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
@@ -59,6 +59,7 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
+from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
 from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
@@ -641,20 +642,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui._workflow_finished_signal.connect(self._on_workflow_finished)
             self.autolamella_ui.system_widget.connected_signal.connect(self._on_microscope_connected)
 
-        # Add it as a dock widget to the viewer
-        self.main_viewer.window.add_dock_widget(
-            widget=self.autolamella_ui,
-            area="right",
-            add_vertical_stretch=True,
-            name="AutoLamella"
-        )
-
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
         self.autolamella_ui.setMinimumWidth(550)
+        self.autolamella_ui.label_title.setVisible(False)
 
-        # Add the viewer's Qt window to our layout
-        layout.addWidget(self.main_viewer.window._qt_window)
+        # Layout: napari viewer (left) | autolamella controls (right) via splitter
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        splitter.addWidget(self.main_viewer.window._qt_window)
+        splitter.addWidget(self.autolamella_ui)
+
+        splitter.setSizes([700, 550])
+        # set minimum width of right panel to 500
+        splitter.widget(1).setMinimumWidth(500)
+        layout.addWidget(splitter)
         self.tab_widget.addTab(container, QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR), "Microscope")
 
     def create_tabs(self):
@@ -685,7 +688,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(experiment.task_protocol.workflow_config)
             self.lamella_workflow_widget.set_options(experiment.task_protocol.options)
-        # self.task_history_widget.set_experiment(self.autolamella_ui.experiment)
 
         # Set widget minimum widths (allows resize)
         self.autolamella_ui.setMinimumWidth(500)
@@ -807,14 +809,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Connect microscope signals to the lamella widget so it can update when microscope connects
         self.autolamella_ui.system_widget.connected_signal.connect(self.lamella_widget._on_microscope_connected)
 
-        # Add to viewer dock
-        self.lamella_viewer.window.add_dock_widget(
-            self.lamella_widget,
-            area='right',
-            name='Lamella Editor'
-        )
+        self.lamella_widget.setMinimumWidth(500)
 
-        layout.addWidget(self.lamella_viewer.window._qt_window)
+        # Layout: napari viewer (left) | lamella editor (right) via splitter
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        splitter.addWidget(self.lamella_viewer.window._qt_window)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(self.lamella_widget)
+        scroll_area.setWidgetResizable(True)
+        splitter.addWidget(scroll_area)
+
+        splitter.setSizes([700, 500])
+        layout.addWidget(splitter)
         self.tab_widget.addTab(container, QIconifyIcon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella")
 
         # disable the tab by default
@@ -887,7 +896,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def add_lamella_cards_tab(self):
         """Add the lamella card container as a separate tab."""
-        from PyQt5.QtWidgets import QScrollArea, QSpinBox
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -916,26 +924,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         card_scroll.setMinimumWidth(350)  # card width (300) + 50px
         self.lamella_card_scroll = card_scroll
 
-        self.card_task_details_panel = QWidget()
-        self.card_task_details_panel.setStyleSheet("background: #2b2d31;")
-        details_layout = QVBoxLayout(self.card_task_details_panel)
-        details_layout.setContentsMargins(16, 16, 16, 16)
-        details_layout.setSpacing(8)
-
-        details_title = QLabel("Task Details")
-        details_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #d6d6d6;")
-
-        self.card_task_details_label = QLabel()
-        self.card_task_details_label.setWordWrap(True)
-        self.card_task_details_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.card_task_details_label.setStyleSheet("color: #c9c9c9;")
-
-        details_layout.addWidget(details_title)
-        details_layout.addWidget(self.card_task_details_label)
-        details_layout.addStretch(1)
+        self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         splitter.addWidget(card_scroll)
-        splitter.addWidget(self.card_task_details_panel)
+        splitter.addWidget(self.lamella_task_image_widget)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
         self.lamella_cards_splitter = splitter
@@ -951,27 +943,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
-    def _on_lamella_card_selected(self, lamella):
-        """Update task details panel for selected lamella card."""
-        if not hasattr(self, "card_task_details_label"):
+    def _on_lamella_card_selected(self, lamella: Lamella | None):
+        """Update task image panel for selected lamella card."""
+        if not hasattr(self, "lamella_task_image_widget"):
             return
 
         self._selected_card_lamella = lamella
-
-        if lamella is None:
-            self.card_task_details_label.setText("Select a lamella card to view task details.")
-            return
-
-        last_task = lamella.last_completed_task
-        last_task_txt = "None"
-        if last_task is not None:
-            last_task_txt = f"{last_task.name} ({last_task.status.name} @ {last_task.completed_at})"
-
-        details_text = (
-            f"Lamella: {lamella.name}\n"
-            f"Last completed task: {last_task_txt}"
-        )
-        self.card_task_details_label.setText(details_text)
+        self.lamella_task_image_widget.set_lamella(lamella)
 
     def _update_lamella_card_columns_from_width(self, *_args):
         """Fit card columns to available width in the splitter left pane."""
@@ -1240,16 +1218,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             viewer=self.minimap_viewer,
             parent=self.autolamella_ui
         )
+        self.minimap_widget.setMinimumWidth(500)
 
-        # Add to viewer dock
-        self.minimap_viewer.window.add_dock_widget(
-            self.minimap_widget,
-            area='right',
-            add_vertical_stretch=True,
-            name='AutoLamella Overview'
-        )
-        # TODO: replace dock widget with splitter, and side widget? 
-        layout.addWidget(self.minimap_viewer.window._qt_window)
+        # Layout: napari viewer (left) | minimap controls (right) via splitter
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        splitter.addWidget(self.minimap_viewer.window._qt_window)
+        splitter.addWidget(self.minimap_widget)
+
+        splitter.setSizes([700, 500])
+        layout.addWidget(splitter)
         self.tab_widget.insertTab(1, container, QIconifyIcon("mdi:map", color=GRAY_ICON_COLOR), "Overview")
 
         # disable the tab by default

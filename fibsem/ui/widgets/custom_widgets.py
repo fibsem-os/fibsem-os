@@ -196,6 +196,7 @@ class ValueSpinBox(QDoubleSpinBox):
         maximum: Optional[float] = None,
         step: Optional[float] = None,
         decimals: Optional[int] = None,
+        tooltip: Optional[str] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -204,6 +205,8 @@ class ValueSpinBox(QDoubleSpinBox):
         self.setRange(minimum if minimum is not None else 0.0, maximum if maximum is not None else 1e6)
         self.setSingleStep(step if step is not None else 0.01)
         self.setDecimals(decimals if decimals is not None else 3)
+        if tooltip:
+            self.setToolTip(tooltip)
         self.setKeyboardTracking(False)
         self.installEventFilter(WheelBlocker(parent=self))
 
@@ -401,11 +404,13 @@ class TitledPanel(QWidget):
         panel = TitledPanel("Milling", content=milling_widget)
         panel.add_header_widget(btn_advanced)   # right-aligned, before collapse button
 
-        simple = TitledPanel("Pattern", content=QLabel("coming soon"))
+        fixed = TitledPanel("Setup", content=setup_widget, collapsible=False)
     """
 
-    def __init__(self, title: str, content: Optional[QWidget] = None, parent=None) -> None:
+    def __init__(self, title: str, content: Optional[QWidget] = None,
+                 collapsible: bool = True, parent=None) -> None:
         super().__init__(parent)
+        self._collapsible = collapsible
         self.setObjectName("TitledPanel")
         self.setStyleSheet(
             "TitledPanel { border: 1px solid #3a3d42; border-radius: 4px; }"
@@ -434,6 +439,9 @@ class TitledPanel(QWidget):
         self._btn_collapse.toggled.connect(self._on_collapse_toggled)
         self._header_layout.addWidget(self._btn_collapse)
 
+        if not collapsible:
+            self._btn_collapse.setVisible(False)
+
         outer.addWidget(self._header)
 
         # Body
@@ -448,6 +456,9 @@ class TitledPanel(QWidget):
             self.set_content(content)
 
     def _on_collapse_toggled(self, expanded: bool) -> None:
+        # Non-collapsible panels are always expanded
+        if not self._collapsible:
+            expanded = True
         self._body.setVisible(expanded)
         icon = "mdi:chevron-up" if expanded else "mdi:chevron-down"
         self._btn_collapse.setIcon(QIconifyIcon(icon, color=stylesheets.GRAY_ICON_COLOR))
@@ -722,6 +733,11 @@ class LamellaNameListWidget(QWidget):
         """Return the display name of the current item, or ``""``."""
         item = self._list.currentItem()
         return item.text() if item is not None else ""
+
+    @property
+    def selected_index(self) -> int:
+        """Return the current row index, or -1 if nothing is selected."""
+        return self._list.currentRow()
 
     def set_lamella(self, positions, preferred_name: str = "") -> None:
         """Populate the list from *positions*, restoring selection by name.

@@ -3,20 +3,19 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
 from typing import Optional
 
 from fibsem import constants
 from fibsem.config import SQUARE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
-from fibsem.ui.widgets.custom_widgets import WheelBlocker
+from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, WheelBlocker
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
@@ -45,10 +44,10 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(4)
 
-        # --- Tile grid group ---
-        self._grid_group = QGroupBox("Overview Acquisition")
-        grid_layout = QGridLayout(self._grid_group)
-        grid_layout.setContentsMargins(6, 6, 6, 6)
+        # ── Overview Acquisition panel ────────────────────────────────
+        grid_content = QWidget()
+        grid_layout = QGridLayout(grid_content)
+        grid_layout.setContentsMargins(4, 4, 4, 4)
 
         # Beam type
         grid_layout.addWidget(QLabel("Beam Type"), 0, 0)
@@ -86,19 +85,17 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._label_total_fov.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore
         grid_layout.addWidget(self._label_total_fov, 2, 0, 1, 3)
 
-        outer.addWidget(self._grid_group)
+        grid_panel = TitledPanel("Overview Acquisition", content=grid_content)
+        grid_panel._btn_collapse.setChecked(True)
+        outer.addWidget(grid_panel)
 
-        # --- Per-tile image settings ---
-        self._image_group = QGroupBox("Tile Image Settings")
-        _img_layout = QVBoxLayout(self._image_group)
-        _img_layout.setContentsMargins(6, 6, 6, 6)
-
+        # ── Tile Image Settings panel ─────────────────────────────────
         self.image_settings_widget = ImageSettingsWidget(
             show_advanced=False,
             always_save=True,
         )
-        # Rename the HFW label to make clear it's the per-tile FOV
         self.image_settings_widget.hfw_label.setText("Field of View")
+        self.image_settings_widget.set_show_advanced_button(False)
 
         # Tiled acquisition requires square resolutions (equal x/y pixel size for stitching)
         self.image_settings_widget.resolution_combo.clear()
@@ -108,8 +105,18 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         if default_idx >= 0:
             self.image_settings_widget.resolution_combo.setCurrentIndex(default_idx)
 
-        _img_layout.addWidget(self.image_settings_widget)
-        outer.addWidget(self._image_group)
+        self._btn_advanced_imaging = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
+
+        self._image_panel = TitledPanel("Tile Image Settings", content=self.image_settings_widget)
+        self._image_panel.add_header_widget(self._btn_advanced_imaging)
+        self._image_panel._btn_collapse.setChecked(True)
+        outer.addWidget(self._image_panel)
 
     # ------------------------------------------------------------------
     # Signal wiring
@@ -118,6 +125,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def _connect_signals(self):
         self.beam_type_combo.currentIndexChanged.connect(self._on_changed)
         self.nrows_spinbox.valueChanged.connect(self._on_changed)
+        self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
         self.ncols_spinbox.valueChanged.connect(self._on_changed)
         self.image_settings_widget.settings_changed.connect(self._on_changed)
 

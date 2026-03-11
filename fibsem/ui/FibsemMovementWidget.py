@@ -38,9 +38,9 @@ from fibsem.ui.utils import (
     open_existing_file_dialog,
     open_save_file_dialog,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
-INSTRUCTIONS_TEXT = """Double Click to Move. 
-Alt + Double Click to Move Vertically"""
+INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
 class FibsemMovementWidget(QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
@@ -80,9 +80,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.scrollArea.setWidget(self.scrollAreaWidgetContents)
         self.gridLayout.addWidget(self.scrollArea, 0, 0, 1, 2)
 
-        # --- GroupBox: Stage Movement ---
-        self.groupBox_stage_position = QtWidgets.QGroupBox("Stage Movement", self.scrollAreaWidgetContents)
-        self.gridLayout_3 = QtWidgets.QGridLayout(self.groupBox_stage_position)
+        # --- Panel: Stage Movement ---
+        stage_content = QtWidgets.QWidget()
+        self.gridLayout_3 = QtWidgets.QGridLayout(stage_content)
+        self.gridLayout_3.setContentsMargins(0, 0, 0, 0)
 
         self.label_movement_stage_x = QtWidgets.QLabel("X Coordinate")
         self.doubleSpinBox_movement_stage_x = QtWidgets.QDoubleSpinBox()
@@ -128,10 +129,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.gridLayout_3.addWidget(self.label_movement_stage_tilt, 4, 0)
         self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_tilt, 4, 1)
 
-        self.pushButton_refresh_stage_position_data = QtWidgets.QPushButton("Refresh Stage Position Data")
         self.pushButton_move = QtWidgets.QPushButton("Move to Position")
-        self.gridLayout_3.addWidget(self.pushButton_refresh_stage_position_data, 5, 0)
-        self.gridLayout_3.addWidget(self.pushButton_move, 5, 1)
+        self.gridLayout_3.addWidget(self.pushButton_move, 5, 0, 1, 2)
 
         self.pushButton_move_flat_electron = QtWidgets.QPushButton("Move Flat to ELECTRON Beam")
         self.pushButton_move_flat_ion = QtWidgets.QPushButton("Move Flat to ION Beam")
@@ -147,11 +146,15 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.label_movement_instructions.setWordWrap(True)
         self.gridLayout_3.addWidget(self.label_movement_instructions, 8, 0, 1, 2)
 
-        self.gridLayout_2.addWidget(self.groupBox_stage_position, 0, 0)
+        self.btn_refresh_stage = IconToolButton(icon="mdi:refresh", tooltip="Refresh stage position")
+        self.stage_panel = TitledPanel("Stage Movement", content=stage_content, collapsible=False)
+        self.stage_panel.add_header_widget(self.btn_refresh_stage)
+        self.gridLayout_2.addWidget(self.stage_panel, 0, 0)
 
-        # --- GroupBox: Options ---
-        self.groupBox_movement_options = QtWidgets.QGroupBox("Options", self.scrollAreaWidgetContents)
-        self.gridLayout_4 = QtWidgets.QGridLayout(self.groupBox_movement_options)
+        # --- Panel: Options ---
+        options_content = QtWidgets.QWidget()
+        self.gridLayout_4 = QtWidgets.QGridLayout(options_content)
+        self.gridLayout_4.setContentsMargins(0, 0, 0, 0)
 
         self.label_movement_images = QtWidgets.QLabel("Acquire images after moving:")
         self.gridLayout_4.addWidget(self.label_movement_images, 0, 0, 1, 2)
@@ -163,14 +166,14 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.gridLayout_4.addWidget(self.checkBox_movement_acquire_electron, 1, 0)
         self.gridLayout_4.addWidget(self.checkBox_movement_acquire_ion, 1, 1)
 
-        self.gridLayout_2.addWidget(self.groupBox_movement_options, 1, 0)
+        self.options_panel = TitledPanel("Options", content=options_content)
+        self.options_panel._btn_collapse.setChecked(False)
+        self.gridLayout_2.addWidget(self.options_panel, 1, 0)
 
-        # --- GroupBox: Saved Positions ---
-        self.groupBox_saved_positions = QtWidgets.QGroupBox("Saved Positions", self.scrollAreaWidgetContents)
-        font = QtWidgets.QApplication.font()
-        font.setBold(False)
-        self.groupBox_saved_positions.setFont(font)
-        self.gridLayout_5 = QtWidgets.QGridLayout(self.groupBox_saved_positions)
+        # --- Panel: Saved Positions ---
+        saved_content = QtWidgets.QWidget()
+        self.gridLayout_5 = QtWidgets.QGridLayout(saved_content)
+        self.gridLayout_5.setContentsMargins(0, 0, 0, 0)
 
         self.label_positions_header_info = QtWidgets.QLabel("All positions in mm and degrees")
         self.gridLayout_5.addWidget(self.label_positions_header_info, 0, 0, 1, 2)
@@ -203,8 +206,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.gridLayout_5.addWidget(self.pushButton_import, 5, 0)
         self.gridLayout_5.addWidget(self.pushButton_export, 5, 1)
 
-        self.gridLayout_2.addWidget(self.groupBox_saved_positions, 2, 0)
-        self.groupBox_saved_positions.setVisible(False)
+        self.saved_positions_panel = TitledPanel("Saved Positions", content=saved_content, collapsible=False)
+        self.gridLayout_2.addWidget(self.saved_positions_panel, 2, 0)
+        self.saved_positions_panel.setVisible(False)
 
         self._move_buttons = [
             self.pushButton_move,
@@ -229,7 +233,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
         self.pushButton_move_flat_ion.clicked.connect(self.move_flat_to_beam)
         self.pushButton_move_flat_electron.clicked.connect(self.move_flat_to_beam)
-        self.pushButton_refresh_stage_position_data.clicked.connect(lambda: self.update_ui(None))
+        self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
         self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
@@ -273,7 +277,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # set custom tilt limits for the compustage
         if self.microscope.stage_is_compustage:
 
-
             # NOTE: these values are expressed in mm in the UI, hence the conversion
             # set x, y, z step sizes to be 1 um
             self.doubleSpinBox_movement_stage_x.setSingleStep(1e-6 * constants.SI_TO_MILLI)
@@ -289,7 +292,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_flat_ion.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_move_flat_electron.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_refresh_stage_position_data.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         self.pushButton_save_position.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_remove_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_go_to.setStyleSheet(BLUE_PUSHBUTTON_STYLE)

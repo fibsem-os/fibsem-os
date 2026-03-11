@@ -17,6 +17,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 # Error message constants
 ERROR_INVALID_PROTOCOL_TITLE = "Invalid Protocol"
@@ -77,8 +78,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         main_layout = QtWidgets.QVBoxLayout()
 
         # Experiment Information (Read-only)
-        exp_group = QtWidgets.QGroupBox("Experiment Information")
-        exp_layout = QtWidgets.QVBoxLayout()
+        exp_content = QtWidgets.QWidget()
+        exp_layout = QtWidgets.QVBoxLayout(exp_content)
+        exp_layout.setContentsMargins(0, 0, 0, 0)
 
         # Experiment form fields (all read-only)
         exp_form_layout = QtWidgets.QFormLayout()
@@ -103,12 +105,13 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         exp_layout.addLayout(exp_form_layout)
 
-        exp_group.setLayout(exp_layout)
+        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
         main_layout.addWidget(exp_group)
 
         # Protocol Information
-        protocol_group = QtWidgets.QGroupBox("Protocol Information")
-        protocol_layout = QtWidgets.QVBoxLayout()
+        protocol_content = QtWidgets.QWidget()
+        protocol_layout = QtWidgets.QVBoxLayout(protocol_content)
+        protocol_layout.setContentsMargins(0, 0, 0, 0)
 
         # Select Protocol buttons at top
         protocol_button_layout = QtWidgets.QHBoxLayout()
@@ -167,7 +170,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group.setLayout(protocol_layout)
+        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
         main_layout.addWidget(protocol_group)
 
         # Dialog buttons (OK/Cancel)

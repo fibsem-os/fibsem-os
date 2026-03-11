@@ -39,7 +39,7 @@ from fibsem.ui.napari.utilities import (
     draw_crosshair_in_napari,
     draw_scalebar_in_napari,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, _SpinnerLabel
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
@@ -185,11 +185,19 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             show_save=True,
             show_advanced=False,
         )
-        self.image_group = QtWidgets.QGroupBox("Image")
-        self.image_group.setStyleSheet("QGroupBox::title { font-weight: bold; }")
-        image_group_layout = QtWidgets.QVBoxLayout(self.image_group)
-        image_group_layout.setContentsMargins(6, 6, 6, 6)
-        image_group_layout.addWidget(self.image_settings_widget)
+        self.image_settings_widget.set_show_advanced_button(False)
+
+        self._btn_advanced_image = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
+
+        self.image_group = TitledPanel("Image", content=self.image_settings_widget)
+        self.image_group.add_header_widget(self._btn_advanced_image)
+        self.image_group._btn_collapse.setChecked(True)  # expanded by default
 
         # --- FibsemDualBeamWidget (SEM + FIB beam & detector settings) ---
         self.dual_beam_widget = FibsemDualBeamWidget(
@@ -223,6 +231,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.parent.comboBox_current_lamella.currentIndexChanged.connect(self._on_current_lamella_changed)
         except Exception as e:
             logging.debug(f"Error connecting to lamella selection changes: {e}")
+
+        # image advanced toggle
+        self._btn_advanced_image.toggled.connect(self.image_settings_widget.set_show_advanced)
 
         # util
         self.btn_scalebar.toggled.connect(self.update_ui_tools)

@@ -3,7 +3,6 @@ import logging
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
-    QHBoxLayout,
     QRadioButton,
     QToolButton,
     QVBoxLayout,
@@ -15,7 +14,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 class FibsemDualBeamWidget(QWidget):
     """Dual-beam widget with SEM / FIB radio buttons to switch between beam views.
@@ -45,7 +44,6 @@ class FibsemDualBeamWidget(QWidget):
         super().__init__(parent)
         self.microscope = microscope
         self._initial_beam_type = initial_beam_type
-        self._advanced_visible = False
         self._setup_ui()
         self._connect_signals()
 
@@ -65,12 +63,15 @@ class FibsemDualBeamWidget(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(0)
         self.setLayout(layout)
 
         # --- Radio buttons ---
+        _RADIO_STYLE = "QRadioButton { font-weight: bold; background: transparent; }"
         self.sem_radio = QRadioButton("SEM")
+        self.sem_radio.setStyleSheet(_RADIO_STYLE)
         self.fib_radio = QRadioButton("FIB")
+        self.fib_radio.setStyleSheet(_RADIO_STYLE)
         self._button_group = QButtonGroup(self)
         self._button_group.addButton(self.sem_radio)
         self._button_group.addButton(self.fib_radio)
@@ -87,44 +88,44 @@ class FibsemDualBeamWidget(QWidget):
         # --- Refresh button ---
         self.btn_refresh = IconToolButton(icon="mdi:refresh", tooltip="Refresh from microscope")
 
-        # --- Advanced toggle button ---
-        self.btn_advanced = IconToolButton(
-            icon="mdi:tune",
-            checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Show advanced settings",
-            checked_tooltip="Hide advanced settings",
-        )
         self.btn_beam_on.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         self.btn_beam_blanked.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
 
-        radio_row = QWidget()
-        radio_layout = QHBoxLayout(radio_row)
-        radio_layout.setContentsMargins(0, 0, 0, 0)
-        radio_layout.addWidget(self.sem_radio)
-        radio_layout.addWidget(self.fib_radio)
-        radio_layout.addStretch()
-        radio_layout.addWidget(self.btn_beam_on)
-        radio_layout.addWidget(self.btn_beam_blanked)
-        radio_layout.addWidget(self.btn_refresh)
-        radio_layout.addWidget(self.btn_advanced)
-        layout.addWidget(radio_row)
+        # --- Body: stacked beam widgets ---
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(4)
 
-        # --- SEM widget ---
         self.sem_widget = FibsemBeamWidget(
             microscope=self.microscope,
             beam_type=BeamType.ELECTRON,
         )
-        layout.addWidget(self.sem_widget)
-
-        # --- FIB widget ---
         self.fib_widget = FibsemBeamWidget(
             microscope=self.microscope,
             beam_type=BeamType.ION,
         )
-        layout.addWidget(self.fib_widget)
+        body_layout.addWidget(self.sem_widget)
+        body_layout.addWidget(self.fib_widget)
+        body_layout.addStretch()
 
-        layout.addStretch()
+        # --- TitledPanel with radios + tool buttons in header ---
+        self._panel = TitledPanel("", content=body, collapsible=False)
+
+        # Replace the empty title label with radio buttons
+        header_layout = self._panel._header_layout
+        title_item = header_layout.takeAt(0)
+        if title_item and title_item.widget():
+            title_item.widget().deleteLater()
+        header_layout.insertWidget(0, self.sem_radio)
+        header_layout.insertWidget(1, self.fib_radio)
+
+        # Add tool buttons to header (before hidden collapse btn)
+        self._panel.add_header_widget(self.btn_beam_on)
+        self._panel.add_header_widget(self.btn_beam_blanked)
+        self._panel.add_header_widget(self.btn_refresh)
+
+        layout.addWidget(self._panel)
 
         # Set initial selection
         if self._initial_beam_type is BeamType.ELECTRON:
@@ -145,7 +146,6 @@ class FibsemDualBeamWidget(QWidget):
         self.btn_beam_on.clicked.connect(self._on_beam_on_clicked)
         self.btn_beam_blanked.clicked.connect(self._on_beam_blanked_clicked)
         self.btn_refresh.clicked.connect(self._on_refresh_clicked)
-        self.btn_advanced.toggled.connect(self._on_advanced_toggled)
         self.sem_widget.beam_settings_changed.connect(self.beam_settings_changed)
         self.sem_widget.detector_settings_changed.connect(self.detector_settings_changed)
         self.fib_widget.beam_settings_changed.connect(self.beam_settings_changed)
@@ -178,13 +178,6 @@ class FibsemDualBeamWidget(QWidget):
     def _on_refresh_clicked(self):
         self.sync_from_microscope()
         logging.info({"msg": "_on_refresh_clicked", "beam_type": self.beam_type.name})
-
-    def _on_advanced_toggled(self, checked: bool):
-        self._advanced_visible = checked
-        for beam_widget in [self.sem_widget, self.fib_widget]:
-            beam_widget.beam_settings_widget.set_advanced_visible(checked)
-            beam_widget.detector_settings_widget.set_advanced_visible(checked)
-        logging.info({"msg": "_on_advanced_toggled", "advanced": checked})
 
     # ------------------------------------------------------------------
     # Public API — delegates to the active sub-widget

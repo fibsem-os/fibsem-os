@@ -4,10 +4,12 @@ from typing import List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
     QLabel,
+    QMessageBox,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -30,6 +32,72 @@ _SECTION_LABEL_STYLE = (
     " padding: 4px 6px 2px 6px; background: #1e2124;"
 )
 
+class AddTaskDialog(QDialog):
+    """Dialog for selecting a task to add to the workflow."""
+
+    def __init__(
+        self,
+        available_tasks: list[str],
+        experiment: Experiment | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Add Task to Workflow")
+        self.setMinimumWidth(400)
+
+        self.available_tasks = available_tasks
+        self.experiment = experiment
+        self.selected_task: str | None = None
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # Instructions
+        info_label = QLabel("Select a task to add to the workflow:")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # Task selector
+        self.task_selector = QComboBox()
+        self.task_selector.addItem("Select a task...", None)
+
+        for name in sorted(available_tasks):
+            display = name
+            if experiment is not None:
+                task_config = experiment.task_protocol.task_config.get(name)
+                if task_config is not None and getattr(task_config, "task_type", ""):
+                    display = f"{name} ({task_config.task_type})"
+            self.task_selector.addItem(display, name)
+
+        layout.addWidget(self.task_selector)
+
+        if not available_tasks:
+            no_tasks_label = QLabel("No tasks available to add")
+            no_tasks_label.setStyleSheet("color: gray; font-style: italic;")
+            layout.addWidget(no_tasks_label)
+
+        # Dialog buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel # type: ignore
+        )
+        button_box.accepted.connect(self._on_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _on_accept(self) -> None:
+        self.selected_task = self.task_selector.currentData()
+        if self.selected_task is None:
+            QMessageBox.warning(
+                self,
+                "No Task Selected",
+                "Please select a task to add to the workflow.",
+            )
+            return
+        self.accept()
+
+    def get_selected_task(self) -> str | None:
+        """Get the selected task name."""
+        return self.selected_task
 
 class _TaskEditorDialog(QDialog):
     """Modal dialog wrapping WorkflowTaskEditorWidget."""
@@ -278,7 +346,6 @@ class LamellaWorkflowWidget(QWidget):
 
     def _on_add_task_clicked(self) -> None:
         # Import here to avoid circular imports at module level
-        from fibsem.ui.widgets.autolamella_workflow_widget import AddTaskDialog
 
         available = self._available_task_names()
         dialog = AddTaskDialog(

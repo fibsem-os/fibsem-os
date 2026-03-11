@@ -18,7 +18,7 @@ from fibsem.structures import BeamType, FibsemImage, ImageSettings, MillingAlign
 from fibsem.utils import current_timestamp_v3
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_task_config_widget import FibsemMillingWidget2
+    from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 @dataclass
 class MillingTaskAcquisitionSettings:

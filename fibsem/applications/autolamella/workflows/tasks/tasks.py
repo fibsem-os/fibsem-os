@@ -35,9 +35,9 @@ from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
+    STRESS_RELIEF_KEY,
     TRENCH_KEY,
     UNDERCUT_KEY,
-    STRESS_RELIEF_KEY,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
@@ -46,15 +46,21 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.workflows._default_milling_config import (
+    DEFAULT_MILLING_CONFIG,
+)
 from fibsem.applications.autolamella.workflows.core import (
     align_feature_coincident,
-    ask_user,
     set_images_ui,
-    update_alignment_area_ui,
     update_detection_ui,
     update_status_ui,
 )
-from fibsem.applications.autolamella.workflows.ui import update_spot_burn_parameters, clear_spot_burn_ui
+from fibsem.applications.autolamella.workflows.ui import (
+    ask_user,
+    clear_spot_burn_ui,
+    update_alignment_area_ui,
+    update_spot_burn_parameters,
+)
 from fibsem.detection.detection import (
     Feature,
     LamellaBottomEdge,
@@ -62,20 +68,18 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
-
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import (
+    DEFAULT_ALIGNMENT_AREA,
     BeamType,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     Point,
-    DEFAULT_ALIGNMENT_AREA,
 )
-from fibsem.applications.autolamella.workflows._default_milling_config import DEFAULT_MILLING_CONFIG
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI

@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -26,7 +25,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QCollapsible
 from fibsem import conversions
 from fibsem.ui.napari.patterns import MILLING_ALIGNMENT_AREA_LAYER_NAME, MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.utilities import add_points_layer
@@ -41,7 +39,7 @@ from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import ContextMenuConfig, IconToolButton, LamellaNameListWidget, TaskNameListWidget
+from fibsem.ui.widgets.custom_widgets import ContextMenuConfig, IconToolButton, LamellaNameListWidget, TaskNameListWidget, TitledPanel
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
@@ -89,8 +87,9 @@ class ApplyLamellaConfigDialog(QDialog):
         self.label_description.setStyleSheet("font-style: italic; margin-bottom: 10px;")
 
         # --- Target lamella selection ---
-        self.lamella_group = QGroupBox("Target Lamella")
-        self.lamella_group.setFlat(True)
+        lamella_content = QWidget()
+        lamella_layout = QVBoxLayout(lamella_content)
+        lamella_layout.setContentsMargins(0, 0, 0, 0)
 
         self.lamella_list = QListWidget()
         self.lamella_list.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -112,14 +111,15 @@ class ApplyLamellaConfigDialog(QDialog):
         lamella_buttons_layout.addWidget(self.pushButton_select_all_lamella)
         lamella_buttons_layout.addWidget(self.pushButton_deselect_all_lamella)
 
-        lamella_layout = QVBoxLayout()
         lamella_layout.addWidget(self.lamella_list)
         lamella_layout.addLayout(lamella_buttons_layout)
-        self.lamella_group.setLayout(lamella_layout)
+
+        self.lamella_group = TitledPanel("Target Lamella", content=lamella_content, collapsible=False)
 
         # --- Task selection ---
-        self.task_group = QGroupBox("Tasks to Apply")
-        self.task_group.setFlat(True)
+        task_content = QWidget()
+        task_layout = QVBoxLayout(task_content)
+        task_layout.setContentsMargins(0, 0, 0, 0)
 
         self.task_list = QListWidget()
         self.task_list.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -141,10 +141,10 @@ class ApplyLamellaConfigDialog(QDialog):
         task_buttons_layout.addWidget(self.pushButton_select_all_tasks)
         task_buttons_layout.addWidget(self.pushButton_deselect_all_tasks)
 
-        task_layout = QVBoxLayout()
         task_layout.addWidget(self.task_list)
         task_layout.addLayout(task_buttons_layout)
-        self.task_group.setLayout(task_layout)
+
+        self.task_group = TitledPanel("Tasks to Apply", content=task_content, collapsible=False)
 
         # --- Base protocol checkbox ---
         self.checkbox_update_base_protocol = QCheckBox("Also update the base protocol")
@@ -292,22 +292,17 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
 
-        self.milling_task_collapsible = QCollapsible("Milling Task Parameters", self)
         self.milling_task_editor = MillingTaskViewerWidget(
             microscope=self.microscope,
             viewer=self.viewer,
             milling_enabled=False,
             parent=self,
         )
-        self.milling_task_collapsible.addWidget(self.milling_task_editor)
         self.milling_task_editor.setMinimumHeight(550)
 
-        self.task_params_collapsible = QCollapsible("Task Parameters", self)
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
-        self.task_params_collapsible.addWidget(self.task_parameters_config_widget)
 
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-        self.task_params_collapsible.addWidget(self.ref_image_params_widget)
 
         # lamella, milling controls
         self.lamella_list_widget = LamellaNameListWidget()
@@ -404,8 +399,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)       # type: ignore
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)    # type: ignore
         self.scroll_content_layout.addLayout(self.grid_layout)
-        self.scroll_content_layout.addWidget(self.task_params_collapsible)      # type: ignore
-        self.scroll_content_layout.addWidget(self.milling_task_collapsible)     # type: ignore
+        self.scroll_content_layout.addWidget(self.task_parameters_config_widget)
+        self.scroll_content_layout.addWidget(self.ref_image_params_widget)      # type: ignore
+        self.scroll_content_layout.addWidget(self.milling_task_editor)     # type: ignore
         self.scroll_content_layout.addStretch()
 
         self.scroll_content_widget = QWidget()
@@ -539,8 +535,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_lamella_warning.setText("  ".join(lamella_warnings))
 
         has_images = bool(fib_filenames)
-        self.task_params_collapsible.setEnabled(has_images)
-        self.milling_task_collapsible.setEnabled(has_images)
+        self.task_parameters_config_widget.setEnabled(has_images)
+        self.ref_image_params_widget.setEnabled(has_images)
+        self.milling_task_editor.setEnabled(has_images)
 
         self._on_image_selected(0)
         self._draw_point_of_interest(selected_lamella.poi)
@@ -668,11 +665,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.milling_task_editor.set_config(milling_task_config[self._current_milling_key])
             self.milling_task_editor.set_background_milling_stages(background_milling_stages)
             self._on_milling_fov_changed(milling_task_config)
-            self.milling_task_collapsible.setVisible(True)
+            self.milling_task_editor.setVisible(True)
         else:
             self._current_milling_key = None
             self.milling_task_editor.clear()
-            self.milling_task_collapsible.setVisible(False)
+            self.milling_task_editor.setVisible(False)
             if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
                 self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME) # type: ignore
             if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:

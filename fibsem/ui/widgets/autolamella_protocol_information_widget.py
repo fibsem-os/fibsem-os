@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QFormLayout, QLineEdit, QWidget
+from PyQt5.QtWidgets import QFormLayout, QLineEdit, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 
 class ProtocolInformationWidget(QWidget):
@@ -17,16 +18,23 @@ class ProtocolInformationWidget(QWidget):
         self._connect_signals()
 
     def _setup_ui(self):
-        layout = QFormLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        content = QWidget()
+        form_layout = QFormLayout(content)
+        form_layout.setContentsMargins(0, 0, 0, 0)
 
         self.lineEdit_name = QLineEdit()
         self.lineEdit_description = QLineEdit()
         self.lineEdit_version = QLineEdit()
 
-        layout.addRow("Name", self.lineEdit_name)
-        layout.addRow("Description", self.lineEdit_description)
-        layout.addRow("Version", self.lineEdit_version)
+        form_layout.addRow("Name", self.lineEdit_name)
+        form_layout.addRow("Description", self.lineEdit_description)
+        form_layout.addRow("Version", self.lineEdit_version)
+
+        self._panel = TitledPanel("Protocol", content=content, collapsible=False)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._panel)
 
     def _connect_signals(self):
         self.lineEdit_name.editingFinished.connect(

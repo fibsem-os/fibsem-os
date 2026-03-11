@@ -10,7 +10,7 @@ import os
 import subprocess
 import threading
 from copy import deepcopy
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import numpy as np
 import napari
 import napari.utils.notifications
@@ -32,15 +32,34 @@ from fibsem.ui import (
     FibsemMovementWidget,
     FibsemSystemSetupWidget,
     FibsemSpotBurnWidget,
+    MillingTaskViewerWidget,
     stylesheets,
 )
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QMessageBox, QAction
+from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import (
+    QAction,
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
+    QTabWidget,
+    QWidget,
+)
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if they are available
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget
 
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.autolamella_create_experiment_widget import create_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment_dialog
 from fibsem.ui.widgets.autolamella_load_task_protocol_widget import load_task_protocol_dialog
@@ -54,9 +73,11 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import run_tasks
-from fibsem.applications.autolamella.ui.qt import AutoLamellaUI as AutoLamellaMainUI
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import AutoLamellaSingleWindowUI
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
 warnings.filterwarnings(
@@ -98,17 +119,19 @@ INSTRUCTIONS = {
 }
 
 
-class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
+class AutoLamellaUI(QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
     step_update_signal     = pyqtSignal(str)   # emits human-readable step label
     detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal()
     experiment_update_signal = pyqtSignal()
 
-    def __init__(self, viewer: napari.Viewer, parent_ui: Optional['QWidget'] = None) -> None:
+    def __init__(self,
+                 viewer: napari.Viewer,
+                 parent_ui: Optional['AutoLamellaSingleWindowUI'] = None) -> None:
         super().__init__()
 
-        self.setupUi(self)
+        self._setup_ui()
         self.parent_widget = parent_ui
 
         self._protocol_lock = threading.RLock()
@@ -152,6 +175,187 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         # setup connections
         self.setup_connections()
 
+    def _setup_ui(self):
+        """Create all UI widgets inline (replaces generated setupUi from .ui file)."""
+        self.resize(788, 1234)
+        self.setAutoFillBackground(True)
+
+        # Central widget
+        self.centralwidget = QWidget(self)
+        self.gridLayout = QGridLayout(self.centralwidget)
+
+        # --- Title label (row 0, colspan 2) ---
+        self.label_title = QLabel("AutoLamella")
+        font_title = QFont()
+        font_title.setPointSize(16)
+        font_title.setBold(True)
+        self.label_title.setFont(font_title)
+        self.gridLayout.addWidget(self.label_title, 0, 0, 1, 2)
+
+        # --- Tab widget (row 1, colspan 2) ---
+        self.tabWidget = QTabWidget(self.centralwidget)
+
+        # Experiment tab
+        self.tab = QWidget()
+        self.gridLayout_3 = QGridLayout(self.tab)
+
+        # Experiment name (row 0)
+        self.label_experiment_name = QLabel("Experiment")
+        self.lineEdit_experiment_name = QLineEdit()
+        self.gridLayout_3.addWidget(self.label_experiment_name, 0, 0)
+        self.gridLayout_3.addWidget(self.lineEdit_experiment_name, 0, 1)
+
+        # Protocol name (row 3)
+        self.label_protocol_name = QLabel("Protocol")
+        self.lineEdit_protocol_name = QLineEdit()
+        self.gridLayout_3.addWidget(self.label_protocol_name, 3, 0)
+        self.gridLayout_3.addWidget(self.lineEdit_protocol_name, 3, 1)
+
+        # --- Setup panel (row 4, colspan 2) ---
+        setup_content = QWidget()
+        setup_layout = QGridLayout(setup_content)
+        setup_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.pushButton_add_lamella = QPushButton("Add Lamella")
+        self.pushButton_remove_lamella = QPushButton("Remove Lamella")
+        setup_layout.addWidget(self.pushButton_add_lamella, 0, 0)
+        setup_layout.addWidget(self.pushButton_remove_lamella, 0, 1)
+
+        self.groupBox_setup = TitledPanel("Setup", content=setup_content, collapsible=False)
+        self.gridLayout_3.addWidget(self.groupBox_setup, 4, 0, 1, 2)
+
+        # --- Selected Lamella panel (row 6, colspan 2) ---
+        selected_content = QWidget()
+        selected_layout = QGridLayout(selected_content)
+        selected_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.label_current_lamella_header = QLabel("")
+        font_bold = QFont()
+        font_bold.setBold(True)
+        self.label_current_lamella_header.setFont(font_bold)
+        self.label_current_lamella_header.setAlignment(
+            Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter  # type: ignore
+        )
+        self.comboBox_current_lamella = QComboBox()
+        selected_layout.addWidget(self.label_current_lamella_header, 0, 0)
+        selected_layout.addWidget(self.comboBox_current_lamella, 0, 1)
+
+        self.pushButton_save_position = QPushButton("Save Position")
+        self.pushButton_go_to_lamella = QPushButton("Go to Position")
+        selected_layout.addWidget(self.pushButton_save_position, 1, 0)
+        selected_layout.addWidget(self.pushButton_go_to_lamella, 1, 1)
+
+        self.label_lamella_objective_position = QLabel("TextLabel")
+        self.doubleSpinBox_lamella_objective_position = QDoubleSpinBox()
+        selected_layout.addWidget(self.label_lamella_objective_position, 2, 0)
+        selected_layout.addWidget(self.doubleSpinBox_lamella_objective_position, 2, 1)
+
+        self.label_lamella_pose = QLabel("Pose")
+        self.comboBox_lamella_pose = QComboBox()
+        selected_layout.addWidget(self.label_lamella_pose, 3, 0)
+        selected_layout.addWidget(self.comboBox_lamella_pose, 3, 1)
+
+        self.label_lamella_pose_position = QLabel("TextLabel")
+        selected_layout.addWidget(self.label_lamella_pose_position, 5, 0, 1, 2)
+
+        self.pushButton_lamella_set_pose = QPushButton("Set Current Pose")
+        self.pushButton_lamella_move_to_pose = QPushButton("Move to Pose")
+        selected_layout.addWidget(self.pushButton_lamella_set_pose, 6, 0)
+        selected_layout.addWidget(self.pushButton_lamella_move_to_pose, 6, 1)
+
+        self.groupBox_selected_lamella = TitledPanel("Selected Lamella", content=selected_content, collapsible=False)
+        self.gridLayout_3.addWidget(self.groupBox_selected_lamella, 6, 0, 1, 2)
+
+        # --- Lamella info panel (row 7, colspan 2) ---
+        lamella_content = QWidget()
+        lamella_layout = QGridLayout(lamella_content)
+        lamella_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scrollArea_lamella_info = QScrollArea()
+        self.scrollArea_lamella_info.setSizePolicy(
+            QSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Expanding)
+        )
+        self.scrollArea_lamella_info.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        self.scrollArea_lamella_info.setWidgetResizable(True)
+        self.scrollAreaLamellaInfoWidget = QWidget()
+        self.gridLayout_8 = QGridLayout(self.scrollAreaLamellaInfoWidget)
+        self.scrollArea_lamella_info.setWidget(self.scrollAreaLamellaInfoWidget)
+        lamella_layout.addWidget(self.scrollArea_lamella_info, 0, 0)
+
+        self.groupBox_lamella = TitledPanel("Lamella", content=lamella_content, collapsible=False)
+        self.groupBox_lamella.setSizePolicy(
+            QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        )
+        self.gridLayout_3.addWidget(self.groupBox_lamella, 7, 0, 1, 2)
+
+        # Vertical spacer (row 9)
+        self.gridLayout_3.addItem(
+            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 9, 0, 1, 2
+        )
+
+        # Stop button (row 33)
+        self.pushButton_stop_workflow = QPushButton("Stop Workflow")
+        self.gridLayout_3.addWidget(self.pushButton_stop_workflow, 33, 0, 1, 2)
+
+        # Add Experiment tab to tabWidget
+        self.tabWidget.addTab(self.tab, "Experiment")
+        self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
+
+        # --- Workflow info (row 2) ---
+        self.label_workflow_information = QLabel("Workflow Information")
+        self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
+
+        # --- Instructions (row 3) ---
+        self.label_instructions = QLabel("Instructions")
+        self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
+
+        # --- Yes / No buttons (row 4) ---
+        self.pushButton_yes = QPushButton("Yes")
+        self.pushButton_no = QPushButton("No")
+        self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
+        self.gridLayout.addWidget(self.pushButton_no, 4, 1)
+
+        self.setCentralWidget(self.centralwidget)
+
+        # --- Menu bar ---
+        self.menubar = QMenuBar(self)
+        self.menuAutoLamella = QMenu("File", self.menubar)
+        self.menuTools = QMenu("Tools", self.menubar)
+        self.menuHelp = QMenu("Help", self.menubar)
+        self.menuDevelopment = QMenu("Development", self.menubar)
+        self.setMenuBar(self.menubar)
+
+        # --- Actions ---
+        self.actionNew_Experiment = QAction("Create Experiment", self)
+        self.actionLoad_Experiment = QAction("Load Experiment", self)
+        self.actionCryo_Deposition = QAction("Cryo Deposition", self)
+        self.actionLoad_Protocol = QAction("Load Protocol", self)
+        self.actionOpen_Minimap = QAction("Open Overview Acquisition", self)
+        self.actionSave_Protocol = QAction("Export Protocol", self)
+        self.actionInformation = QAction("Information", self)
+        self.actionAdd_Lamella_from_Odemis = QAction("Add Lamella from Odemis", self)
+
+        # --- Menu population ---
+        self.menuAutoLamella.addAction(self.actionNew_Experiment)
+        self.menuAutoLamella.addAction(self.actionLoad_Experiment)
+        self.menuAutoLamella.addSeparator()
+        self.menuAutoLamella.addAction(self.actionLoad_Protocol)
+        self.menuAutoLamella.addAction(self.actionSave_Protocol)
+
+        self.menuTools.addAction(self.actionCryo_Deposition)
+        self.menuTools.addSeparator()
+
+        self.menuHelp.addAction(self.actionInformation)
+        self.menuDevelopment.addAction(self.actionAdd_Lamella_from_Odemis)
+
+        self.menubar.addAction(self.menuAutoLamella.menuAction())
+        self.menubar.addAction(self.menuTools.menuAction())
+        self.menubar.addAction(self.menuHelp.menuAction())
+        self.menubar.addAction(self.menuDevelopment.menuAction())
+
+        self.tabWidget.setCurrentIndex(0)
+
+
     @property
     def protocol(self) -> Optional[AutoLamellaTaskProtocol]:
         with self._protocol_lock:
@@ -171,9 +375,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.pushButton_go_to_lamella.clicked.connect(self.move_to_lamella_position)
         self.comboBox_current_lamella.currentIndexChanged.connect(self.update_lamella_ui)
         self.pushButton_save_position.clicked.connect(self.save_lamella_ui)
-
-        # workflow button group
-        self.pushButton_run_setup_autolamella.setVisible(False)
 
         # system widget
         self.system_widget.connected_signal.connect(self.connect_to_microscope)
@@ -253,7 +454,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         )
 
         # workflow interaction
-        self.pushButton_run_setup_autolamella.clicked.connect(self.run_task_workflow)
         self.pushButton_stop_workflow.setVisible(False)
         self.pushButton_stop_workflow.clicked.connect(self._stop_workflow_thread)
         self.pushButton_yes.clicked.connect(self.push_interaction_button)
@@ -317,9 +517,7 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
             # logging.info(f"Unhandled event: {evt.signal.name}: {evt.path}, {evt.args}")
             return
 
-        logging.info('-'*80)
         logging.info(f"event: {evt.signal.name} path: {evt.path}, {len(self.experiment.positions)} Positions")
-        logging.info('-'*80)
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -701,7 +899,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         napari.utils.notifications.show_info("Protocol editor is under development and will be available in a future release.")
         return
 
-
     def _open_experiment_directory(self) -> None:
         """Open the experiment directory in the system file explorer."""
         if self.experiment is None or self.experiment.path is None:
@@ -784,52 +981,9 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
 
 #### TASK WORKFLOW
 
-    def run_task_workflow(self):
-
-        if self.is_workflow_running:
-            napari.utils.notifications.show_warning(
-                "A workflow is already running... [Workflow Running]"
-            )
-            return
-
-        if self.microscope is None or self.experiment is None or self.protocol is None or self.experiment.task_protocol is None:
-            napari.utils.notifications.show_warning(
-                "Please connect to a microscope and load an experiment first... [No Microscope or Experiment]"
-            )
-            return
-        
-        if self.experiment.positions == []:
-            napari.utils.notifications.show_warning(
-                "Please add at least one lamella position to the experiment first... [No Lamella Positions]"
-            )
-            return
-
-        if self.milling_task_config_widget is None:
-            napari.utils.notifications.show_warning(
-                "Milling task configuration not available... [No Milling Configuration]"
-            )
-            return
-
-        from fibsem.applications.autolamella.ui.autolamella_task_selection_dialog import open_task_selection_dialog
-
-        lamella_names = [p.name for p in self.experiment.positions]
-        tasks_names = [t.name for t in self.experiment.task_protocol.workflow_config.tasks]
-        workflow_accepted, selected_tasks, selected_lamella = open_task_selection_dialog(lamella_names=lamella_names, 
-                                                                                         task_names=tasks_names, 
-                                                                                         parent_ui=self)
-        if not workflow_accepted:
-            logging.info("User cancelled workflow selection.")
-            return
-        if not selected_tasks or not selected_lamella:
-            logging.info("No tasks selected or no lamella selected.")
-            return
-        logging.info(f"Selected tasks: {selected_tasks}, for lamella: {selected_lamella}")
-        self._start_run_workflow_thread(selected_tasks, selected_lamella)
-
     def _start_run_workflow_thread(self, selected_tasks: List[str], selected_lamella: List[str]) -> None:
         """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
         self.pushButton_stop_workflow.setVisible(False)
-        self.pushButton_run_setup_autolamella.setEnabled(False)
 
         # clear milling task config
         self.milling_task_config_widget.clear() # type: ignore
@@ -882,7 +1036,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         if self.is_workflow_running:
             self.groupBox_selected_lamella.setEnabled(False)
             self.groupBox_setup.setEnabled(False)
-            self.pushButton_run_setup_autolamella.setEnabled(False)
             self.pushButton_stop_workflow.setVisible(False)
             return
 
@@ -961,27 +1114,14 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QMainWindow):
         self.label_lamella_objective_position.setVisible(False)
         self.doubleSpinBox_lamella_objective_position.setVisible(False)
 
-        # workflow buttons
-        self.label_run_autolamella_info.setVisible(has_lamella)
-        self.pushButton_run_setup_autolamella.setEnabled(is_experiment_ready and has_lamella)
-        self.pushButton_run_setup_autolamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-
         # disable lamella controls while workflow is running
         self.groupBox_selected_lamella.setEnabled(not self.is_workflow_running)
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
             self.update_lamella_ui()
-            estimated_time = self.experiment.estimate_remaining_time()
-            txt = f"Estimated time remaining: {utils.format_duration(estimated_time)}"
-            self.label_run_autolamella_info.setText(txt)
-            self.pushButton_run_setup_autolamella.setToolTip("Run the AutoLamella workflow on the selected lamella positions.")
-        else:
-            self.pushButton_run_setup_autolamella.setToolTip("Please add at least one lamella position to run the AutoLamella workflow.")
-            self.label_run_autolamella_info.setText("Please add at least one lamella position to run AutoLamella.")
 
         if self.is_workflow_running:
-            self.pushButton_run_setup_autolamella.setEnabled(False)
             return
 
         if not is_microscope_connected:

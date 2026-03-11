@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -27,6 +26,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor
 
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 import glob
@@ -35,21 +35,6 @@ if TYPE_CHECKING:
 
 
 # Stylesheet constants
-GROUPBOX_STYLESHEET = """
-    QGroupBox {
-        border: 1px solid #555;
-        border-radius: 5px;
-        margin-top: 10px;
-        padding-top: 10px;
-        color: white;
-    }
-    QGroupBox::title {
-        subcontrol-origin: margin;
-        left: 10px;
-        padding: 0 5px 0 5px;
-    }
-"""
-
 LINEEDIT_STYLESHEET = """
     QLineEdit {
         background-color: #3a3a3a;
@@ -175,9 +160,9 @@ class OverviewImageWidget(QWidget):
         """Initialize the widget UI components."""
 
         # Display Options Panel
-        display_group = QGroupBox("Display Options")
-        display_group.setStyleSheet(GROUPBOX_STYLESHEET)
-        display_layout = QFormLayout()
+        display_content = QWidget()
+        display_layout = QFormLayout(display_content)
+        display_layout.setContentsMargins(0, 0, 0, 0)
 
         # Title Text
         self.title_textbox = QLineEdit()
@@ -218,7 +203,7 @@ class OverviewImageWidget(QWidget):
         self.show_scalebar_checkbox = QCheckBox("")
         self.show_scalebar_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
         self.show_scalebar_checkbox.setChecked(True)
-        
+
         # display layout
         display_layout.addRow("Title", self.title_textbox)
         display_layout.addRow("Marker Color", color_layout)
@@ -226,7 +211,8 @@ class OverviewImageWidget(QWidget):
         display_layout.addRow("Marker Size", self.markersize_spinbox)
         display_layout.addRow("Show Names", self.show_names_checkbox)
         display_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
-        display_group.setLayout(display_layout)
+
+        display_group = TitledPanel("Display Options", content=display_content, collapsible=False)
 
         # Connect signals to update preview on change
         self.text_size_spinbox.valueChanged.connect(self._on_preview_clicked)

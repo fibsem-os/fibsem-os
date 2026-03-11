@@ -5,7 +5,6 @@ from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QDoubleSpinBox,
     QGridLayout,
     QLabel,
     QLineEdit,
@@ -19,7 +18,7 @@ from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, WheelBlocker
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
@@ -36,7 +35,6 @@ _WIDGET_CONFIG = {
         "default": 150.0,
         "suffix": " μm",
         "tooltip": "Field of view in micrometers (μm)",
-        "keyboard_tracking": False,
     },
 }
 
@@ -80,7 +78,6 @@ class MillingTaskConfigWidget2(QWidget):
 
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
-        layout.setSpacing(4)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -91,24 +88,22 @@ class MillingTaskConfigWidget2(QWidget):
         # ── Core panel ──────────────────────────────────────────────
         core_content = QWidget()
         core_grid = QGridLayout(core_content)
-        core_grid.setContentsMargins(4, 4, 4, 4)
+        core_grid.setContentsMargins(0, 0, 0, 0)
 
         self.name_edit = QLineEdit()
         self.name_edit.setText(_WIDGET_CONFIG["name"]["default"])
         self.name_edit.setPlaceholderText(_WIDGET_CONFIG["name"]["placeholder"])
 
         fov = _WIDGET_CONFIG["field_of_view"]
-        self.field_of_view_spinbox = QDoubleSpinBox()
-        self.field_of_view_spinbox.setRange(*fov["range"])
-        self.field_of_view_spinbox.setDecimals(fov["decimals"])
-        self.field_of_view_spinbox.setSingleStep(fov["step"])
-        self.field_of_view_spinbox.setValue(fov["default"])
-        self.field_of_view_spinbox.setSuffix(fov["suffix"])
-        self.field_of_view_spinbox.setToolTip(fov["tooltip"])
-        self.field_of_view_spinbox.setKeyboardTracking(fov["keyboard_tracking"])
-        self.field_of_view_spinbox.installEventFilter(
-            WheelBlocker(self.field_of_view_spinbox)
+        self.field_of_view_spinbox = ValueSpinBox(
+            suffix=fov["suffix"],
+            minimum=fov["range"][0],
+            maximum=fov["range"][1],
+            step=fov["step"],
+            decimals=fov["decimals"],
         )
+        self.field_of_view_spinbox.setValue(fov["default"])
+        self.field_of_view_spinbox.setToolTip(fov["tooltip"])
 
         self.label_instructions = QLabel(_INSTRUCTIONS_TEXT)
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -120,7 +115,7 @@ class MillingTaskConfigWidget2(QWidget):
         core_grid.addWidget(self.label_instructions, 2, 0, 1, 2)
         core_grid.setColumnStretch(1, 1)
 
-        core_panel = TitledPanel("Task", content=core_content)
+        core_panel = TitledPanel("Milling Parameters", content=core_content)
         core_panel._btn_collapse.setChecked(True)
         layout.addWidget(core_panel)
 

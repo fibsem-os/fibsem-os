@@ -2,7 +2,6 @@ import logging
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QGroupBox,
     QVBoxLayout,
     QWidget,
 )
@@ -10,6 +9,8 @@ from PyQt5.QtWidgets import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
+from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 from fibsem.ui.widgets.detector_settings_widget import FibsemDetectorSettingsWidget
 
 
@@ -50,31 +51,35 @@ class FibsemBeamWidget(QWidget):
         self.setLayout(layout)
 
         # --- Beam Settings group ---
-        self.beam_group = QGroupBox("Beam")
-        self.beam_group.setStyleSheet("QGroupBox::title { font-weight: bold; }")
-        beam_group_layout = QVBoxLayout()
-        beam_group_layout.setContentsMargins(6, 6, 6, 6)
-        self.beam_group.setLayout(beam_group_layout)
-
         self.beam_settings_widget = FibsemBeamSettingsWidget(
             microscope=self.microscope,
             beam_type=self.beam_type,
         )
-        beam_group_layout.addWidget(self.beam_settings_widget)
+        self._btn_advanced_beam = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
+        self.beam_group = TitledPanel("Beam", content=self.beam_settings_widget, collapsible=False)
+        self.beam_group.add_header_widget(self._btn_advanced_beam)
         layout.addWidget(self.beam_group)
 
         # --- Detector Settings group ---
-        self.detector_group = QGroupBox("Detector")
-        self.detector_group.setStyleSheet("QGroupBox::title { font-weight: bold; }")
-        detector_group_layout = QVBoxLayout()
-        detector_group_layout.setContentsMargins(6, 6, 6, 6)
-        self.detector_group.setLayout(detector_group_layout)
-
         self.detector_settings_widget = FibsemDetectorSettingsWidget(
             microscope=self.microscope,
             beam_type=self.beam_type,
         )
-        detector_group_layout.addWidget(self.detector_settings_widget)
+        self._btn_advanced_detector = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
+        self.detector_group = TitledPanel("Detector", content=self.detector_settings_widget, collapsible=False)
+        self.detector_group.add_header_widget(self._btn_advanced_detector)
         layout.addWidget(self.detector_group)
 
         layout.addStretch()
@@ -86,6 +91,8 @@ class FibsemBeamWidget(QWidget):
     def _connect_signals(self):
         self.beam_settings_widget.settings_changed.connect(self.beam_settings_changed)
         self.detector_settings_widget.settings_changed.connect(self.detector_settings_changed)
+        self._btn_advanced_beam.toggled.connect(self.beam_settings_widget.set_advanced_visible)
+        self._btn_advanced_detector.toggled.connect(self.detector_settings_widget.set_advanced_visible)
 
     # ------------------------------------------------------------------
     # Public API

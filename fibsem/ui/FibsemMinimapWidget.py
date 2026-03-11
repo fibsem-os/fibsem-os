@@ -21,7 +21,6 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
-    QGroupBox,
     QLabel,
     QProgressBar,
     QPushButton,
@@ -78,7 +77,7 @@ from fibsem.ui.napari.utilities import (
     is_inside_image_bounds,
     update_text_overlay,
 )
-from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
+from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )
@@ -236,7 +235,7 @@ class FibsemMinimapWidget(QWidget):
         self.gridLayout.addWidget(self.scrollArea, 0, 0)
 
         # Bottom elements (outside scroll area)
-        self.label_instructions = QLabel("Please take or load an overview image.")
+        self.label_instructions = QLabel(LABEL_INSTRUCTIONS["no-image"])
         self.gridLayout.addWidget(self.label_instructions, 1, 0)
 
         self.pushButton_run_tile_collection = QPushButton("Run Tiled Acquisition")
@@ -247,24 +246,23 @@ class FibsemMinimapWidget(QWidget):
 
         self.progressBar_acquisition = QProgressBar()
         self.progressBar_acquisition.setValue(24)
+        self.progressBar_acquisition.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
         self.gridLayout.addWidget(self.progressBar_acquisition, 4, 0)
 
         # --- Acquisition settings widget ---
         self.overview_acquisition_widget = OverviewAcquisitionSettingsWidget(self)
         self.gridLayout_5.addWidget(self.overview_acquisition_widget, 0, 0)
 
-        # --- GroupBox: Positions ---
-        self.groupBox_positions = QGroupBox("Positions", self.scrollAreaWidgetContents)
-        self.gridLayout_2 = QGridLayout(self.groupBox_positions)
+        # ── Positions panel ────────────────────────────────────────
+        positions_content = QWidget()
+        self.gridLayout_2 = QGridLayout(positions_content)
+        self.gridLayout_2.setContentsMargins(4, 4, 4, 4)
 
         bold_font = QFont()
         bold_font.setBold(True)
 
-        self.label_position_header = QLabel("Saved Positions")
-        self.label_position_header.setFont(bold_font)
-        self.comboBox_tile_position = QComboBox()
-        self.gridLayout_2.addWidget(self.label_position_header, 0, 0)
-        self.gridLayout_2.addWidget(self.comboBox_tile_position, 0, 1)
+        self.lamella_list = LamellaNameListWidget()
+        self.gridLayout_2.addWidget(self.lamella_list, 0, 0, 1, 2)
 
         self.pushButton_move_to_position = QPushButton("Move to Position")
         self.pushButton_remove_position = QPushButton("Remove Position")
@@ -284,11 +282,14 @@ class FibsemMinimapWidget(QWidget):
         self.gridLayout_2.addWidget(self.checkBox_pattern_overlay, 5, 0)
         self.gridLayout_2.addWidget(self.comboBox_pattern_overlay, 5, 1)
 
-        self.gridLayout_5.addWidget(self.groupBox_positions, 1, 0)
+        self.positions_panel = TitledPanel("Positions", content=positions_content)
+        self.positions_panel._btn_collapse.setChecked(True)
+        self.gridLayout_5.addWidget(self.positions_panel, 1, 0)
 
-        # --- GroupBox: Correlation ---
-        self.groupBox_correlation = QGroupBox("Correlation", self.scrollAreaWidgetContents)
-        self.gridLayout_4 = QGridLayout(self.groupBox_correlation)
+        # ── Correlation panel ─────────────────────────────────────
+        correlation_content = QWidget()
+        self.gridLayout_4 = QGridLayout(correlation_content)
+        self.gridLayout_4.setContentsMargins(4, 4, 4, 4)
 
         self.label_correlation_selected_layer = QLabel("Selected Layer")
         self.comboBox_correlation_selected_layer = QComboBox()
@@ -313,11 +314,14 @@ class FibsemMinimapWidget(QWidget):
         self.pushButton_enable_correlation = QPushButton("Enable Correlation Mode")
         self.gridLayout_4.addWidget(self.pushButton_enable_correlation, 4, 0, 1, 3)
 
-        self.gridLayout_5.addWidget(self.groupBox_correlation, 2, 0)
+        self.correlation_panel = TitledPanel("Correlation", content=correlation_content)
+        self.correlation_panel._btn_collapse.setChecked(False)
+        self.gridLayout_5.addWidget(self.correlation_panel, 2, 0)
 
-        # --- GroupBox: Display Options ---
-        self.groupBox_display_options = QGroupBox("Display Options", self.scrollAreaWidgetContents)
-        _dlo = QVBoxLayout(self.groupBox_display_options)
+        # ── Display Options panel ─────────────────────────────────
+        display_content = QWidget()
+        _dlo = QVBoxLayout(display_content)
+        _dlo.setContentsMargins(4, 4, 4, 4)
         self.checkBox_show_overview_fov = QCheckBox("Show Overview FOV")
         self.checkBox_show_overview_fov.setChecked(True)
         self.checkBox_show_saved_positions_fov = QCheckBox("Show Saved Positions FOV")
@@ -330,7 +334,10 @@ class FibsemMinimapWidget(QWidget):
         _dlo.addWidget(self.checkBox_show_saved_positions_fov)
         _dlo.addWidget(self.checkBox_show_stage_limits)
         _dlo.addWidget(self.checkBox_show_circle_overlays)
-        self.gridLayout_5.addWidget(self.groupBox_display_options, 3, 0)
+
+        display_panel = TitledPanel("Display Options", content=display_content)
+        display_panel._btn_collapse.setChecked(False)
+        self.gridLayout_5.addWidget(display_panel, 3, 0)
 
         self.pushButton_load_image = QPushButton("Load Image")
         self.gridLayout_5.addWidget(self.pushButton_load_image, 4, 0)
@@ -338,6 +345,8 @@ class FibsemMinimapWidget(QWidget):
         self.pushButton_load_correlation_image = QPushButton("Load Correlation Image")
         self.gridLayout_5.addWidget(self.pushButton_load_correlation_image, 5, 0)
 
+        # add strech to end of scroll content
+        self.gridLayout_5.setRowStretch(6, 1)
 
     def draw_blank_image(self):
         image: Optional[FibsemImage] = None
@@ -393,7 +402,7 @@ class FibsemMinimapWidget(QWidget):
 
         # position buttons
         self.pushButton_move_to_position.clicked.connect(self.move_to_position_pressed)
-        self.comboBox_tile_position.currentIndexChanged.connect(self.update_current_selected_position)
+        self.lamella_list.lamella_selected.connect(self.update_current_selected_position)
         self.pushButton_remove_position.clicked.connect(self.remove_selected_position_pressed)
 
         # signals
@@ -428,7 +437,7 @@ class FibsemMinimapWidget(QWidget):
         self.pushButton_enable_correlation.setEnabled(False) # disabled until correlation images added
 
         # gridbar controls
-        self.groupBox_correlation.setEnabled(True) # only grid-bar overlay enabled
+        self.correlation_panel.setEnabled(True) # only grid-bar overlay enabled
         self.checkBox_gridbar.setEnabled(True)
         self.checkBox_gridbar.stateChanged.connect(self.toggle_gridbar_display)
         self.label_gb_spacing.setVisible(False)
@@ -441,7 +450,7 @@ class FibsemMinimapWidget(QWidget):
         self.doubleSpinBox_gb_width.setKeyboardTracking(False)
         self.doubleSpinBox_gb_spacing.valueChanged.connect(self.update_gridbar_layer)
         self.doubleSpinBox_gb_width.valueChanged.connect(self.update_gridbar_layer)
-        self.groupBox_correlation.setToolTip("Correlation Controls are disabled until an image is acquired or loaded.")
+        self.correlation_panel.setToolTip("Correlation Controls are disabled until an image is acquired or loaded.")
 
         # set styles
         self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -504,11 +513,7 @@ class FibsemMinimapWidget(QWidget):
     @property
     def selected_lamella(self) -> Optional[Lamella]:
         """Return the currently selected lamella, or None if nothing is selected."""
-        idx = self.comboBox_tile_position.currentIndex()
-        lamellas = self.lamellas
-        if idx == -1 or idx >= len(lamellas):
-            return None
-        return lamellas[idx]
+        return self.lamella_list.selected_lamella
 
     @ensure_main_thread
     def _on_experiment_position_changed(self, event: EmissionInfo):
@@ -822,7 +827,7 @@ class FibsemMinimapWidget(QWidget):
             return
 
         if update_position:
-            idx = self.comboBox_tile_position.currentIndex()
+            idx = self.lamella_list.selected_index
             if idx == -1:
                 logging.debug("No position selected to update.")
                 return
@@ -862,10 +867,8 @@ class FibsemMinimapWidget(QWidget):
         # If closest position is within 50um, select it
         SELECTED_POSITION_THRESHOLD_MICRONS = 50.0
         if closest_dist < SELECTED_POSITION_THRESHOLD_MICRONS * constants.MICRO_TO_SI:
-            idx = self.comboBox_tile_position.findText(closest_name)
-            if idx != -1:
-                self.comboBox_tile_position.setCurrentIndex(idx)
-                return
+            self.lamella_list.select(closest_name)
+            return
 
     def on_double_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
         """Callback for double click on the image layer.
@@ -959,7 +962,7 @@ class FibsemMinimapWidget(QWidget):
 
         # Only show "Move Selected Position" if there are positions to move
         if len(self.lamellas) > 0:
-            selected_name = self.comboBox_tile_position.currentText()
+            selected_name = self.lamella_list.selected_name
             config.add_action(
                 f"Move Selected Position Here ({selected_name})",
                 callback=lambda: self._update_selected_position(stage_position),
@@ -983,7 +986,7 @@ class FibsemMinimapWidget(QWidget):
         if self.parent_widget is None or self.parent_widget.experiment is None:
             return
 
-        idx = self.comboBox_tile_position.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             logging.debug("No position selected to update.")
             return
@@ -992,7 +995,7 @@ class FibsemMinimapWidget(QWidget):
         self.parent_widget.experiment.save()
         self._update_position_display()
 
-    def update_current_selected_position(self):
+    def update_current_selected_position(self, _lamella=None):
         """Update the currently selected position."""
         lam = self.selected_lamella
         if lam is None:
@@ -1011,28 +1014,20 @@ class FibsemMinimapWidget(QWidget):
         has_positions = len(lamellas) > 0
         self.pushButton_move_to_position.setEnabled(has_positions)
         self.pushButton_remove_position.setEnabled(has_positions)
-        self.groupBox_positions.setEnabled(has_positions)
+        self.positions_panel.setEnabled(has_positions)
         if not has_positions:
-            self.groupBox_positions.setToolTip("No positions available. Please add a position via Right Click on the image.")
+            self.positions_panel.setToolTip("No positions available. Please add a position via Right Click on the image.")
         else:
-            self.groupBox_positions.setToolTip("")
+            self.positions_panel.setToolTip("")
 
-        idx = self.comboBox_tile_position.currentIndex()
-        self.comboBox_tile_position.clear()
-        self.comboBox_tile_position.addItems([lam.name for lam in lamellas])
-        if idx == -1:
-            return
-        if idx < self.comboBox_tile_position.count():
-            self.comboBox_tile_position.setCurrentIndex(idx)
-        else:
-            self.comboBox_tile_position.setCurrentIndex(self.comboBox_tile_position.count() - 1)
+        self.lamella_list.set_lamella(lamellas)
 
     def remove_selected_position_pressed(self):
         """Remove the selected position from the list."""
         if self.parent_widget is None or self.parent_widget.experiment is None:
             return # prevent editing positions directly if not using autolamella
 
-        idx = self.comboBox_tile_position.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             return
 
@@ -1167,7 +1162,7 @@ class FibsemMinimapWidget(QWidget):
             points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
             width = 80e-6 / pixelsize # TODO: make this match the milling fov
             height = 1024/1536 * width
-            selected_index = self.comboBox_tile_position.currentIndex()
+            selected_index = self.lamella_list.selected_index
             for i, (lam, point) in enumerate(zip(self.lamellas, points)):
                 overlays.append(NapariShapeOverlay(
                     shape=create_rectangle_shape(point, width=width, height=height),
@@ -1302,7 +1297,7 @@ class FibsemMinimapWidget(QWidget):
             ))
 
         # saved positions
-        selected_index = self.comboBox_tile_position.currentIndex()
+        selected_index = self.lamella_list.selected_index
         lamellas = self.lamellas
         positions = self.positions
         pts = tiled.reproject_stage_positions_onto_image2(self.image, positions)
@@ -1468,7 +1463,7 @@ class FibsemMinimapWidget(QWidget):
 
         # set the image layer as the active layer
         self.set_active_layer_for_movement()
-        self.groupBox_correlation.setEnabled(True) # TODO: allow enabling grid-bar overlay separately
+        self.correlation_panel.setEnabled(True) # TODO: allow enabling grid-bar overlay separately
         self.checkBox_gridbar.setEnabled(True)
         self.pushButton_enable_correlation.setEnabled(True)
 

@@ -35,7 +35,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.toolButton_import_configuration = QtWidgets.QToolButton()
         self.label_connection_status = QtWidgets.QLabel("No Connected")
         self.label_connection_information = QtWidgets.QLabel("No Connected")
-        self.label_connection = QtWidgets.QLabel("Connection")
+        self.label_connection = QtWidgets.QLabel("Configuration")
 
         self.gridLayout.addWidget(self.label_connection, 0, 0, 1, 1)
         self.gridLayout.addWidget(self.comboBox_configuration, 0, 1, 1, 1)
@@ -83,12 +83,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self._label_status_title = QtWidgets.QLabel("Microscope Connected")
         self._label_status_title.setStyleSheet(
-            "color: #ffffff; font-weight: bold; font-size: 11px; border: none;"
+            "background-color: transparent; color: #ffffff; font-weight: bold; font-size: 11px; border: none;"
         )
 
         self._label_status_subtitle = QtWidgets.QLabel("")
         self._label_status_subtitle.setStyleSheet(
-            "color: #a0a0a0; font-size: 10px; border: none;"
+            "background-color: transparent; color: #a0a0a0; font-size: 10px; border: none;"
         )
 
         text_layout.addWidget(self._label_status_title)

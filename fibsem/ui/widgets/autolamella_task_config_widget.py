@@ -15,14 +15,13 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
-    QGroupBox,
 )
 from superqt import QCollapsible
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.custom_widgets import WheelBlocker
+from fibsem.ui.widgets.custom_widgets import TitledPanel, WheelBlocker
 
 class ParameterWidget:
     """Base class for parameter editing widgets."""
@@ -439,16 +438,17 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
     def _setup_ui(self):
         """Create and configure all UI elements."""
         self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.main_layout)
 
         # Create content widget for parameters
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
         self.current_row = 0
-        self.params_groupbox = QGroupBox("Task")
-        self.params_groupbox.setLayout(self.grid_layout)
+        self.params_panel = TitledPanel("Task Parameters", content=self.params_widget)
+        self.params_panel._btn_collapse.setChecked(True)
 
-        self.main_layout.addWidget(self.params_groupbox)    # type: ignore
+        self.main_layout.addWidget(self.params_panel)
 
     def set_task_config(self, task_config: Optional[AutoLamellaTaskConfig]):
         """Set the task configuration to edit."""

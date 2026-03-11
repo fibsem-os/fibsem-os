@@ -1,3 +1,10 @@
+import warnings
+warnings.warn(
+    "milling_stage_editor_widget is deprecated. Use milling_task_config_widget2 instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import copy
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING

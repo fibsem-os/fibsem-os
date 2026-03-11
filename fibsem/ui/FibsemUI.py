@@ -7,7 +7,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
-from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
@@ -30,7 +30,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
         self.image_widget: FibsemImageSettingsWidget = None
         self.movement_widget: FibsemMovementWidget = None
-        self.milling_widget: MillingTaskConfigWidget = None
+        self.milling_widget: MillingTaskViewerWidget = None
         self.manipulator_widget: FibsemManipulatorWidget = None
 
         self.system_widget = FibsemSystemSetupWidget(parent=self)
@@ -103,9 +103,10 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
                 microscope=self.microscope,
                 parent=self,
             )
-            self.milling_widget = MillingTaskConfigWidget(
+            self.milling_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
                 parent=self,
+                viewer=self.viewer,
             )
             if self.microscope.system.manipulator.enabled:
                 self.manipulator_widget = FibsemManipulatorWidget(

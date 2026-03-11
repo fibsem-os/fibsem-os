@@ -14,6 +14,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 # Error message constants
 ERROR_PROTOCOL_NOT_FOUND_TITLE = "Protocol Not Found"
@@ -80,16 +81,13 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         main_layout = QtWidgets.QVBoxLayout()
 
         # Experiment Information
-        exp_group = QtWidgets.QGroupBox("Experiment Information")
-        exp_layout = QtWidgets.QVBoxLayout()
+        exp_content = QtWidgets.QWidget()
+        exp_layout = QtWidgets.QVBoxLayout(exp_content)
+        exp_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Select Experiment button at top
-        button_layout = QtWidgets.QHBoxLayout()
-        button_layout.addStretch()
-        self.btn_select_experiment = QtWidgets.QPushButton("Select Experiment")
+        # Select Experiment button (added to header below)
+        self.btn_select_experiment = QtWidgets.QPushButton("Select")
         self.btn_select_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        button_layout.addWidget(self.btn_select_experiment)
-        exp_layout.addLayout(button_layout)
 
         # Experiment form fields (all read-only)
         exp_form_layout = QtWidgets.QFormLayout()
@@ -140,12 +138,14 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         exp_layout.addLayout(exp_form_layout)
 
-        exp_group.setLayout(exp_layout)
+        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
+        exp_group.add_header_widget(self.btn_select_experiment)
         main_layout.addWidget(exp_group)
 
         # Protocol Information
-        protocol_group = QtWidgets.QGroupBox("Protocol Information")
-        protocol_layout = QtWidgets.QVBoxLayout()
+        protocol_content = QtWidgets.QWidget()
+        protocol_layout = QtWidgets.QVBoxLayout(protocol_content)
+        protocol_layout.setContentsMargins(0, 0, 0, 0)
 
         # Protocol action buttons (hidden unless protocol missing)
         self.protocol_button_layout = QtWidgets.QHBoxLayout()
@@ -196,7 +196,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group.setLayout(protocol_layout)
+        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
         main_layout.addWidget(protocol_group)
 
         # Dialog buttons (OK/Cancel)
