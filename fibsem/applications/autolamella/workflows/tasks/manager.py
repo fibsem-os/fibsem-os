@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.microscope import FibsemMicroscope
 
@@ -49,6 +50,7 @@ class TaskManager:
         self.experiment = experiment
         self.parent_ui = parent_ui
         self._stop_event = threading.Event()
+        self.queue = TaskQueue()
 
     # --- Public API ---
 
@@ -62,61 +64,68 @@ class TaskManager:
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
 
-        for task_name in task_names:
-            for lamella in self.experiment.positions:
+        self.queue.build_from_matrix(task_names, required_lamella)
+        self._run_queue()
 
-                skip_reason = self._should_skip(lamella, task_name, required_lamella)
-                if skip_reason == "not_required" or skip_reason == "failure":
-                    continue
-                if skip_reason == "missing_prereqs":
-                    task_requirements = self.experiment.task_protocol.workflow_config.requirements(task_name)
-                    missing_tasks = [req for req in task_requirements if not lamella.has_completed_task(req)]
-                    self._emit_status(
-                        task_name=task_name,
-                        task_names=task_names,
-                        lamella=lamella,
-                        required_lamella=required_lamella,
-                        status=AutoLamellaTaskStatus.Skipped,
-                        msg=f"Skipping {lamella.name}: required tasks {missing_tasks} not completed.",
-                    )
-                    continue
+    def _run_queue(self) -> None:
+        """Process queue items until empty or stopped."""
+        while not self.is_stopped:
+            item = self.queue.next()
+            if item is None:
+                break
 
-                # Emit InProgress status
+            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            if lamella is None:
+                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                continue
+
+            task_names = self.queue.task_names
+            lamella_names = self.queue.lamella_names
+
+            skip_reason = self._should_skip(lamella, item.task_name, lamella_names)
+            if skip_reason is not None:
+                msg = f"Skipping {lamella.name} for {item.task_name}: {skip_reason}."
                 self._emit_status(
-                    task_name=task_name,
+                    task_name=item.task_name,
                     task_names=task_names,
                     lamella=lamella,
-                    required_lamella=required_lamella,
-                    status=AutoLamellaTaskStatus.InProgress,
-                    msg=f"Starting task {task_name} for Lamella {lamella.name}.",
-                )
-
-                # Execute the task
-                err = self._run_single_task(task_name, lamella)
-
-                # Emit Completed/Failed status
-                if err is None:
-                    msg = f"Completed task {task_name} for Lamella {lamella.name}."
-                else:
-                    msg = f"Error in task {task_name} for Lamella {lamella.name}."
-                self._emit_status(
-                    task_name=task_name,
-                    task_names=task_names,
-                    lamella=lamella,
-                    required_lamella=required_lamella,
-                    status=lamella.task_state.status,
-                    error_message=lamella.task_state.status_message,
-                    task_duration=lamella.task_state.duration,
+                    required_lamella=lamella_names,
+                    status=AutoLamellaTaskStatus.Skipped,
                     msg=msg,
                 )
+                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                continue
 
-                if self.is_stopped:
-                    logging.info("Workflow stop event set. Exiting task loop.")
-                    break
+            # Emit InProgress status
+            self._emit_status(
+                task_name=item.task_name,
+                task_names=task_names,
+                lamella=lamella,
+                required_lamella=lamella_names,
+                status=AutoLamellaTaskStatus.InProgress,
+                msg=f"Starting task {item.task_name} for Lamella {lamella.name}.",
+            )
 
-            if self.is_stopped:
-                logging.info("Workflow stop event set. Exiting task loop.")
-                break
+            # Execute the task
+            err = self._run_single_task(item.task_name, lamella)
+            final_status = lamella.task_state.status
+            self.queue.mark_done(item, final_status)
+
+            # Emit Completed/Failed status
+            if err is None:
+                msg = f"Completed task {item.task_name} for Lamella {lamella.name}."
+            else:
+                msg = f"Error in task {item.task_name} for Lamella {lamella.name}."
+            self._emit_status(
+                task_name=item.task_name,
+                task_names=task_names,
+                lamella=lamella,
+                required_lamella=lamella_names,
+                status=final_status,
+                error_message=lamella.task_state.status_message,
+                task_duration=lamella.task_state.duration,
+                msg=msg,
+            )
 
         update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
         print(self.experiment.task_history_dataframe())

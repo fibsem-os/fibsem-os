@@ -112,6 +112,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._sound_enabled = False  # Toggle for notification sounds
         self._toasts_enabled = False  # Toggle for toast notifications
         self._border_enabled = True  # Toggle for workflow border indicator
+        self._workflow_timeline_initialized = False
 
         # create menus, status bar, and tabs
         self._create_menu_bar()
@@ -1003,17 +1004,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         timings = {}
         status_msg = info.get("status", None)
         if status_msg is not None:
-            _is_start = (
-                status_msg.get("current_task_index", -1) == 0
-                and status_msg.get("current_lamella_index", -1) == 0
-                and status_msg.get("status") == AutoLamellaTaskStatus.InProgress
-            )
+            _is_start = not self._workflow_timeline_initialized
             if self.action_timeline_toggle.isChecked():
                 if _is_start:
                     self.workflow_timeline.set_workflow(
                         task_names=status_msg.get("task_names", []),
                         lamella_names=status_msg.get("lamella_names", []),
                     )
+                    self._workflow_timeline_initialized = True
                 self.workflow_timeline.update_from_status(status_msg)
 
             task_name = status_msg.get("task_name", "Unknown Task")
@@ -1188,6 +1186,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_workflow_finished(self):
         """Handle workflow finished signal."""
+        self._workflow_timeline_initialized = False
         # Resolve any outer row left in ACTIVE state (e.g. if workflow was cancelled)
         if self.action_timeline_toggle.isChecked():
             self.workflow_timeline.finish_current_step(failed=False)

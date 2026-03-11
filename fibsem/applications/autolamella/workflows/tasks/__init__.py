@@ -54,6 +54,10 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (
     run_tasks,
     TaskManager,
 )
+from fibsem.applications.autolamella.workflows.tasks.queue import (
+    TaskQueue,
+    WorkItem,
+)
 
 class TaskNotRegisteredError(Exception):
     """Exception raised when a task is not registered in the TASK_REGISTRY."""

@@ -24,6 +24,7 @@ _DOT_COMPLETED  = stylesheets.GREEN_COLOR
 _DOT_ACTIVE     = "#ff9800"
 _DOT_PENDING    = "#606060"
 _DOT_FAILED     = "#99121F"
+_DOT_SKIPPED    = "#9e9e9e"
 
 _LINE_COLOR     = "#3a3d42"
 _SELECTED_BG    = "#2d3f5c"
@@ -43,6 +44,7 @@ class StepStatus(Enum):
     ACTIVE    = auto()
     COMPLETED = auto()
     FAILED    = auto()
+    SKIPPED   = auto()
 
 
 @dataclass
@@ -59,6 +61,7 @@ def _status_color(status: StepStatus) -> str:
         StepStatus.ACTIVE:    _DOT_ACTIVE,
         StepStatus.PENDING:   _DOT_PENDING,
         StepStatus.FAILED:    _DOT_FAILED,
+        StepStatus.SKIPPED:   _DOT_SKIPPED,
     }[status]
 
 
@@ -115,6 +118,7 @@ class _InnerStepRow(QWidget):
         self._label.setStyleSheet(f"color: {color}; font-size: 11px;")
         f = self._label.font()
         f.setBold(status == StepStatus.ACTIVE)
+        f.setStrikeOut(status == StepStatus.SKIPPED)
         self._label.setFont(f)
 
 
@@ -192,6 +196,7 @@ class _OuterRow(QWidget):
         self._label.setText(step.label)
         f = self._label.font()
         f.setBold(step.status == StepStatus.ACTIVE)
+        f.setStrikeOut(step.status == StepStatus.SKIPPED)
         self._label.setFont(f)
         self._subtitle.setText(step.subtitle)
         self._subtitle.setVisible(bool(step.subtitle))
@@ -391,7 +396,8 @@ class WorkflowProgressWidget(QWidget):
             self._outer_index = outer_idx
             for i, item in enumerate(self._items):
                 if i < outer_idx:
-                    item.status = StepStatus.COMPLETED
+                    if item.status not in (StepStatus.SKIPPED, StepStatus.FAILED):
+                        item.status = StepStatus.COMPLETED
                 elif i == outer_idx:
                     item.status = StepStatus.ACTIVE
                 else:
@@ -417,8 +423,8 @@ class WorkflowProgressWidget(QWidget):
 
         elif task_status == AutoLamellaTaskStatus.Skipped:
             if 0 <= outer_idx < len(self._items):
-                self._items[outer_idx].status = StepStatus.PENDING
-                self._outer.set_step_status(outer_idx, StepStatus.PENDING)
+                self._items[outer_idx].status = StepStatus.SKIPPED
+                self._outer.set_step_status(outer_idx, StepStatus.SKIPPED)
 
     def update_step(self, step_name: str) -> None:
         """Mark the previous inner step completed and append a new ACTIVE one."""
