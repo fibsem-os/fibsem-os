@@ -262,12 +262,10 @@ class FibsemMinimapWidget(QWidget):
         bold_font.setBold(True)
 
         self.lamella_list = LamellaNameListWidget()
+        self.lamella_list.enable_actions_button(True)
+        self.lamella_list.enable_move_to_action(True)
+        self.lamella_list.enable_remove_button(True)
         self.gridLayout_2.addWidget(self.lamella_list, 0, 0, 1, 2)
-
-        self.pushButton_move_to_position = QPushButton("Move to Position")
-        self.pushButton_remove_position = QPushButton("Remove Position")
-        self.gridLayout_2.addWidget(self.pushButton_move_to_position, 1, 0)
-        self.gridLayout_2.addWidget(self.pushButton_remove_position, 1, 1)
 
         self.label_position_info = QLabel("No Positions saved.")
         self.gridLayout_2.addWidget(self.label_position_info, 2, 0, 1, 2)
@@ -400,10 +398,10 @@ class FibsemMinimapWidget(QWidget):
         self.overview_acquisition_widget.update_from_settings(DEFAULT_OVERVIEW_ACQUISITION_SETTINGS)
         self.overview_acquisition_widget.settings_changed.connect(self.update_imaging_display)
 
-        # position buttons
-        self.pushButton_move_to_position.clicked.connect(self.move_to_position_pressed)
+        # position list signals
         self.lamella_list.lamella_selected.connect(self.update_current_selected_position)
-        self.pushButton_remove_position.clicked.connect(self.remove_selected_position_pressed)
+        self.lamella_list.move_to_requested.connect(self._on_move_to_requested)
+        self.lamella_list.remove_requested.connect(self._on_remove_requested)
 
         # signals
         self.tile_acquisition_progress_signal.connect(self.handle_tile_acquisition_progress)
@@ -456,8 +454,6 @@ class FibsemMinimapWidget(QWidget):
         self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_cancel_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.progressBar_acquisition.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
-        self.pushButton_remove_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_move_to_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_enable_correlation.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_load_image.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_load_correlation_image.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
@@ -1001,7 +997,6 @@ class FibsemMinimapWidget(QWidget):
         if lam is None:
             return
 
-        self.pushButton_move_to_position.setText(f"Move to {lam.name}")
         self.label_position_info.setText(f"{lam.name}: {lam.stage_position.pretty_string}")
 
         # redraw the positions to show the selected one
@@ -1012,8 +1007,6 @@ class FibsemMinimapWidget(QWidget):
 
         lamellas = self.lamellas
         has_positions = len(lamellas) > 0
-        self.pushButton_move_to_position.setEnabled(has_positions)
-        self.pushButton_remove_position.setEnabled(has_positions)
         self.positions_panel.setEnabled(has_positions)
         if not has_positions:
             self.positions_panel.setToolTip("No positions available. Please add a position via Right Click on the image.")
@@ -1022,29 +1015,27 @@ class FibsemMinimapWidget(QWidget):
 
         self.lamella_list.set_lamella(lamellas)
 
-    def remove_selected_position_pressed(self):
-        """Remove the selected position from the list."""
-        if self.parent_widget is None or self.parent_widget.experiment is None:
-            return # prevent editing positions directly if not using autolamella
-
-        idx = self.lamella_list.selected_index
-        if idx == -1:
+    def _on_move_to_requested(self, lamella):
+        """Handle move-to request from the list row's actions menu."""
+        if lamella is None:
             return
+        self.move_to_stage_position(lamella.stage_position)
 
-        del self.parent_widget.experiment.positions[idx]
+    def _on_remove_requested(self, lamella):
+        """Handle removal from the list row's remove button (confirmation already handled)."""
+        if self.parent_widget is None or self.parent_widget.experiment is None:
+            return
+        try:
+            self.parent_widget.experiment.positions.remove(lamella)
+        except ValueError:
+            return
         self.parent_widget.experiment.save()
+        self._update_position_display()
 
     def _update_position_display(self):
         """refresh the position display."""
         self.update_positions_combobox()
         self.update_viewer()
-
-    def move_to_position_pressed(self) -> None:
-        """Move the stage to the selected position."""
-        lam = self.selected_lamella
-        if lam is None:
-            return
-        self.move_to_stage_position(lam.stage_position)
 
     def move_to_stage_position(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to the selected position via movement widget."""
