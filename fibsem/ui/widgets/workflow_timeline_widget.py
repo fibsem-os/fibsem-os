@@ -34,8 +34,7 @@ _DOT_SIZE       = 12
 _INNER_DOT_SIZE = 8
 _LINE_W         = 2
 _LEFT_COL       = 32   # px — fixed width for dot + connector column
-_INNER_ROW_H    = 22   # px — estimated height per inner step row
-_INNER_MIN_ROWS = 2    # pre-allocate space for this many rows to avoid constant resizing
+_INNER_ROW_H    = 22   # px — minimum height per inner step row
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -94,6 +93,8 @@ class _InnerStepRow(QWidget):
         self._setup_ui(label, status)
 
     def _setup_ui(self, label: str, status: StepStatus) -> None:
+        self.setMinimumHeight(_INNER_ROW_H)
+
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 2, 0, 2)
         root.setSpacing(6)
@@ -176,7 +177,6 @@ class _OuterRow(QWidget):
 
         # Inner steps — hidden until this row is active
         self._inner_container = QWidget()
-        self._inner_container.setMinimumHeight(_INNER_MIN_ROWS * _INNER_ROW_H)
         self._inner_layout = QVBoxLayout(self._inner_container)
         self._inner_layout.setContentsMargins(0, 4, 0, 4)
         self._inner_layout.setSpacing(2)
@@ -346,14 +346,14 @@ class WorkflowProgressWidget(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        root.setAlignment(Qt.AlignTop)
+        # root.setAlignment(Qt.AlignTop)
 
         header = QLabel("Workflow")
         header.setStyleSheet(_HEADER_STYLE)
         root.addWidget(header)
 
         self._outer = WorkflowTimelineWidget()
-        root.addWidget(self._outer)
+        root.addWidget(self._outer, 1)
 
     # ── Public API ────────────────────────────────────────────────────────
     def set_workflow(self, task_names: List[str], lamella_names: List[str]) -> None:

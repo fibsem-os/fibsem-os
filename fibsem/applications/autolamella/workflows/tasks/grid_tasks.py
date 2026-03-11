@@ -15,6 +15,7 @@ from fibsem.structures import BeamType
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 import logging
 
@@ -37,14 +38,16 @@ class GridTask(ABC):
                  config: GridTaskConfig,
                  grid: SampleGrid,
                  experiment: 'Experiment',
-                 parent_ui: Optional['AutoLamellaUI'] = None):
+                 parent_ui: Optional['AutoLamellaUI'] = None,
+                 task_manager: Optional['TaskManager'] = None):
         self.microscope = microscope
         self.config = config
         self.experiment = experiment
         self.grid = grid
         self.parent_ui = parent_ui
+        self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        self._stop_event = self.parent_ui._workflow_stop_event if self.parent_ui else None
+        self._stop_event = task_manager._stop_event if task_manager else None
 
     @property
     def task_name(self) -> str:

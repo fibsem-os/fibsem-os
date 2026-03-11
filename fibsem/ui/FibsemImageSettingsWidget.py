@@ -228,7 +228,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         )
         self.image_settings_widget.save_image_check.toggled.connect(self.update_ui_saving_settings)
         try:
-            self.parent.comboBox_current_lamella.currentIndexChanged.connect(self._on_current_lamella_changed)
+            self.parent.lamella_list.lamella_selected.connect(self._on_current_lamella_changed)
         except Exception as e:
             logging.debug(f"Error connecting to lamella selection changes: {e}")
 
@@ -512,8 +512,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         if save_with_lamella:
             try:
-                idx = self.parent.comboBox_current_lamella.currentIndex()
-                lamella = self.parent.experiment.positions[idx]
+                lamella = self.parent.lamella_list.selected_lamella
                 self.image_settings_widget.path_edit.setText(str(lamella.path))
             except Exception as e:
                 logging.debug(f"Error setting image path from selected lamella: {e}")
@@ -521,11 +520,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             if hasattr(self.parent, "experiment") and self.parent.experiment is not None:
                 self.image_settings_widget.path_edit.setText(str(self.parent.experiment.path))
 
-    def _on_current_lamella_changed(self, index: int):
+    def _on_current_lamella_changed(self, lamella):
         """Update the image path when the selected lamella changes"""
         try:
-            if self.checkBox_save_with_selected_lamella.isChecked():
-                lamella = self.parent.experiment.positions[index]
+            if self.checkBox_save_with_selected_lamella.isChecked() and lamella is not None:
                 self.image_settings_widget.path_edit.setText(str(lamella.path))
                 self.checkBox_save_with_selected_lamella.setText(f"Save with Selected Lamella ({lamella.name})")
         except Exception as e:

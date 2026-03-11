@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional, Union
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QIcon, QTransform
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -679,9 +680,179 @@ class TaskNameListWidget(QWidget):
             self._list.setCurrentRow(0)
 
 
+_LAMELLA_NAME_MIN_WIDTH = 160
+_LAMELLA_ROW_HEIGHT = 30
+_LAMELLA_BTN_SIZE = QSize(24, 24)
+
+
+def _lamella_status_text(lamella) -> tuple[str, str]:
+    """Return (text, stylesheet) for the status column.
+
+    Gracefully handles objects without task_state (e.g. plain positions).
+    """
+    ts = getattr(lamella, "task_state", None)
+    if ts and getattr(ts, "status", None) is not None:
+        try:
+            from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+            if ts.status == AutoLamellaTaskStatus.InProgress:
+                return f"{ts.name}", "color: #6aabdf; background: transparent;"
+        except ImportError:
+            pass
+    last = getattr(lamella, "last_completed_task", None)
+    if last:
+        return last.completed, "color: #909090; background: transparent;"
+    return "", "background: transparent;"
+
+
+def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
+    """Return (icon_name, icon_color, tooltip) for the defect indicator.
+
+    Gracefully handles objects without defect field.
+    """
+    defect = getattr(lamella, "defect", None)
+    if defect is None:
+        return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
+    try:
+        from fibsem.applications.autolamella.structures import DefectType
+        if defect.state == DefectType.REWORK:
+            desc = f": {defect.description}" if defect.description else ""
+            return "mdi:refresh-circle", stylesheets.DEFECT_ORANGE_COLOR, f"Rework required{desc}"
+        if defect.state == DefectType.FAILURE:
+            desc = f": {defect.description}" if defect.description else ""
+            return "mdi:close-circle", stylesheets.DEFECT_RED_COLOR, f"Failure{desc}"
+    except ImportError:
+        pass
+    return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
+
+
+class _LamellaRow(QWidget):
+    """Single row: name + status labels + optional toolbuttons."""
+
+    move_to_clicked = pyqtSignal(object)
+    edit_clicked = pyqtSignal(object)
+    update_clicked = pyqtSignal(object)
+    remove_clicked = pyqtSignal(object)
+    defect_changed = pyqtSignal(object)
+
+    def __init__(self, lamella, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.lamella = lamella
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(8)
+
+        self.name_label = QLabel(lamella.name)
+        self.name_label.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
+        self.name_label.setStyleSheet("background: transparent;")
+        layout.addWidget(self.name_label)
+
+        self.status_label = QLabel()
+        layout.addWidget(self.status_label, stretch=1)
+
+        # Defect button
+        self.btn_defect = QToolButton()
+        self.btn_defect.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_defect.clicked.connect(self._on_defect_clicked)
+        self.btn_defect.setVisible(False)
+        layout.addWidget(self.btn_defect)
+
+        # Actions menu button
+        self.btn_actions = QToolButton()
+        self.btn_actions.setIcon(QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_actions.setToolTip("Actions")
+        self.btn_actions.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_actions.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+            + " QToolButton::menu-indicator { image: none; }"
+        )
+        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
+        actions_menu = QMenu(self)
+        self._action_move = actions_menu.addAction(
+            QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR),
+            "Move to Position",
+        )
+        self._action_edit = actions_menu.addAction(
+            QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR),
+            "Edit Lamella",
+        )
+        self._action_update = actions_menu.addAction(
+            QIconifyIcon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR),
+            "Update Position",
+        )
+        self.btn_actions.setMenu(actions_menu)
+        self.btn_actions.setVisible(False)
+        layout.addWidget(self.btn_actions)
+
+        self._action_move.triggered.connect(lambda: self.move_to_clicked.emit(self.lamella))
+        self._action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
+        self._action_update.triggered.connect(lambda: self.update_clicked.emit(self.lamella))
+
+        # Remove button
+        self.btn_remove = QToolButton()
+        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_remove.setToolTip("Remove")
+        self.btn_remove.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_remove.clicked.connect(self._on_remove_clicked)
+        self.btn_remove.setVisible(False)
+        layout.addWidget(self.btn_remove)
+
+        self.refresh()
+
+    def _on_defect_clicked(self) -> None:
+        try:
+            from fibsem.applications.autolamella.structures import DefectState, DefectType
+        except ImportError:
+            return
+        menu = QMenu(self)
+        action_none = menu.addAction(
+            QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
+        )
+        action_rework = menu.addAction(
+            QIconifyIcon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+        )
+        action_failure = menu.addAction(
+            QIconifyIcon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+        )
+        chosen = menu.exec_(self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft()))
+        if chosen == action_none:
+            self.lamella.defect = DefectState(state=DefectType.NONE)
+        elif chosen == action_rework:
+            self.lamella.defect = DefectState(state=DefectType.REWORK)
+        elif chosen == action_failure:
+            self.lamella.defect = DefectState(state=DefectType.FAILURE)
+        else:
+            return
+        self.refresh()
+        self.defect_changed.emit(self.lamella)
+
+    def _on_remove_clicked(self) -> None:
+        reply = QMessageBox.question(
+            self, "Remove Lamella", f"Remove <b>{self.lamella.name}</b>?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.remove_clicked.emit(self.lamella)
+
+    def refresh(self) -> None:
+        self.name_label.setText(self.lamella.name)
+        text, style = _lamella_status_text(self.lamella)
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(style)
+        # Update defect icon if visible
+        if self.btn_defect.isVisible():
+            icon_name, icon_color, tooltip = _lamella_defect_icon(self.lamella)
+            self.btn_defect.setIcon(QIconifyIcon(icon_name, color=icon_color))
+            self.btn_defect.setToolTip(tooltip)
+
+
 class LamellaNameListWidget(QWidget):
     """Single-selection list widget for lamella names with smart restore logic.
 
+    Shows two columns: lamella name and last completed task status.
     Stores the associated object as ``Qt.UserRole`` data on each item so callers
     can retrieve it via ``selected_lamella``.
 
@@ -691,9 +862,24 @@ class LamellaNameListWidget(QWidget):
     """
 
     lamella_selected = pyqtSignal(object)
+    add_requested = pyqtSignal()
+    move_to_requested = pyqtSignal(object)
+    edit_requested = pyqtSignal(object)
+    update_requested = pyqtSignal(object)
+    remove_requested = pyqtSignal(object)
+    defect_changed = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+
+        self._btn_visible = {
+            "defect": False,
+            "actions": False,
+            "move_to": False,
+            "edit": False,
+            "update": False,
+            "remove": False,
+        }
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -704,11 +890,18 @@ class LamellaNameListWidget(QWidget):
         header.setStyleSheet("background: #1e2124;")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 3, 4, 3)
-        header_layout.setSpacing(4)
-        lbl = QLabel("Lamella")
-        lbl.setStyleSheet("font-weight: bold; background: transparent;")
-        header_layout.addWidget(lbl)
-        header_layout.addStretch()
+        header_layout.setSpacing(8)
+        lbl_name = QLabel("Lamella")
+        lbl_name.setStyleSheet("font-weight: bold; background: transparent;")
+        lbl_name.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
+        header_layout.addWidget(lbl_name)
+        lbl_status = QLabel("Status")
+        lbl_status.setStyleSheet("font-weight: bold; background: transparent;")
+        header_layout.addWidget(lbl_status, stretch=1)
+        self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add", size=_LAMELLA_BTN_SIZE.width())
+        self.btn_add.setVisible(False)
+        self.btn_add.clicked.connect(self.add_requested.emit)
+        header_layout.addWidget(self.btn_add)
         outer.addWidget(header)
 
         # List
@@ -731,8 +924,8 @@ class LamellaNameListWidget(QWidget):
     @property
     def selected_name(self) -> str:
         """Return the display name of the current item, or ``""``."""
-        item = self._list.currentItem()
-        return item.text() if item is not None else ""
+        lamella = self.selected_lamella
+        return lamella.name if lamella is not None else ""
 
     @property
     def selected_index(self) -> int:
@@ -749,23 +942,108 @@ class LamellaNameListWidget(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
         for pos in positions:
-            item = QListWidgetItem(pos.name)
+            row = _LamellaRow(pos)
+            row.move_to_clicked.connect(self.move_to_requested)
+            row.edit_clicked.connect(self.edit_requested)
+            row.update_clicked.connect(self.update_requested)
+            row.remove_clicked.connect(self.remove_requested)
+            row.defect_changed.connect(self.defect_changed)
+            self._apply_btn_visibility(row)
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, pos)  # type: ignore
+            item.setSizeHint(QSize(0, _LAMELLA_ROW_HEIGHT))
             self._list.addItem(item)
+            self._list.setItemWidget(item, row)
         self._restore_selection(current)
         self._list.blockSignals(False)
 
+    def refresh_all(self) -> None:
+        """Refresh the display of all rows (e.g. after status changes)."""
+        for i in range(self._list.count()):
+            row = self._list.itemWidget(self._list.item(i))
+            if isinstance(row, _LamellaRow):
+                row.refresh()
+
+    # ------------------------------------------------------------------
+    # Button visibility
+    # ------------------------------------------------------------------
+
+    def enable_add_button(self, visible: bool) -> None:
+        self.btn_add.setVisible(visible)
+
+    def enable_defect_button(self, visible: bool) -> None:
+        self._btn_visible["defect"] = visible
+        for row in self._rows():
+            row.btn_defect.setVisible(visible)
+            if visible:
+                row.refresh()  # ensure icon is up to date
+
+    def enable_actions_button(self, visible: bool) -> None:
+        self._btn_visible["actions"] = visible
+        for row in self._rows():
+            row.btn_actions.setVisible(visible)
+
+    def enable_move_to_action(self, visible: bool) -> None:
+        self._btn_visible["move_to"] = visible
+        for row in self._rows():
+            row._action_move.setVisible(visible)
+
+    def enable_edit_action(self, visible: bool) -> None:
+        self._btn_visible["edit"] = visible
+        for row in self._rows():
+            row._action_edit.setVisible(visible)
+
+    def enable_update_action(self, visible: bool) -> None:
+        self._btn_visible["update"] = visible
+        for row in self._rows():
+            row._action_update.setVisible(visible)
+
+    def enable_remove_button(self, visible: bool) -> None:
+        self._btn_visible["remove"] = visible
+        for row in self._rows():
+            row.btn_remove.setVisible(visible)
+
+    def _rows(self):
+        """Yield all _LamellaRow widgets."""
+        for i in range(self._list.count()):
+            row = self._list.itemWidget(self._list.item(i))
+            if isinstance(row, _LamellaRow):
+                yield row
+
+    def _apply_btn_visibility(self, row: _LamellaRow) -> None:
+        row.btn_defect.setVisible(self._btn_visible["defect"])
+        row.btn_actions.setVisible(self._btn_visible["actions"])
+        row._action_move.setVisible(self._btn_visible["move_to"])
+        row._action_edit.setVisible(self._btn_visible["edit"])
+        row._action_update.setVisible(self._btn_visible["update"])
+        row.btn_remove.setVisible(self._btn_visible["remove"])
+        if self._btn_visible["defect"]:
+            # Set icon directly — row.refresh() won't work here because
+            # isVisible() returns False before the row is parented via setItemWidget
+            icon_name, icon_color, tooltip = _lamella_defect_icon(row.lamella)
+            row.btn_defect.setIcon(QIconifyIcon(icon_name, color=icon_color))
+            row.btn_defect.setToolTip(tooltip)
+
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
+
     def select(self, name: str) -> None:
         """Select the item with the given name (exact match)."""
-        items = self._list.findItems(name, Qt.MatchExactly)  # type: ignore
-        if items:
-            self._list.setCurrentItem(items[0])
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            obj = item.data(Qt.UserRole)
+            if obj is not None and obj.name == name:
+                self._list.setCurrentItem(item)
+                return
 
     def _restore_selection(self, preferred: str) -> None:
         if preferred:
-            items = self._list.findItems(preferred, Qt.MatchExactly)  # type: ignore
-            if items:
-                self._list.setCurrentItem(items[0])
-                return
+            for i in range(self._list.count()):
+                item = self._list.item(i)
+                obj = item.data(Qt.UserRole)
+                if obj is not None and obj.name == preferred:
+                    self._list.setCurrentItem(item)
+                    return
         if self._list.count() > 0:
             self._list.setCurrentRow(0)

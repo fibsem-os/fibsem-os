@@ -56,7 +56,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QWidget,
 )
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 if DETECTION_AVAILABLE: # ml dependencies are option, so we need to check if they are available
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget
 
@@ -72,7 +72,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.tasks import run_tasks
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
@@ -171,6 +171,7 @@ class AutoLamellaUI(QMainWindow):
         self.WAITING_FOR_UI_UPDATE: bool = False
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[threading.Thread] = None
+        self._task_manager: Optional[TaskManager] = None
 
         # setup connections
         self.setup_connections()
@@ -211,57 +212,37 @@ class AutoLamellaUI(QMainWindow):
         self.gridLayout_3.addWidget(self.label_protocol_name, 3, 0)
         self.gridLayout_3.addWidget(self.lineEdit_protocol_name, 3, 1)
 
-        # --- Setup panel (row 4, colspan 2) ---
-        setup_content = QWidget()
-        setup_layout = QGridLayout(setup_content)
-        setup_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.pushButton_add_lamella = QPushButton("Add Lamella")
-        self.pushButton_remove_lamella = QPushButton("Remove Lamella")
-        setup_layout.addWidget(self.pushButton_add_lamella, 0, 0)
-        setup_layout.addWidget(self.pushButton_remove_lamella, 0, 1)
-
-        self.groupBox_setup = TitledPanel("Setup", content=setup_content, collapsible=False)
-        self.gridLayout_3.addWidget(self.groupBox_setup, 4, 0, 1, 2)
-
         # --- Selected Lamella panel (row 6, colspan 2) ---
         selected_content = QWidget()
         selected_layout = QGridLayout(selected_content)
         selected_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.label_current_lamella_header = QLabel("")
-        font_bold = QFont()
-        font_bold.setBold(True)
-        self.label_current_lamella_header.setFont(font_bold)
-        self.label_current_lamella_header.setAlignment(
-            Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter  # type: ignore
-        )
-        self.comboBox_current_lamella = QComboBox()
-        selected_layout.addWidget(self.label_current_lamella_header, 0, 0)
-        selected_layout.addWidget(self.comboBox_current_lamella, 0, 1)
-
-        self.pushButton_save_position = QPushButton("Save Position")
-        self.pushButton_go_to_lamella = QPushButton("Go to Position")
-        selected_layout.addWidget(self.pushButton_save_position, 1, 0)
-        selected_layout.addWidget(self.pushButton_go_to_lamella, 1, 1)
+        self.lamella_list = LamellaNameListWidget()
+        self.lamella_list.enable_add_button(True)
+        self.lamella_list.enable_defect_button(True)
+        self.lamella_list.enable_actions_button(True)
+        self.lamella_list.enable_move_to_action(True)
+        self.lamella_list.enable_update_action(True)
+        self.lamella_list.enable_remove_button(True)
+        selected_layout.addWidget(self.lamella_list, 0, 0, 1, 2)
 
         self.label_lamella_objective_position = QLabel("TextLabel")
         self.doubleSpinBox_lamella_objective_position = QDoubleSpinBox()
-        selected_layout.addWidget(self.label_lamella_objective_position, 2, 0)
-        selected_layout.addWidget(self.doubleSpinBox_lamella_objective_position, 2, 1)
+        selected_layout.addWidget(self.label_lamella_objective_position, 1, 0)
+        selected_layout.addWidget(self.doubleSpinBox_lamella_objective_position, 1, 1)
 
         self.label_lamella_pose = QLabel("Pose")
         self.comboBox_lamella_pose = QComboBox()
-        selected_layout.addWidget(self.label_lamella_pose, 3, 0)
-        selected_layout.addWidget(self.comboBox_lamella_pose, 3, 1)
+        selected_layout.addWidget(self.label_lamella_pose, 2, 0)
+        selected_layout.addWidget(self.comboBox_lamella_pose, 2, 1)
 
         self.label_lamella_pose_position = QLabel("TextLabel")
-        selected_layout.addWidget(self.label_lamella_pose_position, 5, 0, 1, 2)
+        selected_layout.addWidget(self.label_lamella_pose_position, 3, 0, 1, 2)
 
         self.pushButton_lamella_set_pose = QPushButton("Set Current Pose")
         self.pushButton_lamella_move_to_pose = QPushButton("Move to Pose")
-        selected_layout.addWidget(self.pushButton_lamella_set_pose, 6, 0)
-        selected_layout.addWidget(self.pushButton_lamella_move_to_pose, 6, 1)
+        selected_layout.addWidget(self.pushButton_lamella_set_pose, 4, 0)
+        selected_layout.addWidget(self.pushButton_lamella_move_to_pose, 4, 1)
 
         self.groupBox_selected_lamella = TitledPanel("Selected Lamella", content=selected_content, collapsible=False)
         self.gridLayout_3.addWidget(self.groupBox_selected_lamella, 6, 0, 1, 2)
@@ -368,13 +349,14 @@ class AutoLamellaUI(QMainWindow):
     def setup_connections(self):
 
         # lamella controls
-        self.pushButton_add_lamella.clicked.connect(
-            lambda: self.add_new_lamella(stage_position=None) # type: ignore
+        self.lamella_list.add_requested.connect(
+            lambda: self.add_new_lamella(stage_position=None)  # type: ignore
         )
-        self.pushButton_remove_lamella.clicked.connect(self.delete_lamella_ui)
-        self.pushButton_go_to_lamella.clicked.connect(self.move_to_lamella_position)
-        self.comboBox_current_lamella.currentIndexChanged.connect(self.update_lamella_ui)
-        self.pushButton_save_position.clicked.connect(self.save_lamella_ui)
+        self.lamella_list.remove_requested.connect(self._on_lamella_remove_requested)
+        self.lamella_list.move_to_requested.connect(self._on_lamella_move_to_requested)
+        self.lamella_list.update_requested.connect(self._on_lamella_update_requested)
+        self.lamella_list.defect_changed.connect(self._on_lamella_defect_changed)
+        self.lamella_list.lamella_selected.connect(self.update_lamella_ui)
 
         # system widget
         self.system_widget.connected_signal.connect(self.connect_to_microscope)
@@ -465,9 +447,6 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
         self.pushButton_stop_workflow.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
-        self.pushButton_add_lamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_remove_lamella.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_go_to_lamella.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
         # labels and placeholders
         self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
@@ -562,7 +541,7 @@ class AutoLamellaUI(QMainWindow):
         from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
 
         if selected_name is None:
-            selected_name = self.comboBox_current_lamella.currentText()
+            selected_name = self.lamella_list.selected_name
 
         try:
             # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
@@ -1011,15 +990,18 @@ class AutoLamellaUI(QMainWindow):
                 self.microscope.turn_on(BeamType.ION)
 
             logging.info(f"Starting tasks: {task_names}, for lamella: {lamella_names}")
-            run_tasks(microscope=self.microscope,
-                      experiment=self.experiment,
-                      task_names=task_names,
-                      required_lamella=lamella_names,
-                      parent_ui=self)
+            self._task_manager = TaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+            )
+            self._task_manager.run(task_names=task_names,
+                                   required_lamella=lamella_names)
         except Exception as e:
             logging.error(f"Error during running tasks: {e}")
 
         finally:
+            self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit()  # type: ignore
 
@@ -1035,7 +1017,6 @@ class AutoLamellaUI(QMainWindow):
 
         if self.is_workflow_running:
             self.groupBox_selected_lamella.setEnabled(False)
-            self.groupBox_setup.setEnabled(False)
             self.pushButton_stop_workflow.setVisible(False)
             return
 
@@ -1084,26 +1065,14 @@ class AutoLamellaUI(QMainWindow):
         if is_experiment_loaded and self.experiment is not None:
             self.lineEdit_experiment_name.setText(f"{self.experiment.name}")
             self.lineEdit_experiment_name.setToolTip(f"Experiment Directory: {self.experiment.path}")
-            self.comboBox_current_lamella.setEnabled(has_lamella)
+            self.lamella_list.setEnabled(has_lamella)
 
         if self.protocol is not None:
             self.lineEdit_protocol_name.setText(f"{self.protocol.name}")
 
         # buttons
-        self.pushButton_add_lamella.setEnabled(is_experiment_ready)
-        self.pushButton_remove_lamella.setEnabled(has_lamella)
-        self.pushButton_save_position.setEnabled(has_lamella)
-        self.pushButton_go_to_lamella.setEnabled(has_lamella)
-
-        # set visible if protocol loaded
-        self.pushButton_add_lamella.setEnabled(is_experiment_ready)
-        self.pushButton_remove_lamella.setEnabled(is_experiment_ready)
-        self.pushButton_save_position.setEnabled(is_experiment_ready)
-        self.pushButton_go_to_lamella.setEnabled(is_experiment_ready)
-        self.label_current_lamella_header.setEnabled(is_experiment_ready)
-        self.comboBox_current_lamella.setEnabled(is_experiment_ready)
-        self.groupBox_setup.setEnabled(is_experiment_ready)
-        self.groupBox_selected_lamella.setEnabled(has_lamella)
+        self.lamella_list.setEnabled(is_experiment_ready)
+        self.groupBox_selected_lamella.setEnabled(is_experiment_ready)
 
         enable_pose_controls = bool(has_lamella) and cfg.FEATURE_POSE_CONTROLS_ENABLED
         self.label_lamella_pose.setVisible(enable_pose_controls)
@@ -1157,22 +1126,11 @@ class AutoLamellaUI(QMainWindow):
         if self.is_workflow_running:
             return
 
-        # detail combobox
-        idx = self.comboBox_current_lamella.currentIndex()
-        self.comboBox_current_lamella.blockSignals(True)
-        self.comboBox_current_lamella.clear()
-        self.comboBox_current_lamella.addItems(
-            [lamella.name for lamella in self.experiment.positions]
-        )
-        if idx != -1 and self.experiment.positions and idx < len(self.experiment.positions):
-            self.comboBox_current_lamella.setCurrentIndex(idx)
-        if latest and self.experiment.positions:
-            self.comboBox_current_lamella.setCurrentIndex(
-                len(self.experiment.positions) - 1
-            )
-        self.comboBox_current_lamella.blockSignals(False)
+        # detail lamella list
+        preferred = self.experiment.positions[-1].name if latest and self.experiment.positions else ""
+        self.lamella_list.set_lamella(self.experiment.positions, preferred_name=preferred)
 
-    def update_lamella_ui(self):
+    def update_lamella_ui(self, _lamella=None):
         # set the info for the current selected lamella
         if self.experiment is None or self.experiment.positions == []:
             return
@@ -1183,17 +1141,12 @@ class AutoLamellaUI(QMainWindow):
         if self.is_workflow_running:
             return
 
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             return
 
         lamella: Lamella = self.experiment.positions[idx]
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
-
-        # buttons
-        self.pushButton_save_position.setText("Update Position")
-        self.pushButton_save_position.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_save_position.setEnabled(True)
 
         # set objective position (show as mm)
         obj_controls_enabled = lamella.objective_position is not None
@@ -1260,7 +1213,7 @@ class AutoLamellaUI(QMainWindow):
         if self.movement_widget is None:
             return
 
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             return
         lamella: Lamella = self.experiment.positions[idx]
@@ -1340,10 +1293,43 @@ class AutoLamellaUI(QMainWindow):
 
         return lamella
 
-    def delete_lamella_ui(self):
-        """Handle the removal of a lamella from the experiment."""
+    def _on_lamella_move_to_requested(self, lamella):
+        """Handle move-to request from the list row's actions menu."""
+        self.lamella_list.select(lamella.name)
+        self.move_to_lamella_position()
 
-        idx = self.comboBox_current_lamella.currentIndex()
+    def _on_lamella_update_requested(self, lamella):
+        """Handle update-position request from the list row's actions menu."""
+        self.lamella_list.select(lamella.name)
+        self.update_lamella_position_ui()
+
+    def _on_lamella_defect_changed(self, lamella):
+        """Persist defect state change to disk."""
+        if self.experiment is None:
+            return
+        self.experiment.save()
+        self.update_ui()
+
+    def _on_lamella_remove_requested(self, lamella):
+        """Handle removal of a lamella via the list row's remove button.
+
+        Confirmation is already handled by the row widget.
+        """
+        if self.experiment is None:
+            return
+        try:
+            self.experiment.positions.remove(lamella)
+        except ValueError:
+            return
+        self.experiment.save()
+        logging.debug("Lamella removed from experiment")
+        self.update_lamella_combobox(latest=True)
+        self.update_ui()
+
+    def delete_lamella_ui(self):
+        """Handle the removal of a lamella from the experiment (legacy path)."""
+
+        idx = self.lamella_list.selected_index
         if idx == -1:
             logging.warning("No lamella is selected, cannot remove.")
             return
@@ -1372,7 +1358,7 @@ class AutoLamellaUI(QMainWindow):
         self.update_lamella_combobox(latest=True)
         self.update_ui()
 
-    def save_lamella_ui(self):
+    def update_lamella_position_ui(self):
         """Update the stage position of the selected lamella to the current stage position."""
 
         if self.microscope is None:
@@ -1383,7 +1369,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         # toggle between saving position and marking as ready
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             logging.warning("No lamella is selected, cannot save.")
             return
@@ -1416,7 +1402,7 @@ class AutoLamellaUI(QMainWindow):
         lamella: Lamella
         if self.experiment is None or self.experiment.positions == []:
             return
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             return
         lamella = self.experiment.positions[idx]
@@ -1437,7 +1423,7 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None or self.experiment.positions == []:
             napari.utils.notifications.show_warning("No lamella available.")
             return
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             napari.utils.notifications.show_warning("No lamella selected.")
             return
@@ -1479,7 +1465,7 @@ class AutoLamellaUI(QMainWindow):
         if self.movement_widget is None:
             napari.utils.notifications.show_warning("No movement widget available")
             return
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1:
             napari.utils.notifications.show_warning("No lamella selected.")
             return
@@ -1514,7 +1500,7 @@ class AutoLamellaUI(QMainWindow):
         """Update the objective position of the current lamella."""
 
         # get current lamella
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1 or self.experiment is None:
             napari.utils.notifications.show_warning("No lamella selected.")
             return
@@ -1536,7 +1522,7 @@ class AutoLamellaUI(QMainWindow):
         if not self.experiment.positions:
             return None
 
-        idx = self.comboBox_current_lamella.currentIndex()
+        idx = self.lamella_list.selected_index
         if idx == -1 or idx >= len(self.experiment.positions):
             return None
 
@@ -1653,7 +1639,10 @@ class AutoLamellaUI(QMainWindow):
             self.det_widget.confirm_button_clicked()
 
     def _stop_workflow_thread(self):
-        self._workflow_stop_event.set()
+        if self._task_manager is not None:
+            self._task_manager.stop()
+        else:
+            self._workflow_stop_event.set()
         self.milling_task_config_widget.milling_widget.stop_milling() # stop milling if running
         napari.utils.notifications.show_error("Abort requested by user.")
 

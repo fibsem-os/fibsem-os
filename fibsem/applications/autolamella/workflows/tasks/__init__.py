@@ -7,12 +7,15 @@ similar to the BasePattern plugin system in fibsem.milling.patterning.
 
 import logging
 import typing
-
 try:
     from functools import cache
 except ImportError:  # Python < 3.9 fallback
     from functools import lru_cache as cache
-from typing import Dict, List, Type
+from typing import TYPE_CHECKING, Any, Dict, Type
+
+if TYPE_CHECKING:
+    from psygnal.containers import EventedDict
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 
 from fibsem.applications.autolamella.workflows.tasks.tasks import AutoLamellaTask
 
@@ -44,14 +47,23 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 
 # Helper functions and exceptions
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    TaskNotRegisteredError,
     get_task_supervision,
-    load_task_config,
-    load_config,
-    get_task_config,
+)
+from fibsem.applications.autolamella.workflows.tasks.manager import (
     run_task,
     run_tasks,
+    TaskManager,
 )
+
+class TaskNotRegisteredError(Exception):
+    """Exception raised when a task is not registered in the TASK_REGISTRY."""
+    def __init__(self, task_type: str):
+        super().__init__(f"Task '{task_type}' is not registered in the TASK_REGISTRY.")
+        self.task_type = task_type
+
+    def __str__(self) -> str:
+        return f"TaskNotRegisteredError: {self.task_type}"
+
 
 # Built-in tasks registry
 BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
@@ -150,6 +162,36 @@ def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
 def get_task_names() -> typing.List[str]:
     """Get list of all available task type names."""
     return list(get_tasks().keys())
+
+
+def load_task_config(ddict: Dict[str, Any]) -> 'EventedDict[str, AutoLamellaTaskConfig]':
+    """Load task configurations from a dictionary."""
+    from psygnal.containers import EventedDict
+    task_registry = get_tasks()
+    task_config = EventedDict()
+    for name, v in ddict.items():
+        task_type = v.get("task_type")
+        if task_type not in task_registry:
+            logging.warning(f"Task '{name}' is not registered. Skipping.")
+            continue
+        config_class = task_registry[task_type].config_cls
+        task_config[name] = config_class.from_dict(v)
+        task_config[name].task_name = name
+    return task_config
+
+
+def load_config(task_type: str, ddict: Dict[str, Any]) -> 'AutoLamellaTaskConfig':
+    """Load a task configuration from a dictionary."""
+    config_class = get_task_config(task_type=task_type)
+    return config_class.from_dict(ddict)
+
+
+def get_task_config(task_type: str) -> Type['AutoLamellaTaskConfig']:
+    """Get the task configuration by name."""
+    task_registry = get_tasks()
+    if task_type not in task_registry:
+        raise TaskNotRegisteredError(task_type)
+    return task_registry[task_type].config_cls  # type: ignore
 
 
 # Legacy support - maintain backward compatibility

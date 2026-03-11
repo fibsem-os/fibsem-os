@@ -337,7 +337,7 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskProtocol':
-        from fibsem.applications.autolamella.workflows.tasks.tasks import load_task_config
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
         task_config = load_task_config(data.get("tasks", {}))
         workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
 
@@ -729,7 +729,7 @@ class Lamella:
         alignment_area_ddict = data.get("alignment_area", DEFAULT_ALIGNMENT_AREA)
         alignment_area = FibsemRectangle.from_dict(alignment_area_ddict)
 
-        from fibsem.applications.autolamella.workflows.tasks.tasks import load_task_config
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
 
         return cls(
             petname=data["petname"],

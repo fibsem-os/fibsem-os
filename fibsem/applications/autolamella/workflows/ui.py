@@ -20,15 +20,18 @@ from fibsem.applications.autolamella.structures import Experiment
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
-# TODO: migrate to stop_event for cancelling workflow
-
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
 def _check_for_abort(parent_ui: Optional['AutoLamellaUI'], msg: str = "Workflow aborted by user.") -> bool:
     # headless mode
     if parent_ui is None:
         return False
 
-    if parent_ui._workflow_stop_event.is_set():
+    # Use task_manager's stop event if available, fall back to legacy
+    task_manager = getattr(parent_ui, '_task_manager', None)
+    if task_manager is not None:
+        if task_manager.is_stopped:
+            raise InterruptedError(msg)
+    elif parent_ui._workflow_stop_event.is_set():
         raise InterruptedError(msg)
     return False
 

@@ -493,6 +493,7 @@ WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="supervised"] { border: 4px solid #007ACC; }
     QFrame#workflow_border_frame[borderState="waiting"]    { border: 4px solid #ff9800; }
     QFrame#workflow_border_frame[borderState="finished"]  { border: 4px solid #4caf50; }
+    QFrame#workflow_border_frame[borderState="stopped"]   { border: 4px solid #99121F; }
 """
 
 TOOLBUTTON_ICON_STYLESHEET = """

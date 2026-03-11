@@ -425,6 +425,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
             self.autolamella_ui.stop_task_workflow()
+            self._set_border_state("stopped")
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab."""
@@ -641,6 +642,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
             self.autolamella_ui._workflow_finished_signal.connect(self._on_workflow_finished)
             self.autolamella_ui.system_widget.connected_signal.connect(self._on_microscope_connected)
+            self.autolamella_ui.lamella_list.defect_changed.connect(self._on_lamella_defect_changed)
 
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
@@ -1104,7 +1106,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         t1 = time.time()
 
         # Update border to reflect current workflow state
-        if waiting:
+        if self._border_state == "stopped":
+            pass  # Keep red border until workflow finishes
+        elif waiting:
             self._set_border_state("waiting")
         elif self.autolamella_ui.is_workflow_running:
             self._set_border_state("supervised" if supervised else "automated")
@@ -1136,22 +1140,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Move the stage to the given lamella's milling position."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
-        try:
-            idx = self.autolamella_ui.experiment.positions.index(lamella)
-        except ValueError:
-            return
-        self.autolamella_ui.comboBox_current_lamella.setCurrentIndex(idx)
+        self.autolamella_ui.lamella_list.select(lamella.name)
         self.autolamella_ui.move_to_lamella_position()
 
     def _on_lamella_edit(self, lamella: 'Lamella'):
         """Switch to the Lamella tab and select the given lamella in the protocol editor."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
-        try:
-            idx = self.autolamella_ui.experiment.positions.index(lamella)
-        except ValueError:
-            return
-        self.autolamella_ui.comboBox_current_lamella.setCurrentIndex(idx)
+        self.autolamella_ui.lamella_list.select(lamella.name)
 
         # Select the lamella in the protocol editor
         self.lamella_widget.lamella_list_widget.select(lamella.name)
@@ -1163,10 +1159,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 break
 
     def _on_lamella_defect_changed(self, lamella: 'Lamella'):
-        """Persist defect state change to disk."""
+        """Persist defect state change to disk and sync all widgets."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
         self.autolamella_ui.experiment.save()
+        # Sync defect icon across all widgets
+        self.autolamella_ui.lamella_list.refresh_all()
+        self.lamella_list_widget.refresh_lamella(lamella)
+        self.lamella_card_container.refresh_lamella(lamella)
 
     def _on_lamella_remove_requested(self, lamella: 'Lamella'):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""

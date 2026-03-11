@@ -14,9 +14,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
-    Any,
     ClassVar,
-    Dict,
     List,
     Literal,
     Optional,
@@ -27,7 +25,6 @@ from typing import (
 )
 
 import numpy as np
-from psygnal.containers import EventedDict
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
@@ -43,7 +40,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
-    Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -83,6 +79,7 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 TAutoLamellaTaskConfig = TypeVar(
     "TAutoLamellaTaskConfig", bound="AutoLamellaTaskConfig"
@@ -290,13 +287,15 @@ class AutoLamellaTask(ABC):
                  microscope: FibsemMicroscope,
                  config: AutoLamellaTaskConfig,
                  lamella: Lamella,
-                 parent_ui: Optional['AutoLamellaUI'] = None):
+                 parent_ui: Optional['AutoLamellaUI'] = None,
+                 task_manager: Optional['TaskManager'] = None):
         self.microscope = microscope
         self.config = config
         self.lamella = lamella
         self.parent_ui = parent_ui
+        self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        self._stop_event = self.parent_ui._workflow_stop_event if self.parent_ui else None
+        self._stop_event = task_manager._stop_event if task_manager else None
         self._last_fib_image: Optional[FibsemImage] = None
 
     @property
@@ -404,8 +403,8 @@ class AutoLamellaTask(ABC):
 
     def _check_for_abort(self) -> None:
         """Check if the workflow has been aborted from the UI, and raise an InterruptedError if so."""
-        from fibsem.applications.autolamella.workflows.ui import _check_for_abort
-        _check_for_abort(self.parent_ui)
+        if self._stop_event is not None and self._stop_event.is_set():
+            raise InterruptedError("Workflow aborted by user.")
 
     def update_milling_config_ui(self, 
                                  milling_config: FibsemMillingTaskConfig, 
@@ -1203,216 +1202,7 @@ def get_task_supervision(task_name: str,
     return parent_ui.experiment.task_protocol.get_supervision(task_name)
 
 
-class TaskNotRegisteredError(Exception):
-    """Exception raised when a task is not registered in the TASK_REGISTRY."""
-    def __init__(self, task_type: str):
-        super().__init__(f"Task '{task_type}' is not registered in the TASK_REGISTRY.")
-        self.task_type = task_type
-
-    def __str__(self) -> str:
-        return f"TaskNotRegisteredError: {self.task_type}"
-
-
-def load_task_config(ddict: Dict[str, Any]) -> EventedDict[str, AutoLamellaTaskConfig]:
-    """Load task configurations from a dictionary."""
-    from fibsem.applications.autolamella.workflows.tasks import get_tasks
-    task_registry = get_tasks()
-    task_config = EventedDict()
-    for name, v in ddict.items():
-        task_type = v.get("task_type")
-        if task_type not in task_registry:
-            logging.warning(f"Task '{name}' is not registered. Skipping.")
-            continue
-        config_class = task_registry[task_type].config_cls
-        task_config[name] = config_class.from_dict(v)
-        task_config[name].task_name = name
-    return task_config
-
-def load_config(task_type: str, ddict: Dict[str, Any]) -> AutoLamellaTaskConfig:
-    """Load a task configuration from a dictionary."""
-    config_class = get_task_config(task_type=task_type)
-    return config_class.from_dict(ddict)
-
-def get_task_config(task_type: str) -> Type[AutoLamellaTaskConfig]:
-    """Get the task configuration by name."""
-    from fibsem.applications.autolamella.workflows.tasks import get_tasks
-    task_registry = get_tasks()
-    if task_type not in task_registry:
-        raise TaskNotRegisteredError(task_type)
-    return task_registry[task_type].config_cls  # type: ignore
-
 # related tasks (must be defined after task definitions, due to circular nature)
 MillFiducialTaskConfig.related_tasks = [MillRoughTaskConfig, MillPolishingTaskConfig]
 MillRoughTaskConfig.related_tasks = [MillFiducialTaskConfig, MillPolishingTaskConfig]
 MillPolishingTaskConfig.related_tasks = [MillFiducialTaskConfig, MillRoughTaskConfig]
-
-
-def run_task(microscope: FibsemMicroscope, 
-          task_name: str, 
-          lamella: 'Lamella', 
-          parent_ui: Optional['AutoLamellaUI'] = None) -> None:
-    """Run a specific AutoLamella task."""
-
-    task_config = lamella.task_config.get(task_name)
-    if task_config is None:
-        raise ValueError(f"Task configuration for {task_name} not found in lamella tasks.")
-
-    from fibsem.applications.autolamella.workflows.tasks import get_tasks
-    task_cls = get_tasks().get(task_config.task_type)
-    if task_cls is None:
-        raise ValueError(f"Task {task_config.task_type} is not registered.")
-
-    task = task_cls(microscope=microscope,
-                    config=task_config,
-                    lamella=lamella,
-                    parent_ui=parent_ui)
-    task.run()
-
-# TODO: create a TaskManager class to handle this?
-def run_tasks(microscope: FibsemMicroscope,
-            experiment: 'Experiment',
-            task_names: List[str],
-            required_lamella: Optional[List[str]] = None,
-            parent_ui: Optional['AutoLamellaUI'] = None,) -> None:
-    """Run the specified tasks for all lamellas in the experiment.
-    Args:
-        microscope (FibsemMicroscope): The microscope instance.
-        experiment (Experiment): The experiment containing lamellas.
-        task_names (List[str]): List of task names to run.
-        required_lamella (Optional[List[str]]): List of lamella names to run tasks on. If None, all lamellas are processed.
-        parent_ui (Optional[AutoLamellaUI]): Parent UI for status updates.
-    Returns:
-        Experiment: The updated experiment with task results.
-    """
-
-    if required_lamella is None:
-        required_lamella = [p.name for p in experiment.positions]
-
-    # TODO: clear the task state for all required lamella, and mark as not started with
-
-    for task_name in task_names:
-
-        # if task_name == "Rough Milling":
-        #     start_time = datetime.now() + timedelta(seconds=20)  # for testing, start in 10 seconds
-        #     logging.info(f"Starting Rough Milling at {start_time.strftime('%Y-%m-%d %H:%M:%S')} for lamellas: {required_lamella}")
-        #     if start_time is not None:
-        #         wait_until(start_time)
-
-            # ret = ask_user(parent_ui=parent_ui,
-            #             msg=f"Start Rough Milling for the selected lamellas? ",
-            #             pos="Start", neg="Exit")
-            # if not ret:
-            #     logging.info("User exited before starting Rough Milling.")
-            #     break
-
-        for lamella in experiment.positions:
-
-
-            if required_lamella and lamella.name not in required_lamella:
-                logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Not in required lamella list.")
-                continue
-            if lamella.is_failure:
-                logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Marked as failure or has defect.")
-                continue
-
-            # check if this lamella has already completed the task
-            # if lamella.has_completed_task(task_name): # TODO: need to handle re-running tasks
-                # logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Already completed.")
-                # continue
-
-            # check if this lamella has completed required tasks
-            task_requirements = experiment.task_protocol.workflow_config.requirements(task_name)
-            if task_requirements and not all(lamella.has_completed_task(req) for req in task_requirements):
-                logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed.")
-                if parent_ui:
-                    missing_tasks = [req for req in task_requirements if not lamella.has_completed_task(req)]
-                    parent_ui.workflow_update_signal.emit({
-                        "msg": f"Skipping {lamella.name}: required tasks {missing_tasks} not completed.",
-                        "status": {
-                            "task_name": task_name,
-                            "lamella_name": lamella.name,
-                            "current_lamella_index": required_lamella.index(lamella.name) if lamella.name in required_lamella else None,
-                            "total_lamellas": len(required_lamella) if required_lamella else None,
-                            "error_message": None,
-                            "status": AutoLamellaTaskStatus.Skipped,
-                            "timestamp": time.time(),
-                            "task_duration": None,
-                        }
-                    })
-                continue
-
-            # TODO: how to handle:
-            # - if the task is already completed
-            # - if the task has not completed the required tasks
-            # - if the lamella has a defect
-            # - how to define the workflow and required tasks
-            # - how to mark the workflow as 'completed'
-            # - how to handle supervision: only enabled when parent_ui available
-
-            # Emit status update for this lamella (after skip checks pass)
-            if parent_ui:
-                parent_ui.workflow_update_signal.emit({"msg": f"Starting task {task_name} for Lamella {lamella.name}.",
-                    "status": {"task_name": task_name,
-                                "task_names": task_names,
-                                "total_tasks": len(task_names),
-                                "current_task_index": task_names.index(task_name),
-                                "lamella_name": lamella.name,
-                                "lamella_names": required_lamella,
-                                "current_lamella_index": required_lamella.index(lamella.name),
-                                "total_lamellas": len(required_lamella),
-                                "error_message": None,
-                                "status": AutoLamellaTaskStatus.InProgress,
-                                "timestamp": time.time(),
-                                "task_duration": None,
-                                }
-                            })
-
-            err: Optional[Exception] = None
-            try:
-                # if random.random() < 0.3: 
-                #     time.sleep(5)
-                #     raise ValueError("Simulated task error for testing.")
-                run_task(microscope=microscope,
-                        task_name=task_name,
-                        lamella=lamella,
-                        parent_ui=parent_ui)
-                experiment.save()
-            except Exception as e:
-                logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
-                lamella.task_state.status = AutoLamellaTaskStatus.Failed
-                lamella.task_state.status_message = str(e)
-                err = e
-                experiment.save()
-
-            if parent_ui:
-                if err is None:
-                    msg = f"Completed task {task_name} for Lamella {lamella.name}."
-                else:
-                    msg = f"Error in task {task_name} for Lamella {lamella.name}."
-
-                parent_ui.workflow_update_signal.emit({"msg": msg,
-                "status": {"task_name": task_name,
-                            "task_names": task_names,
-                            "total_tasks": len(task_names),
-                            "current_task_index": task_names.index(task_name),
-                            "lamella_name": lamella.name,
-                            "lamella_names": required_lamella,
-                            "current_lamella_index": required_lamella.index(lamella.name),
-                            "total_lamellas": len(required_lamella),
-                            "error_message": lamella.task_state.status_message,
-                            "status": lamella.task_state.status,
-                            "timestamp": time.time(),
-                            "task_duration": lamella.task_state.duration,
-                            }
-                        })
-
-            if parent_ui and parent_ui._workflow_stop_event.is_set():
-                logging.info("Workflow stop event set. Exiting task loop.")
-                break
-        if parent_ui and parent_ui._workflow_stop_event.is_set():
-            logging.info("Workflow stop event set. Exiting task loop.")
-            break
-
-    update_status_ui(parent_ui, "", workflow_info="All tasks completed.")
-
-    print(experiment.task_history_dataframe())
