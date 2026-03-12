@@ -1111,7 +1111,7 @@ class TescanMicroscope(FibsemMicroscope):
             imaging_current (float): The current to use for imaging in amps.
         # """
         try:
-            default_preset = "30 keV; 150 pA"
+            default_preset = "30 keV; 10 pA"
             self.set("preset", default_preset, BeamType.ION)
             self.connection.DrawBeam.UnloadLayer()
             logging.debug(f"Finished milling, restored preset to {default_preset}")
