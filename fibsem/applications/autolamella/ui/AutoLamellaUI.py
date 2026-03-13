@@ -123,7 +123,7 @@ class AutoLamellaUI(QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
     step_update_signal     = pyqtSignal(str)   # emits human-readable step label
     detection_confirmed_signal = pyqtSignal(bool)
-    _workflow_finished_signal = pyqtSignal()
+    _workflow_finished_signal = pyqtSignal(bool)
     experiment_update_signal = pyqtSignal()
 
     def __init__(self,
@@ -1001,9 +1001,10 @@ class AutoLamellaUI(QMainWindow):
             logging.error(f"Error during running tasks: {e}")
 
         finally:
+            cancelled = self._task_manager is not None and self._task_manager.is_stopped
             self._task_manager = None
             self._task_worker_thread = None
-            self._workflow_finished_signal.emit()  # type: ignore
+            self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
     def stop_task_workflow(self):
         if not self.is_workflow_running:

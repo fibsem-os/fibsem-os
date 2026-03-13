@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
     QApplication,
@@ -192,6 +193,13 @@ class _OuterRow(QWidget):
         self._subtitle.setVisible(bool(step.subtitle))
         right.addWidget(self._subtitle)
 
+        # Error label — shown on failed rows
+        self._error_label = QLabel()
+        self._error_label.setStyleSheet(f"color: {_DOT_FAILED}; font-size: 11px;")
+        self._error_label.setWordWrap(True)
+        self._error_label.setVisible(False)
+        right.addWidget(self._error_label)
+
         # Inner steps — hidden until this row is active
         self._inner_container = QWidget()
         self._inner_layout = QVBoxLayout(self._inner_container)
@@ -213,6 +221,13 @@ class _OuterRow(QWidget):
         self._label.setFont(f)
         self._subtitle.setText(step.subtitle)
         self._subtitle.setVisible(bool(step.subtitle))
+        # Clear error on refresh — errors are set separately via set_error()
+        self._error_label.setVisible(False)
+
+    def set_error(self, msg: str) -> None:
+        """Show an error message below the subtitle."""
+        self._error_label.setText(msg)
+        self._error_label.setVisible(bool(msg))
 
     def set_selected(self, selected: bool) -> None:
         self._selected = selected
@@ -346,17 +361,22 @@ class WorkflowProgressWidget(QWidget):
         super().__init__(parent)
         self._items: list = []  # List[WorkItem] from queue snapshot
         self._outer_index: int = -1
+        self._inner_finished: bool = False
+        self._active_start_time: Optional[float] = None
         self._setup_ui()
+
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_elapsed)
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        # root.setAlignment(Qt.AlignTop)
 
-        header = QLabel("Workflow")
-        header.setStyleSheet(_HEADER_STYLE)
-        root.addWidget(header)
+        self._header = QLabel("Workflow")
+        self._header.setStyleSheet(_HEADER_STYLE)
+        root.addWidget(self._header)
 
         self._outer = WorkflowTimelineWidget()
         root.addWidget(self._outer, 1)
@@ -375,6 +395,7 @@ class WorkflowProgressWidget(QWidget):
             for item in self._items
         ]
         self._outer.set_steps(steps)
+        self._update_header(self._items)
 
     def update_from_status(self, status: dict) -> None:
         """Advance the timeline from a workflow_update_signal payload.
@@ -400,13 +421,23 @@ class WorkflowProgressWidget(QWidget):
             if item.status == AutoLamellaTaskStatus.InProgress:
                 active_idx = i
 
-        # New active row — show inner container
+        # New active row — show inner container, start elapsed timer
         if active_idx >= 0 and active_idx != self._outer_index:
             self._outer_index = active_idx
+            self._inner_finished = False
+            self._active_start_time = status.get("timestamp", time.time())
+            self._elapsed_timer.start(1000)
             self._show_inner_at(active_idx)
+            # Auto-scroll to the active row
+            if active_idx < len(self._outer._rows):
+                self._outer._scroll.ensureWidgetVisible(
+                    self._outer._rows[active_idx]
+                )
 
         # Completion/failure — set subtitle, hide inner, resolve last inner step
         if task_status in (AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Failed):
+            self._elapsed_timer.stop()
+            self._active_start_time = None
             idx = self._outer_index
             if 0 <= idx < len(self._outer._rows):
                 task_name = queue_items[idx].task_name if idx < len(queue_items) else ""
@@ -414,7 +445,15 @@ class WorkflowProgressWidget(QWidget):
                 # Refresh the row so the updated subtitle is rendered
                 self._outer._rows[idx].refresh(self._outer._steps[idx])
                 self._outer._rows[idx].set_inner_visible(False)
+                # Show error message on failed rows
+                if task_status == AutoLamellaTaskStatus.Failed:
+                    error_msg = status.get("error_message", None)
+                    if error_msg:
+                        self._outer._rows[idx].set_error(error_msg)
             self._finish_inner(failed=(task_status == AutoLamellaTaskStatus.Failed))
+
+        # Update progress header
+        self._update_header(queue_items)
 
     def update_step(self, step_name: str) -> None:
         """Mark the previous inner step completed and append a new ACTIVE one."""
@@ -425,7 +464,12 @@ class WorkflowProgressWidget(QWidget):
         row.add_inner_step(step_name, StepStatus.ACTIVE)
 
     def finish_current_step(self, failed: bool = False) -> None:
-        """Resolve the last inner step as COMPLETED or FAILED."""
+        """Resolve the last inner step as COMPLETED or FAILED.
+
+        No-op if inner was already finished (prevents double-finish on failure).
+        """
+        if self._inner_finished:
+            return
         self._finish_inner(failed)
 
     def clear_steps(self) -> None:
@@ -438,6 +482,10 @@ class WorkflowProgressWidget(QWidget):
     def clear(self) -> None:
         self._items.clear()
         self._outer_index = -1
+        self._inner_finished = False
+        self._elapsed_timer.stop()
+        self._active_start_time = None
+        self._header.setText("Workflow")
         self._outer.clear()
 
     def set_active_outer(self, index: int) -> None:
@@ -462,8 +510,39 @@ class WorkflowProgressWidget(QWidget):
     def _finish_inner(self, failed: bool) -> None:
         if not (0 <= self._outer_index < len(self._outer._rows)):
             return
+        self._inner_finished = True
         final = StepStatus.FAILED if failed else StepStatus.COMPLETED
         self._outer._rows[self._outer_index].update_last_inner_step(final)
+
+    def _update_header(self, queue_items: list) -> None:
+        """Update the header label with progress counts."""
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+        total = len(queue_items)
+        if total == 0:
+            self._header.setText("Workflow")
+            return
+        done = sum(1 for i in queue_items if i.status in (
+            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped))
+        failed = sum(1 for i in queue_items if i.status == AutoLamellaTaskStatus.Failed)
+        text = f"Workflow — {done}/{total}"
+        if failed:
+            text += f" ({failed} failed)"
+        self._header.setText(text)
+
+    def _update_elapsed(self) -> None:
+        """Tick handler — update the active row subtitle with elapsed time."""
+        if self._active_start_time is None:
+            return
+        if not (0 <= self._outer_index < len(self._outer._steps)):
+            return
+        from fibsem.utils import format_duration
+        elapsed = time.time() - self._active_start_time
+        task_name = ""
+        if self._outer_index < len(self._items):
+            task_name = self._items[self._outer_index].task_name
+        duration_str = format_duration(elapsed)
+        self._outer._steps[self._outer_index].subtitle = f"{task_name} ({duration_str})"
+        self._outer._rows[self._outer_index].refresh(self._outer._steps[self._outer_index])
 
     def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float], task_name: str = "") -> None:
         from fibsem.utils import format_duration
