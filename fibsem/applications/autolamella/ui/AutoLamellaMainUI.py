@@ -17,6 +17,7 @@ from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -35,6 +36,7 @@ from superqt import ensure_main_thread
 from superqt.iconify import QIconifyIcon
 
 import fibsem
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
@@ -107,11 +109,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Toast notification manager
         self.toast_manager = ToastManager(self)
 
+        # Load user preferences
+        self._preferences = fibsem_cfg.load_user_preferences()
+        fibsem_cfg.apply_feature_flags(self._preferences)
+
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
-        self._sound_enabled = False  # Toggle for notification sounds
-        self._toasts_enabled = False  # Toggle for toast notifications
-        self._border_enabled = True  # Toggle for workflow border indicator
+        self._sound_enabled = self._preferences.display.sound_enabled
+        self._toasts_enabled = self._preferences.display.toasts_enabled
+        self._border_enabled = self._preferences.display.border_enabled
         self._workflow_timeline_initialized = False
 
         # create menus, status bar, and tabs
@@ -119,6 +125,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._create_test_menu()
         self._create_status_bar()
         self.create_tabs()
+        self._apply_preferences()
         self._update_instructions()
 
         # Connect tab change to status bar update
@@ -163,6 +170,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         file_menu.addAction(self.action_save_protocol)
         file_menu.addSeparator()
         file_menu.addAction(self.action_exit)
+
+        # Edit menu
+        edit_menu = menu_bar.addMenu("Edit")
+        self.action_preferences = QAction("Preferences...", self)
+        self.action_preferences.triggered.connect(self._on_open_preferences)
+        edit_menu.addAction(self.action_preferences)
 
         # View menu
         self.action_show_minimap = QAction("Show Minimap Widget", self)
@@ -286,19 +299,50 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
+        self._preferences.display.sound_enabled = checked
+        fibsem_cfg.save_user_preferences(self._preferences)
 
     def _on_toasts_toggle(self, checked: bool):
         """Handle toasts toggle."""
         self._toasts_enabled = checked
+        self._preferences.display.toasts_enabled = checked
+        fibsem_cfg.save_user_preferences(self._preferences)
 
     def _on_timeline_toggle(self, checked: bool):
         """Handle workflow timeline toggle."""
         self.workflow_timeline.setVisible(checked)
+        self._preferences.display.workflow_timeline_enabled = checked
+        fibsem_cfg.save_user_preferences(self._preferences)
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
         self._border_enabled = checked
+        self._preferences.display.border_enabled = checked
+        fibsem_cfg.save_user_preferences(self._preferences)
         self._set_border_state("idle")
+
+    def _on_open_preferences(self):
+        """Open the preferences dialog."""
+        from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
+        dialog = PreferencesDialog(self._preferences, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            self._preferences = dialog.get_preferences()
+            fibsem_cfg.save_user_preferences(self._preferences)
+            fibsem_cfg.apply_feature_flags(self._preferences)
+            self._apply_preferences()
+
+    def _apply_preferences(self):
+        """Apply current preferences to UI state."""
+        d = self._preferences.display
+        self._sound_enabled = d.sound_enabled
+        self._toasts_enabled = d.toasts_enabled
+        self._border_enabled = d.border_enabled
+        self.workflow_timeline.setVisible(d.workflow_timeline_enabled)
+        # Sync Test menu toggle actions
+        self.action_sound_toggle.setChecked(d.sound_enabled)
+        self.action_toasts_toggle.setChecked(d.toasts_enabled)
+        self.action_border_toggle.setChecked(d.border_enabled)
+        self.action_timeline_toggle.setChecked(d.workflow_timeline_enabled)
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -1006,11 +1050,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if status_msg is not None:
             _is_start = not self._workflow_timeline_initialized
             if self.action_timeline_toggle.isChecked():
-                if _is_start:
-                    self.workflow_timeline.set_workflow(
-                        task_names=status_msg.get("task_names", []),
-                        lamella_names=status_msg.get("lamella_names", []),
-                    )
+                queue_items = status_msg.get("queue_items", [])
+                if _is_start and queue_items:
+                    self.workflow_timeline.set_workflow(queue_items)
                     self._workflow_timeline_initialized = True
                 self.workflow_timeline.update_from_status(status_msg)
 

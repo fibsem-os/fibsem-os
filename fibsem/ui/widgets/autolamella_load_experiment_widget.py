@@ -12,6 +12,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.config import load_user_preferences, save_user_preferences
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.custom_widgets import TitledPanel
@@ -228,9 +229,16 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
     def _select_experiment(self):
         """Open dialog to select an experiment file."""
+        # Default to last used experiment directory if available
+        default_path = str(cfg.LOG_PATH)
+        prefs = load_user_preferences()
+        last_path = prefs.paths.last_experiment_path
+        if last_path and os.path.exists(last_path):
+            default_path = last_path
+
         experiment_path = fui.open_existing_file_dialog(
             msg="Select an experiment file (experiment.yaml)",
-            path=str(cfg.LOG_PATH),
+            path=default_path,
             parent=self,
         )
 
@@ -374,6 +382,11 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             return
 
         logging.info(f"Experiment '{self.experiment.name}' loaded successfully")
+
+        # Save last used experiment path
+        prefs = load_user_preferences()
+        prefs.paths.last_experiment_path = str(self.experiment.path)
+        save_user_preferences(prefs)
 
         # Accept the dialog
         self.accept()

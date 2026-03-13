@@ -1,5 +1,7 @@
+import dataclasses
 import logging
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -227,37 +229,136 @@ def save_tescan_manipulator_calibration(config: dict) -> None:
     save_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH, config)
     return None
 
-# Default values for persisted user preferences
-USER_PREFERENCES_DEFAULTS = {
-    "acquire_sem_after_stage_movement": True,
-    "acquire_fib_after_stage_movement": True,
-    "experiment_directory": "/home/patrick/data/",
-}
+# ---------------------------------------------------------------------------
+# User Preferences
+# ---------------------------------------------------------------------------
 
-def load_user_preferences() -> dict:
-    """Load persisted user preferences using built-in defaults."""
-    prefs = USER_PREFERENCES_DEFAULTS.copy()
+@dataclass
+class DisplayPreferences:
+    sound_enabled: bool = False
+    toasts_enabled: bool = False
+    border_enabled: bool = True
+    workflow_timeline_enabled: bool = True
 
-    if not os.path.exists(USER_PREFERENCES_PATH):
+@dataclass
+class FeatureFlags:
+    minimap_plot_widget: bool = True
+    lamella_position_on_live_view: bool = False
+    pose_controls: bool = False
+    display_grid_center_marker: bool = False
+    right_click_context_menu: bool = True
+    display_point_of_interest: bool = True
+
+@dataclass
+class PathPreferences:
+    default_experiment_directory: str = ""
+    last_experiment_path: str = ""
+    default_protocol_path: str = ""
+
+@dataclass
+class MovementPreferences:
+    acquire_sem_after_stage_movement: bool = True
+    acquire_fib_after_stage_movement: bool = True
+
+@dataclass
+class UserPreferences:
+    display: DisplayPreferences = field(default_factory=DisplayPreferences)
+    features: FeatureFlags = field(default_factory=FeatureFlags)
+    paths: PathPreferences = field(default_factory=PathPreferences)
+    movement: MovementPreferences = field(default_factory=MovementPreferences)
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "UserPreferences":
+        """Reconstruct from a dict, handling both nested and legacy flat formats."""
+        # If the dict has nested sub-dicts, reconstruct directly
+        if any(k in d for k in ("display", "features", "paths", "movement")):
+            return cls(
+                display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
+                features=_sub_from_dict(FeatureFlags, d.get("features", {})),
+                paths=_sub_from_dict(PathPreferences, d.get("paths", {})),
+                movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
+            )
+        # Legacy flat format (4-key YAML from previous version)
+        prefs = cls()
+        if "acquire_sem_after_stage_movement" in d:
+            prefs.movement.acquire_sem_after_stage_movement = d["acquire_sem_after_stage_movement"]
+        if "acquire_fib_after_stage_movement" in d:
+            prefs.movement.acquire_fib_after_stage_movement = d["acquire_fib_after_stage_movement"]
+        if "experiment_directory" in d:
+            prefs.paths.default_experiment_directory = d["experiment_directory"]
+        if "last_experiment_path" in d:
+            prefs.paths.last_experiment_path = d["last_experiment_path"]
         return prefs
+
+
+def _sub_from_dict(cls, d: dict):
+    """Create a dataclass instance from a dict, ignoring unknown keys."""
+    if not d:
+        return cls()
+    known = {f.name for f in dataclasses.fields(cls)}
+    return cls(**{k: v for k, v in d.items() if k in known})
+
+
+def load_user_preferences() -> UserPreferences:
+    """Load persisted user preferences, returning a UserPreferences dataclass."""
+    if not os.path.exists(USER_PREFERENCES_PATH):
+        return UserPreferences()
 
     try:
         with open(USER_PREFERENCES_PATH, "r") as f:
             loaded = yaml.safe_load(f) or {}
-        prefs.update(loaded)
+        return UserPreferences.from_dict(loaded)
     except Exception as e:
         logging.warning(f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}")
-    return prefs
+        return UserPreferences()
 
 
-def save_user_preferences(preferences: dict) -> None:
-    """Persist user preferences to disk."""
+def save_user_preferences(preferences) -> None:
+    """Persist user preferences to disk. Accepts UserPreferences or dict."""
     try:
         os.makedirs(CONFIG_PATH, exist_ok=True)
+        if isinstance(preferences, UserPreferences):
+            data = preferences.to_dict()
+        else:
+            data = preferences  # legacy dict callers
         with open(USER_PREFERENCES_PATH, "w") as f:
-            yaml.safe_dump(preferences, f)
+            yaml.safe_dump(data, f)
     except Exception as e:
         logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")
+
+
+def apply_feature_flags(prefs: UserPreferences) -> None:
+    """Update module-level FEATURE_* constants from user preferences."""
+    import fibsem.config as _self
+    global FEATURE_MINIMAP_PLOT_WIDGET_ENABLED
+    global FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED
+    global FEATURE_POSE_CONTROLS_ENABLED
+    global FEATURE_DISPLAY_GRID_CENTER_MARKER
+    global FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED
+    global FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED
+
+    f = prefs.features
+    FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
+    FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
+    FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
+    FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
+    FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED = f.right_click_context_menu
+    FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED = f.display_point_of_interest
+
+    # Also update the autolamella config module which re-exports these
+    try:
+        import fibsem.applications.autolamella.config as al_cfg
+        al_cfg.FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
+        al_cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
+        al_cfg.FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
+        al_cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
+        al_cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED = f.right_click_context_menu
+        al_cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED = f.display_point_of_interest
+    except ImportError:
+        pass
 
 
 ### AUTOLAMELLA APPLICATION PATHS

@@ -13,6 +13,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.config import load_user_preferences, save_user_preferences
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -381,6 +382,11 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
             logging.info(f"Experiment '{experiment_name}' created successfully at {self.experiment.path}")
             logging.info(f"Protocol saved to {protocol_save_path}")
+
+            # Save last used experiment path
+            prefs = load_user_preferences()
+            prefs.paths.last_experiment_path = str(self.experiment.path)
+            save_user_preferences(prefs)
 
             # Accept the dialog
             self.accept()

@@ -151,24 +151,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.stage_panel.add_header_widget(self.btn_refresh_stage)
         self.gridLayout_2.addWidget(self.stage_panel, 0, 0)
 
-        # --- Panel: Options ---
-        options_content = QtWidgets.QWidget()
-        self.gridLayout_4 = QtWidgets.QGridLayout(options_content)
-        self.gridLayout_4.setContentsMargins(0, 0, 0, 0)
-
-        self.label_movement_images = QtWidgets.QLabel("Acquire images after moving:")
-        self.gridLayout_4.addWidget(self.label_movement_images, 0, 0, 1, 2)
-
-        self.checkBox_movement_acquire_electron = QtWidgets.QCheckBox("Electron Beam")
-        self.checkBox_movement_acquire_electron.setChecked(True)
-        self.checkBox_movement_acquire_ion = QtWidgets.QCheckBox("Ion Beam")
-        self.checkBox_movement_acquire_ion.setChecked(True)
-        self.gridLayout_4.addWidget(self.checkBox_movement_acquire_electron, 1, 0)
-        self.gridLayout_4.addWidget(self.checkBox_movement_acquire_ion, 1, 1)
-
-        self.options_panel = TitledPanel("Options", content=options_content)
-        self.options_panel._btn_collapse.setChecked(False)
-        self.gridLayout_2.addWidget(self.options_panel, 1, 0)
+        # Options panel removed — movement acquisition prefs are now in Edit > Preferences
 
         # --- Panel: Saved Positions ---
         saved_content = QtWidgets.QWidget()
@@ -226,8 +209,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
     def setup_connections(self):
 
-        # load persisted movement acquisition preferences
-        self._apply_movement_preferences()
 
         # buttons
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
@@ -256,8 +237,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.movement_progress_signal.connect(self.handle_movement_progress_update)
         self.image_widget.acquisition_progress_signal.connect(self.handle_acquisition_update)
         self.saved_positions_updated_signal.connect(self.update_saved_positions_ui)
-        self.checkBox_movement_acquire_electron.stateChanged.connect(self._save_movement_preferences)
-        self.checkBox_movement_acquire_ion.stateChanged.connect(self._save_movement_preferences)
 
         stage_limits = self.microscope._stage.limits
         xlimits = stage_limits['x']
@@ -335,39 +314,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         self.update_ui()
 
-    def _apply_movement_preferences(self):
-        """Load movement acquisition preferences from disk and apply to checkboxes."""
-        prefs = cfg.load_user_preferences()
-
-        self.checkBox_movement_acquire_electron.blockSignals(True)
-        self.checkBox_movement_acquire_ion.blockSignals(True)
-        self.checkBox_movement_acquire_electron.setChecked(
-            bool(
-                prefs.get(
-                    "acquire_sem_after_stage_movement",
-                    cfg.USER_PREFERENCES_DEFAULTS["acquire_sem_after_stage_movement"],
-                )
-            )
-        )
-        self.checkBox_movement_acquire_ion.setChecked(
-            bool(
-                prefs.get(
-                    "acquire_fib_after_stage_movement",
-                    cfg.USER_PREFERENCES_DEFAULTS["acquire_fib_after_stage_movement"],
-                )
-            )
-        )
-        self.checkBox_movement_acquire_electron.blockSignals(False)
-        self.checkBox_movement_acquire_ion.blockSignals(False)
-
-    def _save_movement_preferences(self):
-        """Persist movement acquisition preferences to disk."""
-        prefs = {
-            "acquire_sem_after_stage_movement": self.checkBox_movement_acquire_electron.isChecked(),
-            "acquire_fib_after_stage_movement": self.checkBox_movement_acquire_ion.isChecked(),
-        }
-        cfg.save_user_preferences(prefs)
-
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
         for btn in self._move_buttons:
@@ -426,16 +372,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
 
     def update_ui_after_movement(self, retake: bool = True):
-        # disable taking images after movement here
         if (retake is False or self.microscope.is_acquiring):
             self.update_ui()
             return
-        if self.checkBox_movement_acquire_electron.isChecked() and self.checkBox_movement_acquire_ion.isChecked():
+        prefs = cfg.load_user_preferences()
+        acquire_sem = prefs.movement.acquire_sem_after_stage_movement
+        acquire_fib = prefs.movement.acquire_fib_after_stage_movement
+        if acquire_sem and acquire_fib:
             self.image_widget.acquire_reference_images()
             return
-        if self.checkBox_movement_acquire_electron.isChecked():
+        if acquire_sem:
             self.image_widget.acquire_sem_image()
-        elif self.checkBox_movement_acquire_ion.isChecked():
+        elif acquire_fib:
             self.image_widget.acquire_fib_image()
         else:
             self.update_ui()
