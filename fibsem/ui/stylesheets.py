@@ -1,5 +1,8 @@
 # style sheets
-# TODO: TEMPLATE THIS CSS   
+# TODO: TEMPLATE THIS CSS
+import os as _os
+_ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
+
 GREEN_PUSHBUTTON_STYLE = """
 QPushButton {
     background-color: green;
@@ -214,7 +217,7 @@ QLineEdit:disabled {
 }
 
 QComboBox {
-    background-color: #1e2027;
+    background-color: #3d4251;
     color: #d6d6d6;
     border: 1px solid #3d4251;
     border-radius: 3px;
@@ -225,20 +228,146 @@ QComboBox:hover {
     border: 1px solid #50a6ff;
 }
 
+QComboBox:focus {
+    border: 1px solid #50a6ff;
+}
+
 QComboBox::drop-down {
     border: none;
+    width: 20px;
+}
+
+QComboBox::down-arrow {
+    image: url("__ICONS_DIR__/chevron_down.svg");
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+}
+
+QComboBox:disabled {
+    color: #6b6b6b;
+    background-color: #2d313b;
 }
 
 QComboBox QAbstractItemView {
+    background-color: #3d4251;
+    color: #d6d6d6;
+    border: 1px solid #3d4251;
+    selection-background-color: #4a5168;
+}
+
+QSpinBox, QDoubleSpinBox {
     background-color: #1e2027;
     color: #d6d6d6;
     border: 1px solid #3d4251;
-    selection-background-color: #3d4251;
+    border-radius: 3px;
+    padding: 4px 8px;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid #50a6ff;
+}
+
+QSpinBox:disabled, QDoubleSpinBox:disabled {
+    color: #6b6b6b;
+    background-color: #2d313b;
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: center right;
+    background-color: #3d4251;
+    border: none;
+    border-left: 1px solid #3d4251;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+    width: 20px;
+    height: 100%;
+}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
+    background-color: #4a5168;
+}
+
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed {
+    background-color: #50a6ff;
+}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url("__ICONS_DIR__/plus.svg");
+    width: 10px;
+    height: 10px;
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: center left;
+    background-color: #3d4251;
+    border: none;
+    border-right: 1px solid #3d4251;
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+    width: 20px;
+    height: 100%;
+}
+
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: #4a5168;
+}
+
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
+    background-color: #50a6ff;
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url("__ICONS_DIR__/minus.svg");
+    width: 10px;
+    height: 10px;
+}
+
+QSlider::groove:horizontal {
+    background-color: #3d4251;
+    height: 4px;
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal {
+    background-color: #3d4251;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+
+QSlider::handle:horizontal:hover {
+    background-color: #4a5168;
+}
+
+QSlider::sub-page:horizontal {
+    background-color: #3d4251;
+    border-radius: 2px;
 }
 
 QCheckBox {
     color: #d6d6d6;
     spacing: 6px;
+}
+
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #3d4251;
+    border-radius: 3px;
+    background-color: #1e2027;
+}
+
+QCheckBox::indicator:hover {
+    border: 1px solid #50a6ff;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #3d4251;
+    image: url("__ICONS_DIR__/check.svg");
 }
 
 QListWidget {
@@ -293,7 +422,7 @@ QToolTip {
     padding: 4px 8px;
     border-radius: 3px;
 }
-"""
+""".replace("__ICONS_DIR__", _ICONS_DIR)
 
 MILLING_PROGRESS_BAR_STYLESHEET = """
             QProgressBar {
@@ -524,6 +653,6 @@ LIST_WIDGET_STYLESHEET = """
                 border-bottom: 1px solid #3a3d42;
             }
             QListWidget::item:selected {
-                background: transparent;
+                background: #2d3f5c;
             }
         """

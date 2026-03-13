@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from typing import Dict, List, Optional
 
 from datetime import datetime
 from typing import Optional as _Opt
 
 from PyQt5.QtCore import QDateTime, QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -32,8 +34,10 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
+_DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(32, 32)
+_ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 4 + 8 * 3  # schedule + supervise + edit + remove + 3 gaps
 _BTN_STYLE = stylesheets.TOOLBUTTON_ICON_STYLESHEET
 
@@ -144,6 +148,7 @@ class WorkflowTaskRowWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self.task = task
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
@@ -185,6 +190,13 @@ class WorkflowTaskRowWidget(QWidget):
 
         self.btn_remove = IconToolButton(icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width())
         layout.addWidget(self.btn_remove)
+
+        drag_icon = QLabel()
+        drag_icon.setFixedSize(10, 16)
+        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(10, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        drag_icon.setStyleSheet("background: transparent;")
+        drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
+        layout.addWidget(drag_icon)
 
         self.checkbox.stateChanged.connect(
             lambda s: self.selection_changed.emit(self.task, bool(s))
@@ -251,7 +263,7 @@ class _WorkflowTaskListHeader(QWidget):
 
         self.checkbox_all = QCheckBox("Select All")
         self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("font-weight: bold;")
+        self.checkbox_all.setStyleSheet("font-weight: bold; background: transparent;")
         self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
         layout.addWidget(self.checkbox_all)
 
@@ -260,6 +272,7 @@ class _WorkflowTaskListHeader(QWidget):
         # Spacer covers all row buttons except the last, so btn_add aligns with btn_remove
         spacer = QWidget()
         spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
+        spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
 
         self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add Task", size=_BTN_SIZE.width())
@@ -308,9 +321,10 @@ class WorkflowConfigWidget(QWidget):
         self._list = _DraggableTaskList()
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self._list.setSpacing(1)
+        self._list.setSpacing(0)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setAlternatingRowColors(False)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
@@ -333,7 +347,7 @@ class WorkflowConfigWidget(QWidget):
         row = WorkflowTaskRowWidget(task, checked)
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, task)
-        item.setSizeHint(row.sizeHint())
+        item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
 
@@ -440,7 +454,7 @@ class WorkflowConfigWidget(QWidget):
                 continue
             checked = self._checked.get(id(task), True)
             row = WorkflowTaskRowWidget(task, checked)
-            item.setSizeHint(row.sizeHint())
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._list.setItemWidget(item, row)
             self._connect_row(row)
             self._apply_btn_visibility(row)

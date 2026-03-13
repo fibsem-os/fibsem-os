@@ -6,6 +6,7 @@ import numpy as np
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QImage, QPixmap
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QAction,
     QCheckBox,
     QFrame,
@@ -32,6 +33,7 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)
+_ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 3 + 8 * 2  # 3 buttons + 2 gaps
 
 
@@ -82,11 +84,11 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
     """Return (text, stylesheet) for the status column."""
     ts = lamella.task_state
     if ts and ts.status == AutoLamellaTaskStatus.InProgress:
-        return f"{ts.name}", "color: #6aabdf;"
+        return f"{ts.name}", f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;"
     last = lamella.last_completed_task
     if last:
-        return last.completed, "color: #909090;"
-    return "", ""
+        return last.completed, "color: #909090; background: transparent;"
+    return "", "background: transparent;"
 
 
 def _defect_icon(lamella: Lamella) -> tuple[str, str, str]:
@@ -114,6 +116,7 @@ class LamellaRowWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self.lamella = lamella
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self._popup: Optional[_LamellaTooltip] = None
         self._hover_timer = QTimer(self)
@@ -130,6 +133,7 @@ class LamellaRowWidget(QWidget):
 
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
+        self.name_label.setStyleSheet("background: transparent;")
         layout.addWidget(self.name_label)
 
         self.status_label = QLabel()
@@ -260,16 +264,17 @@ class _LamellaListHeader(QWidget):
         # spans checkbox indicator + spacing + name column
         self.checkbox_all = QCheckBox("Select All")
         self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("font-weight: bold;")
+        self.checkbox_all.setStyleSheet("font-weight: bold; background: transparent;")
         self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
         layout.addWidget(self.checkbox_all)
 
         status_header = QLabel("Status")
-        status_header.setStyleSheet("font-weight: bold;")
+        status_header.setStyleSheet("font-weight: bold; background: transparent;")
         layout.addWidget(status_header, 1)
 
         spacer = QWidget()
         spacer.setFixedWidth(_BTN_SPACER_WIDTH)
+        spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
 
         self.checkbox_all.stateChanged.connect(
@@ -302,9 +307,11 @@ class LamellaListWidget(QWidget):
         layout.addWidget(sep)
 
         self._list = QListWidget()
-        self._list.setSpacing(1)
+        self._list.setSpacing(0)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setAlternatingRowColors(False)
+        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
@@ -325,7 +332,7 @@ class LamellaListWidget(QWidget):
     def add_lamella(self, lamella: Lamella, checked: bool = True) -> LamellaRowWidget:
         row = LamellaRowWidget(lamella, checked)
         item = QListWidgetItem()
-        item.setSizeHint(row.sizeHint())
+        item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
 

@@ -17,55 +17,11 @@ from PyQt5.QtWidgets import (
 from superqt import QIconifyIcon
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+from fibsem.ui import stylesheets
 
-_BTN_SIZE = QSize(26, 26)
-
-_SECTION_LABEL_STYLE = "font-weight: bold; font-size: 11px; color: #a0a0a0; padding: 2px 0px;"
-_TASK_NAME_STYLE = "font-size: 13px; font-weight: bold; color: #e0e0e0;"
-
-_LIST_STYLE = """
-    QListWidget {
-        background: #2b2d31;
-        border: 1px solid #3a3d42;
-        border-radius: 4px;
-        outline: none;
-    }
-    QListWidget::item {
-        background: #2b2d31;
-        border-bottom: 1px solid #3a3d42;
-    }
-    QListWidget::item:alternate {
-        background: #303338;
-    }
-    QListWidget::item:selected {
-        background: transparent;
-    }
-"""
-
-_APPLY_BTN_STYLE = """
-QPushButton {
-    background: #2196f3;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 5px 16px;
-    font-weight: bold;
-}
-QPushButton:hover { background: #1976d2; }
-QPushButton:pressed { background: #1565c0; }
-"""
-
-_CANCEL_BTN_STYLE = """
-QPushButton {
-    background: #3a3d42;
-    color: #c0c0c0;
-    border: none;
-    border-radius: 4px;
-    padding: 5px 16px;
-}
-QPushButton:hover { background: #4a4d52; }
-QPushButton:pressed { background: #2a2d32; }
-"""
+_ROW_HEIGHT = 40
+_SECTION_LABEL_STYLE = "font-weight: bold; font-size: 11px; color: #a0a0a0; padding: 2px 0px; background: transparent;"
+_TASK_NAME_STYLE = "font-size: 13px; font-weight: bold; color: #e0e0e0; background: transparent;"
 
 
 class _RequirementRowWidget(QWidget):
@@ -73,8 +29,10 @@ class _RequirementRowWidget(QWidget):
 
     def __init__(self, task_name: str, checked: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(8)
 
         self.checkbox = QCheckBox()
@@ -82,6 +40,7 @@ class _RequirementRowWidget(QWidget):
         layout.addWidget(self.checkbox)
 
         self.name_label = QLabel(task_name)
+        self.name_label.setStyleSheet("background: transparent;")
         layout.addWidget(self.name_label, 1)
 
 
@@ -111,20 +70,19 @@ class WorkflowTaskEditorWidget(QWidget):
         self._task = task
         self._available = [t for t in (available_tasks or []) if t != task.name]
 
-        self.setStyleSheet("background: #2b2d31;")
-
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 12)
-        root.setSpacing(12)
+        root.setContentsMargins(12, 8, 12, 8)
+        root.setSpacing(8)
 
         # ── header ──────────────────────────────────────────────────────
         header_row = QHBoxLayout()
         icon_lbl = QLabel()
         icon_lbl.setPixmap(QIconifyIcon("mdi:pencil-box-outline", color="#a0a0a0").pixmap(18, 18))
+        icon_lbl.setStyleSheet("background: transparent;")
         header_row.addWidget(icon_lbl)
 
         title = QLabel("Edit Task")
-        title.setStyleSheet("font-size: 12px; font-weight: bold; color: #c0c0c0;")
+        title.setStyleSheet("font-size: 12px; font-weight: bold; color: #c0c0c0; background: transparent;")
         header_row.addWidget(title, 1)
         root.addLayout(header_row)
 
@@ -158,11 +116,12 @@ class WorkflowTaskEditorWidget(QWidget):
         root.addWidget(req_lbl)
 
         self._req_list = QListWidget()
-        self._req_list.setSpacing(1)
-        self._req_list.setStyleSheet(_LIST_STYLE)
-        self._req_list.setAlternatingRowColors(True)
+        self._req_list.setSpacing(0)
+        self._req_list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
+        self._req_list.setAlternatingRowColors(False)
+        self._req_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._req_list.setFocusPolicy(Qt.NoFocus)
-        self._req_list.setMinimumHeight(120)
+        self._req_list.setMinimumHeight(3 * _ROW_HEIGHT)
         root.addWidget(self._req_list, 1)
 
         self._req_rows: List[_RequirementRowWidget] = []
@@ -170,7 +129,7 @@ class WorkflowTaskEditorWidget(QWidget):
             for name in self._available:
                 row = _RequirementRowWidget(name, checked=(name in task.requires))
                 item = QListWidgetItem()
-                item.setSizeHint(QSize(0, 36))
+                item.setSizeHint(QSize(0, _ROW_HEIGHT))
                 self._req_list.addItem(item)
                 self._req_list.setItemWidget(item, row)
                 self._req_rows.append(row)
@@ -179,7 +138,7 @@ class WorkflowTaskEditorWidget(QWidget):
             empty.setStyleSheet("color: #606060; font-size: 11px; padding: 6px;")
             empty.setAlignment(Qt.AlignCenter)
             item = QListWidgetItem()
-            item.setSizeHint(QSize(0, 36))
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._req_list.addItem(item)
             self._req_list.setItemWidget(item, empty)
 
@@ -193,11 +152,11 @@ class WorkflowTaskEditorWidget(QWidget):
         btn_row.addStretch(1)
 
         self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setStyleSheet(_CANCEL_BTN_STYLE)
+        self._cancel_btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         btn_row.addWidget(self._cancel_btn)
 
         self._apply_btn = QPushButton("Apply")
-        self._apply_btn.setStyleSheet(_APPLY_BTN_STYLE)
+        self._apply_btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         btn_row.addWidget(self._apply_btn)
 
         root.addLayout(btn_row)
@@ -227,7 +186,7 @@ class WorkflowTaskEditorWidget(QWidget):
             for name in self._available:
                 row = _RequirementRowWidget(name, checked=(name in task.requires))
                 item = QListWidgetItem()
-                item.setSizeHint(QSize(0, 36))
+                item.setSizeHint(QSize(0, _ROW_HEIGHT))
                 self._req_list.addItem(item)
                 self._req_list.setItemWidget(item, row)
                 self._req_rows.append(row)
@@ -236,7 +195,7 @@ class WorkflowTaskEditorWidget(QWidget):
             empty.setStyleSheet("color: #606060; font-size: 11px; padding: 6px;")
             empty.setAlignment(Qt.AlignCenter)
             item = QListWidgetItem()
-            item.setSizeHint(QSize(0, 36))
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._req_list.addItem(item)
             self._req_list.setItemWidget(item, empty)
 

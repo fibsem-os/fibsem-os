@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from copy import deepcopy
 from typing import Dict, List, Optional
 
@@ -25,16 +26,16 @@ from fibsem.ui import stylesheets
 from fibsem.ui.napari.patterns import COLOURS
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
+_DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
 _NAME_MIN_WIDTH = 120
 _PATTERN_FIXED_WIDTH = 110
 _DEPTH_FIXED_WIDTH = 112
 _CURRENT_FIXED_WIDTH = 100
 _STRATEGY_FIXED_WIDTH = 110
-_BTN_SIZE = QSize(28, 28)
+_BTN_SIZE = QSize(32, 32)
+_ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # color + remove
 
-_SELECTED_BG = stylesheets.GRAY_FOREGROUND_COLOR
-_NORMAL_BG = "transparent"
 
 _SI_TO_MICRO = 1e6
 _MICRO_TO_SI = 1e-6
@@ -89,6 +90,7 @@ class MillingStageRowWidget(QWidget):
         super().__init__(parent)
         self.stage = stage
         self.index = index
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._pattern_names = pattern_names
         self._strategy_names = strategy_names
         self._current_values = current_values or []
@@ -100,6 +102,7 @@ class MillingStageRowWidget(QWidget):
         self.checkbox = QCheckBox()
         self.checkbox.setChecked(enabled)
         self.checkbox.setToolTip("Enable/disable stage")
+        self.checkbox.setStyleSheet("background: transparent;")
         layout.addWidget(self.checkbox)
 
         self.name_edit = QLineEdit()
@@ -139,6 +142,13 @@ class MillingStageRowWidget(QWidget):
             icon="mdi:trash-can-outline", tooltip="Remove stage", size=_BTN_SIZE.width()
         )
         layout.addWidget(self.btn_remove)
+
+        drag_icon = QLabel()
+        drag_icon.setFixedSize(10, 16)
+        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(10, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        drag_icon.setStyleSheet("background: transparent;")
+        drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
+        layout.addWidget(drag_icon)
 
         self.checkbox.stateChanged.connect(
             lambda s: self.enabled_changed.emit(self.stage, bool(s))
@@ -197,8 +207,7 @@ class MillingStageRowWidget(QWidget):
     # ------------------------------------------------------------------
 
     def set_selected(self, selected: bool) -> None:
-        bg = _SELECTED_BG if selected else _NORMAL_BG
-        self.setStyleSheet(f"background-color: {bg};")
+        pass  # Selection visuals handled by QListWidget item selection
 
     def refresh(self) -> None:
         self._block_controls(True)
@@ -277,12 +286,12 @@ class _MillingStageListHeader(QWidget):
 
         self.checkbox_all = QCheckBox("Stage")
         self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("font-weight: bold;")
+        self.checkbox_all.setStyleSheet("font-weight: bold; background: transparent;")
         self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
         layout.addWidget(self.checkbox_all, 1)
 
         self.lbl_pattern = QLabel("Pattern")
-        self.lbl_pattern.setStyleSheet("font-weight: bold;")
+        self.lbl_pattern.setStyleSheet("font-weight: bold; background: transparent;")
         self.lbl_pattern.setFixedWidth(_PATTERN_FIXED_WIDTH)
         layout.addWidget(self.lbl_pattern)
 
@@ -292,13 +301,14 @@ class _MillingStageListHeader(QWidget):
             ("Strategy", _STRATEGY_FIXED_WIDTH),
         ]:
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-weight: bold;")
+            lbl.setStyleSheet("font-weight: bold; background: transparent;")
             lbl.setFixedWidth(fixed_width)
             layout.addWidget(lbl)
 
         # spacer covers color button; btn_add aligns with remove button
         spacer = QWidget()
         spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
+        spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
 
         self.btn_add = IconToolButton(
@@ -350,9 +360,10 @@ class MillingStageListWidget(QWidget):
         self._list = _DraggableStageList()
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.MoveAction)
-        self._list.setSpacing(1)
-        self._list.setMinimumHeight(3 * 34 + 2)  # 3 rows × 34px + 2px spacing
+        self._list.setSpacing(0)
+        self._list.setMinimumHeight(3 * _ROW_HEIGHT)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
@@ -395,7 +406,7 @@ class MillingStageListWidget(QWidget):
         row.pattern_combo.setVisible(self._show_pattern)
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, stage)
-        item.setSizeHint(row.sizeHint())
+        item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         self._connect_row(row)
@@ -494,10 +505,13 @@ class MillingStageListWidget(QWidget):
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _set_selected(self, stage: Optional[FibsemMillingStage]) -> None:
+        self._selected_stage = stage
         for i in range(self._list.count()):
             row = self._row(i)
-            row.set_selected(row.stage is stage)
-        self._selected_stage = stage
+            if row.stage is stage:
+                self._list.setCurrentRow(i)
+                return
+        self._list.setCurrentRow(-1)
 
     def _on_reordered(self, stages: List[FibsemMillingStage]) -> None:
         """Rebuild row widgets after drag-and-drop (Qt clears itemWidget on move)."""
@@ -514,7 +528,7 @@ class MillingStageListWidget(QWidget):
                 enabled=enabled,
             )
             row.pattern_combo.setVisible(self._show_pattern)
-            item.setSizeHint(row.sizeHint())
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._list.setItemWidget(item, row)
             self._connect_row(row)
             if stage is self._selected_stage:
