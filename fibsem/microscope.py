@@ -1047,9 +1047,9 @@ class FibsemMicroscope(ABC):
         self.set("detector_brightness", brightness, beam_type)
         return self.get("detector_brightness", beam_type)
 
-    def set_preset(self, preset: str, beam_type: BeamType) -> str:
+    def set_preset(self, preset: str, beam_type: BeamType, preserve_settings=True) -> str:
         """Set the preset for the specified beam type."""
-        self.set("preset", preset, beam_type)
+        self.set("preset", preset, beam_type, preserve_settings=preserve_settings)
         return self.get("preset", beam_type)
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
