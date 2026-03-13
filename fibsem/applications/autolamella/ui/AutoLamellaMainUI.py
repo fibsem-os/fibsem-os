@@ -249,11 +249,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_toasts_toggle.setChecked(self._toasts_enabled)
         self.action_toasts_toggle.triggered.connect(self._on_toasts_toggle)
 
-        self.action_timeline_toggle = QAction("Workflow Timeline Enabled", self)
-        self.action_timeline_toggle.setCheckable(True)
-        self.action_timeline_toggle.setChecked(True)
-        self.action_timeline_toggle.triggered.connect(self._on_timeline_toggle)
-
         # Border state test actions
         self.action_border_toggle = QAction("Show Workflow Border", self)
         self.action_border_toggle.setCheckable(True)
@@ -294,7 +289,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         test_menu.addAction(self.action_beep)               # type: ignore
         test_menu.addAction(self.action_sound_toggle)       # type: ignore
         test_menu.addAction(self.action_toasts_toggle)      # type: ignore
-        test_menu.addAction(self.action_timeline_toggle)    # type: ignore
 
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
@@ -342,7 +336,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_toasts_toggle.setChecked(d.toasts_enabled)
         self.action_border_toggle.setChecked(d.border_enabled)
-        self.action_timeline_toggle.setChecked(d.workflow_timeline_enabled)
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -1049,12 +1042,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         status_msg = info.get("status", None)
         if status_msg is not None:
             _is_start = not self._workflow_timeline_initialized
-            if self.action_timeline_toggle.isChecked():
-                queue_items = status_msg.get("queue_items", [])
-                if _is_start and queue_items:
-                    self.workflow_timeline.set_workflow(queue_items)
-                    self._workflow_timeline_initialized = True
-                self.workflow_timeline.update_from_status(status_msg)
+            queue_items = status_msg.get("queue_items", [])
+            if _is_start and queue_items:
+                self.workflow_timeline.set_workflow(queue_items)
+                self._workflow_timeline_initialized = True
+            self.workflow_timeline.update_from_status(status_msg)
 
             task_name = status_msg.get("task_name", "Unknown Task")
             lamella_name = status_msg.get("lamella_name", "Unknown Lamella")
@@ -1223,16 +1215,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_step_update(self, label: str) -> None:
         """Handle per-step update from the workflow worker thread."""
-        if self.action_timeline_toggle.isChecked():
-            self.workflow_timeline.update_step(label)
+        self.workflow_timeline.update_step(label)
 
-    def _on_workflow_finished(self):
+    def _on_workflow_finished(self, cancelled: bool = False):
         """Handle workflow finished signal."""
         self._workflow_timeline_initialized = False
         # Resolve any outer row left in ACTIVE state (e.g. if workflow was cancelled)
-        if self.action_timeline_toggle.isChecked():
-            self.workflow_timeline.finish_current_step(failed=False)
-            self.workflow_timeline.clear_steps()
+        self.workflow_timeline.finish_current_step(failed=cancelled)
+        self.workflow_timeline.clear_steps()
         self.hide_workflow_running()
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
