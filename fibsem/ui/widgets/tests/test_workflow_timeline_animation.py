@@ -20,10 +20,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.workflow_timeline_widget import (
     StepStatus,
-    WorkflowItem,
     WorkflowProgressWidget,
 )
 
@@ -66,8 +66,8 @@ class AnimatedDemo(QWidget):
         self.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
 
         # Build flat list of (lamella, task) pairs matching run_tasks loop order
-        self._outer_items: List[WorkflowItem] = [
-            WorkflowItem(lamella_name=ln, task_name=tn)
+        self._outer_items: List[WorkItem] = [
+            WorkItem(lamella_name=ln, task_name=tn)
             for tn in TASK_NAMES
             for ln in LAMELLA_NAMES
         ]
@@ -105,7 +105,7 @@ class AnimatedDemo(QWidget):
         layout.addWidget(top_bar)
 
         self._progress = WorkflowProgressWidget()
-        self._progress.set_workflow(TASK_NAMES, LAMELLA_NAMES)
+        self._progress.set_workflow(self._outer_items)
         layout.addWidget(self._progress)
 
         self._timer = QTimer(self)
@@ -140,20 +140,14 @@ class AnimatedDemo(QWidget):
         self._inner_steps = TASK_STEPS[item.task_name]
         self._inner_idx   = -1
 
-        # Mark outer row as active via a minimal status dict
-        n_lam      = len(LAMELLA_NAMES)
-        task_idx   = self._outer_idx // n_lam
-        lam_idx    = self._outer_idx % n_lam
-
-        # Drive the outer timeline directly (no real AutoLamellaTaskStatus available)
-        for i, it in enumerate(self._outer_items):
+        # Drive the outer timeline directly
+        for i in range(len(self._outer_items)):
             if i < self._outer_idx:
-                it.status = StepStatus.COMPLETED
+                self._progress._outer.set_step_status(i, StepStatus.COMPLETED)
             elif i == self._outer_idx:
-                it.status = StepStatus.ACTIVE
+                self._progress._outer.set_step_status(i, StepStatus.ACTIVE)
             else:
-                it.status = StepStatus.PENDING
-            self._progress._outer.set_step_status(i, it.status)
+                self._progress._outer.set_step_status(i, StepStatus.PENDING)
 
         self._progress.set_active_outer(self._outer_idx)
         self._status_label.setText(
@@ -172,7 +166,6 @@ class AnimatedDemo(QWidget):
             self._progress.update_step(step_name)
             self._progress.finish_current_step(failed=True)
             # Mark outer row failed too
-            self._outer_items[self._outer_idx].status = StepStatus.FAILED
             self._progress._outer.set_step_status(self._outer_idx, StepStatus.FAILED)
             failed_lamella = self._outer_items[self._outer_idx].lamella_name
             self._status_label.setText(
@@ -203,14 +196,14 @@ class AnimatedDemo(QWidget):
     def _restart(self):
         self._timer.stop()
         self._outer_items = [
-            WorkflowItem(lamella_name=ln, task_name=tn)
+            WorkItem(lamella_name=ln, task_name=tn)
             for tn in TASK_NAMES
             for ln in LAMELLA_NAMES
         ]
         self._outer_idx  = -1
         self._inner_steps = []
         self._inner_idx  = -1
-        self._progress.set_workflow(TASK_NAMES, LAMELLA_NAMES)
+        self._progress.set_workflow(self._outer_items)
         self._status_label.setText("Restarted.")
         self._timer.start(400)
 

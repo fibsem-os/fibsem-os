@@ -38,6 +38,19 @@ _LEFT_COL       = 32   # px — fixed width for dot + connector column
 _INNER_ROW_H    = 22   # px — minimum height per inner step row
 
 
+# ── Status mapping ───────────────────────────────────────────────────────────
+def _queue_status_to_step_status(s) -> "StepStatus":
+    """Map AutoLamellaTaskStatus → StepStatus for display."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    return {
+        AutoLamellaTaskStatus.NotStarted: StepStatus.PENDING,
+        AutoLamellaTaskStatus.InProgress: StepStatus.ACTIVE,
+        AutoLamellaTaskStatus.Completed:  StepStatus.COMPLETED,
+        AutoLamellaTaskStatus.Failed:     StepStatus.FAILED,
+        AutoLamellaTaskStatus.Skipped:    StepStatus.SKIPPED,
+    }[s]
+
+
 # ── Data model ────────────────────────────────────────────────────────────────
 class StepStatus(Enum):
     PENDING   = auto()
@@ -313,18 +326,6 @@ class WorkflowTimelineWidget(QWidget):
         self.step_selected.emit(index)
 
 
-# ── WorkflowItem ──────────────────────────────────────────────────────────────
-@dataclass
-class WorkflowItem:
-    """One (lamella, task) pair tracked in the outer timeline."""
-    lamella_name: str
-    task_name: str
-    status: StepStatus = StepStatus.PENDING
-
-    def as_timeline_step(self) -> TimelineStep:
-        return TimelineStep(label=self.lamella_name, subtitle=self.task_name, status=self.status)
-
-
 # ── WorkflowProgressWidget ────────────────────────────────────────────────────
 _HEADER_STYLE = (
     f"color: {stylesheets.GRAY_SECONDARY_COLOR};"
@@ -343,7 +344,7 @@ class WorkflowProgressWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._items: List[WorkflowItem] = []
+        self._items: list = []  # List[WorkItem] from queue snapshot
         self._outer_index: int = -1
         self._setup_ui()
 
@@ -361,70 +362,59 @@ class WorkflowProgressWidget(QWidget):
         root.addWidget(self._outer, 1)
 
     # ── Public API ────────────────────────────────────────────────────────
-    def set_workflow(self, task_names: List[str], lamella_names: List[str]) -> None:
-        """Pre-populate the outer timeline (task-outer, lamella-inner loop order)."""
-        self._items = [
-            WorkflowItem(lamella_name=ln, task_name=tn)
-            for tn in task_names
-            for ln in lamella_names
-        ]
+    def set_workflow(self, items: list) -> None:
+        """Pre-populate the outer timeline from queue items (WorkItem instances)."""
+        self._items = list(items)
         self._outer_index = -1
-        self._outer.set_steps([item.as_timeline_step() for item in self._items])
+        steps = [
+            TimelineStep(
+                label=item.lamella_name,
+                subtitle=item.task_name,
+                status=_queue_status_to_step_status(item.status),
+            )
+            for item in self._items
+        ]
+        self._outer.set_steps(steps)
 
     def update_from_status(self, status: dict) -> None:
         """Advance the timeline from a workflow_update_signal payload.
 
-        Expected keys: task_names, lamella_names, current_task_index,
-                       current_lamella_index, status (AutoLamellaTaskStatus),
-                       task_duration (float seconds, optional).
+        Reads queue_items snapshot to update all row statuses directly.
         """
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
-        task_names    = status.get("task_names", [])
-        lamella_names = status.get("lamella_names", [])
-        task_idx      = status.get("current_task_index", 0)
-        lam_idx       = status.get("current_lamella_index", 0)
-        task_status   = status.get("status", None)
+        queue_items = status.get("queue_items", None)
+        if queue_items is None:
+            return
+
+        task_status = status.get("status", None)
         task_duration = status.get("task_duration", None)
 
-        n_lamellas = len(lamella_names)
-        if n_lamellas == 0:
-            return
-        outer_idx = task_idx * n_lamellas + lam_idx
+        # Update all row statuses from queue snapshot
+        active_idx = -1
+        for i, item in enumerate(queue_items):
+            if i >= len(self._outer._rows):
+                break
+            step_status = _queue_status_to_step_status(item.status)
+            self._outer.set_step_status(i, step_status)
+            if item.status == AutoLamellaTaskStatus.InProgress:
+                active_idx = i
 
-        if task_status == AutoLamellaTaskStatus.InProgress:
-            self._outer_index = outer_idx
-            for i, item in enumerate(self._items):
-                if i < outer_idx:
-                    if item.status not in (StepStatus.SKIPPED, StepStatus.FAILED):
-                        item.status = StepStatus.COMPLETED
-                elif i == outer_idx:
-                    item.status = StepStatus.ACTIVE
-                else:
-                    item.status = StepStatus.PENDING
-                self._outer.set_step_status(i, item.status)
-            self._show_inner_at(outer_idx)
+        # New active row — show inner container
+        if active_idx >= 0 and active_idx != self._outer_index:
+            self._outer_index = active_idx
+            self._show_inner_at(active_idx)
 
-        elif task_status == AutoLamellaTaskStatus.Completed:
-            if 0 <= outer_idx < len(self._items):
-                self._items[outer_idx].status = StepStatus.COMPLETED
-                self._set_completion_subtitle(outer_idx, task_duration)
-                self._outer.set_step_status(outer_idx, StepStatus.COMPLETED)
-                self._outer._rows[outer_idx].set_inner_visible(False)
-            self._finish_inner(failed=False)
-
-        elif task_status == AutoLamellaTaskStatus.Failed:
-            if 0 <= outer_idx < len(self._items):
-                self._items[outer_idx].status = StepStatus.FAILED
-                self._set_completion_subtitle(outer_idx, task_duration)
-                self._outer.set_step_status(outer_idx, StepStatus.FAILED)
-                self._outer._rows[outer_idx].set_inner_visible(False)
-            self._finish_inner(failed=True)
-
-        elif task_status == AutoLamellaTaskStatus.Skipped:
-            if 0 <= outer_idx < len(self._items):
-                self._items[outer_idx].status = StepStatus.SKIPPED
-                self._outer.set_step_status(outer_idx, StepStatus.SKIPPED)
+        # Completion/failure — set subtitle, hide inner, resolve last inner step
+        if task_status in (AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Failed):
+            idx = self._outer_index
+            if 0 <= idx < len(self._outer._rows):
+                task_name = queue_items[idx].task_name if idx < len(queue_items) else ""
+                self._set_completion_subtitle(idx, task_duration, task_name)
+                # Refresh the row so the updated subtitle is rendered
+                self._outer._rows[idx].refresh(self._outer._steps[idx])
+                self._outer._rows[idx].set_inner_visible(False)
+            self._finish_inner(failed=(task_status == AutoLamellaTaskStatus.Failed))
 
     def update_step(self, step_name: str) -> None:
         """Mark the previous inner step completed and append a new ACTIVE one."""
@@ -475,13 +465,12 @@ class WorkflowProgressWidget(QWidget):
         final = StepStatus.FAILED if failed else StepStatus.COMPLETED
         self._outer._rows[self._outer_index].update_last_inner_step(final)
 
-    def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float]) -> None:
+    def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float], task_name: str = "") -> None:
         from fibsem.utils import format_duration
         if not (0 <= outer_idx < len(self._outer._steps)):
             return
-        item = self._items[outer_idx]
         duration_str = f" ({format_duration(task_duration)})" if task_duration is not None else ""
-        self._outer._steps[outer_idx].subtitle = f"{item.task_name}{duration_str}"
+        self._outer._steps[outer_idx].subtitle = f"{task_name}{duration_str}"
 
 
 # ── Demo ──────────────────────────────────────────────────────────────────────

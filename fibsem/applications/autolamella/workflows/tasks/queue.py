@@ -1,5 +1,6 @@
 """Thread-safe task queue for autolamella workflow execution."""
 
+import copy
 import threading
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -93,10 +94,11 @@ class TaskQueue:
     # --- Iteration (called by worker thread) ---
 
     def next(self) -> Optional[WorkItem]:
-        """Return the next pending item, or None if queue is empty."""
+        """Return the next pending item, mark it InProgress, or None if queue is empty."""
         with self._lock:
             for item in self._items:
                 if item.status == AutoLamellaTaskStatus.NotStarted:
+                    item.status = AutoLamellaTaskStatus.InProgress
                     self._active = item
                     return item
             self._active = None
@@ -113,8 +115,9 @@ class TaskQueue:
 
     @property
     def items(self) -> List[WorkItem]:
+        """Return a deep copy — safe to read from another thread."""
         with self._lock:
-            return list(self._items)
+            return [copy.copy(i) for i in self._items]
 
     @property
     def pending(self) -> List[WorkItem]:

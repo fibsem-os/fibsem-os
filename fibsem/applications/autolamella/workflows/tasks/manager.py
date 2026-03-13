@@ -85,6 +85,7 @@ class TaskManager:
             skip_reason = self._should_skip(lamella, item.task_name, lamella_names)
             if skip_reason is not None:
                 msg = f"Skipping {lamella.name} for {item.task_name}: {skip_reason}."
+                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 self._emit_status(
                     task_name=item.task_name,
                     task_names=task_names,
@@ -93,7 +94,6 @@ class TaskManager:
                     status=AutoLamellaTaskStatus.Skipped,
                     msg=msg,
                 )
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 continue
 
             # Emit InProgress status
@@ -186,6 +186,7 @@ class TaskManager:
             required_lamella.index(lamella.name) if lamella.name in required_lamella else None
         )
         status_dict["total_lamellas"] = len(required_lamella)
+        status_dict["queue_items"] = self.queue.items  # thread-safe snapshot
 
         self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": status_dict})
 
