@@ -12,7 +12,7 @@ from typing import Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-
+from fibsem.constants import MICRON_SYMBOL
 
 # Round "nice" numbers for scalebar: 1, 2, 5, 10, 20, 50, ...
 _NICE_NUMBERS = [1, 2, 5]
@@ -22,7 +22,7 @@ _NICE_NUMBERS = [1, 2, 5]
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     """Load a TrueType font, falling back to PIL default. Cached."""
     try:
-        return ImageFont.truetype("DejaVuSans.ttf", size)
+        return ImageFont.truetype("arial.ttf", size)
     except OSError:
         return ImageFont.load_default()
 
@@ -64,7 +64,7 @@ def _format_length(length_m: float) -> str:
     si_ranges = [
         (1e-9, 1e12, "pm"),
         (1e-6, 1e9, "nm"),
-        (1e-3, 1e6, "μm"),
+        (1e-3, 1e6, f"{MICRON_SYMBOL}"), # default font on windows doesnt support greek characters
         (1.0, 1e3, "mm"),
         (1e3, 1.0, "m"),
         (1e6, 1e-3, "km"),
