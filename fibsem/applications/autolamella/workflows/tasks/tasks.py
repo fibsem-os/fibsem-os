@@ -269,6 +269,10 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
         default="MILLING",
         metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)"},
     ) # change to pose?
+    filename: Optional[str] = field(
+        default=None,
+        metadata={"help": "Custom filename for reference images. If None, auto-generates from last completed task name and timestamp."},
+    )
 
 
 @dataclass
@@ -1161,13 +1165,16 @@ class AcquireReferenceImageTask(AutoLamellaTask):
 
         self.log_status_message("ACQUIRE_REFERENCE_IMAGE", "Acquiring Reference Image...")
 
-        # add the last task completed to the reference image filename
-        task_name = "Setup"
-        if self.lamella.last_completed_task is not None:
-            task_name = self.lamella.last_completed_task.name.replace(" ", "-")
+        # acquire reference images — use config filename if provided, else use last completed task name
+        if self.config.filename is not None:
+            base = self.config.filename
+        else:
+            task_name = "Setup"
+            if self.lamella.last_completed_task is not None:
+                task_name = self.lamella.last_completed_task.name.replace(" ", "-")
+            base = f"ReferenceImage-{task_name}"
 
-        # acquire reference images
-        filename = f"ref_ReferenceImage-{task_name}-{utils.current_timestamp_v3()}"
+        filename = f"ref_{base}-{utils.current_timestamp_v3()}"
         self._acquire_set_of_reference_images(image_settings=image_settings, filename=filename)
 
 
