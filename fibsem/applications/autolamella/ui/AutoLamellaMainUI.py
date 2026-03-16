@@ -743,8 +743,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Show run workflow button when experiment is loaded
         self.run_workflow_btn.show()
 
-        # enable all the tabs
+        # enable all the tabs (except lamella tab, which is managed by _update_lamella_tab_enabled)
+        lamella_tab_index = self.tab_widget.indexOf(self._lamella_tab_container) if hasattr(self, '_lamella_tab_container') else -1
         for i in range(self.tab_widget.count()):
+            if i == lamella_tab_index:
+                continue
             self.tab_widget.setTabEnabled(i, True)
 
         self._update_instructions()
@@ -865,10 +868,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         splitter.setSizes([700, 500])
         layout.addWidget(splitter)
         self.tab_widget.addTab(container, QIconifyIcon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella")
+        self._lamella_tab_container = container
 
         # disable the tab by default
         index = self.tab_widget.indexOf(container)
         self.tab_widget.setTabEnabled(index, False)
+        self.tab_widget.setTabToolTip(index, "Add lamella positions to enable this tab")
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
@@ -1167,6 +1172,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_list_widget.add_lamella(lamella)
             self.lamella_card_container.add_lamella(lamella)
         self._on_workflow_selection_changed()
+        self._update_lamella_tab_enabled()
+
+    def _update_lamella_tab_enabled(self):
+        """Enable or disable the Lamella tab based on whether positions exist."""
+        if not hasattr(self, '_lamella_tab_container'):
+            return
+        index = self.tab_widget.indexOf(self._lamella_tab_container)
+        if index < 0:
+            return
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        has_positions = experiment is not None and len(experiment.positions) > 0
+        self.tab_widget.setTabEnabled(index, has_positions)
+        self.tab_widget.setTabToolTip(index, "" if has_positions else "Add lamella positions to enable this tab")
 
     def _on_lamella_move_to(self, lamella: 'Lamella'):
         """Move the stage to the given lamella's milling position."""
