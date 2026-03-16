@@ -1122,7 +1122,7 @@ class AutoLamellaUI(QMainWindow):
         self.experiment.save_protocol()
 
     def update_lamella_combobox(self, latest: bool = False):
-        if self.experiment is None or self.experiment.positions == []:
+        if self.experiment is None:
             return
         if self.is_workflow_running:
             return
