@@ -198,7 +198,7 @@ class MillingTaskConfigWidget2(QWidget):
         self.acquisition_widget.settings_changed.connect(self._emit_settings_changed)
         self.milling_stages_widget.stages_changed.connect(self._emit_settings_changed)
         self.milling_stages_widget.stages_changed.connect(
-            lambda stages: self._update_stage_count_icon(len(stages))
+            lambda stages: self._update_stage_count_icon(len([s for s in stages if s.enabled]))
         )
         self._btn_enable_alignment.toggled.connect(self._on_enable_alignment_toggled)
         self._btn_advanced_alignment.toggled.connect(self._on_advanced_alignment_toggled)

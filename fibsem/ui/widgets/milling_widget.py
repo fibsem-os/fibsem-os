@@ -171,7 +171,7 @@ class FibsemMillingWidget2(QWidget):
     ):
         """Worker function to run the milling task in a separate thread."""
         try:
-            if not milling_task_config.stages:
+            if not milling_task_config.enabled_stages:
                 raise ValueError("No milling stages defined in the configuration.")
 
             run_milling_task(
@@ -201,7 +201,7 @@ class FibsemMillingWidget2(QWidget):
 
     def _on_stages_changed(self, stages: list):
         """Update internal stage state and refresh button availability."""
-        self._has_stages = bool(stages)
+        self._has_stages = any(s.enabled for s in stages)
         self._update_button_states()
 
     def _update_button_states(self):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
@@ -352,7 +352,6 @@ class MillingStageListWidget(QWidget):
     def __init__(self, current_values: Optional[List[float]] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
-        self._checked: Dict[int, bool] = {}   # id(stage) -> bool
         self._selected_stage: Optional[FibsemMillingStage] = None
         self._pending_stage: Optional[FibsemMillingStage] = None
         self._stage_change_pending: bool = False
@@ -410,10 +409,9 @@ class MillingStageListWidget(QWidget):
 
     def set_stages(self, stages: List[FibsemMillingStage]) -> None:
         self._list.clear()
-        self._checked.clear()
         self._selected_stage = None
         for stage in stages:
-            self.add_stage(stage)
+            self.add_stage(stage, enabled=stage.enabled)
         self._update_empty_state()
 
     def add_stage(
@@ -422,7 +420,7 @@ class MillingStageListWidget(QWidget):
         enabled: bool = True,
     ) -> MillingStageRowWidget:
         index = self._list.count()
-        self._checked[id(stage)] = enabled
+        stage.enabled = enabled
         row = MillingStageRowWidget(
             stage, index=index,
             pattern_names=self._pattern_names,
@@ -445,7 +443,6 @@ class MillingStageListWidget(QWidget):
         for i in range(self._list.count()):
             if self._row(i).stage is stage:
                 self._list.takeItem(i)
-                self._checked.pop(id(stage), None)
                 break
         if self._selected_stage is stage:
             self._selected_stage = None
@@ -462,7 +459,7 @@ class MillingStageListWidget(QWidget):
         return [
             self._row(i).stage
             for i in range(self._list.count())
-            if self._row(i).checkbox.isChecked()
+            if self._row(i).stage.enabled
         ]
 
     def refresh_stage(self, stage: FibsemMillingStage) -> None:
@@ -482,7 +479,6 @@ class MillingStageListWidget(QWidget):
 
     def clear(self) -> None:
         self._list.clear()
-        self._checked.clear()
         self._selected_stage = None
         self._update_empty_state()
 
@@ -558,7 +554,7 @@ class MillingStageListWidget(QWidget):
             item = self._list.item(i)
             if item is None:
                 continue
-            enabled = self._checked.get(id(stage), True)
+            enabled = stage.enabled
             row = MillingStageRowWidget(
                 stage, index=i,
                 pattern_names=self._pattern_names,
@@ -599,7 +595,7 @@ class MillingStageListWidget(QWidget):
         self.stage_removed.emit(stage)
 
     def _on_enabled_changed(self, stage: FibsemMillingStage, enabled: bool) -> None:
-        self._checked[id(stage)] = enabled
+        stage.enabled = enabled
         self._sync_select_all()
         self.enabled_changed.emit(self.get_enabled_stages())
 
@@ -609,7 +605,7 @@ class MillingStageListWidget(QWidget):
             row.checkbox.blockSignals(True)
             row.checkbox.setChecked(checked)
             row.checkbox.blockSignals(False)
-            self._checked[id(row.stage)] = checked
+            row.stage.enabled = checked
         self.enabled_changed.emit(self.get_enabled_stages())
 
     def _sync_select_all(self) -> None:

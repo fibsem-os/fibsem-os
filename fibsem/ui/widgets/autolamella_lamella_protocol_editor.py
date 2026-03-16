@@ -656,7 +656,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                     cfg = selected_lamella.task_config.get(related_task_name, None)
                     if cfg is not None and cfg.milling:
                         for mcfg in cfg.milling.values():
-                            background_milling_stages.extend(mcfg.stages)
+                            background_milling_stages.extend(mcfg.enabled_stages)
 
         if milling_task_config:
             self._current_milling_key = next(iter(milling_task_config))

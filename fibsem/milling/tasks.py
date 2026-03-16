@@ -66,6 +66,11 @@ class FibsemMillingTaskConfig:
     acquisition: MillingTaskAcquisitionSettings = field(default_factory=MillingTaskAcquisitionSettings)
     stages: List[FibsemMillingStage] = field(default_factory=list)
 
+    @property
+    def enabled_stages(self) -> List[FibsemMillingStage]:
+        """Return only stages where enabled is True."""
+        return [s for s in self.stages if s.enabled]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
@@ -174,7 +179,7 @@ class FibsemMillingTask:
     @property
     def stages(self) -> List[FibsemMillingStage]:
         """Return the list of milling stages."""
-        return self.config.stages
+        return self.config.enabled_stages
 
     def _handle_progress(self, ddict: dict) -> None:
         """Handle progress updates from the microscope."""

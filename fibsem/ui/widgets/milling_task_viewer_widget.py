@@ -160,7 +160,7 @@ class MillingTaskViewerWidget(QWidget):
             return
         if self._fib_image.metadata is None:
             return
-        stages = self.config_widget.milling_stages_widget.get_stages()
+        stages = self.config_widget.milling_stages_widget.get_enabled_stages()
         if not stages:
             return
         if not is_position_inside_layer(event.position, self._fib_image_layer):
@@ -176,7 +176,10 @@ class MillingTaskViewerWidget(QWidget):
         )
 
         selected = self.config_widget.milling_stages_widget._list._selected_stage
-        selected_name = selected.name if selected is not None else stages[0].name
+        # Fall back to first enabled stage if selected stage is disabled
+        if selected is None or not selected.enabled:
+            selected = stages[0]
+        selected_name = selected.name
 
         cfg = ContextMenuConfig()
         if self._right_click_menu_action_provider is not None:
@@ -200,7 +203,7 @@ class MillingTaskViewerWidget(QWidget):
 
     def _move_patterns(self, point: Point, move_all: bool) -> None:
         """Move patterns to point. move_all=True shifts all relative to selected; False moves only selected."""
-        stages = self.config_widget.milling_stages_widget.get_stages()
+        stages = self.config_widget.milling_stages_widget.get_enabled_stages()
         if not stages or self._fib_image is None:
             return
 
@@ -271,8 +274,9 @@ class MillingTaskViewerWidget(QWidget):
 
         self._pattern_update_inflight = True
         config = self.config_widget.get_settings()
+        stages = config.enabled_stages
 
-        if not config.stages:
+        if not stages:
             self._clear_pattern_display()
             self._pattern_update_inflight = False
             return
@@ -283,7 +287,7 @@ class MillingTaskViewerWidget(QWidget):
             self._pattern_layer_names = draw_milling_patterns_in_napari(
                 viewer=self.viewer,
                 image_layer=self._fib_image_layer,
-                milling_stages=config.stages,
+                milling_stages=stages,
                 pixelsize=pixelsize,
                 draw_crosshair=True,
                 background_milling_stages=self._background_milling_stages,

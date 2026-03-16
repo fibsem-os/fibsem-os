@@ -113,6 +113,7 @@ def get_strategy(
 class FibsemMillingStage:
     name: str = "Milling Stage"
     num: int = 0
+    enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
     patterns: Optional[List[BasePattern]] = None # unused
@@ -138,6 +139,7 @@ class FibsemMillingStage:
         ddict = {
             "name": self.name,
             "num": self.num,
+            "enabled": self.enabled,
             "milling": self.milling.to_dict(),
             "pattern": self.pattern.to_dict(),
             "strategy": self.strategy.to_dict(),
@@ -163,6 +165,7 @@ class FibsemMillingStage:
         return cls(
             name=data["name"],
             num=data.get("num", 0),
+            enabled=data.get("enabled", True),
             milling=FibsemMillingSettings.from_dict(data["milling"]),
             pattern=get_pattern(pattern_name, data["pattern"]),
             strategy=get_strategy(strategy_name, config=strategy_config),
