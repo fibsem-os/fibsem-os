@@ -182,6 +182,13 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
             "units": "%",
         },
     )
+    align_to_reference: bool = field(
+        default=True,
+        metadata={
+            "help": "Align to the reference image before milling fiducial (if available)"
+        }
+
+    )
     task_type: ClassVar[str] = "MILL_FIDUCIAL"
     display_name: ClassVar[str] = "Mill Fiducial"
 
@@ -1069,7 +1076,8 @@ class MillFiducialTask(AutoLamellaTask):
         self._move_to_milling_pose()
 
         # beam_shift alignment
-        self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
+        if self.config.align_to_reference:
+            self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         fiducial_task_config = self.config.milling[FIDUCIAL_KEY]
 
