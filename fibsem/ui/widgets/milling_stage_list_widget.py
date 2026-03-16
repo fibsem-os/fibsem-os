@@ -46,6 +46,16 @@ _NAME_EDIT_STYLE = (
 )
 
 
+def unique_name(name: str, existing: set) -> str:
+    """Return `name` if not in `existing`, otherwise `name (2)`, `name (3)`, etc."""
+    if name not in existing:
+        return name
+    n = 2
+    while f"{name} ({n})" in existing:
+        n += 1
+    return f"{name} ({n})"
+
+
 def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
     px = QPixmap(size, size)
     px.fill(QColor(color_name))
@@ -90,6 +100,8 @@ class MillingStageRowWidget(QWidget):
         super().__init__(parent)
         self.stage = stage
         self.index = index
+        self.name_validator: Optional[callable] = None
+        self.name_rejected: Optional[callable] = None
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._pattern_names = pattern_names
         self._strategy_names = strategy_names
@@ -233,6 +245,11 @@ class MillingStageRowWidget(QWidget):
             return
         if text == self.stage.name:
             return
+        if self.name_validator is not None and not self.name_validator(text, self):
+            self.name_edit.setText(self.stage.name)  # revert duplicate
+            if self.name_rejected is not None:
+                self.name_rejected(text)
+            return
         self.stage.name = text
         self.stage_changed.emit(self.stage)
 
@@ -372,6 +389,16 @@ class MillingStageListWidget(QWidget):
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._empty_label)
 
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet("color: #ff9800; font-style: italic; padding: 2px 12px;")
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self._status_label.setVisible(False)
+        layout.addWidget(self._status_label)
+
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(lambda: self._status_label.setVisible(False))
+
         self._header.select_all_changed.connect(self._on_select_all)
         self._header.add_clicked.connect(self._on_add_stage)
         self._list.reordered.connect(self._on_reordered)
@@ -483,7 +510,8 @@ class MillingStageListWidget(QWidget):
             new_stage = deepcopy(source)
         else:
             new_stage = FibsemMillingStage()
-        new_stage.name = f"Milling Stage {count + 1}"
+        existing = {self._row(i).stage.name for i in range(self._list.count())}
+        new_stage.name = unique_name(f"Milling Stage {count + 1}", existing)
         self.add_stage(new_stage, enabled=True)
         self._set_selected(new_stage)
         self.stage_added.emit(new_stage)
@@ -496,10 +524,21 @@ class MillingStageListWidget(QWidget):
             row.refresh()
 
     def _connect_row(self, row: MillingStageRowWidget) -> None:
+        row.name_validator = self._is_name_available
+        row.name_rejected = self._show_name_error
         row.enabled_changed.connect(self._on_enabled_changed)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.row_clicked.connect(self._on_row_clicked)
         row.stage_changed.connect(self._on_row_stage_changed, type=Qt.QueuedConnection)
+
+    def _is_name_available(self, name: str, row: MillingStageRowWidget) -> bool:
+        existing = {self._row(i).stage.name for i in range(self._list.count()) if self._row(i) is not row}
+        return name not in existing
+
+    def _show_name_error(self, name: str) -> None:
+        self._status_label.setText(f'Name "{name}" is already in use.')
+        self._status_label.setVisible(True)
+        self._status_timer.start(3000)
 
     def _row(self, i: int) -> MillingStageRowWidget:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
