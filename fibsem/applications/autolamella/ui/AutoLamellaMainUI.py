@@ -412,6 +412,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.milling_progress_bar.setMaximum(100)
         self.milling_progress_bar.setValue(0)
         self.milling_progress_bar.setTextVisible(True)
+        self.milling_progress_bar.setAlignment(Qt.AlignCenter)
         self.milling_progress_bar.setStyleSheet(MILLING_PROGRESS_BAR_STYLESHEET)
         self.milling_progress_bar.hide()  # Hidden by default
         self.status_bar.addPermanentWidget(self.milling_progress_bar)

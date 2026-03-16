@@ -246,6 +246,7 @@ class FibsemMinimapWidget(QWidget):
 
         self.progressBar_acquisition = QProgressBar()
         self.progressBar_acquisition.setValue(24)
+        self.progressBar_acquisition.setAlignment(Qt.AlignCenter)
         self.progressBar_acquisition.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
         self.gridLayout.addWidget(self.progressBar_acquisition, 4, 0)
 
@@ -598,14 +599,11 @@ class FibsemMinimapWidget(QWidget):
     def handle_tile_acquisition_progress(self, ddict: dict) -> None:
         """Callback for handling the tile acquisition progress."""
 
-        msg = f"{ddict['msg']} ({ddict['counter']}/{ddict['total']})"
-        logging.info(msg)
-        napari.utils.notifications.show_info(msg)
-
         # progress bar
         count, total = ddict["counter"], ddict["total"]
         self.progressBar_acquisition.setMaximum(100)
         self.progressBar_acquisition.setValue(int(count/total*100))
+        self.progressBar_acquisition.setFormat(f"{ddict['msg']} — {count}/{total} tiles (%p%)")
 
         image = ddict.get("image", None)
         if image is not None:
