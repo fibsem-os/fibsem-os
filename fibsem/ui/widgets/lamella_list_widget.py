@@ -329,7 +329,7 @@ class LamellaListWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def add_lamella(self, lamella: Lamella, checked: bool = True) -> LamellaRowWidget:
+    def add_lamella(self, lamella: Lamella, checked: bool = False) -> LamellaRowWidget:
         row = LamellaRowWidget(lamella, checked)
         item = QListWidgetItem()
         item.setSizeHint(QSize(0, _ROW_HEIGHT))

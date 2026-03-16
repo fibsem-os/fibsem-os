@@ -342,7 +342,7 @@ class WorkflowConfigWidget(QWidget):
         for task in config.tasks:
             self.add_task(task)
 
-    def add_task(self, task: AutoLamellaTaskDescription, checked: bool = True) -> WorkflowTaskRowWidget:
+    def add_task(self, task: AutoLamellaTaskDescription, checked: bool = False) -> WorkflowTaskRowWidget:
         self._checked[id(task)] = checked
         row = WorkflowTaskRowWidget(task, checked)
         item = QListWidgetItem()

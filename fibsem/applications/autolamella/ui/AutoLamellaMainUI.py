@@ -505,6 +505,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
         self._set_border_state(initial_state)
         ui._start_run_workflow_thread(task_names, lamella_names)
+        # Clear selections after starting workflow
+        self.lamella_workflow_widget.lamella_list._on_select_all(False)
+        self.lamella_workflow_widget.workflow._on_select_all(False)
 
     def _on_workflow_selection_changed(self, _=None) -> None:
         """Enable the run button only when at least one lamella and one task are selected."""

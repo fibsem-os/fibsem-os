@@ -274,12 +274,12 @@ class LamellaWorkflowWidget(QWidget):
     def set_options(self, options: AutoLamellaWorkflowOptions) -> None:
         self.info.set_options(options)
 
-    def add_lamella(self, lamella: Lamella, checked: bool = True):
+    def add_lamella(self, lamella: Lamella, checked: bool = False):
         result = self.lamella_list.add_lamella(lamella, checked)
         self._update_summary()
         return result
 
-    def add_task(self, task: AutoLamellaTaskDescription, checked: bool = True):
+    def add_task(self, task: AutoLamellaTaskDescription, checked: bool = False):
         result = self.workflow.add_task(task, checked)
         self._update_summary()
         return result
