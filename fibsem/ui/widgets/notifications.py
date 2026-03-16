@@ -52,12 +52,12 @@ class ToastNotification(QWidget):
         self.icon_label = QLabel()
         self.icon_label.setFixedSize(20, 20)
         self.icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.icon_label)
+        layout.addWidget(self.icon_label, 0, Qt.AlignTop)
 
         # Message label
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
-        self.message_label.setMaximumWidth(300)
+        self.message_label.setMaximumWidth(400)
         layout.addWidget(self.message_label, 1)
 
         # Close button
@@ -66,7 +66,7 @@ class ToastNotification(QWidget):
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.hide_toast)
         self.close_btn.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(self.close_btn)
+        layout.addWidget(self.close_btn, 0, Qt.AlignTop)
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -94,33 +94,33 @@ class ToastNotification(QWidget):
         """Apply styling based on notification type."""
         color = self.TYPES.get(notification_type, self.TYPES["info"])
 
-        self.container.setStyleSheet(f"""
-            #toast_container {{
+        self.container.setStyleSheet("""
+            #toast_container {
                 background-color: #1e2027;
-                border: 1px solid {color};
-                border-left: 4px solid {color};
+                border: 1px solid #3d4251;
                 border-radius: 6px;
-            }}
+            }
         """)
 
         self.message_label.setStyleSheet("""
             QLabel {
+                background-color: transparent;
                 color: #d6d6d6;
                 font-size: 13px;
             }
         """)
 
-        self.close_btn.setStyleSheet(f"""
-            QPushButton {{
+        self.close_btn.setStyleSheet("""
+            QPushButton {
                 background-color: transparent;
                 color: #888;
                 border: none;
                 font-size: 16px;
                 font-weight: bold;
-            }}
-            QPushButton:hover {{
-                color: {color};
-            }}
+            }
+            QPushButton:hover {
+                color: #d6d6d6;
+            }
         """)
 
         # Set icon based on type
