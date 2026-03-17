@@ -15,7 +15,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, Point
-from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, is_pattern_placement_valid, MILLING_ALIGNMENT_AREA_LAYER_NAME
+from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, is_pattern_placement_valid, MILLING_ALIGNMENT_AREA_LAYER_NAME, MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -108,6 +108,7 @@ class MillingTaskViewerWidget(QWidget):
 
     def _connect_signals(self) -> None:
         self.config_widget.settings_changed.connect(self._on_settings_changed)
+        self.config_widget.eye_toggled.connect(self._on_eye_toggled)
 
     def _setup_viewer_integration(self) -> None:
         """Connect to image_widget (injected or discovered from parent chain)."""
@@ -342,6 +343,13 @@ class MillingTaskViewerWidget(QWidget):
             return
         self._pattern_update_pending = True
         QTimer.singleShot(0, self._update_pattern_display)
+
+    def _on_eye_toggled(self, visible: bool) -> None:
+        if self.viewer is None:
+            return
+        for name in (MILLING_PATTERN_LAYER_NAME, MILLING_ALIGNMENT_AREA_LAYER_NAME):
+            if name in self.viewer.layers:
+                self.viewer.layers[name].visible = visible
 
     # ------------------------------------------------------------------
     # Public API — required by FibsemMillingWidget2

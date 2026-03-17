@@ -28,6 +28,7 @@ class FibsemMillingStagesWidget(QWidget):
     """
 
     stages_changed = pyqtSignal(list)  # List[FibsemMillingStage]
+    eye_toggled = pyqtSignal(bool)     # True = patterns visible
 
     def __init__(
         self,
@@ -130,6 +131,7 @@ class FibsemMillingStagesWidget(QWidget):
         self._list.order_changed.connect(self.stages_changed.emit)
         self._list.enabled_changed.connect(lambda _: self.stages_changed.emit(self._list.get_stages()))
         self._list.stage_changed.connect(self._on_inline_stage_changed)
+        self._list.eye_toggled.connect(self.eye_toggled)
         self._milling_widget.settings_changed.connect(self._on_milling_settings_changed)
         self._btn_advanced.toggled.connect(self._on_advanced_toggled)
         self._pattern_widget.pattern_changed.connect(self._on_pattern_changed)

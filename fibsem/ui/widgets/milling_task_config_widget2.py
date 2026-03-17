@@ -50,6 +50,7 @@ class MillingTaskConfigWidget2(QWidget):
     """
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
+    eye_toggled = pyqtSignal(bool)  # True = patterns visible
 
     def __init__(
         self,
@@ -197,6 +198,7 @@ class MillingTaskConfigWidget2(QWidget):
         self.alignment_widget.settings_changed.connect(self._emit_settings_changed)
         self.acquisition_widget.settings_changed.connect(self._emit_settings_changed)
         self.milling_stages_widget.stages_changed.connect(self._emit_settings_changed)
+        self.milling_stages_widget.eye_toggled.connect(self.eye_toggled)
         self.milling_stages_widget.stages_changed.connect(
             lambda stages: self._update_stage_count_icon(len([s for s in stages if s.enabled]))
         )

@@ -292,6 +292,7 @@ class MillingStageRowWidget(QWidget):
 class _MillingStageListHeader(QWidget):
     select_all_changed = pyqtSignal(bool)
     add_clicked = pyqtSignal()
+    eye_toggled = pyqtSignal(bool)  # True = patterns visible
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -328,6 +329,16 @@ class _MillingStageListHeader(QWidget):
         spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
 
+        self.btn_eye = IconToolButton(
+            icon="mdi:eye",
+            checked_icon="mdi:eye-off",
+            tooltip="Hide milling patterns",
+            checked_tooltip="Show milling patterns",
+            checkable=True,
+            size=_BTN_SIZE.width(),
+        )
+        layout.addWidget(self.btn_eye)
+
         self.btn_add = IconToolButton(
             icon="mdi:plus", tooltip="Add milling stage", size=_BTN_SIZE.width()
         )
@@ -337,6 +348,11 @@ class _MillingStageListHeader(QWidget):
             lambda s: self.select_all_changed.emit(bool(s))
         )
         self.btn_add.clicked.connect(self.add_clicked)
+        self.btn_eye.toggled.connect(self._on_eye_toggled)
+
+    def _on_eye_toggled(self, checked: bool) -> None:
+        # checked=True means the "eye-off" icon is showing → patterns hidden
+        self.eye_toggled.emit(not checked)
 
 
 class MillingStageListWidget(QWidget):
@@ -348,6 +364,7 @@ class MillingStageListWidget(QWidget):
     stage_changed = pyqtSignal(object)     # FibsemMillingStage (inline field edit)
     enabled_changed = pyqtSignal(list)     # List[FibsemMillingStage] (enabled only)
     order_changed = pyqtSignal(list)       # List[FibsemMillingStage] in new order
+    eye_toggled = pyqtSignal(bool)         # True = patterns visible
 
     def __init__(self, current_values: Optional[List[float]] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -400,6 +417,7 @@ class MillingStageListWidget(QWidget):
 
         self._header.select_all_changed.connect(self._on_select_all)
         self._header.add_clicked.connect(self._on_add_stage)
+        self._header.eye_toggled.connect(self.eye_toggled)
         self._list.reordered.connect(self._on_reordered)
         self._update_empty_state()
 
