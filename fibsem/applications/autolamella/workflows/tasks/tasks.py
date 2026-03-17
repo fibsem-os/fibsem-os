@@ -211,6 +211,12 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
             "label": "Link to Point of Interest",
             "help": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
     )
+    reacquire_alignment_reference: bool = field(
+        default=False,
+        metadata={
+            "label": "Reacquire Alignment Reference",
+            "help": "Whether to reacquire the alignment reference after milling"},
+    )
     task_type: ClassVar[str] = "MILL_ROUGH"
     display_name: ClassVar[str] = "Rough Milling"
 
@@ -896,6 +902,12 @@ class MillRoughTask(AutoLamellaTask):
 
         # sync polishing milling task position
         self.sync_polishing_milling_task_position(milling_task_config.stages[0].pattern.point)
+
+        # acquire alignment reference image
+        if self.config.reacquire_alignment_reference:
+            self._acquire_alignment_reference_image(image_settings=self.image_settings,
+                                        reduced_area=self.lamella.alignment_area,
+                                        field_of_view=milling_task_config.field_of_view)
 
         # reference images
         self._acquire_set_of_reference_images(self.image_settings)
