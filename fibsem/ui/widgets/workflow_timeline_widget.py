@@ -28,6 +28,12 @@ _DOT_FAILED     = "#99121F"
 _DOT_SKIPPED    = "#9e9e9e"
 
 _LINE_COLOR     = "#3a3d42"
+
+_SKIP_REASON_LABELS = {
+    "not_required": "Not in required list",
+    "failure": "Marked as failure",
+    "missing_prereqs": "Prerequisites not met",
+}
 _SELECTED_BG    = "#2d3f5c"
 _LABEL_COLOR    = stylesheets.GRAY_TEXT_COLOR
 _SUBTITLE_COLOR = stylesheets.GRAY_SECONDARY_COLOR
@@ -451,6 +457,18 @@ class WorkflowProgressWidget(QWidget):
                     if error_msg:
                         self._outer._rows[idx].set_error(error_msg)
             self._finish_inner(failed=(task_status == AutoLamellaTaskStatus.Failed))
+
+        elif task_status == AutoLamellaTaskStatus.Skipped:
+            skip_reason = status.get("skip_reason", None)
+            task_name = status.get("task_name", "")
+            lamella_name = status.get("lamella_name", "")
+            reason_str = _SKIP_REASON_LABELS.get(skip_reason, skip_reason or "Skipped")
+            for i, item in enumerate(queue_items):
+                if item.lamella_name == lamella_name and item.task_name == task_name:
+                    if 0 <= i < len(self._outer._rows):
+                        self._outer._steps[i].subtitle = reason_str
+                        self._outer._rows[i].refresh(self._outer._steps[i])
+                    break
 
         # Update progress header
         self._update_header(queue_items)
