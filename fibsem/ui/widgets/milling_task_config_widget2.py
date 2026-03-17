@@ -225,6 +225,7 @@ class MillingTaskConfigWidget2(QWidget):
         self.alignment_widget.enabled_checkbox.setChecked(checked)
         self.alignment_widget.enabled_checkbox.blockSignals(False)
         self.alignment_widget._update_controls_enabled()
+        self._emit_settings_changed()
 
     def _on_alignment_checkbox_changed(self, checked: bool) -> None:
         self._btn_enable_alignment.blockSignals(True)
