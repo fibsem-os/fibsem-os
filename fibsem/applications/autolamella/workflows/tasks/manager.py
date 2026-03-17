@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext, HookEvent, HookManager
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.microscope import FibsemMicroscope
@@ -45,10 +46,12 @@ class TaskManager:
     def __init__(self,
                  microscope: FibsemMicroscope,
                  experiment: 'Experiment',
-                 parent_ui: Optional['AutoLamellaUI'] = None):
+                 parent_ui: Optional['AutoLamellaUI'] = None,
+                 hook_manager: Optional[HookManager] = None):
         self.microscope = microscope
         self.experiment = experiment
         self.parent_ui = parent_ui
+        self.hook_manager = hook_manager
         self._stop_event = threading.Event()
         self.queue = TaskQueue()
 
@@ -69,6 +72,7 @@ class TaskManager:
 
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
+        self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
         while not self.is_stopped:
             item = self.queue.next()
             if item is None:
@@ -93,6 +97,7 @@ class TaskManager:
                     required_lamella=lamella_names,
                     status=AutoLamellaTaskStatus.Skipped,
                     msg=msg,
+                    skip_reason=skip_reason,
                 )
                 continue
 
@@ -127,6 +132,7 @@ class TaskManager:
                 msg=msg,
             )
 
+        self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
         update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
         print(self.experiment.task_history_dataframe())
 
@@ -137,6 +143,11 @@ class TaskManager:
     @property
     def is_stopped(self) -> bool:
         return self._stop_event.is_set()
+
+    def _fire_workflow_hook(self, event: HookEvent) -> None:
+        if self.hook_manager is None:
+            return
+        self.hook_manager.fire(HookContext(event=event))
 
     # --- Internal helpers ---
 
@@ -163,7 +174,8 @@ class TaskManager:
                      status: 'AutoLamellaTaskStatus',
                      msg: str = "",
                      error_message: Optional[str] = None,
-                     task_duration: Optional[float] = None) -> None:
+                     task_duration: Optional[float] = None,
+                     skip_reason: Optional[str] = None) -> None:
         """Emit workflow_update_signal with standard status dict."""
         if self.parent_ui is None:
             return
@@ -175,6 +187,7 @@ class TaskManager:
             "timestamp": time.time(),
             "error_message": error_message,
             "task_duration": task_duration,
+            "skip_reason": skip_reason,
         }
 
         # Include full context when task_names list is available
@@ -212,9 +225,10 @@ def run_tasks(microscope: FibsemMicroscope,
             experiment: 'Experiment',
             task_names: List[str],
             required_lamella: Optional[List[str]] = None,
-            parent_ui: Optional['AutoLamellaUI'] = None) -> None:
+            parent_ui: Optional['AutoLamellaUI'] = None,
+            hook_manager: Optional[HookManager] = None) -> None:
     """Run the specified tasks for all lamellas in the experiment.
     Thin wrapper around TaskManager for backward compatibility and headless usage.
     """
-    manager = TaskManager(microscope, experiment, parent_ui)
+    manager = TaskManager(microscope, experiment, parent_ui, hook_manager=hook_manager)
     manager.run(task_names, required_lamella)

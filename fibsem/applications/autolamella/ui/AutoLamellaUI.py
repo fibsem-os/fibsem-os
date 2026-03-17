@@ -72,6 +72,9 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.workflows.tasks.hooks import (
+    HookEvent, HookManager, LoggingHook, NotificationHook,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
@@ -125,6 +128,7 @@ class AutoLamellaUI(QMainWindow):
     detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal(bool)
     experiment_update_signal = pyqtSignal()
+    _hook_toast_signal = pyqtSignal(str, str)  # (message, notification_type) — thread-safe bridge for NotificationHook
 
     def __init__(self,
                  viewer: napari.Viewer,
@@ -994,6 +998,7 @@ class AutoLamellaUI(QMainWindow):
                 microscope=self.microscope,
                 experiment=self.experiment,
                 parent_ui=self,
+                hook_manager=self.setup_hooks(),
             )
             self._task_manager.run(task_names=task_names,
                                    required_lamella=lamella_names)
@@ -1010,6 +1015,28 @@ class AutoLamellaUI(QMainWindow):
         if not self.is_workflow_running:
             return
         self._stop_workflow_thread()
+
+    def setup_hooks(self) -> HookManager:
+        """Build the default HookManager for task lifecycle events."""
+        manager = HookManager()
+        manager.register(LoggingHook(
+            name="task_logger",
+            events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED, HookEvent.TASK_FAILED],
+        ))
+        manager.register(NotificationHook(
+            name="completion_toast",
+            events=[HookEvent.TASK_COMPLETED],
+            notification_type="success",
+            message_template="Task {task_name} complete for {lamella_name}",
+        ))
+        manager.register(NotificationHook(
+            name="failure_toast",
+            events=[HookEvent.TASK_FAILED],
+            notification_type="error",
+            message_template="Task {task_name} FAILED: {error}",
+        ))
+        manager.wire(self)
+        return manager
 
 #### UI UPDATES
 

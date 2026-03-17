@@ -683,6 +683,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.step_update_signal.connect(self._on_step_update)
             self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
             self.autolamella_ui._workflow_finished_signal.connect(self._on_workflow_finished)
+            self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
             self.autolamella_ui.system_widget.connected_signal.connect(self._on_microscope_connected)
             self.autolamella_ui.lamella_list.defect_changed.connect(self._on_lamella_defect_changed)
 

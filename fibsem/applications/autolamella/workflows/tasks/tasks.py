@@ -331,8 +331,28 @@ class AutoLamellaTask(ABC):
 
     def run(self) -> None:
         self.pre_task()
-        self._run()
+        self._fire_hook("task_started")
+        try:
+            self._run()
+        except Exception as e:
+            self._fire_hook("task_failed", error=str(e))
+            raise
         self.post_task()
+        self._fire_hook("task_completed")
+
+    def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
+        hook_manager = getattr(self.task_manager, "hook_manager", None)
+        if hook_manager is None:
+            return
+        from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext
+        hook_manager.fire(HookContext(
+            event=event,
+            task_name=self.task_name,
+            task_type=self.task_type,
+            lamella_name=self.lamella.name,
+            task_state=self.lamella.task_state,
+            error=error,
+        ))
 
     @abstractmethod
     def _run(self) -> None:
