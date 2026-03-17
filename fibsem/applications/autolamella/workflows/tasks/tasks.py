@@ -115,7 +115,7 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     )
     orientation: str = field(
         default="FIB",
-        metadata={"help": "The orientation to perform trench milling in"},
+        metadata={"help": "The orientation to perform trench milling in", "items": ("SEM", "FIB", "MILLING")},
     )
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"
@@ -130,7 +130,7 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillUndercutTask."""
     orientation: str = field(
         default="SEM",
-        metadata={"help": "The orientation to perform undercut milling in"},
+        metadata={"help": "The orientation to perform undercut milling in", "items": ("SEM", "FIB", "MILLING")},
     )
     milling_angles: List[float] = field(
         default_factory=lambda: [25, 20],  # in degrees
@@ -257,7 +257,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     )
     orientation: Literal["SEM", "FIB", "FM", "MILLING", None] = field(
         default="MILLING",
-        metadata={"help": "The orientation to perform spot burning in"},
+        metadata={"help": "The orientation to perform spot burning in", "items": ("SEM", "FIB", "MILLING")},
     )
 
 @dataclass
@@ -267,7 +267,7 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Acquire Reference Image"
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
-        metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)"},
+        metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)", "items": ("SEM", "FIB", "MILLING")},
     ) # change to pose?
     filename: Optional[str] = field(
         default=None,

@@ -180,6 +180,34 @@ class EnumParameterWidget(ParameterWidget):
                 break
 
 
+class ComboParameterWidget(ParameterWidget):
+    """Widget for parameters with a fixed list of allowable values (items metadata key)."""
+
+    def __init__(self, name: str, value: Any, annotation: type, items: list) -> None:
+        super().__init__(name, value, annotation)
+        self.items = items
+
+    def create_widget(self) -> QWidget:
+        self.widget = QComboBox()
+        for item in self.items:
+            self.widget.addItem(str(item), item)
+        for i in range(self.widget.count()):
+            if self.widget.itemData(i) == self.value:
+                self.widget.setCurrentIndex(i)
+                break
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        return self.widget
+
+    def get_value(self) -> Any:
+        return self.widget.currentData()
+
+    def set_value(self, value: Any) -> None:
+        for i in range(self.widget.count()):
+            if self.widget.itemData(i) == value:
+                self.widget.setCurrentIndex(i)
+                break
+
+
 class ListParameterWidget(ParameterWidget):
     """Widget for list parameters (simplified as comma-separated values)."""
     
@@ -350,6 +378,11 @@ class AutoLamellaTaskConfigWidget(QWidget):
             if non_none_types:
                 annotation = non_none_types[0]
 
+        # items metadata takes priority — render as combobox regardless of type
+        items = metadata.get("items")
+        if items:
+            return ComboParameterWidget(name, value, annotation, items)
+
         # Determine widget type based on annotation
         if annotation is bool:
             return BoolParameterWidget(name, value, annotation)
@@ -515,6 +548,11 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
             non_none_types = [arg for arg in args if arg is not type(None)]
             if non_none_types:
                 annotation = non_none_types[0]
+
+        # items metadata takes priority — render as combobox regardless of type
+        items = metadata.get("items")
+        if items:
+            return ComboParameterWidget(name, value, annotation, items)
 
         # Determine widget type based on annotation
         if annotation == bool:
