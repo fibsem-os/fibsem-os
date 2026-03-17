@@ -192,6 +192,7 @@ class LamellaWorkflowWidget(QWidget):
 
         self.lamella_list = LamellaListWidget()
         self.lamella_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.lamella_list.enable_move_to_action(False)
         root.addWidget(self.lamella_list, 1)
 
         sep = QFrame()
