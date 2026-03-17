@@ -1102,6 +1102,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             timings["show_toast"] = time.time() - t1
             t1 = time.time()
 
+            # Lock editor when the active lamella/task is being processed
+            if status is AutoLamellaTaskStatus.InProgress:
+                self.lamella_widget.set_active_lamella_name(lamella_name, task_name)
+            else:
+                self.lamella_widget.set_active_lamella_name(None)
+
             # Refresh only the affected lamella if we can identify it
             lamella = None
             experiment = self.autolamella_ui.experiment
@@ -1247,6 +1253,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_timeline.finish_current_step(failed=cancelled)
         self.workflow_timeline.clear_steps()
         self.hide_workflow_running()
+        self.lamella_widget.set_active_lamella_name(None)
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
         self.lamella_card_container.refresh_all()

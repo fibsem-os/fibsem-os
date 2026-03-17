@@ -271,6 +271,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.image: FibsemImage
         self.show_related_milling_tasks = True
         self.show_sem_image = False
+        self._active_lamella_name: Optional[str] = None
+        self._active_task_name: Optional[str] = None
 
         if self.parent_widget.microscope is None:
             return
@@ -288,6 +290,31 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def set_experiment(self):
         """Set the experiment for the protocol editor."""
         self._refresh_experiment_positions()
+
+    def set_active_lamella_name(self, lamella_name: Optional[str], task_name: Optional[str] = None) -> None:
+        """Track which lamella/task is actively being processed and lock/unlock editing accordingly."""
+        self._active_lamella_name = lamella_name
+        self._active_task_name = task_name
+        self._apply_editing_lock(self._is_editing_locked())
+
+    def _is_editing_locked(self) -> bool:
+        if self._active_lamella_name is None:
+            return False
+        selected_lamella = self.lamella_list_widget.selected_name
+        selected_task = self.listWidget_selected_task.selected_task
+        return (
+            selected_lamella == self._active_lamella_name
+            and (self._active_task_name is None or selected_task == self._active_task_name)
+        )
+
+    def _apply_editing_lock(self, locked: bool) -> None:
+        self.task_parameters_config_widget.setEnabled(not locked)
+        self.ref_image_params_widget.setEnabled(not locked)
+        self.milling_task_editor.setEnabled(not locked)
+        if locked:
+            self.label_lamella_warning.setText("This lamella is currently being processed and cannot be edited.")
+        else:
+            self.label_lamella_warning.setText("")
 
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
@@ -539,6 +566,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.ref_image_params_widget.setEnabled(has_images)
         self.milling_task_editor.setEnabled(has_images)
 
+        # Re-apply lock if this lamella/task is the one currently being processed
+        self._apply_editing_lock(self._is_editing_locked())
+
         self._on_image_selected(0)
         self._draw_point_of_interest(selected_lamella.poi)
 
@@ -673,6 +703,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
                 self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME) # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
+
+        # Re-apply lock if this lamella/task is currently being processed
+        self._apply_editing_lock(self._is_editing_locked())
 
         # display label showing task has been completed
         msg = "Task not yet completed."
