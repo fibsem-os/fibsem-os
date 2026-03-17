@@ -1,6 +1,7 @@
 """Hook system for AutoLamella task lifecycle events."""
 
 import logging
+import threading
 import time
 import yaml
 from abc import ABC, abstractmethod
@@ -125,6 +126,76 @@ class NotificationHook(Hook):
         )
 
 
+_WEBHOOK_ALLOWED_METHODS = {"POST", "GET"}
+_WEBHOOK_ALLOWED_SCHEMES = {"http", "https"}
+
+
+def _validate_webhook_url(url: str) -> str:
+    """Raise ValueError if url is empty or uses a disallowed scheme."""
+    if not url:
+        raise ValueError("WebhookHook: url must not be empty")
+    from urllib.parse import urlparse
+    scheme = urlparse(url).scheme.lower()
+    if scheme not in _WEBHOOK_ALLOWED_SCHEMES:
+        raise ValueError(
+            f"WebhookHook: url scheme '{scheme}' is not allowed (must be http or https)"
+        )
+    return url
+
+
+@dataclass
+class WebhookHook(Hook):
+    """Hook that POSTs a JSON payload to a URL. Fires in a daemon thread (non-blocking)."""
+    url: str = ""
+    method: str = "POST"
+    timeout: int = 5
+
+    def __post_init__(self):
+        if self.method.upper() not in _WEBHOOK_ALLOWED_METHODS:
+            raise ValueError(
+                f"WebhookHook: method '{self.method}' is not allowed (must be one of {sorted(_WEBHOOK_ALLOWED_METHODS)})"
+            )
+        self.method = self.method.upper()
+
+    def run(self, context: HookContext) -> None:
+        _validate_webhook_url(self.url)
+        threading.Thread(target=self._post, args=(context,), daemon=True).start()
+
+    def _post(self, context: HookContext) -> None:
+        try:
+            import requests
+            payload = {
+                "event": context.event,
+                "task_name": context.task_name,
+                "task_type": context.task_type,
+                "lamella_name": context.lamella_name,
+                "error": context.error,
+                "timestamp": context.timestamp,
+            }
+            requests.request(self.method, self.url, json=payload, timeout=self.timeout)
+        except Exception:
+            logging.exception(f"WebhookHook '{self.name}' failed")
+
+    def to_dict(self) -> dict:
+        return {**super().to_dict(), "url": self.url, "method": self.method, "timeout": self.timeout}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "WebhookHook":
+        method = d.get("method", "POST").upper()
+        if method not in _WEBHOOK_ALLOWED_METHODS:
+            logging.warning(f"WebhookHook: invalid method '{method}', defaulting to POST")
+            method = "POST"
+        return cls(
+            name=d.get("name", ""),
+            events=d.get("events", []),
+            enabled=d.get("enabled", True),
+            task_types=d.get("task_types", []),
+            url=d.get("url", ""),
+            method=method,
+            timeout=d.get("timeout", 5),
+        )
+
+
 @dataclass
 class FunctionHook(Hook):
     """Hook that calls a Python callable. Not serializable — registered in code only."""
@@ -138,6 +209,7 @@ class FunctionHook(Hook):
 HOOK_TYPES: Dict[str, Type[Hook]] = {
     "LoggingHook": LoggingHook,
     "NotificationHook": NotificationHook,
+    "WebhookHook": WebhookHook,
 }
 
 

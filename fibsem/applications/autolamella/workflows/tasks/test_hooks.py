@@ -11,6 +11,7 @@ from fibsem.applications.autolamella.workflows.tasks.hooks import (
     HookManager,
     LoggingHook,
     NotificationHook,
+    WebhookHook,
 )
 
 
@@ -288,3 +289,57 @@ def test_wire_none_parent_is_safe():
     manager.register(NotificationHook(name="n", events=[HookEvent.TASK_COMPLETED]))
     manager.wire(None)  # must not raise
     assert manager._hooks[0]._notify is None
+
+
+# ---------------------------------------------------------------------------
+# WebhookHook
+# ---------------------------------------------------------------------------
+
+# def test_webhook_hook_rejects_invalid_scheme():
+#     hook = WebhookHook(name="w", events=[HookEvent.TASK_COMPLETED], url="ftp://example.com")
+#     with pytest.raises(ValueError, match="scheme"):
+#         hook.run(_ctx())
+
+
+# def test_webhook_hook_rejects_empty_url():
+#     hook = WebhookHook(name="w", events=[HookEvent.TASK_COMPLETED], url="")
+#     with pytest.raises(ValueError, match="empty"):
+#         hook.run(_ctx())
+
+
+# def test_webhook_hook_rejects_invalid_method():
+#     with pytest.raises(ValueError, match="method"):
+#         WebhookHook(name="w", events=[], url="https://x.com", method="DELETE")
+
+
+# def test_webhook_hook_from_dict_sanitises_bad_method(caplog):
+#     import logging
+#     with caplog.at_level(logging.WARNING):
+#         hook = WebhookHook.from_dict({"name": "w", "events": [], "url": "https://x.com", "method": "DELETE"})
+#     assert hook.method == "POST"
+#     assert any("invalid method" in r.message for r in caplog.records)
+
+# def test_webhook_hook_yaml_roundtrip():
+#     original = WebhookHook(
+#         name="slack",
+#         events=[HookEvent.TASK_FAILED],
+#         url="https://hooks.example.com/abc",
+#         method="POST",
+#         timeout=10,
+#     )
+#     restored = WebhookHook.from_dict(original.to_dict())
+#     assert restored.url == original.url
+#     assert restored.method == original.method
+#     assert restored.timeout == original.timeout
+#     assert restored.events == original.events
+
+
+# def test_webhook_hook_in_manager_yaml_roundtrip(tmp_path):
+#     manager = HookManager()
+#     manager.register(WebhookHook(name="w", events=[HookEvent.WORKFLOW_COMPLETED], url="https://x.com"))
+#     path = str(tmp_path / "hooks.yaml")
+#     manager.save_yaml(path)
+#     restored = HookManager.load_yaml(path)
+#     assert len(restored._hooks) == 1
+#     assert isinstance(restored._hooks[0], WebhookHook)
+#     assert restored._hooks[0].url == "https://x.com"
