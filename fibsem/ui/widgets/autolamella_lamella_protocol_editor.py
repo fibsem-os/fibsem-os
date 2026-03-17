@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem import conversions
-from fibsem.ui.napari.patterns import MILLING_ALIGNMENT_AREA_LAYER_NAME, MILLING_PATTERN_LAYER_NAME
+from fibsem.ui.napari.patterns import MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.utilities import add_points_layer
 from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
@@ -672,8 +672,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.milling_task_editor.setVisible(False)
             if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
                 self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME) # type: ignore
-            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME) # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # display label showing task has been completed

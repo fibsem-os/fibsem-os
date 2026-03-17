@@ -15,7 +15,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, Point
-from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, is_pattern_placement_valid, MILLING_ALIGNMENT_AREA_LAYER_NAME, MILLING_PATTERN_LAYER_NAME
+from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, is_pattern_placement_valid, MILLING_PATTERN_LAYER_NAME
 from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -312,8 +312,6 @@ class MillingTaskViewerWidget(QWidget):
             for name in self._pattern_layer_names:
                 if name in self.viewer.layers:
                     self.viewer.layers.remove(name) # type: ignore
-            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME)  # type: ignore
         except Exception as e:
             logging.debug(f"MillingTaskViewerWidget: error removing layers: {e}")
         self._pattern_layer_names = []
@@ -347,9 +345,8 @@ class MillingTaskViewerWidget(QWidget):
     def _on_eye_toggled(self, visible: bool) -> None:
         if self.viewer is None:
             return
-        for name in (MILLING_PATTERN_LAYER_NAME, MILLING_ALIGNMENT_AREA_LAYER_NAME):
-            if name in self.viewer.layers:
-                self.viewer.layers[name].visible = visible
+        if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = visible
 
     # ------------------------------------------------------------------
     # Public API — required by FibsemMillingWidget2

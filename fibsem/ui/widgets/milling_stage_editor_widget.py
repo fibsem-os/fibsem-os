@@ -67,7 +67,6 @@ from fibsem.ui import stylesheets
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
     is_pattern_placement_valid,
-    MILLING_ALIGNMENT_AREA_LAYER_NAME,
 )
 from fibsem.ui.napari.utilities import is_position_inside_layer
 
@@ -907,8 +906,6 @@ class FibsemMillingStageEditorWidget(QWidget):
                 for layer in self.milling_pattern_layers:
                     if layer in self.viewer.layers:
                         self.viewer.layers.remove(layer)
-                if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
-                    self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME) # type: ignore
             except Exception as e:
                 logging.debug(f"Error removing milling pattern layers: {e}")
             self.milling_pattern_layers = []
