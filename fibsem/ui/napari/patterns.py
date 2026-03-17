@@ -34,7 +34,7 @@ from fibsem.structures import (
     calculate_fiducial_area_v2,
 )
 from fibsem.milling.patterning.utils import create_pattern_mask
-from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
+from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES, MILLING_FOV_LAYER_PROPERTIES
 
 # colour wheel
 COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
@@ -54,8 +54,9 @@ IMAGE_LAYER_PROPERTIES = {
 
 MILLING_ALIGNMENT_AREA_LAYER_NAME = "Milling Alignment Area"
 MILLING_PATTERN_LAYER_NAME = "Milling Patterns"
+MILLING_FOV_LAYER_NAME = "Milling FOV"
 IMAGE_PATTERN_TYPES = ("bitmap",)
-IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay-shapes", "bbox"] # ignore these layers when removing all shapes
+IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay-shapes", "bbox", MILLING_FOV_LAYER_NAME] # ignore these layers when removing all shapes
 STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
@@ -593,6 +594,72 @@ def draw_alignment_area(viewer: napari.Viewer,
         translate=translate) # match the fib layer translation
 
     return layer_name
+
+
+def draw_milling_fov_rect(
+    viewer: napari.Viewer,
+    image_layer: NapariImageLayer,
+    field_of_view: float,
+    pixelsize: float,
+) -> Optional[str]:
+    """Draw a rectangle showing the milling FOV when it is smaller than the image FOV.
+
+    Args:
+        viewer: napari viewer instance
+        image_layer: the reference image layer
+        field_of_view: milling horizontal field of view in metres
+        pixelsize: image pixel size in metres/pixel
+    Returns:
+        layer name if drawn, else None
+    """
+    image_shape = image_layer.data.shape
+    image_fov = pixelsize * image_shape[1]
+    layer_name = MILLING_FOV_LAYER_NAME
+
+    if field_of_view >= image_fov:
+        if layer_name in viewer.layers:
+            viewer.layers.remove(layer_name)
+        return None
+
+    ratio = field_of_view / image_fov
+    cy, cx = image_shape[0] / 2, image_shape[1] / 2
+    half_h = ratio * image_shape[0] / 2
+    half_w = ratio * image_shape[1] / 2
+    data = np.array([
+        [cy - half_h, cx - half_w],
+        [cy - half_h, cx + half_w],
+        [cy + half_h, cx + half_w],
+        [cy + half_h, cx - half_w],
+    ])
+
+    fov_um = field_of_view * 1e6
+    label = f"Milling FOV ({fov_um:.0f}um)"
+    text_props = {
+        "string": [label],
+        "size": 12,
+        "color": "white",
+        "anchor": "upper_left",
+        "translation": np.array([5, 5]),
+    }
+
+    if layer_name in viewer.layers:
+        viewer.layers[layer_name].data = [data]
+        viewer.layers[layer_name].text.string = [label]
+    else:
+        viewer.add_shapes(
+            data=[data],
+            name=layer_name,
+            shape_type=MILLING_FOV_LAYER_PROPERTIES["shape_type"],
+            edge_color=MILLING_FOV_LAYER_PROPERTIES["edge_color"],
+            edge_width=MILLING_FOV_LAYER_PROPERTIES["edge_width"],
+            face_color=MILLING_FOV_LAYER_PROPERTIES["face_color"],
+            opacity=MILLING_FOV_LAYER_PROPERTIES["opacity"],
+            translate=image_layer.translate,
+            text=text_props,
+        )
+
+    return layer_name
+
 
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     icy, icx = resolution[1] // 2, resolution[0] // 2
