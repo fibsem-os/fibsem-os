@@ -743,7 +743,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     def toggle_alignment_area(self, reduced_area: FibsemRectangle, editable: bool = True):
         """Toggle the alignment area layer to selection mode, and display the alignment area."""
         self.set_alignment_layer(reduced_area, editable=editable)
-        self.alignment_layer.visible = True
 
     def set_alignment_layer(
         self,
@@ -775,6 +774,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.alignment_layer.data = data
 
         if editable:
+            self.alignment_layer.visible = True
             self.viewer.layers.selection.active = self.alignment_layer
             self.alignment_layer.mode = "select"
             self.alignment_layer.selected_data.clear()
