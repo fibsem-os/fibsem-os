@@ -447,7 +447,7 @@ class WorkflowProgressWidget(QWidget):
             idx = self._outer_index
             if 0 <= idx < len(self._outer._rows):
                 task_name = queue_items[idx].task_name if idx < len(queue_items) else ""
-                self._set_completion_subtitle(idx, task_duration, task_name)
+                self._set_completion_subtitle(idx, task_duration, task_name, completed_at=status.get("timestamp"))
                 # Refresh the row so the updated subtitle is rendered
                 self._outer._rows[idx].refresh(self._outer._steps[idx])
                 self._outer._rows[idx].set_inner_visible(False)
@@ -562,12 +562,14 @@ class WorkflowProgressWidget(QWidget):
         self._outer._steps[self._outer_index].subtitle = f"{task_name} ({duration_str})"
         self._outer._rows[self._outer_index].refresh(self._outer._steps[self._outer_index])
 
-    def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float], task_name: str = "") -> None:
+    def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float], task_name: str = "", completed_at: Optional[float] = None) -> None:
+        from datetime import datetime
         from fibsem.utils import format_duration
         if not (0 <= outer_idx < len(self._outer._steps)):
             return
         duration_str = f" ({format_duration(task_duration)})" if task_duration is not None else ""
-        self._outer._steps[outer_idx].subtitle = f"{task_name}{duration_str}"
+        time_str = f" · {datetime.fromtimestamp(completed_at).strftime('%-I:%M %p')}" if completed_at is not None else ""
+        self._outer._steps[outer_idx].subtitle = f"{task_name}{duration_str}{time_str}"
 
 
 # ── Demo ──────────────────────────────────────────────────────────────────────
