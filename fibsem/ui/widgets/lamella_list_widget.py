@@ -153,10 +153,8 @@ class LamellaRowWidget(QWidget):
         self.btn_actions.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET + " QToolButton::menu-indicator { image: none; }")
         self.btn_actions.setPopupMode(QToolButton.InstantPopup)
         actions_menu = QMenu(self)
-        _move = actions_menu.addAction(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position")
         _edit = actions_menu.addAction(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit Lamella")
-        assert _move is not None and _edit is not None
-        self._action_move: QAction = _move
+        assert _edit is not None
         self._action_edit: QAction = _edit
         self.btn_actions.setMenu(actions_menu)
         layout.addWidget(self.btn_actions)
@@ -169,7 +167,6 @@ class LamellaRowWidget(QWidget):
         )
         self.btn_defect.installEventFilter(self)
         self.btn_defect.clicked.connect(self._on_defect_clicked)
-        self._action_move.triggered.connect(lambda: self.move_to_clicked.emit(self.lamella))
         self._action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
@@ -320,7 +317,7 @@ class LamellaListWidget(QWidget):
 
         self._btn_visible = {
             "actions": True,
-            "move_to": True,
+            "move_to": False,
             "edit": True,
             "remove": True,
             "defect": True,
@@ -353,11 +350,7 @@ class LamellaListWidget(QWidget):
             self._row(i).btn_actions.setVisible(visible)
 
     def enable_move_to_action(self, visible: bool) -> None:
-        self._btn_visible["move_to"] = visible
-        for i in range(self._list.count()):
-            row = self._row(i)
-            if row is not None:
-                row._action_move.setVisible(visible)
+        return # Not available for now
 
     def enable_edit_action(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
