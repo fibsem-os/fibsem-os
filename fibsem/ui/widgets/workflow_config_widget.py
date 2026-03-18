@@ -156,6 +156,7 @@ class WorkflowTaskRowWidget(QWidget):
 
         self.checkbox = QCheckBox()
         self.checkbox.setChecked(checked)
+        self.checkbox.setStyleSheet("background: transparent;")
         layout.addWidget(self.checkbox)
 
         name_col = QVBoxLayout()

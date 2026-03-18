@@ -129,6 +129,7 @@ class LamellaRowWidget(QWidget):
 
         self.checkbox = QCheckBox()
         self.checkbox.setChecked(checked)
+        self.checkbox.setStyleSheet("background: transparent;")
         layout.addWidget(self.checkbox)
 
         self.name_label = QLabel()
