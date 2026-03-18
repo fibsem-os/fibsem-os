@@ -13,7 +13,7 @@ import traceback
 import warnings
 
 import napari
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
     QWidget,
-    QSpinBox
 )
 from superqt import ensure_main_thread
 from superqt.iconify import QIconifyIcon
@@ -710,9 +709,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._create_main_tab()
         self.add_minimap_tab()
         self.add_protocol_editor_tab()
-        self.add_lamella_tab()
+        self.add_lamella_editor_tab()
         self.add_workflow_tab()
-        self.add_lamella_cards_tab()
 
         # add notification button to tab bar
         self.create_notification_button()
@@ -837,48 +835,75 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
-    def add_lamella_tab(self):
-        """Add the lamella editor as a separate tab with its own viewer."""
+    def add_lamella_editor_tab(self):
+        """Consolidated Lamella tab: 1-column card strip (left) + Images/Protocol sub-tabs (right)."""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create separate napari viewer for lamella editor
+        outer_splitter = QSplitter(Qt.Horizontal)
+        outer_splitter.setChildrenCollapsible(True)
+
+        # ── Left: 1-column card strip ──────────────────────────────────────
+        self.lamella_card_container = LamellaCardContainer(columns=1)
+        self.lamella_card_container.defect_changed.connect(self._on_lamella_defect_changed)
+        self.lamella_card_container.lamella_selected.connect(self._on_lamella_card_selected)
+
+        card_scroll = QScrollArea()
+        card_scroll.setWidget(self.lamella_card_container)
+        card_scroll.setWidgetResizable(True)
+        card_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        card_scroll.setMaximumWidth(340)
+
+        outer_splitter.addWidget(card_scroll)
+        outer_splitter.setStretchFactor(0, 0)
+
+        # ── Right: sub-tab widget ──────────────────────────────────────────
+        right_tabs = QTabWidget()
+
+        # Review tab
+        self.lamella_task_image_widget = LamellaTaskImageWidget()
+        right_tabs.addTab(self.lamella_task_image_widget, "Review")
+
+        # Protocol tab: napari viewer (left) + editor (right)
         self.lamella_viewer = napari.Viewer(show=False, title="Lamella Editor")
         self.lamella_viewer.window._qt_window.menuBar().hide()
         self.lamella_viewer.window._qt_window.statusBar().hide()
         self.viewers.append(self.lamella_viewer)
 
-        # Create the lamella editor widget
         self.lamella_widget = AutoLamellaProtocolEditorWidget(
             viewer=self.lamella_viewer,
-            parent=self.autolamella_ui
+            parent=self.autolamella_ui,
         )
-        # Connect microscope signals to the lamella widget so it can update when microscope connects
-        self.autolamella_ui.system_widget.connected_signal.connect(self.lamella_widget._on_microscope_connected)
+        self.autolamella_ui.system_widget.connected_signal.connect(
+            self.lamella_widget._on_microscope_connected
+        )
+        self.lamella_widget.setMinimumWidth(550)
 
-        self.lamella_widget.setMinimumWidth(500)
-
-        # Layout: napari viewer (left) | lamella editor (right) via splitter
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        splitter.addWidget(self.lamella_viewer.window._qt_window)
-
+        protocol_splitter = QSplitter(Qt.Horizontal)
+        protocol_splitter.setChildrenCollapsible(False)
+        protocol_splitter.addWidget(self.lamella_viewer.window._qt_window)
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.lamella_widget)
         scroll_area.setWidgetResizable(True)
-        splitter.addWidget(scroll_area)
+        protocol_splitter.addWidget(scroll_area)
+        protocol_splitter.setSizes([700, 550])
 
-        splitter.setSizes([700, 500])
-        layout.addWidget(splitter)
+        right_tabs.addTab(protocol_splitter, "Protocol")
+
+        outer_splitter.addWidget(right_tabs)
+        outer_splitter.setStretchFactor(1, 1)
+        outer_splitter.setSizes([340, 99999])
+
+        layout.addWidget(outer_splitter)
         self.tab_widget.addTab(container, QIconifyIcon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella")
         self._lamella_tab_container = container
 
-        # disable the tab by default
         index = self.tab_widget.indexOf(container)
         self.tab_widget.setTabEnabled(index, False)
         self.tab_widget.setTabToolTip(index, "Add lamella positions to enable this tab")
+
+        self._on_lamella_card_selected(None)
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
@@ -944,95 +969,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_workflow_widget.set_workflow_config
         )
 
-    def add_lamella_cards_tab(self):
-        """Add the lamella card container as a separate tab."""
-
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        splitter = QSplitter(Qt.Horizontal)
-
-        self.lamella_card_container = LamellaCardContainer(columns=4)
-        self.lamella_card_container.defect_changed.connect(self._on_lamella_defect_changed)
-        self.lamella_card_container.lamella_selected.connect(self._on_lamella_card_selected)
-
-        controls_layout = QHBoxLayout()
-        controls_layout.addStretch(1)
-        controls_layout.addWidget(QLabel("Columns:"))
-        self.card_columns_spinbox = QSpinBox()
-        self.card_columns_spinbox.setRange(1, 8)
-        self.card_columns_spinbox.setValue(4)
-        self.card_columns_spinbox.setFixedWidth(56)
-        self.card_columns_spinbox.setReadOnly(True)
-        self.card_columns_spinbox.setButtonSymbols(QSpinBox.NoButtons)
-        controls_layout.addWidget(self.card_columns_spinbox)
-
-        card_scroll = QScrollArea()
-        card_scroll.setWidget(self.lamella_card_container)
-        card_scroll.setWidgetResizable(True)
-        card_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        card_scroll.setMinimumWidth(350)  # card width (300) + 50px
-        self.lamella_card_scroll = card_scroll
-
-        self.lamella_task_image_widget = LamellaTaskImageWidget()
-
-        splitter.addWidget(card_scroll)
-        splitter.addWidget(self.lamella_task_image_widget)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        self.lamella_cards_splitter = splitter
-        splitter.splitterMoved.connect(self._update_lamella_card_columns_from_width)
-        splitter.installEventFilter(self)
-
-        layout.addLayout(controls_layout)
-        layout.addWidget(splitter)
-        self._update_lamella_card_columns_from_width()
-        self._on_lamella_card_selected(None)
-        self.tab_widget.addTab(container, QIconifyIcon("mdi:card-multiple-outline", color=GRAY_ICON_COLOR), "Lamella Cards")
-
-        # disable the tab by default
-        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
-
     def _on_lamella_card_selected(self, lamella: Lamella | None):
-        """Update task image panel for selected lamella card."""
+        """Update task image panel and protocol editor for selected lamella card."""
         if not hasattr(self, "lamella_task_image_widget"):
             return
 
         self._selected_card_lamella = lamella
         self.lamella_task_image_widget.set_lamella(lamella)
+        if lamella is not None:
+            self.lamella_widget.select_lamella(lamella.name)
 
-    def _update_lamella_card_columns_from_width(self, *_args):
-        """Fit card columns to available width in the splitter left pane."""
-        if not hasattr(self, "lamella_card_scroll") or not hasattr(self, "lamella_card_container"):
-            return
-
-        viewport_width = self.lamella_card_scroll.viewport().width()
-        if viewport_width <= 0:
-            return
-
-        card_width = 300
-        cards = getattr(self.lamella_card_container, "_cards", {})
-        if cards:
-            sample = next(iter(cards.values()), None)
-            if sample is not None:
-                card_width = max(1, sample.width() or sample.sizeHint().width() or card_width)
-
-        n_cols = max(1, viewport_width // card_width)
-        self.lamella_card_container.set_columns(n_cols)
-
-        if hasattr(self, "card_columns_spinbox"):
-            self.card_columns_spinbox.blockSignals(True)
-            self.card_columns_spinbox.setValue(n_cols)
-            self.card_columns_spinbox.blockSignals(False)
-
-    def eventFilter(self, obj, event):
-        if (
-            hasattr(self, "lamella_cards_splitter")
-            and obj is self.lamella_cards_splitter
-            and event.type() == QEvent.Resize
-        ):
-            self._update_lamella_card_columns_from_width()
-        return super().eventFilter(obj, event)
 
     def _save_workflow_config(self, *_args):
         """Persist the current task list to the experiment protocol after any task change."""
@@ -1211,7 +1157,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.lamella_list.select(lamella.name)
 
         # Select the lamella in the protocol editor
-        self.lamella_widget.lamella_list_widget.select(lamella.name)
+        self.lamella_widget.select_lamella(lamella.name)
 
         # Switch to the Lamella tab
         for i in range(self.tab_widget.count()):

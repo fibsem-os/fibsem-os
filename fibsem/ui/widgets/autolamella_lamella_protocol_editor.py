@@ -39,7 +39,7 @@ from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import ContextMenuConfig, IconToolButton, LamellaNameListWidget, TaskNameListWidget, TitledPanel
+from fibsem.ui.widgets.custom_widgets import ContextMenuConfig, IconToolButton, TaskNameListWidget, TitledPanel
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
@@ -273,6 +273,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.show_sem_image = False
         self._active_lamella_name: Optional[str] = None
         self._active_task_name: Optional[str] = None
+        self._selected_lamella: Optional[Lamella] = None
 
         if self.parent_widget.microscope is None:
             return
@@ -300,10 +301,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _is_editing_locked(self) -> bool:
         if self._active_lamella_name is None:
             return False
-        selected_lamella = self.lamella_list_widget.selected_name
+        selected_name = self._selected_lamella.name if self._selected_lamella else ""
         selected_task = self.listWidget_selected_task.selected_task
         return (
-            selected_lamella == self._active_lamella_name
+            selected_name == self._active_lamella_name
             and (self._active_task_name is None or selected_task == self._active_task_name)
         )
 
@@ -331,11 +332,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
 
-        # lamella, milling controls
-        self.lamella_list_widget = LamellaNameListWidget()
         self.pushButton_refresh_positions = IconToolButton(
             icon="mdi:refresh",
-            tooltip="Refresh the list of lamella positions from the experiment (and associated data).",
+            tooltip="Reload task configs and images for the current lamella.",
         )
         self.pushButton_refresh_positions.clicked.connect(self._refresh_experiment_positions)
         self.pushButton_apply_to_other = IconToolButton(
@@ -370,7 +369,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.pushButton_toggle_related_tasks.toggled.connect(self._on_toggle_related_tasks)
 
+        self.label_lamella_name = QLabel("")
+        self.label_lamella_name.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #e0e0e0; background: transparent;"
+        )
+
         self.button_layout = QHBoxLayout()
+        self.button_layout.addWidget(self.label_lamella_name)
         self.button_layout.addStretch()
         self.button_layout.addWidget(self.pushButton_refresh_positions)
         self.button_layout.addWidget(self.pushButton_apply_to_other)
@@ -405,17 +410,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addLayout(self.button_layout, 0, 0, 1, 2)
-        self.grid_layout.addWidget(self.lamella_list_widget, 1, 0, 1, 2)
-        self.grid_layout.addWidget(self.listWidget_selected_task, 2, 0, 1, 2)
-        self.grid_layout.addWidget(self.combobox_fib_filenames_label, 3, 0, 1, 1)
-        self.grid_layout.addWidget(self.combobox_fib_filenames, 3, 1, 1, 1)
-        self.grid_layout.addWidget(self.combobox_sem_filenames_label, 4, 0, 1, 1)
-        self.grid_layout.addWidget(self.combobox_sem_filenames, 4, 1, 1, 1)
-        self.grid_layout.addWidget(self.combobox_fm_filenames_label, 5, 0, 1, 1)
-        self.grid_layout.addWidget(self.combobox_fm_filenames, 5, 1, 1, 1)
-        self.grid_layout.addWidget(self.label_lamella_warning, 6, 0, 1, 2)
-        self.grid_layout.addWidget(self.label_status, 7, 0, 1, 2)
-        self.grid_layout.addWidget(self.label_warning, 8, 0, 1, 2)
+        self.grid_layout.addWidget(self.listWidget_selected_task, 1, 0, 1, 2)
+        self.grid_layout.addWidget(self.combobox_fib_filenames_label, 2, 0, 1, 1)
+        self.grid_layout.addWidget(self.combobox_fib_filenames, 2, 1, 1, 1)
+        self.grid_layout.addWidget(self.combobox_sem_filenames_label, 3, 0, 1, 1)
+        self.grid_layout.addWidget(self.combobox_sem_filenames, 3, 1, 1, 1)
+        self.grid_layout.addWidget(self.combobox_fm_filenames_label, 4, 0, 1, 1)
+        self.grid_layout.addWidget(self.combobox_fm_filenames, 4, 1, 1, 1)
+        self.grid_layout.addWidget(self.label_lamella_warning, 5, 0, 1, 2)
+        self.grid_layout.addWidget(self.label_status, 6, 0, 1, 2)
+        self.grid_layout.addWidget(self.label_warning, 7, 0, 1, 2)
 
         # main layout
         self.main_layout = QVBoxLayout(self)
@@ -438,7 +442,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _initialise_widgets(self):
         """Initialise the widgets based on the current experiment protocol."""
-        self.lamella_list_widget.lamella_selected.connect(lambda _: self._on_selected_lamella_changed())
         self.listWidget_selected_task.task_selected.connect(lambda _: self._on_selected_task_changed())
         self.milling_task_editor.settings_changed.connect(self._on_milling_task_config_updated)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
@@ -446,29 +449,38 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.milling_task_editor.set_right_click_menu_actions(self._add_poi_context_menu_action)
         self._correlation_open = False
 
-        if self.parent_widget.experiment is not None:
-            self.lamella_list_widget.set_lamella(self.parent_widget.experiment.positions)
-
         if self.parent_widget.experiment is not None and self.parent_widget.experiment.positions:  # type: ignore
+            self._selected_lamella = self.parent_widget.experiment.positions[0]
             self._on_selected_lamella_changed()
 
     def _refresh_experiment_positions(self):
-        """Refresh the list of experiment positions."""
-        # TODO: migrate to using experiment.positions.events for updates, rather than manual refresh
-        current_lamella_name = self.lamella_list_widget.selected_name
+        """Refresh the editor from the current experiment positions."""
+        experiment = self.parent_widget.experiment
+        if experiment is None:
+            return
+        current_name = self._selected_lamella.name if self._selected_lamella else ""
+        self._selected_lamella = (
+            experiment.get_lamella_by_name(current_name)
+            or (experiment.positions[0] if experiment.positions else None)
+        )
+        if self._selected_lamella is not None:
+            self._on_selected_lamella_changed()
 
-        if self.parent_widget.experiment is not None:
-            self.lamella_list_widget.set_lamella(
-                self.parent_widget.experiment.positions,
-                preferred_name=current_lamella_name,
-            )
-
-        if self.lamella_list_widget.selected_lamella is not None:
+    def select_lamella(self, name: str) -> None:
+        """Select a lamella by name and refresh the editor. Called externally (e.g. card click)."""
+        if self.parent_widget.experiment is None or not hasattr(self, "label_lamella_name"):
+            return
+        lamella = self.parent_widget.experiment.get_lamella_by_name(name)
+        if lamella is not None:
+            self._selected_lamella = lamella
             self._on_selected_lamella_changed()
 
     def _on_selected_lamella_changed(self):
         """Callback when the selected lamella changes."""
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
+        if selected_lamella is None:
+            return
+        self.label_lamella_name.setText(selected_lamella.name)
 
         task_names = self._sort_task_names_by_workflow(list(selected_lamella.task_config.keys()))
         self.listWidget_selected_task.set_tasks(task_names)
@@ -585,7 +597,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_image_selected(self, index):
         """Callback when an image is selected."""
-        p: Lamella = self.lamella_list_widget.selected_lamella
+        p: Lamella = self._selected_lamella
         fib_filename = self.combobox_fib_filenames.currentText()
         sem_filename = self.combobox_sem_filenames.currentText()
 
@@ -670,7 +682,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_stage_name = self.listWidget_selected_task.selected_task
         if not selected_stage_name:
             return
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
 
         task_config = selected_lamella.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
@@ -739,7 +751,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_task_name = self.listWidget_selected_task.selected_task
         if not selected_task_name:
             return
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
         key = getattr(self, '_current_milling_key', None)
         if key:
             selected_lamella.task_config[selected_task_name].milling[key] = config
@@ -754,7 +766,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_task_name = self.listWidget_selected_task.selected_task
         if not selected_task_name:
             return
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
         logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task Parameters: {field_name} = {new_value}")
 
         # TODO: we should integrate both milling and parameter updates into a single config update method
@@ -771,7 +783,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_task_name = self.listWidget_selected_task.selected_task
         if not selected_task_name:
             return
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
         selected_lamella.task_config[selected_task_name].reference_imaging = settings
 
         # Save the experiment
@@ -779,7 +791,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_point_of_interest_updated(self, point: Point):
         """Callback when the point of interest is updated."""
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
         logging.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
 
         # update point of interest in the task config
@@ -880,7 +892,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._correlation_open = True
 
         # load fib image
-        selected_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        selected_lamella: Lamella = self._selected_lamella
         project_path = str(selected_lamella.path) if selected_lamella is not None else ""
         self.correlation_widget.set_project_path(project_path)
 
@@ -926,7 +938,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_apply_to_other_clicked(self):
         """Open dialog to apply this lamella's config to other lamella."""
-        source_lamella: Lamella = self.lamella_list_widget.selected_lamella
+        source_lamella: Lamella = self._selected_lamella
         if source_lamella is None:
             return
 
