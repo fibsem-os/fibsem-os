@@ -992,7 +992,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
-        logging.info(f"------WORKFLOW UPDATE: (MAIN UI) ------")
         t0 = t1 = time.time()
         timings = {}
         status_msg = info.get("status", None)

@@ -1409,9 +1409,9 @@ class AutoLamellaUI(QMainWindow):
         ret = QMessageBox.question(
             self,
             "Save Position Confirmation",
-            f"Save current position as Lamella {lamella.name} position?\n\n"
-            f"Current Stage Position: {current_position.pretty}\n"
-            f"Saved Stage Position: {lamella.stage_position.pretty}",
+            f"Save new position for Lamella {lamella.name} position?\n\n"
+            f"New Stage Position: {current_position.pretty}\n"
+            f"Existing Stage Position: {lamella.stage_position.pretty}",
             QMessageBox.Yes | QMessageBox.No,
         )
         if ret != QMessageBox.Yes:
@@ -1717,9 +1717,6 @@ class AutoLamellaUI(QMainWindow):
     def handle_workflow_update(self, info: dict) -> None:
         """Update the UI with the given information, ready for user interaction"""
 
-        logging.info(f"---------- WORKFLOW UPDATE (AUTO UI) {info.get('msg', None)} ----------")
-        t1 = time.time()
-
         if self.image_widget is None:
             raise ValueError("No image widget available. Please create an image widget first.")
 
@@ -1791,8 +1788,6 @@ class AutoLamellaUI(QMainWindow):
 
         self.WAITING_FOR_UI_UPDATE = False
 
-        t2 = time.time()
-        logging.info(f" --------- UI Update Time: {t2 - t1:.2f} seconds ---------")
 
 def main():
     autolamella_ui = AutoLamellaUI(viewer=napari.Viewer())
