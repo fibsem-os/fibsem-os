@@ -2448,7 +2448,7 @@ class RangeLimit:
 @dataclass
 class ReferenceImageParameters:
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    field_of_view1: float = field(default=120e-6, metadata={"tooltip": "Field of view for first reference image"})
+    field_of_view1: float = field(default=100e-6, metadata={"tooltip": "Field of view for first reference image"})
     field_of_view2: float = field(default=150e-6, metadata={"tooltip": "Field of view for second reference image"})
     acquire_sem: bool = field(default=True, metadata={"tooltip": "Whether to acquire SEM reference images"})
     acquire_fib: bool = field(default=True, metadata={"tooltip": "Whether to acquire FIB reference images"})
@@ -2471,7 +2471,7 @@ class ReferenceImageParameters:
         imaging = ImageSettings.from_dict(settings.get("imaging", {}))
         return ReferenceImageParameters(
             imaging=imaging,
-            field_of_view1=settings.get("field_of_view1", 120e-6),
+            field_of_view1=settings.get("field_of_view1", 100e-6),
             field_of_view2=settings.get("field_of_view2", 150e-6),
             acquire_sem=settings.get("acquire_sem", True),
             acquire_fib=settings.get("acquire_fib", True),

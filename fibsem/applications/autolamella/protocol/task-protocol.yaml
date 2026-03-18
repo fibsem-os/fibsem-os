@@ -13,7 +13,7 @@ tasks:
         milling:
             fiducial:
                 name: Fiducial
-                field_of_view: 120.0e-6
+                field_of_view: 100.0e-6
                 alignment:
                     enabled: false
                 stages:
@@ -42,7 +42,7 @@ tasks:
         milling:
             mill_rough:
                 name: Rough Milling
-                field_of_view: 120.0e-6
+                field_of_view: 100.0e-6
                 channel: ION
                 alignment:
                     enabled: true
@@ -111,7 +111,7 @@ tasks:
         milling:
             mill_polishing:
                 name: Polishing
-                field_of_view: 120.0e-6
+                field_of_view: 100.0e-6
                 channel: ION
                 alignment:
                     enabled: true
