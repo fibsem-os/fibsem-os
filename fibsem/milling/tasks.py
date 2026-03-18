@@ -283,6 +283,7 @@ class FibsemMillingTask:
             stage.milling.milling_channel = self.config.channel
             stage.milling.acquire_images = self.config.acquisition.enabled
             stage.imaging.path = self.config.acquisition.imaging.path
+            stage.imaging = self.config.acquisition.imaging
             stage.alignment = self.config.alignment
             stage.strategy.run(
                 microscope=self.microscope,
