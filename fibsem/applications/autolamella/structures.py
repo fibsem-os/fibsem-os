@@ -1,3 +1,4 @@
+from __future__ import annotations
 import logging
 import os
 import uuid
@@ -805,6 +806,31 @@ class Lamella:
     #             task_configs[k] = v
     #     return task_configs
 
+    def sync_tasks_to_poi(self, point: Optional[Point] = None) -> list[str]:
+        """Sync the milling patterns to point of interest  """
+
+        if point is None:
+            point = self.poi
+
+        synced_tasks = []
+
+        for task_name, task_config in self.task_config.items():
+            # check if task has sync_to_poi enabled
+            if not getattr(task_config, "sync_to_poi", False):
+                continue
+            if not task_config.milling:
+                continue
+
+            for milling_config in task_config.milling.values():
+                if not milling_config.stages:
+                    continue
+                # calculate offset from the first stage's pattern point
+                diff = point - milling_config.stages[0].pattern.point
+                for stage in milling_config.stages:
+                    stage.pattern.point = stage.pattern.point + diff
+
+            synced_tasks.append(task_name)
+        return synced_tasks
 
 @evented
 @dataclass
