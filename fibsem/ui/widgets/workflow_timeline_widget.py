@@ -567,8 +567,13 @@ class WorkflowProgressWidget(QWidget):
         from fibsem.utils import format_duration
         if not (0 <= outer_idx < len(self._outer._steps)):
             return
-        duration_str = f" ({format_duration(task_duration)})" if task_duration is not None else ""
-        time_str = f" · {datetime.fromtimestamp(completed_at).strftime('%-I:%M %p')}" if completed_at is not None else ""
+        duration_str = ""
+        time_str = ""
+        if task_duration is not None:
+            duration_str = f" ({format_duration(task_duration)})"
+        
+        if completed_at is not None:
+            time_str = f" · {datetime.fromtimestamp(completed_at).strftime('%I:%M %p')}"
         self._outer._steps[outer_idx].subtitle = f"{task_name}{duration_str}{time_str}"
 
 
