@@ -212,12 +212,7 @@ class FibsemMinimapWidget(QWidget):
         self.show_stage_limits: bool = True
         self.show_circle_overlays: bool = True
 
-        if (
-            self.parent_widget is None
-            or self.parent_widget.microscope is None
-            or self.parent_widget.experiment is None
-        ):
-            return
+        self.parent_widget.system_widget.connected_signal.connect(self._on_microscope_connected)
 
         self.setup_connections()
         self.draw_blank_image()
@@ -348,6 +343,8 @@ class FibsemMinimapWidget(QWidget):
         self.gridLayout_5.setRowStretch(6, 1)
 
     def draw_blank_image(self):
+        if self.microscope is None:
+            return
         image: Optional[FibsemImage] = None
         orientation = self.microscope.get_stage_orientation()
         if orientation == "SEM": 
@@ -367,7 +364,7 @@ class FibsemMinimapWidget(QWidget):
         if self.parent_widget.experiment is None:
             raise ValueError("Experiment in parent widget is None, cannot proceed.")
 
-        self.setup_connections()
+        self._on_experiment_changed()
         self.draw_blank_image()
 
     @property
@@ -394,9 +391,6 @@ class FibsemMinimapWidget(QWidget):
         self.pushButton_load_image.clicked.connect(self.load_image)
 
         # initialise overview acquisition widget with defaults
-        path = str(self.parent_widget.experiment.path) if self.parent_widget.experiment is not None else os.getcwd()
-        DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path
-        self.overview_acquisition_widget.update_from_settings(DEFAULT_OVERVIEW_ACQUISITION_SETTINGS)
         self.overview_acquisition_widget.settings_changed.connect(self.update_imaging_display)
 
         # position list signals
@@ -405,37 +399,17 @@ class FibsemMinimapWidget(QWidget):
         self.lamella_list.remove_requested.connect(self._on_remove_requested)
 
         # signals
-        self.microscope.tiled_acquisition_signal.connect(self.handle_tile_acquisition_progress)
         self._acquisition_finished.connect(self.tile_collection_finished)
         self._acquisition_errored.connect(self.tile_collection_errored)
-        self.parent_widget.experiment.events.connect(self._on_experiment_position_changed) # type: ignore
-
-        # handle movement progress
-        self.microscope.stage_position_changed.connect(self._on_stage_position_changed)
-        # TODO: these signals should be reconnected when microscope connects... currently they are un-linked and require restart when microscope reconnects
 
         # pattern overlay
-        available_task_names = []
-        if self.protocol is not None:
-            # TODO: only support tasks that have milling
-            available_task_names = [name for name in self.protocol.task_config.keys() if self.protocol.task_config[name].milling]
-            self.comboBox_pattern_overlay.addItems(available_task_names)
-            if "Trench Milling" in available_task_names:
-                self.comboBox_pattern_overlay.setCurrentText("Trench Milling")
-            elif "Rough Milling" in available_task_names:
-                self.comboBox_pattern_overlay.setCurrentText("Rough Milling")
-            self.comboBox_pattern_overlay.currentIndexChanged.connect(self._draw_milling_pattern_overlay)
-            self.checkBox_pattern_overlay.stateChanged.connect(self._draw_milling_pattern_overlay)
-
-        if not available_task_names:
-            self.checkBox_pattern_overlay.setEnabled(False)
-            self.comboBox_pattern_overlay.setToolTip("No milling patterns available.")
+        self.comboBox_pattern_overlay.currentIndexChanged.connect(self._draw_milling_pattern_overlay)
+        self.checkBox_pattern_overlay.stateChanged.connect(self._draw_milling_pattern_overlay)
 
         # correlation
         self.pushButton_load_correlation_image.clicked.connect(self.load_image)
         self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
         self.pushButton_enable_correlation.clicked.connect(self._toggle_correlation_mode)
-        # self.viewer.bind_key("C", self._toggle_correlation_mode, overwrite=True)
         self.pushButton_enable_correlation.setEnabled(False) # disabled until correlation images added
 
         # gridbar controls
@@ -477,6 +451,53 @@ class FibsemMinimapWidget(QWidget):
 
         self._update_position_display()
         self.toggle_interaction(enable=True)
+
+    def _on_microscope_connected(self):
+        """Connect microscope signals to the widget when microscope is (re)connected."""
+        if self.microscope is None:
+            return
+        try:
+            self.microscope.tiled_acquisition_signal.disconnect(self.handle_tile_acquisition_progress)
+        except Exception:
+            pass
+        try:    
+            self.microscope.stage_position_changed.disconnect(self._on_stage_position_changed)
+        except Exception:
+            pass
+        self.microscope.tiled_acquisition_signal.connect(self.handle_tile_acquisition_progress)
+        self.microscope.stage_position_changed.connect(self._on_stage_position_changed)
+
+    def _on_experiment_changed(self):
+        """Handle when the experiment in the parent widget changes (e.g. new experiment loaded)."""
+        if self.parent_widget.experiment is None:
+            raise ValueError("Experiment in parent widget is None, cannot proceed.")
+
+        path = str(self.parent_widget.experiment.path)
+        DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path
+        self.overview_acquisition_widget.update_from_settings(DEFAULT_OVERVIEW_ACQUISITION_SETTINGS)
+        try:
+            self.parent_widget.experiment.events.disconnect(self._on_experiment_position_changed) # type: ignore
+        except Exception:
+            pass
+        self.parent_widget.experiment.events.connect(self._on_experiment_position_changed) # type: ignore
+
+        available_task_names = []
+        if self.protocol is not None:
+            available_task_names = [name for name in self.protocol.task_config.keys() if self.protocol.task_config[name].milling]
+            self.comboBox_pattern_overlay.blockSignals(True)
+            self.comboBox_pattern_overlay.clear()
+            self.comboBox_pattern_overlay.addItems(available_task_names)
+            if "Trench Milling" in available_task_names:
+                self.comboBox_pattern_overlay.setCurrentText("Trench Milling")
+            elif "Rough Milling" in available_task_names:
+                self.comboBox_pattern_overlay.setCurrentText("Rough Milling")
+            self.comboBox_pattern_overlay.blockSignals(False)
+        if available_task_names:
+            self.checkBox_pattern_overlay.setEnabled(True)
+            self.comboBox_pattern_overlay.setToolTip("")
+        else:
+            self.checkBox_pattern_overlay.setEnabled(False)
+            self.comboBox_pattern_overlay.setToolTip("No milling patterns available.")
 
     def _on_display_option_toggled(self):
         self.show_overview_fov = self.checkBox_show_overview_fov.isChecked()

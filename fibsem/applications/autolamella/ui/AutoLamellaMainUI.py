@@ -1229,9 +1229,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self.autolamella_ui
         )
         self.minimap_widget.setMinimumWidth(500)
-        self.autolamella_ui.system_widget.connected_signal.connect(
-            self.minimap_widget._on_microscope_connected
-        )
 
         # Layout: napari viewer (left) | minimap controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
