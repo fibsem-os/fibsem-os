@@ -1,5 +1,6 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
@@ -85,6 +86,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._label_total_fov.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore
         grid_layout.addWidget(self._label_total_fov, 2, 0, 1, 3)
 
+        # Use focus stack
+        grid_layout.addWidget(QLabel("Use Focus Stack"), 3, 0)
+        self.use_focus_stack = QCheckBox()
+        grid_layout.addWidget(self.use_focus_stack, 3, 1, 1, 2)
+
         grid_panel = TitledPanel("Overview Acquisition", content=grid_content)
         grid_panel._btn_collapse.setChecked(True)
         outer.addWidget(grid_panel)
@@ -127,6 +133,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.nrows_spinbox.valueChanged.connect(self._on_changed)
         self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
         self.ncols_spinbox.valueChanged.connect(self._on_changed)
+        self.use_focus_stack.toggled.connect(self._on_changed)
         self.image_settings_widget.settings_changed.connect(self._on_changed)
 
     def _on_changed(self):
@@ -161,6 +168,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             nrows=self.nrows_spinbox.value(),
             ncols=self.ncols_spinbox.value(),
             overlap=0.0,
+            use_focus_stack=self.use_focus_stack.isChecked(),
         )
 
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
@@ -169,16 +177,19 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.beam_type_combo.blockSignals(True)
         self.nrows_spinbox.blockSignals(True)
         self.ncols_spinbox.blockSignals(True)
+        self.use_focus_stack.blockSignals(True)
 
         idx = self.beam_type_combo.findData(settings.image_settings.beam_type)
         if idx >= 0:
             self.beam_type_combo.setCurrentIndex(idx)
         self.nrows_spinbox.setValue(settings.nrows)
         self.ncols_spinbox.setValue(settings.ncols)
+        self.use_focus_stack.setChecked(settings.use_focus_stack)
 
         self.beam_type_combo.blockSignals(False)
         self.nrows_spinbox.blockSignals(False)
         self.ncols_spinbox.blockSignals(False)
+        self.use_focus_stack.blockSignals(False)
 
         self.image_settings_widget.update_from_settings(settings.image_settings)
         self._update_total_fov_label()

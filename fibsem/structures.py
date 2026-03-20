@@ -847,6 +847,7 @@ class OverviewAcquisitionSettings:
     nrows: int = 3
     ncols: int = 3
     overlap: float = 0.0
+    use_focus_stack: bool = False
 
     @property
     def total_fov(self) -> float:
@@ -860,6 +861,7 @@ class OverviewAcquisitionSettings:
             nrows=d.get("nrows", 3),
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.0),
+            use_focus_stack=d.get("use_focus_stack", False),
         )
 
     def to_dict(self) -> dict:
@@ -868,6 +870,7 @@ class OverviewAcquisitionSettings:
             "nrows": self.nrows,
             "ncols": self.ncols,
             "overlap": self.overlap,
+            "use_focus_stack": self.use_focus_stack,
         }
 
 

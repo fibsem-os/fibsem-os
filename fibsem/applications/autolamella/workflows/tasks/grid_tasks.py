@@ -7,10 +7,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 
-from fibsem.imaging.tiled import ImageSettings, tiled_image_acquisition_and_stitch
+from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import SampleGrid, SampleHolder
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -101,9 +101,11 @@ class AcquireOverviewImageGridTask(GridTask):
             )
         tiled_image_acquisition_and_stitch(
             microscope=microscope,
-            image_settings=image_settings,
-            nrows=3, ncols=3, tile_size=image_settings.hfw,
-            cryo=False,
+            settings=OverviewAcquisitionSettings(
+                image_settings=image_settings,
+                nrows=3,
+                ncols=3,
+            ),
         )
 
         logging.info(f"Acquired overview image for grid {self.grid.name}")

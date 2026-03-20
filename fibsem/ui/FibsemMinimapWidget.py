@@ -11,7 +11,6 @@ import numpy as np
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Layer as NapariLayer
 from napari.layers import Shapes as NapariShapesLayer
-from napari.qt.threading import thread_worker
 from napari.utils.events import Event as NapariEvent
 from psygnal import EmissionInfo
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -180,7 +179,8 @@ def generate_gridbar_image(shape: Tuple[int, int], pixelsize: float, spacing: fl
 # TODO: update layer name for correlation layers, set from file?
 # TODO: set combobox to all images in viewer 
 class FibsemMinimapWidget(QWidget):
-    tile_acquisition_progress_signal = pyqtSignal(dict)
+    _acquisition_finished = pyqtSignal()
+    _acquisition_errored = pyqtSignal()
 
     def __init__(
         self,
@@ -405,7 +405,9 @@ class FibsemMinimapWidget(QWidget):
         self.lamella_list.remove_requested.connect(self._on_remove_requested)
 
         # signals
-        self.tile_acquisition_progress_signal.connect(self.handle_tile_acquisition_progress)
+        self.microscope.tiled_acquisition_signal.connect(self.handle_tile_acquisition_progress)
+        self._acquisition_finished.connect(self.tile_collection_finished)
+        self._acquisition_errored.connect(self.tile_collection_errored)
         self.parent_widget.experiment.events.connect(self._on_experiment_position_changed) # type: ignore
 
         # handle movement progress
@@ -549,15 +551,12 @@ class FibsemMinimapWidget(QWidget):
         self.toggle_interaction(enable=False)
         self._hide_overlay_layers()
 
-        # TODO: migrate to threading.Thread, rather than napari thread_worker
         self._thread_stop_event.clear()
-        self._acquisition_worker = self.run_tile_collection_thread(  # type: ignore
-            microscope=self.microscope,
-            overview_settings=overview_settings,
+        self._acquisition_worker = threading.Thread(
+            target=self._run_tile_collection,
+            args=(self.microscope, overview_settings),
+            daemon=True,
         )
-
-        self._acquisition_worker.finished.connect(self.tile_collection_finished) # type: ignore
-        self._acquisition_worker.errored.connect(self.tile_collection_errored) # type: ignore
         self._acquisition_worker.start()
 
     def tile_collection_finished(self):
@@ -573,29 +572,25 @@ class FibsemMinimapWidget(QWidget):
         self._acquisition_worker = None
         # TODO: handle when acquisition is cancelled halfway, clear viewer, etc
 
-    @thread_worker
-    def run_tile_collection_thread(
+    def _run_tile_collection(
         self,
         microscope: FibsemMicroscope,
         overview_settings: OverviewAcquisitionSettings,
     ):
         """Threaded worker for tiled acquisition and stitching."""
         try:
-            image_settings = overview_settings.image_settings
             self.image = tiled.tiled_image_acquisition_and_stitch(
                 microscope=microscope,
-                image_settings=image_settings,
-                nrows=overview_settings.nrows,
-                ncols=overview_settings.ncols,
-                tile_size=image_settings.hfw,
-                overlap=overview_settings.overlap,
-                cryo=image_settings.autogamma,
-                parent_ui=self,
+                settings=overview_settings,
+                stop_event=self._thread_stop_event,
             )
         except Exception as e:
-            # TODO: specify the error, user cancelled, or error in acquisition
             logging.error(f"Error in tile collection: {e}")
+            self._acquisition_errored.emit()
+        finally:
+            self._acquisition_finished.emit()
 
+    @ensure_main_thread
     def handle_tile_acquisition_progress(self, ddict: dict) -> None:
         """Callback for handling the tile acquisition progress."""
 
@@ -617,7 +612,7 @@ class FibsemMinimapWidget(QWidget):
     @property
     def is_acquiring(self) -> bool:
         """Check if the acquisition thread is running."""
-        return self._acquisition_worker is not None # and self._acquisition_worker.isRunning() # type: ignore
+        return self._acquisition_worker is not None and self._acquisition_worker.is_alive()
 
     def toggle_gridbar_display(self):
         """Toggle the display of the synthetic grid bar overlay."""
