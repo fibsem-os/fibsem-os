@@ -9,6 +9,7 @@ from typing import Optional
 from PyQt5 import QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
+from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -65,7 +66,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Experiment Name
         self.lineEdit_experiment_name = QtWidgets.QLineEdit()
-        current_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+        current_date = datetime.datetime.now().strftime(DATETIME_EXPERIMENT)
         self.lineEdit_experiment_name.setText(f"{cfg.EXPERIMENT_NAME}-{current_date}")
 
         # Experiment Description

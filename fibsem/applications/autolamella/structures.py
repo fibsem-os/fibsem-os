@@ -17,6 +17,7 @@ from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -74,11 +75,11 @@ class AutoLamellaTaskState:
     def completed_at(self) -> str:
         if self.end_timestamp is None:
             return "in progress"
-        return datetime.fromtimestamp(self.end_timestamp).strftime('%I:%M%p')
+        return datetime.fromtimestamp(self.end_timestamp).strftime(TIME_DISPLAY_AMPM_SHORT)
 
     @property
     def started_at(self) -> str:
-        return datetime.fromtimestamp(self.start_timestamp).strftime('%I:%M%p')
+        return datetime.fromtimestamp(self.start_timestamp).strftime(TIME_DISPLAY_AMPM_SHORT)
 
     @property
     def duration(self) -> float:

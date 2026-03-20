@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
+from fibsem.constants import TIME_DISPLAY
 from fibsem.ui import stylesheets
 
 class ToastNotification(QWidget):
@@ -401,7 +402,7 @@ class NotificationBell(QWidget):
         self.badge.show()
 
         # Add to popup history
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime(TIME_DISPLAY)
         self.popup.add_notification(message, notification_type, timestamp)
 
     def _on_clicked(self):

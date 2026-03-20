@@ -13,6 +13,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
+from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
@@ -210,7 +211,7 @@ def tiled_image_acquisition_and_stitch(
 
     # add datetime to filename for uniqueness
     filename = settings.image_settings.filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.datetime.now().strftime(DATETIME_FILE)
     settings.image_settings.filename = f"{filename}-{timestamp}"
 
     ddict = tiled_image_acquisition(microscope=microscope, settings=settings, stop_event=stop_event)

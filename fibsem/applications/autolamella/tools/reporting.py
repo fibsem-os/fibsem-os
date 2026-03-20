@@ -26,6 +26,7 @@ from reportlab.platypus import (
 from scipy.ndimage import median_filter
 from skimage.transform import resize
 
+from fibsem.constants import DATE_LONG
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
@@ -318,7 +319,7 @@ def generate_report2(experiment: Experiment,
 
     # Add content - Header and summary tables
     pdf.add_title(f"AutoLamella Report: {report_data['experiment_name']}",
-                  f'Generated on {datetime.now().strftime("%B %d, %Y")}')
+                  f'Generated on {datetime.now().strftime(DATE_LONG)}')
     pdf.add_paragraph('This report summarises the results of the AutoLamella experiment.')
     pdf.add_dataframe(report_data["workflow_dataframe"], 'Workflow Summary')
     pdf.add_dataframe(report_data["experiment_summary_dataframe"], 'Experiment Summary')

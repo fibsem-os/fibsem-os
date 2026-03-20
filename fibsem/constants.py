@@ -36,3 +36,17 @@ MICROSECOND_SYMBOL = f"{MU_SYMBOL}s"
 MILLISECOND_SYMBOL = "ms"
 NANOSECOND_SYMBOL = "ns"
 PICOSECOND_SYMBOL = "ps"
+
+# Date / time format strings
+DATETIME_FILE           = "%Y-%m-%d_%H-%M-%S"    # filename-safe datetime
+DATETIME_COMPACT        = "%Y%m%d_%H%M%S"         # compact datetime (no separators)
+DATETIME_DISPLAY        = "%Y-%m-%d %H:%M:%S"     # human-readable datetime
+DATETIME_DISPLAY_SHORT  = "%Y-%m-%d  %H:%M"       # short display datetime
+DATETIME_DISPLAY_FULL   = "%Y-%m-%d %H:%M:%S %p"  # datetime with AM/PM suffix
+DATETIME_EXPERIMENT     = "%Y-%m-%d-%H-%M"         # experiment folder name
+DATE_COMPACT            = "%Y%m%d"                 # compact date only
+DATE_LONG               = "%B %d, %Y"              # e.g. "March 19, 2026"
+TIME_FILE               = "%H-%M-%S"               # filename-safe time
+TIME_DISPLAY            = "%H:%M:%S"               # colon-separated time
+TIME_DISPLAY_AMPM_SHORT = "%I:%M%p"                # 12-hour time AM/PM (no space)
+DATETIME_LOG            = "%Y-%m-%d-%I-%M-%S%p"   # legacy log datetime (note: %p unavailable on Windows)

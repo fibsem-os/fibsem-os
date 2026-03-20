@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -571,9 +572,9 @@ class WorkflowProgressWidget(QWidget):
         time_str = ""
         if task_duration is not None:
             duration_str = f" ({format_duration(task_duration)})"
-        
+
         if completed_at is not None:
-            time_str = f" · {datetime.fromtimestamp(completed_at).strftime('%I:%M %p')}"
+            time_str = f" · {datetime.fromtimestamp(completed_at).strftime(TIME_DISPLAY_AMPM_SHORT)}"
         self._outer._steps[outer_idx].subtitle = f"{task_name}{duration_str}{time_str}"
 
 

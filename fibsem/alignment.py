@@ -7,6 +7,7 @@ import numpy as np
 
 from fibsem import acquire, utils, validation
 from fibsem.config import REFERENCE_FILENAME
+from fibsem.constants import DATETIME_DISPLAY
 from fibsem.imaging import masks
 from fibsem.imaging import utils as image_utils
 from fibsem.microscope import FibsemMicroscope
@@ -600,7 +601,7 @@ def plot_multi_step_alignment(
     else:
         prefix = ref_filename + "_"
     ts = utils.current_timestamp_v2()
-    timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    timestamp_str = datetime.now().strftime(DATETIME_DISPLAY)
     if title is None:
         title = f"Multi-Step Alignment — {ref_filename} — {timestamp_str}"
     else:

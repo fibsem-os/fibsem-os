@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QIconifyIcon
 
+from fibsem.constants import DATETIME_DISPLAY_SHORT
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
@@ -243,7 +244,7 @@ class WorkflowTaskRowWidget(QWidget):
         if self.task.scheduled_at is not None:
             self.btn_schedule.setIcon(QIconifyIcon("mdi:clock", color="#f0c040"))
             self.btn_schedule.setToolTip(
-                f"Scheduled: {self.task.scheduled_at.strftime('%Y-%m-%d  %H:%M')}"
+                f"Scheduled: {self.task.scheduled_at.strftime(DATETIME_DISPLAY_SHORT)}"
             )
         else:
             self.btn_schedule.setIcon(QIconifyIcon("mdi:clock-outline", color="#606060"))

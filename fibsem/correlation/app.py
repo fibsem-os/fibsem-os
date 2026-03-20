@@ -14,6 +14,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem import utils
+from fibsem.constants import DATETIME_FILE
 from fibsem.correlation import (
     load_and_parse_fib_image,
     multi_channel_get_z_guass,
@@ -1024,7 +1025,7 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
             "metadata": {
                 "project_path": self.path,
                 "data_path": self.path,
-                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                "timestamp": datetime.datetime.now().strftime(DATETIME_FILE)
             }
         }
         save_correlation_data(results, self.path)
@@ -1109,7 +1110,7 @@ class CorrelationUI(tdct_main.Ui_MainWindow, QtWidgets.QMainWindow):
 
         full_correlation_data = {
             "metadata": {
-                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                "timestamp": datetime.datetime.now().strftime(DATETIME_FILE),
                 "data_path": self.path,
                 "csv_path": os.path.join(self.path, "data.csv"),
                 "project_path": self.path, # TODO: add project path
