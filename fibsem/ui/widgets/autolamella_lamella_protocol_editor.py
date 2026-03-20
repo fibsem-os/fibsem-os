@@ -285,8 +285,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.parent_widget.microscope is None:
             raise ValueError("Microscope in parent widget is None, cannot proceed.")
         self.microscope = self.parent_widget.microscope
-        self._create_widgets()
-        self._initialise_widgets()
+        if hasattr(self, 'milling_task_editor'):
+            # Reconnect: widget already initialized, just update microscope reference
+            self.milling_task_editor.microscope = self.microscope
+        else:
+            # First connect: build the full UI
+            self._create_widgets()
+            self._initialise_widgets()
 
     def set_experiment(self):
         """Set the experiment for the protocol editor."""

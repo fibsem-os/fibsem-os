@@ -619,6 +619,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_microscope_connected(self):
         """Handle microscope connection and connect milling progress signal."""
         if self.autolamella_ui is not None and self.autolamella_ui.microscope is not None:
+            try:
+                self.autolamella_ui.microscope.milling_progress_signal.disconnect(self._on_milling_progress)
+            except Exception:
+                pass
             self.autolamella_ui.microscope.milling_progress_signal.connect(self._on_milling_progress)
         self.btn_create_experiment.setEnabled(True)
         self.btn_load_experiment.setEnabled(True)
@@ -1225,6 +1229,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self.autolamella_ui
         )
         self.minimap_widget.setMinimumWidth(500)
+        self.autolamella_ui.system_widget.connected_signal.connect(
+            self.minimap_widget._on_microscope_connected
+        )
 
         # Layout: napari viewer (left) | minimap controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)

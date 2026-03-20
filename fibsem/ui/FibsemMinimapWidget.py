@@ -412,6 +412,7 @@ class FibsemMinimapWidget(QWidget):
 
         # handle movement progress
         self.microscope.stage_position_changed.connect(self._on_stage_position_changed)
+        # TODO: these signals should be reconnected when microscope connects... currently they are un-linked and require restart when microscope reconnects
 
         # pattern overlay
         available_task_names = []

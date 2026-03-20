@@ -757,6 +757,9 @@ class AutoLamellaUI(QMainWindow):
             self.settings.image.path = self.experiment.path
         self.update_microscope_ui()
         self.update_ui()
+        if self.experiment is not None:
+            self._disconnect_experiment_events()
+            self._setup_experiment_connections()
 
     def disconnect_from_microscope(self):
         self.microscope = None
