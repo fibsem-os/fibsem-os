@@ -293,3 +293,153 @@ class TestMillStagesRespectsApplicationFile:
         )
 
         mill_stages(demo_microscope, [coarse, rough, polish])
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: application file name resolution (prefix / fuzzy matching)
+# ---------------------------------------------------------------------------
+
+
+# Scios-style application files: "Si New", "Si-ccs New", "Si-multipass New"
+SCIOS_APPLICATION_FILES = [
+    "Si New",
+    "Si-multipass New",
+    "Si-ccs New",
+    "autolamella",
+    "cryo_Pt_dep",
+]
+
+
+@pytest.fixture
+def scios_microscope():
+    """Create a DemoMicroscope with Scios-style application file names.
+
+    On a real Scios, the application files have " New" appended to their
+    names (e.g. "Si New" instead of "Si").  This fixture simulates that
+    by replacing the simulator's application file list.
+    """
+    microscope, settings = utils.setup_session(manufacturer="Demo")
+    microscope.milling_system.application_files = list(SCIOS_APPLICATION_FILES)
+    return microscope
+
+
+class TestApplicationFileResolution:
+    """Verify get_application_file resolves standard names to Scios names.
+
+    On Scios microscopes, application files are named "Si New",
+    "Si-ccs New", etc. instead of the standard "Si", "Si-ccs" used in
+    protocols.  The resolution chain in get_application_file() must
+    handle this transparently so existing protocols work without changes.
+    """
+
+    # --- Exact matches (should work on any microscope) ---
+
+    def test_exact_match(self, scios_microscope):
+        """An exact match should be returned as-is."""
+        resolved = scios_microscope.set_default_application_file(
+            "Si New", strict=False
+        )
+        assert resolved == "Si New"
+
+    # --- Prefix matches (the core Scios fix) ---
+
+    def test_prefix_match_si(self, scios_microscope):
+        """'Si' should resolve to 'Si New' via prefix match."""
+        resolved = scios_microscope.set_default_application_file(
+            "Si", strict=False
+        )
+        assert resolved == "Si New"
+
+    def test_prefix_match_si_ccs(self, scios_microscope):
+        """'Si-ccs' should resolve to 'Si-ccs New' via prefix match."""
+        resolved = scios_microscope.set_default_application_file(
+            "Si-ccs", strict=False
+        )
+        assert resolved == "Si-ccs New"
+
+    def test_prefix_match_si_multipass(self, scios_microscope):
+        """'Si-multipass' should resolve to 'Si-multipass New' via prefix."""
+        resolved = scios_microscope.set_default_application_file(
+            "Si-multipass", strict=False
+        )
+        assert resolved == "Si-multipass New"
+
+    def test_prefix_match_picks_shortest(self, scios_microscope):
+        """When multiple files share a prefix, the shortest wins.
+
+        For example, if both 'Si New' and 'Si New Extended' existed,
+        requesting 'Si' should resolve to 'Si New' (shortest).
+        """
+        scios_microscope.milling_system.application_files = [
+            "Si New Extended",
+            "Si New",
+            "Si-ccs New",
+        ]
+        resolved = scios_microscope.set_default_application_file(
+            "Si", strict=False
+        )
+        assert resolved == "Si New"
+
+    # --- Strict mode ---
+
+    def test_strict_mode_rejects_non_exact(self, scios_microscope):
+        """strict=True should reject 'Si' when only 'Si New' exists."""
+        with pytest.raises(ValueError, match="not available"):
+            scios_microscope.set_default_application_file(
+                "Si", strict=True
+            )
+
+    # --- No match ---
+
+    def test_no_match_raises(self, scios_microscope):
+        """A completely unrelated name should raise ValueError."""
+        with pytest.raises(ValueError, match="not available"):
+            scios_microscope.set_default_application_file(
+                "NonExistentFile", strict=False
+            )
+
+    # --- setup_milling integration ---
+
+    def test_setup_milling_resolves_si_on_scios(self, scios_microscope):
+        """setup_milling with 'Si' should resolve to 'Si New' on Scios.
+
+        Previously setup_milling used strict=True, causing a ValueError.
+        Now it uses strict=False with prefix matching.
+        """
+        mill_settings = FibsemMillingSettings(application_file="Si")
+        scios_microscope.setup_milling(mill_settings)
+        assert scios_microscope.milling_system.default_application_file == "Si New"
+
+    def test_setup_milling_resolves_si_ccs_on_scios(self, scios_microscope):
+        """setup_milling with 'Si-ccs' should resolve to 'Si-ccs New'."""
+        mill_settings = FibsemMillingSettings(application_file="Si-ccs")
+        scios_microscope.setup_milling(mill_settings)
+        assert scios_microscope.milling_system.default_application_file == "Si-ccs New"
+
+    def test_mill_stages_full_pipeline_scios(self, scios_microscope):
+        """Full mill_stages pipeline with Scios-style app file names.
+
+        A realistic lamella protocol using standard names ("Si", "Si-ccs")
+        should work on a Scios where only "Si New" and "Si-ccs New" exist.
+        """
+        coarse = FibsemMillingStage(name="coarse")
+        coarse.milling = FibsemMillingSettings(
+            application_file="Si",
+            milling_current=7.6e-9,
+        )
+        coarse.pattern = RectanglePattern(
+            width=20e-6, height=10e-6, depth=5e-6,
+        )
+
+        rough = FibsemMillingStage(name="rough")
+        rough.milling = FibsemMillingSettings(
+            application_file="Si-ccs",
+            milling_current=740e-12,
+        )
+        rough.pattern = RectanglePattern(
+            width=15e-6, height=1e-6, depth=0.5e-6,
+            cross_section=CrossSectionPattern.CleaningCrossSection,
+        )
+
+        # Should complete without ValueError.
+        mill_stages(scios_microscope, [coarse, rough])

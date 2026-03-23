@@ -2637,7 +2637,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self.milling_channel = mill_settings.milling_channel
         self.set_channel(self.milling_channel)
         self.connection.patterning.set_default_beam_type(self.milling_channel.value)
-        self.set_application_file(mill_settings.application_file, default=True)
+        self.set_application_file(mill_settings.application_file, default=True, strict=False)
         self.set_patterning_mode(mill_settings.patterning_mode)
         self.clear_patterns()  # clear any existing patterns
         self.set_field_of_view(hfw=mill_settings.hfw, beam_type=self.milling_channel)
@@ -2812,30 +2812,97 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def get_application_file(self, application_file: str, strict: bool = True) -> str:
         """Get a valid application file for the patterning API.
-        The api requires setting a valid application file before creating patterns.
+
+        The API requires setting a valid application file before creating
+        patterns. This method resolves the requested name against the list
+        of application files actually installed on the microscope.
+
+        Resolution order (non-strict mode):
+            1. Exact match - name is in the available list as-is.
+            2. Prefix match - the requested name is a prefix of an available
+               file (e.g. "Si" -> "Si New", "Si-ccs" -> "Si-ccs New").  If
+               multiple files share the prefix, the shortest name wins.
+            3. Fuzzy match - difflib.get_close_matches with cutoff=0.4
+               (lowered from default 0.6 to handle short names like "Si"
+               against "Si New", whose ratio is ~0.5).
+            4. Substring match - the requested name appears as a substring
+               of an available file, or vice versa.
+
+        This handles Scios microscopes (and similar) where application files
+        are named "Si New", "Si-ccs New" etc. instead of the standard "Si",
+        "Si-ccs" names used in protocols and defaults.
+
         Args:
-            application_file (str): The name of the application file to set as default.
-            strict (bool): If True, raises an error if the application file is not available.
-                If False, tries to find the closest match to the application file.
-                Defaults to True.
+            application_file: The name of the application file to resolve.
+            strict: If True, raises an error unless there is an exact match.
+                If False, attempts the resolution chain above. Defaults to True.
+
         Returns:
-                str: The name of the application file that was set as default.
+            The validated (or resolved) application file name.
+
         Raises:
-            ValueError: If the application file is not available.
+            ValueError: If the application file cannot be resolved.
         """
-
-        # check if the application file is valid
         application_files = self.get_available_values("application_file")
-        if application_file not in application_files:
-            if strict:
-                raise ValueError(f"Application file {application_file} not available. Available files: {application_files}")
-            from difflib import get_close_matches
-            closest_match = get_close_matches(application_file, application_files, n=1)
-            if not closest_match:
-                raise ValueError(f"Application file {application_file} not available. Available files: {application_files}")
-            application_file = str(closest_match[0])
 
-        return application_file
+        # 0. Exact match
+        if application_file in application_files:
+            return application_file
+
+        if strict:
+            raise ValueError(
+                f"Application file {application_file} not available. "
+                f"Available files: {application_files}"
+            )
+
+        # --- Non-strict resolution chain ---
+
+        # 1. Prefix match: "Si" -> "Si New", "Si-ccs" -> "Si-ccs New"
+        prefix_matches = [
+            f for f in application_files if f.startswith(application_file)
+        ]
+        if prefix_matches:
+            resolved = min(prefix_matches, key=len)  # shortest = most specific
+            logging.info(
+                "Application file '%s' resolved to '%s' via prefix match "
+                "(available: %s).",
+                application_file, resolved, application_files,
+            )
+            return resolved
+
+        # 2. Fuzzy match (lowered cutoff for short names)
+        from difflib import get_close_matches
+        closest_match = get_close_matches(
+            application_file, application_files, n=1, cutoff=0.4
+        )
+        if closest_match:
+            resolved = str(closest_match[0])
+            logging.info(
+                "Application file '%s' resolved to '%s' via fuzzy match "
+                "(available: %s).",
+                application_file, resolved, application_files,
+            )
+            return resolved
+
+        # 3. Substring match (bidirectional)
+        substr_matches = [
+            f for f in application_files
+            if application_file.lower() in f.lower()
+            or f.lower() in application_file.lower()
+        ]
+        if substr_matches:
+            resolved = min(substr_matches, key=len)
+            logging.info(
+                "Application file '%s' resolved to '%s' via substring match "
+                "(available: %s).",
+                application_file, resolved, application_files,
+            )
+            return resolved
+
+        raise ValueError(
+            f"Application file '{application_file}' not available and no "
+            f"close match found. Available files: {application_files}"
+        )
 
     def set_application_file(
         self, application_file: str, default: bool = False, strict: bool = True
