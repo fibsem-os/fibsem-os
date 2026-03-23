@@ -8,9 +8,9 @@ from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 WIDGET_CONFIG = {
     "enabled": {"default": True, "label": "Enable Initial Alignment",
                 "tooltip": "Align between imaging and milling current before starting milling"},
-    "use_contrast": {"default": True, "label": "Use Autocontrast",
+    "use_contrast": {"default": True, "label": "Use Auto Contrast",
                      "tooltip": "Autocontrast before acquiring alignment image"},
-    "use_autofocus": {"default": False, "label": "Use Autofocus",
+    "use_autofocus": {"default": False, "label": "Use Auto Focus",
                       "tooltip": "Autofocus before acquiring alignment image"},
     "steps": {"range": (1, 9), "default": 3},
 }
@@ -84,7 +84,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.image_settings_widget = ImageSettingsWidget(show_advanced=False)
         # Hide HFW, autocontrast, and drift correction - only show resolution and dwell time
         self.image_settings_widget.show_field_of_view(False)
-        self.image_settings_widget.autocontrast_check.setVisible(False)
+        self.image_settings_widget.set_show_autocontrast(False)
         self.image_settings_widget.drift_correction_check.setVisible(False)
         layout.addWidget(self.image_settings_widget, 3, 0, 1, 2)
 

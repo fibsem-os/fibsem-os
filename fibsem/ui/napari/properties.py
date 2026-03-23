@@ -13,6 +13,15 @@ ALIGNMENT_LAYER_PROPERTIES = {
     "metadata": {"type": "alignment"},
 }
 
+MILLING_FOV_LAYER_PROPERTIES = {
+    "name": "milling_fov",
+    "shape_type": "rectangle",
+    "edge_color": "white",
+    "edge_width": 5,
+    "face_color": "transparent",
+    "opacity": 0.8,
+}
+
 IMAGE_TEXT_LAYER_PROPERTIES = {
     "name": "label",
     "text": {

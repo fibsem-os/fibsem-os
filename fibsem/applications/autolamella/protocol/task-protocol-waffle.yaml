@@ -65,26 +65,14 @@ tasks:
                         name: Rectangle
                         width: 2.2e-05
                     strategy: {}
-    Acquire Reference Image (FIB):
-        task_type: ACQUIRE_REFERENCE_IMAGE
-        parameters:
-            orientation: MILLING
-        milling: {}
-        imaging: {}
-    Spot Burn Fiducial:
-        task_type: SPOT_BURN_FIDUCIAL
-        parameters:
-            milling_current: 6.0e-11
-            exposure_time: 10
-            orientation: null
-        milling: {}
-    Setup Lamella:
-        task_type: SETUP_LAMELLA
+    Setup Lamella Position:
+        task_type: SELECT_MILLING_POSITION
         parameters:
             milling_angle: 15
-            use_fiducial: true
-            align_to_reference: true
-            alignment_expansion: 50
+    Mill Fiducial:
+        task_type: MILL_FIDUCIAL
+        parameters:
+            alignment_expansion: 100
         milling:
             fiducial:
                 name: Fiducial
@@ -277,7 +265,7 @@ workflow:
         supervise: true
         required: false
         requires: []
-    -   name: Setup Lamella
+    -   name: Setup Lamella Position
         supervise: true
         required: true
         requires: []
@@ -285,7 +273,7 @@ workflow:
         supervise: true
         required: true
         requires:
-        - Setup Lamella
+        - Setup Lamella Position
     -   name: Polishing
         supervise: true
         required: true

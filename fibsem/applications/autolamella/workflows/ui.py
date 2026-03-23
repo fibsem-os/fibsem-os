@@ -1,3 +1,4 @@
+from __future__ import annotations
 import logging
 import time
 from copy import deepcopy
@@ -19,15 +20,18 @@ from fibsem.applications.autolamella.structures import Experiment
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
-# TODO: migrate to stop_event for cancelling workflow
-
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
 def _check_for_abort(parent_ui: Optional['AutoLamellaUI'], msg: str = "Workflow aborted by user.") -> bool:
     # headless mode
     if parent_ui is None:
         return False
 
-    if parent_ui._workflow_stop_event.is_set():
+    # Use task_manager's stop event if available, fall back to legacy
+    task_manager = getattr(parent_ui, '_task_manager', None)
+    if task_manager is not None:
+        if task_manager.is_stopped:
+            raise InterruptedError(msg)
+    elif parent_ui._workflow_stop_event.is_set():
         raise InterruptedError(msg)
     return False
 
@@ -296,3 +300,24 @@ def update_experiment_ui(parent_ui: Optional['AutoLamellaUI'], experiment: Exper
         return
 
     parent_ui.update_experiment_signal.emit(deepcopy(experiment))
+
+def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
+                                parameters: dict | None = None,
+                                clear_spots: bool = False):
+    """Update the spot burn parameters in the UI."""
+    _check_for_abort(parent_ui)
+
+    INFO = {
+        "msg": "Updating Spot Burn Parameters",
+        "spot_burn_parameters": parameters,
+        "clear_spot_burn": clear_spots,
+    }
+
+    parent_ui.WAITING_FOR_UI_UPDATE = True
+    parent_ui.workflow_update_signal.emit(INFO)
+    while parent_ui.WAITING_FOR_UI_UPDATE:
+        time.sleep(0.5)
+
+def clear_spot_burn_ui(parent_ui: 'AutoLamellaUI'):
+    """Clear the spot burn UI."""
+    update_spot_burn_parameters(parent_ui=parent_ui, parameters=None, clear_spots=True)

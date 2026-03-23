@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QColor
 
+from fibsem.constants import DATETIME_DISPLAY_FULL
 from fibsem.structures import FibsemImage, BeamType
 from fibsem.utils import format_value
 from scipy.ndimage import median_filter as scipy_median_filter
@@ -60,17 +61,16 @@ def _get_metadata_text(image: FibsemImage) -> str:
         elif beam_type is BeamType.ELECTRON:
             beam_name = "SEM"
 
-    DATE_FORMAT = "%Y-%m-%d %H:%M:%S %p"
-    acq_date = datetime.now().strftime(DATE_FORMAT)
+    acq_date = datetime.now().strftime(DATETIME_DISPLAY_FULL)
     if image.metadata and getattr(image.metadata, "microscope_state", None):
         ts = image.metadata.microscope_state.timestamp
         if isinstance(ts, (float, int)):
-            acq_date = datetime.fromtimestamp(ts).strftime(DATE_FORMAT)
+            acq_date = datetime.fromtimestamp(ts).strftime(DATETIME_DISPLAY_FULL)
         elif isinstance(ts, str):
             for fmt in ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
                 try:
                     dt = datetime.strptime(ts, fmt)
-                    acq_date = dt.strftime(DATE_FORMAT)
+                    acq_date = dt.strftime(DATETIME_DISPLAY_FULL)
                     break
                 except Exception:
                     continue

@@ -7,14 +7,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 
-from fibsem.imaging.tiled import ImageSettings, tiled_image_acquisition_and_stitch
+from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import SampleGrid, SampleHolder
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 import logging
 
@@ -37,14 +38,16 @@ class GridTask(ABC):
                  config: GridTaskConfig,
                  grid: SampleGrid,
                  experiment: 'Experiment',
-                 parent_ui: Optional['AutoLamellaUI'] = None):
+                 parent_ui: Optional['AutoLamellaUI'] = None,
+                 task_manager: Optional['TaskManager'] = None):
         self.microscope = microscope
         self.config = config
         self.experiment = experiment
         self.grid = grid
         self.parent_ui = parent_ui
+        self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        self._stop_event = self.parent_ui._workflow_stop_event if self.parent_ui else None
+        self._stop_event = task_manager._stop_event if task_manager else None
 
     @property
     def task_name(self) -> str:
@@ -98,9 +101,11 @@ class AcquireOverviewImageGridTask(GridTask):
             )
         tiled_image_acquisition_and_stitch(
             microscope=microscope,
-            image_settings=image_settings,
-            nrows=3, ncols=3, tile_size=image_settings.hfw,
-            cryo=False,
+            settings=OverviewAcquisitionSettings(
+                image_settings=image_settings,
+                nrows=3,
+                ncols=3,
+            ),
         )
 
         logging.info(f"Acquired overview image for grid {self.grid.name}")

@@ -12,8 +12,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.config import load_user_preferences, save_user_preferences
 from fibsem.ui import utils as fui
-from fibsem.ui.stylesheets import GREEN_PUSHBUTTON_STYLE, RED_PUSHBUTTON_STYLE, BLUE_PUSHBUTTON_STYLE, ORANGE_PUSHBUTTON_STYLE
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 # Error message constants
 ERROR_PROTOCOL_NOT_FOUND_TITLE = "Protocol Not Found"
@@ -80,16 +82,13 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         main_layout = QtWidgets.QVBoxLayout()
 
         # Experiment Information
-        exp_group = QtWidgets.QGroupBox("Experiment Information")
-        exp_layout = QtWidgets.QVBoxLayout()
+        exp_content = QtWidgets.QWidget()
+        exp_layout = QtWidgets.QVBoxLayout(exp_content)
+        exp_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Select Experiment button at top
-        button_layout = QtWidgets.QHBoxLayout()
-        button_layout.addStretch()
-        self.btn_select_experiment = QtWidgets.QPushButton("Select Experiment")
-        self.btn_select_experiment.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        button_layout.addWidget(self.btn_select_experiment)
-        exp_layout.addLayout(button_layout)
+        # Select Experiment button (added to header below)
+        self.btn_select_experiment = QtWidgets.QPushButton("Select")
+        self.btn_select_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
 
         # Experiment form fields (all read-only)
         exp_form_layout = QtWidgets.QFormLayout()
@@ -140,23 +139,25 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         exp_layout.addLayout(exp_form_layout)
 
-        exp_group.setLayout(exp_layout)
+        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
+        exp_group.add_header_widget(self.btn_select_experiment)
         main_layout.addWidget(exp_group)
 
         # Protocol Information
-        protocol_group = QtWidgets.QGroupBox("Protocol Information")
-        protocol_layout = QtWidgets.QVBoxLayout()
+        protocol_content = QtWidgets.QWidget()
+        protocol_layout = QtWidgets.QVBoxLayout(protocol_content)
+        protocol_layout.setContentsMargins(0, 0, 0, 0)
 
         # Protocol action buttons (hidden unless protocol missing)
         self.protocol_button_layout = QtWidgets.QHBoxLayout()
         self.protocol_button_layout.addStretch()
 
         self.btn_select_legacy_protocol = QtWidgets.QPushButton("Select Legacy Protocol")
-        self.btn_select_legacy_protocol.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
+        self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
 
         self.btn_select_protocol = QtWidgets.QPushButton("Select Protocol")
-        self.btn_select_protocol.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.btn_select_protocol.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.protocol_button_layout.addWidget(self.btn_select_protocol)
 
         protocol_layout.addLayout(self.protocol_button_layout)
@@ -196,19 +197,19 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group.setLayout(protocol_layout)
+        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
         main_layout.addWidget(protocol_group)
 
         # Dialog buttons (OK/Cancel)
         button_box = QtWidgets.QDialogButtonBox()
 
-        self.btn_ok = QtWidgets.QPushButton("Load")
-        self.btn_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.btn_ok = QtWidgets.QPushButton("Load Experiment")
+        self.btn_ok.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(False)  # Disabled until experiment is loaded
 
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
         button_box.addButton(self.btn_ok, QtWidgets.QDialogButtonBox.AcceptRole)
         button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)
@@ -228,9 +229,16 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
     def _select_experiment(self):
         """Open dialog to select an experiment file."""
+        # Default to last used experiment directory if available
+        default_path = str(cfg.LOG_PATH)
+        prefs = load_user_preferences()
+        last_path = prefs.paths.last_experiment_path
+        if last_path and os.path.exists(last_path):
+            default_path = last_path
+
         experiment_path = fui.open_existing_file_dialog(
             msg="Select an experiment file (experiment.yaml)",
-            path=str(cfg.LOG_PATH),
+            path=default_path,
             parent=self,
         )
 
@@ -374,6 +382,11 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             return
 
         logging.info(f"Experiment '{self.experiment.name}' loaded successfully")
+
+        # Save last used experiment path
+        prefs = load_user_preferences()
+        prefs.paths.last_experiment_path = str(self.experiment.path)
+        save_user_preferences(prefs)
 
         # Accept the dialog
         self.accept()

@@ -1,16 +1,7 @@
-import napari
-import fibsem
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import run_ui
 
 def main():
-    autolamella_ui = AutoLamellaUI(viewer=napari.Viewer())
-    autolamella_ui.viewer.window.add_dock_widget(
-        widget=autolamella_ui,
-        area="right",
-        add_vertical_stretch=True,
-        name=f"AutoLamella v{fibsem.__version__}",
-    )
-    napari.run()
+    run_ui()
 
 if __name__ == "__main__":
     main()

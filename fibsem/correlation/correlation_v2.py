@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import yaml
 
+from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.pyto.rigid_3d import Rigid3D # NOTE: this is still a 3DCT dependency, migrate
 
 DEFAULT_OPTIMIZATION_PARAMETERS = {
@@ -218,7 +219,7 @@ def run_correlation(
     # full correlation data
     full_correlation_data = {
         "metadata": {
-            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+            "timestamp": datetime.datetime.now().strftime(DATETIME_FILE),
             "data_path": path,
             "csv_path": os.path.join(path, "data.csv"),
             "project_path": path, # TODO: add project path

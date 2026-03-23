@@ -19,16 +19,18 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
+from fibsem.constants import TIME_DISPLAY
+from fibsem.ui import stylesheets
 
 class ToastNotification(QWidget):
     """A toast notification widget that appears in the bottom-right corner."""
 
     # Notification types with colors
     TYPES = {
-        "info": "#50a6ff",      # Blue
-        "success": "#4caf50",   # Green
-        "warning": "#ff9800",   # Orange
-        "error": "#f44336",     # Red
+        "info": "#50a6ff",                      # Blue
+        "success": stylesheets.GREEN_COLOR,     # Green
+        "warning": stylesheets.ORANGE_COLOR,    # Orange
+        "error": "#f44336",                     # Red
     }
 
     def __init__(self, parent=None, duration: int = 5000):
@@ -51,12 +53,12 @@ class ToastNotification(QWidget):
         self.icon_label = QLabel()
         self.icon_label.setFixedSize(20, 20)
         self.icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.icon_label)
+        layout.addWidget(self.icon_label, 0, Qt.AlignTop)
 
         # Message label
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
-        self.message_label.setMaximumWidth(300)
+        self.message_label.setMaximumWidth(400)
         layout.addWidget(self.message_label, 1)
 
         # Close button
@@ -65,7 +67,7 @@ class ToastNotification(QWidget):
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.hide_toast)
         self.close_btn.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(self.close_btn)
+        layout.addWidget(self.close_btn, 0, Qt.AlignTop)
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -93,33 +95,33 @@ class ToastNotification(QWidget):
         """Apply styling based on notification type."""
         color = self.TYPES.get(notification_type, self.TYPES["info"])
 
-        self.container.setStyleSheet(f"""
-            #toast_container {{
+        self.container.setStyleSheet("""
+            #toast_container {
                 background-color: #1e2027;
-                border: 1px solid {color};
-                border-left: 4px solid {color};
+                border: 1px solid #3d4251;
                 border-radius: 6px;
-            }}
+            }
         """)
 
         self.message_label.setStyleSheet("""
             QLabel {
+                background-color: transparent;
                 color: #d6d6d6;
                 font-size: 13px;
             }
         """)
 
-        self.close_btn.setStyleSheet(f"""
-            QPushButton {{
+        self.close_btn.setStyleSheet("""
+            QPushButton {
                 background-color: transparent;
                 color: #888;
                 border: none;
                 font-size: 16px;
                 font-weight: bold;
-            }}
-            QPushButton:hover {{
-                color: {color};
-            }}
+            }
+            QPushButton:hover {
+                color: #d6d6d6;
+            }
         """)
 
         # Set icon based on type
@@ -339,19 +341,19 @@ class NotificationBell(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(40, 40)
+        self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
 
         # Bell icon button using QToolButton with QIconifyIcon
         self.bell_btn = QToolButton()
         self.bell_btn.setIcon(QIconifyIcon("mdi:bell", color="#d6d6d6"))
-        self.bell_btn.setFixedSize(36, 36)
-        self.bell_btn.setIconSize(self.bell_btn.size() * 0.6)
+        self.bell_btn.setFixedSize(24, 24)
+        self.bell_btn.setIconSize(self.bell_btn.size() * 0.7)
         self.bell_btn.clicked.connect(self._on_clicked)
 
         # Badge
         self.badge = QLabel("0")
-        self.badge.setFixedSize(18, 18)
+        self.badge.setFixedSize(14, 14)
         self.badge.setAlignment(Qt.AlignCenter)
         self.badge.hide()
 
@@ -362,7 +364,7 @@ class NotificationBell(QWidget):
 
         # Position badge in top-right
         self.badge.setParent(self)
-        self.badge.move(22, 0)
+        self.badge.move(14, 0)
 
         # Popup
         self.popup = NotificationHistoryPopup()
@@ -389,7 +391,7 @@ class NotificationBell(QWidget):
                 color: white;
                 font-size: 10px;
                 font-weight: bold;
-                border-radius: 9px;
+                border-radius: 7px;
             }
         """)
 
@@ -400,7 +402,7 @@ class NotificationBell(QWidget):
         self.badge.show()
 
         # Add to popup history
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime(TIME_DISPLAY)
         self.popup.add_notification(message, notification_type, timestamp)
 
     def _on_clicked(self):

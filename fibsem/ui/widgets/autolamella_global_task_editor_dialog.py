@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -24,7 +23,8 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.structures import ReferenceImageParameters
-from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
 
@@ -49,9 +49,10 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         # Reference image parameters widget
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
 
-        # Milling field of view group
-        self.milling_fov_group = QGroupBox("Milling")
-        self.milling_fov_group.setFlat(True)
+        # Milling field of view panel
+        milling_content = QWidget()
+        milling_fov_layout = QGridLayout(milling_content)
+        milling_fov_layout.setContentsMargins(0, 0, 0, 0)
 
         self.label_milling_fov = QLabel("Field of View")
         self.label_milling_fov.setToolTip("Field of view for all milling tasks (in microns)")
@@ -65,17 +66,15 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.spinbox_milling_fov.setToolTip("Field of view for all milling tasks (in microns)")
         self.spinbox_milling_fov.setKeyboardTracking(False)
 
-        # Layout for milling group
-        milling_fov_layout = QGridLayout()
         milling_fov_layout.addWidget(self.label_milling_fov, 0, 0)
         milling_fov_layout.addWidget(self.spinbox_milling_fov, 0, 1)
-        self.milling_fov_group.setLayout(milling_fov_layout)
 
-        # Task selection group
-        self.task_selection_group = QGroupBox("Apply Changes To")
-        self.task_selection_group.setFlat(True)
+        self.milling_fov_group = TitledPanel("Milling", content=milling_content, collapsible=False)
 
-        task_selection_layout = QVBoxLayout()
+        # Task selection panel
+        task_content = QWidget()
+        task_selection_layout = QVBoxLayout(task_content)
+        task_selection_layout.setContentsMargins(0, 0, 0, 0)
 
         # Create list widget for task selection
         self.tasks_list = QListWidget()
@@ -106,7 +105,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         tasks_buttons_layout.addWidget(self.pushButton_deselect_all)
         task_selection_layout.addLayout(tasks_buttons_layout)
 
-        self.task_selection_group.setLayout(task_selection_layout)
+        self.task_selection_group = TitledPanel("Apply Changes To", content=task_content, collapsible=False)
 
         # Info label
         self.label_info = QLabel()
@@ -135,7 +134,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         # Dialog buttons
         self.button_box = QDialogButtonBox(self)
         self.pushButton_apply = QPushButton("Apply to Selected Tasks")
-        self.pushButton_apply.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_apply.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_apply.setAutoDefault(False)  # Prevent Enter key from triggering
         self.pushButton_cancel = QPushButton("Cancel")
         self.pushButton_cancel.setAutoDefault(False)  # Prevent Enter key from triggering

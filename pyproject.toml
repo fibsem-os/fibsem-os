@@ -54,7 +54,8 @@ ml = [
     "transformers>=4.36.2",
 ]
 ui = [
-    "napari>=0.4.17,<=0.5.3",
+    "napari>=0.4.17; python_version < '3.9'",         # Python 3.8 support stops after 0.4.19
+    "napari>=0.5.1,<=0.5.6; python_version >= '3.9'", # NumPy 2 well supported from 0.5.1
     "pyqt5>=5.15.9",
     "matplotlib_scalebar>=0.8.1",
 ]
@@ -64,10 +65,8 @@ odemis = [
 ]
 
 reporting = [
-    "plotly>=5.14.1",
     "reportlab<3.6.13; python_version < '3.9'",
     "reportlab>=3.6.13; python_version >= '3.9'",
-    "kaleido==0.2.0"
 ]
 
 [project.scripts]
@@ -75,8 +74,7 @@ fibsem_ui = "fibsem.ui.FibsemUI:main"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
 fibsem-generate-config = "fibsem.configuration:gen_config_cli"
 fibsem-config-ui = "fibsem.ui.FibsemMicroscopeConfigurationWidget:main"
-fibsem-autolamella-ui = "fibsem.applications.autolamella.ui.run_ui:main"
-fibsem-test-ui = "fibsem.applications.autolamella.ui.AutoLamellaMainUI:run_ui"
+fibsem-autolamella-ui = "fibsem.applications.autolamella.ui.AutoLamellaMainUI:run_ui"
 
 [tool.setuptools]
 packages = ["fibsem"]

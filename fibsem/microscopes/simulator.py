@@ -4,6 +4,7 @@ import copy
 import glob
 import logging
 import os
+import random
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -196,7 +197,7 @@ class DemoMicroscope(FibsemMicroscope):
             beam=BeamSettings(
                 beam_type=BeamType.ELECTRON,
                 working_distance=4.0e-3,
-                beam_current=1e-12,
+                beam_current=100e-12,
                 voltage=2000,
                 hfw=150e-6,
                 resolution=(1536, 1024),
@@ -352,6 +353,7 @@ class DemoMicroscope(FibsemMicroscope):
             hfw=effective_image_settings.hfw,
             random=True
         )
+        time.sleep(effective_image_settings.dwell_time * effective_image_settings.resolution[0] * effective_image_settings.resolution[1])  # simulate acquisition time
 
         # generate the next image from the sequence iterator
         if self.use_image_sequence:
@@ -547,6 +549,10 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
         logging.info(f"Autocontrasting {beam_type.name} beam.")
+        time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-contrast
+        self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
+        self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
+
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
@@ -555,6 +561,12 @@ class DemoMicroscope(FibsemMicroscope):
         if reduced_area is not None:
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-focus
+        wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
+        time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
+        focus_adjustment = random.uniform(-100e-6, 100e-6)
+        new_wd = wd + focus_adjustment
+        self.set_working_distance(new_wd, beam_type)
+
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
@@ -584,7 +596,7 @@ class DemoMicroscope(FibsemMicroscope):
             return STAGE_LIMITS_COMPUSTAGE
         return STAGE_LIMITS_DEFAULT
 
-    def move_stage_absolute(self, position: FibsemStagePosition) -> None:
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to the specified position."""
 
         # only assign if not None
@@ -903,7 +915,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return values
 
-    def _get(self, key, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list]:
+    def _get(self, key, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list, FibsemStagePosition]:
         """Get a value from the microscope."""
         # get beam
         if beam_type is not None:
@@ -976,6 +988,8 @@ class DemoMicroscope(FibsemMicroscope):
     
         # stage 
         if key == "stage_position":
+            logging.info(f"--------------GETTING STAGE POSITION--------------")
+            time.sleep(0.1)
             return self.stage_system.position
         if key == "stage_homed":
             return self.stage_system.is_homed

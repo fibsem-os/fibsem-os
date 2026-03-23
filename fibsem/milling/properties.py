@@ -10,7 +10,7 @@ DEFAULT_DISTANCE_METADATA = {
     "scale": 1e6,
     "minimum": 0.01,
     "maximum": 1000.0,
-    "step": 0.01,
+    "step": 0.1,
     "decimals": 2,
 }
 

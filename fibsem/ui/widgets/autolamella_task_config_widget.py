@@ -15,14 +15,13 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
-    QGroupBox,
 )
 from superqt import QCollapsible
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.ui.widgets.milling_task_widget import FibsemMillingTaskWidget
-
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+from fibsem.ui.widgets.custom_widgets import TitledPanel, WheelBlocker
 
 class ParameterWidget:
     """Base class for parameter editing widgets."""
@@ -69,6 +68,7 @@ class IntParameterWidget(ParameterWidget):
         self.widget.setRange(-2147483648, 2147483647)  # 32-bit int range
         self.widget.setValue(int(self.value))
         self.widget.setKeyboardTracking(False)
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
         return self.widget
 
     def get_value(self) -> int:
@@ -110,6 +110,7 @@ class FloatParameterWidget(ParameterWidget):
         self.widget.setRange(-1e10, 1e10)
         self.widget.setDecimals(2)
         self.widget.setKeyboardTracking(False)
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
         
         # Apply scaling for display (multiply by scale to show user-friendly values)
         display_value = float(self.value) * self.scale
@@ -165,12 +166,41 @@ class EnumParameterWidget(ParameterWidget):
                 current_index = i
                 break
         self.widget.setCurrentIndex(current_index)
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
         
         return self.widget
         
     def get_value(self) -> Any:
         return self.widget.currentData()
         
+    def set_value(self, value: Any) -> None:
+        for i in range(self.widget.count()):
+            if self.widget.itemData(i) == value:
+                self.widget.setCurrentIndex(i)
+                break
+
+
+class ComboParameterWidget(ParameterWidget):
+    """Widget for parameters with a fixed list of allowable values (items metadata key)."""
+
+    def __init__(self, name: str, value: Any, annotation: type, items: list) -> None:
+        super().__init__(name, value, annotation)
+        self.items = items
+
+    def create_widget(self) -> QWidget:
+        self.widget = QComboBox()
+        for item in self.items:
+            self.widget.addItem(str(item), item)
+        for i in range(self.widget.count()):
+            if self.widget.itemData(i) == self.value:
+                self.widget.setCurrentIndex(i)
+                break
+        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        return self.widget
+
+    def get_value(self) -> Any:
+        return self.widget.currentData()
+
     def set_value(self, value: Any) -> None:
         for i in range(self.widget.count()):
             if self.widget.itemData(i) == value:
@@ -238,7 +268,7 @@ class AutoLamellaTaskConfigWidget(QWidget):
         super().__init__(parent)
         self.task_config = task_config
         self.parameter_widgets: Dict[str, ParameterWidget] = {}
-        self.milling_task_widget: FibsemMillingTaskWidget
+        self.milling_task_widget: MillingTaskViewerWidget
 
         self._setup_ui()
         if self.task_config:
@@ -262,21 +292,21 @@ class AutoLamellaTaskConfigWidget(QWidget):
         # Create collapsible section for milling parameters
         self.milling_params_collapsible = QCollapsible("Milling Task Parameters", self)
 
-        # initialise milling_task_widget 
+        # initialise milling_task_widget
         microscope, settings = utils.setup_session()  # TODO: pass in from the parent if available...
-        self.milling_task_widget = FibsemMillingTaskWidget(
-            microscope=microscope, task_configs={}, 
-            milling_enabled=False, 
-            parent=self
+        self.milling_task_widget = MillingTaskViewerWidget(
+            microscope=microscope,
+            milling_enabled=False,
+            parent=self,
         )
         self.milling_task_widget.setMinimumHeight(600)
         self.milling_params_collapsible.addWidget(self.milling_task_widget)
 
         self.main_layout.addWidget(self.task_params_collapsible)    # type: ignore
         self.main_layout.addWidget(self.milling_params_collapsible) # type: ignore
-        
+
         # Connect milling widget signals
-        self.milling_task_widget.task_config_updated.connect(self._on_milling_config_updated)
+        self.milling_task_widget.settings_changed.connect(self._on_milling_config_updated)
 
         self.main_layout.addStretch()
 
@@ -327,11 +357,12 @@ class AutoLamellaTaskConfigWidget(QWidget):
     
         # Show/hide milling parameters section
         if self.task_config.milling:
-            self.milling_task_widget.set_task_configs(self.task_config.milling)
+            self._current_milling_key = next(iter(self.task_config.milling))
+            self.milling_task_widget.set_config(self.task_config.milling[self._current_milling_key])
             self.milling_params_collapsible.show()
         else:
-            self.milling_task_widget.set_task_configs({})
-            self.milling_task_widget.config_widget.milling_editor_widget.clear_milling_stages()
+            self._current_milling_key = None
+            self.milling_task_widget.clear()
             self.milling_params_collapsible.hide()
 
     def _create_parameter_widget(self, name: str, value: Any, annotation: type, metadata: Optional[dict] = None) -> Optional[ParameterWidget]:
@@ -346,6 +377,11 @@ class AutoLamellaTaskConfigWidget(QWidget):
             non_none_types = [arg for arg in args if arg is not type(None)]
             if non_none_types:
                 annotation = non_none_types[0]
+
+        # items metadata takes priority — render as combobox regardless of type
+        items = metadata.get("items")
+        if items:
+            return ComboParameterWidget(name, value, annotation, items)
 
         # Determine widget type based on annotation
         if annotation is bool:
@@ -388,13 +424,12 @@ class AutoLamellaTaskConfigWidget(QWidget):
             # Emit change signal
             self.config_changed.emit(self.task_config)
 
-    def _on_milling_config_updated(self, task_name: str, milling_config):
+    def _on_milling_config_updated(self, milling_config):
         """Handle milling task config updates."""
         if self.task_config and hasattr(self.task_config, 'milling'):
-            # Update the milling config in the task config
-            if not self.task_config.milling:
-                self.task_config.milling = {}
-            self.task_config.milling[task_name] = milling_config
+            key = getattr(self, '_current_milling_key', None)
+            if key and self.task_config.milling is not None:
+                self.task_config.milling[key] = milling_config
 
             # Emit change signal
             self.config_changed.emit(self.task_config)
@@ -436,16 +471,17 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
     def _setup_ui(self):
         """Create and configure all UI elements."""
         self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.main_layout)
 
         # Create content widget for parameters
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
         self.current_row = 0
-        self.params_groupbox = QGroupBox("Task")
-        self.params_groupbox.setLayout(self.grid_layout)
+        self.params_panel = TitledPanel("Task Parameters", content=self.params_widget)
+        self.params_panel._btn_collapse.setChecked(True)
 
-        self.main_layout.addWidget(self.params_groupbox)    # type: ignore
+        self.main_layout.addWidget(self.params_panel)
 
     def set_task_config(self, task_config: Optional[AutoLamellaTaskConfig]):
         """Set the task configuration to edit."""
@@ -512,6 +548,11 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
             non_none_types = [arg for arg in args if arg is not type(None)]
             if non_none_types:
                 annotation = non_none_types[0]
+
+        # items metadata takes priority — render as combobox regardless of type
+        items = metadata.get("items")
+        if items:
+            return ComboParameterWidget(name, value, annotation, items)
 
         # Determine widget type based on annotation
         if annotation == bool:
@@ -581,14 +622,11 @@ if __name__ == "__main__":
 
     from fibsem.applications.autolamella.workflows.tasks.tasks import (
         AcquireReferenceImageConfig,
-        SetupLamellaTaskConfig,
+        MillFiducialTaskConfig,
     )
 
     # Create test config
-    test_config = SetupLamellaTaskConfig(
-        milling_angle=15.0,
-        use_fiducial=True
-    )
+    test_config = MillFiducialTaskConfig()
     acquire_config = AcquireReferenceImageConfig()
     # test_config = DEFAULT_PROTOCOL.task_config['MILL_ROUGH']
 
