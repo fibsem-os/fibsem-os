@@ -629,4 +629,12 @@ def add_points_layer(
 
     layer_kwargs.update(kwargs)
 
+    # Remove projection_mode if napari version doesn't support it
+    if not _napari_supports_projection_mode() and "projection_mode" in layer_kwargs:
+        logging.debug(
+            "Removing projection_mode parameter - not supported in napari %s",
+            napari.__version__
+        )
+        layer_kwargs.pop("projection_mode")
+
     return viewer.add_points(**layer_kwargs)
