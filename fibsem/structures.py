@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal
+from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, get_type_hints
 
 import numpy as np
 import tifffile as tff
@@ -1148,15 +1148,21 @@ class FibsemPatternSettings(ABC):
     @classmethod
     def from_dict(cls: Type[TFibsemPatternSettings], data: Dict[str, Any]) -> TFibsemPatternSettings:
         kwargs = {}
+        type_hints = get_type_hints(cls)
         for f in fields(cls):
             if f.name in data:
                 value = data[f.name]
                 # Convert string values to appropriate numeric types
-                if value is not None and f.type in (float, int):
+                field_type = type_hints.get(f.name, f.type)
+                # Check if the field type is float or int, or contains them in Union/Optional types
+                is_float_type = field_type is float or (isinstance(field_type, str) and 'float' in field_type)
+                is_int_type = field_type is int or (isinstance(field_type, str) and 'int' in field_type)
+                
+                if value is not None and (is_float_type or is_int_type):
                     try:
-                        if f.type == float:
+                        if is_float_type:
                             value = float(value)
-                        elif f.type == int:
+                        elif is_int_type:
                             value = int(value)
                     except (ValueError, TypeError):
                         # If conversion fails, use the original value
@@ -1346,6 +1352,11 @@ class FibsemPolygonSettings(FibsemPatternSettings):
     vertices: np.ndarray[float] # n[x, y]
     depth: float
     is_exclusion: bool = False
+
+    def __post_init__(self):
+        """Ensure numeric types for dimensions to prevent type errors."""
+        if self.depth is not None:
+            self.depth = float(self.depth)
 
     def to_dict(self) -> dict:
         return {
