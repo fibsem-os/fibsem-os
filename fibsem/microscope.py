@@ -3545,11 +3545,13 @@ class ThermoMicroscope(FibsemMicroscope):
             values = [v for v in VALUES if limits.min <= v <= limits.max]
             return values
         
-        if key == "detector_type":
-            values = self.connection.detector.type.available_values
-        
-        if key == "detector_mode":
-            values = self.connection.detector.mode.available_values
+        if key in ["detector_type", "detector_mode"]:
+            if beam_type is not None:
+                self.set_channel(beam_type)
+            if key == "detector_type":
+                values = self.connection.detector.type.available_values
+            if key == "detector_mode":
+                values = self.connection.detector.mode.available_values
         
         if key == "scan_direction":
             TFS_SCAN_DIRECTIONS = [
