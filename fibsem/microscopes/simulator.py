@@ -705,7 +705,8 @@ class DemoMicroscope(FibsemMicroscope):
     def setup_milling(self, mill_settings: FibsemMillingSettings):
         """Setup the milling parameters."""
 
-        self.milling_system.default_application_file = mill_settings.application_file
+        resolved = self.set_default_application_file(mill_settings.application_file, strict=False)
+        mill_settings.application_file = resolved
         self.milling_channel = mill_settings.milling_channel
         self.set_milling_settings(mill_settings=mill_settings)
         self.clear_patterns()
