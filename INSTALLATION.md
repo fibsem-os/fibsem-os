@@ -1,23 +1,27 @@
 # Installation Guide
 
 ## Dependencies
+
 * Python 3.9+
 * FIB/SEM microscope (a commercial product by ThermoFisher FEI or TESACN)
 * Autoscript software (a commercial product by ThermoFisher FEI) OR
 * tescanautomation software (a commercial product by TESCAN)
 
 ### Python
+
 Python 3.9+ is required.
 The [Anaconda distribution](https://www.anaconda.com/distribution/)
 of python is recommended.
 
 ## Setting up your python virtual environment
+
 It is also highly recommended to use virtual environments for development,
 see [Managing Conda Environments](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
 for more information.
 (Optionally, you could use `virtualenv` if you prefer.)
 
 Create a new virutal environment from the Anaconda Prompt terminal:
+
 ```
 cd fibsem
 conda env create -n fibsem python=3.11 pip
@@ -31,21 +35,42 @@ Alternatively to using Conda, you may use the Python virtualenv tool to create a
 
 Firstly, install python 3.9+ on your system.
 In a terminal window, move to a directory where you would like to place the virtual environment and then create a virtual environment using the following command
+
 ```
 python -m venv fibsem
 ```
+
 Once the environment is created, activate the environment using the following command
+
 ```
 fibsem\Scripts\activate.bat
 ```
+
 Once activated, move to the fibsem root directory and install fibsem like so
+
 ```
 pip install -e .
 ```
 
+## Creating a desktop shortcut for easy starts
+
+Create a batch file named `fibsem-autolamella-ui.bat` in the top-level `fibsem-os` folder with the following content:
+
+```
+@echo on
+call <insert your path to the conda here>/Scripts/activate.bat
+call conda activate fibsem-os
+call fibsem-autolamella-ui
+```
+
+To find your Conda path, open a terminal and type `conda info`, then copy the path shown after `base environment: `.
+
+Once you've created the batch file, right-click on it and select **Send to > Desktop (create shortcut)**. This will create a desktop shortcut that you can double-click to launch the application.
+
 ## Installing Microscope Hardware APIs
 
 ## Installing Autoscript
+
 Autoscript provides an API (application programming interface) for scripting
 control of compatible FEI microscope systems.
 This is a commercial product by Thermo Fisher FEI, please visit their website
@@ -54,6 +79,7 @@ at https://www.thermofisher.com/au/en/home/electron-microscopy.html for informat
 We use Autoscript version 4.6.+
 
 The version numbers of the python packages Autoscript installs were:
+
 * autoscript-core 5.12.0
 * autoscript-sdb-microscope-client 4.6.0
 * autoscript-sdb-microscope-client-tests 4.6.0
@@ -65,8 +91,8 @@ The version numbers of the python packages Autoscript installs were:
 To add the AutoScript python packages to your new conda environment, follow these three steps:
 
 1. Find the python environment that was created with your AutoScript installation.
-Typically, you can expect the environment is named 'Autoscript', and its installed packages should be found at:
-`C:\Program Files\Python35\envs\AutoScript\Lib\site-packages\`
+   Typically, you can expect the environment is named 'Autoscript', and its installed packages should be found at:
+   `C:\Program Files\Python35\envs\AutoScript\Lib\site-packages\`
 
 ***Troubleshooting:** If you're having trouble finding the location AutoScript chose to install its python packages into,*
 *you can open the *default terminal* on your machine (eg: `cmd` for Windows) and type `where python` (Windows) or `which python` (Unix).*
@@ -75,7 +101,7 @@ Typically, you can expect the environment is named 'Autoscript', and its install
 *then change directories into `Lib`, and then the `site-packages` directory. This is where the python packages live.*
 
 2. Find the conda environment location you just made called `fibsem`.
-`...conda/envs/fibsem/Lib/site-packages/`
+   `...conda/envs/fibsem/Lib/site-packages/`
 
 *Note: if you used python virtual env to create a virtual environment, the location of the fibsem/Lib/site-packages will be where the virtual environment was created. Where this document mentions the site-packages directory, it is referring to the site-packages directory of the virtual environment.*
 
@@ -87,7 +113,7 @@ Typically, you can expect the environment is named 'Autoscript', and its install
 *This is where you want to add copies of the AutoScript python packages.*
 
 3. Make a copy of the relevant AutoScript python packages into the conda environment.
-You will need to copy:
+   You will need to copy:
 
 * autoscript_core
 * autoscript_core-5.12.0.dist-info
@@ -100,16 +126,16 @@ You will need to copy:
 * thermoscientific_logging
 * thermoscientific_logging-5.12.1.dist-info
 
-
 #### Having problems?
+
 * Check to see if Autoscript is correctly installed and configured.
 * Check to see if your python environment contains all packages listed in
-the requirements.txt
+  the requirements.txt
 * Check that when you call python from the terminal, you get the python
-environment containing the dependencies listed above
-(i.e. you are not using a different python environment)
+  environment containing the dependencies listed above
+  (i.e. you are not using a different python environment)
 * Try cloning the repository and running the unit tests,
-you may want to try installing from the source code.
+  you may want to try installing from the source code.
 
 ## Installing Tescanautomation
 
@@ -130,14 +156,13 @@ The package should now be installed successfully
 
 ### ***Common Issue with Python Interpreter***
 
-If the conda python interpreter cannot be selected from the drop down options, proceed with the install and take note of the path of installed python interpreter. 
+If the conda python interpreter cannot be selected from the drop down options, proceed with the install and take note of the path of installed python interpreter.
 
 (If no python interpreter can be found in the drop down, install python 3.9+ seperately and run the installation exe again)
 
 Once the installation has been completed, navigate to where python is installed on which the SDK has been installed.
 
 In there, navigate to
-
 
 `...\python\lib\site-packages`
 
@@ -165,4 +190,4 @@ print("Tescan Imported Successfully") if "tescanautomation" in sys.modules else 
 
 ```
 
-If the import or install is unsuccessful, check to see if all the packages have been copied to the right directory. 
+If the import or install is unsuccessful, check to see if all the packages have been copied to the right directory.
