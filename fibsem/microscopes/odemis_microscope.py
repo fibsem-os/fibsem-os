@@ -856,23 +856,73 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         pass
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
+        """
+        Draws a rectangle pattern on the Odemis-controlled microscope.
+
+        The application file used for patterning is determined by the user's
+        FibsemMillingSettings.application_file (set during setup_milling), NOT
+        hardcoded in this method. This allows different microscope models to
+        use their own application files for cross-section patterns.
+
+        Previously, this method unconditionally set the application file to
+        "Si-ccs" for CleaningCrossSection and "Si-multipass" for
+        RegularCrossSection patterns, and "Si" for plain rectangles. This
+        caused failures on microscopes that don't have those exact application
+        files installed.
+
+        Now the method uses self._default_application_file (set by
+        setup_milling) and only falls back to legacy names on failure.
+
+        Fallback mapping:
+            Rectangle             -> "Si"
+            CleaningCrossSection  -> "Si-ccs"
+            RegularCrossSection   -> "Si-multipass"
+
+        Args:
+            pattern_settings (FibsemRectangleSettings): the settings for the
+                pattern to draw.
+        """
         pdict = pattern_settings.to_dict()
 
         pdict["center_x"] = pdict.pop("centre_x")
         pdict["center_y"] = pdict.pop("centre_y")
 
-        # select the correct pattern function
+        # Select the correct pattern function based on cross-section type.
+        #
+        # NOTE: We intentionally do NOT override the application file here.
+        # The user's chosen application file (from FibsemMillingSettings) was
+        # already set by setup_milling() and stored in
+        # self._default_application_file. We use that as-is and only fall back
+        # to legacy names if the first attempt fails.
         create_pattern_function = self.connection.create_rectangle
-        self.connection.set_default_application_file("Si")
+        fallback_application_file = "Si"
+
         if pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
             create_pattern_function = self.connection.create_cleaning_cross_section
-            self.connection.set_default_application_file("Si-ccs")
+            fallback_application_file = "Si-ccs"
         if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
             create_pattern_function = self.connection.create_regular_cross_section
-            self.connection.set_default_application_file("Si-multipass")
+            fallback_application_file = "Si-multipass"
 
-        # create the pattern (draw)
-        pinfo = create_pattern_function(pdict)
+        # Attempt to create the pattern with the user's configured application
+        # file. Fall back to legacy hardcoded names on failure.
+        try:
+            pinfo = create_pattern_function(pdict)
+        except Exception:
+            current_app_file = self._default_application_file
+            if current_app_file == fallback_application_file:
+                raise
+            logging.warning(
+                "Failed to draw %s pattern with application file '%s'. "
+                "Falling back to legacy application file '%s'.",
+                pattern_settings.cross_section.name
+                if hasattr(pattern_settings.cross_section, "name")
+                else "Rectangle",
+                current_app_file,
+                fallback_application_file,
+            )
+            self.connection.set_default_application_file(fallback_application_file)
+            pinfo = create_pattern_function(pdict)
 
         # restore the default application file
         self.connection.set_default_application_file(self._default_application_file)

@@ -2888,37 +2888,99 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         Draws a rectangle pattern using the current ion beam.
 
+        The application file used for patterning is determined by the user's
+        FibsemMillingSettings.application_file (set during setup_milling), NOT
+        hardcoded here. This allows different microscope models (e.g. Scios,
+        Aquilos, Arctis) to use their own application files for cross-section
+        patterns.
+
+        Previously, this method unconditionally overrode the application file
+        to "Si-ccs" for CleaningCrossSection and "Si-multipass" for
+        RegularCrossSection patterns. This caused failures on microscopes
+        (such as the Scios) that don't have those exact application files
+        installed, or silently switched to an unintended fuzzy match
+        (e.g. "Si-ccs New" on Scios).
+
+        Now the method respects whatever application file was configured via
+        setup_milling(). If the current application file is incompatible with
+        the requested cross-section pattern type (i.e. the AutoScript API
+        rejects it), the method falls back to the legacy hardcoded names
+        ("Si-ccs" / "Si-multipass") as a best-effort recovery — mirroring
+        the fallback strategy already used by draw_circle() and
+        draw_bitmap_pattern().
+
+        Fallback mapping:
+            CleaningCrossSection  -> "Si-ccs"
+            RegularCrossSection   -> "Si-multipass"
+
         Args:
-            pattern_settings (FibsemRectangleSettings): the settings for the pattern to draw.
+            pattern_settings (FibsemRectangleSettings): the settings for the
+                pattern to draw.
 
         Returns:
             Pattern: the created pattern.
 
         Raises:
-            AutoscriptError: if an error occurs while creating the pattern.
+            AutoscriptError: if the pattern cannot be created even after
+                attempting the fallback application file.
         """
         
         # get patterning api
         patterning_api = self.connection.patterning
+
+        # Determine the correct AutoScript creation function and any
+        # constraints based on the cross-section type.
+        #
+        # NOTE: We intentionally do NOT override the application file here.
+        # The user's chosen application file (from FibsemMillingSettings) was
+        # already set by setup_milling() and restored by the
+        # _thermo_application_file_wrapper_for_drawing_functions decorator.
+        #
+        # Legacy fallback application files — only used if the first attempt
+        # fails (see try/except below).
+        fallback_application_file = None
+
         if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
             create_pattern_function = patterning_api.create_regular_cross_section
             self.set_patterning_mode("Serial") # parallel mode not supported for regular cross section
-            self.set_application_file("Si-multipass", strict=False)
+            fallback_application_file = "Si-multipass"
         elif pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
             create_pattern_function = patterning_api.create_cleaning_cross_section
             self.set_patterning_mode("Serial") # parallel mode not supported for cleaning cross section
-            self.set_application_file("Si-ccs", strict=False)
+            fallback_application_file = "Si-ccs"
         else:
             create_pattern_function = patterning_api.create_rectangle
 
-        # create pattern
-        pattern = create_pattern_function(
+        # Create the pattern using the user's configured application file.
+        # If the AutoScript API rejects the current application file for this
+        # cross-section type, fall back to the legacy hardcoded name.
+        pattern_kwargs = dict(
             center_x=pattern_settings.centre_x,
             center_y=pattern_settings.centre_y,
             width=pattern_settings.width,
             height=pattern_settings.height,
             depth=pattern_settings.depth,
         )
+
+        try:
+            pattern = create_pattern_function(**pattern_kwargs)
+        except Exception:
+            if fallback_application_file is None:
+                # No fallback available for plain rectangles — re-raise.
+                raise
+            current_app_file = self.get_current_application_file()
+            if current_app_file == fallback_application_file:
+                # Already using the fallback — nothing more to try.
+                raise
+            logging.warning(
+                "Failed to draw %s pattern with application file '%s'. "
+                "Falling back to legacy application file '%s'.",
+                pattern_settings.cross_section.name,
+                current_app_file,
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file, strict=False)
+            pattern = create_pattern_function(**pattern_kwargs)
 
         if not np.isclose(pattern_settings.time, 0.0):
             logging.debug(f"Setting pattern time to {pattern_settings.time}.")
