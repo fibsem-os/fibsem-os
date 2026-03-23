@@ -9,17 +9,18 @@ from typing import Optional
 from PyQt5 import QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
+from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.config import load_user_preferences, save_user_preferences
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
-    GREEN_PUSHBUTTON_STYLE,
-    ORANGE_PUSHBUTTON_STYLE,
-    RED_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, TitledPanel
 
 
 class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
@@ -56,23 +57,16 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         main_layout = QtWidgets.QVBoxLayout()
 
         # Experiment Information
-        exp_group = QtWidgets.QGroupBox("Experiment Information")
-        exp_layout = QtWidgets.QVBoxLayout()
-
-        # Change Directory button at top
-        button_layout = QtWidgets.QHBoxLayout()
-        button_layout.addStretch()
-        self.btn_change_directory = QtWidgets.QPushButton("Change Directory")
-        self.btn_change_directory.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        button_layout.addWidget(self.btn_change_directory)
-        exp_layout.addLayout(button_layout)
+        exp_content = QtWidgets.QWidget()
+        exp_layout = QtWidgets.QVBoxLayout(exp_content)
+        exp_layout.setContentsMargins(0, 0, 0, 0)
 
         # Experiment form fields
         exp_form_layout = QtWidgets.QFormLayout()
 
         # Experiment Name
         self.lineEdit_experiment_name = QtWidgets.QLineEdit()
-        current_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+        current_date = datetime.datetime.now().strftime(DATETIME_EXPERIMENT)
         self.lineEdit_experiment_name.setText(f"{cfg.EXPERIMENT_NAME}-{current_date}")
 
         # Experiment Description
@@ -91,10 +85,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         self.lineEdit_experiment_organisation = QtWidgets.QLineEdit()
         self.lineEdit_experiment_organisation.setPlaceholderText("Optional organisation name...")
 
-        # Experiment Directory (Read Only)
-        self.lineEdit_experiment_directory = QtWidgets.QLineEdit(str(cfg.LOG_PATH))
-        self.lineEdit_experiment_directory.setReadOnly(True)
-        self.lineEdit_experiment_directory.setCursorPosition(0)
+        # Experiment Directory
+        self.lineEdit_experiment_directory = QDirectoryLineEdit()
+        self.lineEdit_experiment_directory.setText(str(cfg.LOG_PATH))
 
         exp_form_layout.addRow("Name", self.lineEdit_experiment_name)
         exp_form_layout.addRow("Description", self.lineEdit_experiment_description)
@@ -111,26 +104,20 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         self.label_validation_warning.setWordWrap(True)
         exp_layout.addWidget(self.label_validation_warning)
 
-        exp_group.setLayout(exp_layout)
+        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
         main_layout.addWidget(exp_group)
 
         # Protocol Information
-        protocol_group = QtWidgets.QGroupBox("Protocol Information")
-        protocol_layout = QtWidgets.QVBoxLayout()
+        protocol_content = QtWidgets.QWidget()
+        protocol_layout = QtWidgets.QVBoxLayout(protocol_content)
+        protocol_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Select Protocol buttons at top
-        protocol_button_layout = QtWidgets.QHBoxLayout()
-        protocol_button_layout.addStretch()
+        # Select Protocol buttons (will be added to header)
+        self.btn_select_legacy_protocol = QtWidgets.QPushButton("Legacy")
+        self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
-        self.btn_select_legacy_protocol = QtWidgets.QPushButton("Select Legacy Protocol")
-        self.btn_select_legacy_protocol.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
-        protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
-
-        self.btn_select_protocol = QtWidgets.QPushButton("Select Protocol")
-        self.btn_select_protocol.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        protocol_button_layout.addWidget(self.btn_select_protocol)
-
-        protocol_layout.addLayout(protocol_button_layout)
+        self.btn_select_protocol = QtWidgets.QPushButton("Select")
+        self.btn_select_protocol.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
 
         # Protocol form fields (all read-only)
         protocol_form_layout = QtWidgets.QFormLayout()
@@ -167,18 +154,20 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group.setLayout(protocol_layout)
+        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
+        protocol_group.add_header_widget(self.btn_select_legacy_protocol)
+        protocol_group.add_header_widget(self.btn_select_protocol)
         main_layout.addWidget(protocol_group)
 
         # Dialog buttons (Create/Cancel)
         button_box = QtWidgets.QDialogButtonBox()
 
-        self.btn_ok = QtWidgets.QPushButton("Create")
-        self.btn_ok.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.btn_ok = QtWidgets.QPushButton("Create Experiment")
+        self.btn_ok.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_ok.setDefault(True)
 
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
         button_box.addButton(self.btn_ok, QtWidgets.QDialogButtonBox.AcceptRole)
         button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)
@@ -196,25 +185,12 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
     def _connect_signals(self):
         """Connect UI signals."""
-        self.btn_change_directory.clicked.connect(self._change_directory)
+        self.lineEdit_experiment_directory.textChanged.connect(self._validate_experiment_path)
         self.btn_select_protocol.clicked.connect(self._select_protocol)
         self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
         self.lineEdit_experiment_name.textChanged.connect(self._validate_experiment_path)
         self.btn_ok.clicked.connect(self._on_ok_clicked)
         self.btn_cancel.clicked.connect(self.reject)
-
-    def _change_directory(self):
-        """Open dialog to select a new directory for the experiment."""
-        directory = fui.open_existing_directory_dialog(
-            msg="Select a directory to save the experiment",
-            path=cfg.LOG_PATH,
-            parent=self,
-        )
-
-        if directory and directory != "":
-            self.lineEdit_experiment_directory.setText(directory)
-            self.lineEdit_experiment_directory.setCursorPosition(0)
-            self._validate_experiment_path()
 
     def _validate_experiment_path(self):
         """Validate the experiment path and show warning if it already exists."""
@@ -407,6 +383,11 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
             logging.info(f"Experiment '{experiment_name}' created successfully at {self.experiment.path}")
             logging.info(f"Protocol saved to {protocol_save_path}")
+
+            # Save last used experiment path
+            prefs = load_user_preferences()
+            prefs.paths.last_experiment_path = str(self.experiment.path)
+            save_user_preferences(prefs)
 
             # Accept the dialog
             self.accept()

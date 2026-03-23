@@ -18,7 +18,7 @@ from fibsem.structures import BeamType, FibsemImage, ImageSettings, MillingAlign
 from fibsem.utils import current_timestamp_v3
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_task_config_widget import FibsemMillingWidget2
+    from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 @dataclass
 class MillingTaskAcquisitionSettings:
@@ -65,6 +65,11 @@ class FibsemMillingTaskConfig:
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     acquisition: MillingTaskAcquisitionSettings = field(default_factory=MillingTaskAcquisitionSettings)
     stages: List[FibsemMillingStage] = field(default_factory=list)
+
+    @property
+    def enabled_stages(self) -> List[FibsemMillingStage]:
+        """Return only stages where enabled is True."""
+        return [s for s in self.stages if s.enabled]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -174,7 +179,7 @@ class FibsemMillingTask:
     @property
     def stages(self) -> List[FibsemMillingStage]:
         """Return the list of milling stages."""
-        return self.config.stages
+        return self.config.enabled_stages
 
     def _handle_progress(self, ddict: dict) -> None:
         """Handle progress updates from the microscope."""
@@ -196,6 +201,7 @@ class FibsemMillingTask:
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         try:
+            # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
             if self.parent_ui and hasattr(self.parent_ui, "_on_milling_progress"):
                 self.microscope.milling_progress_signal.connect(self.parent_ui._on_milling_progress) # THIS is 100% broken and causes recursive emits, need to fix to just use the microscope signal
             else:
@@ -230,7 +236,7 @@ class FibsemMillingTask:
             # restore initial beam shift
             if self.initial_beam_shift is not None:
                 self.microscope.set_beam_shift(self.initial_beam_shift, beam_type=self.config.channel)
-            if self.parent_ui:
+            if self.parent_ui:  # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
                 self.microscope.milling_progress_signal.disconnect(self.parent_ui._on_milling_progress)
 
             self._post_task_acquisition()
@@ -277,6 +283,7 @@ class FibsemMillingTask:
             stage.milling.milling_channel = self.config.channel
             stage.milling.acquire_images = self.config.acquisition.enabled
             stage.imaging.path = self.config.acquisition.imaging.path
+            stage.imaging = self.config.acquisition.imaging
             stage.alignment = self.config.alignment
             stage.strategy.run(
                 microscope=self.microscope,

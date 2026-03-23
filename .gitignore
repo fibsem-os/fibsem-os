@@ -74,3 +74,8 @@ scripts/Test-Experiment/*
 fibsem/applications/autolamella/autolamella_architecture.md
 projects/*
 tmp/*
+recommendations/*
+
+fibsem/applications/test-data/*
+database_migration.md
+fibsem/ui/OFFLINE_ICONS.md

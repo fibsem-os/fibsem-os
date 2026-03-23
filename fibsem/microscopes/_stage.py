@@ -205,7 +205,7 @@ class Stage:
         if self.holder is None:
             return None
 
-        stage_position = self.position
+        stage_position = self.parent._stage_position
         for name, grid in self.holder.grids.items():
             if stage_position.is_close2(
                 grid.position, tol=GRID_RADIUS, axes=["x", "y"]

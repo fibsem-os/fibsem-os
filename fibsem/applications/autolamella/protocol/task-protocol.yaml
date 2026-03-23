@@ -7,16 +7,13 @@ tasks:
         parameters:
             milling_angle: 15
     Mill Fiducial:
-        task_type: SETUP_LAMELLA
+        task_type: MILL_FIDUCIAL
         parameters:
-            milling_angle: 15
-            use_fiducial: true
-            align_to_reference: true
-            alignment_expansion: 50
+            alignment_expansion: 100
         milling:
             fiducial:
                 name: Fiducial
-                field_of_view: 120.0e-6
+                field_of_view: 100.0e-6
                 alignment:
                     enabled: false
                 stages:
@@ -45,7 +42,7 @@ tasks:
         milling:
             mill_rough:
                 name: Rough Milling
-                field_of_view: 120.0e-6
+                field_of_view: 100.0e-6
                 channel: ION
                 alignment:
                     enabled: true
@@ -61,7 +58,7 @@ tasks:
                             y: 0.0
                             name: null
                         width: 1.0e-05
-                        depth: 6.5e-07
+                        depth: 2.0e-06
                         spacing: 4.6e-06
                         upper_trench_height: 3.5e-06
                         lower_trench_height: 3.5e-06
@@ -81,7 +78,7 @@ tasks:
                             y: 0.0
                             name: null
                         width: 9.5e-06
-                        depth: 6.5e-07
+                        depth: 2.0e-06
                         spacing: 1.6e-06
                         upper_trench_height: 2.0e-06
                         lower_trench_height: 2.0e-06
@@ -114,7 +111,7 @@ tasks:
         milling:
             mill_polishing:
                 name: Polishing
-                field_of_view: 120.0e-6
+                field_of_view: 100.0e-6
                 channel: ION
                 alignment:
                     enabled: true
@@ -130,7 +127,7 @@ tasks:
                             y: 0.0
                             name: null
                         width: 9.0e-06
-                        depth: 4.0e-07
+                        depth: 1.0e-06
                         spacing: 3.0e-07
                         upper_trench_height: 7.0e-07
                         lower_trench_height: 7.0e-07

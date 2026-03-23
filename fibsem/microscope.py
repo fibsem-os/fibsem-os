@@ -65,6 +65,7 @@ try:
         MultiChemInsertPosition,
         PatterningState,
         RegularCrossSectionScanMethod,
+        ImagingState,
     )
     from autoscript_sdb_microscope_client.structures import (
         AdornedImage,
@@ -76,6 +77,7 @@ try:
         MoveSettings,
         Rectangle,
         StagePosition,
+        GetImageSettings,
     )
     THERMO_API_AVAILABLE = True
 except AutoScriptException as e:
@@ -129,6 +131,7 @@ if TYPE_CHECKING:
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
     milling_progress_signal = Signal(dict)
+    tiled_acquisition_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
     system: SystemSettings
     _patterns: List
@@ -738,7 +741,7 @@ class FibsemMicroscope(ABC):
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
         """Reset the microscope state to the provided state."""
-            
+
         if self.is_available("electron_beam"):
             if microscope_state.electron_beam is not None:
                 self.set_beam_settings(microscope_state.electron_beam)
@@ -1045,6 +1048,11 @@ class FibsemMicroscope(ABC):
         self.set("detector_brightness", brightness, beam_type)
         return self.get("detector_brightness", beam_type)
 
+    def set_preset(self, preset: str, beam_type: BeamType) -> str:
+        """Set the preset for the specified beam type."""
+        self.set("preset", preset, beam_type)
+        return self.get("preset", beam_type)
+
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         return FibsemStagePosition(x=0, y=0) # assume no offset to rotation centre
 
@@ -1223,16 +1231,19 @@ class FibsemMicroscope(ABC):
         self.system.stage.milling_angle = milling_angle
         self._update_orientations()
 
-    def get_current_milling_angle(self) -> float:
+    def get_current_milling_angle(self, stage_position: Optional[FibsemStagePosition] = None) -> float:
         """Get the current milling angle in degrees based on the current stage tilt."""
 
         from fibsem.transformations import convert_stage_tilt_to_milling_angle
 
+        if stage_position is None:
+            stage_position = self.get_stage_position()
+
         # NOTE: this is only valid for sem orientation
-        if self.get_stage_orientation() == "FIB":
+        if self.get_stage_orientation(stage_position=stage_position) == "FIB":
             return 90  # stage-tilt + pre-tilt + 90 - column-tilt
 
-        stage_tilt = self.get_stage_position().t
+        stage_tilt = stage_position.t
 
         if stage_tilt is None:
             raise ValueError("Stage tilt is not available. Cannot calculate milling angle.")
@@ -1828,6 +1839,13 @@ class ThermoMicroscope(FibsemMicroscope):
                 if self._stop_acquisition_event.is_set():
                     break
 
+                # fast continuous acquisition
+                USE_FAST_ACQUISITION = True
+                if USE_FAST_ACQUISITION:
+                    self._fast_acquisition_worker(beam_type=beam_type)
+                    if self._stop_acquisition_event.is_set():
+                        break
+
                 # acquire image using current beam settings # TODO: migrate to start_acquisition while loop
                 image = self.acquire_image(beam_type=beam_type, image_settings=None)
 
@@ -1839,6 +1857,51 @@ class ThermoMicroscope(FibsemMicroscope):
 
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
+
+    def _fast_acquisition_worker(self, beam_type: BeamType):
+        try:
+            with self._threading_lock:
+                self.set_channel(channel=beam_type)  # re-force active channel...?
+                self.connection.imaging.start_acquisition()
+
+            while self.connection.imaging.state == ImagingState.ACQUIRING:
+                if self._stop_acquisition_event.is_set():
+                    self.connection.imaging.stop_acquisition()
+                    break
+                with self._threading_lock:
+                    self.set_channel(channel=beam_type)  # re-force active channel...?
+                    adorned_image = self.connection.imaging.get_image(GetImageSettings(wait_for_frame=True))
+                    image = self._construct_image(adorned_image, beam_type=beam_type)
+
+                    logging.info(f"Acquired Image: {image.data.shape}")
+                    # emit the acquired image
+                    if beam_type is BeamType.ELECTRON:
+                        self.sem_acquisition_signal.emit(image)
+                    if beam_type is BeamType.ION:
+                        self.fib_acquisition_signal.emit(image)
+        except Exception as e:
+                logging.error(f"Exception occurred during fast acquisition: {e}")
+        finally:
+            self.connection.imaging.stop_acquisition()
+
+    def _construct_image(self, adorned_image: AdornedImage, beam_type: BeamType) -> FibsemImage:
+        """Construct a FibsemImage from an AdornedImage and the current microscope state."""
+        # get the required metadata, convert to FibsemImage
+        state = self.get_microscope_state(beam_type=beam_type)
+        image_settings = self.get_imaging_settings(beam_type=beam_type)
+
+        image = FibsemImage.fromAdornedImage(
+            copy.deepcopy(adorned_image), 
+            copy.deepcopy(image_settings), 
+            copy.deepcopy(state),
+        )
+
+        # set additional metadata
+        image.metadata.user = self.user
+        image.metadata.experiment = self.experiment
+        image.metadata.system = self.system
+
+        return image
 
     def autocontrast(self, beam_type: BeamType, reduced_area: FibsemRectangle = None) -> None:
         """
@@ -3412,7 +3475,13 @@ class ThermoMicroscope(FibsemMicroscope):
             # technically we can set any value, but primarily people would use what is on microscope
             # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
             # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-            return (limits.min, limits.max) 
+            if beam_type is BeamType.ION:
+                VALUES = (500, 1000, 2000, 8000, 16000, 30000)
+            if beam_type is BeamType.ELECTRON:
+                VALUES =  (1000, 2000, 3000, 5000, 10000, 20000, 30000)
+            # filter values to be within limits
+            values = [v for v in VALUES if limits.min <= v <= limits.max]
+            return values
         
         if key == "detector_type":
             values = self.connection.detector.type.available_values

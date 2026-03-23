@@ -1,3 +1,10 @@
+import warnings
+warnings.warn(
+    "milling_stage_editor_widget is deprecated. Use milling_task_config_widget2 instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import copy
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -17,13 +24,13 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
+    QToolButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
     QGroupBox,
 )
-from superqt import QCollapsible
+from superqt import QCollapsible, QIconifyIcon
 
 from fibsem import conversions, utils
 from fibsem.microscope import FibsemMicroscope
@@ -48,7 +55,6 @@ from fibsem.structures import (
     FibsemImage,
     Point,
 )
-from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
@@ -57,6 +63,7 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.applications.autolamella import config as cfg
 from fibsem.ui.utils import WheelBlocker
+from fibsem.ui import stylesheets
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
     is_pattern_placement_valid,
@@ -125,8 +132,7 @@ class FibsemMillingStageWidget(QWidget):
         self.strategy_widget.layout().addWidget(self.comboBox_selected_strategy, 0, 1, 1, 1)
 
         self.comboBox_selected_strategy.addItems(get_strategy_names())
-        self.wheel_blocker2 = WheelBlocker()
-        self.comboBox_selected_strategy.installEventFilter(self.wheel_blocker2)
+        self.comboBox_selected_strategy.installEventFilter(WheelBlocker(parent=self.comboBox_selected_strategy))
         self.comboBox_selected_strategy.currentTextChanged.connect(self._on_strategy_changed)
 
         # Create the widgets list to hold all the widgets
@@ -155,7 +161,7 @@ class FibsemMillingStageWidget(QWidget):
         self.milling_groupbox = QGroupBox("Milling", self)
         self.milling_groupbox.setLayout(QVBoxLayout())
         self.milling_groupbox.layout().addWidget(self.milling_widget)
-        
+
         self.pattern_groupbox = QGroupBox("Pattern", self)
         self.pattern_groupbox.setLayout(QVBoxLayout())
         self.pattern_groupbox.layout().addWidget(self.pattern_widget)
@@ -210,8 +216,17 @@ class FibsemMillingStageWidget(QWidget):
                 label.setVisible(show)
             if control:
                 control.setVisible(show)
-        # consider strategy as advanced, so hide it as well
-        self.strategy_groupbox.setVisible(show)
+
+        # Treat pattern point controls as advanced as well.
+        for point_param in ["point.x", "point.y"]:
+            label, control, _ = wp["pattern"].get(point_param, (None, None, None))
+            if label:
+                label.setVisible(show)
+            if control:
+                control.setVisible(show)
+        point_widget = self.findChild(QWidget, "point-widget-pattern")
+        if point_widget is not None:
+            point_widget.setVisible(show)
 
     def clear_widget(self, widget: QWidget, row_threshold: int = -1):
         """Clear the widget's layout, removing all items below a certain row threshold."""
@@ -432,9 +447,10 @@ class FibsemMillingStageWidget(QWidget):
 
         self._milling_stage_changed.emit(self._milling_stage)  # notify changes
 
-    def _create_point_controls(self, control_type: str, 
-                               params: Dict[str, Any], 
-                               field_metadata: Dict[str, Dict[str, Any]], 
+    def _create_point_controls(self,
+                               control_type: str,
+                               params: Dict[str, Any],
+                               field_metadata: Dict[str, Dict[str, Any]],
                                grid_layout: QGridLayout):
         """Create controls for the point parameter (x, y)."""
 
@@ -472,6 +488,7 @@ class FibsemMillingStageWidget(QWidget):
             control.setObjectName(f"control-pattern-point.{attr}")
             control.setKeyboardTracking(False)
             control.setDecimals(decimals)
+            control.installEventFilter(WheelBlocker(parent=control))
             control.valueChanged.connect(self._update_setting)
 
             self.parameters[control_type][f"point.{attr}"] = (pt_label, control, scale)
@@ -518,6 +535,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.microscope = microscope
         self._milling_stages = milling_stages
         self._background_milling_stages: List[FibsemMillingStage] = []
+        self.milling_pattern_layers = []
         self.is_updating_pattern = False
         self._show_advanced: bool = False
         self.is_movement_locked: bool = False
@@ -562,54 +580,48 @@ class FibsemMillingStageEditorWidget(QWidget):
             self._add_milling_stage_widget(milling_stage)
 
         # add/remove buttons for milling stages
-        self.pushButton_add = QPushButton("Add Milling Stage", self)
+        self.pushButton_add = QToolButton(self)
+        self.pushButton_add.setIcon(QIconifyIcon("mdi:add", color=stylesheets.GRAY_ICON_COLOR))
+        self.pushButton_add.setToolTip("Add Milling Stage")
         self.pushButton_add.clicked.connect(lambda: self._add_milling_stage(None))
-        self.pushButton_add.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_remove = QPushButton("Remove Selected Stage", self)
+        self.pushButton_remove = QToolButton(self)
+        self.pushButton_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
+        self.pushButton_remove.setToolTip("Remove Selected Stage")
         self.pushButton_remove.clicked.connect(self._remove_selected_milling_stage)
-        self.pushButton_remove.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_show_patterns = QToolButton(self)
+        self.pushButton_show_patterns.setCheckable(True)
+        self.pushButton_show_patterns.setToolTip("Hide milling patterns in the viewer.")
+        self.pushButton_show_patterns.toggled.connect(self._toggle_pattern_visibility)
+        self.pushButton_show_advanced = QToolButton(self)
+        self.pushButton_show_advanced.setCheckable(True)
+        self.pushButton_show_advanced.setToolTip("Show advanced settings.")
+        self.pushButton_show_advanced.toggled.connect(self._on_toggle_advanced_requested)
+        self.pushButton_add.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.pushButton_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.pushButton_show_patterns.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.pushButton_show_advanced.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.pushButton_show_patterns.setChecked(True)
+        self.pushButton_show_advanced.setChecked(self._show_advanced)
+        self._update_pattern_toggle_button_state(True)
+        self._update_advanced_toggle_button_state(self._show_advanced)
         button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(self.pushButton_show_advanced)
+        button_layout.addWidget(self.pushButton_show_patterns)
         button_layout.addWidget(self.pushButton_add)
         button_layout.addWidget(self.pushButton_remove)
 
-        # add checkboxes for show advanced settings, show milling crosshair, show milling patterns
-        self.checkBox_show_milling_crosshair = QCheckBox("Show Milling Crosshair", self)
-        self.checkBox_show_milling_crosshair.setChecked(True)
-        self.checkBox_show_milling_crosshair.setToolTip("Show the milling crosshair in the viewer.")
-        self.checkBox_show_milling_patterns = QCheckBox("Show Milling Patterns", self)
-        self.checkBox_show_milling_patterns.setChecked(True)
-        self.checkBox_show_milling_patterns.setToolTip("Show the milling patterns in the viewer.")
-        self.checkBox_show_milling_patterns.setVisible(False)
-        self.checkBox_show_milling_crosshair.setVisible(False)
-
-        self.checkbox_show_advanced = QCheckBox("Show Advanced Settings", self)
-        self.checkbox_show_advanced.setChecked(self._show_advanced)
-        self.checkbox_show_advanced.setToolTip("Show advanced settings for milling stages.")
-        self.checkbox_show_advanced.stateChanged.connect(self.set_show_advanced)
-        self.checkbox_show_advanced.setVisible(False)
         self.label_warning = QLabel(self)
         self.label_warning.setText("")
         self.label_warning.setStyleSheet("color: orange; font-style: italic;")
-        # callbacks for checkboxes
-        # self.checkBox_show_milling_crosshair.stateChanged.connect(self.update_milling_stage_display)
-        # self.checkBox_show_milling_patterns.stateChanged.connect(self._toggle_pattern_visibility)
-
-        # grid layout for checkboxes
-        self._grid_layout_checkboxes = QGridLayout()
-        self._grid_layout_checkboxes.addWidget(self.checkBox_show_milling_patterns, 0, 0, 1, 1)
-        self._grid_layout_checkboxes.addWidget(self.checkBox_show_milling_crosshair, 0, 1, 1, 1)
-        self._grid_layout_checkboxes.addWidget(self.checkbox_show_advanced, 1, 1, 1, 1)
-        self._grid_layout_checkboxes.addWidget(self.label_warning, 2, 0, 1, 2)
 
         # add widgets to main widget/layout
         self.main_layout = QVBoxLayout(self)
         self.main_layout.addLayout(button_layout)
-        self.main_layout.addLayout(self._grid_layout_checkboxes)
+        self.main_layout.addWidget(self.label_warning)
         self.main_layout.addWidget(self.list_widget_milling_stages)
         self.main_layout.addWidget(self.milling_stage_content)
 
-        # self.setContentsMargins(0, 0, 0, 0)
-        # self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.milling_stage_content.setContentsMargins(0, 0, 0, 0)
         self.milling_stage_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -617,6 +629,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.list_widget_milling_stages.itemSelectionChanged.connect(self._on_selected_stage_changed)
         self.list_widget_milling_stages.itemChanged.connect(self.update_milling_stage_display)
         self.list_widget_milling_stages.itemChanged.connect(self._on_milling_stage_updated)
+        self.list_widget_milling_stages.setMinimumHeight(80)
         if self.viewer is not None:
             self.viewer.mouse_drag_callbacks.append(self._on_single_click)
             if self.image_widget is not None and cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
@@ -635,6 +648,11 @@ class FibsemMillingStageEditorWidget(QWidget):
 
     def set_show_advanced(self, show_advanced: bool):
         self._show_advanced = show_advanced
+        if self.pushButton_show_advanced.isChecked() != show_advanced:
+            self.pushButton_show_advanced.blockSignals(True)
+            self.pushButton_show_advanced.setChecked(show_advanced)
+            self.pushButton_show_advanced.blockSignals(False)
+        self._update_advanced_toggle_button_state(show_advanced)
         for widget in self._widgets:
             widget.toggle_advanced_settings(show_advanced)
 
@@ -654,13 +672,37 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.label_warning.setStyleSheet("color: gray; font-style: italic;")
         self.label_warning.setVisible(True)
 
-    def _toggle_pattern_visibility(self, state: int):
+    def _toggle_pattern_visibility(self, state):
         """Toggle the visibility of milling patterns in the viewer."""
-        visible = bool(state == Qt.Checked)
+        visible = bool(state)
+        self._update_pattern_toggle_button_state(visible)
         if self.milling_pattern_layers:
             for layer in self.milling_pattern_layers:
                 if layer in self.viewer.layers:
                     self.viewer.layers[layer].visible = visible
+
+    def _update_pattern_toggle_button_state(self, visible: bool):
+        icon = "mdi:eye" if visible else "mdi:eye-off"
+        color = stylesheets.GRAY_ICON_COLOR if not visible else stylesheets.PRIMARY_COLOR
+        self.pushButton_show_patterns.setIcon(QIconifyIcon(icon, color=color))
+        self.pushButton_show_patterns.setToolTip(
+            "Hide milling patterns in the viewer." if visible
+            else "Show milling patterns in the viewer."
+        )
+
+    def _on_toggle_advanced_requested(self, show_advanced: bool):
+        if self.parent_widget is not None:
+            self.parent_widget.set_show_advanced(show_advanced)
+        else:
+            self.set_show_advanced(show_advanced)
+
+    def _update_advanced_toggle_button_state(self, show_advanced: bool):
+        icon = "mdi:tune-variant" if show_advanced else "mdi:tune"
+        color = stylesheets.PRIMARY_COLOR if show_advanced else stylesheets.GRAY_ICON_COLOR
+        self.pushButton_show_advanced.setIcon(QIconifyIcon(icon, color=color))
+        self.pushButton_show_advanced.setToolTip(
+            "Hide advanced settings." if show_advanced else "Show advanced settings."
+        )
 
     def _reorder_milling_stages(self, parent, start, end, destination, row):
         """Sync the object list when UI is reordered"""
@@ -731,6 +773,7 @@ class FibsemMillingStageEditorWidget(QWidget):
     def set_milling_stages(self, milling_stages: List[FibsemMillingStage]):
         """Set the milling stages to be displayed in the editor."""
 
+        self.is_updating_pattern = True  # block intermediate redraws
         self.clear_milling_stages()  # Clear existing milling stages
         self._milling_stages = copy.deepcopy(milling_stages)
         for milling_stage in self._milling_stages:
@@ -740,6 +783,8 @@ class FibsemMillingStageEditorWidget(QWidget):
         if self._milling_stages:
             self.list_widget_milling_stages.setCurrentRow(0)
         self._update_empty_state()
+        self.is_updating_pattern = False  # re-enable
+        self.update_milling_stage_display()  # single redraw at the end
 
     def set_background_milling_stages(self, milling_stages: List[FibsemMillingStage]):
         """Set the background milling stages to be displayed in the editor."""
@@ -861,8 +906,6 @@ class FibsemMillingStageEditorWidget(QWidget):
                 for layer in self.milling_pattern_layers:
                     if layer in self.viewer.layers:
                         self.viewer.layers.remove(layer)
-                if "Milling Alignment Area" in self.viewer.layers:
-                    self.viewer.layers.remove("Milling Alignment Area") # type: ignore
             except Exception as e:
                 logging.debug(f"Error removing milling pattern layers: {e}")
             self.milling_pattern_layers = []
@@ -895,11 +938,12 @@ class FibsemMillingStageEditorWidget(QWidget):
             image_layer=self.image_layer,
             milling_stages=milling_stages,
             pixelsize=self.image.metadata.pixel_size.x,
-            draw_crosshair=self.checkBox_show_milling_crosshair.isChecked(),
+            draw_crosshair=True,
             background_milling_stages=self._background_milling_stages,
             alignment_area=alignment_area, # NOTE: we need to update this for each milling task, rather than read from lamella.alignment_area
             selected_index=selected_index,
         )
+        self._toggle_pattern_visibility(self.pushButton_show_patterns.isChecked())
 
         if self.image_widget is not None:
             self.image_widget.restore_active_layer_for_movement()
@@ -1038,7 +1082,7 @@ class FibsemMillingStageEditorWidget(QWidget):
 
         selected_name = self.selected_stage_name or "Selected"
         config.add_action(
-            f"Move Selected Pattern Here ({selected_name})",
+            f"Move {selected_name} Here ({selected_name})",
             callback=lambda: self.move_patterns_to_point(point_clicked, move_all=False),
         )
 

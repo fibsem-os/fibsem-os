@@ -1,11 +1,12 @@
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
-from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 from fibsem.ui.FibsemCryoDepositionWidget import FibsemCryoDepositionWidget
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+
 try:
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI
     DETECTION_AVAILABLE = True

@@ -12,6 +12,8 @@ from napari.layers import Points as NapariPointsLayer
 from napari.layers import Shapes as NapariShapesLayer
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
 from fibsem.detection import detection
@@ -24,12 +26,9 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui.napari.utilities import add_points_layer
-from fibsem.ui.qtdesigner_files import (
-    FibsemEmbeddedDetectionWidget as FibsemEmbeddedDetectionWidgetUI,
-)
 
 
-class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidgets.QWidget):
+class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
     continue_signal = pyqtSignal(DetectedFeatures)
 
     def __init__(
@@ -37,7 +36,7 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
 
         self.parent = parent
         if parent is not None:
@@ -54,6 +53,39 @@ class FibsemEmbeddedDetectionUI(FibsemEmbeddedDetectionWidgetUI.Ui_Form, QtWidge
         self.cross_hair_layer: NapariShapesLayer = None
 
         self.setup_connections()
+
+    def _setup_ui(self):
+        self.gridLayout = QGridLayout(self)
+
+        # title label - bold
+        self.label_title = QLabel("Feature Detection")
+        font = QFont()
+        font.setPointSize(9)
+        font.setBold(True)
+        self.label_title.setFont(font)
+        self.gridLayout.addWidget(self.label_title, 0, 0, 1, 2)
+
+        # model label
+        self.label_model = QLabel("Model:")
+        self.gridLayout.addWidget(self.label_model, 1, 0, 1, 2)
+
+        # info label
+        self.label_info = QLabel("")
+        self.label_info.setWordWrap(True)
+        self.gridLayout.addWidget(self.label_info, 2, 0, 1, 2)
+
+        # instructions label
+        self.label_instructions = QLabel(
+            "Drag to move the features, when finished press confirm."
+        )
+        self.label_instructions.setWordWrap(True)
+        self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
+
+        # vertical spacer
+        self.gridLayout.addItem(
+            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding),
+            4, 0, 1, 2,
+        )
 
     def setup_connections(self):
         self.label_instructions.setText(

@@ -1,11 +1,13 @@
 
 import logging
+import os
 from copy import deepcopy
 from typing import List, Optional
 
 import napari
 import napari.utils.notifications
 import numpy as np
+import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 
@@ -19,15 +21,16 @@ from fibsem.structures import (
 )
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.napari.utilities import update_text_overlay
-from fibsem.ui.qtdesigner_files import FibsemMovementWidget as FibsemMovementWidgetUI
 from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     DISABLED_PUSHBUTTON_STYLE,
     GRAY_PUSHBUTTON_STYLE,
     GREEN_PUSHBUTTON_STYLE,
-    ORANGE_PUSHBUTTON_STYLE,
-    RED_PUSHBUTTON_STYLE,
     LABEL_INSTRUCTIONS_STYLE,
+    ORANGE_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    RED_PUSHBUTTON_STYLE,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import (
     WheelBlocker,
@@ -35,11 +38,11 @@ from fibsem.ui.utils import (
     open_existing_file_dialog,
     open_save_file_dialog,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
-INSTRUCTIONS_TEXT = """Double Click to Move. 
-Alt + Double Click to Move Vertically"""
+INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
-class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
+class FibsemMovementWidget(QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
     movement_progress_signal = QtCore.pyqtSignal(dict) # TODO: consolidate
 
@@ -49,12 +52,12 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
         self.parent = parent
 
-        if not hasattr(parent, 'image_widget') and not isinstance(parent.image_widget, FibsemImageSettingsWidget):
+        if not hasattr(parent, 'image_widget') or not isinstance(parent.image_widget, FibsemImageSettingsWidget):
             raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
-        if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
+        if not hasattr(parent, "viewer") or not isinstance(parent.viewer, napari.Viewer):
             raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.microscope = microscope
@@ -65,16 +68,153 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.import_positions(cfg.POSITION_PATH)
         self.setup_connections()
 
+    def _setup_ui(self):
+        # Outer layout
+        self.gridLayout = QtWidgets.QGridLayout(self)
+
+        # Scroll area
+        self.scrollArea = QtWidgets.QScrollArea(self)
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollAreaWidgetContents = QtWidgets.QWidget()
+        self.gridLayout_2 = QtWidgets.QGridLayout(self.scrollAreaWidgetContents)
+        self.scrollArea.setWidget(self.scrollAreaWidgetContents)
+        self.gridLayout.addWidget(self.scrollArea, 0, 0, 1, 2)
+
+        # --- Panel: Stage Movement ---
+        stage_content = QtWidgets.QWidget()
+        self.gridLayout_3 = QtWidgets.QGridLayout(stage_content)
+        self.gridLayout_3.setContentsMargins(0, 0, 0, 0)
+
+        self.label_movement_stage_x = QtWidgets.QLabel("X Coordinate")
+        self.doubleSpinBox_movement_stage_x = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_x.setDecimals(5)
+        self.doubleSpinBox_movement_stage_x.setMinimum(-1e10)
+        self.doubleSpinBox_movement_stage_x.setMaximum(1e17)
+        self.doubleSpinBox_movement_stage_x.setSingleStep(0.001)
+        self.doubleSpinBox_movement_stage_x.setSuffix(" mm")
+        self.gridLayout_3.addWidget(self.label_movement_stage_x, 0, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_x, 0, 1)
+
+        self.label_movement_stage_y = QtWidgets.QLabel("Y Coordinate")
+        self.doubleSpinBox_movement_stage_y = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_y.setDecimals(5)
+        self.doubleSpinBox_movement_stage_y.setMinimum(-1e20)
+        self.doubleSpinBox_movement_stage_y.setMaximum(1e25)
+        self.doubleSpinBox_movement_stage_y.setSingleStep(0.001)
+        self.doubleSpinBox_movement_stage_y.setSuffix(" mm")
+        self.gridLayout_3.addWidget(self.label_movement_stage_y, 1, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_y, 1, 1)
+
+        self.label_movement_stage_z = QtWidgets.QLabel("Z Coordinate")
+        self.doubleSpinBox_movement_stage_z = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_z.setDecimals(5)
+        self.doubleSpinBox_movement_stage_z.setMinimum(-1e17)
+        self.doubleSpinBox_movement_stage_z.setMaximum(1e23)
+        self.doubleSpinBox_movement_stage_z.setSingleStep(0.001)
+        self.doubleSpinBox_movement_stage_z.setSuffix(" mm")
+        self.gridLayout_3.addWidget(self.label_movement_stage_z, 2, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_z, 2, 1)
+
+        self.label_movement_stage_rotation = QtWidgets.QLabel("Rotation")
+        self.doubleSpinBox_movement_stage_rotation = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_rotation.setMinimum(-360.0)
+        self.doubleSpinBox_movement_stage_rotation.setMaximum(360.0)
+        self.doubleSpinBox_movement_stage_rotation.setSuffix(" deg")
+        self.gridLayout_3.addWidget(self.label_movement_stage_rotation, 3, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_rotation, 3, 1)
+
+        self.label_movement_stage_tilt = QtWidgets.QLabel("Tilt")
+        self.doubleSpinBox_movement_stage_tilt = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_movement_stage_tilt.setSuffix(" deg")
+        self.gridLayout_3.addWidget(self.label_movement_stage_tilt, 4, 0)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_tilt, 4, 1)
+
+        self.pushButton_move = QtWidgets.QPushButton("Move to Position")
+        self.gridLayout_3.addWidget(self.pushButton_move, 5, 0, 1, 2)
+
+        self.pushButton_move_flat_electron = QtWidgets.QPushButton("Move Flat to ELECTRON Beam")
+        self.pushButton_move_flat_ion = QtWidgets.QPushButton("Move Flat to ION Beam")
+        self.gridLayout_3.addWidget(self.pushButton_move_flat_electron, 6, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_flat_ion, 6, 1)
+
+        self.doubleSpinBox_milling_angle = QtWidgets.QDoubleSpinBox()
+        self.pushButton_move_to_milling_angle = QtWidgets.QPushButton("Move to Milling Angle")
+        self.gridLayout_3.addWidget(self.doubleSpinBox_milling_angle, 7, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_to_milling_angle, 7, 1)
+
+        self.label_movement_instructions = QtWidgets.QLabel()
+        self.label_movement_instructions.setWordWrap(True)
+        self.gridLayout_3.addWidget(self.label_movement_instructions, 8, 0, 1, 2)
+
+        self.btn_refresh_stage = IconToolButton(icon="mdi:refresh", tooltip="Refresh stage position")
+        self.stage_panel = TitledPanel("Stage Movement", content=stage_content, collapsible=False)
+        self.stage_panel.add_header_widget(self.btn_refresh_stage)
+        self.gridLayout_2.addWidget(self.stage_panel, 0, 0)
+
+        # Options panel removed — movement acquisition prefs are now in Edit > Preferences
+
+        # --- Panel: Saved Positions ---
+        saved_content = QtWidgets.QWidget()
+        self.gridLayout_5 = QtWidgets.QGridLayout(saved_content)
+        self.gridLayout_5.setContentsMargins(0, 0, 0, 0)
+
+        self.label_positions_header_info = QtWidgets.QLabel("All positions in mm and degrees")
+        self.gridLayout_5.addWidget(self.label_positions_header_info, 0, 0, 1, 2)
+
+        self.pushButton_save_position = QtWidgets.QPushButton("Add Position")
+        self.pushButton_remove_position = QtWidgets.QPushButton("Remove Position")
+        self.gridLayout_5.addWidget(self.pushButton_save_position, 1, 0)
+        self.gridLayout_5.addWidget(self.pushButton_remove_position, 1, 1)
+
+        self.label_saved_positions = QtWidgets.QLabel("Saved Positions")
+        self.comboBox_positions = QtWidgets.QComboBox()
+        self.gridLayout_5.addWidget(self.label_saved_positions, 2, 0)
+        self.gridLayout_5.addWidget(self.comboBox_positions, 2, 1)
+
+        self.pushButton_go_to = QtWidgets.QPushButton("Go To Position")
+        self.label_current_position = QtWidgets.QLabel("")
+        self.gridLayout_5.addWidget(self.pushButton_go_to, 3, 0)
+        self.gridLayout_5.addWidget(self.label_current_position, 3, 1)
+
+        self.pushButton_update_position = QtWidgets.QPushButton("Update Position")
+        self.lineEdit_position_name = QtWidgets.QLineEdit()
+        self.lineEdit_position_name.setSizePolicy(
+            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        )
+        self.gridLayout_5.addWidget(self.pushButton_update_position, 4, 0)
+        self.gridLayout_5.addWidget(self.lineEdit_position_name, 4, 1)
+
+        self.pushButton_import = QtWidgets.QPushButton("Import Positions")
+        self.pushButton_export = QtWidgets.QPushButton("Export Positions")
+        self.gridLayout_5.addWidget(self.pushButton_import, 5, 0)
+        self.gridLayout_5.addWidget(self.pushButton_export, 5, 1)
+
+        self.saved_positions_panel = TitledPanel("Saved Positions", content=saved_content, collapsible=False)
+        self.gridLayout_2.addWidget(self.saved_positions_panel, 2, 0)
+        self.saved_positions_panel.setVisible(False)
+
+        self._move_buttons = [
+            self.pushButton_move,
+            self.pushButton_move_flat_ion,
+            self.pushButton_move_flat_electron,
+            self.pushButton_move_to_milling_angle,
+            self.pushButton_go_to,
+        ]
+
+        # Bottom spacer
+        self.gridLayout_2.addItem(
+            QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
+            3, 0,
+        )
+
     def setup_connections(self):
 
-        # load persisted movement acquisition preferences
-        self._apply_movement_preferences()
 
         # buttons
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
         self.pushButton_move_flat_ion.clicked.connect(self.move_flat_to_beam)
         self.pushButton_move_flat_electron.clicked.connect(self.move_flat_to_beam)
-        self.pushButton_refresh_stage_position_data.clicked.connect(self.update_ui)
+        self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
         self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
@@ -97,8 +237,6 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.movement_progress_signal.connect(self.handle_movement_progress_update)
         self.image_widget.acquisition_progress_signal.connect(self.handle_acquisition_update)
         self.saved_positions_updated_signal.connect(self.update_saved_positions_ui)
-        self.checkBox_movement_acquire_electron.stateChanged.connect(self._save_movement_preferences)
-        self.checkBox_movement_acquire_ion.stateChanged.connect(self._save_movement_preferences)
 
         stage_limits = self.microscope._stage.limits
         xlimits = stage_limits['x']
@@ -118,7 +256,6 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         # set custom tilt limits for the compustage
         if self.microscope.stage_is_compustage:
 
-
             # NOTE: these values are expressed in mm in the UI, hence the conversion
             # set x, y, z step sizes to be 1 um
             self.doubleSpinBox_movement_stage_x.setSingleStep(1e-6 * constants.SI_TO_MILLI)
@@ -130,11 +267,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             self.doubleSpinBox_movement_stage_rotation.setVisible(False)
 
         # stylesheets
-        self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_move_flat_ion.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_move_flat_electron.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_move_to_milling_angle.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_refresh_stage_position_data.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_move_flat_ion.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_flat_electron.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_save_position.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_remove_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
         self.pushButton_go_to.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
@@ -178,62 +314,18 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         self.update_ui()
 
-    def _apply_movement_preferences(self):
-        """Load movement acquisition preferences from disk and apply to checkboxes."""
-        prefs = cfg.load_user_preferences()
-
-        self.checkBox_movement_acquire_electron.blockSignals(True)
-        self.checkBox_movement_acquire_ion.blockSignals(True)
-        self.checkBox_movement_acquire_electron.setChecked(
-            bool(
-                prefs.get(
-                    "acquire_sem_after_stage_movement",
-                    cfg.USER_PREFERENCES_DEFAULTS["acquire_sem_after_stage_movement"],
-                )
-            )
-        )
-        self.checkBox_movement_acquire_ion.setChecked(
-            bool(
-                prefs.get(
-                    "acquire_fib_after_stage_movement",
-                    cfg.USER_PREFERENCES_DEFAULTS["acquire_fib_after_stage_movement"],
-                )
-            )
-        )
-        self.checkBox_movement_acquire_electron.blockSignals(False)
-        self.checkBox_movement_acquire_ion.blockSignals(False)
-
-    def _save_movement_preferences(self):
-        """Persist movement acquisition preferences to disk."""
-        prefs = {
-            "acquire_sem_after_stage_movement": self.checkBox_movement_acquire_electron.isChecked(),
-            "acquire_fib_after_stage_movement": self.checkBox_movement_acquire_ion.isChecked(),
-        }
-        cfg.save_user_preferences(prefs)
-
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
-        self.pushButton_move.setEnabled(enable)
-        self.pushButton_move_flat_ion.setEnabled(enable)
-        self.pushButton_move_flat_electron.setEnabled(enable)
-        self.pushButton_move_to_milling_angle.setEnabled(enable)
+        for btn in self._move_buttons:
+            btn.setEnabled(enable)
         self.doubleSpinBox_milling_angle.setEnabled(enable)
-        self.pushButton_go_to.setEnabled(enable)
         if caller is None:
             # self.parent.milling_widget._toggle_interactions(enable, caller="movement")
             self.parent.image_widget._toggle_interactions(enable, caller="movement")
-        if enable:
-            self.pushButton_move.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_ion.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_electron.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_move_to_milling_angle.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_go_to.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        else:
-            self.pushButton_move.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_ion.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_move_flat_electron.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_move_to_milling_angle.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
-            self.pushButton_go_to.setStyleSheet(DISABLED_PUSHBUTTON_STYLE)
+        for btn in self._move_buttons:
+            btn.setStyleSheet(DISABLED_PUSHBUTTON_STYLE if not enable else
+                              PRIMARY_BUTTON_STYLESHEET if btn is self.pushButton_move else
+                              SECONDARY_BUTTON_STYLESHEET)
 
     def handle_movement_progress_update(self, ddict: dict) -> None:
         """Handle movement progress updates from the microscope"""
@@ -254,9 +346,10 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         if is_finished:
             self.update_ui()
 
-    def update_ui(self):
+    def update_ui(self, stage_position: Optional[FibsemStagePosition] = None):
         """Update the UI with the current stage position and saved positions"""
-        stage_position: FibsemStagePosition = self.microscope.get_stage_position()
+        if stage_position is None:
+            stage_position = self.microscope.get_stage_position()
 
         self.doubleSpinBox_movement_stage_x.setValue(stage_position.x * constants.SI_TO_MILLI)
         self.doubleSpinBox_movement_stage_y.setValue(stage_position.y * constants.SI_TO_MILLI)
@@ -276,19 +369,21 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
         self.lineEdit_position_name.setVisible(has_saved_positions)
 
         # update the current position label
-        update_text_overlay(self.viewer, self.microscope)
+        update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
 
-    def update_ui_after_movement(self, retake: bool = True): # TODO: PPP Refactor
-        # disable taking images after movement here
+    def update_ui_after_movement(self, retake: bool = True):
         if (retake is False or self.microscope.is_acquiring):
             self.update_ui()
             return
-        if self.checkBox_movement_acquire_electron.isChecked() and self.checkBox_movement_acquire_ion.isChecked():
+        prefs = cfg.load_user_preferences()
+        acquire_sem = prefs.movement.acquire_sem_after_stage_movement
+        acquire_fib = prefs.movement.acquire_fib_after_stage_movement
+        if acquire_sem and acquire_fib:
             self.image_widget.acquire_reference_images()
             return
-        if self.checkBox_movement_acquire_electron.isChecked():
+        if acquire_sem:
             self.image_widget.acquire_sem_image()
-        elif self.checkBox_movement_acquire_ion.isChecked():
+        elif acquire_fib:
             self.image_widget.acquire_fib_image()
         else:
             self.update_ui()
@@ -533,7 +628,7 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
 
         logging.info(f"Positions saved to {path}")
 
-    def import_positions(self, path: str = None):
+    def import_positions(self, path: Optional[str] = None):
         """Import saved positions from a file"""
         
         if path is None:
@@ -543,8 +638,9 @@ class FibsemMovementWidget(FibsemMovementWidgetUI.Ui_Form, QtWidgets.QWidget):
             napari.utils.notifications.show_info("No file selected, positions not loaded")
             return
 
-        def load_saved_positions_from_yaml(path: str = None) -> List[FibsemStagePosition]:
-            import yaml
+        def load_saved_positions_from_yaml(path: Optional[str] = None) -> List[FibsemStagePosition]:
+            if path is None or not os.path.exists(path):
+                return []
             with open(path, "r") as f:
                 ddict = yaml.safe_load(f)
             return [FibsemStagePosition.from_dict(pdict) for pdict in ddict]

@@ -18,9 +18,7 @@ from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.protocol.legacy import (
-    AutoLamellaStage,
-)
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -78,11 +76,11 @@ class AutoLamellaTaskState:
     def completed_at(self) -> str:
         if self.end_timestamp is None:
             return "in progress"
-        return datetime.fromtimestamp(self.end_timestamp).strftime('%I:%M%p')
+        return datetime.fromtimestamp(self.end_timestamp).strftime(TIME_DISPLAY_AMPM_SHORT)
 
     @property
     def started_at(self) -> str:
-        return datetime.fromtimestamp(self.start_timestamp).strftime('%I:%M%p')
+        return datetime.fromtimestamp(self.start_timestamp).strftime(TIME_DISPLAY_AMPM_SHORT)
 
     @property
     def duration(self) -> float:
@@ -116,6 +114,7 @@ class AutoLamellaTaskConfig(ABC):
     """Configuration for AutoLamella tasks."""
     task_type: ClassVar[str]
     display_name: ClassVar[str]
+    related_tasks: ClassVar[list[type['AutoLamellaTaskConfig']]] = []
     task_name: str = "" # unique name for identifying in multi-task workflows
     milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
     reference_imaging: ReferenceImageParameters = field(default_factory=ReferenceImageParameters)
@@ -194,14 +193,22 @@ class AutoLamellaTaskDescription:
     supervise: bool
     required: bool
     requires: List[str] = field(default_factory=list)
+    scheduled_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("scheduled_at") is not None:
+            d["scheduled_at"] = self.scheduled_at.isoformat()
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskDescription':
         if data is None:
             return cls(name="", task_type="", supervise=False, required=False, requires=[])
+        data = dict(data)
+        sa = data.get("scheduled_at")
+        if isinstance(sa, str):
+            data["scheduled_at"] = datetime.fromisoformat(sa)
         return cls(**data)
 
 
@@ -333,7 +340,7 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskProtocol':
-        from fibsem.applications.autolamella.workflows.tasks.tasks import load_task_config
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
         task_config = load_task_config(data.get("tasks", {}))
         workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
 
@@ -381,7 +388,8 @@ class AutoLamellaTaskProtocol:
             MillRoughTaskConfig,
             MillTrenchTaskConfig,
             MillUndercutTaskConfig,
-            SetupLamellaTaskConfig,
+            MillFiducialTaskConfig,
+            SelectMillingPositionTaskConfig,
         )
         protocol = AutoLamellaProtocol.load(path)
 
@@ -400,8 +408,9 @@ class AutoLamellaTaskProtocol:
         ROUGH_MILLING_TASK_NAME = "Rough Milling"
         POLISHING_TASK_NAME = "Polishing"
         TRENCH_MILLING_TASK_NAME = "Trench Milling"
-        SETUP_LAMELLA_TASK_NAME = "Setup Lamella"
+        MILL_FIDUCIAL_TASK_NAME = "Mill Fiducial"
         UNDERCUT_TASK_NAME = "Undercut"
+        SETUP_LAMELLA_POSITION_TASK_NAME = "Setup Lamella Position"
 
         workflow_config = AutoLamellaWorkflowConfig()
         task_config = EventedDict({})
@@ -422,20 +431,25 @@ class AutoLamellaTaskProtocol:
                 milling={MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[MILL_POLISHING_KEY], name="Polishing")},
             )
 
-            setup_lamella_task = SetupLamellaTaskConfig(
-                task_name=SETUP_LAMELLA_TASK_NAME,
+            mill_fiducial_task = MillFiducialTaskConfig(
+                task_name=MILL_FIDUCIAL_TASK_NAME,
                 milling={FIDUCIAL_KEY: FibsemMillingTaskConfig.from_stages(protocol.milling[FIDUCIAL_KEY], name="Fiducial")},
-                use_fiducial=protocol.options.use_fiducial,
+            )
+            setup_lamella_task = SelectMillingPositionTaskConfig(
+                task_name=SETUP_LAMELLA_POSITION_TASK_NAME,
+                milling={},
                 milling_angle=protocol.options.milling_angle,
             )
 
             task_config[ROUGH_MILLING_TASK_NAME] = rough_milling_task
             task_config[POLISHING_TASK_NAME] = polishing_milling_task
-            task_config[SETUP_LAMELLA_TASK_NAME] = setup_lamella_task
+            task_config[MILL_FIDUCIAL_TASK_NAME] = mill_fiducial_task
+            task_config[SETUP_LAMELLA_POSITION_TASK_NAME] = setup_lamella_task
 
             workflow_config.tasks = [
-                AutoLamellaTaskDescription(name=SETUP_LAMELLA_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
-                AutoLamellaTaskDescription(name=ROUGH_MILLING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillRough], required=True, requires=[SETUP_LAMELLA_TASK_NAME]),
+                AutoLamellaTaskDescription(name=SETUP_LAMELLA_POSITION_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
+                AutoLamellaTaskDescription(name=MILL_FIDUCIAL_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.SetupLamella], required=True),
+                AutoLamellaTaskDescription(name=ROUGH_MILLING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillRough], required=True, requires=[MILL_FIDUCIAL_TASK_NAME]),
                 AutoLamellaTaskDescription(name=POLISHING_TASK_NAME, supervise=protocol.supervision[AutoLamellaStage.MillPolishing], required=True, requires=[ROUGH_MILLING_TASK_NAME]),
             ]
 
@@ -501,31 +515,71 @@ class DefectType(Enum):
 @evented
 @dataclass
 class DefectState:
-    has_defect: bool = False
-    requires_rework: bool = False
+    state: DefectType = field(default=DefectType.NONE)
+    last_completed_task: str = ""
     description: str = ""
     updated_at: Optional[float] = None
 
     def to_dict(self) -> dict:
-        """Convert the defect state to a dictionary."""
-        return asdict(self)
+        return {
+            "state": self.state.name,
+            "last_completed_task": self.last_completed_task,
+            "description": self.description,
+            "updated_at": self.updated_at,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> 'DefectState':
-        """Create a defect state from a dictionary."""
-        return cls(**data)
+        if not data:
+            return cls()
+        # Backwards compatibility: old format used has_defect / requires_rework bools
+        if "has_defect" in data:
+            if data.get("has_defect"):
+                state = DefectType.REWORK if data.get("requires_rework") else DefectType.FAILURE
+            else:
+                state = DefectType.NONE
+            return cls(
+                state=state,
+                description=data.get("description", ""),
+                updated_at=data.get("updated_at", None),
+            )
+        state = DefectType[data.get("state", "NONE")]
+        return cls(
+            state=state,
+            last_completed_task=data.get("last_completed_task", ""),
+            description=data.get("description", ""),
+            updated_at=data.get("updated_at", None),
+        )
 
     def clear(self):
-        self.has_defect = False
+        self.state = DefectType.NONE
+        self.last_completed_task = ""
         self.description = ""
-        self.requires_rework = False
         self.updated_at = None
 
-    def set_defect(self, description: str = "", requires_rework: bool = False):
-        self.has_defect = True
+    def set_defect(self, description: str = "", state: DefectType = DefectType.FAILURE):
+        self.state = state
         self.description = description
-        self.requires_rework = requires_rework
         self.updated_at = datetime.timestamp(datetime.now())
+
+
+def _make_thumbnail_placeholder():
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (256, 170), color=(30, 30, 30))
+    draw = ImageDraw.Draw(img)
+    text = "No Data"
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", size=20)
+    except OSError:
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((256 - tw) // 2, (170 - th) // 2), text, fill=(100, 100, 100), font=font)
+    return np.asarray(img)
+
+
+_THUMBNAIL_PLACEHOLDER = None
 
 
 @evented
@@ -570,7 +624,7 @@ class Lamella:
 
     @property
     def is_failure(self) -> bool:
-        return self.defect.has_defect
+        return self.defect.state != DefectType.NONE
 
     @property
     def stage_position(self) -> FibsemStagePosition:
@@ -678,7 +732,7 @@ class Lamella:
         alignment_area_ddict = data.get("alignment_area", DEFAULT_ALIGNMENT_AREA)
         alignment_area = FibsemRectangle.from_dict(alignment_area_ddict)
 
-        from fibsem.applications.autolamella.workflows.tasks.tasks import load_task_config
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
 
         return cls(
             petname=data["petname"],
@@ -702,13 +756,38 @@ class Lamella:
             fname: str
                 the filename of the reference image to load
         Returns:
-            adorned_img: AdornedImage
-                the reference image loaded as an AdornedImage
+            image: FibsemImage
+                the reference image loaded as a FibsemImage
         """
 
-        adorned_img = FibsemImage.load(os.path.join(self.path, f"{fname}.tif"))
+        image = FibsemImage.load(os.path.join(self.path, f"{fname}.tif"))
 
-        return adorned_img
+        return image
+
+    def get_thumbnail(self) -> "np.ndarray":
+        """Load the thumbnail image for this lamella if available.
+
+        Returns:
+            np.ndarray (H, W, 3) RGB, or a blank array if no thumbnail exists.
+        """
+        global _THUMBNAIL_PLACEHOLDER
+        thumb_path = os.path.join(self.path, "thumbnail.png")
+        import numpy as np
+        from PIL import Image
+        if not os.path.exists(thumb_path):
+            if _THUMBNAIL_PLACEHOLDER is None:
+                _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
+            return _THUMBNAIL_PLACEHOLDER
+        return np.asarray(Image.open(thumb_path).convert("RGB"))
+
+    def save_thumbnail(self, image: "FibsemImage") -> None:
+        """Save a thumbnail of the given image to disk as thumbnail.png."""
+        from PIL import Image
+        import numpy as np
+        data = image.filtered_data
+        if data.ndim == 2:
+            data = np.stack([data, data, data], axis=2)
+        Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
 
     # convert to method
     def get_reference_images(self, filename: str) -> ReferenceImages:
@@ -729,6 +808,31 @@ class Lamella:
     #             task_configs[k] = v
     #     return task_configs
 
+    def sync_tasks_to_poi(self, point: Optional[Point] = None) -> list[str]:
+        """Sync the milling patterns to point of interest  """
+
+        if point is None:
+            point = self.poi
+
+        synced_tasks = []
+
+        for task_name, task_config in self.task_config.items():
+            # check if task has sync_to_poi enabled
+            if not getattr(task_config, "sync_to_poi", False):
+                continue
+            if not task_config.milling:
+                continue
+
+            for milling_config in task_config.milling.values():
+                if not milling_config.stages:
+                    continue
+                # calculate offset from the first stage's pattern point
+                diff = point - milling_config.stages[0].pattern.point
+                for stage in milling_config.stages:
+                    stage.pattern.point = stage.pattern.point + diff
+
+            synced_tasks.append(task_name)
+        return synced_tasks
 
 @evented
 @dataclass
@@ -840,6 +944,10 @@ class Experiment:
         """Set the organisation name in metadata."""
         self.metadata["organisation"] = value
 
+    def get_lamella_by_name(self, name: str) -> Optional['Lamella']:
+        """Return the Lamella with the given name, or None if not found."""
+        return next((p for p in self.positions if p.name == name), None)
+
     def save(self) -> None:
         """Save the sample data to yaml file"""
 
@@ -886,9 +994,107 @@ class Experiment:
 
         return experiment
 
+    def apply_lamella_config(
+        self,
+        lamella_names: List[str],
+        task_names: List[str],
+        source_lamella_name: Optional[str] = None,
+        update_base_protocol: bool = False,
+    ) -> int:
+        """Apply task configurations to lamella, preserving existing milling pattern positions.
+
+        If source_lamella_name is provided, copies from that lamella's config.
+        If None, copies from the base protocol.
+
+        Args:
+            lamella_names: Names of the target lamella to apply configurations to.
+            task_names: The task names to apply.
+            source_lamella_name: Name of the source lamella. If None, uses the base protocol.
+            update_base_protocol: Whether to also update the base protocol.
+
+        Returns:
+            The number of lamella updated.
+        """
+        # Resolve the source task config
+        if source_lamella_name is not None:
+            source_lamella = next(
+                (p for p in self.positions if p.name == source_lamella_name), None
+            )
+            if source_lamella is None:
+                logging.warning(f"Source lamella '{source_lamella_name}' not found.")
+                return 0
+            source_task_config = source_lamella.task_config
+            source_display_name = source_lamella_name
+        else:
+            if self.task_protocol is None:
+                logging.warning("No base protocol available.")
+                return 0
+            source_task_config = self.task_protocol.task_config
+            source_display_name = "base protocol"
+
+        target_names = set(lamella_names)
+        updated_count = 0
+        for lamella in self.positions:
+            if lamella.name not in target_names:
+                continue
+
+            for task_name in task_names:
+                source_config = source_task_config.get(task_name)
+                if source_config is None:
+                    continue
+
+                new_config = deepcopy(source_config)
+                existing_config = lamella.task_config.get(task_name)
+
+                # Preserve existing milling pattern positions
+                if existing_config is not None and new_config.milling:
+                    for milling_name, new_milling_config in new_config.milling.items():
+                        existing_milling_config = existing_config.milling.get(milling_name)
+                        if existing_milling_config is None:
+                            continue
+
+                        existing_stage_lookup = {
+                            (stage.num, stage.name): stage
+                            for stage in existing_milling_config.stages
+                        }
+
+                        for new_stage in new_milling_config.stages:
+                            existing_stage = existing_stage_lookup.get(
+                                (new_stage.num, new_stage.name)
+                            )
+                            if existing_stage is None:
+                                continue
+
+                            if (
+                                type(existing_stage.pattern) is type(new_stage.pattern)
+                                and hasattr(existing_stage.pattern, "point")
+                            ):
+                                new_stage.pattern.point = deepcopy(
+                                    existing_stage.pattern.point
+                                )
+
+                lamella.task_config[task_name] = new_config
+
+            updated_count += 1
+            logging.info(
+                f"Applied config from '{source_display_name}' to '{lamella.name}' "
+                f"for tasks: {task_names}"
+            )
+
+        # Update base protocol if requested (skip if source is already the base protocol)
+        if update_base_protocol and self.task_protocol is not None and source_lamella_name is not None:
+            for task_name in task_names:
+                if task_name in source_task_config:
+                    self.task_protocol.task_config[task_name] = deepcopy(
+                        source_task_config[task_name]
+                    )
+            logging.info(f"Updated base protocol tasks: {task_names}")
+
+        return updated_count
+
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""
-        return [lamella for lamella in self.positions if lamella.defect.has_defect]
+        return [lamella for lamella in self.positions if lamella.is_failure]
 
     def get_milling_positions(self) -> List[FibsemStagePosition]:
         """Get the milling stage positions for all lamellas in the experiment"""
@@ -910,7 +1116,7 @@ class Experiment:
         for p in self.positions:
 
             # skip failed lamellas
-            if p.defect.has_defect:
+            if p.is_failure:
                 continue
 
             # remaining time for individual lamella
@@ -1033,7 +1239,7 @@ class Experiment:
                 "last_completed_task": p.last_completed_task.name if p.last_completed_task else None,
                 "last_completed_at": p.last_completed_task.completed_at if p.last_completed_task else None,
                 "is_completed": self.task_protocol.workflow_config.is_completed(p),
-                "is_failure": p.defect.has_defect,
+                "is_failure": p.is_failure,
                 "milling_angle": p.milling_angle,
             }
             edict.append(deepcopy(ddict))

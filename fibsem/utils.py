@@ -17,6 +17,7 @@ from packaging import version
 from PIL import Image
 
 from fibsem import config as cfg
+from fibsem.constants import DATETIME_LOG, TIME_FILE
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -67,7 +68,7 @@ def current_timestamp():
     Returns:
         String: Current time
     """
-    return datetime.datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d-%I-%M-%S%p") #PM/AM doesnt work?
+    return datetime.datetime.fromtimestamp(time.time()).strftime(DATETIME_LOG) #PM/AM doesnt work?
 
 
 def current_timestamp_v2():
@@ -82,8 +83,8 @@ def current_timestamp_v3(timeonly: bool = True) -> str:
     """Return the current time in a specific string formats: HH-MM-SS or YYYY-MM-DD-HH-MM-SSAM/PM"""
     now = datetime.datetime.now()
     if timeonly:
-        return now.strftime("%H-%M-%S")
-    return now.strftime("%Y-%m-%d-%I-%M-%S%p")
+        return now.strftime(TIME_FILE)
+    return now.strftime(DATETIME_LOG)
 
 def _format_time_seconds(seconds: float) -> str:
     """Format a time delta in seconds to proper string format."""
@@ -343,8 +344,8 @@ def setup_session(
             ip_address=ip_address, port=8300
         )
     elif manufacturer in ["Odemis"]:
-        from fibsem.microscopes.odemis_microscope import OdemisMicroscope
-        microscope = OdemisMicroscope(settings.system)
+        from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+        microscope = OdemisThermoMicroscope(settings.system)
 
     elif manufacturer == "Demo":
         from fibsem.microscopes.simulator import DemoMicroscope

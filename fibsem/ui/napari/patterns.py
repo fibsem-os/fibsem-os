@@ -34,7 +34,7 @@ from fibsem.structures import (
     calculate_fiducial_area_v2,
 )
 from fibsem.milling.patterning.utils import create_pattern_mask
-from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
+from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES, MILLING_FOV_LAYER_PROPERTIES
 
 # colour wheel
 COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
@@ -52,8 +52,11 @@ IMAGE_LAYER_PROPERTIES = {
     "cmap": {0: "black", 1: COLOURS[0]} # override with colour wheel
 }
 
+MILLING_ALIGNMENT_AREA_LAYER_NAME = "Milling Alignment Area"
+MILLING_PATTERN_LAYER_NAME = "Milling Patterns"
+MILLING_FOV_LAYER_NAME = "Milling FOV"
 IMAGE_PATTERN_TYPES = ("bitmap",)
-IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "alignment_area", "overlay-shapes", "bbox"] # ignore these layers when removing all shapes
+IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay-shapes", "bbox", MILLING_FOV_LAYER_NAME] # ignore these layers when removing all shapes
 STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
@@ -458,15 +461,17 @@ def draw_milling_patterns_in_napari(
             # TODO: properties dict for all parameters
             all_napari_patterns[stage.name] = napari_patterns
     layer_names_used: Set[str] = set()
+    opacity = SHAPES_LAYER_PROPERTIES["opacity"]
+    blending = SHAPES_LAYER_PROPERTIES["blending"]
+    edge_width = SHAPES_LAYER_PROPERTIES["edge_width"]
+    selected_edge_width = edge_width * 3  # thicker border for selected stage
+    shapes_list: List[np.ndarray] = []
+    shape_types: List[str] = []
+    edge_colours: List[str] = []
+    face_colours: List[str] = []
+    edge_widths: List[float] = []
+
     if all_napari_patterns:
-        opacity = SHAPES_LAYER_PROPERTIES["opacity"]
-        blending = SHAPES_LAYER_PROPERTIES["blending"]
-        edge_width = SHAPES_LAYER_PROPERTIES["edge_width"]
-        selected_edge_width = edge_width * 3  # thicker border for selected stage
-        shapes_list: List[np.ndarray] = []
-        shape_types: List[str] = []
-        shape_colours: list[str] = []
-        edge_widths: List[float] = []
         for i, (layer_name, patterns) in enumerate(all_napari_patterns.items()):
             is_selected = (selected_index is not None and i == selected_index)
             image_list: List[NapariPattern] = []
@@ -476,7 +481,8 @@ def draw_milling_patterns_in_napari(
                 else:
                     shapes_list.append(pattern.shape)
                     shape_types.append(pattern.shape_type)
-                    shape_colours.append(pattern.colour)
+                    edge_colours.append(pattern.colour)
+                    face_colours.append(pattern.colour)
                     edge_widths.append(selected_edge_width if is_selected else edge_width)
 
             for shape in image_list:
@@ -508,46 +514,48 @@ def draw_milling_patterns_in_napari(
                     )
                 layer_names_used.add(layer_name)
 
-        if shapes_list:
-            layer_name = "Milling Patterns"
-            if layer_name in viewer.layers:
-                # need to clear data before updating, to account for different shapes.
-                viewer.layers[layer_name].data = []
-                viewer.layers[layer_name].data = shapes_list
-                viewer.layers[layer_name].shape_type = shape_types
-                viewer.layers[layer_name].edge_width = edge_widths
-                viewer.layers[layer_name].edge_color = shape_colours
-                viewer.layers[layer_name].face_color = shape_colours
-                viewer.layers[layer_name].translate = translation
-                viewer.layers[layer_name].opacity = opacity
-                viewer.layers[layer_name].blending = blending
-            else:
-                viewer.add_shapes(
-                    data=shapes_list,
-                    name=layer_name,
-                    shape_type=shape_types,
-                    edge_width=edge_widths,
-                    edge_color=shape_colours,
-                    face_color=shape_colours,
-                    opacity=opacity,
-                    blending=blending,
-                    translate=translation,
-                )
-            layer_names_used.add(layer_name)
+    # fold alignment area into the milling patterns layer
+    if alignment_area is not None:
+        alignment_shape = convert_reduced_area_to_napari_shape(
+            reduced_area=alignment_area,
+            image_shape=image_shape,
+        )
+        shapes_list.append(alignment_shape)
+        shape_types.append(ALIGNMENT_LAYER_PROPERTIES["shape_type"])
+        edge_colours.append(ALIGNMENT_LAYER_PROPERTIES["edge_color"])
+        face_colours.append(ALIGNMENT_LAYER_PROPERTIES["face_color"])
+        edge_widths.append(ALIGNMENT_LAYER_PROPERTIES["edge_width"])
+
+    if shapes_list:
+        layer_name = MILLING_PATTERN_LAYER_NAME
+        if layer_name in viewer.layers:
+            # need to clear data before updating, to account for different shapes.
+            viewer.layers[layer_name].data = []
+            viewer.layers[layer_name].data = shapes_list
+            viewer.layers[layer_name].shape_type = shape_types
+            viewer.layers[layer_name].edge_width = edge_widths
+            viewer.layers[layer_name].edge_color = edge_colours
+            viewer.layers[layer_name].face_color = face_colours
+            viewer.layers[layer_name].translate = translation
+            viewer.layers[layer_name].opacity = opacity
+            viewer.layers[layer_name].blending = blending
+        else:
+            viewer.add_shapes(
+                data=shapes_list,
+                name=layer_name,
+                shape_type=shape_types,
+                edge_width=edge_widths,
+                edge_color=edge_colours,
+                face_color=face_colours,
+                opacity=opacity,
+                blending=blending,
+                translate=translation,
+            )
+        layer_names_used.add(layer_name)
 
     CURRENT_PATTERN_LAYERS.update(layer_names_used)
 
     layer_name_list = list(layer_names_used)
-
-    # draw alignment area
-    if alignment_area is not None:
-        layer_name = draw_alignment_area(
-            viewer=viewer,
-            reduced_area=alignment_area,
-            image_shape=image_shape,
-            translate=translation,
-        )
-        layer_name_list.append(layer_name)
 
     # remove all un-updated layers (assume they have been deleted)
     remove_all_napari_shapes_layers(
@@ -573,7 +581,7 @@ def draw_alignment_area(viewer: napari.Viewer,
     data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area,
                                                 image_shape=image_shape,
                                                 )
-    layer_name = "Milling Alignment Area"
+    layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
     if layer_name in viewer.layers:
         viewer.layers.remove(layer_name)
 
@@ -586,6 +594,72 @@ def draw_alignment_area(viewer: napari.Viewer,
         translate=translate) # match the fib layer translation
 
     return layer_name
+
+
+def draw_milling_fov_rect(
+    viewer: napari.Viewer,
+    image_layer: NapariImageLayer,
+    field_of_view: float,
+    pixelsize: float,
+) -> Optional[str]:
+    """Draw a rectangle showing the milling FOV when it is smaller than the image FOV.
+
+    Args:
+        viewer: napari viewer instance
+        image_layer: the reference image layer
+        field_of_view: milling horizontal field of view in metres
+        pixelsize: image pixel size in metres/pixel
+    Returns:
+        layer name if drawn, else None
+    """
+    image_shape = image_layer.data.shape
+    image_fov = pixelsize * image_shape[1]
+    layer_name = MILLING_FOV_LAYER_NAME
+
+    if field_of_view >= image_fov:
+        if layer_name in viewer.layers:
+            viewer.layers.remove(layer_name)
+        return None
+
+    ratio = field_of_view / image_fov
+    cy, cx = image_shape[0] / 2, image_shape[1] / 2
+    half_h = ratio * image_shape[0] / 2
+    half_w = ratio * image_shape[1] / 2
+    data = np.array([
+        [cy - half_h, cx - half_w],
+        [cy - half_h, cx + half_w],
+        [cy + half_h, cx + half_w],
+        [cy + half_h, cx - half_w],
+    ])
+
+    fov_um = field_of_view * 1e6
+    label = f"Milling FOV ({fov_um:.0f}um)"
+    text_props = {
+        "string": [label],
+        "size": 12,
+        "color": "white",
+        "anchor": "upper_left",
+        "translation": np.array([5, 5]),
+    }
+
+    if layer_name in viewer.layers:
+        viewer.layers[layer_name].data = [data]
+        viewer.layers[layer_name].text.string = [label]
+    else:
+        viewer.add_shapes(
+            data=[data],
+            name=layer_name,
+            shape_type=MILLING_FOV_LAYER_PROPERTIES["shape_type"],
+            edge_color=MILLING_FOV_LAYER_PROPERTIES["edge_color"],
+            edge_width=MILLING_FOV_LAYER_PROPERTIES["edge_width"],
+            face_color=MILLING_FOV_LAYER_PROPERTIES["face_color"],
+            opacity=MILLING_FOV_LAYER_PROPERTIES["opacity"],
+            translate=image_layer.translate,
+            text=text_props,
+        )
+
+    return layer_name
+
 
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     icy, icx = resolution[1] // 2, resolution[0] // 2
@@ -713,10 +787,10 @@ def convert_shape_to_image_area(shape: List[List[int]], image_shape: Tuple[int, 
     logging.debug(f"convert shape data: {x0}, {x1}, {y0}, {y1}, fib shape: {image_shape}")
         
     # convert to percentage of image
-    x0 = x0 / image_shape[1]
-    x1 = x1 / image_shape[1]
-    y0 = y0 / image_shape[0]
-    y1 = y1 / image_shape[0]
+    x0 = float(x0 / image_shape[1])
+    x1 = float(x1 / image_shape[1])
+    y0 = float(y0 / image_shape[0])
+    y1 = float(y1 / image_shape[0])
     w = x1 - x0
     h = y1 - y0
 

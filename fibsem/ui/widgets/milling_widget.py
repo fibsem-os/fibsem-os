@@ -2,7 +2,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QProgressBar,
@@ -18,7 +18,7 @@ from fibsem.ui import stylesheets
 from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
+    from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 
 
 class FibsemMillingWidget2(QWidget):
@@ -28,28 +28,29 @@ class FibsemMillingWidget2(QWidget):
     """
     start_milling_signal = pyqtSignal()
 
-    def __init__(self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget"):
+    def __init__(self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget2"):
         super().__init__(parent)
         self.microscope = microscope
         self.parent_widget = parent
 
         self._milling_thread: Optional[threading.Thread] = None
         self._milling_stop_event = threading.Event()
+        self._has_stages = False
         layout = QGridLayout()
 
         # pushbutton for run milling
         self.pushButton_run_milling = QPushButton("Run Milling")
         self.pushButton_run_milling.clicked.connect(self.run_milling)
-        self.pushButton_run_milling.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_run_milling.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         self.pushButton_stop_milling = QPushButton("Stop Milling")
         self.pushButton_stop_milling.clicked.connect(self.stop_milling)
-        self.pushButton_stop_milling.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_stop_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.pushButton_stop_milling.setVisible(False)
 
         self.pushButton_pause_milling = QPushButton("Pause Milling")
         self.pushButton_pause_milling.clicked.connect(self.pause_resume_milling)
-        self.pushButton_pause_milling.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
+        self.pushButton_pause_milling.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_pause_milling.setVisible(False)
 
         self.progressBar_milling = QProgressBar(self)
@@ -57,11 +58,15 @@ class FibsemMillingWidget2(QWidget):
         self.progressBar_milling.setVisible(False)
         self.progressBar_milling_stages.setVisible(False)
         self.progressBar_milling_stages.setStyleSheet(
-            stylesheets.PROGRESS_BAR_BLUE_STYLE
+            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
         )
-        self.progressBar_milling.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
+        self.progressBar_milling.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
 
-        self.start_milling_signal.connect(self.run_milling)
+        self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection) # type: ignore
+
+        # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
+        # if self.parent_widget._milling_enabled:
+            # self.microscope.milling_progress_signal.connect(self._on_milling_progress)
 
         # TODO: milling message display
 
@@ -72,6 +77,11 @@ class FibsemMillingWidget2(QWidget):
         layout.addWidget(self.pushButton_stop_milling, 3, 1)
 
         self.setLayout(layout)
+
+        # disable run button when no stages
+        stages_widget = self.parent_widget.config_widget.milling_stages_widget
+        stages_widget.stages_changed.connect(self._on_stages_changed)
+        self._on_stages_changed(stages_widget.get_stages())
 
     @property
     def is_milling(self) -> bool:
@@ -161,7 +171,7 @@ class FibsemMillingWidget2(QWidget):
     ):
         """Worker function to run the milling task in a separate thread."""
         try:
-            if not milling_task_config.stages:
+            if not milling_task_config.enabled_stages:
                 raise ValueError("No milling stages defined in the configuration.")
 
             run_milling_task(
@@ -189,6 +199,11 @@ class FibsemMillingWidget2(QWidget):
             self.microscope.resume_milling()
             self.pushButton_pause_milling.setText("Pause Milling")
 
+    def _on_stages_changed(self, stages: list):
+        """Update internal stage state and refresh button availability."""
+        self._has_stages = any(s.enabled for s in stages)
+        self._update_button_states()
+
     def _update_button_states(self):
         """Update the enabled/disabled state of buttons based on current milling state."""
         if self.is_milling:
@@ -198,7 +213,7 @@ class FibsemMillingWidget2(QWidget):
             self.pushButton_pause_milling.setEnabled(True)
             self.pushButton_pause_milling.setVisible(True)
         else:
-            self.pushButton_run_milling.setEnabled(True)
+            self.pushButton_run_milling.setEnabled(self._has_stages)
             self.pushButton_stop_milling.setEnabled(False)
             self.pushButton_stop_milling.setVisible(False)
             self.pushButton_pause_milling.setEnabled(False)

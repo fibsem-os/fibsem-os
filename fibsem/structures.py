@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, 
 import numpy as np
 import tifffile as tff
 from numpy.typing import NDArray
-from scipy.ndimage import median_filter
+from scipy.ndimage import median_filter, gaussian_filter
 
 import fibsem
 from fibsem.config import METADATA_VERSION, SUPPORTED_COORDINATE_SYSTEMS
@@ -405,6 +405,12 @@ class FibsemStagePosition:
         tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}°" if self.t is not None else "T:None"
         return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
 
+    def euclidean_distance(self, other: 'FibsemStagePosition') -> float:
+        """Calculate the euclidean distance between two stage positions."""
+        dx = (self.x - other.x) if self.x is not None and other.x is not None else 0.0
+        dy = (self.y - other.y) if self.y is not None and other.y is not None else 0.0
+        dz = (self.z - other.z) if self.z is not None and other.z is not None else 0.0
+        return float(np.linalg.norm([dx, dy, dz]))
 
 @dataclass
 class FibsemManipulatorPosition:
@@ -824,6 +830,48 @@ class ImageSettings:
             reduced_area=None,
         )
         return image_settings
+
+
+@dataclass
+class OverviewAcquisitionSettings:
+    """Settings for a tiled overview acquisition.
+
+    Attributes:
+        image_settings: Per-tile image settings (hfw = tile FOV, beam_type, resolution, etc.)
+        nrows: Number of tile rows in the grid.
+        ncols: Number of tile columns in the grid.
+        overlap: Fractional overlap between adjacent tiles (0.0 = no overlap). Not yet supported.
+    """
+
+    image_settings: ImageSettings = field(default_factory=ImageSettings)
+    nrows: int = 3
+    ncols: int = 3
+    overlap: float = 0.0
+    use_focus_stack: bool = False
+
+    @property
+    def total_fov(self) -> float:
+        """Total field of view in meters (width = ncols * tile_hfw)."""
+        return self.ncols * self.image_settings.hfw
+
+    @staticmethod
+    def from_dict(d: dict) -> "OverviewAcquisitionSettings":
+        return OverviewAcquisitionSettings(
+            image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
+            nrows=d.get("nrows", 3),
+            ncols=d.get("ncols", 3),
+            overlap=d.get("overlap", 0.0),
+            use_focus_stack=d.get("use_focus_stack", False),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "image_settings": self.image_settings.to_dict(),
+            "nrows": self.nrows,
+            "ncols": self.ncols,
+            "overlap": self.overlap,
+            "use_focus_stack": self.use_focus_stack,
+        }
 
 
 @dataclass
@@ -1375,6 +1423,7 @@ class FibsemMillingSettings:
     patterning_mode: str = field(default="Serial", 
                                 metadata={"label": "Patterning Mode",
                                         "type": str,
+                                        "advanced": True,
                                         "items": ["Serial", "Parallel"],
                                         "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
                                         })
@@ -1555,6 +1604,18 @@ class FibsemMillingSettings:
         """Get parameter values for a specific manufacturer."""
         required_params = self.get_parameters_for_manufacturer(manufacturer)
         return {param: getattr(self, param) for param in required_params}
+
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        mc = format_value(self.milling_current, unit="A", precision=1)
+        mv = format_value(self.milling_voltage, unit="V", precision=1)
+        lines = [
+            "    Milling:",
+            f"        Current: {mc}",
+            f"        Voltage: {mv}",
+            f"        Patterning Mode: {self.patterning_mode}",
+        ]
+        return "\n".join(lines)
 
 
 @dataclass
@@ -1999,7 +2060,7 @@ class FibsemImage:
         if check_data_format(data):
             if data.ndim == 3 and data.shape[2] == 1:
                 data = data[:, :, 0]
-            self.data = data
+            self.data = data  # setter also populates _filtered_data
         else:
             raise Exception("Invalid Data format for Fibsem Image")
         if metadata is not None:
@@ -2008,9 +2069,36 @@ class FibsemImage:
             self.metadata = None
 
     @property
+    def shape(self) -> tuple[int, int]:
+        """Returns the shape of the image data."""
+        return self.data.shape
+    
+    @property
+    def dtype(self) -> np.dtype:
+        """Returns the data type of the image data."""
+        return self.data.dtype
+    
+    @property
+    def data(self) -> NDArray:
+        """Returns the image data as a numpy array."""
+        return self._data
+    
+    @data.setter
+    def data(self, value: NDArray) -> None:
+        if check_data_format(value):
+            self._data = value
+            self._filtered_data = self._filter_data(value)
+        else:
+            raise Exception("Invalid Data format for Fibsem Image")
+
+    @property
     def filtered_data(self) -> NDArray:
         """Returns a median filtered version of the image data. Typically used for display purposes."""
-        return median_filter(self.data, size=3)
+        return self._filtered_data
+
+    def _filter_data(self, data, size: int = 3, sigma: float = 1) -> NDArray:
+        """Returns a filtered version of the image data using a median filter followed by a gaussian filter. Can be used for display or processing purposes."""
+        return gaussian_filter(median_filter(data, size=size), sigma=sigma)
 
     @classmethod
     def load(cls, tiff_path: str) -> "FibsemImage":
@@ -2438,7 +2526,7 @@ class RangeLimit:
 @dataclass
 class ReferenceImageParameters:
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    field_of_view1: float = field(default=120e-6, metadata={"tooltip": "Field of view for first reference image"})
+    field_of_view1: float = field(default=100e-6, metadata={"tooltip": "Field of view for first reference image"})
     field_of_view2: float = field(default=150e-6, metadata={"tooltip": "Field of view for second reference image"})
     acquire_sem: bool = field(default=True, metadata={"tooltip": "Whether to acquire SEM reference images"})
     acquire_fib: bool = field(default=True, metadata={"tooltip": "Whether to acquire FIB reference images"})
@@ -2461,7 +2549,7 @@ class ReferenceImageParameters:
         imaging = ImageSettings.from_dict(settings.get("imaging", {}))
         return ReferenceImageParameters(
             imaging=imaging,
-            field_of_view1=settings.get("field_of_view1", 120e-6),
+            field_of_view1=settings.get("field_of_view1", 100e-6),
             field_of_view2=settings.get("field_of_view2", 150e-6),
             acquire_sem=settings.get("acquire_sem", True),
             acquire_fib=settings.get("acquire_fib", True),

@@ -2,9 +2,7 @@ import copy
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QGridLayout,
-    QGroupBox,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -12,7 +10,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
 from fibsem.structures import ReferenceImageParameters
+from fibsem.ui import stylesheets
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -61,20 +61,18 @@ class ReferenceImageParametersWidget(QWidget):
         self._settings = ReferenceImageParameters()
         self._setup_ui()
         self._connect_signals()
-        # self.update_from_settings(self._settings)
 
     def _setup_ui(self):
         """Create and configure all UI elements."""
         main_layout = QVBoxLayout()
-        # main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(6)  # Reduced spacing between groups
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
         self.setLayout(main_layout)
 
-        # Acquisition Settings Group (consolidates FOV and acquisition options)
-        acq_group = QGroupBox("Acquisition")
-        acq_group.setFlat(True)  # Flat style for lighter visual weight
-        acq_layout = QGridLayout()
-        acq_group.setLayout(acq_layout)
+        # ── Acquisition panel ────────────────────────────────────────
+        acq_content = QWidget()
+        acq_layout = QGridLayout(acq_content)
+        acq_layout.setContentsMargins(4, 4, 4, 4)
 
         # Beam Type Options
         self.acquire_sem_check = QCheckBox("Acquire SEM")
@@ -94,15 +92,16 @@ class ReferenceImageParametersWidget(QWidget):
 
         self.fov1_label = QLabel("Field of View 1")
         self.fov1_label.setToolTip(WIDGET_CONFIG["field_of_view1"]["tooltip"])
-        self.fov1_spinbox = QDoubleSpinBox()
         fov1_config = WIDGET_CONFIG["field_of_view1"]
-        self.fov1_spinbox.setRange(*fov1_config["range"])
-        self.fov1_spinbox.setDecimals(fov1_config["decimals"])
-        self.fov1_spinbox.setSingleStep(fov1_config["step"])
+        self.fov1_spinbox = ValueSpinBox(
+            suffix=fov1_config["suffix"],
+            minimum=fov1_config["range"][0],
+            maximum=fov1_config["range"][1],
+            step=fov1_config["step"],
+            decimals=fov1_config["decimals"],
+            tooltip=fov1_config["tooltip"],
+        )
         self.fov1_spinbox.setValue(fov1_config["default"])
-        self.fov1_spinbox.setSuffix(fov1_config["suffix"])
-        self.fov1_spinbox.setToolTip(fov1_config["tooltip"])
-        self.fov1_spinbox.setKeyboardTracking(False)  # Only emit signal when editing is finished
 
         # Image 2 Options
         self.acquire_image2_label = QLabel("Acquire Image 2")
@@ -113,21 +112,22 @@ class ReferenceImageParametersWidget(QWidget):
 
         self.fov2_label = QLabel("Field of View 2")
         self.fov2_label.setToolTip(WIDGET_CONFIG["field_of_view2"]["tooltip"])
-        self.fov2_spinbox = QDoubleSpinBox()
         fov2_config = WIDGET_CONFIG["field_of_view2"]
-        self.fov2_spinbox.setRange(*fov2_config["range"])
-        self.fov2_spinbox.setDecimals(fov2_config["decimals"])
-        self.fov2_spinbox.setSingleStep(fov2_config["step"])
+        self.fov2_spinbox = ValueSpinBox(
+            suffix=fov2_config["suffix"],
+            minimum=fov2_config["range"][0],
+            maximum=fov2_config["range"][1],
+            step=fov2_config["step"],
+            decimals=fov2_config["decimals"],
+            tooltip=fov2_config["tooltip"],
+        )
         self.fov2_spinbox.setValue(fov2_config["default"])
-        self.fov2_spinbox.setSuffix(fov2_config["suffix"])
-        self.fov2_spinbox.setToolTip(fov2_config["tooltip"])
-        self.fov2_spinbox.setKeyboardTracking(False)  # Only emit signal when editing is finished
 
         # Info/Warning label for acquisition information
         self.info_label = QLabel()
-        self.info_label.setStyleSheet("font-style: italic;")
+        self.info_label.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
         self.info_label.setWordWrap(True)
-        self.info_label.setVisible(False)  # Hidden by default
+        self.info_label.setVisible(False)
 
         # Layout arrangement
         acq_layout.addWidget(self.acquire_sem_check, 0, 0)
@@ -140,21 +140,31 @@ class ReferenceImageParametersWidget(QWidget):
         acq_layout.addWidget(self.acquire_image2_check, 3, 1)
         acq_layout.addWidget(self.fov2_label, 4, 0)
         acq_layout.addWidget(self.fov2_spinbox, 4, 1)
-        acq_layout.addWidget(self.info_label, 5, 0, 1, 2)  # Span both columns
+        acq_layout.addWidget(self.info_label, 5, 0, 1, 2)
 
-        # Imaging Settings
-        self.imaging_settings_group = QGroupBox("Imaging Settings")
-        self.imaging_settings_group.setFlat(True)  # Flat style for lighter visual weight
+        acq_panel = TitledPanel("Acquisition", content=acq_content)
+        acq_panel._btn_collapse.setChecked(True)
+
+        # ── Imaging Settings panel ───────────────────────────────────
         self.imaging_widget = ImageSettingsWidget(show_advanced=False, parent=self)
         self.imaging_widget.show_field_of_view(False)
+        self.imaging_widget.set_show_advanced_button(False)
 
-        imaging_layout = QVBoxLayout()
-        self.imaging_settings_group.setLayout(imaging_layout)
-        imaging_layout.addWidget(self.imaging_widget)
+        self._btn_advanced_imaging = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
 
-        main_layout.addWidget(acq_group)
-        main_layout.addWidget(self.imaging_settings_group)
-        main_layout.addStretch()  # Push everything to the top
+        self.imaging_settings_panel = TitledPanel("Imaging Settings", content=self.imaging_widget)
+        self.imaging_settings_panel.add_header_widget(self._btn_advanced_imaging)
+        self.imaging_settings_panel._btn_collapse.setChecked(True)
+
+        main_layout.addWidget(acq_panel)
+        main_layout.addWidget(self.imaging_settings_panel)
+        main_layout.addStretch()
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers."""
@@ -164,6 +174,7 @@ class ReferenceImageParametersWidget(QWidget):
         self.acquire_fib_check.toggled.connect(self._on_acquisition_toggled)
         self.acquire_image1_check.toggled.connect(self._on_image1_toggled)
         self.acquire_image2_check.toggled.connect(self._on_image2_toggled)
+        self._btn_advanced_imaging.toggled.connect(self.imaging_widget.set_show_advanced)
 
         self.imaging_widget.settings_changed.connect(self._emit_settings_changed)
 
@@ -211,13 +222,12 @@ class ReferenceImageParametersWidget(QWidget):
         will_acquire = not (no_beams or no_images)
 
         # Enable/disable imaging settings based on whether images will be acquired
-        self.imaging_settings_group.setEnabled(will_acquire)
+        self.imaging_settings_panel.setEnabled(will_acquire)
 
         # Build message
         if not will_acquire:
             # Warning case - no images will be acquired
-            self.info_label.setText("No reference images will be acquired")
-            self.info_label.setStyleSheet("color: orange; font-style: italic;")
+            message = "No reference images will be acquired"
             self.info_label.setVisible(True)
         else:
             # Valid acquisition - show what will be acquired
@@ -239,9 +249,8 @@ class ReferenceImageParametersWidget(QWidget):
 
             # Construct message
             message = f"Acquire {beam_str} reference images at {fov_str} after task completion"
-            self.info_label.setText(message)
-            self.info_label.setStyleSheet("color: cyan; font-style: italic;")
-            self.info_label.setVisible(True)
+        self.info_label.setText(message)
+        self.info_label.setVisible(True)
 
     def show_field_of_view(self, field: int, show: bool):
         """Show or hide a specific field of view control.
@@ -333,62 +342,3 @@ class ReferenceImageParametersWidget(QWidget):
 
         # Update info/warning label (called after unblocking signals to avoid recursion)
         self._update_information_text()
-
-
-if __name__ == "__main__":
-    import sys
-
-    from PyQt5.QtWidgets import QApplication, QPushButton
-
-    app = QApplication(sys.argv)
-
-    # Create main window
-    main_widget = QWidget()
-    layout = QVBoxLayout()
-    main_widget.setLayout(layout)
-
-    # Create the ReferenceImageParameters widget
-    settings_widget = ReferenceImageParametersWidget()
-    layout.addWidget(settings_widget)
-
-    # Add a button to print current settings
-    def print_settings():
-        settings = settings_widget.get_settings()
-        print("Current ReferenceImageParameters:")
-        print(f"  Field of View 1: {settings.field_of_view1 * SI_TO_MICRO:.1f} μm")
-        print(f"  Field of View 2: {settings.field_of_view2 * SI_TO_MICRO:.1f} μm")
-        print(f"  Acquire SEM: {settings.acquire_sem}")
-        print(f"  Acquire FIB: {settings.acquire_fib}")
-        print(f"  Acquire Image 1: {settings.acquire_image1}")
-        print(f"  Acquire Image 2: {settings.acquire_image2}")
-        print(f"  Imaging Settings: {settings.imaging}")
-
-    print_button = QPushButton("Print Current Settings")
-    print_button.clicked.connect(print_settings)
-    layout.addWidget(print_button)
-
-    # Connect to settings change signal
-    def on_settings_changed(settings: ReferenceImageParameters):
-        print(f"Settings changed - FOV1: {settings.field_of_view1 * SI_TO_MICRO:.1f} μm, FOV2: {settings.field_of_view2 * SI_TO_MICRO:.1f} μm")
-
-    settings_widget.settings_changed.connect(on_settings_changed)
-
-    initial_params = ReferenceImageParameters(
-        field_of_view1=200e-6, field_of_view2=100e-6, 
-        acquire_fib=True, acquire_sem=False, 
-        acquire_image1=True, acquire_image2=False
-    )
-    settings_widget.update_from_settings(initial_params)
-
-
-    main_widget.setWindowTitle("ReferenceImageParameters Widget Test")
-
-    try:
-        import napari
-
-        viewer = napari.Viewer()
-        viewer.window.add_dock_widget(main_widget, area="right")
-        napari.run()
-    except ImportError:
-        main_widget.show()
-        sys.exit(app.exec_())

@@ -43,6 +43,7 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
                             "minimum": -1000.0,
                             "maximum": 1000.0,
                             "tooltip": "Point coordinates for the milling pattern.",
+                            "advanced" : True,
                          })
     shapes: Optional[List[TFibsemPatternSettings]] = field(default=None, init=False)
 
@@ -110,6 +111,26 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     def field_metadata(self) -> Dict[str, Dict[str, Any]]:
         """Return dataclass fields with metadata, filling any missing keys with defaults."""
         return get_fields_with_metadata(self.__class__)
+
+    def summary(self) -> str:
+        """Return a multi-line human-readable summary of key pattern parameters."""
+        from fibsem.utils import format_value
+        lines = [f"    Pattern: {self.name}"]
+        for attr in self.required_attributes:
+            if attr in self.advanced_attributes:
+                continue
+            val = getattr(self, attr)
+            meta = self.field_metadata.get(attr, {})
+            unit = meta.get("unit", None)
+            label = meta.get("label", attr.replace("_", " ").title())
+            if isinstance(val, float) and unit:
+                val_str = format_value(val, unit=unit, precision=1)
+            elif hasattr(val, "name"):  # Enum
+                val_str = val.name
+            else:
+                val_str = str(val)
+            lines.append(f"        {label}: {val_str}")
+        return "\n".join(lines)
 
 
 @dataclass
@@ -386,6 +407,16 @@ class RectanglePattern(BasePattern[FibsemRectangleSettings]):
     )
     name: ClassVar[str] = "Rectangle"
 
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+            f"        Width: {format_value(self.width, unit='m', precision=1)}",
+            f"        Height: {format_value(self.height, unit='m', precision=1)}",
+            f"        Cross Section: {self.cross_section.name}",
+        ])
+
     def define(self) -> List[FibsemRectangleSettings]:
 
         shape = FibsemRectangleSettings(
@@ -453,6 +484,13 @@ class LinePattern(BasePattern[FibsemLineSettings]):
     )
     name: ClassVar[str] = "Line"
 
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+        ])
+
     def define(self) -> List[FibsemLineSettings]:
         shape = FibsemLineSettings(
             start_x=self.start_x,
@@ -494,6 +532,14 @@ class CirclePattern(BasePattern[FibsemCircleSettings]):
     )
 
     name: ClassVar[str] = "Circle"
+
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Radius: {format_value(self.radius, unit='m', precision=1)}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+        ])
 
     def define(self) -> List[FibsemCircleSettings]:
         
@@ -566,6 +612,18 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
     )
 
     name: ClassVar[str] = "Trench"
+
+    def summary(self) -> str:
+        from fibsem.utils import format_value
+        return "\n".join([
+            f"    Pattern: {self.name}",
+            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+            f"        Width: {format_value(self.width, unit='m', precision=1)}",
+            f"        Spacing: {format_value(self.spacing, unit='m', precision=1)}",
+            f"        Upper Trench Height: {format_value(self.upper_trench_height, unit='m', precision=1)}",
+            f"        Lower Trench Height: {format_value(self.lower_trench_height, unit='m', precision=1)}",
+            f"        Cross Section: {self.cross_section.name}",
+        ])
 
     def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
 
@@ -1113,6 +1171,7 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
         metadata={
             "label": "Asymmetric",
             "type": bool,
+            "advanced": True,
             "tooltip": "If true, make the fiducial mark y-shaped.",
         },
     )
@@ -1361,7 +1420,7 @@ class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
 
 
 @dataclass
-class ArrayPattern(BasePattern[FibsemRectangleSettings]):
+class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettings]]):
     width: float = field(
         default=2.0e-6,
         metadata={
@@ -1444,12 +1503,20 @@ class ArrayPattern(BasePattern[FibsemRectangleSettings]):
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
     )
+    use_circle: bool = field(
+        default=False,
+        metadata={
+            "label": "Use Circle",
+            "type": bool,
+            "tooltip": "If true, use circular patterns instead of rectangular.",
+        },
+    )
 
     name: ClassVar[str] = "ArrayPattern"
     # ref: spotweld terminology https://www.researchgate.net/publication/351737991_A_Modular_Platform_for_Streamlining_Automated_Cryo-FIB_Workflows#pf14
     # ref: weld cross-section/ passes: https://www.nature.com/articles/s41592-023-02113-5
 
-    def define(self) -> List[FibsemRectangleSettings]:
+    def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
         
         point = self.point
         width = self.width
@@ -1478,20 +1545,28 @@ class ArrayPattern(BasePattern[FibsemRectangleSettings]):
         # create patterns
         self.shapes = []
         for pt in points:
-            pattern_settings = FibsemRectangleSettings(
-                width=width,
-                height=height,
-                depth=depth,
-                centre_x=pt.x,
-                centre_y=pt.y,  
-                scan_direction=scan_direction,
-                rotation=rotation,
-                passes=passes,
-                cross_section=cross_section,
-            )
+            if self.use_circle:
+                pattern_settings = FibsemCircleSettings(
+                    radius=width / 2,
+                    depth=depth,
+                    centre_x=pt.x,
+                    centre_y=pt.y,
+                )
+            else:
+                pattern_settings = FibsemRectangleSettings(
+                    width=width,
+                    height=height,
+                    depth=depth,
+                    centre_x=pt.x,
+                    centre_y=pt.y,  
+                    scan_direction=scan_direction,
+                    rotation=rotation,
+                    passes=passes,
+                    cross_section=cross_section,
+                )
             self.shapes.append(pattern_settings)
 
-        return self.shapes
+        return self.shapes # type: ignore
 
 
 @dataclass
