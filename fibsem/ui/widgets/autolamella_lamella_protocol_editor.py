@@ -343,7 +343,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.pushButton_refresh_positions.clicked.connect(self._refresh_experiment_positions)
         self.pushButton_apply_to_other = IconToolButton(
-            icon="mdi:content-copy",
+            icon="mdi:file-transfer",
             tooltip="Apply this lamella's task configurations to other lamella in the experiment.",
         )
         self.pushButton_apply_to_other.clicked.connect(self._on_apply_to_other_clicked)
