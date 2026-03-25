@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -70,8 +71,11 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
 class LamellaCardWidget(QWidget):
     """Modern card-style widget for a single Lamella."""
 
-    clicked = pyqtSignal(object)          # Lamella
-    defect_changed = pyqtSignal(object)   # Lamella
+    clicked = pyqtSignal(object)                    # Lamella
+    defect_changed = pyqtSignal(object)             # Lamella
+    move_to_requested = pyqtSignal(object)          # Lamella
+    update_position_requested = pyqtSignal(object)  # Lamella
+    remove_requested = pyqtSignal(object)           # Lamella
 
     def __init__(self, lamella: Lamella, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -113,15 +117,37 @@ class LamellaCardWidget(QWidget):
         info_layout.setContentsMargins(10, 8, 10, 10)
         info_layout.setSpacing(3)
 
-        # name row: label + defect icon
+        # name row: label + actions menu + defect icon
         name_row = QHBoxLayout()
-        name_row.setSpacing(6)
+        name_row.setSpacing(4)
 
         self._name_label = QLabel()
         self._name_label.setStyleSheet(
             "font-size: 13px; font-weight: bold; color: #e0e0e0; background: transparent;"
         )
         name_row.addWidget(self._name_label, 1)
+
+        self._btn_actions = QToolButton()
+        self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
+        self._btn_actions.setStyleSheet(_BTN_STYLE + " QToolButton::menu-indicator { image: none; }")
+        self._btn_actions.setIcon(QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_actions.setToolTip("Actions")
+        self._btn_actions.setPopupMode(QToolButton.InstantPopup)
+        _actions_menu = QMenu(self)
+        self._action_move = _actions_menu.addAction(
+            QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
+        )
+        self._action_update = _actions_menu.addAction(
+            QIconifyIcon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR), "Update Position"
+        )
+        self._action_remove = _actions_menu.addAction(
+            QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR), "Remove"
+        )
+        self._btn_actions.setMenu(_actions_menu)
+        self._action_move.triggered.connect(lambda: self.move_to_requested.emit(self.lamella))
+        self._action_update.triggered.connect(lambda: self.update_position_requested.emit(self.lamella))
+        self._action_remove.triggered.connect(self._on_remove_clicked)
+        name_row.addWidget(self._btn_actions)
 
         self._btn_defect = QToolButton()
         self._btn_defect.setFixedSize(_BTN_SIZE, _BTN_SIZE)
@@ -178,6 +204,17 @@ class LamellaCardWidget(QWidget):
             _CARD_SELECTED_STYLE if selected else _CARD_STYLE
         )
 
+    def _on_remove_clicked(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Remove Lamella",
+            f"Remove '{self.lamella.name}'?",
+            QMessageBox.Yes,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.remove_requested.emit(self.lamella)
+
     def _on_defect_clicked(self) -> None:
         menu = QMenu(self)
         action_none = menu.addAction(
@@ -213,8 +250,11 @@ _N_COLS = 4
 class LamellaCardContainer(QWidget):
     """Grid container that displays LamellaCardWidget in 4 columns."""
 
-    lamella_selected = pyqtSignal(object)  # Lamella | None
-    defect_changed = pyqtSignal(object)   # Lamella
+    lamella_selected = pyqtSignal(object)           # Lamella | None
+    defect_changed = pyqtSignal(object)             # Lamella
+    move_to_requested = pyqtSignal(object)          # Lamella
+    update_position_requested = pyqtSignal(object)  # Lamella
+    remove_requested = pyqtSignal(object)           # Lamella
 
     def __init__(self, columns: int = _N_COLS, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -235,6 +275,9 @@ class LamellaCardContainer(QWidget):
         card = LamellaCardWidget(lamella)
         card.defect_changed.connect(self.defect_changed)
         card.clicked.connect(self._on_card_clicked)
+        card.move_to_requested.connect(self.move_to_requested)
+        card.update_position_requested.connect(self.update_position_requested)
+        card.remove_requested.connect(self._on_card_remove_requested)
         self._cards[lamella._id] = card
         self._rebuild_grid()
         return card
@@ -282,6 +325,10 @@ class LamellaCardContainer(QWidget):
             self._selected_id = new_id
             self._cards[new_id].set_selected(True)
             self.lamella_selected.emit(lamella)
+
+    def _on_card_remove_requested(self, lamella: Lamella) -> None:
+        self.remove_lamella(lamella)
+        self.remove_requested.emit(lamella)
 
     def _rebuild_grid(self) -> None:
         # Remove all items from the layout without deleting widgets

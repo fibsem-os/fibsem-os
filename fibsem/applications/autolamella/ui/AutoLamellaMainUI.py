@@ -852,6 +852,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_card_container = LamellaCardContainer(columns=1)
         self.lamella_card_container.defect_changed.connect(self._on_lamella_defect_changed)
         self.lamella_card_container.lamella_selected.connect(self._on_lamella_card_selected)
+        self.lamella_card_container.move_to_requested.connect(self._on_lamella_move_to)
+        self.lamella_card_container.update_position_requested.connect(self._on_lamella_card_update_position)
+        self.lamella_card_container.remove_requested.connect(self._on_lamella_remove_requested)
 
         card_scroll = QScrollArea()
         card_scroll.setWidget(self.lamella_card_container)
@@ -867,7 +870,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Review tab
         self.lamella_task_image_widget = LamellaTaskImageWidget()
-        right_tabs.addTab(self.lamella_task_image_widget, "Review")
+
 
         # Protocol tab: napari viewer (left) + editor (right)
         self.lamella_viewer = napari.Viewer(show=False, title="Lamella Editor")
@@ -894,6 +897,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol_splitter.setSizes([700, 550])
 
         right_tabs.addTab(protocol_splitter, "Protocol")
+        right_tabs.addTab(self.lamella_task_image_widget, "Review")
 
         outer_splitter.addWidget(right_tabs)
         outer_splitter.setStretchFactor(1, 1)
@@ -1152,6 +1156,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.autolamella_ui.lamella_list.select(lamella.name)
         self.autolamella_ui.move_to_lamella_position()
+
+    def _on_lamella_card_update_position(self, lamella: 'Lamella'):
+        """Update the stage position of the given lamella to the current stage position."""
+        if self.autolamella_ui is None:
+            return
+        self.autolamella_ui.lamella_list.select(lamella.name)
+        self.autolamella_ui.update_lamella_position_ui()
 
     def _on_lamella_edit(self, lamella: 'Lamella'):
         """Switch to the Lamella tab and select the given lamella in the protocol editor."""
