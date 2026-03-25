@@ -258,6 +258,7 @@ class FibsemMinimapWidget(QWidget):
         bold_font.setBold(True)
 
         self.lamella_list = LamellaNameListWidget()
+        self.lamella_list.enable_defect_button(True)
         self.lamella_list.enable_actions_button(True)
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_remove_button(True)
@@ -365,6 +366,7 @@ class FibsemMinimapWidget(QWidget):
             raise ValueError("Experiment in parent widget is None, cannot proceed.")
 
         self._on_experiment_changed()
+        self._update_position_display()
         self.draw_blank_image()
 
     @property

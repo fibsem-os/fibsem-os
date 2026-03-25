@@ -759,36 +759,34 @@ class _LamellaRow(QWidget):
         self.btn_defect.setVisible(False)
         layout.addWidget(self.btn_defect)
 
-        # Actions menu button
-        self.btn_actions = QToolButton()
-        self.btn_actions.setIcon(QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_actions.setToolTip("Actions")
-        self.btn_actions.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_actions.setStyleSheet(
-            stylesheets.TOOLBUTTON_ICON_STYLESHEET
-            + " QToolButton::menu-indicator { image: none; }"
-        )
-        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
-        actions_menu = QMenu(self)
-        self._action_move = actions_menu.addAction(
-            QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR),
-            "Move to Position",
-        )
-        self._action_edit = actions_menu.addAction(
-            QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR),
-            "Edit Lamella",
-        )
-        self._action_update = actions_menu.addAction(
-            QIconifyIcon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR),
-            "Update Position",
-        )
-        self.btn_actions.setMenu(actions_menu)
-        self.btn_actions.setVisible(False)
-        layout.addWidget(self.btn_actions)
+        # Direct action buttons (replaces "…" dropdown)
+        self.btn_move_to = QToolButton()
+        self.btn_move_to.setIcon(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move_to.setToolTip("Move to Position")
+        self.btn_move_to.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_move_to.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_move_to.setVisible(False)
+        layout.addWidget(self.btn_move_to)
 
-        self._action_move.triggered.connect(lambda: self.move_to_clicked.emit(self.lamella))
-        self._action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
-        self._action_update.triggered.connect(lambda: self.update_clicked.emit(self.lamella))
+        self.btn_edit = QToolButton()
+        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_edit.setToolTip("Edit Lamella")
+        self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_edit.setVisible(False)
+        layout.addWidget(self.btn_edit)
+
+        self.btn_update = QToolButton()
+        self.btn_update.setIcon(QIconifyIcon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_update.setToolTip("Update Position")
+        self.btn_update.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_update.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_update.setVisible(False)
+        layout.addWidget(self.btn_update)
+
+        self.btn_move_to.clicked.connect(lambda: self.move_to_clicked.emit(self.lamella))
+        self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.lamella))
+        self.btn_update.clicked.connect(lambda: self.update_clicked.emit(self.lamella))
 
         # Remove button
         self.btn_remove = QToolButton()
@@ -874,7 +872,6 @@ class LamellaNameListWidget(QWidget):
 
         self._btn_visible = {
             "defect": False,
-            "actions": False,
             "move_to": False,
             "edit": False,
             "update": False,
@@ -979,24 +976,22 @@ class LamellaNameListWidget(QWidget):
                 row.refresh()  # ensure icon is up to date
 
     def enable_actions_button(self, visible: bool) -> None:
-        self._btn_visible["actions"] = visible
-        for row in self._rows():
-            row.btn_actions.setVisible(visible)
+        pass  # no-op: actions are now direct icon buttons; use enable_move_to_action / enable_edit_action / enable_update_action
 
     def enable_move_to_action(self, visible: bool) -> None:
         self._btn_visible["move_to"] = visible
         for row in self._rows():
-            row._action_move.setVisible(visible)
+            row.btn_move_to.setVisible(visible)
 
     def enable_edit_action(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
         for row in self._rows():
-            row._action_edit.setVisible(visible)
+            row.btn_edit.setVisible(visible)
 
     def enable_update_action(self, visible: bool) -> None:
         self._btn_visible["update"] = visible
         for row in self._rows():
-            row._action_update.setVisible(visible)
+            row.btn_update.setVisible(visible)
 
     def enable_remove_button(self, visible: bool) -> None:
         self._btn_visible["remove"] = visible
@@ -1012,10 +1007,9 @@ class LamellaNameListWidget(QWidget):
 
     def _apply_btn_visibility(self, row: _LamellaRow) -> None:
         row.btn_defect.setVisible(self._btn_visible["defect"])
-        row.btn_actions.setVisible(self._btn_visible["actions"])
-        row._action_move.setVisible(self._btn_visible["move_to"])
-        row._action_edit.setVisible(self._btn_visible["edit"])
-        row._action_update.setVisible(self._btn_visible["update"])
+        row.btn_move_to.setVisible(self._btn_visible["move_to"])
+        row.btn_edit.setVisible(self._btn_visible["edit"])
+        row.btn_update.setVisible(self._btn_visible["update"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
         if self._btn_visible["defect"]:
             # Set icon directly — row.refresh() won't work here because

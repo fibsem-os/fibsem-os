@@ -7,7 +7,6 @@ from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QImage, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
-    QAction,
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -146,18 +145,8 @@ class LamellaRowWidget(QWidget):
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_defect)
 
-        self.btn_actions = QToolButton()
-        self.btn_actions.setIcon(QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_actions.setToolTip("Actions")
-        self.btn_actions.setFixedSize(_BTN_SIZE)
-        self.btn_actions.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET + " QToolButton::menu-indicator { image: none; }")
-        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
-        actions_menu = QMenu(self)
-        _edit = actions_menu.addAction(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit Lamella")
-        assert _edit is not None
-        self._action_edit: QAction = _edit
-        self.btn_actions.setMenu(actions_menu)
-        layout.addWidget(self.btn_actions)
+        self.btn_edit = IconToolButton(icon="mdi:pencil", tooltip="Edit Lamella", size=_BTN_SIZE.width())
+        layout.addWidget(self.btn_edit)
 
         self.btn_remove = IconToolButton(icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width())
         layout.addWidget(self.btn_remove)
@@ -167,7 +156,7 @@ class LamellaRowWidget(QWidget):
         )
         self.btn_defect.installEventFilter(self)
         self.btn_defect.clicked.connect(self._on_defect_clicked)
-        self._action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
+        self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.lamella))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
         # Connect to evented fields so only this row updates when its data changes.
@@ -316,8 +305,6 @@ class LamellaListWidget(QWidget):
         self._header.select_all_changed.connect(self._on_select_all)
 
         self._btn_visible = {
-            "actions": True,
-            "move_to": False,
             "edit": True,
             "remove": True,
             "defect": True,
@@ -345,19 +332,17 @@ class LamellaListWidget(QWidget):
         return row
 
     def enable_actions_button(self, visible: bool) -> None:
-        self._btn_visible["actions"] = visible
-        for i in range(self._list.count()):
-            self._row(i).btn_actions.setVisible(visible)
+        self.enable_edit_action(visible)
 
     def enable_move_to_action(self, visible: bool) -> None:
-        return # Not available for now
+        pass  # not available
 
     def enable_edit_action(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
         for i in range(self._list.count()):
             row = self._row(i)
             if row is not None:
-                row._action_edit.setVisible(visible)
+                row.btn_edit.setVisible(visible)
 
     def enable_remove_button(self, visible: bool) -> None:
         self._btn_visible["remove"] = visible
@@ -407,7 +392,7 @@ class LamellaListWidget(QWidget):
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _apply_btn_visibility(self, row: LamellaRowWidget) -> None:
-        row.btn_actions.setVisible(self._btn_visible["actions"])
+        row.btn_edit.setVisible(self._btn_visible["edit"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
         row.btn_defect.setVisible(self._btn_visible["defect"])
 
