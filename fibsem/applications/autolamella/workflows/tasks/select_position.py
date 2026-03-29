@@ -3,13 +3,14 @@
 
 from dataclasses import dataclass, field
 from typing import ClassVar, Type
+import logging
 
 import numpy as np
 
 from fibsem import constants
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.applications.autolamella.workflows.ui import ask_user
+from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
 from fibsem.structures import BeamType, ImageSettings
 
 
@@ -34,6 +35,12 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
         metadata={
             "label": "Use Autofocus",
             "help": "Whether to autofocus before moving to the milling position"},
+    )
+    select_poi: bool = field(
+        default=True,
+        metadata={
+            "label": "Select Point of Interest",
+            "help": "Whether to ask the user to select a point of interest in the FIB image"},
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
@@ -102,6 +109,20 @@ class SelectMillingPositionTask(AutoLamellaTask):
                     msg=f"Double click the image to move to the milling position for {self.lamella.name}. "
                         f"Press Continue when done.",
                     pos="Continue")
+        
+        # select point of interest
+        if self.config.select_poi:
+            poi = select_poi_ui(
+                parent_ui=self.parent_ui,
+                msg=f"Move the marker to the point of interest for {self.lamella.name}. Press Continue when done.",
+                validate=self.validate,
+                initial_poi=self.lamella.poi,
+            )
+            if poi is not None:
+                self.lamella.poi = poi
+                synced = self.lamella.sync_tasks_to_poi()
+                if synced:
+                    logging.info(f"Synced tasks to POI: {synced}")
 
         # validate alignment area
         self._validate_alignment_area()
