@@ -133,6 +133,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             parent=self,
         )
         self.milling_task_editor.setMinimumHeight(550)
+        self.milling_task_editor.set_alignment_area_visible(False)
 
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
 

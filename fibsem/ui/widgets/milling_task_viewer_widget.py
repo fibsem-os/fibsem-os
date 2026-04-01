@@ -66,6 +66,7 @@ class MillingTaskViewerWidget(QWidget):
         self.viewer: Optional[napari.Viewer] = viewer or napari.current_viewer()
         self._milling_enabled = milling_enabled
         self._image_widget = image_widget
+        self._show_alignment_area: bool = True
 
         self._fib_image: Optional[FibsemImage] = None
         self._fib_image_layer: Optional[napari.layers.Image] = None
@@ -250,6 +251,11 @@ class MillingTaskViewerWidget(QWidget):
         self._fib_image_layer = image_layer
         self._schedule_pattern_update()
 
+    def set_alignment_area_visible(self, visible: bool) -> None:
+        """Show/hide the alignment area rectangle in the viewer."""
+        self._show_alignment_area = visible
+        self._schedule_pattern_update()
+
     def _on_viewer_image_updated(self) -> None:
         iw = self._image_widget
         if iw is None:
@@ -283,7 +289,10 @@ class MillingTaskViewerWidget(QWidget):
             return
 
         pixelsize = self._fib_image.metadata.pixel_size.x
-        alignment_area = config.alignment.rect if config.alignment.enabled else None
+
+        alignment_area = None
+        if config.alignment.enabled and self._show_alignment_area:
+            alignment_area = config.alignment.rect
         try:
             self._pattern_layer_names = draw_milling_patterns_in_napari(
                 viewer=self.viewer,
