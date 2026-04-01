@@ -570,7 +570,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.supervised_status_btn.setToolTip(f"{task_name} is running in supervised mode. Your input will be required. Click to toggle.")
             self.supervised_status_btn.setStyleSheet(SUPERVISION_STATUS_SUPERVISED_STYLESHEET)
         else:
-            self.supervised_status_btn.setIcon(QIconifyIcon("mdi:refresh-auto", color="white"))
+            self.supervised_status_btn.setIcon(QIconifyIcon("mdi:lightning-bolt", color="white"))
             self.supervised_status_btn.setText("Automated")
             self.supervised_status_btn.setToolTip(f"{task_name} is running in automated mode. Click to toggle.")
             self.supervised_status_btn.setStyleSheet(SUPERVISION_STATUS_AUTOMATED_STYLESHEET)
