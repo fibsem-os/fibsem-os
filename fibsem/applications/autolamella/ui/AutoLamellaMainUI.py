@@ -1037,24 +1037,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # update current task
             self._current_task_name = task_name
 
-            # Show toast notification based on status
-            msg_type = None
-            if status is AutoLamellaTaskStatus.Completed:
-                msg_type = "success"
-                if task_duration is not None:
-                    from fibsem.utils import format_duration
-                    msg += f" ({format_duration(task_duration)})"
-            elif status is AutoLamellaTaskStatus.Failed:
-                msg_type = "error"
-                msg = error_msg if error_msg is not None else msg
-            elif status is AutoLamellaTaskStatus.Skipped:
-                msg_type = "warning"
-
-            if msg_type is not None:
-                self.show_toast(msg, msg_type)
-            timings["show_toast"] = time.time() - t1
-            t1 = time.time()
-
             # Lock editor when the active lamella/task is being processed
             if status is AutoLamellaTaskStatus.InProgress:
                 self.lamella_widget.set_active_lamella_name(lamella_name, task_name)
