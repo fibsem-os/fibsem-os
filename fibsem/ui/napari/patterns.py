@@ -4,7 +4,7 @@ import logging
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any, Set, Union, Type
+from typing import Callable, List, Optional, Tuple, Dict, Any, Set, Union, Type
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgba
@@ -52,11 +52,11 @@ IMAGE_LAYER_PROPERTIES = {
     "cmap": {0: "black", 1: COLOURS[0]} # override with colour wheel
 }
 
-MILLING_ALIGNMENT_AREA_LAYER_NAME = "Milling Alignment Area"
+MILLING_ALIGNMENT_AREA_LAYER_NAME = "Alignment Area"
 MILLING_PATTERN_LAYER_NAME = "Milling Patterns"
 MILLING_FOV_LAYER_NAME = "Milling FOV"
 IMAGE_PATTERN_TYPES = ("bitmap",)
-IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay-shapes", "bbox", MILLING_FOV_LAYER_NAME] # ignore these layers when removing all shapes
+IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay-shapes", "bbox", MILLING_FOV_LAYER_NAME, MILLING_ALIGNMENT_AREA_LAYER_NAME] # ignore these layers when removing all shapes
 STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
@@ -594,6 +594,64 @@ def draw_alignment_area(viewer: napari.Viewer,
         translate=translate) # match the fib layer translation
 
     return layer_name
+
+
+def setup_editable_alignment_layer(
+    viewer: napari.Viewer,
+    reduced_area: FibsemRectangle,
+    image_shape: Tuple[int, int],
+    translate: Tuple[float, float],
+    on_change: Callable[[FibsemRectangle], None],
+    editable: bool = True,
+) -> None:
+    """Create or update an alignment area shapes layer.
+
+    If the layer already exists it is updated in-place (preserving the event
+    connection).  If it does not exist it is created and on_change is connected
+    to layer.events.data.
+
+    Args:
+        viewer: napari viewer instance
+        reduced_area: initial rectangle to display
+        image_shape: (H, W) of the reference image — used for coordinate conversion
+        translate: translation of the FIB image layer
+        on_change: called with the updated FibsemRectangle after each drag/resize
+        editable: if True, activate the layer in select mode; if False, set pan_zoom
+    """
+    data = convert_reduced_area_to_napari_shape(reduced_area, image_shape)
+    layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
+
+    if layer_name in viewer.layers:
+        shapes_layer: NapariShapesLayers = viewer.layers[layer_name]  # type: ignore
+        shapes_layer.data = data
+    else:
+        shapes_layer = viewer.add_shapes(
+            data=data,
+            name=layer_name,
+            shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"],
+            edge_color=ALIGNMENT_LAYER_PROPERTIES["edge_color"],
+            edge_width=ALIGNMENT_LAYER_PROPERTIES["edge_width"],
+            face_color=ALIGNMENT_LAYER_PROPERTIES["face_color"],
+            opacity=ALIGNMENT_LAYER_PROPERTIES["opacity"],
+            translate=translate,
+        )
+
+        def _on_data_changed(event):
+            layer_data = shapes_layer.data
+            if not layer_data:
+                return
+            rect = convert_shape_to_image_area(layer_data[0], image_shape)
+            on_change(rect)
+
+        shapes_layer.events.data.connect(_on_data_changed)
+
+    shapes_layer.visible = True
+    if editable:
+        viewer.layers.selection.active = shapes_layer
+        shapes_layer.mode = "select"
+        shapes_layer.selected_data.clear()
+    else:
+        shapes_layer.mode = "pan_zoom"
 
 
 def draw_milling_fov_rect(

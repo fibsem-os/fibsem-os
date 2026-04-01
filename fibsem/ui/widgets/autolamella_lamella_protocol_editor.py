@@ -26,8 +26,13 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
-from fibsem.ui.napari.patterns import MILLING_PATTERN_LAYER_NAME
+from fibsem.structures import FibsemImage, FibsemRectangle, Point, ReferenceImageParameters
+from fibsem.ui.napari.patterns import (
+    MILLING_ALIGNMENT_AREA_LAYER_NAME,
+    MILLING_PATTERN_LAYER_NAME,
+    setup_editable_alignment_layer,
+)
+from napari.layers import Shapes as NapariShapesLayer
 from fibsem.ui.napari.utilities import add_points_layer
 from fibsem.ui.widgets.autolamella_apply_protocol_dialog import ApplyLamellaConfigDialog
 from fibsem.ui.widgets.autolamella_task_config_widget import (
@@ -65,6 +70,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.image: FibsemImage
         self.show_related_milling_tasks = True
         self.show_sem_image = False
+        self.show_alignment_area = True
+        self.alignment_area_editable = False
         self._active_lamella_name: Optional[str] = None
         self._active_task_name: Optional[str] = None
         self._selected_lamella: Optional[Lamella] = None
@@ -168,6 +175,27 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.pushButton_toggle_related_tasks.toggled.connect(self._on_toggle_related_tasks)
 
+        self.pushButton_toggle_alignment_area = IconToolButton(
+            icon="mdi:crop-free",
+            checked_icon="mdi:crop-free",
+            tooltip="Show alignment area.",
+            checked_tooltip="Hide alignment area.",
+            checkable=True,
+            checked=self.show_alignment_area,
+        )
+        self.pushButton_toggle_alignment_area.toggled.connect(self._on_toggle_alignment_area)
+
+        self.pushButton_edit_alignment_area = IconToolButton(
+            icon="mdi:pencil-off",
+            checked_icon="mdi:pencil",
+            tooltip="Enable alignment area editing.",
+            checked_tooltip="Disable alignment area editing.",
+            checkable=True,
+            checked=self.alignment_area_editable,
+        )
+        self.pushButton_edit_alignment_area.setEnabled(self.show_alignment_area)
+        self.pushButton_edit_alignment_area.toggled.connect(self._on_toggle_alignment_area_editable)
+
         self.label_lamella_name = QLabel("")
         self.label_lamella_name.setStyleSheet(
             "font-size: 14px; font-weight: bold; color: #e0e0e0; background: transparent;"
@@ -180,6 +208,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.button_layout.addWidget(self.pushButton_apply_to_other)
         self.button_layout.addWidget(self.pushButton_toggle_sem_image)
         self.button_layout.addWidget(self.pushButton_toggle_related_tasks)
+        self.button_layout.addWidget(self.pushButton_toggle_alignment_area)
+        self.button_layout.addWidget(self.pushButton_edit_alignment_area)
         self.button_layout.addWidget(self.pushButton_open_correlation)
         self.listWidget_selected_task = TaskNameListWidget()
         self.listWidget_selected_task.set_buttons_visible(add=False, remove=False)
@@ -526,6 +556,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_status.setVisible(bool(msg))
 
         self._draw_point_of_interest(selected_lamella.poi)
+        self._draw_alignment_area()
 
     def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
         """Display a warning if the milling FoV does not match the image FoV."""
@@ -631,6 +662,55 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 border_width=None,
                 border_width_is_relative=False,
             )
+
+    def _on_toggle_alignment_area(self, checked: bool):
+        self.show_alignment_area = checked
+        if not checked:
+            self.alignment_area_editable = False
+            self.pushButton_edit_alignment_area.blockSignals(True)
+            self.pushButton_edit_alignment_area.setChecked(False)
+            self.pushButton_edit_alignment_area.blockSignals(False)
+        self.pushButton_edit_alignment_area.setEnabled(checked)
+        self._draw_alignment_area()
+
+    def _on_toggle_alignment_area_editable(self, checked: bool):
+        self.alignment_area_editable = checked
+        layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
+        if layer_name not in self.viewer.layers:
+            return
+        layer: NapariShapesLayer = self.viewer.layers[layer_name]  # type: ignore
+        if checked:
+            self.viewer.layers.selection.active = layer
+            layer.mode = "select"
+            layer.selected_data.clear()
+        else:
+            layer.mode = "pan_zoom"
+
+    def _draw_alignment_area(self):
+        """Draw (or remove) the alignment area rectangle on the viewer."""
+        if not self.show_alignment_area or self._selected_lamella is None:
+            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME)  # type: ignore
+            return
+
+        translate = tuple(self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].translate) \
+            if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers else (0, 0)
+
+        setup_editable_alignment_layer(
+            viewer=self.viewer,
+            reduced_area=self._selected_lamella.alignment_area,
+            image_shape=self.image.data.shape,
+            translate=translate,
+            on_change=self._on_alignment_area_updated,
+            editable=self.alignment_area_editable,
+        )
+
+    def _on_alignment_area_updated(self, rect: FibsemRectangle):
+        """Callback when the user drags/resizes the alignment area."""
+        if self._selected_lamella is None or not self.alignment_area_editable:
+            return
+        self._selected_lamella.alignment_area = rect
+        self._save_experiment()
 
     def _add_poi_context_menu_action(self, config: ContextMenuConfig, point: Point) -> None:
         """Add POI movement action to the right-click context menu."""
