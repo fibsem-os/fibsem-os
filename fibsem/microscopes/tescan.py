@@ -1111,8 +1111,8 @@ class TescanMicroscope(FibsemMicroscope):
             imaging_current (float): The current to use for imaging in amps.
         # """
         try:
-            default_preset = "30 keV; 150 pA"
-            self.connection.FIB.Preset.Activate(default_preset) # TODO: restore the default preset?
+            default_preset = "30 keV; 10 pA"
+            self.set("preset", default_preset, BeamType.ION)
             self.connection.DrawBeam.UnloadLayer()
             logging.debug(f"Finished milling, restored preset to {default_preset}")
         except Exception as e:
@@ -1322,6 +1322,18 @@ class TescanMicroscope(FibsemMicroscope):
         if beam_type is BeamType.ION:
             return self.connection.FIB
 
+    def _wait_for_beam_ready(self, beam: Union['Automation.SEM', 'Automation.FIB'], beam_type: BeamType, operation: str = "operation") -> None:
+        """Wait for the beam to become ready (not busy)."""
+        start_time = time.monotonic()
+        while beam.IsBusy():
+            logging.debug(f"Waiting for the {beam_type.name} beam to become ready after {operation}.")
+            if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:
+                raise TimeoutError(
+                    f"{beam_type.name} beam is not ready after {operation}. "
+                    f"Timeout of {TESCAN_BEAM_READY_TIMEOUT} seconds expired."
+                )
+            time.sleep(1)
+
     def _prepare_beam(self, beam_type: BeamType) -> Union['Automation.SEM', 'Automation.FIB']:
         """Prepare the beam for imaging, milling, or other operations."""
         beam = self._get_beam(beam_type)
@@ -1334,15 +1346,7 @@ class TescanMicroscope(FibsemMicroscope):
         # stop the scanning before we start scanning or before automatic procedures,
         beam.Scan.Stop()
 
-        start_time = time.monotonic()
-        while (beam.IsBusy()):
-            logging.debug(f"Waiting for the {beam_type.name} beam to become ready.")
-            if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:
-                raise TimeoutError(
-                    f"{beam_type.name} beam is not ready. "
-                    f"Timeout of {TESCAN_BEAM_READY_TIMEOUT} seconds expired."
-                )
-            time.sleep(1)
+        self._wait_for_beam_ready(beam, beam_type, operation="preparation")
 
         return beam
 
@@ -1528,8 +1532,31 @@ class TescanMicroscope(FibsemMicroscope):
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None   
 
-    def _set(self, key: str, value, beam_type: BeamType = None) -> None:
-        """Set a property of the microscope."""
+    def _set(self, key: str, value, beam_type: BeamType = None, **kwargs) -> None:
+        """
+        Set a property of the microscope.
+        
+        Special handling for preset changes:
+            When key="preset", you can use the preserve_settings keyword argument:
+            
+        Args:
+            key: The property key to set.
+            value: The value to set.
+            beam_type: The beam type (ELECTRON or ION).
+            **kwargs: Additional keyword arguments.
+                preserve_settings (bool): For preset changes, whether to preserve
+                    rotation, FOV, and shift. Defaults to True.
+            
+        Examples:
+            # Preserve settings (default behavior)
+            microscope.set("preset", "30 keV; 10 pA", BeamType.ION)
+            
+            # Don't preserve settings - let preset fully control all parameters
+            microscope.set("preset", "30 keV; 10 pA", BeamType.ION, preserve_settings=False)
+            
+            # Explicitly preserve settings
+            microscope.set("preset", "30 keV; 10 pA", BeamType.ION, preserve_settings=True)
+        """
         if beam_type is not None:
             beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
             self._prepare_beam(beam_type)
@@ -1624,12 +1651,56 @@ class TescanMicroscope(FibsemMicroscope):
             return
 
         if key == "preset":
-            # check if value is in available
+            # Get preserve_settings from kwargs, default to True
+            preserve_settings = kwargs.get("preserve_settings", True)
+            
+            # Check if preset is available
             if not beam.Preset.IsAvailable(value):
                 logging.warning(f"Preset {value} not available for {beam_type}.")
                 return
-            beam.Preset.Activate(value)
-            logging.info(f"Preset {value} activated for {beam_type}.")
+            
+            # Save current settings if they should be preserved
+            image_rotation = None
+            view_field = None
+            image_shift_x = None
+            image_shift_y = None
+            
+            if preserve_settings:
+                image_rotation = beam.Optics.GetImageRotation()
+                logging.debug(f"Image rotation before changing preset: {image_rotation}.")
+                view_field = beam.Optics.GetViewfield()
+                logging.debug(f"FOV before changing preset: {view_field}.")
+                image_shift_x, image_shift_y = beam.Optics.GetImageShift()
+                logging.debug(f"XY shift before changing preset: {image_shift_x}, {image_shift_y}.")
+
+            try:
+                # Activate preset
+                beam.Preset.Activate(value)
+                logging.info(f"Preset {value} activated for {beam_type}.")
+                
+                # Wait for preset to fully apply
+                self._wait_for_beam_ready(beam, beam_type, operation="preset activation")
+                
+                # Update internal state
+                self._beam_parameters[beam_type].preset = value
+                
+            except Exception as e:
+                logging.error(f"Failed to activate preset {value} for {beam_type}: {e}")
+                raise  # Re-raise to ensure finally block runs and then propagate error
+                
+            finally:
+                # Restore settings if requested (runs whether success or failure)
+                if preserve_settings:
+                    try:
+                        beam.Optics.SetImageRotation(image_rotation)
+                        logging.debug(f"Restored image rotation after changing preset to {image_rotation}.")
+                        beam.Optics.SetViewfield(view_field)
+                        logging.debug(f"Restored FOV after changing preset to {view_field}.")
+                        beam.Optics.SetImageShift(image_shift_x, image_shift_y)
+                        logging.debug(f"Restored XY shift after changing preset to {image_shift_x}, {image_shift_y}.")
+                    except Exception as restore_error:
+                        logging.error(f"Failed to restore beam settings: {restore_error}")
+
             return
 
         if key in ["resolution", "dwell_time", "stigmation"]:
