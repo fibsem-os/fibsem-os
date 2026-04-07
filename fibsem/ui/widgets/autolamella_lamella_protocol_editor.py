@@ -67,6 +67,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.parent_widget = parent
         self.viewer = viewer
 
+        # add placeholder image layer to prevent napari help screen showing
+        self.viewer.add_image(np.zeros((10,10)), name="Placeholder", visible=False)
+
         self.image: FibsemImage
         self.show_related_milling_tasks = True
         self.show_sem_image = False
