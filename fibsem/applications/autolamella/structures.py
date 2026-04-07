@@ -38,7 +38,6 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     Point,
-    ReferenceImages,
     ReferenceImageParameters,
 )
 from fibsem.utils import configure_logging, format_duration
@@ -787,17 +786,6 @@ class Lamella:
         if data.ndim == 2:
             data = np.stack([data, data, data], axis=2)
         Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
-
-    # convert to method
-    def get_reference_images(self, filename: str) -> ReferenceImages:
-        reference_images = ReferenceImages(
-            low_res_eb=self.load_reference_image(f"{filename}_low_res_eb"),
-            high_res_eb=self.load_reference_image(f"{filename}_high_res_eb"),
-            low_res_ib=self.load_reference_image(f"{filename}_low_res_ib"),
-            high_res_ib=self.load_reference_image(f"{filename}_high_res_ib"),
-        )
-
-        return reference_images
 
     # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
     #     """Get the task configuration by type."""
