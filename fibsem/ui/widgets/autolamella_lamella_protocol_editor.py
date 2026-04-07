@@ -436,7 +436,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if os.path.exists(reference_image_path) and os.path.isfile(reference_image_path):
             self.image = FibsemImage.load(reference_image_path)
         else:
-            self.image = FibsemImage.generate_blank_image(hfw=150e-6, random=False)
+            self.image = FibsemImage.generate_blank_image(hfw=100e-6, random=False)
 
         # load the sem reference image
         sem_image = None

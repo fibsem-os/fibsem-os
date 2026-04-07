@@ -876,6 +876,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_viewer = napari.Viewer(show=False, title="Lamella Editor")
         self.lamella_viewer.window._qt_window.menuBar().hide()
         self.lamella_viewer.window._qt_window.statusBar().hide()
+        self.lamella_viewer.window._qt_viewer.dockLayerList.setVisible(False)
+        self.lamella_viewer.window._qt_viewer.dockLayerControls.setVisible(False)
         self.viewers.append(self.lamella_viewer)
 
         self.lamella_widget = AutoLamellaProtocolEditorWidget(
