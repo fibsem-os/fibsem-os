@@ -97,7 +97,7 @@ def mill_stages(
     parent_ui=None,
 ):
     """Run a list of milling stages, with a progress bar and notifications."""
-
+    logging.warning("DEPRECATED: mill_stages is deprecated, use fibsem.milling.tasks instead.")
     if isinstance(stages, FibsemMillingStage):
         stages = [stages]
 
