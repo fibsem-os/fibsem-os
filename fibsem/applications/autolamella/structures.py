@@ -53,12 +53,74 @@ class AutoLamellaTaskStatus(Enum):
     Skipped = auto()
 
 
+@dataclass
+class AutoLamellaUser:
+    """Application-level user identity. Maps to the DB user table."""
+    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    username: str = ""          # login handle / OS username
+    name: str = ""              # display name
+    email: str = ""
+    organization: str = ""
+    role: str = "user"          # "admin" | "user" | "guest"
+    is_default: bool = False    # loaded automatically at startup
+    preferences: dict = field(default_factory=dict)
+    created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+
+    def to_fibsem_user(self) -> "FibsemUser":
+        """Convert to a FibsemUser snapshot for image TIFF metadata."""
+        from fibsem.structures import FibsemUser
+        return FibsemUser(
+            name=self.name or self.username,
+            email=self.email,
+            organization=self.organization,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "_id": self._id,
+            "username": self.username,
+            "name": self.name,
+            "email": self.email,
+            "organization": self.organization,
+            "role": self.role,
+            "is_default": self.is_default,
+            "preferences": self.preferences,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AutoLamellaUser":
+        user = cls(
+            username=data.get("username", ""),
+            name=data.get("name", ""),
+            email=data.get("email", ""),
+            organization=data.get("organization", ""),
+            role=data.get("role", "user"),
+            is_default=data.get("is_default", False),
+            preferences=data.get("preferences", {}),
+            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+        )
+        if "_id" in data:
+            user._id = data["_id"]
+        return user
+
+    @staticmethod
+    def from_environment() -> "AutoLamellaUser":
+        """Create a default user from the OS environment."""
+        import platform
+        import socket
+        username = os.environ.get("USERNAME") or os.environ.get("USER", "user")
+        hostname = socket.gethostname() if platform.system() in ("Linux", "Darwin") \
+            else os.environ.get("COMPUTERNAME", "hostname")
+        return AutoLamellaUser(username=username, name=username, is_default=True)
+
+
 @evented
 @dataclass
 class AutoLamellaTaskState:
     name: str = ""
     step: str = ""
-    task_id: str = ""
+    task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_type: str = ""
     lamella_id: str = ""
     start_timestamp: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
@@ -322,12 +384,14 @@ class AutoLamellaTaskProtocol:
     name: str = "AutoLamella Task Protocol"
     description: str = "Protocol for AutoLamella"
     version: str = "1.0"
+    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(default_factory=lambda: EventedDict())   # unique_name: AutoLamellaTaskConfig
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
     options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "_id": self._id,
             "name": self.name,
             "description": self.description,
             "version": self.version,
@@ -342,7 +406,7 @@ class AutoLamellaTaskProtocol:
         task_config = load_task_config(data.get("tasks", {}))
         workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
 
-        return cls(
+        protocol = cls(
             name=data.get("name", "AutoLamella Task Protocol"),
             description=data.get("description", "Protocol for AutoLamella"),
             version=data.get("version", "1.0"),
@@ -350,6 +414,9 @@ class AutoLamellaTaskProtocol:
             workflow_config=workflow_config,
             options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {}))
         )
+        if "_id" in data:
+            protocol._id = data["_id"]
+        return protocol
 
     @classmethod
     def load(cls, filename: str) -> 'AutoLamellaTaskProtocol':
@@ -854,7 +921,7 @@ class Experiment:
         self.task_protocol: AutoLamellaTaskProtocol = None # must be set externally
         self.metadata: Dict[str, Any] = metadata if metadata is not None else {}
 
-    def to_dict(self) -> dict:
+    def to_dict(self, include_protocol: bool = False) -> dict:
 
         state_dict = {
             "name": self.name,
@@ -865,6 +932,9 @@ class Experiment:
             "created_at": self.created_at,
             "metadata": self.metadata,
         }
+
+        if include_protocol:
+            state_dict["protocol"] = self.task_protocol.to_dict() if self.task_protocol is not None else None
 
         return state_dict
 
