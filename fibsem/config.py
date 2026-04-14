@@ -247,8 +247,6 @@ class FeatureFlags:
     lamella_position_on_live_view: bool = False
     pose_controls: bool = False
     display_grid_center_marker: bool = False
-    right_click_context_menu: bool = True
-    display_point_of_interest: bool = True
 
 @dataclass
 class PathPreferences:
@@ -338,16 +336,11 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED
     global FEATURE_POSE_CONTROLS_ENABLED
     global FEATURE_DISPLAY_GRID_CENTER_MARKER
-    global FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED
-    global FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED
-
     f = prefs.features
     FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
     FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
     FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
-    FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED = f.right_click_context_menu
-    FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED = f.display_point_of_interest
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -356,8 +349,6 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
         al_cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
         al_cfg.FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
         al_cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
-        al_cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED = f.right_click_context_menu
-        al_cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED = f.display_point_of_interest
     except ImportError:
         pass
 
@@ -377,5 +368,3 @@ FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True
 FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_POSE_CONTROLS_ENABLED = False
 FEATURE_DISPLAY_GRID_CENTER_MARKER = False
-FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED = True
-FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED = True

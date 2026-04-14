@@ -46,7 +46,9 @@ class PreferencesDialog(QDialog):
         display_form.addRow("Workflow border", self._chk_border)
         display_form.addRow("Workflow timeline", self._chk_timeline)
         display_form.addRow("Development mode", self._chk_dev_mode)
-        content_layout.addWidget(TitledPanel("Display", content=display_content, collapsible=False))
+        content_layout.addWidget(
+            TitledPanel("Display", content=display_content, collapsible=False)
+        )
 
         # --- Feature Flags ---
         features_content = QWidget()
@@ -55,15 +57,13 @@ class PreferencesDialog(QDialog):
         self._chk_lamella_live = QCheckBox()
         self._chk_pose = QCheckBox()
         self._chk_grid_marker = QCheckBox()
-        self._chk_right_click = QCheckBox()
-        self._chk_poi = QCheckBox()
         features_form.addRow("Minimap plot widget", self._chk_minimap)
         features_form.addRow("Lamella position on live view", self._chk_lamella_live)
         features_form.addRow("Pose controls", self._chk_pose)
         features_form.addRow("Grid center marker", self._chk_grid_marker)
-        features_form.addRow("Right-click context menu", self._chk_right_click)
-        features_form.addRow("Point of interest display", self._chk_poi)
-        content_layout.addWidget(TitledPanel("Feature Flags", content=features_content, collapsible=False))
+        content_layout.addWidget(
+            TitledPanel("Feature Flags", content=features_content, collapsible=False)
+        )
 
         # --- Paths ---
         paths_content = QWidget()
@@ -72,7 +72,9 @@ class PreferencesDialog(QDialog):
         self._dir_protocol = QDirectoryLineEdit()
         paths_form.addRow("Default experiment directory", self._dir_experiment)
         paths_form.addRow("Default protocol path", self._dir_protocol)
-        content_layout.addWidget(TitledPanel("Paths", content=paths_content, collapsible=False))
+        content_layout.addWidget(
+            TitledPanel("Paths", content=paths_content, collapsible=False)
+        )
 
         # --- Movement ---
         movement_content = QWidget()
@@ -81,7 +83,9 @@ class PreferencesDialog(QDialog):
         self._chk_acquire_fib = QCheckBox()
         movement_form.addRow("Acquire SEM after movement", self._chk_acquire_sem)
         movement_form.addRow("Acquire FIB after movement", self._chk_acquire_fib)
-        content_layout.addWidget(TitledPanel("Movement", content=movement_content, collapsible=False))
+        content_layout.addWidget(
+            TitledPanel("Movement", content=movement_content, collapsible=False)
+        )
 
         content_layout.addStretch()
         scroll.setWidget(content)
@@ -107,8 +111,6 @@ class PreferencesDialog(QDialog):
         self._chk_lamella_live.setChecked(f.lamella_position_on_live_view)
         self._chk_pose.setChecked(f.pose_controls)
         self._chk_grid_marker.setChecked(f.display_grid_center_marker)
-        self._chk_right_click.setChecked(f.right_click_context_menu)
-        self._chk_poi.setChecked(f.display_point_of_interest)
 
         p = prefs.paths
         self._dir_experiment.setText(p.default_experiment_directory)
@@ -140,8 +142,6 @@ class PreferencesDialog(QDialog):
                 lamella_position_on_live_view=self._chk_lamella_live.isChecked(),
                 pose_controls=self._chk_pose.isChecked(),
                 display_grid_center_marker=self._chk_grid_marker.isChecked(),
-                right_click_context_menu=self._chk_right_click.isChecked(),
-                display_point_of_interest=self._chk_poi.isChecked(),
             ),
             paths=PathPreferences(
                 default_experiment_directory=self._dir_experiment.text(),

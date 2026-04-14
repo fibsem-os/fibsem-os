@@ -640,11 +640,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _draw_point_of_interest(self, point: Point):
         """Draw the point of interest on the viewer."""
 
-        if cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED is False:
-            if POINT_OF_INTEREST_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(POINT_OF_INTEREST_LAYER_NAME)  # type: ignore
-            return
-
         image_coords = conversions.microscope_image_to_image_coordinates(
             point=point,
             image_shape=self.image.data.shape,
@@ -718,8 +713,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _add_poi_context_menu_action(self, config: ContextMenuConfig, point: Point) -> None:
         """Add POI movement action to the right-click context menu."""
-        if not cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED:
-            return
         if self._correlation_open:
             return
         config.add_action(
