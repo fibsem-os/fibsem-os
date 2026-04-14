@@ -298,6 +298,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_border_idle.triggered.connect(
             lambda: self._set_border_state("idle")
         )
+        self.action_border_agent = QAction("Agent (electric purple)", self)
+        self.action_border_agent.triggered.connect(
+            lambda: self._set_border_state("agent")
+        )
 
         # add to menu bar
         menu_bar = self.menuBar()
@@ -316,6 +320,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         border_menu.addAction(self.action_border_supervised)  # type: ignore
         border_menu.addAction(self.action_border_waiting)  # type: ignore
         border_menu.addAction(self.action_border_idle)  # type: ignore
+        border_menu.addAction(self.action_border_agent)  # type: ignore
 
         test_menu.addSeparator()  # type: ignore
         test_menu.addAction(self.action_beep)  # type: ignore
