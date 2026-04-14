@@ -368,8 +368,10 @@ AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
 AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml")
 AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml")
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
+AUTOLAMELLA_DB_PATH: Path = os.path.join(Path.home(), ".autolamella", "autolamella.db")
 
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
+os.makedirs(os.path.dirname(AUTOLAMELLA_DB_PATH), exist_ok=True)
 
 ####### FEATURE FLAGS
 FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True

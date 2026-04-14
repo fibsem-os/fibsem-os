@@ -79,6 +79,14 @@ from fibsem.applications.autolamella.workflows.tasks.hooks import (
     HookEvent, HookManager, LoggingHook, NotificationHook,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.applications.autolamella.db.crud import (
+    create_db_and_tables,
+    get_engine,
+    get_or_create_user,
+    sync_experiment,
+)
+from fibsem.applications.autolamella.structures import AutoLamellaUser
+from sqlmodel import Session
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
@@ -153,6 +161,13 @@ class AutoLamellaUI(QMainWindow):
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
+
+        # database
+        self._db_engine = get_engine(str(cfg.DB_PATH))
+        create_db_and_tables(self._db_engine)
+        with Session(self._db_engine) as db_session:
+            user_row = get_or_create_user(db_session, AutoLamellaUser.from_environment())
+        self._db_user_id: str = user_row.id
 
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
@@ -751,6 +766,17 @@ class AutoLamellaUI(QMainWindow):
 
         self.experiment_update_signal.emit()
 
+    def _save_and_sync(self) -> None:
+        """Save experiment to disk (YAML) and sync to the database."""
+        if self.experiment is None:
+            return
+        self.experiment.save()
+        try:
+            with Session(self._db_engine) as db_session:
+                sync_experiment(db_session, self.experiment, user_id=self._db_user_id)
+        except Exception as e:
+            logging.warning(f"DB sync failed (experiment still saved to disk): {e}")
+
     ##################################################################
 
     # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
@@ -1144,7 +1170,7 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None or self.experiment.task_protocol is None:
             return
         self.experiment.task_protocol.workflow_config = wcfg
-        self.experiment.save()
+        self._save_and_sync()
         self.experiment.save_protocol()
 
         self.update_ui()
@@ -1153,7 +1179,7 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None or self.experiment.task_protocol is None:
             return
         self.experiment.task_protocol.options = options
-        self.experiment.save()
+        self._save_and_sync()
         self.experiment.save_protocol()
 
     def update_lamella_combobox(self, latest: bool = False):
@@ -1323,7 +1349,7 @@ class AutoLamellaUI(QMainWindow):
                 objective_position = self.microscope.fm.objective.focus_position
             lamella.objective_position = objective_position
 
-        self.experiment.save()
+        self._save_and_sync()
         self.update_lamella_combobox(latest=True)
         self.update_ui()
 
@@ -1343,7 +1369,7 @@ class AutoLamellaUI(QMainWindow):
         """Persist defect state change to disk."""
         if self.experiment is None:
             return
-        self.experiment.save()
+        self._save_and_sync()
         self.update_ui()
 
     def _on_lamella_remove_requested(self, lamella):
@@ -1357,7 +1383,7 @@ class AutoLamellaUI(QMainWindow):
             self.experiment.positions.remove(lamella)
         except ValueError:
             return
-        self.experiment.save()
+        self._save_and_sync()
         logging.debug("Lamella removed from experiment")
         self.update_lamella_combobox(latest=True)
         self.update_ui()
@@ -1388,7 +1414,7 @@ class AutoLamellaUI(QMainWindow):
 
         # remove the lamella
         self.experiment.positions.pop(idx)
-        self.experiment.save()
+        self._save_and_sync()
 
         logging.debug("Lamella removed from experiment")
         self.update_lamella_combobox(latest=True)
@@ -1429,7 +1455,7 @@ class AutoLamellaUI(QMainWindow):
 
         self.update_lamella_combobox()
         self.update_ui()
-        self.experiment.save()
+        self._save_and_sync()
         self.experiment.positions.events.changed.emit()
 
     def _on_lamella_pose_combobox_changed(self):
@@ -1485,7 +1511,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         lamella.poses[pose_name] = state
-        self.experiment.save()
+        self._save_and_sync()
         self.label_lamella_pose_position.setText(f"{state.stage_position.pretty}")
         napari.utils.notifications.show_info(f"Set current position as pose '{pose_name}' for {lamella.name}.")
 
@@ -1544,7 +1570,7 @@ class AutoLamellaUI(QMainWindow):
         lamella = self.experiment.positions[idx]
         # convert from mm to m
         lamella.objective_position = value * 1e-3
-        self.experiment.save()
+        self._save_and_sync()
 
     def get_selected_lamella(self) -> Optional[Lamella]:
         """Get the currently selected lamella from the combobox.
