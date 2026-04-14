@@ -30,6 +30,8 @@ from fibsem.applications.autolamella.db.crud import (
     list_users,
     load_experiment,
     load_lamella,
+    sync_experiment,
+    sync_lamella,
     update_experiment,
     update_lamella,
     update_task_history,

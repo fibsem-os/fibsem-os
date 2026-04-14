@@ -335,3 +335,87 @@ def list_task_history(session: Session, experiment_id: Optional[str] = None,
     if lamella_id:
         stmt = stmt.where(TaskHistoryDB.lamella_id == lamella_id)
     return list(session.exec(stmt).all())
+
+
+# -----------------------------------------------------------------------------
+# sync
+# -----------------------------------------------------------------------------
+
+def sync_experiment(session: Session, experiment: "Experiment", user_id: str,
+                    project_id: Optional[str] = None,
+                    session_id: Optional[str] = None) -> ExperimentDB:
+    """Upsert an experiment and all its lamellas to the DB.
+
+    Safe to call multiple times — creates on first call, updates on subsequent calls.
+    Does not touch task_history rows (managed separately during task execution).
+
+    Intended to be called alongside Experiment.save():
+
+        experiment.save()
+        with Session(engine) as db_session:
+            sync_experiment(db_session, experiment, user_id=user.id)
+    """
+    existing = session.get(ExperimentDB, experiment._id)
+
+    if existing is None:
+        row = experiment_to_db(experiment, user_id=user_id,
+                               project_id=project_id, session_id=session_id)
+        session.add(row)
+    else:
+        import json
+        existing.name = experiment.name
+        existing.path = str(experiment.path)
+        existing.description = experiment.description
+        if experiment.task_protocol is not None:
+            existing.protocol_json = json.dumps(experiment.task_protocol.to_dict())
+            existing.protocol_name = experiment.task_protocol.name
+            existing.protocol_version = experiment.task_protocol.version
+        existing.updated_at = _now()
+        if project_id is not None:
+            existing.project_id = project_id
+        if session_id is not None:
+            existing.session_id = session_id
+        row = existing
+
+    session.commit()
+    session.refresh(row)
+
+    # upsert each lamella
+    for lamella in experiment.positions:
+        sync_lamella(session, lamella, experiment_id=experiment._id)
+
+    return row
+
+
+def sync_lamella(session: Session, lamella: "Lamella", experiment_id: str) -> LamellaDB:
+    """Upsert a single lamella to the DB (data blob + defect_state column).
+
+    Does not touch task_history rows.
+    """
+    import json
+
+    existing = session.get(LamellaDB, lamella._id)
+
+    if existing is None:
+        row = lamella_to_db(lamella, experiment_id=experiment_id)
+        session.add(row)
+    else:
+        existing.defect_state = lamella.defect.state.name
+        existing.current_task_id = lamella.task_state.task_id if lamella.task_state else None
+        existing.data = json.dumps({
+            "path": str(lamella.path),
+            "number": lamella.number,
+            "alignment_area": lamella.alignment_area.to_dict(),
+            "poses": {k: v.to_dict() for k, v in lamella.poses.items()},
+            "task_config": {k: v.to_dict() for k, v in lamella.task_config.items()},
+            "defect": lamella.defect.to_dict(),
+            "milling_angle": lamella.milling_angle,
+            "objective_position": lamella.objective_position,
+            "poi": lamella.poi.to_dict(),
+        })
+        existing.updated_at = _now()
+        row = existing
+
+    session.commit()
+    session.refresh(row)
+    return row
