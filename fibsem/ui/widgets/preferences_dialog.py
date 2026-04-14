@@ -40,10 +40,12 @@ class PreferencesDialog(QDialog):
         self._chk_toasts = QCheckBox()
         self._chk_border = QCheckBox()
         self._chk_timeline = QCheckBox()
+        self._chk_dev_mode = QCheckBox()
         display_form.addRow("Sound notifications", self._chk_sound)
         display_form.addRow("Toast notifications", self._chk_toasts)
         display_form.addRow("Workflow border", self._chk_border)
         display_form.addRow("Workflow timeline", self._chk_timeline)
+        display_form.addRow("Development mode", self._chk_dev_mode)
         content_layout.addWidget(TitledPanel("Display", content=display_content, collapsible=False))
 
         # --- Feature Flags ---
@@ -98,6 +100,7 @@ class PreferencesDialog(QDialog):
         self._chk_toasts.setChecked(d.toasts_enabled)
         self._chk_border.setChecked(d.border_enabled)
         self._chk_timeline.setChecked(d.workflow_timeline_enabled)
+        self._chk_dev_mode.setChecked(d.dev_mode)
 
         f = prefs.features
         self._chk_minimap.setChecked(f.minimap_plot_widget)
@@ -130,6 +133,7 @@ class PreferencesDialog(QDialog):
                 toasts_enabled=self._chk_toasts.isChecked(),
                 border_enabled=self._chk_border.isChecked(),
                 workflow_timeline_enabled=self._chk_timeline.isChecked(),
+                dev_mode=self._chk_dev_mode.isChecked(),
             ),
             features=FeatureFlags(
                 minimap_plot_widget=self._chk_minimap.isChecked(),

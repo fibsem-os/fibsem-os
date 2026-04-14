@@ -239,6 +239,7 @@ class DisplayPreferences:
     toasts_enabled: bool = False
     border_enabled: bool = True
     workflow_timeline_enabled: bool = True
+    dev_mode: bool = False
 
 @dataclass
 class FeatureFlags:

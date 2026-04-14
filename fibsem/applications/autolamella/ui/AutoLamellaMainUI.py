@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-import time 
+import time
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -117,6 +117,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._sound_enabled = self._preferences.display.sound_enabled
         self._toasts_enabled = self._preferences.display.toasts_enabled
         self._border_enabled = self._preferences.display.border_enabled
+        self.dev_mode = self._preferences.display.dev_mode
         self._workflow_timeline_initialized = False
 
         # create menus, status bar, and tabs
@@ -219,6 +220,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_print_hello = QAction("Print Hello", self)
         self.action_print_hello.triggered.connect(lambda: print("Hello"))
         dev_menu.addAction(self.action_print_hello)
+        self._dev_menu = dev_menu
+        self._dev_menu.menuAction().setVisible(self.dev_mode)
 
     def _create_test_menu(self):        
         """Create a test menu for toast notifications and sounds."""
@@ -289,6 +292,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         test_menu.addAction(self.action_sound_toggle)       # type: ignore
         test_menu.addAction(self.action_toasts_toggle)      # type: ignore
 
+        self._test_menu = test_menu
+        self._test_menu.menuAction().setVisible(self.dev_mode)
+
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
@@ -330,11 +336,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._sound_enabled = d.sound_enabled
         self._toasts_enabled = d.toasts_enabled
         self._border_enabled = d.border_enabled
+        self.dev_mode = d.dev_mode
         self.workflow_timeline.setVisible(d.workflow_timeline_enabled)
         # Sync Test menu toggle actions
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_toasts_toggle.setChecked(d.toasts_enabled)
         self.action_border_toggle.setChecked(d.border_enabled)
+        # Toggle dev/test menu visibility
+        self._dev_menu.menuAction().setVisible(d.dev_mode)
+        self._test_menu.menuAction().setVisible(d.dev_mode)
 
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
         """Show a toast notification."""
@@ -1104,7 +1114,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         t_total = time.time() - t0
         col_w = max(len(k) for k in timings) if timings else 10
         rows = "\n".join(f"  {k:<{col_w}}  {v*1000:>8.1f} ms" for k, v in timings.items())
-        logging.info(f"------ END WORKFLOW UPDATE ({t_total*1000:.1f} ms total) ------\n{rows}")
+        # logging.info(f"------ END WORKFLOW UPDATE ({t_total*1000:.1f} ms total) ------\n{rows}")
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
