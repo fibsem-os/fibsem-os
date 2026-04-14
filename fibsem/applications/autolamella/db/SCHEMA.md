@@ -168,15 +168,38 @@ fibsem/applications/autolamella/db/
 ├── SCHEMA.md          # this file
 ├── schema.sql         # CREATE TABLE statements
 ├── models.py          # SQLModel ORM models
-├── crud.py            # insert / update / query helpers  (TODO)
-└── adapters.py        # dataclass → DB row converters    (TODO)
+├── crud.py            # insert / update / query helpers
+└── adapters.py        # dataclass ↔ DB row converters (to_db + from_db)
 ```
 
 ## Implementation Status
 
-- [x] Schema design
-- [x] `schema.sql`
-- [x] `models.py` (SQLModel)
-- [ ] `adapters.py` (dataclass → DB row)
-- [ ] `crud.py` (insert/update/query)
-- [ ] Wire into workflow (TaskManager, session connect/disconnect)
+- [x] Schema design (`SCHEMA.md`)
+- [x] `schema.sql` — CREATE TABLE statements for all 6 tables
+- [x] `models.py` — SQLModel ORM models (`UserDB`, `ProjectDB`, `ProtocolDB`, `SessionDB`, `ExperimentDB`, `LamellaDB`, `TaskHistoryDB`)
+- [x] `adapters.py` — bidirectional converters: `user_to_db/from_db`, `experiment_to_db/from_db`, `lamella_to_db/from_db`, `task_state_to_db/from_db`, `session_to_db`
+- [x] `crud.py` — full insert/update/query helpers + `sync_experiment` / `sync_lamella` upsert helpers
+- [x] `fibsem/config.py` — `AUTOLAMELLA_DB_PATH` added (`~/.autolamella/autolamella.db`)
+- [x] `AutoLamellaUI` wiring — DB engine + default user initialised on startup; `_save_and_sync()` replaces all `experiment.save()` calls in `AutoLamellaUI.py` and `AutoLamellaMainUI.py`
+
+---
+
+## Remaining Work
+
+### 1. Task history — wire into `base.py`
+Hook points are `pre_task()` and `post_task()` in `AutoLamellaTask` ([workflows/tasks/base.py](../workflows/tasks/base.py)).
+
+- `pre_task()` (line ~163): call `create_task_history(session, task_state, experiment_id)` after setting `status = InProgress`
+- `post_task()` (line ~177): call `update_task_history(session, task_state)` after setting `status = Completed`
+- `run()` exception handler (line ~139): call `update_task_history` with `status = Failed` before re-raising
+
+DB engine accessible via `self.parent_ui._db_engine` (guard for headless: `if self.parent_ui is None`).  
+`experiment_id` accessible via `self.parent_ui.experiment._id`.
+
+### 2. Sessions — wire into `AutoLamellaUI`
+- `connect_to_microscope()` (line ~758 in `AutoLamellaUI.py`): call `create_session(session, user_id, microscope_name=...)`; store returned `SessionDB.id` as `self._db_session_id`
+- `disconnect_from_microscope()` (line ~769): call `end_session(session, self._db_session_id)`
+- Pass `session_id=self._db_session_id` into `sync_experiment` calls
+
+### 3. Dependencies
+Add `sqlmodel` to project dependencies (`pyproject.toml` or `setup.py`). Currently not listed.
