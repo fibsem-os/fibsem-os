@@ -38,8 +38,9 @@ def new_image(
 
     # run autocontrast
     if settings.autocontrast:
-        microscope.autocontrast(beam_type=settings.beam_type, 
-                                reduced_area=settings.reduced_area)
+        microscope.autocontrast(
+            beam_type=settings.beam_type, reduced_area=settings.reduced_area
+        )
 
     # acquire the image
     image = microscope.acquire_image(
@@ -51,14 +52,16 @@ def new_image(
 
     # save image
     if settings.save:
-        filename = os.path.join(settings.path, filename)
+        filename = os.path.join(settings.path, filename)  # type: ignore
         image.save(path=filename)
 
     return image
 
-def acquire_image(microscope:FibsemMicroscope, settings:ImageSettings) -> FibsemImage:
-    """ passthrough for new_image to match internal api"""
+
+def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
+    """passthrough for new_image to match internal api"""
     return new_image(microscope, settings)
+
 
 def last_image(microscope: FibsemMicroscope, beam_type: BeamType) -> FibsemImage:
     """_summary_
@@ -73,10 +76,9 @@ def last_image(microscope: FibsemMicroscope, beam_type: BeamType) -> FibsemImage
     return microscope.last_image(beam_type=beam_type)
 
 
-
 def take_reference_images(
     microscope: FibsemMicroscope, image_settings: ImageSettings
-) -> Tuple[FibsemImage, FibsemImage]:
+) -> tuple[FibsemImage, FibsemImage]:
     """
     Acquires a pair of electron and ion reference images using the specified imaging settings and
     a FibsemMicroscope instance.
@@ -90,30 +92,29 @@ def take_reference_images(
         images acquired using the specified microscope and image settings.
 
     """
-    import time
-
-    from fibsem.microscopes.tescan import TescanMicroscope # TODO: handle this better
 
     tmp_beam_type = image_settings.beam_type
-    
+
     # acquire electron image
     image_settings.beam_type = BeamType.ELECTRON
     eb_image = acquire_image(microscope, image_settings)
-    
+
     # acquire ion image
     image_settings.beam_type = BeamType.ION
-    if isinstance(microscope, TescanMicroscope):
+    if microscope.manufacturer == "TESCAN":
+        import time
+
         time.sleep(1)
     ib_image = acquire_image(microscope, image_settings)
     image_settings.beam_type = tmp_beam_type  # reset to original beam type
 
     return eb_image, ib_image
-   
+
 
 def take_set_of_reference_images(
     microscope: FibsemMicroscope,
     image_settings: ImageSettings,
-    hfws: Tuple[float, float],
+    hfws: tuple[float, float],
     filename: str = "ref_image",
 ) -> ReferenceImages:
     """
@@ -149,7 +150,6 @@ def take_set_of_reference_images(
 
     reference_images = ReferenceImages(low_eb, high_eb, low_ib, high_ib)
 
-
     # more flexible version
     # reference_images = []
     # for i, hfw in enumerate(hfws):
@@ -161,10 +161,12 @@ def take_set_of_reference_images(
     return reference_images
 
 
-def acquire_channels(microscope: FibsemMicroscope,
-                           image_settings: ImageSettings,
-                           acquire_sem: bool = True,
-                           acquire_fib: bool = True) -> tuple[Optional[FibsemImage], Optional[FibsemImage]]:
+def acquire_channels(
+    microscope: FibsemMicroscope,
+    image_settings: ImageSettings,
+    acquire_sem: bool = True,
+    acquire_fib: bool = True,
+) -> tuple[Optional[FibsemImage], Optional[FibsemImage]]:
     """Acquire SEM and/or FIB images based on the specified flags.
     Args:
         microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
@@ -186,12 +188,15 @@ def acquire_channels(microscope: FibsemMicroscope,
         fib_image = acquire_image(microscope, image_settings)
     return sem_image, fib_image
 
-def acquire_set_of_channels(microscope: FibsemMicroscope, 
-                            image_settings: ImageSettings, 
-                            hfws: tuple[float, ...],
-                            filename: str = "ref_image",
-                            acquire_sem: bool = True, 
-                            acquire_fib: bool = True) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
+
+def acquire_set_of_channels(
+    microscope: FibsemMicroscope,
+    image_settings: ImageSettings,
+    hfws: tuple[float, ...],
+    filename: str = "ref_image",
+    acquire_sem: bool = True,
+    acquire_fib: bool = True,
+) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
     """Acquire a set of SEM and/or FIB images at different horizontal field widths (hfws).
     Args:
         microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
@@ -208,19 +213,21 @@ def acquire_set_of_channels(microscope: FibsemMicroscope,
     image_settings = copy.deepcopy(image_settings)
     image_settings.save = True  # ensure saving
 
-
     # extend suffexes if more hfws are provided than suffixes
     suffixes = []
     while len(suffixes) < len(hfws):
-        suffixes.append(f"res_{len(suffixes)+1:02d}")
+        suffixes.append(f"res_{len(suffixes) + 1:02d}")
 
     for hfw, suffix in zip(hfws, suffixes):
         image_settings.hfw = hfw
         image_settings.filename = f"{filename}_{suffix}"
         # image_settings.filename = f"{filename}_{int(hfw*1e6)}um"
-        sem_image, fib_image = acquire_channels(microscope, image_settings, acquire_sem, acquire_fib)
+        sem_image, fib_image = acquire_channels(
+            microscope, image_settings, acquire_sem, acquire_fib
+        )
         images.append((sem_image, fib_image))
     return images
+
 
 ##### FOCUS STACKING
 def acquire_focus_stacked_image(
@@ -267,19 +274,18 @@ def acquire_focus_stacked_image(
     strip_height = 1.0 / n_steps
 
     images: list[FibsemImage] = []
+    image_settings.save = False  # ensure we don't save intermediate strips
     for i in range(n_steps):
         # calculate the reduced area for this strip
         reduced_area = FibsemRectangle(
-            left=0, top=i * strip_height,
-            width=1, height=strip_height
+            left=0, top=i * strip_height, width=1, height=strip_height
         )
         image_settings.reduced_area = reduced_area
 
         # Perform autofocus if requested
         if auto_focus:
             microscope.auto_focus(
-                beam_type=image_settings.beam_type,
-                reduced_area=reduced_area
+                beam_type=image_settings.beam_type, reduced_area=reduced_area
             )
 
         image = acquire_image(microscope, image_settings)
@@ -290,14 +296,27 @@ def acquire_focus_stacked_image(
 
     # resize if necessary to match the expected resolution
     if arr.shape != image_settings.resolution[::-1]:
-        arr = resize(arr, image_settings.resolution[::-1], preserve_range=True).astype(np.uint8) # type: ignore
+        arr = resize(arr, image_settings.resolution[::-1], preserve_range=True).astype(
+            np.uint8
+        )  # type: ignore
 
     # Create the stacked FibsemImage using metadata from the middle strip
     # (or the last middle strip if even number of strips)
     middle_index = (n_steps - 1) // 2
-    stacked_image = FibsemImage(data=arr, metadata=copy.deepcopy(images[middle_index].metadata))
+    stacked_image = FibsemImage(
+        data=arr, metadata=copy.deepcopy(images[middle_index].metadata)
+    )
 
     # update metadata to reflect that reduced_area is now the full image
-    stacked_image.metadata.image_settings.reduced_area = None # type: ignore
+    stacked_image.metadata.image_settings.reduced_area = None  # type: ignore
+
+    # set filename
+    if image_settings.beam_type is BeamType.ELECTRON:
+        filename = f"{image_settings.filename}_eb"
+
+    if image_settings.beam_type is BeamType.ION:
+        filename = f"{image_settings.filename}_ib"
+
+    stacked_image.save(os.path.join(image_settings.path, f"{filename}"))  # type: ignore
 
     return stacked_image
