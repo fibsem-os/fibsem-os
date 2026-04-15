@@ -217,8 +217,11 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
-        self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
-        self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
+        if cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
+            self.viewer.mouse_double_click_callbacks.append(self._viewer_double_click)
+        else:
+            self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
+            self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
 
         # disable ui elements
         self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
@@ -441,6 +444,16 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         )
 
         return stage_position
+
+    def _viewer_double_click(self, viewer, event):
+        """Viewer-level double-click callback (FEATURE_VIEWER_MOVEMENT_EVENTS).
+        Determines which image layer was clicked and delegates to _double_click."""
+        for layer in [self.image_widget.eb_layer, self.image_widget.ib_layer]:
+            coords = layer.world_to_data(event.position)
+            _, beam_type, _ = self.image_widget.get_data_from_coord(coords)
+            if beam_type is not None:
+                self._double_click(layer, event)
+                return
 
     def _double_click(self, layer, event):
         """Callback for double-click mouse events on the image widget"""
