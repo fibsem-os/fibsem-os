@@ -151,7 +151,7 @@ class FibsemMicroscope(ABC):
     _stage_position: FibsemStagePosition = None
 
     @abstractmethod
-    def connect_to_microscope(self, ip_address: str, port: int) -> None:
+    def connect_to_microscope(self, ip_address: str, port: int, reset_beam_shift: bool = True) -> None:
         pass
 
     @abstractmethod
@@ -1473,13 +1473,14 @@ class ThermoMicroscope(FibsemMicroscope):
         del self.connection
         self.connection = None
 
-    def connect_to_microscope(self, ip_address: str, port: int = 7520) -> None:
+    def connect_to_microscope(self, ip_address: str, port: int = 7520, reset_beam_shift: bool = True) -> None:
         """
         Connect to a Thermo Fisher microscope at the specified IP address and port.
 
         Args:
             ip_address (str): The IP address of the microscope to connect to.
             port (int): The port number of the microscope (default: 7520).
+            reset_beam_shift (bool): Whether to reset beam shifts on connect (default: True).
 
         Returns:
             None: This function doesn't return anything.
@@ -1513,7 +1514,8 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info(f"Autoscript Client: {self.connection.service.autoscript.client.version}")
         logging.info(f"Autoscript Server: {self.connection.service.autoscript.server.version}")
 
-        self.reset_beam_shifts()
+        if reset_beam_shift:
+            self.reset_beam_shifts()
 
         # assign stage
         if self.connection.specimen.compustage.is_installed:
