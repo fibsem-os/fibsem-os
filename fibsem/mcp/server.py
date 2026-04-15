@@ -47,7 +47,7 @@ def _bt(beam_type: str):
 
 @mcp.tool()
 def connect_microscope(manufacturer: str = "Demo", ip_address: str = "localhost") -> str:
-    """Connect to a FIB/SEM microscope.
+    """Connect to a FIB/SEM microscope (in-process).
 
     Args:
         manufacturer: Microscope manufacturer — 'Demo' (no hardware needed),
@@ -61,6 +61,25 @@ def connect_microscope(manufacturer: str = "Demo", ip_address: str = "localhost"
         manufacturer=manufacturer, ip_address=ip_address
     )
     return f"Connected to {manufacturer} microscope at {ip_address}"
+
+
+@mcp.tool()
+def connect_microscope_remote(host: str = "localhost", port: int = 8001) -> str:
+    """Connect to a FIB/SEM microscope via a remote FibsemServer (REST API).
+    Use this when the microscope PC is running FibsemServer and Claude Code
+    is on a different machine.
+
+    Args:
+        host: IP address or hostname of the machine running FibsemServer
+        port: Port FibsemServer is listening on (default 8001)
+    """
+    global _microscope, _settings
+    from fibsem.server.client import FibsemClient
+    log.info("Connecting to remote FibsemServer at %s:%d", host, port)
+    _microscope = FibsemClient(host=host, port=port)
+    _settings = None
+    manufacturer = _microscope.system.info.manufacturer if _microscope.system else "unknown"
+    return f"Connected to remote FibsemServer at {host}:{port} (manufacturer: {manufacturer})"
 
 
 # ---------------------------------------------------------------------------
@@ -256,13 +275,20 @@ def acquire_image(
         else:
             data = np.zeros_like(data, dtype=np.uint8)
     pil = PILImage.fromarray(data, mode="L" if data.ndim == 2 else "RGB")
+
+    # Downsample to fit within Claude Code's MCP token limit (~800px wide is safe)
+    max_width = 800
+    if pil.width > max_width:
+        scale = max_width / pil.width
+        pil = pil.resize((max_width, int(pil.height * scale)), PILImage.Resampling.LANCZOS)
+
     buf = io.BytesIO()
-    pil.save(buf, format="PNG")
+    pil.save(buf, format="JPEG", quality=85)
     b64 = base64.b64encode(buf.getvalue()).decode()
 
     return [
         TextContent(type="text", text=text),
-        ImageContent(type="image", data=b64, mimeType="image/png"),
+        ImageContent(type="image", data=b64, mimeType="image/jpeg"),
     ]
 
 
@@ -548,6 +574,130 @@ def link_stage() -> str:
 # ---------------------------------------------------------------------------
 # Milling
 # ---------------------------------------------------------------------------
+
+@mcp.tool()
+def setup_milling(
+    milling_current_na: float = 0.02,
+    milling_voltage_kv: float = 30.0,
+    application_file: str = "Si",
+    patterning_mode: str = "Serial",
+) -> str:
+    """Configure the ion beam for milling. Call this before draw_rectangle and run_milling.
+
+    Args:
+        milling_current_na: Ion beam current in nanoamps (e.g. 0.02 = 20 pA for fine milling,
+            1.0 nA for fast bulk removal)
+        milling_voltage_kv: Ion beam voltage in kilovolts (default 30 kV)
+        application_file: Milling application file — 'Si' for silicon, 'C' for carbon
+            (ThermoFisher only; ignored on TESCAN)
+        patterning_mode: 'Serial' (one pattern at a time) or 'Parallel' (simultaneous)
+    """
+    if err := _check_microscope():
+        return err
+
+    from fibsem.structures import FibsemMillingSettings
+    mill_settings = FibsemMillingSettings(
+        milling_current=milling_current_na * 1e-9,
+        milling_voltage=milling_voltage_kv * 1e3,
+        application_file=application_file,
+        patterning_mode=patterning_mode,
+    )
+    _microscope.setup_milling(mill_settings)
+    return (
+        f"Milling configured: current={milling_current_na} nA, "
+        f"voltage={milling_voltage_kv} kV, application={application_file}, "
+        f"mode={patterning_mode}"
+    )
+
+
+@mcp.tool()
+def draw_rectangle(
+    width_um: float = 10.0,
+    height_um: float = 5.0,
+    depth_um: float = 1.0,
+    centre_x_um: float = 0.0,
+    centre_y_um: float = 0.0,
+    rotation_deg: float = 0.0,
+    cleaning_cross_section: bool = False,
+) -> str:
+    """Draw a rectangle milling pattern on the ion beam. Call setup_milling first.
+    Positions are offsets from the image centre.
+
+    Args:
+        width_um: Pattern width in micrometers
+        height_um: Pattern height in micrometers
+        depth_um: Milling depth in micrometers
+        centre_x_um: X offset from image centre in micrometers (positive = right)
+        centre_y_um: Y offset from image centre in micrometers (positive = down)
+        rotation_deg: Pattern rotation in degrees
+        cleaning_cross_section: If True, use cleaning cross-section mode (polishing pass)
+    """
+    if err := _check_microscope():
+        return err
+
+    from fibsem.structures import FibsemRectangleSettings
+    pattern = FibsemRectangleSettings(
+        width=width_um * 1e-6,
+        height=height_um * 1e-6,
+        depth=depth_um * 1e-6,
+        centre_x=centre_x_um * 1e-6,
+        centre_y=centre_y_um * 1e-6,
+        rotation=math.radians(rotation_deg),
+        cleaning_cross_section=cleaning_cross_section,
+    )
+    _microscope.draw_patterns([pattern])
+    return (
+        f"Rectangle drawn: {width_um} × {height_um} µm, depth={depth_um} µm, "
+        f"centre=({centre_x_um}, {centre_y_um}) µm, rotation={rotation_deg}°"
+    )
+
+
+@mcp.tool()
+def run_milling(
+    milling_current_na: float = 0.02,
+    milling_voltage_kv: float = 30.0,
+    asynch: bool = False,
+) -> str:
+    """Run the ion beam milling with currently drawn patterns. Blocks until complete unless asynch=True.
+
+    Args:
+        milling_current_na: Ion beam current in nanoamps — should match setup_milling
+        milling_voltage_kv: Ion beam voltage in kilovolts
+        asynch: If True, return immediately without waiting for milling to finish
+    """
+    if err := _check_microscope():
+        return err
+
+    log.info("Running milling: %.3f nA, %.1f kV", milling_current_na, milling_voltage_kv)
+    _microscope.run_milling(
+        milling_current=milling_current_na * 1e-9,
+        milling_voltage=milling_voltage_kv * 1e3,
+        asynch=asynch,
+    )
+    return f"Milling complete ({milling_current_na} nA, {milling_voltage_kv} kV)."
+
+
+@mcp.tool()
+def finish_milling(
+    imaging_current_na: float = 0.1,
+    imaging_voltage_kv: float = 2.0,
+) -> str:
+    """Finalise milling: clear patterns and restore the ion beam to imaging settings.
+    Call this after run_milling.
+
+    Args:
+        imaging_current_na: Ion beam current to restore for imaging, in nanoamps
+        imaging_voltage_kv: Ion beam voltage to restore for imaging, in kilovolts
+    """
+    if err := _check_microscope():
+        return err
+
+    _microscope.finish_milling(
+        imaging_current=imaging_current_na * 1e-9,
+        imaging_voltage=imaging_voltage_kv * 1e3,
+    )
+    return f"Milling finished. Beam restored to {imaging_current_na} nA, {imaging_voltage_kv} kV."
+
 
 @mcp.tool()
 def stop_milling() -> str:
