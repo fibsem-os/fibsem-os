@@ -105,6 +105,38 @@ def test_fibsem_image_extract_region():
     assert result.metadata.image_settings.reduced_area == rect
 
 
+def test_fibsem_image_resize():
+    """resize() returns correct shape and updates pixel_size; hfw and resolution are updated."""
+    image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
+    orig_px = image.metadata.pixel_size.x  # 100e-6 / 100 = 1e-6
+
+    result = image.resize((50, 50))
+
+    assert result.data.shape == (50, 50)
+    assert result.metadata.image_settings.resolution == (50, 50)
+    # pixel size doubles when halving resolution at fixed HFW
+    assert abs(result.metadata.pixel_size.x - orig_px * 2) < 1e-12
+    assert abs(result.metadata.pixel_size.y - orig_px * 2) < 1e-12
+    # original is unchanged
+    assert image.data.shape == (100, 100)
+
+
+def test_fibsem_image_resize_no_metadata():
+    """resize() raises ValueError when image has no metadata."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((100, 100), dtype=np.uint8))
+    with pytest.raises(ValueError):
+        image.resize((50, 50))
+
+
+def test_fibsem_image_brightness():
+    """brightness property returns mean pixel value."""
+    import numpy as np
+    data = np.full((10, 10), 128, dtype=np.uint8)
+    image = FibsemImage(data=data)
+    assert image.brightness == 128.0
+
+
 def test_fibsem_image_extract_region_invalid_rect():
     """extract_region raises ValueError for out-of-bounds rectangles."""
     image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)

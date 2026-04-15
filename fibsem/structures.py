@@ -2306,6 +2306,49 @@ class FibsemImage:
 
         return FibsemImage(data=cropped, metadata=new_metadata)
 
+    def resize(self, resolution: Tuple[int, int]) -> "FibsemImage":
+        """Resize the image to the given resolution and return a new FibsemImage with updated metadata.
+
+        HFW is preserved; pixel_size is recalculated to match the new pixel dimensions.
+
+        Args:
+            resolution (Tuple[int, int]): Target resolution as (width, height) in pixels.
+
+        Returns:
+            FibsemImage: A new FibsemImage with resized data and updated metadata.
+
+        Raises:
+            ValueError: If metadata is None.
+        """
+        if self.metadata is None:
+            raise ValueError("Cannot resize FibsemImage without metadata.")
+
+        from skimage.transform import resize as skimage_resize
+        new_width, new_height = resolution
+        resized = skimage_resize(
+            self.data,
+            output_shape=(new_height, new_width),
+            preserve_range=True,
+            anti_aliasing=True,
+        ).astype(self.data.dtype)
+
+        from copy import deepcopy
+        new_metadata = deepcopy(self.metadata)
+        new_metadata.image_settings.resolution = resolution
+        # pixel size scales inversely with resolution at fixed HFW
+        orig_height, orig_width = self.data.shape
+        new_metadata.pixel_size = Point(
+            x=self.metadata.pixel_size.x * (orig_width / new_width),
+            y=self.metadata.pixel_size.y * (orig_height / new_height),
+        )
+
+        return FibsemImage(data=resized, metadata=new_metadata)
+
+    @property
+    def brightness(self) -> float:
+        """Mean pixel intensity of the image."""
+        return float(np.mean(self.data))
+
     @staticmethod
     def generate_blank_image(
         resolution: Tuple[int, int] = (1536, 1024),
