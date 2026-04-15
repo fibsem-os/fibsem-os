@@ -1275,7 +1275,7 @@ class FibsemMicroscope(ABC):
     def move_to_milling_angle(self,milling_angle: float, rotation: Optional[float] = None) -> bool:
         """Move the stage to the milling angle, based on the current pretilt and column tilt.
         Args:
-            milling_angle (float): The target milling angle in degrees.
+            milling_angle (float): The target milling angle in radians.
             rotation (Optional[float]): The target rotation angle in radians. If None, uses the current rotation reference.
         Returns:
             bool: True if the stage is close to the target milling angle after the move, False otherwise.
