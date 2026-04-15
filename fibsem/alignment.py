@@ -37,6 +37,15 @@ class AlignmentResult:
     success: bool = True           # False if score < minimum_response (shift was zeroed)
 
 
+@dataclass
+class AlignmentStatus:
+    """Outcome of align_until_converged."""
+    results: "list[AlignmentResult]"
+    converged: bool   # True if shift fell below shift_tolerance
+    aborted: bool     # True if stopped early due to low score or divergence
+    reason: str       # "converged" | "low_score" | "diverging" | "max_steps" | "stop_event"
+
+
 
 # TODO: rename to align_with_reference_image as it is not specific to beam shift
 def beam_shift_alignment_v2(
@@ -629,6 +638,135 @@ def multi_step_alignment_v2(
 
     if save_plot:
         plot_multi_step_alignment(ref_image, alignment_results, save=save_plot, title=plot_title)
+
+
+def align_until_converged(
+    microscope: FibsemMicroscope,
+    ref_image: FibsemImage,
+    beam_type: BeamType,
+    max_steps: int = 5,
+    shift_tolerance: Optional[float] = None,
+    minimum_response: Optional[float] = None,
+    detect_divergence: bool = True,
+    use_autocontrast: bool = False,
+    use_autofocus: bool = False,
+    subsystem: Optional[str] = None,
+    stop_event: Optional[ThreadingEvent] = None,
+    save_plot: bool = False,
+    plot_title: Optional[str] = None,
+) -> "AlignmentStatus":
+    """Align iteratively using cv2 phase correlation, stopping as soon as the
+    shift converges, the correlation quality drops, or the alignment diverges.
+
+    Args:
+        microscope: The microscope to use.
+        ref_image: Reference image to align to.
+        beam_type: Beam type for image acquisition.
+        max_steps: Hard upper limit on iterations. Defaults to 5.
+        shift_tolerance: Stop when |shift| < this value (metres).
+            Defaults to None → 1 × pixel size of ref_image (resolution-independent).
+        minimum_response: Abort if response drops below this score.
+            Defaults to None (no gate).
+        detect_divergence: Abort if shift magnitude increases for 2 consecutive
+            steps (indicates overcorrection or a failing correlation). Defaults to True.
+        use_autocontrast: Run autocontrast before the first acquisition. Defaults to False.
+        use_autofocus: Run autofocus before the first acquisition. Defaults to False.
+        subsystem: Movement system — None (beam shift), "stage", or "stage-vertical".
+        stop_event: Threading event; checked each iteration for external cancellation.
+        save_plot: Save a plot of results to disk. Defaults to False.
+        plot_title: Optional title for the saved plot.
+
+    Returns:
+        AlignmentStatus with all per-step AlignmentResult objects and a reason string:
+        "converged" | "low_score" | "diverging" | "max_steps" | "stop_event"
+    """
+    pixelsize_x = ref_image.metadata.pixel_size.x
+    pixelsize_y = ref_image.metadata.pixel_size.y
+
+    if shift_tolerance is None:
+        shift_tolerance = pixelsize_x
+
+    # set up image acquisition settings
+    image_settings = ImageSettings.fromFibsemImage(ref_image)
+    image_settings.autocontrast = False
+    image_settings.save = True
+    ref_path = image_settings.path if image_settings.path is not None else os.getcwd()
+    image_settings.path = os.path.join(ref_path, ALIGNMENT_SUBDIR)
+    os.makedirs(image_settings.path, exist_ok=True)
+
+    results: list = []
+    prev_shift_magnitude = None
+    divergence_count = 0
+
+    for i in range(max_steps):
+        if stop_event is not None and stop_event.is_set():
+            logging.info("align_until_converged: stop event set, exiting.")
+            return AlignmentStatus(results=results, converged=False, aborted=True, reason="stop_event")
+
+        image_settings.filename = f"align_until_converged_step{i+1:02d}_{utils.current_timestamp_v3(timeonly=True)}"
+
+        if i == 0:
+            if use_autocontrast:
+                microscope.autocontrast(beam_type=beam_type, reduced_area=image_settings.reduced_area)
+            if use_autofocus:
+                microscope.auto_focus(beam_type=beam_type, reduced_area=image_settings.reduced_area)
+
+        new_image = acquire.new_image(microscope, settings=image_settings)
+
+        dx, dy, score = shift_from_crosscorrelation_v2(ref_image, new_image)
+        shift_magnitude = np.sqrt(dx ** 2 + dy ** 2)
+
+        result = AlignmentResult(
+            shift=Point(dx, dy),
+            shift_px=Point(dx / pixelsize_x, dy / pixelsize_y),
+            score=score,
+            image=new_image,
+            success=(minimum_response is None or score >= minimum_response),
+        )
+        results.append(result)
+
+        logging.info(
+            f"align_until_converged step {i+1}: "
+            f"shift={shift_magnitude*1e9:.1f}nm  score={score:.3f}  "
+            f"tolerance={shift_tolerance*1e9:.1f}nm"
+        )
+
+        # gate: low correlation score
+        if minimum_response is not None and score < minimum_response:
+            logging.warning(f"align_until_converged: score {score:.3f} < minimum {minimum_response:.3f}, aborting.")
+            return AlignmentStatus(results=results, converged=False, aborted=True, reason="low_score")
+
+        # gate: converged
+        if shift_magnitude < shift_tolerance:
+            logging.info(f"align_until_converged: converged at step {i+1}.")
+            return AlignmentStatus(results=results, converged=True, aborted=False, reason="converged")
+
+        # gate: divergence (shift grew for 2 consecutive steps)
+        if detect_divergence and prev_shift_magnitude is not None:
+            if shift_magnitude > prev_shift_magnitude:
+                divergence_count += 1
+                if divergence_count >= 2:
+                    logging.warning(f"align_until_converged: diverging at step {i+1}, aborting.")
+                    return AlignmentStatus(results=results, converged=False, aborted=True, reason="diverging")
+            else:
+                divergence_count = 0
+        prev_shift_magnitude = shift_magnitude
+
+        # apply correction
+        if subsystem is None:
+            microscope.beam_shift(-dx, dy, beam_type)
+        elif subsystem == "stage":
+            microscope.stable_move(dx=dx, dy=-dy, beam_type=beam_type)
+        elif subsystem == "stage-vertical":
+            microscope.vertical_move(dy=-dy, dx=dx)
+
+    logging.info(f"align_until_converged: reached max_steps ({max_steps}).")
+    status = AlignmentStatus(results=results, converged=False, aborted=False, reason="max_steps")
+
+    if save_plot:
+        plot_multi_step_alignment_v2(ref_image, results, title=plot_title, save=True)
+
+    return status
 
 
 def _plot_image_with_crosshair(ax, data: np.ndarray, title: str) -> None:
