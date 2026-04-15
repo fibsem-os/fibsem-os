@@ -1,65 +1,86 @@
+from __future__ import annotations
 
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Tuple, List
 import numpy as np
 
 from fibsem import acquire, alignment
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling import draw_pattern, run_milling, setup_milling, finish_milling
-from fibsem.milling.base import (FibsemMillingStage, MillingStrategy,
-                                 MillingStrategyConfig)
-from fibsem.milling.properties import DEFAULT_IMAGE_RESOLUTION_METADATA, DEFAULT_ANGLE_METADATA
+from fibsem.milling import setup_milling
+from fibsem.milling.base import (
+    FibsemMillingStage,
+    MillingStrategy,
+    MillingStrategyConfig,
+)
+from fibsem.milling.properties import (
+    DEFAULT_IMAGE_RESOLUTION_METADATA,
+    DEFAULT_ANGLE_METADATA,
+)
 from fibsem.milling.patterning.patterns2 import TrenchPattern
-from fibsem.structures import (BeamType, FibsemImage, FibsemRectangle,
-                               FibsemStagePosition, ImageSettings)
+from fibsem.structures import (
+    FibsemStagePosition,
+    ImageSettings,
+)
 
 
 @dataclass
 class OvertiltTrenchMillingConfig(MillingStrategyConfig):
-    overtilt: float = field(default=1.0, 
-                            metadata={
-                                **DEFAULT_ANGLE_METADATA,
-                                "label": "Overtilt",
-                                "minimum": 0.1,
-                                "maximum": 10.0,
-                                "step": 0.5,
-                                "tooltip": "The overtilt angle for the milling strategy."
-                                })
-    image_resolution: List[int] = field(default_factory=lambda: [1536, 1024],
-                                  metadata={
-                                    **DEFAULT_IMAGE_RESOLUTION_METADATA,
-                                      "tooltip": "The imaging resolution for the milling strategy."
-                                  })
-    secret_parameter: bool = field(default=False,
-                                  metadata={
-                                      "label": "Secret Parameter",
-                                      "type": bool,
-                                      "advanced": True,
-                                      "tooltip": "A secret parameter for internal use (testing)."
-                                  })
-    area_parameter: float = field(default=1e-6,
-                                  metadata={
-                                      "label": "Area Parameter",
-                                      "type": float,
-                                      "unit": "m²",
-                                      "dimensions": 2,
-                                      "scale": 1e6,
-                                      "tooltip": "An area parameter for internal use (testing)."
-                                  })
+    overtilt: float = field(
+        default=1.0,
+        metadata={
+            **DEFAULT_ANGLE_METADATA,
+            "label": "Overtilt",
+            "minimum": 0.1,
+            "maximum": 10.0,
+            "step": 0.5,
+            "tooltip": "The overtilt angle for the milling strategy.",
+        },
+    )
+    image_resolution: tuple[int, int] = field(
+        default_factory=lambda: (1536, 1024),
+        metadata={
+            **DEFAULT_IMAGE_RESOLUTION_METADATA,
+            "tooltip": "The imaging resolution for the milling strategy.",
+        },
+    )
+    secret_parameter: bool = field(
+        default=False,
+        metadata={
+            "label": "Secret Parameter",
+            "type": bool,
+            "advanced": True,
+            "tooltip": "A secret parameter for internal use (testing).",
+        },
+    )
+    area_parameter: float = field(
+        default=1e-6,
+        metadata={
+            "label": "Area Parameter",
+            "type": float,
+            "unit": "m²",
+            "dimensions": 2,
+            "scale": 1e6,
+            "tooltip": "An area parameter for internal use (testing).",
+        },
+    )
 
 
 class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]):
     """Overtilt milling strategy for trench milling"""
+
     name: str = "Overtilt"
     fullname: str = "Overtilt Trench Milling"
     config_class = OvertiltTrenchMillingConfig
 
-    def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False,
-        parent_ui = None) -> None:
-
-        """Mill a trench pattern with overtilt, 
+    def run(
+        self,
+        microscope: FibsemMicroscope,
+        stage: "FibsemMillingStage",
+        asynch: bool = False,
+        parent_ui=None,
+    ) -> None:
+        """Mill a trench pattern with overtilt,
         based on https://www.sciencedirect.com/science/article/abs/pii/S1047847716301514 and autolamella v1"""
         logging.info(f"Running {self.fullname} for {stage.name}")
 
@@ -74,10 +95,12 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         # TODO: pass in image settings
         # TODO: attach image_settings to microscope? or get current settings?
         # TODO: use drift correction structure to re-align? once added to milling stage
-        image_settings = ImageSettings(hfw=stage.milling.hfw,
-                                       dwell_time=1e-6, 
-                                       resolution=self.config.image_resolution,
-                                       beam_type=stage.milling.milling_channel)
+        image_settings = ImageSettings(
+            hfw=stage.milling.hfw,
+            dwell_time=1e-6,
+            resolution=self.config.image_resolution,
+            beam_type=stage.milling.milling_channel,
+        )
         image_settings.reduced_area = stage.alignment.rect
         image_settings.path = os.getcwd()
         image_settings.filename = f"ref_{stage.name}_overtilt_alignment"
@@ -85,9 +108,10 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
 
         # TODO: support rr
         for i, pattern in enumerate(stage.define_patterns()):
-            
             # TODO: validate which direction to tilt, including when combined with scan rotation
-            scan_rotation = microscope.get("scan_rotation", stage.milling.milling_channel)
+            scan_rotation = microscope.get(
+                "scan_rotation", stage.milling.milling_channel
+            )
             # overtilt
             if i == 0:
                 t = -overtilt_in_radians
@@ -98,28 +122,30 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             # beam alignment
             image_settings = ImageSettings.fromFibsemImage(ref_image)
             image_settings.filename = f"{stage.name}_overtilt_alignment_target_{i}"
-            
-            alignment.multi_step_alignment_v2(microscope=microscope, 
-                                            ref_image=ref_image, 
-                                            beam_type=stage.milling.milling_channel, 
-                                            alignment_current=None,
-                                            steps=3)
+
+            alignment.multi_step_alignment_v2(
+                microscope=microscope,
+                ref_image=ref_image,
+                beam_type=stage.milling.milling_channel,
+                alignment_current=None,
+                steps=3,
+            )
 
             # setup again to ensure we are milling at the correct current, cleared patterns
             setup_milling(microscope=microscope, milling_stage=stage)
 
             # draw pattern
-            draw_pattern(microscope=microscope, pattern=pattern)
+            microscope.draw_pattern(pattern=pattern)
 
             # run milling
-            run_milling(microscope=microscope, 
-                        milling_current=stage.milling.milling_current, 
-                        milling_voltage=stage.milling.milling_voltage, 
-                        asynch=False)
-            
+            microscope.run_milling(
+                milling_current=stage.milling.milling_current,
+                milling_voltage=stage.milling.milling_voltage,
+                asynch=False,
+            )
+
             # finish milling (clear patterns, restore imaging current)
-            finish_milling(
-                microscope=microscope,
+            microscope.finish_milling(
                 imaging_current=microscope.system.ion.beam.beam_current,
                 imaging_voltage=microscope.system.ion.beam.voltage,
             )

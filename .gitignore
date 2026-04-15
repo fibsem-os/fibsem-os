@@ -79,3 +79,5 @@ recommendations/*
 fibsem/applications/test-data/*
 database_migration.md
 fibsem/ui/OFFLINE_ICONS.md
+fibsem/correlation/scaling_factor_lookup_table.csv
+fibsem/correlation/slice_scaling_factor_LUT.ipynb

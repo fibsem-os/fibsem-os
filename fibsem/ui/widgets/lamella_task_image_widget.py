@@ -85,7 +85,7 @@ class ClickableLabel(QLabel):
 class ZoomableImageView(QGraphicsView):
     """QGraphicsView with scroll-to-zoom and drag-to-pan."""
 
-    _ZOOM_FACTOR = 1.15
+    _ZOOM_FACTOR = 1.05
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)

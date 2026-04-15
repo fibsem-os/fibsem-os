@@ -632,7 +632,7 @@ class FibsemMillingStageEditorWidget(QWidget):
         self.list_widget_milling_stages.setMinimumHeight(80)
         if self.viewer is not None:
             self.viewer.mouse_drag_callbacks.append(self._on_single_click)
-            if self.image_widget is not None and cfg.FEATURE_RIGHT_CLICK_CONTEXT_MENU_ENABLED:
+            if self.image_widget is not None:
                 self.viewer.mouse_drag_callbacks.append(self._on_right_click)
 
         # set initial selection to the first item

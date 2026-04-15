@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
+from superqt import ensure_main_thread
 
 from fibsem import config as cfg
 from fibsem import constants, conversions, utils
@@ -43,8 +44,8 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
 class FibsemMovementWidget(QtWidgets.QWidget):
-    saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
-    movement_progress_signal = QtCore.pyqtSignal(dict) # TODO: consolidate
+    saved_positions_updated_signal = QtCore.pyqtSignal(object)
+    movement_progress_signal = QtCore.pyqtSignal(dict)
 
     def __init__(
         self,
@@ -119,13 +120,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation = QtWidgets.QDoubleSpinBox()
         self.doubleSpinBox_movement_stage_rotation.setMinimum(-360.0)
         self.doubleSpinBox_movement_stage_rotation.setMaximum(360.0)
-        self.doubleSpinBox_movement_stage_rotation.setSuffix(" deg")
+        self.doubleSpinBox_movement_stage_rotation.setSuffix(f" {constants.DEGREE_SYMBOL}")
         self.gridLayout_3.addWidget(self.label_movement_stage_rotation, 3, 0)
         self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_rotation, 3, 1)
 
         self.label_movement_stage_tilt = QtWidgets.QLabel("Tilt")
         self.doubleSpinBox_movement_stage_tilt = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_tilt.setSuffix(" deg")
+        self.doubleSpinBox_movement_stage_tilt.setSuffix(f" {constants.DEGREE_SYMBOL}")
         self.gridLayout_3.addWidget(self.label_movement_stage_tilt, 4, 0)
         self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_tilt, 4, 1)
 
@@ -217,8 +218,11 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
-        self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
-        self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
+        if cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
+            self.viewer.mouse_double_click_callbacks.append(self._viewer_double_click)
+        else:
+            self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
+            self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
 
         # disable ui elements
         self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
@@ -346,6 +350,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if is_finished:
             self.update_ui()
 
+    @ensure_main_thread
     def update_ui(self, stage_position: Optional[FibsemStagePosition] = None):
         """Update the UI with the current stage position and saved positions"""
         if stage_position is None:
@@ -371,6 +376,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # update the current position label
         update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
 
+    @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
         if (retake is False or self.microscope.is_acquiring):
             self.update_ui()
@@ -441,6 +447,16 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         )
 
         return stage_position
+
+    def _viewer_double_click(self, viewer, event):
+        """Viewer-level double-click callback (FEATURE_VIEWER_MOVEMENT_EVENTS).
+        Determines which image layer was clicked and delegates to _double_click."""
+        for layer in [self.image_widget.eb_layer, self.image_widget.ib_layer]:
+            coords = layer.world_to_data(event.position)
+            _, beam_type, _ = self.image_widget.get_data_from_coord(coords)
+            if beam_type is not None:
+                self._double_click(layer, event)
+                return
 
     def _double_click(self, layer, event):
         """Callback for double-click mouse events on the image widget"""

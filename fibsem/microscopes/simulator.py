@@ -259,11 +259,12 @@ class DemoMicroscope(FibsemMicroscope):
         self._image_cache: dict = {}
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
 
-    def connect_to_microscope(self, ip_address: str, port: int = 8080) -> None:
+    def connect_to_microscope(self, ip_address: str, port: int = 8080, reset_beam_shift: bool = True) -> None:
         """Connect to the microscope server.
         Args:
             ip_address: The IP address of the microscope server.
             port: The port number of the microscope server.
+            reset_beam_shift: Whether to reset beam shifts on connect (default: True).
         """
         # connect to microscope
         self.connection.connect(ip_address=ip_address, port=port)
@@ -274,9 +275,10 @@ class DemoMicroscope(FibsemMicroscope):
         self.system.info.software_version="0.1"
         self.system.info.hardware_version="v0.23"
         self.system.info.ip_address=ip_address
-        
+
         # reset beam shifts
-        self.reset_beam_shifts()
+        if reset_beam_shift:
+            self.reset_beam_shifts()
 
         # user logging
         info = self.system.info

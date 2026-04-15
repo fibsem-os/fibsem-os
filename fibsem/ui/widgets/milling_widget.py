@@ -64,9 +64,8 @@ class FibsemMillingWidget2(QWidget):
 
         self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection) # type: ignore
 
-        # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
-        # if self.parent_widget._milling_enabled:
-            # self.microscope.milling_progress_signal.connect(self._on_milling_progress)
+        if self.parent_widget._milling_enabled:
+            self.microscope.milling_progress_signal.connect(self._on_milling_progress)
 
         # TODO: milling message display
 

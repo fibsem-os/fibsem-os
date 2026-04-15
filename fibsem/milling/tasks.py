@@ -183,10 +183,7 @@ class FibsemMillingTask:
 
     def _handle_progress(self, ddict: dict) -> None:
         """Handle progress updates from the microscope."""
-        if self.parent_ui: # TODO: migrate to ensure_main_thread
-            self.microscope.milling_progress_signal.emit(ddict)
-        else:
-            logging.info(ddict)
+        self.microscope.milling_progress_signal.emit(ddict)
 
     def _configure_path(self) -> None:
         """Configure the acquisition path for the milling task."""
@@ -201,11 +198,6 @@ class FibsemMillingTask:
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         try:
-            # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
-            if self.parent_ui and hasattr(self.parent_ui, "_on_milling_progress"):
-                self.microscope.milling_progress_signal.connect(self.parent_ui._on_milling_progress) # THIS is 100% broken and causes recursive emits, need to fix to just use the microscope signal
-            else:
-                self.microscope.milling_progress_signal.connect(self._handle_progress)
             self.initial_beam_shift = self.microscope.get_beam_shift(beam_type=self.config.channel)
 
             # configure acquisition filepaths
@@ -236,8 +228,6 @@ class FibsemMillingTask:
             # restore initial beam shift
             if self.initial_beam_shift is not None:
                 self.microscope.set_beam_shift(self.initial_beam_shift, beam_type=self.config.channel)
-            if self.parent_ui:  # TODO: MIGRATE_MILLING_SIGNAL_HANDLING
-                self.microscope.milling_progress_signal.disconnect(self.parent_ui._on_milling_progress)
 
             self._post_task_acquisition()
 
@@ -308,7 +298,7 @@ class FibsemMillingTask:
                 self._acquire_milling_task_images(stage_name=f"{self.name}-{stage.name}", tag="finished")
 
         except Exception as e:
-            logging.error(f"Error running milling stage: {stage.name}, {e}")
+            logging.error(f"Error running milling stage: {stage.name}, {e}", exc_info=True)
 
     def _acquire_reference_image(self) -> Optional[FibsemImage]:
         """Acquire a reference image for the milling task."""

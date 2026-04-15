@@ -6,6 +6,7 @@ from typing import Callable, List, Optional, TYPE_CHECKING
 
 import napari
 import napari.utils.notifications
+from napari.layers import Image as NapariImageLayer
 from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
@@ -15,7 +16,13 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemImage, Point
-from fibsem.ui.napari.patterns import draw_milling_patterns_in_napari, draw_milling_fov_rect, is_pattern_placement_valid, MILLING_PATTERN_LAYER_NAME, MILLING_FOV_LAYER_NAME
+from fibsem.ui.napari.patterns import (
+    draw_milling_patterns_in_napari,
+    draw_milling_fov_rect,
+    is_pattern_placement_valid,
+    MILLING_PATTERN_LAYER_NAME,
+    MILLING_FOV_LAYER_NAME,
+)
 from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -23,6 +30,7 @@ from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 if TYPE_CHECKING:
     from fibsem.ui import FibsemImageSettingsWidget
+
 
 def _apply_diff_to_pattern(pattern, diff: Point) -> None:
     """Shift a pattern's position by diff (in-place). Handles LinePattern start/end offsets."""
@@ -50,7 +58,6 @@ class MillingTaskViewerWidget(QWidget):
     """
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
-    milling_progress_signal = pyqtSignal(dict)           # reserved for future use
 
     def __init__(
         self,
@@ -66,16 +73,19 @@ class MillingTaskViewerWidget(QWidget):
         self.viewer: Optional[napari.Viewer] = viewer or napari.current_viewer()
         self._milling_enabled = milling_enabled
         self._image_widget = image_widget
+        self._show_alignment_area: bool = True
 
         self._fib_image: Optional[FibsemImage] = None
-        self._fib_image_layer: Optional[napari.layers.Image] = None
+        self._fib_image_layer: Optional[NapariImageLayer] = None
         self._pattern_layer_names: List[str] = []
         self._background_milling_stages: List[FibsemMillingStage] = []
         self._pattern_update_inflight = False
         self._pattern_update_pending = False
         self._settings_emit_pending: bool = False
         self._pending_settings: Optional[FibsemMillingTaskConfig] = None
-        self._right_click_menu_action_provider: Optional[Callable[[ContextMenuConfig, Point], None]] = None
+        self._right_click_menu_action_provider: Optional[
+            Callable[[ContextMenuConfig, Point], None]
+        ] = None
 
         self._right_click_callback = None
 
@@ -134,7 +144,9 @@ class MillingTaskViewerWidget(QWidget):
     # Right-click pattern movement
     # ------------------------------------------------------------------
 
-    def set_right_click_menu_actions(self, action_provider: Optional[Callable[[ContextMenuConfig, Point], None]]) -> None:
+    def set_right_click_menu_actions(
+        self, action_provider: Optional[Callable[[ContextMenuConfig, Point], None]]
+    ) -> None:
         """
         Register a callable that appends additional actions to the right-click context menu.
 
@@ -244,10 +256,17 @@ class MillingTaskViewerWidget(QWidget):
     # Viewer / pattern display
     # ------------------------------------------------------------------
 
-    def set_fib_image(self, image: FibsemImage, image_layer: Optional[napari.layers.Image]) -> None:
+    def set_fib_image(
+        self, image: FibsemImage, image_layer: Optional[NapariImageLayer]
+    ) -> None:
         """Inject a FIB image and its napari layer for pattern display."""
         self._fib_image = image
         self._fib_image_layer = image_layer
+        self._schedule_pattern_update()
+
+    def set_alignment_area_visible(self, visible: bool) -> None:
+        """Show/hide the alignment area rectangle in the viewer."""
+        self._show_alignment_area = visible
         self._schedule_pattern_update()
 
     def _on_viewer_image_updated(self) -> None:
@@ -283,7 +302,10 @@ class MillingTaskViewerWidget(QWidget):
             return
 
         pixelsize = self._fib_image.metadata.pixel_size.x
-        alignment_area = config.alignment.rect if config.alignment.enabled else None
+
+        alignment_area = None
+        if config.alignment.enabled and self._show_alignment_area:
+            alignment_area = config.alignment.rect
         try:
             self._pattern_layer_names = draw_milling_patterns_in_napari(
                 viewer=self.viewer,
@@ -317,9 +339,9 @@ class MillingTaskViewerWidget(QWidget):
         try:
             for name in self._pattern_layer_names:
                 if name in self.viewer.layers:
-                    self.viewer.layers.remove(name) # type: ignore
+                    self.viewer.layers.remove(name)  # type: ignore
             if MILLING_FOV_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_FOV_LAYER_NAME)
+                self.viewer.layers.remove(MILLING_FOV_LAYER_NAME)  # type: ignore
         except Exception as e:
             logging.debug(f"MillingTaskViewerWidget: error removing layers: {e}")
         self._pattern_layer_names = []

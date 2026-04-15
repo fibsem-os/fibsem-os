@@ -69,6 +69,12 @@ reporting = [
     "reportlab>=3.6.13; python_version >= '3.9'",
 ]
 
+server = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "requests>=2.28.0",
+]
+
 [project.scripts]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"

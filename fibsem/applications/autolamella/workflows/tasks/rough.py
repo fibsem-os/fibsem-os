@@ -74,18 +74,6 @@ class MillRoughTask(AutoLamellaTask):
         self._acquire_reference_image(self.image_settings,
                                       field_of_view=self.config.milling[MILL_ROUGH_KEY].field_of_view)
 
-        # mill stress relief features # QUERY: should stress relief be a separate task, or just part of mill rough
-        # PRO: allows it to be 'separate'
-        # CON: doesn't allow for easy management of related tasks, re-ordering
-        if STRESS_RELIEF_KEY in self.config.milling:
-            self.log_status_message("MILL_STRESS_RELIEF", "Milling Stress Relief Features...")
-            milling_task_config = self.config.milling[STRESS_RELIEF_KEY]
-            milling_task_config.alignment.rect = self.lamella.alignment_area
-            milling_task_config.acquisition.imaging.path = self.lamella.path
-
-            msg=f"Press Run Milling to mill the stress relief features for {self.lamella.name}. Press Continue when done."
-            milling_task_config = self.update_milling_config_ui(milling_task_config, msg=msg)
-            self.config.milling[STRESS_RELIEF_KEY] = deepcopy(milling_task_config)
 
         # mill rough trench
         self.log_status_message("MILL_LAMELLA", "Milling Rough Lamella...")

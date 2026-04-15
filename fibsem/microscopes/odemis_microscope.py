@@ -271,7 +271,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
 
-    def connect_to_microscope(self, ip_address: str, port: int) -> None:
+    def connect_to_microscope(self, ip_address: str, port: int, reset_beam_shift: bool = True) -> None:
         pass
 
     def disconnect(self):

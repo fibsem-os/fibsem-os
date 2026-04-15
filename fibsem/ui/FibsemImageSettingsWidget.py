@@ -504,8 +504,13 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def update_ui_saving_settings(self) -> None:
         """Toggle the visibility / state of the image saving settings"""
+        # If save_with_selected_lamella is checked, ensure save_image is also checked
+        if self.checkBox_save_with_selected_lamella.isChecked():
+            self.image_settings_widget.save_image_check.blockSignals(True)
+            self.image_settings_widget.save_image_check.setChecked(True)
+            self.image_settings_widget.save_image_check.blockSignals(False)
+
         save_image = self.image_settings_widget.save_image_check.isChecked()
-        self.checkBox_save_with_selected_lamella.setEnabled(save_image)
 
         save_with_lamella = self.checkBox_save_with_selected_lamella.isChecked()
         self.image_settings_widget.path_edit.setEnabled(save_image and not save_with_lamella)

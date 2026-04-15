@@ -1,8 +1,0 @@
-name: fibsem.db
-
-tables:
-  - projects
-  - experiments
-  - users
-  - samples
-  - 

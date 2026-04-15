@@ -290,13 +290,14 @@ class TescanMicroscope(FibsemMicroscope):
         del self.connection
         self.connection = None
 
-    def connect_to_microscope(self, ip_address: str = "localhost", port: int = 8300) -> None:
+    def connect_to_microscope(self, ip_address: str = "localhost", port: int = 8300, reset_beam_shift: bool = True) -> None:
         """
             Connects to a microscope with the specified IP address and port.
 
             Args:
                 ip_address: ip address of the microscope server (default: localhost).
                 port: port of the microscope server (default 8300).
+                reset_beam_shift: Whether to reset beam shifts on connect (default: True).
         """
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self.connection = Automation(ip_address, port)
@@ -304,7 +305,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         # set up detectors
         self._default_detector_names = {BeamType.ELECTRON: "SE", BeamType.ION: "SE"}
-        self._active_detector: Dict[BeamType, Detector] = {}    
+        self._active_detector: Dict[BeamType, Detector] = {}
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [d.name for d in available_detectors]:
             self._default_detector_names[BeamType.ELECTRON] = "E-T"
@@ -317,7 +318,8 @@ class TescanMicroscope(FibsemMicroscope):
         logging.info(f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}.")
 
         # reset beam shifts
-        self.reset_beam_shifts()
+        if reset_beam_shift:
+            self.reset_beam_shifts()
         logging.debug({"msg": "connect_to_microscope", "ip_address": ip_address, "port": port, "system_info": self.system.info.to_dict()})
 
     @property

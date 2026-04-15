@@ -1,6 +1,8 @@
 import sys
 import warnings
 import time
+
+from fibsem import conversions
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
@@ -23,6 +25,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeSettings,
+    Point,
 )
 from fibsem.ui import (
     DETECTION_AVAILABLE,
@@ -173,6 +176,8 @@ class AutoLamellaUI(QMainWindow):
         self.WAITING_FOR_USER_INTERACTION: bool = False
         self.USER_RESPONSE: bool = False
         self.WAITING_FOR_UI_UPDATE: bool = False
+        self.SELECTED_POI: Optional[Point] = None
+        self._poi_layer = None
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[threading.Thread] = None
         self._task_manager: Optional[TaskManager] = None
@@ -1767,6 +1772,13 @@ class AutoLamellaUI(QMainWindow):
         if alignment_area == "clear":
             self.image_widget.clear_alignment_area()
 
+        # POI selection
+        poi_selection = info.get("poi_selection", None)
+        if poi_selection is True:
+            self._show_poi_selection_layer(info.get("initial_poi", None))
+        elif poi_selection == "clear":
+            self._compute_and_clear_poi_layer()
+
         # spot_burn
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
@@ -1790,6 +1802,57 @@ class AutoLamellaUI(QMainWindow):
         self.set_current_workflow_message(info.get("workflow_info", None))
 
         self.WAITING_FOR_UI_UPDATE = False
+
+    _POI_LAYER_NAME = "Point of Interest"
+
+    def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
+        """Add a draggable point marker on the FIB image for POI selection.
+
+        Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
+        """
+        ib_translate = self.image_widget.ib_layer.translate
+        ib_image = self.image_widget.ib_image
+        if initial_poi is not None:
+            px = conversions.microscope_image_to_image_coordinates(
+                initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
+            )
+            row = ib_translate[0] + px.y
+            col = ib_translate[1] + px.x
+        else:
+            row = ib_translate[0] + ib_image.data.shape[0] / 2
+            col = ib_translate[1] + ib_image.data.shape[1] / 2
+        data = [[row, col]]
+        from fibsem.ui.napari.utilities import add_points_layer
+        self._poi_layer = add_points_layer(
+            viewer=self.viewer,
+            data=data,
+            name=self._POI_LAYER_NAME,
+            size=20,
+            face_color="magenta",
+            border_color="white",
+            symbol="cross",
+            blending="additive",
+            border_width=None,
+            border_width_is_relative=False,
+        )
+        self._poi_layer.mode = "select"
+        self.viewer.layers.selection.active = self._poi_layer
+
+    def _compute_and_clear_poi_layer(self) -> None:
+        """Compute POI from current layer position, remove the layer, store in SELECTED_POI."""
+        if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
+            pos = self._poi_layer.data[0]           # [row, col] napari coords
+            ib_translate = self.image_widget.ib_layer.translate
+            py = pos[0] - ib_translate[0]            # pixel y in IB image
+            px = pos[1] - ib_translate[1]            # pixel x in IB image
+            ib_image = self.image_widget.ib_image
+            self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
+                Point(x=px, y=py),
+                ib_image.data,
+                ib_image.metadata.pixel_size.x,
+            )
+            self.viewer.layers.remove(self._poi_layer)
+            self._poi_layer = None
 
 
 def main():

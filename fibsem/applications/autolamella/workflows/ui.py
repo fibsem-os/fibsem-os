@@ -15,6 +15,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
+    Point,
 )
 from fibsem.applications.autolamella.structures import Experiment
 if TYPE_CHECKING:
@@ -292,6 +293,36 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: Optiona
     alignment_area = deepcopy(parent_ui.image_widget.get_alignment_area())
 
     return alignment_area
+
+def select_poi_ui(parent_ui: Optional['AutoLamellaUI'],
+                  msg: str = "Select Point of Interest",
+                  validate: bool = True,
+                  initial_poi: Optional[Point] = None) -> Optional[Point]:
+    """Display a draggable POI marker on the FIB image; return the selected point in milling coordinates."""
+    _check_for_abort(parent_ui)
+
+    if parent_ui is None or not validate:
+        return None
+
+    INFO = {"msg": msg, "pos": "Continue", "poi_selection": True, "initial_poi": initial_poi}
+    parent_ui.workflow_update_signal.emit(INFO)
+
+    parent_ui.WAITING_FOR_USER_INTERACTION = True
+    logging.info("WAITING_FOR_USER_INTERACTION (POI selection)...")
+    while parent_ui.WAITING_FOR_USER_INTERACTION:
+        _check_for_abort(parent_ui=parent_ui)
+        time.sleep(1)
+
+    _check_for_abort(parent_ui)
+
+    # clear the layer and compute POI
+    INFO = {"msg": "", "poi_selection": "clear"}
+    parent_ui.WAITING_FOR_UI_UPDATE = True
+    parent_ui.workflow_update_signal.emit(INFO)
+    while parent_ui.WAITING_FOR_UI_UPDATE:
+        time.sleep(0.5)
+
+    return deepcopy(parent_ui.SELECTED_POI)
 
 def update_experiment_ui(parent_ui: Optional['AutoLamellaUI'], experiment: Experiment) -> None:
 

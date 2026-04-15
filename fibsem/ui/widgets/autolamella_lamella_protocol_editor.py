@@ -9,41 +9,44 @@ import napari
 import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem import conversions
-from fibsem.ui.napari.patterns import MILLING_PATTERN_LAYER_NAME
-from fibsem.ui.napari.utilities import add_points_layer
-from fibsem.utils import format_value
 from fibsem.applications.autolamella.structures import (
     Lamella,
 )
-import fibsem.applications.autolamella.config as cfg
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, Point, ReferenceImageParameters
+from fibsem.structures import FibsemImage, FibsemRectangle, Point, ReferenceImageParameters
+from fibsem.ui.napari.patterns import (
+    MILLING_ALIGNMENT_AREA_LAYER_NAME,
+    MILLING_PATTERN_LAYER_NAME,
+    setup_editable_alignment_layer,
+)
+from napari.layers import Shapes as NapariShapesLayer
+from fibsem.ui.napari.utilities import add_points_layer
+from fibsem.ui.widgets.autolamella_apply_protocol_dialog import ApplyLamellaConfigDialog
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import ContextMenuConfig, IconToolButton, TaskNameListWidget, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    ContextMenuConfig,
+    IconToolButton,
+    TaskNameListWidget,
+)
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
+from fibsem.utils import format_value
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -51,211 +54,6 @@ if TYPE_CHECKING:
 REFERENCE_IMAGE_LAYER_NAME = "Reference Image (FIB)"
 REFERENCE_IMAGE_SEM_LAYER_NAME = "Reference Image (SEM)"
 POINT_OF_INTEREST_LAYER_NAME = "Point of Interest"
-
-
-class ApplyLamellaConfigDialog(QDialog):
-    """Dialog for applying a lamella's task configuration to other lamella."""
-
-    def __init__(
-        self,
-        source_name: str,
-        other_lamella_names: List[str],
-        task_names: List[str],
-        parent: Optional[QWidget] = None,
-    ):
-        super().__init__(parent)
-        self.source_name = source_name
-
-        self.setWindowTitle(f"Apply Config from '{source_name}'")
-        self.setModal(True)
-        self.setMinimumWidth(450)
-
-        self._other_lamella_names = other_lamella_names
-        self._task_names = task_names
-
-        self._create_widgets()
-        self._setup_layout()
-
-    def _create_widgets(self):
-        """Create the dialog widgets."""
-        # Description
-        self.label_description = QLabel(
-            f"Apply task configurations from <b>{self.source_name}</b> "
-            f"to other lamella. Existing milling pattern positions will be preserved."
-        )
-        self.label_description.setWordWrap(True)
-        self.label_description.setStyleSheet("font-style: italic; margin-bottom: 10px;")
-
-        # --- Target lamella selection ---
-        lamella_content = QWidget()
-        lamella_layout = QVBoxLayout(lamella_content)
-        lamella_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.lamella_list = QListWidget()
-        self.lamella_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.lamella_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-
-        for name in self._other_lamella_names:
-            item = QListWidgetItem(name)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)  # type: ignore
-            item.setCheckState(Qt.Checked)  # type: ignore
-            self.lamella_list.addItem(item)
-
-        lamella_buttons_layout = QHBoxLayout()
-        self.pushButton_select_all_lamella = QPushButton("Select All")
-        self.pushButton_deselect_all_lamella = QPushButton("Deselect All")
-        self.pushButton_select_all_lamella.clicked.connect(
-            lambda: self._set_all_check_state(self.lamella_list, Qt.Checked))  # type: ignore
-        self.pushButton_deselect_all_lamella.clicked.connect(
-            lambda: self._set_all_check_state(self.lamella_list, Qt.Unchecked))  # type: ignore
-        lamella_buttons_layout.addWidget(self.pushButton_select_all_lamella)
-        lamella_buttons_layout.addWidget(self.pushButton_deselect_all_lamella)
-
-        lamella_layout.addWidget(self.lamella_list)
-        lamella_layout.addLayout(lamella_buttons_layout)
-
-        self.lamella_group = TitledPanel("Target Lamella", content=lamella_content, collapsible=False)
-
-        # --- Task selection ---
-        task_content = QWidget()
-        task_layout = QVBoxLayout(task_content)
-        task_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.task_list = QListWidget()
-        self.task_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.task_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-
-        for task_name in self._task_names:
-            item = QListWidgetItem(task_name)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)  # type: ignore
-            item.setCheckState(Qt.Checked)  # type: ignore
-            self.task_list.addItem(item)
-
-        task_buttons_layout = QHBoxLayout()
-        self.pushButton_select_all_tasks = QPushButton("Select All")
-        self.pushButton_deselect_all_tasks = QPushButton("Deselect All")
-        self.pushButton_select_all_tasks.clicked.connect(
-            lambda: self._set_all_check_state(self.task_list, Qt.Checked))  # type: ignore
-        self.pushButton_deselect_all_tasks.clicked.connect(
-            lambda: self._set_all_check_state(self.task_list, Qt.Unchecked))  # type: ignore
-        task_buttons_layout.addWidget(self.pushButton_select_all_tasks)
-        task_buttons_layout.addWidget(self.pushButton_deselect_all_tasks)
-
-        task_layout.addWidget(self.task_list)
-        task_layout.addLayout(task_buttons_layout)
-
-        self.task_group = TitledPanel("Tasks to Apply", content=task_content, collapsible=False)
-
-        # --- Base protocol checkbox ---
-        self.checkbox_update_base_protocol = QCheckBox("Also update the base protocol")
-        self.checkbox_update_base_protocol.setToolTip(
-            "When enabled, also updates the base protocol's task configurations "
-            "so that new lamella created in the future will use these settings."
-        )
-
-        # --- Info label ---
-        self.label_info = QLabel()
-        self.label_info.setStyleSheet("color: gray; font-style: italic;")
-        self.label_info.setWordWrap(True)
-
-        # --- Buttons ---
-        self.button_box = QDialogButtonBox(self)
-        self.pushButton_apply = QPushButton("Apply")
-        self.pushButton_apply.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_apply.setAutoDefault(False)
-        self.pushButton_cancel = QPushButton("Cancel")
-        self.pushButton_cancel.setAutoDefault(False)
-
-        self.button_box.addButton(self.pushButton_apply, QDialogButtonBox.AcceptRole)
-        self.button_box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
-        self.pushButton_apply.clicked.connect(self.accept)
-        self.pushButton_cancel.clicked.connect(self.reject)
-        self.pushButton_apply.setDefault(False)
-        self.pushButton_cancel.setDefault(False)
-
-        # Update info when selections change (must be after buttons are created)
-        self.lamella_list.itemChanged.connect(lambda _: self._update_info_label())
-        self.task_list.itemChanged.connect(lambda _: self._update_info_label())
-        self.checkbox_update_base_protocol.stateChanged.connect(lambda _: self._update_info_label())
-        self._update_info_label()
-
-    def _setup_layout(self):
-        """Setup the dialog layout."""
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.label_description)
-        main_layout.addWidget(self.lamella_group)
-        main_layout.addWidget(self.task_group)
-        main_layout.addWidget(self.checkbox_update_base_protocol)
-        main_layout.addWidget(self.label_info)
-        main_layout.addStretch()
-        main_layout.addWidget(self.button_box)
-        self.setLayout(main_layout)
-
-    def _set_all_check_state(self, list_widget: QListWidget, state):
-        """Set the check state for all items in a list widget."""
-        for i in range(list_widget.count()):
-            item = list_widget.item(i)
-            if item:
-                item.setCheckState(state)
-
-    def get_selected_lamella_names(self) -> List[str]:
-        """Get list of selected target lamella names."""
-        selected = []
-        for i in range(self.lamella_list.count()):
-            item = self.lamella_list.item(i)
-            if item and item.checkState() == Qt.Checked:  # type: ignore
-                selected.append(item.text())
-        return selected
-
-    def get_selected_tasks(self) -> List[str]:
-        """Get list of selected task names."""
-        selected = []
-        for i in range(self.task_list.count()):
-            item = self.task_list.item(i)
-            if item and item.checkState() == Qt.Checked:  # type: ignore
-                selected.append(item.text())
-        return selected
-
-    def get_update_base_protocol(self) -> bool:
-        """Whether to also update the base protocol."""
-        return self.checkbox_update_base_protocol.isChecked()
-
-    def _update_info_label(self):
-        """Update the info label with summary of what will be applied."""
-        selected_lamella_names = self.get_selected_lamella_names()
-        selected_tasks = self.get_selected_tasks()
-
-        if not selected_lamella_names or not selected_tasks:
-            missing = []
-            if not selected_lamella_names:
-                missing.append("target lamella")
-            if not selected_tasks:
-                missing.append("tasks")
-            self.label_info.setText(f"Please select at least one {' and '.join(missing)}.")
-            self.label_info.setStyleSheet("color: orange; font-style: italic;")
-            self.pushButton_apply.setEnabled(False)
-            return
-
-        parts = []
-        task_list = ", ".join(f"'{t}'" for t in selected_tasks)
-        lamella_list = ", ".join(selected_lamella_names)
-        parts.append(
-            f"{len(selected_tasks)} task(s) ({task_list}) will be applied to "
-            f"{len(selected_lamella_names)} lamella ({lamella_list})."
-        )
-        if self.get_update_base_protocol():
-            parts.append("The base protocol will also be updated.")
-
-        self.label_info.setText(" ".join(parts))
-        self.label_info.setStyleSheet("color: gray; font-style: italic;")
-        self.pushButton_apply.setEnabled(True)
-
-    def keyPressEvent(self, event):
-        """Prevent Enter/Return from accepting the dialog."""
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore
-            event.ignore()
-        else:
-            super().keyPressEvent(event)
 
 
 class AutoLamellaProtocolEditorWidget(QWidget):
@@ -268,9 +66,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.parent_widget = parent
         self.viewer = viewer
 
+        # add placeholder image layer to prevent napari help screen showing
+        self.viewer.add_image(np.zeros((10,10)), name="Placeholder", visible=False)
+
         self.image: FibsemImage
         self.show_related_milling_tasks = True
         self.show_sem_image = False
+        self.show_alignment_area = True
+        self.alignment_area_editable = False
         self._active_lamella_name: Optional[str] = None
         self._active_task_name: Optional[str] = None
         self._selected_lamella: Optional[Lamella] = None
@@ -332,6 +135,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             parent=self,
         )
         self.milling_task_editor.setMinimumHeight(550)
+        self.milling_task_editor.set_alignment_area_visible(False)
 
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
 
@@ -374,6 +178,27 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.pushButton_toggle_related_tasks.toggled.connect(self._on_toggle_related_tasks)
 
+        self.pushButton_toggle_alignment_area = IconToolButton(
+            icon="mdi:crop-free",
+            checked_icon="mdi:crop-free",
+            tooltip="Show alignment area.",
+            checked_tooltip="Hide alignment area.",
+            checkable=True,
+            checked=self.show_alignment_area,
+        )
+        self.pushButton_toggle_alignment_area.toggled.connect(self._on_toggle_alignment_area)
+
+        self.pushButton_edit_alignment_area = IconToolButton(
+            icon="mdi:pencil-off",
+            checked_icon="mdi:pencil",
+            tooltip="Enable alignment area editing.",
+            checked_tooltip="Disable alignment area editing.",
+            checkable=True,
+            checked=self.alignment_area_editable,
+        )
+        self.pushButton_edit_alignment_area.setEnabled(self.show_alignment_area)
+        self.pushButton_edit_alignment_area.toggled.connect(self._on_toggle_alignment_area_editable)
+
         self.label_lamella_name = QLabel("")
         self.label_lamella_name.setStyleSheet(
             "font-size: 14px; font-weight: bold; color: #e0e0e0; background: transparent;"
@@ -386,6 +211,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.button_layout.addWidget(self.pushButton_apply_to_other)
         self.button_layout.addWidget(self.pushButton_toggle_sem_image)
         self.button_layout.addWidget(self.pushButton_toggle_related_tasks)
+        self.button_layout.addWidget(self.pushButton_toggle_alignment_area)
+        self.button_layout.addWidget(self.pushButton_edit_alignment_area)
         self.button_layout.addWidget(self.pushButton_open_correlation)
         self.listWidget_selected_task = TaskNameListWidget()
         self.listWidget_selected_task.set_buttons_visible(add=False, remove=False)
@@ -410,7 +237,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setWordWrap(True)
         self.label_status = QLabel("")
-        self.label_status.setStyleSheet("color: lime;")
+        self.label_status.setStyleSheet("color: cyan;")
         self.label_status.setWordWrap(True)
 
         self.grid_layout = QGridLayout()
@@ -611,7 +438,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if os.path.exists(reference_image_path) and os.path.isfile(reference_image_path):
             self.image = FibsemImage.load(reference_image_path)
         else:
-            self.image = FibsemImage.generate_blank_image(hfw=150e-6, random=False)
+            self.image = FibsemImage.generate_blank_image(hfw=100e-6, random=False)
 
         # load the sem reference image
         sem_image = None
@@ -660,7 +487,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 blending="additive",
             translate=(0, -sem_image.data.shape[1]),
         )
-
 
     # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:
@@ -732,6 +558,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_status.setVisible(bool(msg))
 
         self._draw_point_of_interest(selected_lamella.poi)
+        self._draw_alignment_area()
 
     def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
         """Display a warning if the milling FoV does not match the image FoV."""
@@ -811,11 +638,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _draw_point_of_interest(self, point: Point):
         """Draw the point of interest on the viewer."""
 
-        if cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED is False:
-            if POINT_OF_INTEREST_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(POINT_OF_INTEREST_LAYER_NAME)  # type: ignore
-            return
-
         image_coords = conversions.microscope_image_to_image_coordinates(
             point=point,
             image_shape=self.image.data.shape,
@@ -838,10 +660,57 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 border_width_is_relative=False,
             )
 
+    def _on_toggle_alignment_area(self, checked: bool):
+        self.show_alignment_area = checked
+        if not checked:
+            self.alignment_area_editable = False
+            self.pushButton_edit_alignment_area.blockSignals(True)
+            self.pushButton_edit_alignment_area.setChecked(False)
+            self.pushButton_edit_alignment_area.blockSignals(False)
+        self.pushButton_edit_alignment_area.setEnabled(checked)
+        self._draw_alignment_area()
+
+    def _on_toggle_alignment_area_editable(self, checked: bool):
+        self.alignment_area_editable = checked
+        layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
+        if layer_name not in self.viewer.layers:
+            return
+        layer: NapariShapesLayer = self.viewer.layers[layer_name]  # type: ignore
+        if checked:
+            self.viewer.layers.selection.active = layer
+            layer.mode = "select"
+            layer.selected_data.clear()
+        else:
+            layer.mode = "pan_zoom"
+
+    def _draw_alignment_area(self):
+        """Draw (or remove) the alignment area rectangle on the viewer."""
+        if not self.show_alignment_area or self._selected_lamella is None:
+            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
+                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME)  # type: ignore
+            return
+
+        translate = tuple(self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].translate) \
+            if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers else (0, 0)
+
+        setup_editable_alignment_layer(
+            viewer=self.viewer,
+            reduced_area=self._selected_lamella.alignment_area,
+            image_shape=self.image.data.shape,
+            translate=translate,
+            on_change=self._on_alignment_area_updated,
+            editable=self.alignment_area_editable,
+        )
+
+    def _on_alignment_area_updated(self, rect: FibsemRectangle):
+        """Callback when the user drags/resizes the alignment area."""
+        if self._selected_lamella is None or not self.alignment_area_editable:
+            return
+        self._selected_lamella.alignment_area = rect
+        self._save_experiment()
+
     def _add_poi_context_menu_action(self, config: ContextMenuConfig, point: Point) -> None:
         """Add POI movement action to the right-click context menu."""
-        if not cfg.FEATURE_DISPLAY_POINT_OF_INTEREST_ENABLED:
-            return
         if self._correlation_open:
             return
         config.add_action(
@@ -943,7 +812,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_apply_to_other_clicked(self):
         """Open dialog to apply this lamella's config to other lamella."""
-        source_lamella: Lamella = self._selected_lamella
+        source_lamella = self._selected_lamella
         if source_lamella is None:
             return
 
@@ -1000,15 +869,5 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _save_experiment(self):
         """Save the experiment."""
-        # save the experiment
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save() # TODO: migrate to shared data model
-
-
-def show_protocol_editor(parent: 'AutoLamellaUI',):
-    """Show the AutoLamella protocol editor widget."""
-    viewer = napari.Viewer(title="AutoLamella Protocol Editor")
-    widget = AutoLamellaProtocolEditorWidget(viewer=viewer, 
-                                             parent=parent)
-    viewer.window.add_dock_widget(widget, area='right', name='AutoLamella Protocol Editor')
-    return widget
+            self.parent_widget.experiment.save()

@@ -2271,6 +2271,101 @@ class FibsemImage:
         )
         return cls(data=adorned.data, metadata=metadata)
 
+    def extract_region(self, rect: "FibsemRectangle") -> "FibsemImage":
+        """Extract a sub-region of the image and return a new FibsemImage with valid metadata.
+
+        The returned image has the same resolution/hfw as the original (metadata describes
+        the full scan), with reduced_area updated to reflect the extracted region.
+
+        Args:
+            rect (FibsemRectangle): Normalized rectangle (0–1 coordinates) defining the region to extract.
+
+        Returns:
+            FibsemImage: A new FibsemImage containing the cropped data and updated metadata.
+
+        Raises:
+            ValueError: If metadata is None or if rect coordinates are invalid / out of bounds.
+        """
+        if self.metadata is None:
+            raise ValueError("Cannot extract region from FibsemImage without metadata.")
+
+        if not rect.is_valid_reduced_area:
+            raise ValueError(
+                f"Invalid rectangle: {rect.pretty_string}. "
+                "left/top must be >= 0, width/height > 0, and region must not exceed image bounds."
+            )
+
+        # Convert normalized coords to pixel indices using existing helper
+        x, y, pw, ph = rect.to_pixel_coordinates(self.data.shape)  # (x, y, width, height)
+        cropped = self.data[y:y + ph, x:x + pw].copy()
+
+        # Clone metadata; only update reduced_area — resolution/hfw/pixel_size unchanged
+        from copy import deepcopy
+        new_metadata = deepcopy(self.metadata)
+        new_metadata.image_settings.reduced_area = rect
+
+        return FibsemImage(data=cropped, metadata=new_metadata)
+
+    def resize(self, resolution: Tuple[int, int]) -> "FibsemImage":
+        """Resize the image to the given resolution and return a new FibsemImage with updated metadata.
+
+        HFW is preserved; pixel_size is recalculated to match the new pixel dimensions.
+
+        Args:
+            resolution (Tuple[int, int]): Target resolution as (width, height) in pixels.
+
+        Returns:
+            FibsemImage: A new FibsemImage with resized data and updated metadata.
+
+        Raises:
+            ValueError: If metadata is None.
+        """
+        if self.metadata is None:
+            raise ValueError("Cannot resize FibsemImage without metadata.")
+
+        from skimage.transform import resize as skimage_resize
+        new_width, new_height = resolution
+        resized = skimage_resize(
+            self.data,
+            output_shape=(new_height, new_width),
+            preserve_range=True,
+            anti_aliasing=True,
+        ).astype(self.data.dtype)
+
+        from copy import deepcopy
+        new_metadata = deepcopy(self.metadata)
+        new_metadata.image_settings.resolution = resolution
+        # pixel size scales inversely with resolution at fixed HFW
+        orig_height, orig_width = self.data.shape
+        new_metadata.pixel_size = Point(
+            x=self.metadata.pixel_size.x * (orig_width / new_width),
+            y=self.metadata.pixel_size.y * (orig_height / new_height),
+        )
+
+        return FibsemImage(data=resized, metadata=new_metadata)
+
+    def apply_gamma(self, gamma: float) -> "FibsemImage":
+        """Return a copy of the image with the given gamma correction applied.
+
+        Args:
+            gamma (float): Gamma value to apply. Must be > 0.
+                Values < 1 brighten the image; values > 1 darken it.
+
+        Returns:
+            FibsemImage: New image with gamma-corrected data and the same metadata.
+
+        Raises:
+            ValueError: If gamma is not positive.
+        """
+        from fibsem.imaging.autogamma import apply_gamma as _apply_gamma
+        from copy import deepcopy
+        return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
+
+    @property
+    def brightness(self) -> float:
+        """Mean pixel intensity of the image."""
+        return float(np.mean(self.data))
+
     @staticmethod
     def generate_blank_image(
         resolution: Tuple[int, int] = (1536, 1024),

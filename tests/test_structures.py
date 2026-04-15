@@ -81,6 +81,106 @@ def test_gas_injection_settings():
     assert multichem_settings2.insert_position == multichem_settings.insert_position
 
 
+def test_fibsem_image_extract_region():
+    """Test FibsemImage.extract_region returns cropped data with updated reduced_area metadata."""
+    image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
+    import numpy as np
+    image.data[:] = np.arange(image.data.size, dtype=image.data.dtype).reshape(image.data.shape)
+
+    rect = FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
+    result = image.extract_region(rect)
+
+    # data shape reflects the crop
+    assert result.data.shape == (50, 50)
+
+    # resolution and hfw are unchanged from the original
+    assert result.metadata.image_settings.resolution == image.metadata.image_settings.resolution
+    assert result.metadata.image_settings.hfw == image.metadata.image_settings.hfw
+
+    # pixel size is unchanged
+    assert result.metadata.pixel_size.x == image.metadata.pixel_size.x
+    assert result.metadata.pixel_size.y == image.metadata.pixel_size.y
+
+    # reduced_area is set to the extracted rect
+    assert result.metadata.image_settings.reduced_area == rect
+
+
+def test_fibsem_image_resize():
+    """resize() returns correct shape and updates pixel_size; hfw and resolution are updated."""
+    image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
+    orig_px = image.metadata.pixel_size.x  # 100e-6 / 100 = 1e-6
+
+    result = image.resize((50, 50))
+
+    assert result.data.shape == (50, 50)
+    assert result.metadata.image_settings.resolution == (50, 50)
+    # pixel size doubles when halving resolution at fixed HFW
+    assert abs(result.metadata.pixel_size.x - orig_px * 2) < 1e-12
+    assert abs(result.metadata.pixel_size.y - orig_px * 2) < 1e-12
+    # original is unchanged
+    assert image.data.shape == (100, 100)
+
+
+def test_fibsem_image_resize_no_metadata():
+    """resize() raises ValueError when image has no metadata."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((100, 100), dtype=np.uint8))
+    with pytest.raises(ValueError):
+        image.resize((50, 50))
+
+
+def test_fibsem_image_brightness():
+    """brightness property returns mean pixel value."""
+    import numpy as np
+    data = np.full((10, 10), 128, dtype=np.uint8)
+    image = FibsemImage(data=data)
+    assert image.brightness == 128.0
+
+
+def test_fibsem_image_apply_gamma():
+    """apply_gamma returns a new image with pixel values adjusted and metadata preserved."""
+    import numpy as np
+    from fibsem.imaging.autogamma import apply_gamma
+    data = np.full((10, 10), 128, dtype=np.uint8)
+    image = FibsemImage.generate_blank_image(resolution=(10, 10), hfw=10e-6)
+    image.data[:] = data
+
+    result = image.apply_gamma(1.0)
+    assert result.data.shape == image.data.shape
+    assert result.data.dtype == image.data.dtype
+    # gamma=1 is identity
+    assert np.array_equal(result.data, image.data)
+
+    # gamma < 1 should brighten (increase values)
+    bright = image.apply_gamma(0.5)
+    assert bright.data.mean() > image.data.mean()
+
+    # gamma > 1 should darken (decrease values)
+    dark = image.apply_gamma(2.0)
+    assert dark.data.mean() < image.data.mean()
+
+    # standalone function raises on invalid gamma
+    with pytest.raises(ValueError):
+        apply_gamma(data, 0.0)
+
+
+def test_fibsem_image_extract_region_invalid_rect():
+    """extract_region raises ValueError for out-of-bounds rectangles."""
+    image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
+
+    with pytest.raises(ValueError):
+        image.extract_region(FibsemRectangle(left=0.8, top=0.0, width=0.5, height=0.5))
+
+
+def test_fibsem_image_extract_region_no_metadata():
+    """extract_region raises ValueError when image has no metadata."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((100, 100), dtype=np.uint8))
+
+    with pytest.raises(ValueError):
+        image.extract_region(FibsemRectangle(left=0.0, top=0.0, width=0.5, height=0.5))
+
+
 if THERMO_API_AVAILABLE:
 
     from fibsem.structures import CompustagePosition, CoordinateSystem, StagePosition
