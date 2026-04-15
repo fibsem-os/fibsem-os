@@ -20,7 +20,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-import fibsem.applications.autolamella.config as cfg
 from fibsem import conversions
 from fibsem.applications.autolamella.structures import (
     Lamella,
@@ -238,7 +237,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setWordWrap(True)
         self.label_status = QLabel("")
-        self.label_status.setStyleSheet("color: lime;")
+        self.label_status.setStyleSheet("color: cyan;")
         self.label_status.setWordWrap(True)
 
         self.grid_layout = QGridLayout()
@@ -488,7 +487,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 blending="additive",
             translate=(0, -sem_image.data.shape[1]),
         )
-
 
     # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:
@@ -814,7 +812,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_apply_to_other_clicked(self):
         """Open dialog to apply this lamella's config to other lamella."""
-        source_lamella: Lamella = self._selected_lamella
+        source_lamella = self._selected_lamella
         if source_lamella is None:
             return
 
@@ -871,15 +869,5 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _save_experiment(self):
         """Save the experiment."""
-        # save the experiment
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save() # TODO: migrate to shared data model
-
-
-def show_protocol_editor(parent: 'AutoLamellaUI',):
-    """Show the AutoLamella protocol editor widget."""
-    viewer = napari.Viewer(title="AutoLamella Protocol Editor")
-    widget = AutoLamellaProtocolEditorWidget(viewer=viewer, 
-                                             parent=parent)
-    viewer.window.add_dock_widget(widget, area='right', name='AutoLamella Protocol Editor')
-    return widget
+            self.parent_widget.experiment.save()

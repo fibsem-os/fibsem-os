@@ -69,7 +69,6 @@ class MillingTaskConfigWidget(QWidget):
     """
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
-    milling_progress_signal = pyqtSignal(dict)
     correlation_result_updated_signal = pyqtSignal(Point)
 
     def __init__(self, microscope: FibsemMicroscope,
