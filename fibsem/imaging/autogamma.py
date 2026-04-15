@@ -1,8 +1,31 @@
 import logging
 import numpy as np
+from numpy.typing import NDArray
 
 from skimage import exposure
 from fibsem.structures import FibsemImage
+
+
+def apply_gamma(data: NDArray, gamma: float) -> NDArray:
+    """Apply a specific gamma correction to an image array.
+
+    Pixel values are scaled by ``pixel_value ** gamma`` using
+    ``skimage.exposure.adjust_gamma``. A gamma < 1 brightens the image;
+    gamma > 1 darkens it.
+
+    Args:
+        data (NDArray): Image array (uint8 or uint16).
+        gamma (float): Gamma value to apply. Must be > 0.
+
+    Returns:
+        NDArray: Gamma-corrected array with the same dtype as the input.
+
+    Raises:
+        ValueError: If gamma is not positive.
+    """
+    if gamma <= 0:
+        raise ValueError(f"gamma must be > 0, got {gamma}")
+    return exposure.adjust_gamma(data, gamma)
 
 def auto_gamma(
     image: FibsemImage,

@@ -137,6 +137,33 @@ def test_fibsem_image_brightness():
     assert image.brightness == 128.0
 
 
+def test_fibsem_image_apply_gamma():
+    """apply_gamma returns a new image with pixel values adjusted and metadata preserved."""
+    import numpy as np
+    from fibsem.imaging.autogamma import apply_gamma
+    data = np.full((10, 10), 128, dtype=np.uint8)
+    image = FibsemImage.generate_blank_image(resolution=(10, 10), hfw=10e-6)
+    image.data[:] = data
+
+    result = image.apply_gamma(1.0)
+    assert result.data.shape == image.data.shape
+    assert result.data.dtype == image.data.dtype
+    # gamma=1 is identity
+    assert np.array_equal(result.data, image.data)
+
+    # gamma < 1 should brighten (increase values)
+    bright = image.apply_gamma(0.5)
+    assert bright.data.mean() > image.data.mean()
+
+    # gamma > 1 should darken (decrease values)
+    dark = image.apply_gamma(2.0)
+    assert dark.data.mean() < image.data.mean()
+
+    # standalone function raises on invalid gamma
+    with pytest.raises(ValueError):
+        apply_gamma(data, 0.0)
+
+
 def test_fibsem_image_extract_region_invalid_rect():
     """extract_region raises ValueError for out-of-bounds rectangles."""
     image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)

@@ -2344,6 +2344,23 @@ class FibsemImage:
 
         return FibsemImage(data=resized, metadata=new_metadata)
 
+    def apply_gamma(self, gamma: float) -> "FibsemImage":
+        """Return a copy of the image with the given gamma correction applied.
+
+        Args:
+            gamma (float): Gamma value to apply. Must be > 0.
+                Values < 1 brighten the image; values > 1 darken it.
+
+        Returns:
+            FibsemImage: New image with gamma-corrected data and the same metadata.
+
+        Raises:
+            ValueError: If gamma is not positive.
+        """
+        from fibsem.imaging.autogamma import apply_gamma as _apply_gamma
+        from copy import deepcopy
+        return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
+
     @property
     def brightness(self) -> float:
         """Mean pixel intensity of the image."""
