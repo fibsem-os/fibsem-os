@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 
 import numpy as np
@@ -17,6 +18,7 @@ from fibsem.structures import (
     FibsemRectangle,
     ImageSettings,
     MicroscopeSettings,
+    Point,
     ReferenceImages,
 )
 from threading import Event as ThreadingEvent
@@ -24,32 +26,16 @@ from threading import Event as ThreadingEvent
 
 ALIGNMENT_SUBDIR = "Alignment"
 
-def auto_eucentric_correction(
-    microscope: FibsemMicroscope,
-    settings: MicroscopeSettings,
-    image_settings: ImageSettings,
-    tilt_degrees: int = 25,
-    xcorr_limit: int = 250,
-) -> None:
 
-    raise NotImplementedError
+@dataclass
+class AlignmentResult:
+    """Result of a single alignment step using shift_from_crosscorrelation_v2."""
+    shift: Point                   # (x, y) shift applied, in metres
+    shift_px: Point                # raw sub-pixel (x, y) shift in pixels from cv2
+    score: float                   # normalised phase correlation response (0–1); higher = better
+    image: FibsemImage             # new image acquired during this alignment step
+    success: bool = True           # False if score < minimum_response (shift was zeroed)
 
-    # image_settings.save = False
-    # image_settings.beam_type = BeamType.ELECTRON
-    # calibration.auto_charge_neutralisation(
-    #     microscope.connection, image_settings
-    # )  # TODO: need to change this function
-
-    # for hfw in [400e-6, 150e-6, 80e-6, 80e-6]:
-    #     image_settings.hfw = hfw
-
-    #     correct_stage_eucentric_alignment(
-    #         microscope,
-    #         settings,
-    #         image_settings,
-    #         tilt_degrees=tilt_degrees,
-    #         xcorr_limit=xcorr_limit,
-    #     )
 
 
 # TODO: rename to align_with_reference_image as it is not specific to beam shift
@@ -408,6 +394,92 @@ def shift_from_crosscorrelation(
     return dx, dy, xcorr
 
 
+def shift_from_crosscorrelation_v2(
+    ref_image: FibsemImage,
+    new_image: FibsemImage,
+    minimum_response: Optional[float] = None,
+) -> Tuple[float, float, float]:
+    """Calculate the shift between two images using cv2 phase correlation.
+
+    Uses ``crosscorrelation_cv2`` (cv2.phaseCorrelate with a Hanning window)
+    instead of the custom FFT cross-correlation in ``shift_from_crosscorrelation``.
+    Returns a normalised response score (0–1) in place of the raw xcorr map,
+    enabling threshold-based quality gating.
+
+    Key differences from ``shift_from_crosscorrelation``:
+    - No bandpass filter: phase correlation normalises per-element by magnitude,
+      so no frequency dominates regardless of amplitude.
+    - No spatial normalisation or masking: phase correlation is already invariant
+      to global brightness/contrast; the Hanning window handles edge suppression.
+      Asymmetric spatial masking would corrupt the cross-power spectrum.
+    - Sub-pixel shift returned natively; no integer-only argmax peak-finding.
+    - ``response`` quality metric allows callers to gate on alignment confidence.
+
+    Args:
+        ref_image (FibsemImage): Reference image.
+        new_image (FibsemImage): New image to align to the reference.
+        minimum_response (float, optional): Minimum acceptable response score.
+            If ``response < minimum_response``, a warning is logged and
+            (0.0, 0.0, response) is returned. Defaults to None (no gate).
+
+    Returns:
+        Tuple[float, float, float]: (dx, dy, response)
+            dx:       x shift in metres (positive = ref feature is to the right).
+            dy:       y shift in metres (positive = ref feature is below).
+            response: normalised peak correlation in [0, 1].
+    """
+    pixelsize_x = new_image.metadata.pixel_size.x
+    pixelsize_y = new_image.metadata.pixel_size.y
+
+    shift_x, shift_y, response = crosscorrelation_cv2(ref_image.data, new_image.data)
+
+    logging.debug({
+        "msg": "cross-correlation-v2",
+        "pixelsize": (pixelsize_x, pixelsize_y),
+        "shift_px": (shift_x, shift_y),
+        "response": response,
+    })
+
+    if minimum_response is not None and response < minimum_response:
+        logging.warning(
+            f"shift_from_crosscorrelation_v2: response {response:.3f} below "
+            f"minimum {minimum_response:.3f} — returning zero shift."
+        )
+        return 0.0, 0.0, response
+
+    dx = shift_x * pixelsize_x
+    dy = shift_y * pixelsize_y
+
+    return dx, dy, response
+
+
+def crosscorrelation_cv2(
+    img1: np.ndarray,
+    img2: np.ndarray,
+) -> Tuple[float, float, float]:
+    """Phase correlation via cv2.phaseCorrelate with a Hanning window.
+
+    Args:
+        img1 (np.ndarray): Reference image (any float/int dtype, 2-D).
+        img2 (np.ndarray): New image to correlate against the reference.
+
+    Returns:
+        Tuple[float, float, float]: (shift_x_px, shift_y_px, response)
+            shift_x_px: sub-pixel column shift (positive = img2 shifted right).
+            shift_y_px: sub-pixel row shift    (positive = img2 shifted down).
+            response:   normalised peak value in [0, 1]; higher means a more
+                        confident, higher-quality correlation.
+    """
+    import cv2 as _cv2
+
+    f1 = img1.astype(np.float32)
+    f2 = img2.astype(np.float32)
+    h, w = f1.shape
+    win = _cv2.createHanningWindow((w, h), _cv2.CV_32F)
+    (shift_x, shift_y), response = _cv2.phaseCorrelate(f1, f2, win)
+    return float(shift_x), float(shift_y), float(response)
+
+
 def crosscorrelation_v2(
     img1: np.ndarray, img2: np.ndarray, bandpass: np.ndarray = None
 ) -> np.ndarray:
@@ -559,6 +631,29 @@ def multi_step_alignment_v2(
         plot_multi_step_alignment(ref_image, alignment_results, save=save_plot, title=plot_title)
 
 
+def _plot_image_with_crosshair(ax, data: np.ndarray, title: str) -> None:
+    """Plot an image with a yellow crosshair at the centre."""
+    ax.imshow(data, cmap="gray")
+    cy, cx = data.shape[0] // 2, data.shape[1] // 2
+    ax.axhline(cy, color="yellow", linewidth=2, alpha=0.7)
+    ax.axvline(cx, color="yellow", linewidth=2, alpha=0.7)
+    ax.set_title(title)
+    ax.axis("off")
+
+
+def _alignment_save_path(ref_image: FibsemImage) -> Tuple[str, str, str]:
+    """Return (ref_path, prefix, ts) for saving alignment plots."""
+    from datetime import datetime
+    ref_settings = ImageSettings.fromFibsemImage(ref_image)
+    ref_filename = ref_settings.filename
+    ref_path = ref_settings.path if ref_settings.path is not None else os.getcwd()
+    ref_path = os.path.join(ref_path, ALIGNMENT_SUBDIR)
+    os.makedirs(ref_path, exist_ok=True)
+    prefix = ref_filename.split(REFERENCE_FILENAME)[0] if REFERENCE_FILENAME in ref_filename else ref_filename + "_"
+    ts = utils.current_timestamp_v2()
+    return ref_path, prefix, ts
+
+
 def plot_multi_step_alignment(
     ref_image: FibsemImage,
     alignment_results: list,
@@ -576,31 +671,12 @@ def plot_multi_step_alignment(
     Returns:
         matplotlib.figure.Figure
     """
-    import os
     from datetime import datetime
 
     from matplotlib.figure import Figure
 
-    def _plot_image_with_crosshair(ax, data, title):
-        """Plot an image with a yellow crosshair at the centre."""
-        ax.imshow(data, cmap="gray")
-        cy, cx = data.shape[0] // 2, data.shape[1] // 2
-        ax.axhline(cy, color="yellow", linewidth=2, alpha=0.7)
-        ax.axvline(cx, color="yellow", linewidth=2, alpha=0.7)
-        ax.set_title(title)
-        ax.axis("off")
-
-    # build title and save path from the reference image filename/path
-    ref_settings = ImageSettings.fromFibsemImage(ref_image)
-    ref_filename = ref_settings.filename
-    ref_path = ref_settings.path if ref_settings.path is not None else os.getcwd()
-    ref_path = os.path.join(ref_path, ALIGNMENT_SUBDIR)
-    os.makedirs(ref_path, exist_ok=True)
-    if REFERENCE_FILENAME in ref_filename:
-        prefix = ref_filename.split(REFERENCE_FILENAME)[0]
-    else:
-        prefix = ref_filename + "_"
-    ts = utils.current_timestamp_v2()
+    ref_path, prefix, ts = _alignment_save_path(ref_image)
+    ref_filename = ImageSettings.fromFibsemImage(ref_image).filename
     timestamp_str = datetime.now().strftime(DATETIME_DISPLAY)
     if title is None:
         title = f"Multi-Step Alignment — {ref_filename} — {timestamp_str}"
@@ -638,6 +714,95 @@ def plot_multi_step_alignment(
     fig.tight_layout()
     if save:
         save_path = os.path.join(ref_path, f"{prefix}multi_step_alignment_{ts}.png")
+        fig.savefig(save_path, dpi=80)
+    return fig
+
+
+def plot_multi_step_alignment_v2(
+    ref_image: FibsemImage,
+    results: "list[AlignmentResult]",
+    title: Optional[str] = None,
+    save: bool = True,
+    show_convergence: bool = False,
+):
+    """Plot reference image and each alignment step with response score bars.
+
+    Drop-in companion to ``plot_multi_step_alignment`` for results produced by
+    ``shift_from_crosscorrelation_v2``. Replaces xcorr imshow panels with a
+    colour-coded response bar (green ≥ 0.5, orange ≥ 0.25, red < 0.25).
+
+    Args:
+        ref_image: The reference image used for alignment.
+        results: List of AlignmentResult from each alignment step.
+        title: Optional figure title. Defaults to auto-generated from ref filename.
+        save: Whether to save the figure to disk. Defaults to True.
+
+    Returns:
+        matplotlib.figure.Figure
+    """
+    from datetime import datetime
+
+    from matplotlib.figure import Figure
+
+    ref_path, prefix, ts = _alignment_save_path(ref_image)
+    ref_filename = ImageSettings.fromFibsemImage(ref_image).filename
+    timestamp_str = datetime.now().strftime(DATETIME_DISPLAY)
+    if title is None:
+        title = f"Multi-Step Alignment v2 — {ref_filename} — {timestamp_str}"
+    else:
+        title = f"{title} — {timestamp_str}"
+
+    from matplotlib.gridspec import GridSpec
+
+    n_steps = len(results)
+    n_cols = 1 + n_steps
+    n_rows = 2 if show_convergence else 1
+    fig_height = 8 if show_convergence else 5
+    fig = Figure(figsize=(4 * n_cols, fig_height))
+    fig.suptitle(title)
+
+    gs = GridSpec(n_rows, n_cols, figure=fig, height_ratios=([2, 1] if show_convergence else [1]))
+    image_axes = [fig.add_subplot(gs[0, c]) for c in range(n_cols)]
+    ax_conv = fig.add_subplot(gs[1, 1:]) if show_convergence else None
+
+    _plot_image_with_crosshair(image_axes[0], ref_image.data, "Reference")
+
+    # annotate each step image with score (coloured) + shift values
+    for i, result in enumerate(results):
+        label = f"Step {i + 1}" + ("" if result.success else " ✗")
+        _plot_image_with_crosshair(image_axes[i + 1], result.image.data, label)
+
+        colour = "lime" if result.score >= 0.5 else ("orange" if result.score >= 0.25 else "red")
+        ax_img = image_axes[i + 1]
+        ax_img.text(
+            0.04, 0.06,
+            f"score: {result.score:.2f}",
+            transform=ax_img.transAxes,
+            color=colour, fontsize=9, fontweight="bold", va="bottom",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.5, edgecolor="none"),
+        )
+        ax_img.text(
+            0.04, 0.18,
+            f"dx={result.shift.x*1e9:.1f}nm  dy={result.shift.y*1e9:.1f}nm",
+            transform=ax_img.transAxes,
+            color="white", fontsize=8, va="bottom",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.5, edgecolor="none"),
+        )
+
+    # wide convergence chart (optional)
+    if show_convergence:
+        step_nums = list(range(1, n_steps + 1))
+        ax_conv.plot(step_nums, [abs(r.shift.x) * 1e9 for r in results], "o-", label="dx")
+        ax_conv.plot(step_nums, [abs(r.shift.y) * 1e9 for r in results], "s-", label="dy")
+        ax_conv.set_xlabel("Step")
+        ax_conv.set_ylabel("Shift (nm)")
+        ax_conv.set_title("Convergence")
+        ax_conv.legend(fontsize="small")
+        ax_conv.set_xticks(step_nums)
+
+    fig.tight_layout()
+    if save:
+        save_path = os.path.join(ref_path, f"{prefix}multi_step_alignment_v2_{ts}.png")
         fig.savefig(save_path, dpi=80)
     return fig
 
