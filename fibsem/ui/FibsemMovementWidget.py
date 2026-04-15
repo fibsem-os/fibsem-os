@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
+from superqt import ensure_main_thread
 
 from fibsem import config as cfg
 from fibsem import constants, conversions, utils
@@ -43,8 +44,8 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
 class FibsemMovementWidget(QtWidgets.QWidget):
-    saved_positions_updated_signal = QtCore.pyqtSignal(object)  # TODO: investigate the use of this signal
-    movement_progress_signal = QtCore.pyqtSignal(dict) # TODO: consolidate
+    saved_positions_updated_signal = QtCore.pyqtSignal(object)
+    movement_progress_signal = QtCore.pyqtSignal(dict)
 
     def __init__(
         self,
@@ -119,13 +120,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation = QtWidgets.QDoubleSpinBox()
         self.doubleSpinBox_movement_stage_rotation.setMinimum(-360.0)
         self.doubleSpinBox_movement_stage_rotation.setMaximum(360.0)
-        self.doubleSpinBox_movement_stage_rotation.setSuffix(" deg")
+        self.doubleSpinBox_movement_stage_rotation.setSuffix(f" {constants.DEGREE_SYMBOL}")
         self.gridLayout_3.addWidget(self.label_movement_stage_rotation, 3, 0)
         self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_rotation, 3, 1)
 
         self.label_movement_stage_tilt = QtWidgets.QLabel("Tilt")
         self.doubleSpinBox_movement_stage_tilt = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_tilt.setSuffix(" deg")
+        self.doubleSpinBox_movement_stage_tilt.setSuffix(f" {constants.DEGREE_SYMBOL}")
         self.gridLayout_3.addWidget(self.label_movement_stage_tilt, 4, 0)
         self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_tilt, 4, 1)
 
@@ -349,6 +350,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if is_finished:
             self.update_ui()
 
+    @ensure_main_thread
     def update_ui(self, stage_position: Optional[FibsemStagePosition] = None):
         """Update the UI with the current stage position and saved positions"""
         if stage_position is None:
@@ -374,6 +376,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # update the current position label
         update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
 
+    @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
         if (retake is False or self.microscope.is_acquiring):
             self.update_ui()
