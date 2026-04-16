@@ -203,6 +203,7 @@ class FibsemMillingWidget2(QWidget):
         self._has_stages = any(s.enabled for s in stages)
         self._update_button_states()
 
+    @ensure_main_thread
     def _update_button_states(self):
         """Update the enabled/disabled state of buttons based on current milling state."""
         if self.is_milling:
