@@ -211,6 +211,7 @@ class FibsemMinimapWidget(QWidget):
         self.show_saved_positions_fov: bool = True
         self.show_stage_limits: bool = True
         self.show_circle_overlays: bool = True
+        self.show_tem_stage_limits: bool = False
 
         self.parent_widget.system_widget.connected_signal.connect(self._on_microscope_connected)
 
@@ -325,10 +326,13 @@ class FibsemMinimapWidget(QWidget):
         self.checkBox_show_stage_limits.setChecked(True)
         self.checkBox_show_circle_overlays = QCheckBox("Show Circle Overlays")
         self.checkBox_show_circle_overlays.setChecked(True)
+        self.checkBox_show_tem_stage_limits = QCheckBox("Show TEM Stage Limits")
+        self.checkBox_show_tem_stage_limits.setChecked(False)
         _dlo.addWidget(self.checkBox_show_overview_fov)
         _dlo.addWidget(self.checkBox_show_saved_positions_fov)
         _dlo.addWidget(self.checkBox_show_stage_limits)
         _dlo.addWidget(self.checkBox_show_circle_overlays)
+        _dlo.addWidget(self.checkBox_show_tem_stage_limits)
 
         display_panel = TitledPanel("Display Options", content=display_content)
         display_panel._btn_collapse.setChecked(False)
@@ -443,6 +447,7 @@ class FibsemMinimapWidget(QWidget):
         self.checkBox_show_saved_positions_fov.toggled.connect(self._on_display_option_toggled)
         self.checkBox_show_stage_limits.toggled.connect(self._on_display_option_toggled)
         self.checkBox_show_circle_overlays.toggled.connect(self._on_display_option_toggled)
+        self.checkBox_show_tem_stage_limits.toggled.connect(self._on_display_option_toggled)
 
         # set italics for instructions
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -506,6 +511,7 @@ class FibsemMinimapWidget(QWidget):
         self.show_saved_positions_fov = self.checkBox_show_saved_positions_fov.isChecked()
         self.show_stage_limits = self.checkBox_show_stage_limits.isChecked()
         self.show_circle_overlays = self.checkBox_show_circle_overlays.isChecked()
+        self.show_tem_stage_limits = self.checkBox_show_tem_stage_limits.isChecked()
         self.draw_current_stage_position()
 
     @property
@@ -1104,11 +1110,12 @@ class FibsemMinimapWidget(QWidget):
             return []
 
         # If no overlays are to be shown, return empty list
-        if not (self.show_current_fov or 
-                self.show_overview_fov or 
-                self.show_saved_positions_fov or 
+        if not (self.show_current_fov or
+                self.show_overview_fov or
+                self.show_saved_positions_fov or
                 self.show_stage_limits or
-                self.show_circle_overlays
+                self.show_circle_overlays or
+                self.show_tem_stage_limits
                 ):
             return []
 
@@ -1164,6 +1171,18 @@ class FibsemMinimapWidget(QWidget):
                     color="red",
                     label="Grid Boundary",
                     shape_type="ellipse"
+                ))
+
+            # TEM stage limits (800µm × 800µm magenta rectangle centred on grid)
+            if self.show_tem_stage_limits:
+                TEM_LIMIT_M = 1600e-6  # 800µm in meters
+                size_px = TEM_LIMIT_M / pixelsize
+                rect = create_rectangle_shape(grid_centre, size_px, size_px)
+                overlays.append(NapariShapeOverlay(
+                    shape=rect,
+                    color="orange",
+                    label="TEM Stage Limits",
+                    shape_type="rectangle",
                 ))
 
         if self.show_saved_positions_fov:
