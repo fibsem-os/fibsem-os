@@ -1,21 +1,19 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 from typing import Optional
 
 from fibsem import constants
-from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_STANDARD_RESOLUTION
+from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
 from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox, WheelBlocker
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
@@ -31,9 +29,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self._show_advanced = False
         self._setup_ui()
         self._connect_signals()
         self._update_total_fov_label()
+        self._update_advanced_visibility()
 
     # ------------------------------------------------------------------
     # UI setup
@@ -51,24 +51,15 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Beam type
         grid_layout.addWidget(QLabel("Beam Type"), 0, 0)
-        self.beam_type_combo = QComboBox()
-        for bt in BeamType:
-            self.beam_type_combo.addItem(bt.name, bt)
-        self.beam_type_combo.installEventFilter(WheelBlocker(parent=self.beam_type_combo))
+        self.beam_type_combo = ValueComboBox(items=list(BeamType), format_fn=lambda bt: bt.name)
         grid_layout.addWidget(self.beam_type_combo, 0, 1, 1, 2)
 
         # Rows / cols
         grid_layout.addWidget(QLabel("Tiles (rows x cols)"), 1, 0)
-        self.nrows_spinbox = QSpinBox()
-        self.nrows_spinbox.setRange(1, 15)
+        self.nrows_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
         self.nrows_spinbox.setValue(3)
-        self.nrows_spinbox.setKeyboardTracking(False)
-        self.nrows_spinbox.installEventFilter(WheelBlocker(parent=self.nrows_spinbox))
-        self.ncols_spinbox = QSpinBox()
-        self.ncols_spinbox.setRange(1, 15)
+        self.ncols_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
         self.ncols_spinbox.setValue(3)
-        self.ncols_spinbox.setKeyboardTracking(False)
-        self.ncols_spinbox.installEventFilter(WheelBlocker(parent=self.ncols_spinbox))
 
         _tiles_row = QWidget()
         _tiles_layout = QHBoxLayout(_tiles_row)
@@ -90,32 +81,45 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._label_total_fov.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore
         grid_layout.addWidget(self._label_total_fov, 3, 0, 1, 3)
 
-        # Use focus stack
-        grid_layout.addWidget(QLabel("Use Focus Stack"), 4, 0)
+        # Use focus stack (advanced)
+        self._label_use_focus_stack = QLabel("Use Focus Stack")
+        grid_layout.addWidget(self._label_use_focus_stack, 4, 0)
         self.use_focus_stack = QCheckBox()
         grid_layout.addWidget(self.use_focus_stack, 4, 1, 1, 2)
 
-        # Auto Focus mode
-        grid_layout.addWidget(QLabel("Auto Focus"), 5, 0)
-        self.autofocus_combo = QComboBox()
-        for mode in AutoFocusMode:
-            self.autofocus_combo.addItem(mode.name.replace("_", " ").title(), mode)
-        self.autofocus_combo.installEventFilter(WheelBlocker(parent=self.autofocus_combo))
+        # Auto Focus mode (advanced)
+        self._label_autofocus = QLabel("Auto Focus")
+        grid_layout.addWidget(self._label_autofocus, 5, 0)
+        self.autofocus_combo = ValueComboBox(
+            items=list(AutoFocusMode),
+            format_fn=lambda m: m.name.replace("_", " ").title(),
+        )
         grid_layout.addWidget(self.autofocus_combo, 5, 1, 1, 2)
 
-        # Tile order strategy
-        grid_layout.addWidget(QLabel("Tile Order"), 6, 0)
-        self.tile_order_combo = QComboBox()
-        for strategy in TileOrderStrategy:
-            self.tile_order_combo.addItem(strategy.value.title(), strategy)
-        self.tile_order_combo.installEventFilter(WheelBlocker(parent=self.tile_order_combo))
+        # Tile order strategy (advanced)
+        self._label_tile_order = QLabel("Tile Order")
+        grid_layout.addWidget(self._label_tile_order, 6, 0)
+        self.tile_order_combo = ValueComboBox(
+            items=list(TileOrderStrategy),
+            format_fn=lambda s: s.value.title(),
+        )
         grid_layout.addWidget(self.tile_order_combo, 6, 1, 1, 2)
 
-        grid_panel = TitledPanel("Overview Acquisition", content=grid_content)
-        grid_panel._btn_collapse.setChecked(True)
-        outer.addWidget(grid_panel)
+        self._adv_widgets = [
+            (self._label_use_focus_stack, self.use_focus_stack),
+            (self._label_autofocus,       self.autofocus_combo),
+            (self._label_tile_order,      self.tile_order_combo),
+        ]
 
-        # ── Tile Image Settings panel ─────────────────────────────────
+        self._btn_advanced = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+        )
+
+        # ── Tile Image Settings + combined panel ─────────────────────────────────
         self.image_settings_widget = ImageSettingsWidget(
             show_advanced=False,
             always_save=True,
@@ -124,31 +128,39 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.image_settings_widget.set_show_advanced_button(False)
 
         # All standard + square resolutions are supported (non-square aspect handled in acquisition)
-        self.image_settings_widget.resolution_combo.clear()
-        for res_str, res in AVAILABLE_RESOLUTIONS_ZIP:
-            self.image_settings_widget.resolution_combo.addItem(res_str, res)
-        default_idx = self.image_settings_widget.resolution_combo.findText(DEFAULT_STANDARD_RESOLUTION)
-        if default_idx >= 0:
-            self.image_settings_widget.resolution_combo.setCurrentIndex(default_idx)
+        self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_SQUARE_RESOLUTION)
 
         self._btn_advanced_imaging = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
             checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Show advanced settings",
-            checked_tooltip="Hide advanced settings",
+            tooltip="Show advanced image settings",
+            checked_tooltip="Hide advanced image settings",
         )
 
         self._image_panel = TitledPanel("Tile Image Settings", content=self.image_settings_widget)
         self._image_panel.add_header_widget(self._btn_advanced_imaging)
         self._image_panel._btn_collapse.setChecked(True)
-        outer.addWidget(self._image_panel)
+
+        # combine grid controls + image settings panel into one collapsible panel
+        combined = QWidget()
+        combined_layout = QVBoxLayout(combined)
+        combined_layout.setContentsMargins(0, 0, 0, 0)
+        combined_layout.setSpacing(0)
+        combined_layout.addWidget(grid_content)
+        combined_layout.addWidget(self._image_panel)
+
+        grid_panel = TitledPanel("Overview Acquisition", content=combined)
+        grid_panel.add_header_widget(self._btn_advanced)
+        grid_panel._btn_collapse.setChecked(True)
+        outer.addWidget(grid_panel)
 
     # ------------------------------------------------------------------
     # Signal wiring
     # ------------------------------------------------------------------
 
     def _connect_signals(self):
+        self._btn_advanced.toggled.connect(self.set_show_advanced)
         self.beam_type_combo.currentIndexChanged.connect(self._on_changed)
         self.nrows_spinbox.valueChanged.connect(self._on_changed)
         self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
@@ -162,6 +174,23 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def _on_changed(self):
         self._update_total_fov_label()
         self.settings_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Advanced visibility
+    # ------------------------------------------------------------------
+
+    def set_show_advanced(self, show: bool):
+        self._show_advanced = show
+        self._btn_advanced.blockSignals(True)
+        self._btn_advanced.setChecked(show)
+        self._btn_advanced.blockSignals(False)
+        self._btn_advanced.set_icon_state(show)
+        self._update_advanced_visibility()
+
+    def _update_advanced_visibility(self):
+        for label, widget in self._adv_widgets:
+            label.setVisible(self._show_advanced)
+            widget.setVisible(self._show_advanced)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -183,15 +212,15 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def get_settings(self) -> OverviewAcquisitionSettings:
         """Read current widget values and return OverviewAcquisitionSettings."""
         image_settings: ImageSettings = self.image_settings_widget.get_settings()
-        image_settings.beam_type = self.beam_type_combo.currentData()
+        image_settings.beam_type = self.beam_type_combo.value()
         return OverviewAcquisitionSettings(
             image_settings=image_settings,
-            nrows=self.nrows_spinbox.value(),
-            ncols=self.ncols_spinbox.value(),
+            nrows=int(self.nrows_spinbox.value()),
+            ncols=int(self.ncols_spinbox.value()),
             overlap=self.overlap_spinbox.value() / 100.0,
             use_focus_stack=self.use_focus_stack.isChecked(),
-            autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.currentData()),
-            tile_order=self.tile_order_combo.currentData(),
+            autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
+            tile_order=self.tile_order_combo.value(),
         )
 
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
@@ -205,19 +234,13 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.autofocus_combo.blockSignals(True)
         self.tile_order_combo.blockSignals(True)
 
-        idx = self.beam_type_combo.findData(settings.image_settings.beam_type)
-        if idx >= 0:
-            self.beam_type_combo.setCurrentIndex(idx)
+        self.beam_type_combo.set_value(settings.image_settings.beam_type)
         self.nrows_spinbox.setValue(settings.nrows)
         self.ncols_spinbox.setValue(settings.ncols)
         self.overlap_spinbox.setValue(settings.overlap * 100.0)
         self.use_focus_stack.setChecked(settings.use_focus_stack)
-        idx = self.autofocus_combo.findData(settings.autofocus_settings.mode)
-        if idx >= 0:
-            self.autofocus_combo.setCurrentIndex(idx)
-        idx = self.tile_order_combo.findData(settings.tile_order)
-        if idx >= 0:
-            self.tile_order_combo.setCurrentIndex(idx)
+        self.autofocus_combo.set_value(settings.autofocus_settings.mode)
+        self.tile_order_combo.set_value(settings.tile_order)
 
         self.beam_type_combo.blockSignals(False)
         self.nrows_spinbox.blockSignals(False)

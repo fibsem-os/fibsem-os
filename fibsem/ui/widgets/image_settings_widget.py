@@ -322,6 +322,23 @@ class ImageSettingsWidget(QWidget):
         """
         return self._show_advanced
 
+    def set_available_resolutions(self, resolutions: list, default: str | None = None) -> None:
+        """Replace the resolution combo items with a custom list.
+
+        Args:
+            resolutions: List of (display_str, value) tuples, e.g. from AVAILABLE_RESOLUTIONS_ZIP.
+            default: Optional display string to select as the default item.
+        """
+        self.resolution_combo.blockSignals(True)
+        self.resolution_combo.clear()
+        for res_str, res in resolutions:
+            self.resolution_combo.addItem(res_str, res)
+        if default is not None:
+            idx = self.resolution_combo.findText(default)
+            if idx >= 0:
+                self.resolution_combo.setCurrentIndex(idx)
+        self.resolution_combo.blockSignals(False)
+
     def set_show_autocontrast(self, show: bool):
         """Show or hide the auto contrast controls."""
         self.autocontrast_label.setVisible(show)
