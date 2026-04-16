@@ -270,9 +270,24 @@ def tiled_image_acquisition(
     os.makedirs(image_settings.path, exist_ok=True)  # type: ignore
     image_settings.filename = prev_label
 
+    total_tiles = settings.nrows * settings.ncols
+
+    # notify UI that setup is beginning (progress bar appears immediately)
+    microscope.tiled_acquisition_signal.emit({
+        "msg": "Computing Tile Positions",
+        "counter": 0,
+        "total": total_tiles,
+    })
+
     # compute tile grid and acquisition order
     tiles = compute_tile_grid(settings)
     ordered = order_tiles(tiles, settings.tile_order)
+
+    microscope.tiled_acquisition_signal.emit({
+        "msg": "Moving to Start Position",
+        "counter": 0,
+        "total": total_tiles,
+    })
 
     # move from centre to top-left corner
     start_state = microscope.get_microscope_state()
@@ -303,7 +318,6 @@ def tiled_image_acquisition(
         logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
 
     n_tiles_acquired = 0
-    total_tiles = len(ordered)
     first_image: Optional[FibsemImage] = None
     prev_row = -1
 
