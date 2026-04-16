@@ -88,6 +88,40 @@ def compute_tile_grid(settings: OverviewAcquisitionSettings) -> list[TilePositio
     return tiles
 
 
+def _spiral_order(nrows: int, ncols: int) -> list[tuple[int, int]]:
+    """Return (row, col) pairs in a clockwise outward spiral from the centre tile.
+
+    Works for any grid shape, including non-square and single-row/column grids.
+    The traversal position may temporarily leave the grid bounds while stepping;
+    only cells inside [0, nrows) × [0, ncols) are included in the result.
+    """
+    cr, cc = nrows // 2, ncols // 2
+    result: list[tuple[int, int]] = [(cr, cc)]
+    r, c = cr, cc
+    # right, down, left, up
+    dirs = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    dir_idx = 0
+    steps = 1
+    total = nrows * ncols
+    # Upper bound on iterations: spiral arms can't exceed grid perimeter
+    max_steps = nrows + ncols + 2
+
+    while len(result) < total and steps <= max_steps:
+        for _ in range(2):
+            dr, dc = dirs[dir_idx % 4]
+            for _ in range(steps):
+                r += dr
+                c += dc
+                if 0 <= r < nrows and 0 <= c < ncols:
+                    result.append((r, c))
+            dir_idx += 1
+            if len(result) >= total:
+                return result
+        steps += 1
+
+    return result
+
+
 def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[TilePosition]:
     """Reorder tiles according to the movement strategy.
 
@@ -95,10 +129,16 @@ def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[
 
     Args:
         tiles: Flat list of TilePosition objects (any order).
-        strategy: TYPEWRITER (rows always L→R) or SERPENTINE (alternating L→R / R→L).
+        strategy: TYPEWRITER, SERPENTINE, or SPIRAL.
     Returns:
         New list with tiles in traversal order.
     """
+    if strategy is TileOrderStrategy.SPIRAL:
+        nrows = max(t.row for t in tiles) + 1
+        ncols = max(t.col for t in tiles) + 1
+        tile_map = {(t.row, t.col): t for t in tiles}
+        return [tile_map[rc] for rc in _spiral_order(nrows, ncols) if rc in tile_map]
+
     rows = sorted(set(t.row for t in tiles))
     result = []
     for row_idx, row in enumerate(rows):

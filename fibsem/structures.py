@@ -177,6 +177,7 @@ class AutoFocusMode(Enum):
 class TileOrderStrategy(Enum):
     TYPEWRITER = "typewriter"   # rows always left-to-right
     SERPENTINE = "serpentine"   # alternating: row 0 L→R, row 1 R→L, ...
+    SPIRAL     = "spiral"       # outward clockwise spiral from centre tile
 
 
 @dataclass

@@ -1,7 +1,7 @@
 import pytest
 from matplotlib.figure import Figure
 
-from fibsem.imaging.tiled import TilePosition, compute_tile_grid, order_tiles, plot_tile_positions
+from fibsem.imaging.tiled import TilePosition, _spiral_order, compute_tile_grid, order_tiles, plot_tile_positions
 from fibsem.structures import ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
 
 
@@ -164,6 +164,50 @@ def test_order_tiles_single_tile():
     for strategy in TileOrderStrategy:
         ordered = order_tiles(tiles, strategy)
         assert len(ordered) == 1
+
+
+def test_order_tiles_spiral_starts_at_centre():
+    """Spiral: first tile is the centre of the grid."""
+    tiles = _grid_3x4()
+    ordered = order_tiles(tiles, TileOrderStrategy.SPIRAL)
+    assert ordered[0].row == 3 // 2
+    assert ordered[0].col == 4 // 2
+
+
+def test_order_tiles_spiral_3x3_full_sequence():
+    """Spiral 3×3: verify the exact clockwise-outward traversal."""
+    tiles = compute_tile_grid(_make_settings(3, 3))
+    ordered = order_tiles(tiles, TileOrderStrategy.SPIRAL)
+    expected = [(1, 1), (1, 2), (2, 2), (2, 1), (2, 0), (1, 0), (0, 0), (0, 1), (0, 2)]
+    assert [(t.row, t.col) for t in ordered] == expected
+
+
+def test_order_tiles_spiral_1xN():
+    """Spiral on a single-row grid: expands left/right from centre."""
+    tiles = compute_tile_grid(_make_settings(1, 5))
+    ordered = order_tiles(tiles, TileOrderStrategy.SPIRAL)
+    # Must cover all 5 tiles
+    assert {(t.row, t.col) for t in ordered} == {(0, j) for j in range(5)}
+    # First tile is centre col (5//2 = 2)
+    assert ordered[0].col == 2
+
+
+def test_order_tiles_spiral_same_set():
+    """Spiral never drops or duplicates tiles."""
+    tiles = _grid_3x4()
+    ordered = order_tiles(tiles, TileOrderStrategy.SPIRAL)
+    assert len(ordered) == len(tiles)
+    assert {(t.row, t.col) for t in ordered} == {(t.row, t.col) for t in tiles}
+
+
+def test_spiral_order_helper_3x3():
+    assert _spiral_order(3, 3) == [
+        (1, 1), (1, 2), (2, 2), (2, 1), (2, 0), (1, 0), (0, 0), (0, 1), (0, 2)
+    ]
+
+
+def test_spiral_order_helper_1x1():
+    assert _spiral_order(1, 1) == [(0, 0)]
 
 
 # ---------------------------------------------------------------------------
