@@ -1679,8 +1679,8 @@ class AutoLamellaUI(QMainWindow):
             self._task_manager.stop()
         else:
             self._workflow_stop_event.set()
-        self.milling_task_config_widget.milling_widget.stop_milling() # stop milling if running
-        napari.utils.notifications.show_error("Abort requested by user.")
+        if self.milling_task_config_widget is not None:
+            self.milling_task_config_widget.milling_widget.stop_milling()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
