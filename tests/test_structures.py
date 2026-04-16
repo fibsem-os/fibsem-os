@@ -16,6 +16,7 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
+    TileOrderStrategy,
 )
 
 
@@ -282,6 +283,23 @@ def test_overview_acquisition_total_fov_single_tile():
     )
     assert s.total_fov_x == pytest.approx(200e-6)
     assert s.total_fov_y == pytest.approx(200e-6)
+
+
+def test_overview_acquisition_tile_order_round_trip():
+    for strategy in TileOrderStrategy:
+        s = OverviewAcquisitionSettings(tile_order=strategy)
+        restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+        assert restored.tile_order is strategy
+
+
+def test_overview_acquisition_tile_order_legacy_default():
+    """Dicts without tile_order key default to TYPEWRITER."""
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.tile_order is TileOrderStrategy.TYPEWRITER
 
 
 if THERMO_API_AVAILABLE:

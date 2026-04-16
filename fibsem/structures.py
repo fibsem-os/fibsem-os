@@ -174,6 +174,11 @@ class AutoFocusMode(Enum):
     EVERY_TILE = 3
 
 
+class TileOrderStrategy(Enum):
+    TYPEWRITER = "typewriter"   # rows always left-to-right
+    SERPENTINE = "serpentine"   # alternating: row 0 L→R, row 1 R→L, ...
+
+
 @dataclass
 class FibsemStagePosition:
     """Data class for storing stage position data.
@@ -877,6 +882,7 @@ class OverviewAcquisitionSettings:
     overlap: float = 0.0
     use_focus_stack: bool = False
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
+    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
 
     @property
     def total_fov_x(self) -> float:
@@ -908,6 +914,7 @@ class OverviewAcquisitionSettings:
             overlap=d.get("overlap", 0.0),
             use_focus_stack=d.get("use_focus_stack", False),
             autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
+            tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
         )
 
     def to_dict(self) -> dict:
@@ -918,6 +925,7 @@ class OverviewAcquisitionSettings:
             "overlap": self.overlap,
             "use_focus_stack": self.use_focus_stack,
             "autofocus_settings": self.autofocus_settings.to_dict(),
+            "tile_order": self.tile_order.value,
         }
 
 

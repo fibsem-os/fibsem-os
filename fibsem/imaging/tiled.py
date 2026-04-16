@@ -14,6 +14,8 @@ from matplotlib.figure import Figure
 from fibsem import acquire, conversions
 from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
+from dataclasses import dataclass
+
 from fibsem.structures import (
     AutoFocusMode,
     BeamType,
@@ -21,12 +23,161 @@ from fibsem.structures import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
     Point,
+    TileOrderStrategy,
 )
 if TYPE_CHECKING:
     import psygnal
 
 
 POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
+
+
+##### TILE GRID
+
+@dataclass
+class TilePosition:
+    """Physical and canvas coordinates for one tile in a tiled acquisition grid.
+
+    Attributes:
+        row: Grid row index (0 = top).
+        col: Grid column index (0 = left).
+        dx: X offset from start_position in metres; positive = right.
+        dy: Y offset from start_position in metres; negative = down (stage y inverted).
+        canvas_x: Pixel left edge in the stitched canvas array.
+        canvas_y: Pixel top edge in the stitched canvas array.
+    """
+    row: int
+    col: int
+    dx: float
+    dy: float
+    canvas_x: int
+    canvas_y: int
+
+
+def compute_tile_grid(settings: OverviewAcquisitionSettings) -> list[TilePosition]:
+    """Compute physical and canvas positions for every tile in the grid.
+
+    Pure function — no microscope, no side effects.
+
+    Args:
+        settings: Overview acquisition settings (hfw, resolution, nrows, ncols, overlap).
+    Returns:
+        Flat list of TilePosition objects in row-major order (top-left first).
+    """
+    image_width, image_height = settings.image_settings.resolution
+    tile_fov_x = settings.image_settings.hfw
+    tile_fov_y = tile_fov_x * (image_height / image_width)
+    overlap = settings.overlap
+
+    dx_step = tile_fov_x * (1 - overlap)
+    dy_step = tile_fov_y * (1 - overlap)
+
+    eff_w = max(1, int(round(image_width  * (1 - overlap))))
+    eff_h = max(1, int(round(image_height * (1 - overlap))))
+
+    tiles = []
+    for i in range(settings.nrows):
+        for j in range(settings.ncols):
+            tiles.append(TilePosition(
+                row=i, col=j,
+                dx=j * dx_step,
+                dy=-(i * dy_step),   # negate: stage y axis is inverted
+                canvas_x=j * eff_w,
+                canvas_y=i * eff_h,
+            ))
+    return tiles
+
+
+def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[TilePosition]:
+    """Reorder tiles according to the movement strategy.
+
+    Pure function — no microscope, no side effects.
+
+    Args:
+        tiles: Flat list of TilePosition objects (any order).
+        strategy: TYPEWRITER (rows always L→R) or SERPENTINE (alternating L→R / R→L).
+    Returns:
+        New list with tiles in traversal order.
+    """
+    rows = sorted(set(t.row for t in tiles))
+    result = []
+    for row_idx, row in enumerate(rows):
+        row_tiles = sorted([t for t in tiles if t.row == row], key=lambda t: t.col)
+        if strategy is TileOrderStrategy.SERPENTINE and row_idx % 2 == 1:
+            row_tiles = list(reversed(row_tiles))
+        result.extend(row_tiles)
+    return result
+
+
+def plot_tile_positions(
+    tiles: list[TilePosition],
+    settings: OverviewAcquisitionSettings,
+    ax: Optional[plt.Axes] = None,
+) -> Figure:
+    """Plot the tile grid with traversal order, for debugging and validation.
+
+    Args:
+        tiles: Ordered list of TilePosition objects (acquisition order).
+        settings: Overview acquisition settings (for FOV dimensions and labels).
+        ax: Optional existing axes to draw on; creates a new figure if None.
+    Returns:
+        The matplotlib Figure.
+    """
+    import matplotlib.patches as mpatches
+    from fibsem import constants
+
+    image_width, image_height = settings.image_settings.resolution
+    tile_fov_x = settings.image_settings.hfw * constants.SI_TO_MICRO  # µm
+    tile_fov_y = tile_fov_x * (image_height / image_width)
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+    else:
+        fig = ax.get_figure()
+
+    # draw tiles
+    for order_idx, tile in enumerate(tiles):
+        cx = tile.dx * constants.SI_TO_MICRO  # µm
+        cy = tile.dy * constants.SI_TO_MICRO
+        x0 = cx - tile_fov_x / 2
+        y0 = cy - tile_fov_y / 2
+        colour = POSITION_COLOURS[tile.row % len(POSITION_COLOURS)]
+        rect = mpatches.FancyBboxPatch(
+            (x0, y0), tile_fov_x, tile_fov_y,
+            boxstyle="round,pad=0.01",
+            linewidth=1, edgecolor="white", facecolor=colour, alpha=0.4,
+        )
+        ax.add_patch(rect)
+        ax.text(cx, cy, str(order_idx), ha="center", va="center",
+                fontsize=8, color="white", fontweight="bold")
+
+    # draw traversal path
+    if len(tiles) > 1:
+        xs = [t.dx * constants.SI_TO_MICRO for t in tiles]
+        ys = [t.dy * constants.SI_TO_MICRO for t in tiles]
+        for k in range(len(tiles) - 1):
+            ax.annotate("", xy=(xs[k + 1], ys[k + 1]), xytext=(xs[k], ys[k]),
+                        arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
+
+    sym = constants.MICRON_SYMBOL
+    ax.set_xlabel(f"X ({sym})")
+    ax.set_ylabel(f"Y ({sym})")
+    ax.set_aspect("equal")
+    ax.set_facecolor("#1e2027")
+    fig.patch.set_facecolor("#1e2027")
+    ax.tick_params(colors="white")
+    ax.xaxis.label.set_color("white")
+    ax.yaxis.label.set_color("white")
+    ax.title.set_color("white")
+    strategy_name = settings.tile_order.value.title()
+    ax.set_title(
+        f"{strategy_name} — {settings.nrows}×{settings.ncols} tiles, "
+        f"{settings.overlap*100:.0f}% overlap"
+    )
+    ax.autoscale_view()
+    fig.tight_layout()
+    return fig
+
 
 ##### TILED ACQUISITION
 def tiled_image_acquisition(
@@ -209,7 +360,6 @@ def stitch_images(images: list[list[FibsemImage]],
     # for garbage collection
     del ddict["images"]
     import time
-    time.sleep(5)
 
     if signal is not None:
         signal.emit({"msg": "Done", "counter": total, "total": total, "finished": True})
