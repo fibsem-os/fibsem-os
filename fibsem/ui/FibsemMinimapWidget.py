@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -179,8 +180,7 @@ def generate_gridbar_image(shape: Tuple[int, int], pixelsize: float, spacing: fl
 # TODO: update layer name for correlation layers, set from file?
 # TODO: set combobox to all images in viewer 
 class FibsemMinimapWidget(QWidget):
-    _acquisition_finished = pyqtSignal()
-    _acquisition_errored = pyqtSignal()
+    _acquisition_finished = pyqtSignal(dict)
 
     def __init__(
         self,
@@ -406,7 +406,6 @@ class FibsemMinimapWidget(QWidget):
 
         # signals
         self._acquisition_finished.connect(self.tile_collection_finished)
-        self._acquisition_errored.connect(self.tile_collection_errored)
 
         # pattern overlay
         self.comboBox_pattern_overlay.currentIndexChanged.connect(self._draw_milling_pattern_overlay)
@@ -589,18 +588,11 @@ class FibsemMinimapWidget(QWidget):
         )
         self._acquisition_worker.start()
 
-    def tile_collection_finished(self):
+    def tile_collection_finished(self, result: dict):
         self._acquisition_worker = None
         self._thread_stop_event.clear()
-        napari.utils.notifications.show_info("Tile collection finished.")
         self.update_viewer(self.image)
         self.toggle_interaction(enable=True)
-
-    def tile_collection_errored(self):
-        logging.error("Tile collection errored.")
-        self._thread_stop_event.clear()
-        self._acquisition_worker = None
-        # TODO: handle when acquisition is cancelled halfway, clear viewer, etc
 
     def _run_tile_collection(
         self,
@@ -608,6 +600,10 @@ class FibsemMinimapWidget(QWidget):
         overview_settings: OverviewAcquisitionSettings,
     ):
         """Threaded worker for tiled acquisition and stitching."""
+        self._tiles_acquired: int = 0
+        self._tile_total_count: int = 0
+        _start_time = time.time()
+        _error: bool = False
         try:
             self.image = tiled.tiled_image_acquisition_and_stitch(
                 microscope=microscope,
@@ -615,17 +611,30 @@ class FibsemMinimapWidget(QWidget):
                 stop_event=self._thread_stop_event,
             )
         except Exception as e:
-            logging.error(f"Error in tile collection: {e}")
-            self._acquisition_errored.emit()
+            logging.error(f"Error in tile collection: {e}", exc_info=True)
+            _error = True
         finally:
-            self._acquisition_finished.emit()
+            elapsed = time.time() - _start_time
+            cancelled = self._thread_stop_event.is_set()
+            result = {
+                "tiles": self._tiles_acquired,
+                "total": self._tile_total_count,
+                "elapsed": elapsed,
+                "cancelled": cancelled,
+                "error": _error,
+            }
+            self._acquisition_finished.emit(result)
 
     @ensure_main_thread
     def handle_tile_acquisition_progress(self, ddict: dict) -> None:
         """Callback for handling the tile acquisition progress."""
 
-        # progress bar
+        # track counts for result dict
         count, total = ddict["counter"], ddict["total"]
+        self._tiles_acquired = count
+        self._tile_total_count = total
+
+        # progress bar
         self.progressBar_acquisition.setMaximum(100)
         self.progressBar_acquisition.setValue(int(count/total*100))
         self.progressBar_acquisition.setFormat(f"{ddict['msg']} — {count}/{total} tiles (%p%)")

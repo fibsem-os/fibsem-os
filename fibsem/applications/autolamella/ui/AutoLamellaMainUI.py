@@ -775,13 +775,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if ddict.get("finished"):
             self.progress_widget.update_progress(ProgressUpdate.done())
-            QTimer.singleShot(3000, self.progress_widget.reset)
         elif counter >= total:
             self.progress_widget.update_progress(ProgressUpdate.indeterminate(msg))
         else:
             self.progress_widget.update_progress(
                 ProgressUpdate.numeric(counter, total, msg)
             )
+
+    def _on_tile_acquisition_finished(self, result: dict) -> None:
+        self.progress_widget.reset()
+        tiles = result.get("tiles", 0)
+        total = result.get("total", 0)
+        elapsed = result.get("elapsed", 0.0)
+        cancelled = result.get("cancelled", False)
+        error = result.get("error", False)
+
+        tile_info = f"{tiles}/{total} tiles" if total else ""
+        elapsed_info = f" in {format_duration(elapsed)}" if elapsed else ""
+
+        if error:
+            if cancelled:
+                self.show_toast(f"Tile acquisition cancelled. {tile_info} collected.", "warning")
+            else:
+                self.show_toast(f"Tile acquisition failed. {tile_info} collected.", "error")
+        else:
+            self.show_toast(f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success")
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
@@ -1420,6 +1438,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             viewer=self.minimap_viewer, parent=self.autolamella_ui
         )
         self.minimap_widget.setMinimumWidth(500)
+        self.minimap_widget._acquisition_finished.connect(self._on_tile_acquisition_finished)
 
         # Layout: napari viewer (left) | minimap controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
