@@ -113,6 +113,7 @@ def plot_tile_positions(
     tiles: list[TilePosition],
     settings: OverviewAcquisitionSettings,
     ax: Optional[plt.Axes] = None,
+    stage_positions: Optional[list[FibsemStagePosition]] = None,
 ) -> Figure:
     """Plot the tile grid with traversal order, for debugging and validation.
 
@@ -120,6 +121,10 @@ def plot_tile_positions(
         tiles: Ordered list of TilePosition objects (acquisition order).
         settings: Overview acquisition settings (for FOV dimensions and labels).
         ax: Optional existing axes to draw on; creates a new figure if None.
+        stage_positions: Optional list of pre-computed FibsemStagePosition objects
+            (same length as tiles). When provided, the actual projected positions are
+            overlaid as white crosses + dotted path so you can compare the ideal grid
+            against the real stage coordinates returned by project_stable_move.
     Returns:
         The matplotlib Figure.
     """
@@ -158,6 +163,14 @@ def plot_tile_positions(
         for k in range(len(tiles) - 1):
             ax.annotate("", xy=(xs[k + 1], ys[k + 1]), xytext=(xs[k], ys[k]),
                         arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
+
+    # overlay actual projected stage positions (if provided)
+    if stage_positions is not None and len(stage_positions) > 0:
+        ref = stage_positions[0]
+        sxs = [(sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions]
+        sys_ = [(sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions]
+        ax.plot(sxs, sys_, linestyle=":", color="white", lw=0.8, alpha=0.6)
+        ax.plot(sxs, sys_, marker="x", color="white", ms=6, markeredgewidth=1.5, linestyle="none")
 
     sym = constants.MICRON_SYMBOL
     ax.set_xlabel(f"X ({sym})")
@@ -235,32 +248,40 @@ def tiled_image_acquisition(
     full_h = eff_h * (settings.nrows - 1) + image_height
     arr = np.zeros((full_h, full_w), dtype=np.uint8)
 
+    logging.info(f"Tiled acquisition start position: {start_position.pretty}")
+
+    # pre-compute the absolute stage position for every tile in acquisition order
+    tile_stage_positions = [
+        microscope.project_stable_move(
+            dx=tile.dx, dy=tile.dy,
+            beam_type=image_settings.beam_type,
+            base_position=start_position,
+        )
+        for tile in ordered
+    ]
+    for tile, sp in zip(ordered, tile_stage_positions):
+        logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+
     n_tiles_acquired = 0
     total_tiles = len(ordered)
     first_image: Optional[FibsemImage] = None
     prev_row = -1
-    prev_dx = 0.0
 
     try:
         if af_mode is AutoFocusMode.ONCE:
             microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
 
-        for tile in ordered:
+        for tile, stage_pos in zip(ordered, tile_stage_positions):
             image_settings.filename = f"tile_{tile.row}_{tile.col}"
 
-            # row change: return to start_position and offset to this row
+            logging.info(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
+            microscope.safe_absolute_stage_movement(stage_pos)
+            logging.info(f"Tile ({tile.row}, {tile.col}) — actual: {microscope.get_stage_position().pretty}")
+
             if tile.row != prev_row:
-                microscope.safe_absolute_stage_movement(start_position)
-                microscope.stable_move(dx=0, dy=tile.dy, beam_type=image_settings.beam_type)
                 prev_row = tile.row
-                prev_dx = 0.0
                 if af_mode is AutoFocusMode.EVERY_ROW:
                     microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
-
-            # move within the row (incremental; zero for first tile of typewriter rows)
-            ddx = tile.dx - prev_dx
-            microscope.stable_move(dx=ddx, dy=0, beam_type=image_settings.beam_type)
-            prev_dx = tile.dx
 
             if af_mode is AutoFocusMode.EVERY_TILE:
                 microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
@@ -268,7 +289,7 @@ def tiled_image_acquisition(
             if stop_event and stop_event.is_set():
                 raise Exception("User Stopped Acquisition")
 
-            logging.info(f"Acquiring Tile {tile.row}, {tile.col}")
+            logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
             if use_focus_stack:
                 image = acquire.acquire_focus_stacked_image(
                     microscope=microscope,
