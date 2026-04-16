@@ -4,7 +4,6 @@ import datetime
 import logging
 import os
 import threading
-import time
 from copy import deepcopy
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
@@ -15,13 +14,10 @@ from matplotlib.figure import Figure
 from fibsem import acquire, conversions
 from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
-    FibsemRectangle,
     FibsemStagePosition,
-    ImageSettings,
     OverviewAcquisitionSettings,
     Point,
 )
