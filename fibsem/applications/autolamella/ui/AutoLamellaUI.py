@@ -1854,16 +1854,3 @@ class AutoLamellaUI(QMainWindow):
             self.viewer.layers.remove(self._poi_layer)
             self._poi_layer = None
 
-
-def main():
-    autolamella_ui = AutoLamellaUI(viewer=napari.Viewer())
-    autolamella_ui.viewer.window.add_dock_widget(
-        widget=autolamella_ui,
-        area="right",
-        add_vertical_stretch=True,
-        name=f"AutoLamella v{fibsem.__version__}",
-    )
-    napari.run()
-
-if __name__ == "__main__":
-    main()
