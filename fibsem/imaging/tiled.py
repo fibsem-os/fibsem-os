@@ -343,6 +343,11 @@ def tiled_image_acquisition(
 
     n_tiles_acquired = 0
     first_image: Optional[FibsemImage] = None
+    # EVERY_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
+    # so promote it to EVERY_TILE so focus is always fresh.
+    if af_mode is AutoFocusMode.EVERY_ROW and settings.tile_order is TileOrderStrategy.SPIRAL:
+        af_mode = AutoFocusMode.EVERY_TILE
+        logging.info("EVERY_ROW autofocus upgraded to EVERY_TILE for SPIRAL tile order")
     prev_row = -1
 
     try:
