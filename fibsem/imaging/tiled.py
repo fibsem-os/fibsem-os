@@ -43,16 +43,22 @@ def tiled_image_acquisition(
 
     image_settings = settings.image_settings
     n_rows, n_cols = settings.nrows, settings.ncols
-    tile_size = image_settings.hfw
     cryo = image_settings.autogamma  # capture before clearing below
     use_focus_stack = settings.use_focus_stack
+    overlap = settings.overlap  # fractional overlap, e.g. 0.1 = 10%
 
-    dx, dy = tile_size, tile_size
-    dy *= -1 # need to invert y-axis
+    # derive tile FOVs — non-square tiles have different x/y physical extents
+    image_width, image_height = image_settings.resolution
+    tile_fov_x = image_settings.hfw
+    tile_fov_y = tile_fov_x * (image_height / image_width)
+
+    # step between tile centres (reduced by overlap)
+    dx = tile_fov_x * (1 - overlap)
+    dy = -tile_fov_y * (1 - overlap)  # invert y-axis
 
     # fixed image settings
     image_settings.autogamma = False
-    total_fov = n_cols * tile_size  # total hfw
+    total_fov = (n_cols - 1) * dx + tile_fov_x  # total physical width covered
 
     # start in the middle of the grid
     start_state = microscope.get_microscope_state()
@@ -63,12 +69,12 @@ def tiled_image_acquisition(
     image_settings.path = os.path.join(prev_path, prev_label) # type: ignore
     os.makedirs(image_settings.path, exist_ok=True) # type: ignore
 
-    # TOP LEFT CORNER START
+    # TOP LEFT CORNER START — offset from centre to first tile
     image_settings.filename = prev_label
     image_settings.autocontrast = False # required for cryo
     image_settings.save = True
-    start_move_x = (n_cols * tile_size) / 2 - tile_size / 2
-    start_move_y = (n_rows * tile_size) / 2 - tile_size / 2
+    start_move_x = (n_cols - 1) * dx / 2
+    start_move_y = (n_rows - 1) * abs(dy) / 2
     dxg, dyg = start_move_x, start_move_y
     dyg *= -1
 
@@ -76,10 +82,12 @@ def tiled_image_acquisition(
     start_position = microscope.get_stage_position()
     images = []
 
-    # stitched image
-    shape = image_settings.resolution[::-1] # reverse for (y,x)
-    full_shape = (shape[0]*n_rows, shape[1]*n_cols)
-    arr = np.zeros(shape=(full_shape), dtype=np.uint8)
+    # stitched image canvas — accounts for overlap and non-square tiles
+    eff_w = max(1, int(round(image_width * (1 - overlap))))
+    eff_h = max(1, int(round(image_height * (1 - overlap))))
+    full_w = eff_w * (n_cols - 1) + image_width
+    full_h = eff_h * (n_rows - 1) + image_height
+    arr = np.zeros(shape=(full_h, full_w), dtype=np.uint8)
     n_tiles_acquired = 0
     total_tiles = n_rows*n_cols
     try:
@@ -107,8 +115,8 @@ def tiled_image_acquisition(
                 else:
                     image = acquire.acquire_image(microscope, image_settings)
 
-                # stitch image
-                arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = image.filtered_data
+                # stitch tile into canvas (overlapping regions are overwritten by later tiles)
+                arr[i*eff_h:i*eff_h+image_height, j*eff_w:j*eff_w+image_width] = image.filtered_data
 
                 n_tiles_acquired += 1
                 microscope.tiled_acquisition_signal.emit(
@@ -136,7 +144,7 @@ def tiled_image_acquisition(
 
     ddict = {
         "total_fov": total_fov,
-        "tile_size": tile_size,
+        "tile_size": tile_fov_x,
         "n_rows": n_rows,
         "n_cols": n_cols,
         "image_settings": image_settings,

@@ -850,9 +850,25 @@ class OverviewAcquisitionSettings:
     use_focus_stack: bool = False
 
     @property
+    def total_fov_x(self) -> float:
+        """Total horizontal FOV in meters, accounting for overlap."""
+        hfw = self.image_settings.hfw
+        dx = hfw * (1 - self.overlap)
+        return (self.ncols - 1) * dx + hfw
+
+    @property
+    def total_fov_y(self) -> float:
+        """Total vertical FOV in meters, accounting for overlap and tile aspect ratio."""
+        w, h = self.image_settings.resolution
+        hfw = self.image_settings.hfw
+        tile_fov_y = hfw * (h / w) if w > 0 else hfw
+        dy = tile_fov_y * (1 - self.overlap)
+        return (self.nrows - 1) * dy + tile_fov_y
+
+    @property
     def total_fov(self) -> float:
-        """Total field of view in meters (width = ncols * tile_hfw)."""
-        return self.ncols * self.image_settings.hfw
+        """Total horizontal FOV in meters (alias for total_fov_x)."""
+        return self.total_fov_x
 
     @staticmethod
     def from_dict(d: dict) -> "OverviewAcquisitionSettings":

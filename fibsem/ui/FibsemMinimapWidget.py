@@ -1130,10 +1130,8 @@ class FibsemMinimapWidget(QWidget):
         # current overview fov
         if self.show_overview_fov:
             overview_settings = self.get_overview_settings()
-            fov = overview_settings.image_settings.hfw
-            nrows, ncols = overview_settings.nrows, overview_settings.ncols
-            width = (ncols * fov) / pixelsize
-            height = (nrows * fov) / pixelsize
+            width = overview_settings.total_fov_x / pixelsize
+            height = overview_settings.total_fov_y / pixelsize
             rect = create_rectangle_shape(current_position, width, height)
             overlays.append(NapariShapeOverlay(
                 shape=rect,

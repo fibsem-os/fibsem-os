@@ -2,7 +2,6 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -13,10 +12,10 @@ from PyQt5.QtWidgets import (
 from typing import Optional
 
 from fibsem import constants
-from fibsem.config import SQUARE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
+from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_STANDARD_RESOLUTION
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, WheelBlocker
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox, WheelBlocker
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
@@ -81,15 +80,20 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         _tiles_layout.addWidget(self.ncols_spinbox)
         grid_layout.addWidget(_tiles_row, 1, 1, 1, 2)
 
+        # Overlap
+        grid_layout.addWidget(QLabel("Overlap (%)"), 2, 0)
+        self.overlap_spinbox = ValueSpinBox(suffix="%", minimum=0.0, maximum=50.0, step=5.0, decimals=0)
+        grid_layout.addWidget(self.overlap_spinbox, 2, 1, 1, 2)
+
         # Total FOV label (read-only, auto-updated)
         self._label_total_fov = QLabel("Total FOV: —")
         self._label_total_fov.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore
-        grid_layout.addWidget(self._label_total_fov, 2, 0, 1, 3)
+        grid_layout.addWidget(self._label_total_fov, 3, 0, 1, 3)
 
         # Use focus stack
-        grid_layout.addWidget(QLabel("Use Focus Stack"), 3, 0)
+        grid_layout.addWidget(QLabel("Use Focus Stack"), 4, 0)
         self.use_focus_stack = QCheckBox()
-        grid_layout.addWidget(self.use_focus_stack, 3, 1, 1, 2)
+        grid_layout.addWidget(self.use_focus_stack, 4, 1, 1, 2)
 
         grid_panel = TitledPanel("Overview Acquisition", content=grid_content)
         grid_panel._btn_collapse.setChecked(True)
@@ -103,11 +107,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.image_settings_widget.hfw_label.setText("Field of View")
         self.image_settings_widget.set_show_advanced_button(False)
 
-        # Tiled acquisition requires square resolutions (equal x/y pixel size for stitching)
+        # All standard + square resolutions are supported (non-square aspect handled in acquisition)
         self.image_settings_widget.resolution_combo.clear()
-        for res_str, res in SQUARE_RESOLUTIONS_ZIP:
+        for res_str, res in AVAILABLE_RESOLUTIONS_ZIP:
             self.image_settings_widget.resolution_combo.addItem(res_str, res)
-        default_idx = self.image_settings_widget.resolution_combo.findText(DEFAULT_SQUARE_RESOLUTION)
+        default_idx = self.image_settings_widget.resolution_combo.findText(DEFAULT_STANDARD_RESOLUTION)
         if default_idx >= 0:
             self.image_settings_widget.resolution_combo.setCurrentIndex(default_idx)
 
@@ -133,6 +137,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.nrows_spinbox.valueChanged.connect(self._on_changed)
         self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
         self.ncols_spinbox.valueChanged.connect(self._on_changed)
+        self.overlap_spinbox.valueChanged.connect(self._on_changed)
         self.use_focus_stack.toggled.connect(self._on_changed)
         self.image_settings_widget.settings_changed.connect(self._on_changed)
 
@@ -145,11 +150,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _update_total_fov_label(self):
-        tile_fov_um = self.image_settings_widget.hfw_spinbox.value()  # already in µm
-        nrows = self.nrows_spinbox.value()
-        ncols = self.ncols_spinbox.value()
-        total_w = ncols * tile_fov_um
-        total_h = nrows * tile_fov_um
+        settings = self.get_settings()
+        total_w = settings.total_fov_x * constants.SI_TO_MICRO
+        total_h = settings.total_fov_y * constants.SI_TO_MICRO
         sym = constants.MICRON_SYMBOL
         self._label_total_fov.setText(
             f"Total FOV: {total_w:.0f} × {total_h:.0f} {sym}"
@@ -167,7 +170,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             image_settings=image_settings,
             nrows=self.nrows_spinbox.value(),
             ncols=self.ncols_spinbox.value(),
-            overlap=0.0,
+            overlap=self.overlap_spinbox.value() / 100.0,
             use_focus_stack=self.use_focus_stack.isChecked(),
         )
 
@@ -177,6 +180,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.beam_type_combo.blockSignals(True)
         self.nrows_spinbox.blockSignals(True)
         self.ncols_spinbox.blockSignals(True)
+        self.overlap_spinbox.blockSignals(True)
         self.use_focus_stack.blockSignals(True)
 
         idx = self.beam_type_combo.findData(settings.image_settings.beam_type)
@@ -184,11 +188,13 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             self.beam_type_combo.setCurrentIndex(idx)
         self.nrows_spinbox.setValue(settings.nrows)
         self.ncols_spinbox.setValue(settings.ncols)
+        self.overlap_spinbox.setValue(settings.overlap * 100.0)
         self.use_focus_stack.setChecked(settings.use_focus_stack)
 
         self.beam_type_combo.blockSignals(False)
         self.nrows_spinbox.blockSignals(False)
         self.ncols_spinbox.blockSignals(False)
+        self.overlap_spinbox.blockSignals(False)
         self.use_focus_stack.blockSignals(False)
 
         self.image_settings_widget.update_from_settings(settings.image_settings)
