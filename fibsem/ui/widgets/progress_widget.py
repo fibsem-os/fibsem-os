@@ -1,47 +1,123 @@
 """Generic progress widget for fibsem UI.
 
 ``FibsemProgressWidget`` is a purely reactive ``QWidget`` that renders progress
-updates from a plain dict payload.  The calling code emits updates at whatever
-cadence it likes; the widget just renders what it receives.
+updates from a :class:`ProgressUpdate` dataclass.  The calling code emits
+updates at whatever cadence it likes; the widget just renders what it receives.
 
-Dict schema
------------
-All keys are optional.  Mode is auto-detected from the keys present.
+Progress modes
+--------------
+Mode is auto-detected from the fields set on :class:`ProgressUpdate`.
 
-Numeric mode — ``current`` + ``total`` present::
+Numeric — ``current`` and ``total`` non-zero::
 
-    {"current": int, "total": int, "message": str, "finished": bool}
+    ProgressUpdate.numeric(current=5, total=15, message="Acquiring tile")
 
-Countdown mode — ``remaining_seconds`` present (with optional ``total_seconds``)::
+Countdown — ``remaining_seconds`` non-zero::
 
-    {"remaining_seconds": float, "total_seconds": float, "message": str, "finished": bool}
+    ProgressUpdate.countdown(remaining_seconds=30, total_seconds=60)
 
-Combined mode — numeric + time (e.g. spot burn: N points, each with exposure time)::
+Combined — numeric items each with a time budget (e.g. spot burn)::
 
-    {
-        "current": int, "total": int,
-        "remaining_seconds": float, "total_seconds": float,
-        "message": str, "finished": bool,
-    }
+    ProgressUpdate.combined(current=2, total=5, remaining_seconds=8, total_seconds=10)
 
-Message-only / indeterminate — no numeric or time keys::
+Indeterminate / message-only — no numeric or time values::
 
-    {"message": str, "finished": bool}
+    ProgressUpdate.indeterminate(message="Moving stage...")
 
-The ``finished`` key, if ``True``, completes the bar and shows a "Done" label.
-Call ``reset()`` to return the widget to its initial hidden state.
+Done — completes the bar and shows "Done"::
+
+    ProgressUpdate.done()
+
+Call :meth:`FibsemProgressWidget.reset` to return to the initial hidden state.
 """
 
-from PyQt5.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from PyQt5.QtWidgets import QHBoxLayout, QProgressBar, QWidget
 
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import _SpinnerLabel
 
+
+# ---------------------------------------------------------------------------
+# Data structure
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ProgressUpdate:
+    """Typed payload for :class:`FibsemProgressWidget`.
+
+    Use the convenience constructors (:meth:`numeric`, :meth:`countdown`,
+    :meth:`combined`, :meth:`indeterminate`, :meth:`done`) rather than
+    constructing directly so intent is explicit at the call site.
+    """
+
+    current: int = 0
+    total: int = 0
+    remaining_seconds: float = 0.0
+    total_seconds: float = 0.0
+    message: str = ""
+    finished: bool = False
+
+    @classmethod
+    def numeric(cls, current: int, total: int, message: str = "") -> "ProgressUpdate":
+        """Progress by item count: ``current`` out of ``total``."""
+        return cls(current=current, total=total, message=message)
+
+    @classmethod
+    def countdown(
+        cls,
+        remaining_seconds: float,
+        total_seconds: float = 0.0,
+        message: str = "",
+    ) -> "ProgressUpdate":
+        """Progress by time remaining."""
+        return cls(
+            remaining_seconds=remaining_seconds,
+            total_seconds=total_seconds,
+            message=message,
+        )
+
+    @classmethod
+    def combined(
+        cls,
+        current: int,
+        total: int,
+        remaining_seconds: float,
+        total_seconds: float = 0.0,
+        message: str = "",
+    ) -> "ProgressUpdate":
+        """Item count *and* time remaining (e.g. N points, each with exposure time)."""
+        return cls(
+            current=current,
+            total=total,
+            remaining_seconds=remaining_seconds,
+            total_seconds=total_seconds,
+            message=message,
+        )
+
+    @classmethod
+    def indeterminate(cls, message: str = "") -> "ProgressUpdate":
+        """Busy / indeterminate state with an optional status message."""
+        return cls(message=message)
+
+    @classmethod
+    def done(cls) -> "ProgressUpdate":
+        """Signals completion — widget shows 100 % and "Done"."""
+        return cls(finished=True)
+
+
+# ---------------------------------------------------------------------------
+# Widget
+# ---------------------------------------------------------------------------
 
 class FibsemProgressWidget(QWidget):
     """Generic progress bar widget.
 
-    Purely reactive — call :meth:`update_progress` with a dict payload
-    whenever progress changes.  See module docstring for the dict schema.
+    Purely reactive — call :meth:`update_progress` with a :class:`ProgressUpdate`
+    whenever progress changes.  Call :meth:`reset` to return to hidden state.
     """
 
     def __init__(self, parent=None):
@@ -54,54 +130,34 @@ class FibsemProgressWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
 
-        self._label = QLabel()
-        self._label.setStyleSheet("color: #d6d6d6; font-size: 11px;")
-        layout.addWidget(self._label)
+        self._spinner = _SpinnerLabel(size=16, step_deg=30, interval_ms=40, color=stylesheets.WHITE_ICON_COLOR)
+        layout.addWidget(self._spinner)
 
         self._bar = QProgressBar()
         self._bar.setTextVisible(True)
+        self._bar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
         layout.addWidget(self._bar)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def update_progress(self, info: dict) -> None:
-        """Update the widget from a progress dict.
+    def update_progress(self, info: ProgressUpdate) -> None:
+        """Update the widget from a :class:`ProgressUpdate`."""
+        has_numeric = info.current > 0 or info.total > 0
+        has_time = info.remaining_seconds > 0.0
 
-        Parameters
-        ----------
-        info:
-            Dict with any combination of the keys described in the module
-            docstring.
-        """
-        finished = info.get("finished", False)
-        message = info.get("message", "")
+        prefix = f"{info.message} — " if info.message else ""
 
-        current = info.get("current")
-        total = info.get("total")
-        remaining = info.get("remaining_seconds")
-        total_secs = info.get("total_seconds")
-
-        has_numeric = current is not None and total is not None
-        has_time = remaining is not None
-
-        # Show widget on first update
         self.setVisible(True)
 
-        # Update optional label
-        if message:
-            self._label.setText(message)
-            self._label.setVisible(True)
-        else:
-            self._label.setVisible(False)
-
-        if finished:
-            self._bar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+        if info.finished:
+            self._spinner.stop()
+            self._spinner.clear()  # blank icon, fixed size keeps space reserved
             self._bar.setMaximum(100)
             self._bar.setValue(100)
             self._bar.setFormat("Done")
@@ -109,52 +165,57 @@ class FibsemProgressWidget(QWidget):
             return
 
         if has_numeric and has_time:
-            # Combined: show item count in format, time drives bar fill
-            self._bar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
-            elapsed = (total_secs - remaining) if total_secs is not None else 0.0
-            if total_secs and total_secs > 0:
+            self._spinner.stop()
+            self._spinner.clear()  # blank icon, fixed size keeps space reserved
+            elapsed = (info.total_seconds - info.remaining_seconds) if info.total_seconds > 0 else 0.0
+            if info.total_seconds > 0:
                 self._bar.setMinimum(0)
-                self._bar.setMaximum(int(total_secs * 10))
+                self._bar.setMaximum(int(info.total_seconds * 10))
                 self._bar.setValue(max(0, int(elapsed * 10)))
             else:
                 self._bar.setMinimum(0)
-                self._bar.setMaximum(0)  # indeterminate fallback
-            self._bar.setFormat(f"{current}/{total} \u00b7 {int(remaining)}s remaining")
+                self._bar.setMaximum(100)
+                self._bar.setValue(100)
+            self._bar.setFormat(
+                f"{prefix}{info.current}/{info.total} \u00b7 {int(info.remaining_seconds)}s remaining"
+            )
 
         elif has_numeric:
-            # Numeric only: bar fills as current/total
-            self._bar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+            self._spinner.stop()
+            self._spinner.clear()  # blank icon, fixed size keeps space reserved
             self._bar.setMinimum(0)
-            self._bar.setMaximum(int(total))
-            self._bar.setValue(int(current))
-            self._bar.setFormat(f"{current} / {total}")
+            self._bar.setMaximum(int(info.total))
+            self._bar.setValue(int(info.current))
+            self._bar.setFormat(f"{prefix}{info.current} / {info.total}")
 
         elif has_time:
-            # Countdown: bar drains from full to empty
-            self._bar.setStyleSheet(stylesheets.INDETERMINATE_PROGRESS_BAR_STYLESHEET)
-            if total_secs and total_secs > 0:
+            self._spinner.stop()
+            self._spinner.clear()  # blank icon, fixed size keeps space reserved
+            if info.total_seconds > 0:
                 self._bar.setMinimum(0)
-                self._bar.setMaximum(int(total_secs * 10))
-                self._bar.setValue(max(0, int(remaining * 10)))
+                self._bar.setMaximum(int(info.total_seconds * 10))
+                self._bar.setValue(max(0, int(info.remaining_seconds * 10)))
             else:
-                # No total known — just show remaining as indeterminate
                 self._bar.setMinimum(0)
-                self._bar.setMaximum(0)
-            self._bar.setFormat(f"{int(remaining)}s remaining")
+                self._bar.setMaximum(100)
+                self._bar.setValue(100)
+            self._bar.setFormat(f"{prefix}{int(info.remaining_seconds)}s remaining")
 
         else:
-            # Message-only / indeterminate busy bar
-            self._bar.setStyleSheet(stylesheets.INDETERMINATE_PROGRESS_BAR_STYLESHEET)
+            # Indeterminate: spinner + static full bar with message text
             self._bar.setMinimum(0)
-            self._bar.setMaximum(0)  # animated busy indicator
-            self._bar.setFormat(message or "")
+            self._bar.setMaximum(100)
+            self._bar.setValue(100)
+            self._bar.setFormat(info.message or "")
+            self._spinner.setVisible(True)
+            self._spinner.start()
 
         self._bar.setVisible(True)
 
     def reset(self) -> None:
         """Return to initial hidden state."""
-        self._label.setText("")
-        self._label.setVisible(False)
+        self._spinner.stop()
+        self._spinner.clear()
         self._bar.setMinimum(0)
         self._bar.setMaximum(100)
         self._bar.setValue(0)

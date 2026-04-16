@@ -208,6 +208,8 @@ def stitch_images(images: list[list[FibsemImage]],
 
     # for garbage collection
     del ddict["images"]
+    import time
+    time.sleep(5)
 
     if signal is not None:
         signal.emit({"msg": "Done", "counter": total, "total": total, "finished": True})

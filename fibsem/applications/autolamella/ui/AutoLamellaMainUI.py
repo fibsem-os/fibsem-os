@@ -13,7 +13,7 @@ import traceback
 import warnings
 
 import napari
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -53,6 +53,7 @@ from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
     WORKFLOW_BORDER_STYLESHEET,
 )
+from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -457,6 +458,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar = status_bar
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
 
+        # Add generic progress widget (tile acquisition, etc.)
+        self.progress_widget = FibsemProgressWidget(self.status_bar)
+        self.progress_widget.setMaximumWidth(400)
+        self.status_bar.addPermanentWidget(self.progress_widget)
+
         # Add milling progress bar
         self.milling_progress_bar = QProgressBar(self.status_bar)
         self.milling_progress_bar.setMaximumWidth(400)
@@ -709,6 +715,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope.milling_progress_signal.connect(
                 self._on_milling_progress
             )
+            try:
+                self.autolamella_ui.microscope.tiled_acquisition_signal.disconnect(
+                    self._on_tile_acquisition_progress
+                )
+            except Exception:
+                pass
+            self.autolamella_ui.microscope.tiled_acquisition_signal.connect(
+                self._on_tile_acquisition_progress
+            )
         self.btn_create_experiment.setEnabled(True)
         self.btn_load_experiment.setEnabled(True)
         self._update_instructions()
@@ -750,6 +765,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         elif state == "finished":
             self.milling_progress_bar.setVisible(False)
+
+    @ensure_main_thread
+    def _on_tile_acquisition_progress(self, ddict: dict) -> None:
+        """Handle tiled acquisition progress updates from the microscope."""
+        counter = ddict.get("counter", 0)
+        total = ddict.get("total", 1)
+        msg = ddict.get("msg", "Collecting tiles")
+
+        if ddict.get("finished"):
+            self.progress_widget.update_progress(ProgressUpdate.done())
+            QTimer.singleShot(3000, self.progress_widget.reset)
+        elif counter >= total:
+            self.progress_widget.update_progress(ProgressUpdate.indeterminate(msg))
+        else:
+            self.progress_widget.update_progress(
+                ProgressUpdate.numeric(counter, total, msg)
+            )
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
