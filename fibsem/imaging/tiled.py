@@ -283,18 +283,40 @@ def tiled_image_acquisition(
     tiles = compute_tile_grid(settings)
     ordered = order_tiles(tiles, settings.tile_order)
 
-    microscope.tiled_acquisition_signal.emit({
-        "msg": "Moving to Start Position",
-        "counter": 0,
-        "total": total_tiles,
-    })
-
-    # move from centre to top-left corner
+    # Record the current position as the grid centre and project every tile
+    # directly from here — no need to move to the top-left corner first.
+    #
+    # Previously the code did:
+    #   stable_move(dx=-grid_offset_x, dy=+grid_offset_y)   # move to top-left
+    #   start_position = get_stage_position()                # record it
+    #   project_stable_move(dx=tile.dx, dy=tile.dy, base=start_position)
+    #
+    # That initial stable_move was unnecessary because project_stable_move is a
+    # pure mathematical computation: it reads only the stage tilt and rotation
+    # (via _y_corrected_stage_movement) to decompose dy into y/z components, then
+    # adds dx/dy/dz to the supplied base_position.  It does NOT depend on the
+    # absolute x/y/z coordinates of the current stage position.
+    #
+    # Since tilt and rotation are constant throughout a tiled acquisition, we get
+    # the same projected positions whether we base them on the top-left corner or
+    # on the centre — we just need to subtract grid_offset_x / add grid_offset_y
+    # from each tile's dx/dy so the offsets are relative to the centre instead of
+    # the top-left corner.  This saves one stage movement at the start of every
+    # tiled acquisition.
+    #
+    # The mathematical equivalence is:
+    #   project(tile.dx, tile.dy, base=top_left)
+    #     == project(tile.dx - grid_offset_x, tile.dy + grid_offset_y, base=centre)
+    # because project_stable_move is linear (it simply adds the projected
+    # dx/dy/dz increments to the base position), so projecting the grid offset
+    # onto centre gives top_left, and projecting tile offsets from there is the
+    # same as projecting the combined offset from centre in one step.
     start_state = microscope.get_microscope_state()
-    start_move_x = (settings.ncols - 1) * dx_step / 2
-    start_move_y = (settings.nrows - 1) * dy_step / 2
-    microscope.stable_move(dx=-start_move_x, dy=start_move_y, beam_type=image_settings.beam_type)
-    start_position = microscope.get_stage_position()
+    centre_position = microscope.get_stage_position()
+
+    # offset from centre to top-left corner of the grid (used only for projection)
+    grid_offset_x = (settings.ncols - 1) * dx_step / 2
+    grid_offset_y = (settings.nrows - 1) * dy_step / 2
 
     # stitched canvas
     eff_w = max(1, int(round(image_width  * (1 - overlap))))
@@ -303,14 +325,16 @@ def tiled_image_acquisition(
     full_h = eff_h * (settings.nrows - 1) + image_height
     arr = np.zeros((full_h, full_w), dtype=np.uint8)
 
-    logging.info(f"Tiled acquisition start position: {start_position.pretty}")
+    logging.info(f"Tiled acquisition centre position: {centre_position.pretty}")
 
-    # pre-compute the absolute stage position for every tile in acquisition order
+    # pre-compute the absolute stage position for every tile in acquisition order,
+    # projecting directly from centre (tile offsets adjusted by the grid offset)
     tile_stage_positions = [
         microscope.project_stable_move(
-            dx=tile.dx, dy=tile.dy,
+            dx=tile.dx - grid_offset_x,
+            dy=tile.dy + grid_offset_y,
             beam_type=image_settings.beam_type,
-            base_position=start_position,
+            base_position=centre_position,
         )
         for tile in ordered
     ]
@@ -391,8 +415,6 @@ def tiled_image_acquisition(
         "cryo": cryo,
         "start_state": start_state,
         "prev-filename": prev_label,
-        "start_move_x": start_move_x,
-        "start_move_y": start_move_y,
         "first_image": first_image,
         "stitched_image": arr,
     }
