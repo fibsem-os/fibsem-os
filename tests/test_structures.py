@@ -210,22 +210,28 @@ def test_overview_acquisition_settings_defaults():
     assert s.nrows == 3
     assert s.ncols == 3
     assert s.overlap == 0.0
-    assert s.use_focus_stack is False
+    assert s.focus_stack_settings.enabled is False
+    assert s.focus_stack_settings.n_steps == 3
+    assert s.focus_stack_settings.auto_focus is True
     assert s.autofocus_settings.mode is AutoFocusMode.NONE
 
 
 def test_overview_acquisition_settings_round_trip():
+    from fibsem.structures import FocusStackSettings
     for mode in AutoFocusMode:
         s = OverviewAcquisitionSettings(
             image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
-            nrows=2, ncols=3, overlap=0.1, use_focus_stack=True,
+            nrows=2, ncols=3, overlap=0.1,
+            focus_stack_settings=FocusStackSettings(enabled=True, n_steps=5, auto_focus=False),
             autofocus_settings=AutoFocusSettings(mode=mode),
         )
         restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
         assert restored.nrows == s.nrows
         assert restored.ncols == s.ncols
         assert restored.overlap == s.overlap
-        assert restored.use_focus_stack == s.use_focus_stack
+        assert restored.focus_stack_settings.enabled == s.focus_stack_settings.enabled
+        assert restored.focus_stack_settings.n_steps == s.focus_stack_settings.n_steps
+        assert restored.focus_stack_settings.auto_focus == s.focus_stack_settings.auto_focus
         assert restored.autofocus_settings.mode is mode
 
 
@@ -234,10 +240,21 @@ def test_overview_acquisition_settings_from_dict_legacy():
     d = {
         "image_settings": ImageSettings().to_dict(),
         "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
-        # no autofocus_settings key
+        # no autofocus_settings key, no focus_stack_settings key (old format)
     }
     s = OverviewAcquisitionSettings.from_dict(d)
     assert s.autofocus_settings.mode is AutoFocusMode.NONE
+    assert s.focus_stack_settings.enabled is False
+
+
+def test_overview_acquisition_settings_from_dict_legacy_focus_stack_enabled():
+    """Old use_focus_stack=True maps to focus_stack_settings.enabled=True."""
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": True,
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.focus_stack_settings.enabled is True
 
 
 def test_overview_acquisition_total_fov_square_no_overlap():

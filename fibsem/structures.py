@@ -846,6 +846,36 @@ class ImageSettings:
 
 
 @dataclass
+class FocusStackSettings:
+    """Settings for focus-stack acquisition in tiled overview acquisition.
+
+    Attributes:
+        enabled: Whether to use focus stacking for each tile.
+        n_steps: Number of vertical strips to divide each tile into.
+        auto_focus: Whether to run autofocus for each strip.
+    """
+
+    enabled: bool = False
+    n_steps: int = 3
+    auto_focus: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "n_steps": self.n_steps,
+            "auto_focus": self.auto_focus,
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "FocusStackSettings":
+        return FocusStackSettings(
+            enabled=d.get("enabled", False),
+            n_steps=d.get("n_steps", 3),
+            auto_focus=d.get("auto_focus", True),
+        )
+
+
+@dataclass
 class AutoFocusSettings:
     """Settings for autofocus in tiled overview acquisition.
 
@@ -881,7 +911,7 @@ class OverviewAcquisitionSettings:
     nrows: int = 3
     ncols: int = 3
     overlap: float = 0.0
-    use_focus_stack: bool = False
+    focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
 
@@ -908,12 +938,17 @@ class OverviewAcquisitionSettings:
 
     @staticmethod
     def from_dict(d: dict) -> "OverviewAcquisitionSettings":
+        # backward compat: old configs had a bare use_focus_stack bool
+        if "focus_stack_settings" not in d and "use_focus_stack" in d:
+            fss = FocusStackSettings(enabled=d["use_focus_stack"])
+        else:
+            fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
             nrows=d.get("nrows", 3),
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.0),
-            use_focus_stack=d.get("use_focus_stack", False),
+            focus_stack_settings=fss,
             autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
             tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
         )
@@ -924,7 +959,7 @@ class OverviewAcquisitionSettings:
             "nrows": self.nrows,
             "ncols": self.ncols,
             "overlap": self.overlap,
-            "use_focus_stack": self.use_focus_stack,
+            "focus_stack_settings": self.focus_stack_settings.to_dict(),
             "autofocus_settings": self.autofocus_settings.to_dict(),
             "tile_order": self.tile_order.value,
         }

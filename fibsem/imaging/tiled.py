@@ -248,7 +248,7 @@ def tiled_image_acquisition(
 
     image_settings = settings.image_settings
     cryo = image_settings.autogamma  # capture before clearing below
-    use_focus_stack = settings.use_focus_stack
+    focus_stack_settings = settings.focus_stack_settings
     af_mode = settings.autofocus_settings.mode
 
     image_width, image_height = image_settings.resolution
@@ -377,11 +377,12 @@ def tiled_image_acquisition(
                     raise Exception("User Stopped Acquisition")
 
             logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
-            if use_focus_stack:
+            if focus_stack_settings.enabled:
                 image = acquire.acquire_focus_stacked_image(
                     microscope=microscope,
                     image_settings=image_settings,
-                    n_steps=3,
+                    n_steps=focus_stack_settings.n_steps,
+                    auto_focus=focus_stack_settings.auto_focus,
                 )
             else:
                 image = acquire.acquire_image(microscope, image_settings)

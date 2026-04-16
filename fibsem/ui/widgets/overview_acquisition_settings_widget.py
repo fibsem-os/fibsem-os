@@ -11,7 +11,7 @@ from typing import Optional
 
 from fibsem import constants
 from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
-from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
+from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, FocusStackSettings, ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -81,34 +81,48 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._label_total_fov.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore
         grid_layout.addWidget(self._label_total_fov, 3, 0, 1, 3)
 
-        # Use focus stack (advanced)
-        self._label_use_focus_stack = QLabel("Use Focus Stack")
-        grid_layout.addWidget(self._label_use_focus_stack, 4, 0)
-        self.use_focus_stack = QCheckBox()
-        grid_layout.addWidget(self.use_focus_stack, 4, 1, 1, 2)
+        # Focus stack (advanced)
+        self._label_focus_stack = QLabel("Focus Stack")
+        grid_layout.addWidget(self._label_focus_stack, 4, 0)
+        self.focus_stack_enabled = QCheckBox()
+        grid_layout.addWidget(self.focus_stack_enabled, 4, 1, 1, 2)
+
+        self._label_focus_stack_steps = QLabel("Focus Stack Steps")
+        grid_layout.addWidget(self._label_focus_stack_steps, 5, 0)
+        self.focus_stack_steps = ValueSpinBox(minimum=1, maximum=10, step=1, decimals=0)
+        self.focus_stack_steps.setValue(3)
+        grid_layout.addWidget(self.focus_stack_steps, 5, 1, 1, 2)
+
+        self._label_focus_stack_autofocus = QLabel("Focus Stack Autofocus")
+        grid_layout.addWidget(self._label_focus_stack_autofocus, 6, 0)
+        self.focus_stack_autofocus = QCheckBox()
+        self.focus_stack_autofocus.setChecked(True)
+        grid_layout.addWidget(self.focus_stack_autofocus, 6, 1, 1, 2)
 
         # Auto Focus mode (advanced)
         self._label_autofocus = QLabel("Auto Focus")
-        grid_layout.addWidget(self._label_autofocus, 5, 0)
+        grid_layout.addWidget(self._label_autofocus, 7, 0)
         self.autofocus_combo = ValueComboBox(
             items=list(AutoFocusMode),
             format_fn=lambda m: m.name.replace("_", " ").title(),
         )
-        grid_layout.addWidget(self.autofocus_combo, 5, 1, 1, 2)
+        grid_layout.addWidget(self.autofocus_combo, 7, 1, 1, 2)
 
         # Tile order strategy (advanced)
         self._label_tile_order = QLabel("Tile Order")
-        grid_layout.addWidget(self._label_tile_order, 6, 0)
+        grid_layout.addWidget(self._label_tile_order, 8, 0)
         self.tile_order_combo = ValueComboBox(
             items=list(TileOrderStrategy),
             format_fn=lambda s: s.value.title(),
         )
-        grid_layout.addWidget(self.tile_order_combo, 6, 1, 1, 2)
+        grid_layout.addWidget(self.tile_order_combo, 8, 1, 1, 2)
 
         self._adv_widgets = [
-            (self._label_use_focus_stack, self.use_focus_stack),
-            (self._label_autofocus,       self.autofocus_combo),
-            (self._label_tile_order,      self.tile_order_combo),
+            (self._label_focus_stack,          self.focus_stack_enabled),
+            (self._label_focus_stack_steps,    self.focus_stack_steps),
+            (self._label_focus_stack_autofocus, self.focus_stack_autofocus),
+            (self._label_autofocus,            self.autofocus_combo),
+            (self._label_tile_order,           self.tile_order_combo),
         ]
 
         self._btn_advanced = IconToolButton(
@@ -166,7 +180,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
         self.ncols_spinbox.valueChanged.connect(self._on_changed)
         self.overlap_spinbox.valueChanged.connect(self._on_changed)
-        self.use_focus_stack.toggled.connect(self._on_changed)
+        self.focus_stack_enabled.toggled.connect(self._on_changed)
+        self.focus_stack_steps.valueChanged.connect(self._on_changed)
+        self.focus_stack_autofocus.toggled.connect(self._on_changed)
         self.autofocus_combo.currentIndexChanged.connect(self._on_changed)
         self.tile_order_combo.currentIndexChanged.connect(self._on_changed)
         self.image_settings_widget.settings_changed.connect(self._on_changed)
@@ -218,7 +234,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             nrows=int(self.nrows_spinbox.value()),
             ncols=int(self.ncols_spinbox.value()),
             overlap=self.overlap_spinbox.value() / 100.0,
-            use_focus_stack=self.use_focus_stack.isChecked(),
+            focus_stack_settings=FocusStackSettings(
+                enabled=self.focus_stack_enabled.isChecked(),
+                n_steps=int(self.focus_stack_steps.value()),
+                auto_focus=self.focus_stack_autofocus.isChecked(),
+            ),
             autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
             tile_order=self.tile_order_combo.value(),
         )
@@ -226,29 +246,25 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
         """Populate all widgets from an OverviewAcquisitionSettings object."""
         # Block tile-grid signals to prevent cascading updates
-        self.beam_type_combo.blockSignals(True)
-        self.nrows_spinbox.blockSignals(True)
-        self.ncols_spinbox.blockSignals(True)
-        self.overlap_spinbox.blockSignals(True)
-        self.use_focus_stack.blockSignals(True)
-        self.autofocus_combo.blockSignals(True)
-        self.tile_order_combo.blockSignals(True)
+        for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,
+                  self.overlap_spinbox, self.focus_stack_enabled, self.focus_stack_steps,
+                  self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
+            w.blockSignals(True)
 
         self.beam_type_combo.set_value(settings.image_settings.beam_type)
         self.nrows_spinbox.setValue(settings.nrows)
         self.ncols_spinbox.setValue(settings.ncols)
         self.overlap_spinbox.setValue(settings.overlap * 100.0)
-        self.use_focus_stack.setChecked(settings.use_focus_stack)
+        self.focus_stack_enabled.setChecked(settings.focus_stack_settings.enabled)
+        self.focus_stack_steps.setValue(settings.focus_stack_settings.n_steps)
+        self.focus_stack_autofocus.setChecked(settings.focus_stack_settings.auto_focus)
         self.autofocus_combo.set_value(settings.autofocus_settings.mode)
         self.tile_order_combo.set_value(settings.tile_order)
 
-        self.beam_type_combo.blockSignals(False)
-        self.nrows_spinbox.blockSignals(False)
-        self.ncols_spinbox.blockSignals(False)
-        self.overlap_spinbox.blockSignals(False)
-        self.use_focus_stack.blockSignals(False)
-        self.autofocus_combo.blockSignals(False)
-        self.tile_order_combo.blockSignals(False)
+        for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,
+                  self.overlap_spinbox, self.focus_stack_enabled, self.focus_stack_steps,
+                  self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
+            w.blockSignals(False)
 
         self.image_settings_widget.update_from_settings(settings.image_settings)
         self._update_total_fov_label()
