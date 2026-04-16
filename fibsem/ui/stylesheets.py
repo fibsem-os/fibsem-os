@@ -576,19 +576,17 @@ STATUS_BAR_STYLESHEET = """
 
 
 INDETERMINATE_PROGRESS_BAR_STYLESHEET = """
-    QProgressBar {
-        border: 1px solid #3d4251;
-        border-radius: 3px;
-        background-color: #1e2027;
-        color: #d6d6d6;
-        text-align: center;
-        height: 6px;
-    }
-    QProgressBar::chunk {
-        background-color: #50a6ff;
-        border-radius: 3px;
-    }
-"""
+            QProgressBar {
+                border: 1px solid #3d4251;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #1e2027;
+                color: #d6d6d6;
+            }
+            QProgressBar::chunk {
+                background-color: #50a6ff;
+            }
+        """
 
 # Color palette
 PRIMARY_COLOR = "#007ACC"
