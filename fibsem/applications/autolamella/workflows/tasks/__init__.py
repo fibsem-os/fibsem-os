@@ -7,6 +7,7 @@ similar to the BasePattern plugin system in fibsem.milling.patterning.
 
 import logging
 import typing
+from fibsem.exceptions import FibsemError
 try:
     from functools import cache
 except ImportError:  # Python < 3.9 fallback
@@ -59,7 +60,7 @@ from fibsem.applications.autolamella.workflows.tasks.queue import (
     WorkItem,
 )
 
-class TaskNotRegisteredError(Exception):
+class TaskNotRegisteredError(FibsemError):
     """Exception raised when a task is not registered in the TASK_REGISTRY."""
     def __init__(self, task_type: str):
         super().__init__(f"Task '{task_type}' is not registered in the TASK_REGISTRY.")

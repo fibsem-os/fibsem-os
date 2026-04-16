@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Union
 import numpy as np
 
 from fibsem import acquire, utils, validation
+from fibsem.exceptions import AlignmentError
 from fibsem.config import REFERENCE_FILENAME
 from fibsem.constants import DATETIME_DISPLAY
 from fibsem.imaging import masks
@@ -125,7 +126,7 @@ def beam_shift_alignment_v2(
         )
     elif subsystem == "stage-vertical":
         if image_settings.beam_type is BeamType.ELECTRON:
-            raise ValueError(f"Unsupported movement type ({subsystem}) for beam type {image_settings.beam_type}")
+            raise AlignmentError(f"Unsupported movement type ({subsystem}) for beam type {image_settings.beam_type}")
         microscope.vertical_move(dy=-dy, dx=dx)
 
     # reset beam current
@@ -508,7 +509,7 @@ def crosscorrelation_v2(
             f"Image 1 {img1.shape} and Image 2 {img2.shape} need to have the same shape"
         )
         logging.error(err)
-        raise ValueError(err)
+        raise AlignmentError(err)
 
     if bandpass is None:
         bandpass = np.ones_like(img1)
