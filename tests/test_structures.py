@@ -4,6 +4,8 @@ import pytest
 
 from fibsem.structures import (
     THERMO_API_AVAILABLE,
+    AutoFocusMode,
+    AutoFocusSettings,
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
@@ -13,6 +15,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
+    OverviewAcquisitionSettings,
 )
 
 
@@ -179,6 +182,106 @@ def test_fibsem_image_extract_region_no_metadata():
 
     with pytest.raises(ValueError):
         image.extract_region(FibsemRectangle(left=0.0, top=0.0, width=0.5, height=0.5))
+
+
+def test_autofocus_settings_defaults():
+    s = AutoFocusSettings()
+    assert s.mode is AutoFocusMode.NONE
+
+
+def test_autofocus_settings_round_trip():
+    for mode in AutoFocusMode:
+        s = AutoFocusSettings(mode=mode)
+        d = s.to_dict()
+        assert d["mode"] == mode.name
+        restored = AutoFocusSettings.from_dict(d)
+        assert restored.mode is mode
+
+
+def test_autofocus_settings_from_dict_missing_key():
+    """Missing key in dict falls back to NONE."""
+    s = AutoFocusSettings.from_dict({})
+    assert s.mode is AutoFocusMode.NONE
+
+
+def test_overview_acquisition_settings_defaults():
+    s = OverviewAcquisitionSettings()
+    assert s.nrows == 3
+    assert s.ncols == 3
+    assert s.overlap == 0.0
+    assert s.use_focus_stack is False
+    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+
+
+def test_overview_acquisition_settings_round_trip():
+    for mode in AutoFocusMode:
+        s = OverviewAcquisitionSettings(
+            image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
+            nrows=2, ncols=3, overlap=0.1, use_focus_stack=True,
+            autofocus_settings=AutoFocusSettings(mode=mode),
+        )
+        restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+        assert restored.nrows == s.nrows
+        assert restored.ncols == s.ncols
+        assert restored.overlap == s.overlap
+        assert restored.use_focus_stack == s.use_focus_stack
+        assert restored.autofocus_settings.mode is mode
+
+
+def test_overview_acquisition_settings_from_dict_legacy():
+    """Dicts without autofocus_settings key (old format) default to NONE."""
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
+        # no autofocus_settings key
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+
+
+def test_overview_acquisition_total_fov_square_no_overlap():
+    """Square tiles, no overlap: total FOV == n * hfw."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
+        nrows=3, ncols=4, overlap=0.0,
+    )
+    assert s.total_fov_x == pytest.approx(4 * 100e-6)
+    assert s.total_fov_y == pytest.approx(3 * 100e-6)
+
+
+def test_overview_acquisition_total_fov_with_overlap():
+    """Overlap reduces effective step; total FOV = (n-1)*step + hfw."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
+        nrows=3, ncols=3, overlap=0.1,
+    )
+    step = 100e-6 * 0.9
+    expected = 2 * step + 100e-6
+    assert s.total_fov_x == pytest.approx(expected)
+    assert s.total_fov_y == pytest.approx(expected)
+
+
+def test_overview_acquisition_total_fov_non_square():
+    """Non-square tiles: total_fov_y scaled by aspect ratio."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
+        nrows=3, ncols=3, overlap=0.1,
+    )
+    step_x = 150e-6 * 0.9
+    tile_fov_y = 150e-6 * (1024 / 1536)
+    step_y = tile_fov_y * 0.9
+    assert s.total_fov_x == pytest.approx(2 * step_x + 150e-6)
+    assert s.total_fov_y == pytest.approx(2 * step_y + tile_fov_y)
+
+
+def test_overview_acquisition_total_fov_single_tile():
+    """Single tile (1x1): total FOV equals tile FOV regardless of overlap."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1024, 1024), hfw=200e-6),
+        nrows=1, ncols=1, overlap=0.2,
+    )
+    assert s.total_fov_x == pytest.approx(200e-6)
+    assert s.total_fov_y == pytest.approx(200e-6)
 
 
 if THERMO_API_AVAILABLE:

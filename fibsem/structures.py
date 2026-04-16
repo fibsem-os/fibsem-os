@@ -167,6 +167,13 @@ class ManipulatorState(Enum):
     MOVING = 2
 
 
+class AutoFocusMode(Enum):
+    NONE = 0
+    ONCE = 1
+    EVERY_ROW = 2
+    EVERY_TILE = 3
+
+
 @dataclass
 class FibsemStagePosition:
     """Data class for storing stage position data.
@@ -833,6 +840,27 @@ class ImageSettings:
 
 
 @dataclass
+class AutoFocusSettings:
+    """Settings for autofocus in tiled overview acquisition.
+
+    Attributes:
+        mode: When to apply autofocus (NONE, ONCE, EVERY_ROW, EVERY_TILE).
+              beam_type and reduced_area are taken from image_settings at acquisition time.
+    """
+
+    mode: AutoFocusMode = AutoFocusMode.NONE
+
+    def to_dict(self) -> dict:
+        return {"mode": self.mode.name}
+
+    @staticmethod
+    def from_dict(d: dict) -> "AutoFocusSettings":
+        return AutoFocusSettings(
+            mode=AutoFocusMode[d.get("mode", "NONE")]
+        )
+
+
+@dataclass
 class OverviewAcquisitionSettings:
     """Settings for a tiled overview acquisition.
 
@@ -848,6 +876,7 @@ class OverviewAcquisitionSettings:
     ncols: int = 3
     overlap: float = 0.0
     use_focus_stack: bool = False
+    autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
 
     @property
     def total_fov_x(self) -> float:
@@ -878,6 +907,7 @@ class OverviewAcquisitionSettings:
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.0),
             use_focus_stack=d.get("use_focus_stack", False),
+            autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
         )
 
     def to_dict(self) -> dict:
@@ -887,6 +917,7 @@ class OverviewAcquisitionSettings:
             "ncols": self.ncols,
             "overlap": self.overlap,
             "use_focus_stack": self.use_focus_stack,
+            "autofocus_settings": self.autofocus_settings.to_dict(),
         }
 
 

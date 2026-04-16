@@ -15,6 +15,7 @@ from fibsem import acquire, conversions
 from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
+    AutoFocusMode,
     BeamType,
     FibsemImage,
     FibsemStagePosition,
@@ -46,6 +47,7 @@ def tiled_image_acquisition(
     cryo = image_settings.autogamma  # capture before clearing below
     use_focus_stack = settings.use_focus_stack
     overlap = settings.overlap  # fractional overlap, e.g. 0.1 = 10%
+    af_mode = settings.autofocus_settings.mode
 
     # derive tile FOVs — non-square tiles have different x/y physical extents
     image_width, image_height = image_settings.resolution
@@ -91,6 +93,9 @@ def tiled_image_acquisition(
     n_tiles_acquired = 0
     total_tiles = n_rows*n_cols
     try:
+        if af_mode is AutoFocusMode.ONCE:
+            microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
+
         for i in range(n_rows):
 
             microscope.safe_absolute_stage_movement(start_position)
@@ -98,9 +103,15 @@ def tiled_image_acquisition(
             img_row: list[FibsemImage] = []
             microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
 
+            if af_mode is AutoFocusMode.EVERY_ROW:
+                microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
+
             for j in range(n_cols):
                 image_settings.filename = f"tile_{i}_{j}"
                 microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
+
+                if af_mode is AutoFocusMode.EVERY_TILE:
+                    microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
 
                 if stop_event and stop_event.is_set():
                     raise Exception("User Stopped Acquisition")
@@ -197,6 +208,9 @@ def stitch_images(images: list[list[FibsemImage]],
 
     # for garbage collection
     del ddict["images"]
+
+    if signal is not None:
+        signal.emit({"msg": "Done", "counter": total, "total": total, "finished": True})
 
     return image
 
