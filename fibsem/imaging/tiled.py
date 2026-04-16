@@ -350,22 +350,31 @@ def tiled_image_acquisition(
             microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
 
         for tile, stage_pos in zip(ordered, tile_stage_positions):
+            # check before moving so we skip the stage movement entirely
+            if stop_event and stop_event.is_set():
+                raise Exception("User Stopped Acquisition")
+
             image_settings.filename = f"tile_{tile.row}_{tile.col}"
 
             logging.info(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
             microscope.safe_absolute_stage_movement(stage_pos)
             logging.info(f"Tile ({tile.row}, {tile.col}) — actual: {microscope.get_stage_position().pretty}")
 
+            # check after moving in case cancel was requested during the move
+            if stop_event and stop_event.is_set():
+                raise Exception("User Stopped Acquisition")
+
             if tile.row != prev_row:
                 prev_row = tile.row
                 if af_mode is AutoFocusMode.EVERY_ROW:
                     microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
+                    if stop_event and stop_event.is_set():
+                        raise Exception("User Stopped Acquisition")
 
             if af_mode is AutoFocusMode.EVERY_TILE:
                 microscope.auto_focus(beam_type=image_settings.beam_type, reduced_area=image_settings.reduced_area)
-
-            if stop_event and stop_event.is_set():
-                raise Exception("User Stopped Acquisition")
+                if stop_event and stop_event.is_set():
+                    raise Exception("User Stopped Acquisition")
 
             logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
             if use_focus_stack:
