@@ -996,8 +996,8 @@ class BeamSettings:
 
 @dataclass
 class FibsemDetectorSettings:
-    type: str = None
-    mode: str = None
+    type: str = "Unknown"
+    mode: str = "Unknown"
     brightness: float = 0.5
     contrast: float = 0.5
 
