@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSplitter,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -64,6 +65,7 @@ from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
 from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
+from fibsem.ui.widgets.user_profile_dialog import UserManagementDialog
 from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
 from fibsem.utils import format_duration
 
@@ -115,6 +117,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Load user preferences
         self._preferences = fibsem_cfg.load_user_preferences()
         fibsem_cfg.apply_feature_flags(self._preferences)
+        self._active_user = self._load_active_user()
 
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
@@ -393,6 +396,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # Still log to notification bell even when toasts are disabled
             self.toast_manager.notification_bell.add_notification(
                 message, notification_type
+            )
+
+    def _load_active_user(self):
+        """Return the active AutoLamellaUser from saved users or create one from the environment."""
+        from fibsem.applications.autolamella.structures import AutoLamellaUser
+        users = fibsem_cfg.load_users()
+        if self._preferences.active_user_id:
+            user = next((u for u in users if u._id == self._preferences.active_user_id), None)
+            if user:
+                return user
+        default = next((u for u in users if u.is_default), None)
+        return default or AutoLamellaUser.from_environment()
+
+    def _on_user_profile_clicked(self):
+        """Open the user management dialog and update the active user on accept."""
+        dlg = UserManagementDialog(
+            active_user_id=self._preferences.active_user_id, parent=self
+        )
+        if dlg.exec_() == dlg.Accepted:
+            self._active_user = dlg.get_active_user()
+            self._preferences.active_user_id = self._active_user._id
+            fibsem_cfg.save_user_preferences(self._preferences)
+            self.btn_user_profile.setToolTip(
+                self._active_user.name or self._active_user.username
             )
 
     def _on_new_experiment(self):
@@ -932,10 +959,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.notification_bell = NotificationBell(self)
         self.toast_manager.set_notification_bell(self.notification_bell)
 
+        # User profile button
+        self.btn_user_profile = QToolButton()
+        self.btn_user_profile.setIcon(QIconifyIcon("mdi:account-circle", color=GRAY_ICON_COLOR))
+        self.btn_user_profile.setToolTip(self._active_user.name or self._active_user.username)
+        self.btn_user_profile.clicked.connect(self._on_user_profile_clicked)
+
         # Add widgets to layout
         button_layout.addWidget(self.experiment_name_label)
         button_layout.addWidget(self.btn_create_experiment)
         button_layout.addWidget(self.btn_load_experiment)
+        button_layout.addWidget(self.btn_user_profile)
         button_layout.addWidget(self.notification_bell)
 
         # Add to tab widget corner

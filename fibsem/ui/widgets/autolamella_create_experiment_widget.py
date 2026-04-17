@@ -12,6 +12,7 @@ from fibsem.applications.autolamella import config as cfg
 from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
+    AutoLamellaUser,
     Experiment,
 )
 from fibsem.config import load_user_preferences, save_user_preferences
@@ -36,12 +37,13 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         Experiment: The created experiment with attached protocol, or None if cancelled
     """
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None, active_user: Optional[AutoLamellaUser] = None):
         super().__init__(parent)
 
         self.experiment: Optional[Experiment] = None
         self.protocol: Optional[AutoLamellaTaskProtocol] = None
         self.protocol_path: Optional[str] = None
+        self._active_user = active_user
 
         self.setWindowTitle("Create New Experiment")
         self.setMinimumWidth(600)
@@ -73,17 +75,23 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         self.lineEdit_experiment_description = QtWidgets.QLineEdit()
         self.lineEdit_experiment_description.setPlaceholderText("Optional description of the experiment...")
 
-        # User (optional)
+        # User (optional) — pre-filled from the active user profile if available
         self.lineEdit_experiment_user = QtWidgets.QLineEdit()
         self.lineEdit_experiment_user.setPlaceholderText("Optional user name...")
+        if self._active_user is not None:
+            self.lineEdit_experiment_user.setText(
+                self._active_user.name or self._active_user.username
+            )
 
         # Project (optional)
         self.lineEdit_experiment_project = QtWidgets.QLineEdit()
         self.lineEdit_experiment_project.setPlaceholderText("Optional project name...")
 
-        # Organisation (optional)
+        # Organisation (optional) — pre-filled from the active user profile if available
         self.lineEdit_experiment_organisation = QtWidgets.QLineEdit()
         self.lineEdit_experiment_organisation.setPlaceholderText("Optional organisation name...")
+        if self._active_user is not None and self._active_user.organization:
+            self.lineEdit_experiment_organisation.setText(self._active_user.organization)
 
         # Experiment Directory
         self.lineEdit_experiment_directory = QDirectoryLineEdit()
@@ -405,17 +413,27 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         return self.experiment
 
 
-def create_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Optional[Experiment]:
+def create_experiment_dialog(
+    parent: Optional[QtWidgets.QWidget] = None,
+    active_user: Optional[AutoLamellaUser] = None,
+) -> Optional[Experiment]:
     """Create and execute the experiment creation dialog.
 
     Args:
         parent: Parent widget for the dialog
+        active_user: Active user whose name pre-fills the User field
 
     Returns:
         Experiment: The created experiment with attached protocol, or None if cancelled
     """
+    # Resolve active user from config if not provided explicitly
+    if active_user is None:
+        from fibsem.config import load_users
+        users = load_users()
+        active_user = next((u for u in users if u.is_default), users[0] if users else None)
+
     # Create and show the dialog
-    dialog = AutoLamellaCreateExperimentWidget(parent)
+    dialog = AutoLamellaCreateExperimentWidget(parent, active_user=active_user)
     result = dialog.exec_()
 
     # Handle the result
