@@ -53,6 +53,7 @@ from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
     WORKFLOW_BORDER_STYLESHEET,
 )
+from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -456,6 +457,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             raise RuntimeError("Failed to create status bar for AutoLamella UI.")
         self.status_bar = status_bar
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+
+        # Add generic progress widget (tile acquisition, etc.)
+        self.progress_widget = FibsemProgressWidget(self.status_bar)
+        self.progress_widget.setMaximumWidth(400)
+        self.status_bar.addPermanentWidget(self.progress_widget)
 
         # Add milling progress bar
         self.milling_progress_bar = QProgressBar(self.status_bar)

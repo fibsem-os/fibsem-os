@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.widgets.progress_widget import FibsemProgressWidget
+from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +101,9 @@ class ProgressDemo(QWidget):
         self._msg_widget = FibsemProgressWidget()
 
         btn_msg_show = QPushButton("Show")
-        btn_msg_show.clicked.connect(lambda: self._msg_widget.update_progress({"message": "Moving stage..."}))
+        btn_msg_show.clicked.connect(lambda: self._msg_widget.update_progress(ProgressUpdate.indeterminate("Moving stage\u2026")))
         btn_msg_done = QPushButton("Done")
-        btn_msg_done.clicked.connect(lambda: self._msg_widget.update_progress({"finished": True}))
+        btn_msg_done.clicked.connect(lambda: self._msg_widget.update_progress(ProgressUpdate.done()))
         btn_msg_reset = QPushButton("Reset")
         btn_msg_reset.clicked.connect(self._msg_widget.reset)
 
@@ -126,14 +126,12 @@ class ProgressDemo(QWidget):
     def _tick_numeric(self):
         self._num_step += 1
         if self._num_step > self._num_total:
-            self._num_widget.update_progress({"finished": True})
+            self._num_widget.update_progress(ProgressUpdate.done())
             self._num_timer.stop()
             return
-        self._num_widget.update_progress({
-            "current": self._num_step,
-            "total": self._num_total,
-            "message": f"Acquiring tile {self._num_step}…",
-        })
+        self._num_widget.update_progress(
+            ProgressUpdate.numeric(self._num_step, self._num_total, f"Acquiring tile {self._num_step}…")
+        )
 
     # ------------------------------------------------------------------
     # Countdown helpers
@@ -150,13 +148,12 @@ class ProgressDemo(QWidget):
 
     def _tick_countdown(self):
         if self._cd_remaining <= 0:
-            self._cd_widget.update_progress({"finished": True})
+            self._cd_widget.update_progress(ProgressUpdate.done())
             self._cd_timer.stop()
             return
-        self._cd_widget.update_progress({
-            "remaining_seconds": self._cd_remaining,
-            "total_seconds": self._cd_total,
-        })
+        self._cd_widget.update_progress(
+            ProgressUpdate.countdown(self._cd_remaining, self._cd_total)
+        )
         self._cd_remaining -= 1
 
     # ------------------------------------------------------------------
@@ -178,18 +175,20 @@ class ProgressDemo(QWidget):
         if self._comb_remaining <= 0:
             self._comb_step += 1
             if self._comb_step >= self._comb_total:
-                self._comb_widget.update_progress({"finished": True})
+                self._comb_widget.update_progress(ProgressUpdate.done())
                 self._comb_timer.stop()
                 return
             self._comb_remaining = self._comb_exposure
 
-        self._comb_widget.update_progress({
-            "current": self._comb_step,
-            "total": self._comb_total,
-            "remaining_seconds": self._comb_remaining,
-            "total_seconds": self._comb_exposure,
-            "message": f"Burning point {self._comb_step + 1}/{self._comb_total}",
-        })
+        self._comb_widget.update_progress(
+            ProgressUpdate.combined(
+                current=self._comb_step,
+                total=self._comb_total,
+                remaining_seconds=self._comb_remaining,
+                total_seconds=self._comb_exposure,
+                message=f"Burning point {self._comb_step + 1}/{self._comb_total}",
+            )
+        )
 
 
 def main():
