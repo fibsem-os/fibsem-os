@@ -5,7 +5,6 @@ from copy import deepcopy
 from typing import List, Optional
 
 import napari
-import napari.utils.notifications
 import numpy as np
 import yaml
 from napari.qt.threading import thread_worker
@@ -13,6 +12,7 @@ from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
+from fibsem.ui import notification_service as ns
 from fibsem import constants, conversions, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -337,8 +337,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
-            napari.utils.notifications.notification_manager.records.clear()
-            napari.utils.notifications.show_info(msg)
+            ns.show_toast(msg)
 
         is_finished = ddict.get("finished", False)
         if is_finished:
@@ -473,7 +472,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             return
 
         if hasattr(self.parent, "milling_widget") and self.parent.milling_widget.is_milling:
-            napari.utils.notifications.show_info("Cannot move stage while milling is in progress.")
+            ns.show_toast("Cannot move stage while milling is in progress.")
             return
 
         # get coords
@@ -484,12 +483,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
 
         if beam_type is None:
-            napari.utils.notifications.show_info(
+            ns.show_toast(
                 "Clicked outside image dimensions. Please click inside the image to move."
             )
             return
         if image.metadata is None:
-            napari.utils.notifications.show_info(
+            ns.show_toast(
                 "Image metadata is not set. Please set the image metadata before moving."
             )
             return
@@ -605,13 +604,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         """Update the currently selected saved position to the current stage position"""
         current_index = self.comboBox_positions.currentIndex()
         if current_index == -1:
-            napari.utils.notifications.show_warning("Please select a position to update")
+            ns.show_toast("Please select a position to update", "warning")
             return
 
         position: FibsemStagePosition = self.microscope.get_stage_position()
         position.name = self.lineEdit_position_name.text()
         if position.name == "":
-            napari.utils.notifications.show_warning("Please enter a name for the position")
+            ns.show_toast("Please enter a name for the position", "warning")
             return
 
         # TODO: add dialog confirmation
@@ -633,7 +632,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             _filter="YAML Files (*.yaml)")
 
         if path == '':
-            napari.utils.notifications.show_info("No file selected, positions not saved")
+            ns.show_toast("No file selected, positions not saved")
             return
 
         response = message_box_ui(text="Do you want to overwrite the file ? Click no to append the new positions to the existing file.", 
@@ -651,7 +650,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             path = open_existing_file_dialog(msg="Select a positions file", path=cfg.POSITION_PATH, _filter="YAML Files (*.yaml)")
         
         if path == "":
-            napari.utils.notifications.show_info("No file selected, positions not loaded")
+            ns.show_toast("No file selected, positions not loaded")
             return
 
         def load_saved_positions_from_yaml(path: Optional[str] = None) -> List[FibsemStagePosition]:

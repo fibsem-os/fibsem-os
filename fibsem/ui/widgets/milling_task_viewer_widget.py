@@ -5,12 +5,12 @@ import logging
 from typing import Callable, List, Optional, TYPE_CHECKING
 
 import napari
-import napari.utils.notifications
 from napari.layers import Image as NapariImageLayer
 from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem import conversions
+from fibsem.ui import notification_service as ns
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
@@ -200,9 +200,7 @@ class MillingTaskViewerWidget(QWidget):
                 self._right_click_menu_action_provider(cfg, point_clicked)
             except Exception:
                 logging.exception("Failed to add custom context-menu actions.")
-                napari.utils.notifications.show_warning(
-                    "Failed to add point-of-interest menu action; pattern movement options will still be shown."
-                )
+                ns.show_toast("Failed to add point-of-interest menu action; pattern movement options will still be shown.", "warning")
         if len(stages) > 1:
             cfg.add_action(
                 "Move All Patterns Here",
@@ -238,7 +236,7 @@ class MillingTaskViewerWidget(QWidget):
             if not is_pattern_placement_valid(pattern_copy, self._fib_image):
                 msg = f"'{stage.name}' pattern would be outside the FIB image."
                 logging.warning(msg)
-                napari.utils.notifications.show_warning(msg)
+                ns.show_toast(msg, "warning")
                 return
 
         for idx, stage in enumerate(stages):
