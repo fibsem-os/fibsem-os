@@ -10,8 +10,6 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple, Optional, Union
 
-
-import requests
 import yaml
 from packaging import version
 from PIL import Image
@@ -518,6 +516,7 @@ def get_pypi_versions(package_name: str = "fibsem") -> List[str]:
         Returns empty list if unable to fetch versions.
     """
     try:
+        import requests
         url = f'https://pypi.org/pypi/{package_name}/json'
         response = requests.get(url)
         response.raise_for_status()
