@@ -245,8 +245,8 @@ class AutoLamellaTask(ABC):
         if self.parent_ui is None:
             if milling_enabled:
                 milling_task = run_milling_task(self.microscope, milling_config, None)
-                milling_task_config = milling_task.config
-            return milling_task_config
+                return milling_task.config
+            return milling_config
 
         if self.parent_ui.milling_task_config_widget is None:
             raise ValueError("Milling task config widget is not set in the parent UI.")
@@ -268,18 +268,12 @@ class AutoLamellaTask(ABC):
 
         while response and milling_enabled:
             self.update_status_ui(f"Milling {milling_config.name}...")
+            # BlockingQueuedConnection guarantees run_milling() has returned and
+            # _milling_thread.start() has been called before emit() unblocks.
+            # No need to poll for is_milling to become True — it already is (or
+            # milling finished before we got here, in which case the loop below
+            # exits immediately, which is correct).
             self.parent_ui.milling_task_config_widget.milling_widget.start_milling_signal.emit()
-
-            # wait for milling to start
-            wait_for_milling_timeout = 60  # seconds
-            start_wait = time.time()
-            while not self.parent_ui.milling_task_config_widget.milling_widget.is_milling:
-                logging.info("Waiting for milling to start...")
-                if time.time() - start_wait > wait_for_milling_timeout:
-                    logging.warning(f"Timed out waiting for milling to start after {wait_for_milling_timeout}s.")
-                    raise TimeoutError("Timed out waiting for milling to start.")
-                self._check_for_abort()
-                time.sleep(0.1)
 
             # wait for milling to finish
             logging.info("WAITING FOR MILLING TO FINISH... ")

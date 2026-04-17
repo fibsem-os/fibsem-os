@@ -60,7 +60,7 @@ from fibsem.applications.autolamella.structures import (
 
 from fibsem.applications.autolamella.ui import AutoLamellaUI
 from fibsem.applications.autolamella.workflows import actions
-from fibsem.applications.autolamella.workflows.autoliftout import (
+from fibsem.applications.autolamella.workflows.legacy.autoliftout import (
     end_of_stage_update,
     log_status_message,
     mill_lamella,

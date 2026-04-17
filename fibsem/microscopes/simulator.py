@@ -563,6 +563,7 @@ class DemoMicroscope(FibsemMicroscope):
         if reduced_area is not None:
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-focus
+        logging.info(f"Auto-focusing {beam_type.name} beam.")
         wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
         time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
         focus_adjustment = random.uniform(-100e-6, 100e-6)
