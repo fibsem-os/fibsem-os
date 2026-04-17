@@ -201,7 +201,7 @@ class TestPatternMask:
     
     def test_create_pattern_mask_circle(self):
         """Test mask creation for circle pattern."""
-        image = FibsemImage.generate_blank_image(resolution=(256, 256), pixel_size=Point(x=1e-9, y=1e-9))
+        image = FibsemImage.generate_blank_image(resolution=(256, 256), hfw=100e-6)
 
         pattern = CirclePattern(
             radius=10e-6,
