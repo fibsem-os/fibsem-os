@@ -75,6 +75,7 @@ DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
 POSITION_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
 USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
+USERS_PATH = os.path.join(CONFIG_PATH, "users.yaml")
 MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
@@ -269,6 +270,7 @@ class UserPreferences:
     features: FeatureFlags = field(default_factory=FeatureFlags)
     paths: PathPreferences = field(default_factory=PathPreferences)
     movement: MovementPreferences = field(default_factory=MovementPreferences)
+    active_user_id: str = ""
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -283,6 +285,7 @@ class UserPreferences:
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 paths=_sub_from_dict(PathPreferences, d.get("paths", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
+                active_user_id=d.get("active_user_id", ""),
             )
         # Legacy flat format (4-key YAML from previous version)
         prefs = cls()
@@ -331,6 +334,30 @@ def save_user_preferences(preferences) -> None:
             yaml.safe_dump(data, f)
     except Exception as e:
         logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")
+
+
+def load_users() -> list:
+    """Load saved AutoLamellaUsers from disk; returns a list with one env-based user if absent."""
+    from fibsem.applications.autolamella.structures import AutoLamellaUser
+    if not os.path.exists(USERS_PATH):
+        return [AutoLamellaUser.from_environment()]
+    try:
+        with open(USERS_PATH, "r") as f:
+            data = yaml.safe_load(f) or []
+        return [AutoLamellaUser.from_dict(u) for u in data]
+    except Exception as e:
+        logging.warning(f"Failed to load users from {USERS_PATH}: {e}")
+        return [AutoLamellaUser.from_environment()]
+
+
+def save_users(users: list) -> None:
+    """Persist a list of AutoLamellaUsers to disk."""
+    try:
+        os.makedirs(CONFIG_PATH, exist_ok=True)
+        with open(USERS_PATH, "w") as f:
+            yaml.safe_dump([u.to_dict() for u in users], f)
+    except Exception as e:
+        logging.warning(f"Failed to save users to {USERS_PATH}: {e}")
 
 
 def apply_feature_flags(prefs: UserPreferences) -> None:
