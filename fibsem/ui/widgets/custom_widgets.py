@@ -492,6 +492,7 @@ class _SpinnerLabel(QLabel):
         self.setFixedSize(size, size)
         self.setAlignment(Qt.AlignCenter)
         self._render()
+        self.setStyleSheet("background: transparent;")
 
     def _tick(self):
         self._angle = (self._angle + self._step) % 360
