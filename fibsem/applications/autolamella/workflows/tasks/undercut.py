@@ -3,7 +3,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, List, Type
+from typing import ClassVar, List, Literal, Optional, Type
 
 import numpy as np
 
@@ -26,9 +26,9 @@ from fibsem.structures import BeamType
 @dataclass
 class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillUndercutTask."""
-    orientation: str = field(
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
         default="SEM",
-        metadata={"help": "The orientation to perform undercut milling in", "items": ("SEM", "FIB", "MILLING")},
+        metadata={"help": "The orientation to perform undercut milling in", "items": ("SEM", "FIB", "MILLING", None)},
     )
     milling_angles: List[float] = field(
         default_factory=lambda: [25, 20],  # in degrees
@@ -58,8 +58,8 @@ class MillUndercutTask(AutoLamellaTask):
 
         # move to sem orientation
         self.log_status_message("MOVE_TO_UNDERCUT", "Moving to Undercut Position...")
-        undercut_position = self.microscope.get_target_position(self.lamella.stage_position,
-                                                              self.config.orientation)
+        undercut_position = self._get_stage_position_for_orientation(self.lamella.stage_position,
+                                                                     self.config.orientation)
         self.microscope.safe_absolute_stage_movement(undercut_position)
         # TODO: support compucentric offset
 
