@@ -257,19 +257,19 @@ class FibsemMicroscope(ABC):
     def _create_sample_stage(self) -> None:
         """Create the sample stage and holder based on the system settings."""
 
-        from fibsem.microscopes._stage import SampleGrid, SampleHolder, Stage, SampleGridLoader
+        from fibsem.microscopes._stage import GridSlot, SampleHolder, Stage, SampleGridLoader
         if self.stage_is_compustage:
-            grid01 = SampleGrid(name="Grid-01", index=1, 
-                                position=FibsemStagePosition(name="Grid-01", x=-0e-3, y=0.0, z=0.0, r=0.0, t=np.radians(0)))
-            holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, grids={"Grid-01": grid01})
+            slot01 = GridSlot(name="Slot-01", index=0,
+                              position=FibsemStagePosition(name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)))
+            holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, capacity=1, slots={"Slot-01": slot01})
             loader = SampleGridLoader(parent=self)
         else:
             from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
             orientation = self.get_orientation("SEM")
             holder = SampleHolder.load(SAMPLE_HOLDER_CONFIGURATION_PATH)
-            for grid_name, grid in holder.grids.items():
-                grid.position.r = orientation.r
-                grid.position.t = orientation.t
+            for slot in holder.slots.values():
+                slot.position.r = orientation.r
+                slot.position.t = orientation.t
 
             loader = None
 

@@ -43,6 +43,8 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
+SHOW_SAMPLE_HOLDER_WIDGET = True
+
 class FibsemMovementWidget(QtWidgets.QWidget):
     saved_positions_updated_signal = QtCore.pyqtSignal(object)
     movement_progress_signal = QtCore.pyqtSignal(dict)
@@ -202,10 +204,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             self.pushButton_go_to,
         ]
 
-        # Bottom spacer
+        # Bottom spacer (row 4 — row 3 reserved for optional sample holder widget)
         self.gridLayout_2.addItem(
             QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
-            3, 0,
+            4, 0,
         )
 
     def setup_connections(self):
@@ -315,6 +317,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation.installEventFilter(self.wheel_blocker)
         self.doubleSpinBox_movement_stage_tilt.installEventFilter(self.wheel_blocker)
         self.doubleSpinBox_milling_angle.installEventFilter(self.wheel_blocker)
+
+        if SHOW_SAMPLE_HOLDER_WIDGET:
+            from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
+            self.sample_holder_widget = SampleHolderWidget(microscope=self.microscope)
+            self.sample_holder_widget.set_holder(self.microscope._stage.holder)
+            self.gridLayout_2.addWidget(self.sample_holder_widget, 3, 0)
 
         self.update_ui()
 

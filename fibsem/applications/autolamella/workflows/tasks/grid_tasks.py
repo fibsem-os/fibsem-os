@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes._stage import SampleGrid, SampleHolder
+from fibsem.microscopes._stage import GridSlot, SampleGrid
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 if TYPE_CHECKING:
@@ -50,6 +50,11 @@ class GridTask(ABC):
         self._stop_event = task_manager._stop_event if task_manager else None
 
     @property
+    def slot(self) -> Optional[GridSlot]:
+        """Find the slot this grid is currently loaded in."""
+        return self.microscope._stage.holder.find_slot_for_grid(self.grid)
+
+    @property
     def task_name(self) -> str:
         return self.config.task_name
 
@@ -78,17 +83,18 @@ class AcquireOverviewImageGridTask(GridTask):
 
     def _run(self):
         """Acquire an overview image of the sample grid."""
+        slot = self.slot
+        if slot is None:
+            raise RuntimeError(f"Grid '{self.grid.name}' is not loaded in any slot.")
 
         microscope = self.microscope
         test_path = os.path.join(self.experiment.path, self.grid.name, self.task_name)
         os.makedirs(test_path, exist_ok=True)
 
         logging.info(f"Path: {test_path}")
-        logging.info(f"Moving to grid {self.grid.name} at position {self.grid.position}")
+        logging.info(f"Moving to grid {self.grid.name} at slot {slot}")
 
-        # self.microscope._stage.move_to_grid(self.grid.name)
-
-        target_position = self.microscope.get_target_position(self.grid.position, self.config.orientation)
+        target_position = self.microscope.get_target_position(slot.position, self.config.orientation)
         self.microscope._stage.move_absolute(target_position)
 
         image_settings = ImageSettings(
@@ -151,10 +157,14 @@ class CryoCleaningGridTask(GridTask):
 
     def _run(self):
         """Perform cryo cleaning on the sample grid using FIB."""
+        slot = self.slot
+        if slot is None:
+            raise RuntimeError(f"Grid '{self.grid.name}' is not loaded in any slot.")
+
         logging.info(f"Starting cryo cleaning for grid {self.grid.name}")
 
         # move to grid position
-        target_position = self.microscope.get_target_position(self.grid.position, 
+        target_position = self.microscope.get_target_position(slot.position,
                                                               target_orientation=self.config.orientation)
         self.microscope._stage.move_absolute(target_position)
 
@@ -232,10 +242,10 @@ def run_grid_tasks(microscope: FibsemMicroscope,
     """Run tasks for specified grids."""
     for task_name in task_names:
         for grid_name in grid_names:
-            grid = microscope._stage.holder.grids.get(grid_name)
-            if grid is None:
-                logging.warning(f"Grid {grid_name} not found in holder.")
+            slot = microscope._stage.holder.find_slot_by_grid_name(grid_name)
+            if slot is None or slot.loaded_grid is None:
+                logging.warning(f"Grid '{grid_name}' not found in any loaded slot.")
                 continue
 
             logging.info(f"Running task {task_name} on grid {grid_name}.")
-            run_grid_task(microscope, task_name, experiment=experiment, grid=grid)
+            run_grid_task(microscope, task_name, experiment=experiment, grid=slot.loaded_grid)
