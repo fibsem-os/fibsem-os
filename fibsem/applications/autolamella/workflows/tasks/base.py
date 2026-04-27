@@ -434,6 +434,16 @@ class AutoLamellaTask(ABC):
             raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
         self.microscope.set_microscope_state(self.lamella.milling_pose)
 
+    def _get_stage_position_for_orientation(
+        self,
+        stage_position: FibsemStagePosition,
+        orientation: Optional[str],
+    ) -> FibsemStagePosition:
+        """Return target position for orientation, or stage_position unchanged if orientation is None."""
+        if orientation is None:
+            return stage_position
+        return self.microscope.get_target_position(stage_position, orientation)
+
     def _acquire_alignment_reference_image(self,
                                             image_settings: ImageSettings,
                                             field_of_view: float,
