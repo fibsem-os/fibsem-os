@@ -102,7 +102,7 @@ def test_lamella_is_failure():
     lam.defect.state = DefectType.FAILURE
     assert lam.is_failure is True
     lam.defect.state = DefectType.REWORK
-    assert lam.is_failure is True
+    assert lam.is_failure is False
     lam.defect.state = DefectType.NONE
     assert lam.is_failure is False
 
