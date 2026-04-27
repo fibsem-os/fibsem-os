@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QTextEdit,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -79,6 +80,58 @@ warnings.filterwarnings(
 def play_notification_sound():
     """Play a notification sound to alert the user."""
     QApplication.beep()
+
+
+def confirm_run_workflow_dialog(
+    lamella_names: list,
+    task_names: list,
+    parent=None,
+) -> bool:
+    """Show a confirmation dialog before starting the workflow. Returns True if confirmed."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Run Workflow")
+    dlg.setMinimumWidth(600)
+
+    layout = QVBoxLayout(dlg)
+    layout.setSpacing(8)
+
+    msg_label = QLabel(
+        f"Run workflow for {len(lamella_names)} lamella with {len(task_names)} task(s)?"
+    )
+    layout.addWidget(msg_label)
+
+    col_row = QHBoxLayout()
+    col_row.setSpacing(8)
+
+    detail_height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
+
+    for heading, items in [("Lamella", lamella_names), ("Tasks", task_names)]:
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        col.addWidget(QLabel(f"<b>{heading}</b>"))
+        te = QTextEdit()
+        te.setPlainText("\n".join(f"• {n}" for n in items))
+        te.setReadOnly(True)
+        te.setFixedHeight(detail_height)
+        col.addWidget(te)
+        col_row.addLayout(col)
+
+    layout.addLayout(col_row)
+
+    btn_row = QHBoxLayout()
+    btn_row.addStretch()
+    yes_btn = QPushButton("Yes")
+    no_btn = QPushButton("No")
+    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+    yes_btn.clicked.connect(dlg.accept)
+    no_btn.clicked.connect(dlg.reject)
+    no_btn.setDefault(True)
+    btn_row.addWidget(no_btn)
+    btn_row.addWidget(yes_btn)
+    layout.addLayout(btn_row)
+
+    return dlg.exec_() == QDialog.Accepted
 
 
 class AutoLamellaSingleWindowUI(QMainWindow):
@@ -560,18 +613,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
-        confirm_msg = (
-            f"Run workflow for {len(lamella_names)} lamella "
-            f"with {len(task_names)} task(s)?\n\n"
-        )
-        dlg = QMessageBox(self)
-        dlg.setWindowTitle("Run Workflow")
-        dlg.setText(confirm_msg)
-        dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        dlg.setDefaultButton(QMessageBox.No)
-        dlg.button(QMessageBox.Yes).setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        dlg.button(QMessageBox.No).setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        if dlg.exec_() != QMessageBox.Yes:
+        if not confirm_run_workflow_dialog(lamella_names, task_names, parent=self):
             return
 
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
