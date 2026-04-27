@@ -1591,6 +1591,7 @@ class AutoLamellaUI(QMainWindow):
 
         # Update UI
         self.update_ui()
+        self.experiment_update_signal.emit()
 
     def export_protocol_ui(self):
         """Export the current protocol to file."""
