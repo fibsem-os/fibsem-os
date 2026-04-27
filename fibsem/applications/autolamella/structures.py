@@ -689,7 +689,7 @@ class Lamella:
 
     @property
     def is_failure(self) -> bool:
-        return self.defect.state != DefectType.NONE
+        return self.defect.state is DefectType.FAILURE
 
     @property
     def stage_position(self) -> FibsemStagePosition:
