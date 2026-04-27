@@ -1166,7 +1166,7 @@ class FibsemMicroscope(ABC):
 
         is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
         is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-        is_milling_tilt = np.radians(-45) < stage_tilt  < sem.t
+        is_milling_tilt = np.radians(-45) < stage_tilt and not is_sem_tilt
 
         if is_sem_rotation and is_sem_tilt:
             return "SEM"
