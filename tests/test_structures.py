@@ -4,6 +4,8 @@ import pytest
 
 from fibsem.structures import (
     THERMO_API_AVAILABLE,
+    AutoFocusMode,
+    AutoFocusSettings,
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
@@ -13,6 +15,8 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
+    OverviewAcquisitionSettings,
+    TileOrderStrategy,
 )
 
 
@@ -179,6 +183,140 @@ def test_fibsem_image_extract_region_no_metadata():
 
     with pytest.raises(ValueError):
         image.extract_region(FibsemRectangle(left=0.0, top=0.0, width=0.5, height=0.5))
+
+
+def test_autofocus_settings_defaults():
+    s = AutoFocusSettings()
+    assert s.mode is AutoFocusMode.NONE
+
+
+def test_autofocus_settings_round_trip():
+    for mode in AutoFocusMode:
+        s = AutoFocusSettings(mode=mode)
+        d = s.to_dict()
+        assert d["mode"] == mode.name
+        restored = AutoFocusSettings.from_dict(d)
+        assert restored.mode is mode
+
+
+def test_autofocus_settings_from_dict_missing_key():
+    """Missing key in dict falls back to NONE."""
+    s = AutoFocusSettings.from_dict({})
+    assert s.mode is AutoFocusMode.NONE
+
+
+def test_overview_acquisition_settings_defaults():
+    s = OverviewAcquisitionSettings()
+    assert s.nrows == 3
+    assert s.ncols == 3
+    assert s.overlap == 0.0
+    assert s.focus_stack_settings.enabled is False
+    assert s.focus_stack_settings.n_steps == 3
+    assert s.focus_stack_settings.auto_focus is True
+    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+
+
+def test_overview_acquisition_settings_round_trip():
+    from fibsem.structures import FocusStackSettings
+    for mode in AutoFocusMode:
+        s = OverviewAcquisitionSettings(
+            image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
+            nrows=2, ncols=3, overlap=0.1,
+            focus_stack_settings=FocusStackSettings(enabled=True, n_steps=5, auto_focus=False),
+            autofocus_settings=AutoFocusSettings(mode=mode),
+        )
+        restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+        assert restored.nrows == s.nrows
+        assert restored.ncols == s.ncols
+        assert restored.overlap == s.overlap
+        assert restored.focus_stack_settings.enabled == s.focus_stack_settings.enabled
+        assert restored.focus_stack_settings.n_steps == s.focus_stack_settings.n_steps
+        assert restored.focus_stack_settings.auto_focus == s.focus_stack_settings.auto_focus
+        assert restored.autofocus_settings.mode is mode
+
+
+def test_overview_acquisition_settings_from_dict_legacy():
+    """Dicts without autofocus_settings key (old format) default to NONE."""
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
+        # no autofocus_settings key, no focus_stack_settings key (old format)
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+    assert s.focus_stack_settings.enabled is False
+
+
+def test_overview_acquisition_settings_from_dict_legacy_focus_stack_enabled():
+    """Old use_focus_stack=True maps to focus_stack_settings.enabled=True."""
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": True,
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.focus_stack_settings.enabled is True
+
+
+def test_overview_acquisition_total_fov_square_no_overlap():
+    """Square tiles, no overlap: total FOV == n * hfw."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
+        nrows=3, ncols=4, overlap=0.0,
+    )
+    assert s.total_fov_x == pytest.approx(4 * 100e-6)
+    assert s.total_fov_y == pytest.approx(3 * 100e-6)
+
+
+def test_overview_acquisition_total_fov_with_overlap():
+    """Overlap reduces effective step; total FOV = (n-1)*step + hfw."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
+        nrows=3, ncols=3, overlap=0.1,
+    )
+    step = 100e-6 * 0.9
+    expected = 2 * step + 100e-6
+    assert s.total_fov_x == pytest.approx(expected)
+    assert s.total_fov_y == pytest.approx(expected)
+
+
+def test_overview_acquisition_total_fov_non_square():
+    """Non-square tiles: total_fov_y scaled by aspect ratio."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
+        nrows=3, ncols=3, overlap=0.1,
+    )
+    step_x = 150e-6 * 0.9
+    tile_fov_y = 150e-6 * (1024 / 1536)
+    step_y = tile_fov_y * 0.9
+    assert s.total_fov_x == pytest.approx(2 * step_x + 150e-6)
+    assert s.total_fov_y == pytest.approx(2 * step_y + tile_fov_y)
+
+
+def test_overview_acquisition_total_fov_single_tile():
+    """Single tile (1x1): total FOV equals tile FOV regardless of overlap."""
+    s = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(resolution=(1024, 1024), hfw=200e-6),
+        nrows=1, ncols=1, overlap=0.2,
+    )
+    assert s.total_fov_x == pytest.approx(200e-6)
+    assert s.total_fov_y == pytest.approx(200e-6)
+
+
+def test_overview_acquisition_tile_order_round_trip():
+    for strategy in TileOrderStrategy:
+        s = OverviewAcquisitionSettings(tile_order=strategy)
+        restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+        assert restored.tile_order is strategy
+
+
+def test_overview_acquisition_tile_order_legacy_default():
+    """Dicts without tile_order key default to TYPEWRITER."""
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.tile_order is TileOrderStrategy.TYPEWRITER
 
 
 if THERMO_API_AVAILABLE:

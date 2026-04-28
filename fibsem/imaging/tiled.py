@@ -5,7 +5,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
-from typing import List, Optional, Tuple, TYPE_CHECKING
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,183 +14,502 @@ from matplotlib.figure import Figure
 from fibsem import acquire, conversions
 from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
+from dataclasses import dataclass
+
 from fibsem.structures import (
+    AutoFocusMode,
     BeamType,
     FibsemImage,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
     Point,
+    TileOrderStrategy,
 )
-if TYPE_CHECKING:
-    import psygnal
-
 
 POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
 
-##### TILED ACQUISITION
-def tiled_image_acquisition(
-    microscope: FibsemMicroscope,
+
+##### TILE GRID
+
+@dataclass
+class TilePosition:
+    """Physical and canvas coordinates for one tile in a tiled acquisition grid.
+
+    Attributes:
+        row: Grid row index (0 = top).
+        col: Grid column index (0 = left).
+        dx: X offset from start_position in metres; positive = right.
+        dy: Y offset from start_position in metres; negative = down (stage y inverted).
+        canvas_x: Pixel left edge in the stitched canvas array.
+        canvas_y: Pixel top edge in the stitched canvas array.
+    """
+    row: int
+    col: int
+    dx: float
+    dy: float
+    canvas_x: int
+    canvas_y: int
+
+
+def compute_tile_grid(settings: OverviewAcquisitionSettings) -> list[TilePosition]:
+    """Compute physical and canvas positions for every tile in the grid.
+
+    Pure function — no microscope, no side effects.
+
+    Args:
+        settings: Overview acquisition settings (hfw, resolution, nrows, ncols, overlap).
+    Returns:
+        Flat list of TilePosition objects in row-major order (top-left first).
+    """
+    image_width, image_height = settings.image_settings.resolution
+    tile_fov_x = settings.image_settings.hfw
+    tile_fov_y = tile_fov_x * (image_height / image_width)
+    overlap = settings.overlap
+
+    dx_step = tile_fov_x * (1 - overlap)
+    dy_step = tile_fov_y * (1 - overlap)
+
+    eff_w = max(1, int(round(image_width  * (1 - overlap))))
+    eff_h = max(1, int(round(image_height * (1 - overlap))))
+
+    tiles = []
+    for i in range(settings.nrows):
+        for j in range(settings.ncols):
+            tiles.append(TilePosition(
+                row=i, col=j,
+                dx=j * dx_step,
+                dy=-(i * dy_step),   # negate: stage y axis is inverted
+                canvas_x=j * eff_w,
+                canvas_y=i * eff_h,
+            ))
+    return tiles
+
+
+def _spiral_order(nrows: int, ncols: int) -> list[tuple[int, int]]:
+    """Return (row, col) pairs in a clockwise outward spiral from the centre tile.
+
+    Works for any grid shape, including non-square and single-row/column grids.
+    The traversal position may temporarily leave the grid bounds while stepping;
+    only cells inside [0, nrows) × [0, ncols) are included in the result.
+    """
+    cr, cc = nrows // 2, ncols // 2
+    result: list[tuple[int, int]] = [(cr, cc)]
+    r, c = cr, cc
+    # right, down, left, up
+    dirs = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    dir_idx = 0
+    steps = 1
+    total = nrows * ncols
+    # Upper bound on iterations: spiral arms can't exceed grid perimeter
+    max_steps = nrows + ncols + 2
+
+    while len(result) < total and steps <= max_steps:
+        for _ in range(2):
+            dr, dc = dirs[dir_idx % 4]
+            for _ in range(steps):
+                r += dr
+                c += dc
+                if 0 <= r < nrows and 0 <= c < ncols:
+                    result.append((r, c))
+            dir_idx += 1
+            if len(result) >= total:
+                return result
+        steps += 1
+
+    return result
+
+
+def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[TilePosition]:
+    """Reorder tiles according to the movement strategy.
+
+    Pure function — no microscope, no side effects.
+
+    Args:
+        tiles: Flat list of TilePosition objects (any order).
+        strategy: TYPEWRITER, SERPENTINE, or SPIRAL.
+    Returns:
+        New list with tiles in traversal order.
+    """
+    if strategy is TileOrderStrategy.SPIRAL:
+        nrows = max(t.row for t in tiles) + 1
+        ncols = max(t.col for t in tiles) + 1
+        tile_map = {(t.row, t.col): t for t in tiles}
+        return [tile_map[rc] for rc in _spiral_order(nrows, ncols) if rc in tile_map]
+
+    rows = sorted(set(t.row for t in tiles))
+    result = []
+    for row_idx, row in enumerate(rows):
+        row_tiles = sorted([t for t in tiles if t.row == row], key=lambda t: t.col)
+        if strategy is TileOrderStrategy.SERPENTINE and row_idx % 2 == 1:
+            row_tiles = list(reversed(row_tiles))
+        result.extend(row_tiles)
+    return result
+
+
+def plot_tile_positions(
+    tiles: list[TilePosition],
     settings: OverviewAcquisitionSettings,
-    stop_event: Optional[threading.Event] = None,
-) -> dict:
-    """Tiled image acquisition.
+    ax: Optional[plt.Axes] = None,
+    stage_positions: Optional[list[FibsemStagePosition]] = None,
+) -> Figure:
+    """Plot the tile grid with traversal order, for debugging and validation.
+
     Args:
-        microscope: The microscope connection.
-        settings: Overview acquisition settings.
-        stop_event: Optional threading.Event to cancel acquisition.
+        tiles: Ordered list of TilePosition objects (acquisition order).
+        settings: Overview acquisition settings (for FOV dimensions and labels).
+        ax: Optional existing axes to draw on; creates a new figure if None.
+        stage_positions: Optional list of pre-computed FibsemStagePosition objects
+            (same length as tiles). When provided, the actual projected positions are
+            overlaid as white crosses + dotted path so you can compare the ideal grid
+            against the real stage coordinates returned by project_stable_move.
     Returns:
-        A dictionary containing the acquisition details for stitching."""
+        The matplotlib Figure.
+    """
+    import matplotlib.patches as mpatches
+    from fibsem import constants
 
-    image_settings = settings.image_settings
-    n_rows, n_cols = settings.nrows, settings.ncols
-    tile_size = image_settings.hfw
-    cryo = image_settings.autogamma  # capture before clearing below
-    use_focus_stack = settings.use_focus_stack
+    image_width, image_height = settings.image_settings.resolution
+    tile_fov_x = settings.image_settings.hfw * constants.SI_TO_MICRO  # µm
+    tile_fov_y = tile_fov_x * (image_height / image_width)
 
-    dx, dy = tile_size, tile_size
-    dy *= -1 # need to invert y-axis
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+    else:
+        fig = ax.get_figure()
 
-    # fixed image settings
-    image_settings.autogamma = False
-    total_fov = n_cols * tile_size  # total hfw
+    # draw tiles
+    for order_idx, tile in enumerate(tiles):
+        cx = tile.dx * constants.SI_TO_MICRO  # µm
+        cy = tile.dy * constants.SI_TO_MICRO
+        x0 = cx - tile_fov_x / 2
+        y0 = cy - tile_fov_y / 2
+        colour = POSITION_COLOURS[tile.row % len(POSITION_COLOURS)]
+        rect = mpatches.FancyBboxPatch(
+            (x0, y0), tile_fov_x, tile_fov_y,
+            boxstyle="round,pad=0.01",
+            linewidth=1, edgecolor="white", facecolor=colour, alpha=0.4,
+        )
+        ax.add_patch(rect)
+        ax.text(cx, cy, str(order_idx), ha="center", va="center",
+                fontsize=8, color="white", fontweight="bold")
 
-    # start in the middle of the grid
-    start_state = microscope.get_microscope_state()
+    # draw traversal path
+    if len(tiles) > 1:
+        xs = [t.dx * constants.SI_TO_MICRO for t in tiles]
+        ys = [t.dy * constants.SI_TO_MICRO for t in tiles]
+        for k in range(len(tiles) - 1):
+            ax.annotate("", xy=(xs[k + 1], ys[k + 1]), xytext=(xs[k], ys[k]),
+                        arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
 
-    # we save all intermediates into a folder with the same name as the filename, then save the stitched image into the parent folder
-    prev_path = image_settings.path
-    prev_label = image_settings.filename
-    image_settings.path = os.path.join(prev_path, prev_label) # type: ignore
-    os.makedirs(image_settings.path, exist_ok=True) # type: ignore
+    # overlay actual projected stage positions (if provided)
+    if stage_positions is not None and len(stage_positions) > 0:
+        ref = stage_positions[0]
+        sxs = [(sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions]
+        sys_ = [(sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions]
+        ax.plot(sxs, sys_, linestyle=":", color="white", lw=0.8, alpha=0.6)
+        ax.plot(sxs, sys_, marker="x", color="white", ms=6, markeredgewidth=1.5, linestyle="none")
 
-    # TOP LEFT CORNER START
-    image_settings.filename = prev_label
-    image_settings.autocontrast = False # required for cryo
-    image_settings.save = True
-    start_move_x = (n_cols * tile_size) / 2 - tile_size / 2
-    start_move_y = (n_rows * tile_size) / 2 - tile_size / 2
-    dxg, dyg = start_move_x, start_move_y
-    dyg *= -1
+    sym = constants.MICRON_SYMBOL
+    ax.set_xlabel(f"X ({sym})")
+    ax.set_ylabel(f"Y ({sym})")
+    ax.set_aspect("equal")
+    ax.set_facecolor("#1e2027")
+    fig.patch.set_facecolor("#1e2027")
+    ax.tick_params(colors="white")
+    ax.xaxis.label.set_color("white")
+    ax.yaxis.label.set_color("white")
+    ax.title.set_color("white")
+    strategy_name = settings.tile_order.value.title()
+    ax.set_title(
+        f"{strategy_name} — {settings.nrows}×{settings.ncols} tiles, "
+        f"{settings.overlap*100:.0f}% overlap"
+    )
+    ax.autoscale_view()
+    fig.tight_layout()
+    return fig
 
-    microscope.stable_move(dx=-dxg, dy=-dyg, beam_type=image_settings.beam_type)
-    start_position = microscope.get_stage_position()
-    images = []
 
-    # stitched image
-    shape = image_settings.resolution[::-1] # reverse for (y,x)
-    full_shape = (shape[0]*n_rows, shape[1]*n_cols)
-    arr = np.zeros(shape=(full_shape), dtype=np.uint8)
-    n_tiles_acquired = 0
-    total_tiles = n_rows*n_cols
-    try:
-        for i in range(n_rows):
+def _check_cancelled(stop_event: Optional[threading.Event]) -> None:
+    """Raise if the stop event has been set by the caller."""
+    if stop_event and stop_event.is_set():
+        raise Exception("User Stopped Acquisition")
 
-            microscope.safe_absolute_stage_movement(start_position)
 
-            img_row: list[FibsemImage] = []
-            microscope.stable_move(dx=0, dy=i*dy, beam_type=image_settings.beam_type)
+##### TILED ACQUISITION
 
-            for j in range(n_cols):
-                image_settings.filename = f"tile_{i}_{j}"
-                microscope.stable_move(dx=dx*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
+class TiledAcquisitionRunner:
+    """Orchestrates a tiled image acquisition as a series of discrete phases.
 
-                if stop_event and stop_event.is_set():
-                    raise Exception("User Stopped Acquisition")
+    State accumulated across phases is held on ``self``, making it straightforward
+    to extend the acquisition with new pre- or post-tile steps (e.g. a focus map)
+    without modifying the main loop.
 
-                logging.info(f"Acquiring Tile {i}, {j}")
-                if use_focus_stack:
-                    image = acquire.acquire_focus_stacked_image(
-                        microscope=microscope,
-                        image_settings=image_settings,
-                        n_steps=3,
-                    )
-                else:
-                    image = acquire.acquire_image(microscope, image_settings)
+    Typical usage::
 
-                # stitch image
-                arr[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = image.filtered_data
+        result = TiledAcquisitionRunner(microscope, settings, stop_event).run()
+    """
 
-                n_tiles_acquired += 1
-                microscope.tiled_acquisition_signal.emit(
-                    {
-                        "msg": "Tile Collected",
-                        "i": i,
-                        "j": j,
-                        "n_rows": n_rows,
-                        "n_cols": n_cols,
-                        "image": arr,
-                        "counter": n_tiles_acquired,
-                        "total": total_tiles,
-                    }
-                )
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        settings: OverviewAcquisitionSettings,
+        stop_event: Optional[threading.Event] = None,
+    ):
+        self.microscope = microscope
+        self.settings = settings
+        self.stop_event = stop_event
+        # _setup()        → _image_settings, _cryo, _prev_path, _prev_label,
+        #                   _focus_stack_settings, _af_mode
+        # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
+        #                   _tile_stage_positions, _canvas, _dx_step, _dy_step
+        # _run_tile_loop()→ _first_image, _n_tiles_acquired
 
-                img_row.append(image)
-            images.append(img_row)
-    except Exception as e:
-        logging.error(f"Tiled acquisition failed: {e}")
-        raise
-    finally:
-        logging.info(f"Tiled acquisition complete, restoring initial position: {start_state.stage_position.pretty}")
-        microscope.set_microscope_state(start_state)
-    image_settings.path = prev_path
+    # ── public entry point ───────────────────────────────────────────────
 
-    ddict = {
-        "total_fov": total_fov,
-        "tile_size": tile_size,
-        "n_rows": n_rows,
-        "n_cols": n_cols,
-        "image_settings": image_settings,
-        "dx": dx,
-        "dy": dy,
-        "cryo": cryo,
-        "start_state": start_state,
-        "prev-filename": prev_label,
-        "start_move_x": start_move_x,
-        "start_move_y": start_move_y,
-        "dxg": dxg,
-        "dyg": dyg,
-        "images": images,
-        "stitched_image": arr,
-    }
+    def run(self) -> None:
+        """Acquire all tiles."""
+        self._setup()
+        self._compute_grid()
+        try:
+            self._autofocus_if_mode(AutoFocusMode.ONCE)
+            self._run_tile_loop()
+        except Exception as e:
+            logging.error(f"Tiled acquisition failed: {e}")
+            raise
+        finally:
+            logging.info(
+                f"Tiled acquisition complete, restoring initial position: "
+                f"{self._start_state.stage_position.pretty}"
+            )
+            self.microscope.set_microscope_state(self._start_state)
+        self._image_settings.path = self._prev_path
 
-    return ddict
+    def run_and_stitch(self) -> FibsemImage:
+        """Acquire all tiles and return the stitched FibsemImage."""
+        self.run()
+        return self._stitch()
 
-def stitch_images(images: list[list[FibsemImage]], 
-                  ddict: dict, signal: Optional['psygnal.SignalInstance'] = None) -> FibsemImage:
-    """Stitch an array (2D) of images together. Assumes images are ordered in a grid with no overlap.
-    Args:
-        images: The images.
-        ddict: The dictionary containing the acquisition details for stitching.
-        signal: Optional signal for emitting progress updates.
-    Returns:
-        The stitched image."""
-    if signal is not None:
-        total = ddict["n_rows"] * ddict["n_cols"]
-        signal.emit({"msg": "Stitching Tiles", "counter": total, "total": total})
-    arr = ddict["stitched_image"]
+    # ── phases ───────────────────────────────────────────────────────────
 
-    # convert to fibsem image
-    image = FibsemImage(data=arr, metadata=images[0][0].metadata)
-    if image.metadata is None:
-        raise ValueError("Image metadata is not set. Cannot update metadata for stitched image.")
-    image.metadata.microscope_state = deepcopy(ddict["start_state"])
-    image.metadata.image_settings = ddict["image_settings"]
-    image.metadata.image_settings.hfw = deepcopy(float(ddict["total_fov"]))
-    image.metadata.image_settings.resolution = deepcopy((arr.shape[0], arr.shape[1]))
+    def _setup(self) -> None:
+        """Prepare image settings and paths; emit initial progress signal."""
+        image_settings = self.settings.image_settings
+        self._cryo = image_settings.autogamma  # capture before clearing below
+        self._focus_stack_settings = self.settings.focus_stack_settings
+        self._af_mode = self.settings.autofocus_settings.mode
 
-    filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}') # type: ignore
-    image.save(filename)
-    # for cryo need to histogram equalise
-    if ddict.get("cryo", False):
-        from fibsem.imaging.autogamma import auto_gamma
-        image = auto_gamma(image, method="autogamma")
-        filename = os.path.join(image.metadata.image_settings.path, f'{ddict["prev-filename"]}-autogamma') # type: ignore
+        # autogamma is applied post-stitch for cryo; disable during tile acquisition
+        image_settings.autogamma = False
+        image_settings.autocontrast = False
+        image_settings.save = True
+
+        # save tile intermediates into a sub-folder; stitched image goes in the parent
+        self._prev_path = image_settings.path
+        self._prev_label = image_settings.filename
+        image_settings.path = os.path.join(self._prev_path, self._prev_label)  # type: ignore
+        os.makedirs(image_settings.path, exist_ok=True)  # type: ignore
+        image_settings.filename = self._prev_label
+
+        self._image_settings = image_settings
+
+        # notify the UI immediately so the progress bar appears before the first move
+        self.microscope.tiled_acquisition_signal.emit({
+            "msg": "Computing Tile Positions",
+            "counter": 0,
+            "total": self.settings.nrows * self.settings.ncols,
+        })
+
+    def _compute_grid(self) -> None:
+        """Compute tile order and pre-project every stage position from the grid centre.
+
+        Records the current stage position as the grid centre, then computes each tile's
+        absolute stage position by projecting the tile's (dx, dy) offset — adjusted by
+        the grid offset so they are relative to centre rather than the top-left corner —
+        using ``project_stable_move``.
+
+        Previously the code moved the stage to the top-left corner before projecting.
+        That move was unnecessary because ``project_stable_move`` is a pure mathematical
+        computation that depends only on tilt and rotation (which are constant throughout
+        a tiled acquisition), not on the absolute x/y/z coordinates.  Projecting from
+        centre with adjusted offsets gives identical results and saves one stage movement.
+
+        Mathematical equivalence:
+            project(tile.dx, tile.dy, base=top_left)
+            == project(tile.dx - grid_offset_x, tile.dy + grid_offset_y, base=centre)
+        """
+        image_settings = self._image_settings
+        settings = self.settings
+
+        image_width, image_height = image_settings.resolution
+        tile_fov_x = image_settings.hfw
+        tile_fov_y = tile_fov_x * (image_height / image_width)
+        overlap = settings.overlap
+        self._dx_step = tile_fov_x * (1 - overlap)
+        self._dy_step = tile_fov_y * (1 - overlap)
+
+        self._tiles = compute_tile_grid(settings)
+        self._ordered = order_tiles(self._tiles, settings.tile_order)
+
+        self._start_state = self.microscope.get_microscope_state()
+        self._centre_position = self.microscope.get_stage_position()
+
+        # offset from centre to top-left corner of the grid (used only for projection)
+        grid_offset_x = (settings.ncols - 1) * self._dx_step / 2
+        grid_offset_y = (settings.nrows - 1) * self._dy_step / 2
+
+        # stitched canvas
+        eff_w = max(1, int(round(image_width  * (1 - overlap))))
+        eff_h = max(1, int(round(image_height * (1 - overlap))))
+        full_w = eff_w * (settings.ncols - 1) + image_width
+        full_h = eff_h * (settings.nrows - 1) + image_height
+        self._canvas = np.zeros((full_h, full_w), dtype=np.uint8)
+
+        logging.info(f"Tiled acquisition centre position: {self._centre_position.pretty}")
+
+        self._tile_stage_positions = [
+            self.microscope.project_stable_move(
+                dx=tile.dx - grid_offset_x,
+                dy=tile.dy + grid_offset_y,
+                beam_type=image_settings.beam_type,
+                base_position=self._centre_position,
+            )
+            for tile in self._ordered
+        ]
+        for tile, sp in zip(self._ordered, self._tile_stage_positions):
+            logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+
+        # EVERY_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
+        # so promote it to EVERY_TILE so focus is always fresh.
+        if self._af_mode is AutoFocusMode.EVERY_ROW and settings.tile_order is TileOrderStrategy.SPIRAL:
+            self._af_mode = AutoFocusMode.EVERY_TILE
+            logging.info("EVERY_ROW autofocus upgraded to EVERY_TILE for SPIRAL tile order")
+
+    def _run_tile_loop(self) -> None:
+        """Move to each tile, autofocus as configured, acquire, and stitch into the canvas."""
+        image_settings = self._image_settings
+        image_width, image_height = image_settings.resolution
+        total_tiles = self.settings.nrows * self.settings.ncols
+        self._first_image: Optional[FibsemImage] = None
+        self._n_tiles_acquired: int = 0
+        prev_row = -1
+
+        for tile, stage_pos in zip(self._ordered, self._tile_stage_positions):
+            # check before moving so we skip the stage movement entirely
+            _check_cancelled(self.stop_event)
+
+            image_settings.filename = f"tile_{tile.row}_{tile.col}"
+
+            logging.info(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
+            self.microscope.safe_absolute_stage_movement(stage_pos)
+            logging.info(f"Tile ({tile.row}, {tile.col}) — actual: {self.microscope.get_stage_position().pretty}")
+
+            # check after moving in case cancel was requested during the move
+            _check_cancelled(self.stop_event)
+
+            if tile.row != prev_row:
+                prev_row = tile.row
+                self._autofocus_if_mode(AutoFocusMode.EVERY_ROW)
+
+            self._autofocus_if_mode(AutoFocusMode.EVERY_TILE)
+
+            # apply per-tile focus offset (no-op until focus map is implemented)
+            self._apply_focus_offset(tile)
+
+            logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
+            image = self._acquire_tile(tile)
+
+            if self._first_image is None:
+                self._first_image = image
+
+            # stitch tile into canvas (overlapping regions are overwritten by later tiles)
+            self._canvas[
+                tile.canvas_y:tile.canvas_y + image_height,
+                tile.canvas_x:tile.canvas_x + image_width,
+            ] = image.filtered_data
+
+            self._n_tiles_acquired += 1
+            self.microscope.tiled_acquisition_signal.emit({
+                "msg": "Tile Collected",
+                "i": tile.row,
+                "j": tile.col,
+                "n_rows": self.settings.nrows,
+                "n_cols": self.settings.ncols,
+                "image": self._canvas,
+                "counter": self._n_tiles_acquired,
+                "total": total_tiles,
+            })
+
+    def _acquire_tile(self, tile: TilePosition) -> FibsemImage:
+        """Acquire one tile — focus-stack or plain image."""
+        if self._focus_stack_settings.enabled:
+            return acquire.acquire_focus_stacked_image(
+                microscope=self.microscope,
+                image_settings=self._image_settings,
+                n_steps=self._focus_stack_settings.n_steps,
+                auto_focus=self._focus_stack_settings.auto_focus,
+            )
+        return acquire.acquire_image(self.microscope, self._image_settings)
+
+    def _stitch(self) -> FibsemImage:
+        """Assemble the stitched FibsemImage, save it to disk, and emit completion signal."""
+        if self._first_image is None:
+            raise ValueError("No tiles were acquired; cannot stitch.")
+
+        signal = self.microscope.tiled_acquisition_signal
+        total_tiles = self.settings.nrows * self.settings.ncols
+        signal.emit({"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles})
+        image = FibsemImage(data=self._canvas, metadata=self._first_image.metadata)
+        if image.metadata is None:
+            raise ValueError("Image metadata is not set. Cannot update metadata for stitched image.")
+        image.metadata.microscope_state = deepcopy(self._start_state)
+        image.metadata.image_settings = self._image_settings
+        image.metadata.image_settings.hfw = deepcopy(float(self.settings.total_fov_x))
+        image.metadata.image_settings.resolution = deepcopy((self._canvas.shape[0], self._canvas.shape[1]))
+
+        filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
 
-    # for garbage collection
-    del ddict["images"]
+        if self._cryo:
+            from fibsem.imaging.autogamma import auto_gamma
+            image = auto_gamma(image, method="autogamma")
+            filename = os.path.join(image.metadata.image_settings.path, f"{self._prev_label}-autogamma")  # type: ignore
+            image.save(filename)
 
-    return image
+        signal.emit({"msg": "Done", "counter": total_tiles, "total": total_tiles, "finished": True})
+        return image
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
+        """Run autofocus and check for cancellation if the current af_mode matches."""
+        if self._af_mode is mode:
+            self.microscope.auto_focus(
+                beam_type=self._image_settings.beam_type,
+                reduced_area=self._image_settings.reduced_area,
+            )
+            _check_cancelled(self.stop_event)
+
+    # ── future feature hooks ─────────────────────────────────────────────
+
+    def _measure_focus_map(self) -> None:
+        """Pre-acquisition pass: visit anchor tiles, measure focus, build interpolated map.
+
+        Called between _compute_grid() and _run_tile_loop() when a focus map is enabled.
+        Populates ``self._focus_map: dict[tuple[int, int], float]`` — a per-tile
+        working-distance offset (metres) derived from bilinear or plane-fit interpolation
+        of measured anchor values.
+
+        Not yet implemented.
+        """
+        pass
+
+    def _apply_focus_offset(self, tile: TilePosition) -> None:
+        """Apply the per-tile working-distance offset from the focus map before imaging.
+
+        No-op until ``_measure_focus_map`` is implemented.
+        """
+        pass
+
 
 def tiled_image_acquisition_and_stitch(
     microscope: FibsemMicroscope,
@@ -204,16 +523,12 @@ def tiled_image_acquisition_and_stitch(
         stop_event: Optional threading.Event to cancel acquisition.
     Returns:
         The stitched image."""
-
     # add datetime to filename for uniqueness
     filename = settings.image_settings.filename
     timestamp = datetime.datetime.now().strftime(DATETIME_FILE)
     settings.image_settings.filename = f"{filename}-{timestamp}"
 
-    ddict = tiled_image_acquisition(microscope=microscope, settings=settings, stop_event=stop_event)
-    image = stitch_images(images=ddict["images"], ddict=ddict, signal=microscope.tiled_acquisition_signal)
-
-    return image
+    return TiledAcquisitionRunner(microscope, settings, stop_event).run_and_stitch()
 
 ##### REPROJECTION
 # TODO: move these to fibsem.imaging.reprojection?
@@ -780,242 +1095,3 @@ def _inverse_y_corrected_stage_movement(
 
         return expected_y
 
-
-def generate_grid_positions(
-    ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1
-) -> list[tuple[float, float]]:
-    """Generate a grid of positions, centered around the origin, for acquiring tiles.
-
-    Creates a regular grid of (x, y) positions that are properly centered around the origin
-    (0, 0) for both odd and even numbers of columns and rows. The spacing between positions
-    accounts for the specified field of view and tile overlap.
-
-    Args:
-        ncols: Number of columns in the grid (must be positive)
-        nrows: Number of rows in the grid (must be positive)
-        fov_x: Horizontal field of view size in meters (physical dimension of each tile)
-        fov_y: Vertical field of view size in meters (physical dimension of each tile)
-        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
-
-    Returns:
-        List of (x, y) tuples representing grid positions in meters, centered around origin
-
-    Example:
-        >>> # 3x3 grid with 10μm x 8μm FOV and 10% overlap
-        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
-        >>> len(positions)
-        9
-        >>> positions[4]  # Center position
-        (0.0, 0.0)
-
-        >>> # 4x4 grid is also properly centered
-        >>> positions = generate_grid_positions(4, 4, 10e-6, 10e-6, 0.0)
-        >>> import numpy as np
-        >>> np.mean([pos[0] for pos in positions])  # Mean x should be ~0
-        0.0
-    """
-    positions = []
-    for i in range(nrows):
-        for j in range(ncols):
-            x = (j - (ncols - 1) / 2) * (fov_x * (1 - overlap))
-            y = -(i - (nrows - 1) / 2) * (fov_y * (1 - overlap))
-            positions.append((x, y))
-
-    return positions
-
-def convert_grid_positions_to_stage_positions(
-    microscope: 'FibsemMicroscope',
-    positions: list[tuple[float, float]],
-    beam_type: BeamType = BeamType.ELECTRON,
-    base_position: FibsemStagePosition | None = None,
-) -> list[FibsemStagePosition]:
-    """Convert grid positions to stage positions using microscope projection.
-
-    Takes a list of (x, y) grid positions and converts them to FibsemStagePosition
-    objects using the microscope's project_stable_move method. This accounts for
-    the microscope's coordinate system and current stage configuration.
-
-    Args:
-        microscope: The FibsemMicroscope instance to use for projection
-        positions: List of (x, y) tuples representing grid positions in meters
-        beam_type: Beam type to use for projection (default: ELECTRON)
-        base_position: Base stage position to project from (default: current position)
-
-    Returns:
-        List of FibsemStagePosition objects representing the projected stage positions
-
-    Example:
-        >>> # Generate grid positions
-        >>> positions = generate_grid_positions(3, 3, 10e-6, 0.1)
-        >>> # Convert to stage positions
-        >>> stage_positions = convert_grid_positions_to_stage_positions(
-        ...     microscope, positions, BeamType.ELECTRON
-        ... )
-        >>> len(stage_positions)
-        9
-    """
-    if base_position is None:
-        base_position = microscope.get_stage_position()
-
-    stage_positions = []
-    for pos in positions:
-        x, y = pos
-        stage_position = microscope.project_stable_move(
-            dx=x, dy=y, beam_type=beam_type, base_position=base_position
-        )
-        stage_positions.append(stage_position)
-    return stage_positions
-
-
-# TODO:
-# - restore initial state, always even on error - DONE
-# - support overlap
-# - support non-square tilesizes - DONE
-# - migrate/create to acquisition_progress_signal for progress updates 
-# - pass stop event as arg
-# - add auto-focus, and options for focus strategy (per-tile, z-focus-stack, etc)
-
-##### TILED ACQUISITION
-# def tiled_image_acquisition_v2(
-#     microscope: FibsemMicroscope,
-#     image_settings: ImageSettings,
-#     nrows: int,
-#     ncols: int,
-#     tile_size: float,
-#     overlap: float = 0.1,
-#     cryo: bool = True,
-#     stop_event: Optional[threading.Event] = None,
-# ) -> dict:
-#     """Tiled image acquisition.
-#     Args:
-#         microscope: The microscope connection.
-#         image_settings: The image settings.
-#         nrows: The number of rows in the grid.
-#         ncols: The number of columns in the grid.
-#         tile_size: The size of the tiles (field of view in x-direction).
-#         overlap: The overlap between tiles in pixels. Currently not supported.
-#         cryo: Whether to use cryo mode (histogram equalisation).
-#         stop_event: Optional threading.Event to cancel acquisition.
-#     Returns:
-#         A dictionary containing the acquisition details for stitching."""
-
-#     image_width, image_height = image_settings.resolution
-#     fov_x = tile_size
-#     fov_y = tile_size * (image_height / image_width)
-#     step_x, step_y = fov_x*(1-overlap), fov_y*(1-overlap)
-
-#     total_fov_x = ncols * (fov_x * (1-overlap))  # total fov_x
-#     total_fov_y = nrows * (fov_y * (1-overlap))  # total fov_y
-
-#     # fixed image settings
-#     image_settings.hfw = tile_size
-#     image_settings.autogamma = False
-#     image_settings.autocontrast = False # required for cryo
-#     image_settings.save = True
-
-#     # we save all intermediates into a folder with the same name as the filename, then save the stitched image into the parent folder
-#     prev_path = image_settings.path
-#     prev_label = image_settings.filename
-#     image_settings.path = os.path.join(image_settings.path, image_settings.filename)
-#     os.makedirs(image_settings.path, exist_ok=True)
-
-#     # TOP LEFT CORNER START
-#     start_move_x = (ncols * step_x) / 2 - step_x / 2
-#     start_move_y = (nrows * step_y) / 2 - step_y / 2
-
-#     start_offset_x = (ncols - 1) * step_x / 2
-#     start_offset_y = (nrows - 1) * step_y / 2
-
-#     assert np.isclose(start_move_x, start_offset_x), f"start_move_x: {start_move_x}, start_offset_x: {start_offset_x}"
-#     assert np.isclose(start_move_y, start_offset_y), f"start_move_y: {start_move_y}, start_offset_y: {start_offset_y}"
-
-#     # stitched image dimensions
-#     effective_tile_width = max(1, int(round(image_width * (1 - overlap))))
-#     effective_tile_height = max(1, int(round(image_height * (1 - overlap))))
-
-#     mosaic_width = effective_tile_width * (ncols - 1) + image_width
-#     mosaic_height = effective_tile_height * (nrows - 1) + image_height
-#     arr = np.zeros((mosaic_height, mosaic_width), dtype=np.uint8)
-#     total_tiles = nrows*ncols
-
-#     logging.info(f"Tiled Acquisition: {nrows} rows x {ncols} cols, Total Tiles: {total_tiles}")
-#     logging.info(f"Tile FoV: {fov_x*1e6:.0f} um x {fov_y*1e6:.0f} um, Overlap: {overlap*100:.1f} %")
-#     logging.info(f"Total FoV: {total_fov_x*1e6:.0f} um x {total_fov_y*1e6:.0f} um")
-#     logging.info(f"Tile size: {image_height}x{image_width}, Mosaic size: {mosaic_height}x{mosaic_width}")
-#     logging.info(f"Stitched image shape: {arr.shape}, Non-overlap grid shape: {image_height*nrows}x{image_width*ncols}")
-
-#     logging.info(f"-----------------Starting tiled acquisition---------------")
-#     try:
-#         # start in the middle of the grid
-#         start_state = microscope.get_microscope_state()
-    
-#         # move to top-left corner
-#         logging.info(f"Moving to top-left corner: dx: {-start_offset_x*1e6:.0f} um, dy: {start_offset_y*1e6:.0f} um")
-#         microscope.stable_move(dx=-start_offset_x, dy=start_offset_y, beam_type=image_settings.beam_type)
-#         start_position = microscope.get_stage_position() # top-left corner
-
-#         n_tiles_acquired = 0
-#         images: list[list[FibsemImage]] = []
-
-#         step_y *= -1 # need to invert y-axis
-
-#         for i in range(nrows):
-
-#             microscope.safe_absolute_stage_movement(start_position)
-
-#             img_row: list[FibsemImage] = []
-#             microscope.stable_move(dx=0, dy=i*step_y, beam_type=image_settings.beam_type) 
-#             # NOTE: this will be slow for large nrows, esp on arctis -> migrate to abs move + projection
-
-#             for j in range(ncols):
-#                 image_settings.filename = f"tile_{i}_{j}"
-#                 stage_position = microscope.stable_move(dx=step_x*(j!=0),  dy=0, beam_type=image_settings.beam_type) # dont move on the first tile?
-
-#                 if stop_event and stop_event.is_set():
-#                     raise Exception("User Stopped Acquisition")
-
-#                 logging.info(f"Acquiring Tile {i}, {j} at {stage_position.pretty}")
-#                 image = acquire.acquire_image(microscope, image_settings)
-
-#                 # stitch image
-#                 start_y = i * effective_tile_height
-#                 start_x = j * effective_tile_width
-#                 arr[start_y:start_y + image_height, start_x:start_x + image_width] = image.data
-
-#                 n_tiles_acquired += 1
-#                 microscope.tiled_acquisition_signal.emit(
-#                     {
-#                         "msg": "Tile Collected",
-#                         "i": i,
-#                         "j": j,
-#                         "n_rows": nrows,
-#                         "n_cols": ncols,
-#                         "image": arr,
-#                         "counter": n_tiles_acquired,
-#                         "total": total_tiles,
-#                     }
-#                 )
-#                 if isinstance(microscope, DemoMicroscope):
-#                     time.sleep(1)
-
-#                 img_row.append(image)
-#             images.append(img_row)
-#     except Exception as e:
-#         logging.error(f"Tiled acquisition failed: {e}")
-#         raise
-#     finally:
-#         logging.info(f"Tiled acquisition complete, restoring initial position: {start_state.stage_position.pretty}")
-#         microscope.set_microscope_state(start_state)
-#     logging.info(f"-----------------Finished tiled acquisition---------------")
-
-#     image_settings.path = prev_path
-
-#     ddict = {"total_fov": total_fov_x, "tile_size": tile_size, "n_rows": nrows, "n_cols": ncols, 
-#             "image_settings": image_settings, 
-#             "dx": step_x, "dy": step_y, "cryo": cryo,
-#             "start_state": start_state, "prev-filename": prev_label, 
-#             "start_move_x": start_move_x, "start_move_y": start_move_y, 
-#             "dxg": start_move_x, "dyg": start_move_y,
-#             "images": images, "big_image": None, "stitched_image": arr}
-
-#     return ddict
