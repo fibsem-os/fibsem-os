@@ -15,12 +15,18 @@ from typing import Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
+    QLabel,
     QVBoxLayout,
     QWidget,
 )
 
-from fibsem.correlation.refractive_index import ZetaParams, lookup_zeta
+from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, lookup_zeta
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+
+_LUT_MISSING_MSG = (
+    f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"
+    "The correction factor can still be edited manually."
+)
 
 # Default values representative of typical cryo-CLEM conditions
 _DEFAULTS = ZetaParams(
@@ -111,8 +117,22 @@ class RefractiveIndexWidget(QWidget):
         )
         self._btn_reset_factor.clicked.connect(lambda: self._spin_factor.setValue(_DEFAULT_FACTOR))
 
+        lut_available = _LUT_PATH.exists()
+        if not lut_available:
+            self._lut_warning = QLabel("LUT not found — calculator disabled. Edit correction factor manually.")
+            self._lut_warning.setStyleSheet("color: #f0a500; font-style: italic; padding: 4px 8px;")
+            self._lut_warning.setWordWrap(True)
+            self._lut_warning.setToolTip(_LUT_MISSING_MSG)
+            form.addRow(self._lut_warning)
+
+            for spin in (self._spin_tilt, self._spin_depth, self._spin_na, self._spin_n2, self._spin_wl):
+                spin.setEnabled(False)
+                spin.setToolTip(_LUT_MISSING_MSG)
+
         panel = TitledPanel("Optical Parameters", content=form_widget)
         panel.add_header_widget(self._btn_reset_factor)
+        if not lut_available:
+            panel.setToolTip(_LUT_MISSING_MSG)
         outer.addWidget(panel)
         outer.addStretch(1)
 
@@ -189,6 +209,8 @@ class RefractiveIndexWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _recompute(self) -> None:
+        if not _LUT_PATH.exists():
+            return
         params = self.get_params()
         try:
             zeta = lookup_zeta(
