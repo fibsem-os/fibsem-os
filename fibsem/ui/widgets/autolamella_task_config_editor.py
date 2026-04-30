@@ -21,6 +21,16 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.ui import stylesheets
+from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
+    AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
+)
+from fibsem.applications.autolamella.workflows.tasks.tasks import (
+    AcquireFluorescenceImageConfig,
+    SpotBurnFiducialTaskConfig,
+)
+from fibsem.ui.widgets.autolamella_spot_burn_coordinates_widget import (
+    AutoLamellaSpotBurnCoordinatesWidget,
+)
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
 from fibsem.ui.widgets.autolamella_protocol_information_widget import ProtocolInformationWidget
@@ -198,6 +208,18 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
         self.milling_task_editor.setMinimumHeight(550)
 
+        self.fluorescence_acquisition_task_config_widget = AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
+            microscope=self.microscope,
+            config=None,
+            parent=self
+        )
+
+        # self.spot_burn_coordinates_widget = AutoLamellaSpotBurnCoordinatesWidget(
+        #     viewer=self.viewer,
+        #     config=None,
+        #     parent=self
+        # )
+
         # lamella, milling controls (Column 1)
         self.task_list_widget = TaskNameListWidget()
 
@@ -241,6 +263,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col2_layout.setContentsMargins(4, 4, 4, 4)
         col2_layout.addWidget(self.task_parameters_config_widget)
         col2_layout.addWidget(self.ref_image_params_widget)
+        col2_layout.addWidget(self.fluorescence_acquisition_task_config_widget)
+        # col2_layout.addWidget(self.spot_burn_coordinates_widget)
         col2_layout.addStretch()
         col2_scroll = QScrollArea()
         col2_scroll.setWidgetResizable(True)
@@ -270,6 +294,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.milling_task_editor.settings_changed.connect(self._on_milling_settings_changed)
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
+        self.fluorescence_acquisition_task_config_widget.settings_changed.connect(self._on_fluorescence_acquisition_settings_changed)
+        # self.spot_burn_coordinates_widget.settings_changed.connect(self._on_spot_burn_coordinates_changed)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
         self.pushButton_open_global_editor.clicked.connect(self._on_global_edit_clicked)
         self.protocol_info_widget.field_changed.connect(self._on_protocol_field_changed)
@@ -303,6 +329,20 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.milling_task_editor.clear()
             self.milling_task_editor.setVisible(False)
 
+        # special handling for fluorescence acquisition task
+        is_fluorescence_task = isinstance(task_config, AcquireFluorescenceImageConfig)
+        self.fluorescence_acquisition_task_config_widget.setVisible(is_fluorescence_task)
+        self.task_parameters_config_widget.setVisible(not is_fluorescence_task)
+        self.ref_image_params_widget.setVisible(not is_fluorescence_task)
+        if is_fluorescence_task:
+            self.fluorescence_acquisition_task_config_widget.set_task_config(task_config)
+
+        # special handling for spot burn fiducial task
+        # is_spot_burn_task = isinstance(task_config, SpotBurnFiducialTaskConfig)
+        # self.spot_burn_coordinates_widget.setVisible(is_spot_burn_task)
+        # if is_spot_burn_task:
+            # self.spot_burn_coordinates_widget.set_task_config(task_config)
+
     def _on_milling_settings_changed(self, config: 'FibsemMillingTaskConfig'):
         """Callback when the milling task config is changed."""
 
@@ -333,6 +373,24 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.experiment.task_protocol.task_config[selected_task_name].reference_imaging = settings
 
         # Save the experiment
+        self._save_experiment()
+
+    def _on_fluorescence_acquisition_settings_changed(self, config: 'AcquireFluorescenceImageConfig'):
+        """Callback when the fluorescence acquisition settings are changed."""
+
+        # Update the task config
+        selected_task_name = self.task_list_widget.selected_task
+        self.experiment.task_protocol.task_config[selected_task_name] = config
+        logging.info(f"Updated {selected_task_name} Fluorescence Acquisition Settings")
+
+        # # Save the experiment
+        self._save_experiment()
+
+    def _on_spot_burn_coordinates_changed(self, config: 'SpotBurnFiducialTaskConfig'):
+        """Callback when the spot burn coordinates are changed."""
+        selected_task_name = self.task_list_widget.selected_task
+        self.experiment.task_protocol.task_config[selected_task_name] = config
+        logging.info(f"Updated {selected_task_name} Spot Burn Coordinates")
         self._save_experiment()
 
     def _save_experiment(self):

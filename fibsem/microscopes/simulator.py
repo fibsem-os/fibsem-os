@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
     ThermoMicroscope,
@@ -248,6 +249,9 @@ class DemoMicroscope(FibsemMicroscope):
             self._setup_image_iterators()
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
+            
+        # fluorescence microscope
+        self.fm = FluorescenceMicroscope(self)
 
         # user, experiment metadata
         # TODO: remove once db integrated

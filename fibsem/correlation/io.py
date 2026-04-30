@@ -18,10 +18,12 @@ from ome_types.model import (
     Image as OMEImage,
 )
 from PIL import Image
+from fibsem.fm.structures import safe_ome_from_tiff, _UNIT_TO_METERS, FluorescenceImage
+
 # TODO: migrate to FluorescenceImage, FibsemImage
 ############# PARSER FUNCTIONS #############
 
-def parse_coordinates(fib_coord_filename: str, fm_coord_filename: str) -> list:
+def parse_coordinates(fib_coord_filename: str, fm_coord_filename: str) -> tuple[np.ndarray, np.ndarray]:
     """Parse the coordinates from the old style coordinate files"""
 
     def parse_coordinate_file(filename: str, delimiter: str = "\t") -> list:
@@ -58,38 +60,36 @@ def parse_ome_fibsem_image(filename: str) -> tuple[np.ndarray, float]:
     pixels_md = ome.images[0].pixels
     pixel_size = pixels_md.physical_size_x  # assume isotropic
     pixel_size_unit = pixels_md.physical_size_x_unit
-    pixel_size *= _unit_map[pixel_size_unit]  # convert to SI
+    if pixel_size is None or pixel_size_unit is None:
+        raise ValueError("Pixel size or unit not found in OME metadata")
+    pixel_size *= _UNIT_TO_METERS[pixel_size_unit]  # convert to SI
     return image, pixel_size
 
-def load_openfibsem_image(filename: str) -> tuple[np.ndarray, float]:
+def load_image_and_metadata(filename: str) -> tuple[np.ndarray, float]:
+    """Load an image and its pixel size metadata from a file, trying multiple formats."""
+    try:
+        from fibsem.structures import FibsemImage
+        image = FibsemImage.load(filename)
+        if image.metadata is None:
+            raise ValueError("Pixel size not found in FibsemImage metadata")
+        pixel_size = image.metadata.pixel_size.x
+        return image.filtered_data, pixel_size
+    except Exception as e:
+        logging.debug(f"Failed to load as FibsemImage: {e}")
+        pass
 
-    from fibsem.structures import FibsemImage
-    image = FibsemImage.load(filename)
-    image = image.data
-    pixel_size = None
-    pixel_size = image.metadata.pixel_size.x
-
-    return image, pixel_size
-
-def load_image_and_metadata(filename: str) -> tuple[np.ndarray, dict]:
-    # TODO: convert to FIBSEMImage always, require the package...
     try:
         image, pixel_size = parse_ome_fibsem_image(filename)
     except Exception as e:
         logging.debug(f"Failed to load as OME Image: {e}")
-
         try:
-            image, pixel_size = load_openfibsem_image(filename)
+            image, pixel_size = load_tfs_image(filename)
         except Exception as e:
-            logging.debug(f"Failed to load as OpenFIBSEM Image: {e}")
-            try:
-                image, pixel_size = load_tfs_image(filename)
-            except Exception as e:
-                logging.error(f"Failed to load as TFS image: {e}")
-                image = tff.imread(filename)
-                pixel_size = None
-                return None, None
-
+            logging.error(f"Failed to load as TFS image: {e}")
+            image = tff.imread(filename)
+            pixel_size = None
+            return None, None
+ 
     return image, pixel_size
 
 def load_tfs_image(filename: str) -> Tuple[np.ndarray, float]:
@@ -185,44 +185,22 @@ def rgb_to_color_name(rgb):
 
     return colors[closest_color]
 
-_unit_map = {
-    UnitsLength.NANOMETER: 1e-9,
-    UnitsLength.MICROMETER: 1e-6,
-    UnitsLength.MILLIMETER: 1e-3,
-    UnitsLength.METER: 1,
-}
-
-
-def safe_ome_from_tiff(filename: str) -> OME:
-    """Parse OME metadata from TIFF file, handling potential known issues with the OME XML.
-    Args:
-        filename (str): Path to the TIFF file.
-    Returns:
-        OME: Parsed OME metadata object.
-    """
-    try:
-        # Attempt to read OME metadata directly from the TIFF file
-        ome = from_tiff(filename)
-    except Exception as e:
-        if "Filter" in str(e):
-            # read xml description from the file
-            with tff.TiffFile(filename) as tif:
-                ome_xml = tif.pages[0].tags["ImageDescription"].value
-
-                # Filter should be FilterSetRef, drop for now
-                start = ome_xml.find("<Filter")
-                end = ome_xml.find("/>", start) + 2
-                ome_xml = ome_xml[:start] + ome_xml[end:]
-                ome = from_xml(ome_xml)
-    return ome
-
+# TODO: migrate correlation package to use FluorescenceImage rather than this custom metadata...
 def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
+
+    try:
+        image, metadata = _load_as_fluorescence_image(path)
+        return image, metadata
+    except Exception as e:
+        logging.debug(f"Failed to load as FluorescenceImage, retrying with legacy method: {e}")
+
     image = tff.imread(path)
 
     zstep, pixel_size, colours, ome = None, None, None, None
     x, y, z = None, None, None
     nc, nz, ny, nx = None, None, None, None
     exposure_times = {}
+    channel_names = None
     try:
         ome = safe_ome_from_tiff(path)
         if not ome.images:
@@ -235,10 +213,15 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
         pixel_size_unit = pixels_md.physical_size_x_unit
         zstep_unit = pixels_md.physical_size_z_unit
 
-        pixel_size *= _unit_map[pixel_size_unit]
-        zstep *= _unit_map[zstep_unit]
+        if pixel_size is None or pixel_size_unit is None:
+            raise ValueError("Pixel size or unit not found in OME metadata")
+        pixel_size *= _UNIT_TO_METERS[pixel_size_unit]
+        if zstep is None or zstep_unit is None:
+            raise ValueError("Z-step or unit not found in OME metadata")
+        zstep *= _UNIT_TO_METERS[zstep_unit]
 
         colours = [channel.color.as_rgb_tuple() for channel in pixels_md.channels]
+        channel_names = [channel.name for channel in pixels_md.channels]
 
         # image dimensions
         nc = pixels_md.size_c
@@ -274,14 +257,69 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
 
     if colours is None:
         colours = [(255, 255, 255) for _ in range(image.shape[0])]
+    if channel_names is None:
+        channel_names = [f"Channel {i}" for i in range(image.shape[0])]
 
     colours = [rgb_to_color_name(colour) for colour in colours]
 
     return image, {"pixel_size": pixel_size, 
                    "zstep": zstep, "colours": colours,
                    "x": x, "y": y, "z": z, "exposure_time": exposure_times,
+                   "channel_names": channel_names,
                    "ome": ome,
                    }
+
+def _load_as_fluorescence_image(path: str) -> Tuple[np.ndarray, dict]:
+    fm_image = FluorescenceImage.load(path)
+    image = fm_image.data
+    metadata = fm_image.metadata
+
+    zstep = metadata.pixel_size_z
+    pixel_size = metadata.pixel_size_x
+    stage_position = metadata.stage_position
+    x = getattr(stage_position, "x", None) if stage_position else None
+    y = getattr(stage_position, "y", None) if stage_position else None
+    z = getattr(stage_position, "z", None) if stage_position else None
+
+    exposure_times = {
+        idx: channel.exposure_time for idx, channel in enumerate(metadata.channels)
+    }
+
+    colours = [channel.color or "gray" for channel in metadata.channels]
+    channel_names = [channel.name for channel in metadata.channels]
+
+    # Ensure data is always returned in CZYX format
+    if image.ndim == 2:
+        image = image.reshape(1, 1, *image.shape)
+    elif image.ndim == 3:
+        image = image.reshape(1, *image.shape)
+
+    if not colours:
+        colours = ["gray"] * image.shape[0]
+    if not channel_names:
+        channel_names = [f"Channel {i}" for i in range(image.shape[0])]
+
+    ome = None
+    try:
+        ome = fm_image.get_ome_metadata()
+    except Exception as exc:
+        logging.debug(f"Failed to build OME metadata from FluorescenceImage: {exc}")
+        try:
+            ome = safe_ome_from_tiff(path)
+        except Exception as err:
+            logging.warning(f"Failed to parse OME metadata from TIFF: {err}")
+
+    return image, {
+        "pixel_size": pixel_size,
+        "zstep": zstep,
+        "colours": colours,
+        "x": x,
+        "y": y,
+        "z": z,
+        "exposure_time": exposure_times,
+        "channel_names": channel_names,
+        "ome": ome,
+    }
 
 def get_z_plane_positions(pos_z: float, nz: int, zstep: float) -> np.ndarray:
     """Calculate the position of the z-planes based on the central plane position, number of planes, and z-step size.

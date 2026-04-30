@@ -12,12 +12,14 @@ from fibsem.ui.stylesheets import (
 )
 
 from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
 
 class DisplayOptionsDialog(QDialog):
     """Dialog for configuring display overlay options."""
 
-    def __init__(self, parent: 'Widget'):
+    def __init__(self, parent: 'FMAcquisitionWidget'):
         super().__init__(parent)
         self.parent_widget = parent
         self.setWindowTitle("Display Options")

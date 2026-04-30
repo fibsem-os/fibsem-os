@@ -121,6 +121,16 @@ class FibsemMillingTaskConfig:
         """Estimate the total milling time for a list of milling stages"""
         return sum([stage.estimated_time for stage in self.stages])
 
+    def move_patterns_to_point(self, point: Point) -> bool:
+        """Move all stage patterns by a constant offset so the first stage aligns to `point`."""
+        if not self.stages:
+            return False
+
+        diff = point - self.stages[0].pattern.point
+        for stage in self.stages:
+            stage.pattern.point = stage.pattern.point + diff
+        return True
+
     def compatible_stages(self, reference_idx: int = 0) -> List[Tuple[int, FibsemMillingStage]]:
         """Return stages whose milling settings & strategy match the stage at reference_idx."""
         if not self.stages:
@@ -137,7 +147,7 @@ class FibsemMillingTaskConfig:
                 compatible.append((idx, stage))
 
         return compatible
-    
+
     def merge_compatible_stages(self, reference_idx: int = 0) -> 'FibsemMillingStage':
         compat_stages = self.compatible_stages(reference_idx=reference_idx)
         logging.info(f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}") 

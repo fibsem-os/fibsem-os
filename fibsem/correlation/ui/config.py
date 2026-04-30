@@ -14,7 +14,7 @@ USER_PREFERENCES = {
     "default_path": PATH,
     "show_corresponding_points": True,
     "show_thick_dims": True,
-    "use_z_gauss_optim": False,
+    "use_diag_plots": False,
     "use_mip": False,
 }
 
@@ -35,7 +35,7 @@ COORDINATE_LAYER_PROPERTIES = {
     "text": TEXT_PROPERTIES,
     "name": "Coordinates",
     "ndim": 3,
-    "size": 20,
+    "size": 5,
     "projection_mode": "all",
     "symbol": "ring",
     "blending": "additive",
@@ -48,6 +48,16 @@ COORDINATE_LAYER_PROPERTIES = {
     },
 }
 
+POI_LAYER_PROPERTIES = {
+    "name": "POI",
+    "ndim": 2,
+    "size": 20,
+    "symbol": "disc",
+    "face_color": "magenta",
+    "blending": "additive",
+    "opacity": 0.9,
+}
+
 LINE_LAYER_PROPERTIES = {
     "name": "Corresponding Points",
     "shape_type": "line",
@@ -58,7 +68,7 @@ LINE_LAYER_PROPERTIES = {
 RESULTS_LAYER_PROPERTIES = {
     "name": "Results",
     "ndim": 2,
-    "size": 10,
+    "size": 5,
     "symbol": "disc",
     "border_color": "magenta",
     "face_color": "magenta",

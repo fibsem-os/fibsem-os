@@ -65,7 +65,15 @@ DISABLED_PUSHBUTTON_STYLE = """
 QPushButton {
     background-color: none;
     }
-"""    
+"""
+PURPLE_PUSHBUTTON_STYLE = """
+QPushButton {
+    background-color: purple;
+    color: white;
+    }
+QPushButton:hover {
+    background-color: rgba(128, 0, 128, 125);
+}"""    
 
 PROGRESS_BAR_GREEN_STYLE = "QProgressBar::chunk {background-color: green;}"
 PROGRESS_BAR_BLUE_STYLE = "QProgressBar::chunk {background-color: blue;}"

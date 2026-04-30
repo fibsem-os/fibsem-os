@@ -378,7 +378,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
     @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
-        if (retake is False or self.microscope.is_acquiring):
+        # disable taking images after movement here
+        if (retake is False or self.microscope.is_acquiring or
+            self.microscope.fm is not None and
+            self.microscope.fm.objective.state == "Inserted"):
             self.update_ui()
             return
         prefs = cfg.load_user_preferences()
