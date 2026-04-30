@@ -3,10 +3,14 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
+    QDialog,
     QDoubleSpinBox,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 import numpy as np
@@ -40,6 +44,49 @@ OBJECTIVE_CONFIG = {
     },
 }
 MAX_OBJECTIVE_STEP_SIZE_MM = 0.1  # mm
+_SAFE_TILT_TOLERANCE_DEG = 0.5
+
+
+class _InsertObjectiveDialog(QDialog):
+    """Combined stage-tilt selection + insert confirmation dialog."""
+
+    def __init__(self, tilt_deg: float, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Insert Objective")
+        self.setMinimumWidth(480)
+        self.selected_tilt: Optional[float] = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        info = QLabel(
+            f"Current stage tilt: <b>{tilt_deg:.1f}°</b><br><br>"
+            "Select the target stage tilt. The stage will move to the selected "
+            "tilt if needed before inserting the objective."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self._btn_0 = QPushButton("Insert at 0°")
+        self._btn_180 = QPushButton("Insert at -180°")
+        btn_cancel = QPushButton("Cancel")
+        self._btn_0.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self._btn_180.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        btn_row.addWidget(self._btn_0)
+        btn_row.addWidget(self._btn_180)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+
+        self._btn_0.clicked.connect(lambda: self._accept(0.0))
+        self._btn_180.clicked.connect(lambda: self._accept(-180.0))
+        btn_cancel.clicked.connect(self.reject)
+
+    def _accept(self, tilt: float) -> None:
+        self.selected_tilt = tilt
+        self.accept()
+
 
 class ObjectiveControlWidget(QWidget):    
     def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None):
@@ -161,16 +208,34 @@ class ObjectiveControlWidget(QWidget):
 
     def insert_objective(self):
         """Insert the objective."""
+        if self.fm.objective.state == "Inserted":
+            message_box_ui(
+                title="Objective Already Inserted",
+                text="The objective is already inserted.",
+                buttons=QMessageBox.Ok,
+                parent=self,
+            )
+            return
 
-        # confirmation dialog
-        ret = message_box_ui(
-            title="Insert Objective",
-            text="Are you sure you want to insert the objective?",
-            parent=self
-        )
-        if ret is False:
+        if self.parent_widget is None:
+            return
+        if self.parent_widget.microscope is None:
+            return
+
+        stage_pos = self.parent_widget.microscope.get_stage_position()
+        tilt_deg = np.degrees(stage_pos.t)
+
+        dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
+        if dlg.exec_() != QDialog.Accepted or dlg.selected_tilt is None:
             logging.info("Objective insertion cancelled by user.")
             return
+
+        target_tilt_deg = dlg.selected_tilt
+        if not np.isclose(tilt_deg, target_tilt_deg, atol=_SAFE_TILT_TOLERANCE_DEG):
+            stage_pos.t = np.radians(target_tilt_deg)
+            logging.info(f"Moving stage to {target_tilt_deg:.0f}° tilt before inserting objective.")
+            self.parent_widget.microscope.move_stage_absolute(stage_pos)
+
 
         logging.info("Inserting objective...")
         self.fm.objective.insert()
@@ -179,6 +244,15 @@ class ObjectiveControlWidget(QWidget):
 
     def retract_objective(self):
         """Retract the objective."""
+        if self.fm.objective.state == "Retracted":
+            message_box_ui(
+                title="Objective Already Retracted",
+                text="The objective is already retracted.",
+                buttons=QMessageBox.Ok,
+                parent=self,
+            )
+            return
+
         # confirmation dialog
         ret = message_box_ui(
             title="Retract Objective",
