@@ -76,7 +76,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         else:
             stage_position = self.lamella.stage_position
 
-        if self.microscope.get_stage_orientation(stage_position) not in self.microscope.fm.valid_orientations:
+        if not self.microscope.fm.has_valid_orientation(stage_position):
             logging.warning(f"Stage Position {self.lamella.name} is not in a valid orientation: {stage_position}, moving to SEM orientation...")
             stage_position = self.microscope.get_target_position(stage_position=stage_position, target_orientation="SEM")
 

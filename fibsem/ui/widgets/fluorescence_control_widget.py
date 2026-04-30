@@ -345,11 +345,8 @@ class FMControlWidget(QWidget):
             logging.info("Pixelsize is None")
             return
 
-        if (
-            self.microscope.get_stage_orientation()
-            not in self.microscope.fm.valid_orientations
-        ):
-            logging.info("Stage must be in FM or SEM orientation to move stage via FM")
+        if not self.microscope.fm.has_valid_orientation():
+            logging.info(f"Stage must be in a valid FM orientation to move stage via FM (current: {self.microscope.get_stage_orientation()})")
             event.handled = True
             return
 
@@ -548,13 +545,8 @@ class FMControlWidget(QWidget):
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
 
-        if (
-            self.microscope.get_stage_orientation()
-            not in self.microscope.fm.valid_orientations
-        ):
-            logging.warning(
-                "Stage is not in FM or SEM orientation. Cannot start acquisition."
-            )
+        if not self.microscope.fm.has_valid_orientation():
+            logging.warning(f"Stage is not in a valid FM orientation. Cannot start acquisition (current: {self.microscope.get_stage_orientation()})")
             return
 
         if self.is_acquiring:
@@ -819,10 +811,7 @@ class FMControlWidget(QWidget):
 
     def _update_acquisition_button_states(self):
         """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
-        if (
-            self.microscope.get_stage_orientation()
-            not in self.microscope.fm.valid_orientations
-        ):
+        if not self.microscope.fm.has_valid_orientation():
             # If not in FM or SEM orientation, disable all acquisition buttons
             self.pushButton_toggle_acquisition.setEnabled(False)
             self.pushButton_acquire_zstack.setEnabled(False)

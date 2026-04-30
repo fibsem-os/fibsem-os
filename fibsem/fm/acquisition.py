@@ -151,8 +151,8 @@ def acquire_image(
     if microscope.parent is None:
         raise ValueError("Microscope parent is not set. Cannot start acquisition.")
 
-    if microscope.parent.get_stage_orientation() not in microscope.valid_orientations:
-        raise ValueError("Stage is not in valid orientation. Cannot start acquisition.")
+    if not microscope.has_valid_orientation():
+        raise ValueError(f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition.")
 
     if zparams is not None:
         # Acquire Z-stack if zparams is provided
@@ -216,8 +216,8 @@ def acquire_at_positions(
         raise ValueError(
             "Fluorescence microscope not initialized in the FibsemMicroscope instance"
         )
-    if microscope.get_stage_orientation() not in microscope.fm.valid_orientations:
-        raise ValueError("Stage is not in valid orientation. Cannot start acquisition.")
+    if not microscope.fm.has_valid_orientation():
+        raise ValueError(f"Stage is not in valid orientation ({microscope.get_stage_orientation()!r}). Cannot start acquisition.")
 
     if not positions:
         raise ValueError("Positions list cannot be empty")

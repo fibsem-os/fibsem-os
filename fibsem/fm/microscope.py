@@ -19,6 +19,7 @@ from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures import FibsemStagePosition
 
 EXCITATION_WAVELENGTHS = (365, 450, 550, 635)  # in nm, example wavelengths
 EMISSION_WAVELENGTHS = (None, "Fluorescence")  # in nm, example wavelengths
@@ -46,6 +47,7 @@ UINT16_MAX = np.iinfo(np.uint16).max  # 65535 for uint16
 BINNING_VALUES = [1, 2, 4, 8]  # typical binning values
 
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
+ALLOW_UNKNOWN_ORIENTATIONS = True  # allow fm control at any orientation
 
 
 class ObjectiveLens(ABC):
@@ -581,7 +583,16 @@ class FluorescenceMicroscope(ABC):
             "SEM",
             "MILLING",
         ]  # valid orientations for fluorescence acquisition
-        # TODO: support microscope-specific valid orientations, e.g. METEOR only supports FM
+        self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
+
+    def has_valid_orientation(
+        self, stage_position: Optional["FibsemStagePosition"] = None
+    ) -> bool:
+        """Return True if the current (or given) stage orientation is allowed for FM acquisition."""
+        if self._allow_unknown_orientations:
+            return True
+        orientation = self.parent.get_stage_orientation(stage_position)
+        return orientation in self.valid_orientations
 
     def __repr__(self):
         """Return a string representation of the fluorescence microscope.
