@@ -5,8 +5,14 @@ import pytest
 from fibsem.correlation.refractive_index import (
     SliceScalingFactorLUT,
     ZetaParams,
+    _LUT_PATH,
     get_lut,
     lookup_zeta,
+)
+
+pytestmark = pytest.mark.skipif(
+    not _LUT_PATH.exists(),
+    reason=f"LUT CSV not found: {_LUT_PATH}",
 )
 
 
