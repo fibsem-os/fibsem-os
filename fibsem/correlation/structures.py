@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import auto, Enum
 from typing import Optional
 import json
 import time
@@ -11,7 +11,7 @@ from fibsem.structures import FibsemImage, Point
 from fibsem.fm.structures import FluorescenceImage
 
 
-class PointType(StrEnum):
+class PointType(Enum):
     FIB = "FIB"
     FM = "FM"
     POI = "POI"
