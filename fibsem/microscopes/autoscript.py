@@ -6,7 +6,17 @@ isolated from the general fibsem data structures.
 from __future__ import annotations
 
 import sys
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from fibsem.structures import (
+        BeamType,
+        FibsemImage,
+        FibsemManipulatorPosition,
+        FibsemStagePosition,
+        ImageSettings,
+        MicroscopeState,
+    )
 
 THERMO_API_AVAILABLE = False
 
@@ -165,7 +175,7 @@ def manipulator_position_from_autoscript(
 
 def image_settings_from_adorned_image(
     image: "AdornedImage",
-    beam_type: "BeamType" = None,
+    beam_type: Optional["BeamType"] = None,
 ) -> "ImageSettings":
     """Create ImageSettings from an AutoScript AdornedImage.
 
@@ -206,7 +216,7 @@ def fibsem_image_from_adorned_image(
     adorned: "AdornedImage",
     image_settings: Optional["ImageSettings"] = None,
     state: Optional["MicroscopeState"] = None,
-    beam_type: "BeamType" = None,
+    beam_type: Optional["BeamType"] = None,
 ) -> "FibsemImage":
     """Create a FibsemImage from an AutoScript AdornedImage.
 
@@ -231,11 +241,9 @@ def fibsem_image_from_adorned_image(
         FibsemImage,
         FibsemImageMetadata,
         FibsemStagePosition,
-        ImageSettings,
         MicroscopeState,
         Point,
     )
-    from fibsem.utils import current_timestamp
 
     if beam_type is None:
         beam_type = BeamType.ELECTRON
@@ -257,18 +265,7 @@ def fibsem_image_from_adorned_image(
         state.timestamp = adorned.metadata.acquisition.acquisition_datetime
 
     if image_settings is None:
-        image_settings = ImageSettings(
-            resolution=(adorned.width, adorned.height),
-            dwell_time=adorned.metadata.scan_settings.dwell_time,
-            hfw=adorned.width * adorned.metadata.binary_result.pixel_size.x,
-            autocontrast=True,
-            beam_type=beam_type,
-            autogamma=True,
-            save=False,
-            path="path",
-            filename=current_timestamp(),
-            reduced_area=None,
-        )
+        image_settings = image_settings_from_adorned_image(adorned, beam_type)
 
     pixel_size = Point(
         adorned.metadata.binary_result.pixel_size.x,
