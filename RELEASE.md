@@ -28,6 +28,32 @@
    ```
    Commit with `git commit -m "bump version to 0.5.1.dev0"`.
 
+## Building the Windows installer locally
+
+Constructor can cross-build a Windows `.exe` from Linux — it downloads pre-built conda packages, no compilation needed. Requires `conda` and `pip`.
+
+```bash
+# Install tools (once)
+conda install -c conda-forge constructor
+pip install build
+
+# Build the fibsem wheel
+python -m build --wheel
+
+# Set up constructor directory
+VERSION=0.5.0a0
+cp dist/fibsem-*.whl constructor/fibsem-${VERSION}-py3-none-any.whl
+sed -i "s/__VERSION__/${VERSION}/g" constructor/construct.yaml
+
+# Build the Windows .exe
+constructor constructor/ --platform win-64 --output-dir dist/
+
+# Restore the template afterwards
+git checkout constructor/construct.yaml
+```
+
+The installer will appear in `dist/fibsem-*.exe`.
+
 ## Versioning
 
 Releases follow `MAJOR.MINOR.PATCH`:
