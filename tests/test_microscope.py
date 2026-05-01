@@ -56,3 +56,29 @@ def test_get_stage_orientation_non_compustage(rotation_deg, tilt_deg, expected):
 
     pos = FibsemStagePosition(r=np.radians(rotation_deg), t=np.radians(tilt_deg))
     assert microscope.get_stage_orientation(pos) == expected
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "FIB", "MILLING"])
+def test_move_to_orientation(orientation):
+    """Test that move_to_orientation moves the stage to the correct r, t."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    expected = microscope.get_orientation(orientation)
+    microscope.move_to_orientation(orientation)
+    pos = microscope.get_stage_position()
+    assert np.isclose(pos.r, expected.r, atol=1e-6), f"{orientation}: r mismatch"
+    assert np.isclose(pos.t, expected.t, atol=1e-6), f"{orientation}: t mismatch"
+
+
+def test_move_to_orientation_invalid():
+    """Test that an invalid orientation name raises ValueError."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    with pytest.raises(ValueError):
+        microscope.move_to_orientation("INVALID")
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "FIB", "MILLING"])
+def test_move_to_orientation_round_trip(orientation):
+    """Test that move_to_orientation and get_stage_orientation are consistent."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.move_to_orientation(orientation)
+    assert microscope.get_stage_orientation() == orientation

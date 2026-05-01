@@ -348,6 +348,13 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
+    def move_to_orientation(self, orientation: str) -> None:
+        """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING')."""
+        pos = self.get_orientation(orientation)
+        stage_position = FibsemStagePosition(r=pos.r, t=pos.t, coordinate_system="Raw")
+        logging.info(f"moving to orientation: {orientation}")
+        self.safe_absolute_stage_movement(stage_position)
+
     @abstractmethod
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
         pass
