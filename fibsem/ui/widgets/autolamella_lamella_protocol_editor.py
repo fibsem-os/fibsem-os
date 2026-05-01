@@ -1069,4 +1069,4 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _save_experiment(self):
         """Save the experiment."""
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save()
+            self.parent_widget.experiment.save(save_protocol=True)

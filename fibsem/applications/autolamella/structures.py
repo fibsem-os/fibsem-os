@@ -1005,11 +1005,13 @@ class Experiment:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)
 
-    def save(self) -> None:
+    def save(self, save_protocol: bool = False) -> None:
         """Save the sample data to yaml file"""
 
         with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
             yaml.safe_dump(self.to_dict(), f, indent=4)
+        if save_protocol:
+            self.save_protocol()
 
     def __repr__(self) -> str:
 

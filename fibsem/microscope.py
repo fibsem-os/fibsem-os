@@ -124,6 +124,13 @@ from fibsem.structures import (
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.transformations import get_stage_tilt_from_milling_angle
+from fibsem.microscopes.autoscript import (
+    fibsem_image_from_adorned_image,
+    manipulator_position_from_autoscript,
+    manipulator_position_to_autoscript,
+    stage_position_from_autoscript,
+    stage_position_to_autoscript,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -350,6 +357,13 @@ class FibsemMicroscope(ABC):
             self.safe_absolute_stage_movement(stage_position)
         else:
             self.move_stage_absolute(stage_position)
+
+    def move_to_orientation(self, orientation: str) -> None:
+        """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING')."""
+        pos = self.get_orientation(orientation)
+        stage_position = FibsemStagePosition(r=pos.r, t=pos.t, coordinate_system="Raw")
+        logging.info(f"moving to orientation: {orientation}")
+        self.safe_absolute_stage_movement(stage_position)
 
     @abstractmethod
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
@@ -1695,9 +1709,9 @@ class ThermoMicroscope(FibsemMicroscope):
         # therefore we don't trigger the view to switch
         state = self.get_microscope_state(beam_type=image_settings.beam_type)
 
-        fibsem_image = FibsemImage.fromAdornedImage(
-            copy.deepcopy(image), 
-            copy.deepcopy(image_settings), 
+        fibsem_image = fibsem_image_from_adorned_image(
+            copy.deepcopy(image),
+            copy.deepcopy(image_settings),
             copy.deepcopy(state),
         )
 
@@ -1735,9 +1749,9 @@ class ThermoMicroscope(FibsemMicroscope):
         state = self.get_microscope_state(beam_type=beam_type)
         image_settings = self.get_imaging_settings(beam_type=beam_type)
 
-        image = FibsemImage.fromAdornedImage(
-            copy.deepcopy(adorned_image), 
-            copy.deepcopy(image_settings), 
+        image = fibsem_image_from_adorned_image(
+            copy.deepcopy(adorned_image),
+            copy.deepcopy(image_settings),
             copy.deepcopy(state),
         )
 
@@ -1810,7 +1824,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # Create FibsemImage with metadata (common for both paths)
         state = self.get_microscope_state(beam_type=effective_beam_type)
-        fibsem_image = FibsemImage.fromAdornedImage(
+        fibsem_image = fibsem_image_from_adorned_image(
             copy.deepcopy(adorned_image),
             copy.deepcopy(effective_image_settings),
             copy.deepcopy(state),
@@ -1894,10 +1908,12 @@ class ThermoMicroscope(FibsemMicroscope):
         state = self.get_microscope_state(beam_type=beam_type)
 
         # create the fibsem image
-        fibsem_image = FibsemImage.fromAdornedImage(adorned=image,
-                                                    image_settings=None,
-                                                    state=state,
-                                                    beam_type=beam_type)
+        fibsem_image = fibsem_image_from_adorned_image(
+            adorned=image,
+            image_settings=None,
+            state=state,
+            beam_type=beam_type,
+        )
 
         # set additional metadata
         fibsem_image.metadata.user = self.user
@@ -1977,9 +1993,9 @@ class ThermoMicroscope(FibsemMicroscope):
         state = self.get_microscope_state(beam_type=beam_type)
         image_settings = self.get_imaging_settings(beam_type=beam_type)
 
-        image = FibsemImage.fromAdornedImage(
-            copy.deepcopy(adorned_image), 
-            copy.deepcopy(image_settings), 
+        image = fibsem_image_from_adorned_image(
+            copy.deepcopy(adorned_image),
+            copy.deepcopy(image_settings),
             copy.deepcopy(state),
         )
 
@@ -2074,7 +2090,7 @@ class ThermoMicroscope(FibsemMicroscope):
         wd = self.get_working_distance(BeamType.ELECTRON)
 
         # convert to autoscript position
-        autoscript_position = position.to_autoscript_position(compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
+        autoscript_position = stage_position_to_autoscript(position, compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
         if self.get_stage_orientation() == "FM":
             autoscript_position.z = None
@@ -2102,7 +2118,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info(f"Moving stage by {position}.")
 
         # convert to autoscript position
-        thermo_position = position.to_autoscript_position(self.stage_is_compustage)
+        thermo_position = stage_position_to_autoscript(position, self.stage_is_compustage)
 
         # move stage
         self.stage.relative_move(thermo_position)
@@ -2574,7 +2590,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info(f"moving manipulator by {position}")
 
         # convert to autoscript position
-        autoscript_position = position.to_autoscript_position()
+        autoscript_position = manipulator_position_to_autoscript(position)
         # move manipulator relative
         self.connection.specimen.manipulator.relative_move(autoscript_position)
         logging.debug({"msg": "move_manipulator_relative", "position": position.to_dict()})
@@ -2584,7 +2600,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info(f"moving manipulator to {position}")
 
         # convert to autoscript
-        autoscript_position = position.to_autoscript_position()
+        autoscript_position = manipulator_position_to_autoscript(position)
 
         # move manipulator
         self.connection.specimen.manipulator.absolute_move(autoscript_position)
@@ -2710,7 +2726,7 @@ class ThermoMicroscope(FibsemMicroscope):
             )
 
         # convert to FibsemManipulatorPosition
-        manipulator_position = FibsemManipulatorPosition.from_autoscript_position(autoscript_position)        
+        manipulator_position = manipulator_position_from_autoscript(autoscript_position)
 
         logging.debug({"msg": "get_saved_manipulator_position", "name": name, "position": manipulator_position.to_dict()})
 
@@ -3688,7 +3704,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "stage_position":
             # get stage position in raw coordinates 
             self.stage.set_default_coordinate_system(self._default_stage_coordinate_system) # TODO: remove this once testing is done
-            stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position) # TODO: apply compucentric/raw coordinate system conversion here
+            stage_position = stage_position_from_autoscript(self.stage.current_position) # TODO: apply compucentric/raw coordinate system conversion here
             return stage_position
         
         if key == "stage_homed":
@@ -3721,7 +3737,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # manipulator properties
         if key == "manipulator_position":
             position = self.connection.specimen.manipulator.current_position   
-            return FibsemManipulatorPosition.from_autoscript_position(position)
+            return manipulator_position_from_autoscript(position)
         if key == "manipulator_state":
             state = self.connection.specimen.manipulator.state                 
             return True if state == ManipulatorState.INSERTED else False
@@ -4009,11 +4025,11 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # get stage position in speciemn coordinates 
         self.stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
-        specimen_stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)
+        specimen_stage_position = stage_position_from_autoscript(self.stage.current_position)
 
-        # get stage position in raw coordinates 
+        # get stage position in raw coordinates
         self.stage.set_default_coordinate_system(CoordinateSystem.RAW)
-        raw_stage_position = FibsemStagePosition.from_autoscript_position(self.stage.current_position)
+        raw_stage_position = stage_position_from_autoscript(self.stage.current_position)
 
         # calculate the offset
         offset = specimen_stage_position - raw_stage_position # XY only

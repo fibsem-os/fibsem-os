@@ -6,7 +6,6 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import napari
-import napari.utils.notifications
 import numpy as np
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Layer as NapariLayer
@@ -30,6 +29,7 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants, conversions
+from fibsem.ui import notification_service
 from fibsem.applications.autolamella.config import (
     FEATURE_DISPLAY_GRID_CENTER_MARKER,
 )
@@ -575,7 +575,7 @@ class FibsemMinimapWidget(QWidget):
         image_settings.save = True
 
         if not image_settings.filename:
-            napari.utils.notifications.show_error("Please enter a filename for the image")
+            notification_service.show_toast("Please enter a filename for the image", "error")
             return
 
         # ui feedback
@@ -593,7 +593,7 @@ class FibsemMinimapWidget(QWidget):
     def tile_collection_finished(self):
         self._acquisition_worker = None
         self._thread_stop_event.clear()
-        napari.utils.notifications.show_info("Tile collection finished.")
+        notification_service.show_toast("Tile collection finished.")
         self.update_viewer(self.image)
         self.toggle_interaction(enable=True)
 
@@ -714,7 +714,7 @@ class FibsemMinimapWidget(QWidget):
             parent=self)
 
         if filename == "":
-            napari.utils.notifications.show_error("No file selected..")
+            notification_service.show_toast("No file selected..", "error")
             return
 
         # load the image
@@ -746,7 +746,7 @@ class FibsemMinimapWidget(QWidget):
             if tmp:
                 return # don't update the rest of the UI, we are just updating the image
             if self.image_layer is None:
-                napari.utils.notifications.show_error("Error adding image layer to viewer.")
+                notification_service.show_toast("Error adding image layer to viewer.", "error")
                 return
 
             self.image_layer.mouse_drag_callbacks.clear()
@@ -784,9 +784,7 @@ class FibsemMinimapWidget(QWidget):
 
         # check if clicked point is inside image
         if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
-            napari.utils.notifications.show_warning(
-                "Clicked outside image dimensions. Please click inside the image to move."
-            )
+            notification_service.show_toast("Clicked outside image dimensions. Please click inside the image to move.", "warning")
             return False, False
 
         point = conversions.image_to_microscope_image_coordinates(
@@ -835,7 +833,7 @@ class FibsemMinimapWidget(QWidget):
 
         # handle case where multiple modifiers are pressed
         if update_position and add_new_position:
-            napari.utils.notifications.show_warning("Please select either Shift or Alt modifier, not both.")
+            notification_service.show_toast("Please select either Shift or Alt modifier, not both.", "warning")
             return
 
         if self.parent_widget is None or self.parent_widget.experiment is None:
@@ -843,7 +841,7 @@ class FibsemMinimapWidget(QWidget):
 
         # check if position is within stage limits
         if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
-            napari.utils.notifications.show_warning("Position is outside stage limits. Please select a position within the stage limits.")
+            notification_service.show_toast("Position is outside stage limits. Please select a position within the stage limits.", "warning")
             return
 
         if update_position:
@@ -899,7 +897,7 @@ class FibsemMinimapWidget(QWidget):
         """
 
         if self.parent_widget.is_workflow_running:
-            napari.utils.notifications.show_warning("Cannot move stage while workflow is running.")
+            notification_service.show_toast("Cannot move stage while workflow is running.", "warning")
             return
 
         if event.button != 1: # left click only
@@ -921,7 +919,7 @@ class FibsemMinimapWidget(QWidget):
 
         # check if position is within stage limits
         if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
-            napari.utils.notifications.show_warning("Position is outside stage limits. Please select a position within the stage limits.")
+            notification_service.show_toast("Position is outside stage limits. Please select a position within the stage limits.", "warning")
             return
 
         self.move_to_stage_position(stage_position)
@@ -950,7 +948,7 @@ class FibsemMinimapWidget(QWidget):
 
         # Check if clicked point is inside image
         if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
-            napari.utils.notifications.show_warning("Position is outside image bounds. Please select a position within the image.")
+            notification_service.show_toast("Position is outside image bounds. Please select a position within the image.", "warning")
             return
 
         event.handled = True
@@ -970,7 +968,7 @@ class FibsemMinimapWidget(QWidget):
 
         # Check if position is within stage limits
         if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
-            napari.utils.notifications.show_warning("Position is outside stage limits. Please select a position within the stage limits.")
+            notification_service.show_toast("Position is outside stage limits. Please select a position within the stage limits.", "warning")
             return
 
         # Build context menu
@@ -1413,13 +1411,13 @@ class FibsemMinimapWidget(QWidget):
             return
 
         if self.protocol is None:
-            napari.utils.notifications.show_warning("No milling patterns found in protocol...")
+            notification_service.show_toast("No milling patterns found in protocol...", "warning")
             return
 
         selected_pattern = self.comboBox_pattern_overlay.currentText()
         selected_milling_stages: List[FibsemMillingStage] = []
         if selected_pattern == "":
-            napari.utils.notifications.show_warning("Please select a milling pattern to overlay...")
+            notification_service.show_toast("Please select a milling pattern to overlay...", "warning")
             return
 
         task_config = self.protocol.task_config
@@ -1505,17 +1503,17 @@ class FibsemMinimapWidget(QWidget):
         layer_name = self.comboBox_correlation_selected_layer.currentText()
         self.pushButton_enable_correlation.setEnabled(layer_name != "")
         if layer_name == "":
-            napari.utils.notifications.show_info("Please select a layer to correlate with update data...")
+            notification_service.show_toast("Please select a layer to correlate with update data...")
             return
 
     def _toggle_correlation_mode(self, event: Optional[NapariEvent] = None):
         """Toggle correlation mode on or off."""
         if self.image is None:
-            napari.utils.notifications.show_warning("Please acquire an image first...")
+            notification_service.show_toast("Please acquire an image first...", "warning")
             return
 
         if not self.correlation_image_layers:
-            napari.utils.notifications.show_warning("Please load a correlation image first...")
+            notification_service.show_toast("Please load a correlation image first...", "warning")
             return
 
         # toggle correlation mode

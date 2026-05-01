@@ -16,9 +16,9 @@ from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
 import numpy as np
 import napari
-import napari.utils.notifications
 import fibsem
 from fibsem import conversions, utils
+from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -441,13 +441,6 @@ class AutoLamellaUI(QMainWindow):
             triggered=self.action_generate_overview_plot,
         )
 
-        # task config editor
-        self.action_open_protocol_editor = QAction(  # type: ignore
-            "Open Protocol Editor",
-            parent=self,
-            triggered=self._open_protocol_editor,
-        )
-
         self.action_open_experiment_directory = QAction(  # type: ignore
             "Open Experiment Directory",
             parent=self,
@@ -498,7 +491,6 @@ class AutoLamellaUI(QMainWindow):
         # tools menu
         self.menuTools.setToolTipsVisible(True)
         self.menuTools.addAction(self.actionOpen_Minimap)
-        self.menuTools.addAction(self.action_open_protocol_editor)
         self.menuTools.addAction(self.action_open_experiment_workflow_summary)
 
         # submenu for reporting
@@ -599,9 +591,6 @@ class AutoLamellaUI(QMainWindow):
             # logging.info(f"Unhandled event: {evt.signal.name}: {evt.path}, {evt.args}")
             return
 
-        logging.info(
-            f"event: {evt.signal.name} path: {evt.path}, {len(self.experiment.positions)} Positions"
-        )
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -808,16 +797,14 @@ class AutoLamellaUI(QMainWindow):
     def create_experiment(self) -> None:
         """Create a new experiment using the experiment creation dialog."""
         if self.microscope is None:
-            napari.utils.notifications.show_warning(
-                "Please connect to microscope first."
-            )
+            notification_service.show_toast("Please connect to microscope first.", "warning")
             return
 
         # Open the experiment creation dialog
         experiment = create_experiment_dialog(parent=self)  # type: ignore
 
         if experiment is None:
-            napari.utils.notifications.show_info("Experiment creation cancelled.")
+            notification_service.show_toast("Experiment creation cancelled.", "info")
             return
 
         # Disconnect existing event subscribers if there's an existing experiment
@@ -834,16 +821,14 @@ class AutoLamellaUI(QMainWindow):
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
         if self.microscope is None:
-            napari.utils.notifications.show_warning(
-                "Please connect to microscope first."
-            )
+            notification_service.show_toast("Please connect to microscope first.", "warning")
             return
 
         # Open the experiment loading dialog
         experiment = load_experiment_dialog(parent=self)  # type: ignore
 
         if experiment is None:
-            napari.utils.notifications.show_info("Experiment loading cancelled.")
+            notification_service.show_toast("Experiment loading cancelled.", "info")
             return
 
         # Disconnect existing event subscribers if there's an existing experiment
@@ -1026,9 +1011,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         if not REPORTING_AVAILABLE:
-            napari.utils.notifications.show_warning(
-                "Reporting tools are not available."
-            )
+            notification_service.show_toast("Reporting tools are not available.", "warning")
             return
 
         dialog = create_overview_image_widget(experiment=self.experiment, parent=self)
@@ -1040,13 +1023,11 @@ class AutoLamellaUI(QMainWindow):
         """Open the experiment task workflow summary dialog."""
 
         if self.experiment is None:
-            napari.utils.notifications.show_warning("Please load an experiment first.")
+            notification_service.show_toast("Please load an experiment first.", "warning")
             return
 
         if not REPORTING_AVAILABLE:
-            napari.utils.notifications.show_warning(
-                "Reporting tools are not available."
-            )
+            notification_service.show_toast("Reporting tools are not available.", "warning")
             return
 
         dialog = create_experiment_task_summary_widget(
@@ -1056,25 +1037,18 @@ class AutoLamellaUI(QMainWindow):
 
     #### PROTOCOL EDITOR
 
-    def _open_protocol_editor(self):
-        """Open the protocol editor dialog."""
-        napari.utils.notifications.show_info(
-            "Protocol editor is under development and will be available in a future release."
-        )
-        return
-
     def _open_experiment_directory(self) -> None:
         """Open the experiment directory in the system file explorer."""
         if self.experiment is None or self.experiment.path is None:
-            napari.utils.notifications.show_warning(
-                "Please load an experiment first... [No Experiment Loaded]"
+            notification_service.show_toast(
+                "Please load an experiment first... [No Experiment Loaded]", "warning"
             )
             return
 
         experiment_path = os.fspath(self.experiment.path)
         if not os.path.isdir(experiment_path):
-            napari.utils.notifications.show_error(
-                f"Experiment directory not found: {experiment_path}"
+            notification_service.show_toast(
+                f"Experiment directory not found: {experiment_path}", "error"
             )
             return
 
@@ -1087,9 +1061,7 @@ class AutoLamellaUI(QMainWindow):
                 subprocess.Popen(["xdg-open", experiment_path])
         except Exception:
             logging.exception("Failed to open experiment directory.")
-            napari.utils.notifications.show_error(
-                "Failed to open experiment directory."
-            )
+            notification_service.show_toast("Failed to open experiment directory.", "error")
 
     #### FLUORESCENCE MINIMAP
 
@@ -1120,8 +1092,9 @@ class AutoLamellaUI(QMainWindow):
     #### MINIMAP
 
     def open_minimap_widget(self):
-        napari.utils.notifications.show_info(
-            "Overview acquisition is under development and will be available in a future release."
+        notification_service.show_toast(
+            "Overview acquisition is under development and will be available in a future release.",
+            "info",
         )
         return
 
@@ -1311,7 +1284,6 @@ class AutoLamellaUI(QMainWindow):
         # tool menu
         self.actionCryo_Deposition.setVisible(True)
         self.actionOpen_Minimap.setEnabled(is_experiment_ready)
-        self.action_open_protocol_editor.setEnabled(is_experiment_ready)
         self.menuReporting.setEnabled(is_experiment_ready and REPORTING_AVAILABLE)
         self.action_open_experiment_workflow_summary.setEnabled(
             is_experiment_ready and REPORTING_AVAILABLE
@@ -1322,7 +1294,6 @@ class AutoLamellaUI(QMainWindow):
         if not is_experiment_ready:
             tools_disabled_tooltip = "Create or load an experiment first. \nFile -> Create Experiment or Load Experiment"
         self.actionOpen_Minimap.setToolTip(tools_disabled_tooltip)
-        self.action_open_protocol_editor.setToolTip(tools_disabled_tooltip)
         self.action_open_experiment_workflow_summary.setToolTip(tools_disabled_tooltip)
         # help menu
         self.actionGenerate_Report.setEnabled(
@@ -1715,24 +1686,24 @@ class AutoLamellaUI(QMainWindow):
         """Set the current stage position as the selected pose for the current lamella."""
 
         if self.microscope is None:
-            napari.utils.notifications.show_warning("No microscope connected.")
+            notification_service.show_toast("No microscope connected.", "warning")
             return
         if self.experiment is None or self.experiment.positions == []:
-            napari.utils.notifications.show_warning("No lamella available.")
+            notification_service.show_toast("No lamella available.", "warning")
             return
         idx = self.lamella_list.selected_index
         if idx == -1:
-            napari.utils.notifications.show_warning("No lamella selected.")
+            notification_service.show_toast("No lamella selected.", "warning")
             return
         lamella: Lamella = self.experiment.positions[idx]
         pose_name = self.comboBox_lamella_pose.currentText()
         if pose_name == "":
-            napari.utils.notifications.show_warning("No pose selected.")
+            notification_service.show_toast("No pose selected.", "warning")
             return
         state = self.microscope.get_microscope_state()
 
         if state is None or state.stage_position is None:
-            napari.utils.notifications.show_warning("Failed to get microscope state.")
+            notification_service.show_toast("Failed to get microscope state.", "warning")
             return
 
         # confirmation dialog
@@ -1748,41 +1719,37 @@ class AutoLamellaUI(QMainWindow):
         lamella.poses[pose_name] = state
         self.experiment.save()
         self.label_lamella_pose_position.setText(f"{state.stage_position.pretty}")
-        napari.utils.notifications.show_info(
-            f"Set current position as pose '{pose_name}' for {lamella.name}."
+        notification_service.show_toast(
+            f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
         )
 
     def _move_to_lamella_pose(self):
         """Move the stage to the selected pose for the current lamella."""
 
         if self.microscope is None:
-            napari.utils.notifications.show_warning("No microscope connected.")
+            notification_service.show_toast("No microscope connected.", "warning")
             return
         if self.experiment is None or self.experiment.positions == []:
-            napari.utils.notifications.show_warning("No lamella available.")
+            notification_service.show_toast("No lamella available.", "warning")
             return
         if self.movement_widget is None:
-            napari.utils.notifications.show_warning("No movement widget available")
+            notification_service.show_toast("No movement widget available", "warning")
             return
         idx = self.lamella_list.selected_index
         if idx == -1:
-            napari.utils.notifications.show_warning("No lamella selected.")
+            notification_service.show_toast("No lamella selected.", "warning")
             return
         lamella: Lamella = self.experiment.positions[idx]
         pose_name = self.comboBox_lamella_pose.currentText()
         if pose_name == "":
-            napari.utils.notifications.show_warning("No pose selected.")
+            notification_service.show_toast("No pose selected.", "warning")
             return
         if pose_name not in lamella.poses:
-            napari.utils.notifications.show_warning(
-                f"Pose '{pose_name}' not found for {lamella.name}."
-            )
+            notification_service.show_toast(f"Pose '{pose_name}' not found for {lamella.name}.", "warning")
             return
         pose = lamella.poses[pose_name]
         if pose.stage_position is None:
-            napari.utils.notifications.show_warning(
-                f"Pose '{pose_name}' has no stage position."
-            )
+            notification_service.show_toast(f"Pose '{pose_name}' has no stage position.", "warning")
             return
 
         # confirmation dialog
@@ -1797,9 +1764,7 @@ class AutoLamellaUI(QMainWindow):
 
         logging.info(f"Moving to pose '{pose_name}' for {lamella.name}.")
         self.movement_widget.move_to_position(pose.stage_position)
-        napari.utils.notifications.show_info(
-            f"Moved to pose '{pose_name}' for {lamella.name}."
-        )
+        notification_service.show_toast(f"Moved to pose '{pose_name}' for {lamella.name}.", "info")
 
     def update_lamella_objective_position(self, value: float):
         """Update the objective position of the current lamella."""
@@ -1807,7 +1772,7 @@ class AutoLamellaUI(QMainWindow):
         # get current lamella
         idx = self.lamella_list.selected_index
         if idx == -1 or self.experiment is None:
-            napari.utils.notifications.show_warning("No lamella selected.")
+            notification_service.show_toast("No lamella selected.", "warning")
             return
 
         lamella = self.experiment.positions[idx]
@@ -1837,27 +1802,27 @@ class AutoLamellaUI(QMainWindow):
     def load_protocol(self):
         """Load a protocol into the current experiment using the protocol loading dialog."""
         if self.microscope is None:
-            napari.utils.notifications.show_warning(
-                "Please connect to microscope first."
-            )
+            notification_service.show_toast("Please connect to microscope first.", "warning")
             return
 
         if self.experiment is None:
-            napari.utils.notifications.show_warning("Please load an experiment first.")
+            notification_service.show_toast("Please load an experiment first.", "warning")
             return
 
         # Open the protocol loading dialog
         protocol = load_task_protocol_dialog(experiment=self.experiment, parent=self)
 
         if protocol is None:
-            napari.utils.notifications.show_info("Protocol loading cancelled.")
+            notification_service.show_toast("Protocol loading cancelled.", "info")
             return
 
         # assign protocol to experiment
         self.experiment.task_protocol = protocol
+        self.experiment.save_protocol()
 
-        napari.utils.notifications.show_info(
-            f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks."
+        notification_service.show_toast(
+            f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks.",
+            "info",
         )
 
         # Update UI
@@ -1868,7 +1833,7 @@ class AutoLamellaUI(QMainWindow):
         """Export the current protocol to file."""
 
         if self.experiment is None or self.experiment.task_protocol is None:
-            napari.utils.notifications.show_info("No protocol loaded.")
+            notification_service.show_toast("No protocol loaded.", "info")
             return
 
         protocol_path = fui.open_save_file_dialog(
@@ -1879,13 +1844,11 @@ class AutoLamellaUI(QMainWindow):
         )
 
         if protocol_path == "":
-            napari.utils.notifications.show_info("No path selected")
+            notification_service.show_toast("No path selected", "info")
             return
 
         self.experiment.task_protocol.save(protocol_path)
-        napari.utils.notifications.show_info(
-            f"Saved Protocol to {os.path.basename(protocol_path)}"
-        )
+        notification_service.show_toast(f"Saved Protocol to {os.path.basename(protocol_path)}", "info")
 
     #########
     def cryo_deposition(self):
@@ -2146,4 +2109,3 @@ class AutoLamellaUI(QMainWindow):
             )
             self.viewer.layers.remove(self._poi_layer)
             self._poi_layer = None
-

@@ -396,8 +396,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
     def _save_experiment(self):
         """Save the experiment if available."""
         if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save()
-            self.parent_widget.experiment.save_protocol()
+            self.parent_widget.experiment.save(save_protocol=True)
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
