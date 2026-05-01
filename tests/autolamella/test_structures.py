@@ -204,13 +204,13 @@ def test_add_new_lamella_no_petname(tmp_path):
 
 
 def test_add_new_lamella_name_prefix(tmp_path):
-    exp = _make_experiment(tmp_path, LamellaTemplateConfig(use_petname=False, name_prefix="GridA-"))
+    exp = _make_experiment(tmp_path, LamellaTemplateConfig(use_petname=False, name_prefix="GridA"))
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     assert exp.positions[0].name == "GridA-Lamella-01"
 
 
 def test_add_new_lamella_name_prefix_with_petname(tmp_path):
-    exp = _make_experiment(tmp_path, LamellaTemplateConfig(use_petname=True, name_prefix="GridA-"))
+    exp = _make_experiment(tmp_path, LamellaTemplateConfig(use_petname=True, name_prefix="GridA"))
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     assert exp.positions[0].name.startswith("GridA-01-")
 
@@ -237,4 +237,17 @@ def test_add_new_lamella_template_values_are_independent(tmp_path):
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     exp.positions[0].alignment_area = FibsemRectangle(left=0.9, top=0.9, width=0.05, height=0.05)
     assert exp.positions[1].alignment_area == rect
+
+
+def test_add_new_lamella_no_name_collision_after_delete(tmp_path):
+    """Deleting a lamella must not cause the next one to reuse its name/number."""
+    exp = _make_experiment(tmp_path, LamellaTemplateConfig(use_petname=False))
+    exp.add_new_lamella(MicroscopeState(), EventedDict())  # Lamella-01
+    exp.add_new_lamella(MicroscopeState(), EventedDict())  # Lamella-02
+    exp.add_new_lamella(MicroscopeState(), EventedDict())  # Lamella-03
+    del exp.positions[1]                                   # remove Lamella-02
+    exp.add_new_lamella(MicroscopeState(), EventedDict())  # must be Lamella-04, not Lamella-03
+    names = [lam.name for lam in exp.positions]
+    assert len(names) == len(set(names)), f"Duplicate names after delete: {names}"
+    assert "Lamella-04" in names
 

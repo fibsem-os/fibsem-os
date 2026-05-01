@@ -1275,12 +1275,13 @@ class Experiment:
                         name: Optional[str] = None) -> None:
         """Create a new lamella and add it to the experiment."""
         template = self.task_protocol.lamella_template
-        number = len(self.positions) + 1
+        number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
+            sep = "-" if template.name_prefix else ""
             if template.use_petname:
-                name = f"{template.name_prefix}{number:02d}-{petname.generate(2)}"
+                name = f"{template.name_prefix}{sep}{number:02d}-{petname.generate(2)}"
             else:
-                name = f"{template.name_prefix}Lamella-{number:02d}"
+                name = f"{template.name_prefix}{sep}Lamella-{number:02d}"
         path = Path(os.path.join(self.path, name))
 
         # create the lamella

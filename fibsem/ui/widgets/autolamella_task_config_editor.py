@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
+from fibsem.ui.widgets.lamella_template_config_widget import LamellaTemplateConfigWidget
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
 from fibsem.ui.widgets.autolamella_protocol_information_widget import ProtocolInformationWidget
 from fibsem.ui.widgets.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
@@ -209,6 +210,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_open_global_editor.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_open_global_editor.setToolTip("Globally edit reference imaging settings and milling FoV across multiple tasks.")
 
+        self.pushButton_open_lamella_template = QPushButton("Lamella Template")
+        self.pushButton_open_lamella_template.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_open_lamella_template.setToolTip("Edit the initial state applied to every new lamella created from this protocol.")
+
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setVisible(False)
@@ -217,6 +222,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.button_layout = QVBoxLayout()
         self.button_layout.addWidget(self.pushButton_sync_to_lamella)
         self.button_layout.addWidget(self.pushButton_open_global_editor)
+        self.button_layout.addWidget(self.pushButton_open_lamella_template)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addWidget(self.task_list_widget, 0, 0, 1, 2)
@@ -272,6 +278,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
         self.pushButton_open_global_editor.clicked.connect(self._on_global_edit_clicked)
+        self.pushButton_open_lamella_template.clicked.connect(self._on_lamella_template_clicked)
         self.protocol_info_widget.field_changed.connect(self._on_protocol_field_changed)
 
     def _initialise_widgets(self):
@@ -432,6 +439,29 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 "Global Edit Applied",
                 msg,
             )
+
+    def _on_lamella_template_clicked(self):
+        """Show dialog for editing the protocol's LamellaTemplateConfig."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lamella Template")
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        template_widget = LamellaTemplateConfigWidget()
+        template_widget.set_template(self.experiment.task_protocol.lamella_template)
+        layout.addWidget(template_widget)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec_() == QDialog.Accepted:
+            self.experiment.task_protocol.lamella_template = template_widget.get_template()
+            self._save_experiment()
 
     def _on_protocol_field_changed(self, field: str, value: str) -> None:
         if self.experiment and self.experiment.task_protocol:
