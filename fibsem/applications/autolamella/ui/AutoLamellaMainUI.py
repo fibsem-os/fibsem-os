@@ -55,6 +55,7 @@ from fibsem.ui.stylesheets import (
     WORKFLOW_BORDER_STYLESHEET,
 )
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.ui import notification_service
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -437,12 +438,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._test_menu.menuAction().setVisible(d.dev_mode)
 
     def show_toast(
-        self, message: str, notification_type: str = "info", duration: int = 5000
+        self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False
     ):
         """Show a toast notification."""
         if self._toasts_enabled:
-            self.toast_manager.show_toast(message, notification_type, duration)
-        elif self.toast_manager.notification_bell:
+            self.toast_manager.show_toast(message, notification_type, duration, temporary=temporary)
+        elif self.toast_manager.notification_bell and not temporary:
             # Still log to notification bell even when toasts are disabled
             self.toast_manager.notification_bell.add_notification(
                 message, notification_type
@@ -820,22 +821,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer, parent_ui=self)
 
         # Connect to workflow update signal from AutoLamellaUI
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
-            self.autolamella_ui.step_update_signal.connect(self._on_step_update)
-            self.autolamella_ui.experiment_update_signal.connect(
-                self._on_experiment_update
-            )
-            self.autolamella_ui._workflow_finished_signal.connect(
-                self._on_workflow_finished
-            )
-            self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-            self.autolamella_ui.system_widget.connected_signal.connect(
-                self._on_microscope_connected
-            )
-            self.autolamella_ui.lamella_list.defect_changed.connect(
-                self._on_lamella_defect_changed
-            )
+        self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
+        self.autolamella_ui.step_update_signal.connect(self._on_step_update)
+        self.autolamella_ui.experiment_update_signal.connect(
+            self._on_experiment_update
+        )
+        self.autolamella_ui._workflow_finished_signal.connect(
+            self._on_workflow_finished
+        )
+        self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
+        notification_service._get_service().toast.connect(self._on_notification_service)
+        self.autolamella_ui.system_widget.connected_signal.connect(
+            self._on_microscope_connected
+        )
+        self.autolamella_ui.lamella_list.defect_changed.connect(
+            self._on_lamella_defect_changed
+        )
 
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
@@ -1453,8 +1454,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
+    def _on_notification_service(self, message: str, notification_type: str, temporary: bool) -> None:
+        self.show_toast(message, notification_type, temporary=temporary)
+
     def closeEvent(self, event):
         """Clean up viewers on close."""
+        try:
+            notification_service._get_service().toast.disconnect(self._on_notification_service)
+        except RuntimeError:
+            pass
         for viewer in self.viewers:
             try:
                 viewer.close()
