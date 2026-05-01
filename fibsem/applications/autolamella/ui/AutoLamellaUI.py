@@ -1584,6 +1584,7 @@ class AutoLamellaUI(QMainWindow):
 
         # assign protocol to experiment
         self.experiment.task_protocol = protocol
+        self.experiment.save_protocol()
 
         napari.utils.notifications.show_info(
             f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks."
