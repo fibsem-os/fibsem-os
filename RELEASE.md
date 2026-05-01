@@ -2,7 +2,7 @@
 
 ## Steps
 
-1. **Bump the version** in `pyproject.toml`:
+1. **Bump the version** in `pyproject.toml` and `conda.recipe/meta.yaml`:
    ```
    version = "0.5.0"
    ```
@@ -18,11 +18,11 @@
    git push && git push --tags
    ```
 
-4. **GitHub Actions takes over** — the publish workflow runs automatically:
-   - Tests must pass before publishing
-   - Package is built and uploaded to PyPI
+4. **GitHub Actions takes over** — two workflows run automatically:
+   - `publish.yml`: tests run, then package is uploaded to PyPI
+   - `build-installer.yml`: builds a Windows installer (`fibsem-*.exe`) and attaches it to the GitHub release
 
-5. **After release**, bump the version to the next dev version in `pyproject.toml`:
+5. **After release**, bump the version to the next dev version in `pyproject.toml` and `conda.recipe/meta.yaml`:
    ```
    version = "0.5.1.dev0"
    ```

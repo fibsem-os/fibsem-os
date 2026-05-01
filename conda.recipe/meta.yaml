@@ -1,0 +1,45 @@
+{% set version = "0.5.0a0" %}
+
+package:
+  name: fibsem
+  version: {{ version }}
+
+source:
+  url: https://pypi.io/packages/source/f/fibsem/fibsem-{{ version }}.tar.gz
+
+build:
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  number: 0
+
+requirements:
+  host:
+    - python >=3.9
+    - pip
+    - setuptools >=45
+    - wheel
+  run:
+    - python >=3.9
+    - tifffile >=2021.7.2
+    - numpy >=2.0.0
+    - scipy >=1.10.0
+    - py-opencv
+    - scikit-image >=0.19.3
+    - matplotlib-base >=3.7.0
+    - tqdm >=4.65.0
+    - petname >=2.6
+    - pandas >=2.0.0
+    - pyyaml >=6.0
+    - psygnal
+    - ome-types
+    - lxml
+
+test:
+  imports:
+    - fibsem
+
+about:
+  home: https://github.com/fibsem-os/fibsem-os
+  license: MIT
+  license_file: LICENSE
+  summary: A universal API for FIBSEM control
