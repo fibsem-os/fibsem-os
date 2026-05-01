@@ -4,15 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fibsem"
-version = "0.5.0"
+version = "0.5.1dev0"
 
 description = "a universal api for fibsem control"
-authors = [
-    {name = "Patrick Cleeve", email = "patrick@openfibsem.org"},
-]
+authors = [{ name = "Patrick Cleeve", email = "patrick@openfibsem.org" }]
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT License"}
+license = { text = "MIT License" }
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "License :: OSI Approved :: MIT License",
@@ -60,21 +58,14 @@ ui = [
     "pyqt5>=5.15.9",
     "matplotlib_scalebar>=0.8.1",
 ]
-odemis = [
-    "pylibtiff",
-    "shapely",
-]
+odemis = ["pylibtiff", "shapely"]
 
 reporting = [
     "reportlab<3.6.13; python_version < '3.9'",
     "reportlab>=3.6.13; python_version >= '3.9'",
 ]
 
-server = [
-    "fastapi>=0.100.0",
-    "uvicorn[standard]>=0.20.0",
-    "requests>=2.28.0",
-]
+server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0"]
 
 [project.scripts]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
