@@ -3,7 +3,7 @@ name: Build Windows Installer
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*.*.*-installer"
 
 jobs:
   build-standard:
