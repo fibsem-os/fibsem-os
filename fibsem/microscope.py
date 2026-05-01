@@ -19,11 +19,18 @@ from packaging.version import parse as parse_version
 from psygnal import Signal
 
 
+from fibsem.exceptions import (
+    AutoScriptError,
+    AutoScriptException,
+    GasInjectionError,
+    HardwareError,
+    MillingError,
+    MicroscopeConnectionError,
+    ValidationError,
+)
+
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
-
-class AutoScriptException(Exception):
-    pass
 
 
 try:
@@ -38,7 +45,7 @@ try:
     try:
         AUTOSCRIPT_VERSION = parse_version(version)
     except InvalidVersion:
-        raise AutoScriptException(f"Failed to parse AutoScript version '{version}'")
+        raise AutoScriptError(f"Failed to parse AutoScript version '{version}'")
 
     # special case for Monash development environment
     if os.environ.get("COMPUTERNAME", "hostname") == "MU00190108":
@@ -46,7 +53,7 @@ try:
         AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION_4_7
 
     if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-        raise AutoScriptException(
+        raise AutoScriptError(
             f"AutoScript {version} found. Please update your AutoScript version to 4.7 or higher."
         )
 
@@ -80,7 +87,7 @@ try:
         GetImageSettings,
     )
     THERMO_API_AVAILABLE = True
-except AutoScriptException as e:
+except AutoScriptError as e:
     logging.warning("Failed to load AutoScript (ThermoFisher): %s", str(e))
     pass
 except ImportError as e:
@@ -1465,7 +1472,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def reconnect(self):
         """Attempt to reconnect to the microscope client."""
         if self.connection is None:
-            raise ConnectionError("Please connect to the microscope first")
+            raise MicroscopeConnectionError("Please connect to the microscope first")
 
         self.disconnect()
         self.connect_to_microscope(self.system.info.ip_address)
@@ -1534,7 +1541,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
-            raise Exception("No stage installed. Please check the microscope configuration.")
+            raise HardwareError("No stage installed. Please check the microscope configuration.")
 
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
@@ -2757,7 +2764,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def set_default_patterning_beam_type(self, beam_type: BeamType):
         """Set the default beam type for patterning."""
         if beam_type not in BeamType:
-            raise ValueError(f"Beam type {beam_type} not supported. Supported types: {list(BeamType)}")
+            raise ValidationError(f"Beam type {beam_type} not supported. Supported types: {list(BeamType)}")
 
         self.connection.patterning.set_default_beam_type(beam_type.value)
         return beam_type
@@ -3275,7 +3282,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
             wait_time += 1
             if wait_time > max_wait_time:
-                raise TimeoutError("Gas Injection Failed to heat within time...")
+                raise GasInjectionError("Gas Injection Failed to heat within time...")
         
         logging.debug({"msg": "gis_turn_heater_on", "temp": temp, "target_temp": target_temp, 
                                 "wait_time": wait_time, "max_wait_time": max_wait_time})
@@ -3415,7 +3422,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.connection.patterning.start()  # asynchronous patterning
             time.sleep(sputter_time + 5)
         else:
-            raise RuntimeError("Can't sputter platinum, patterning state is not ready.")
+            raise MillingError("Can't sputter platinum, patterning state is not ready.")
         if self.connection.patterning.state == "Running":
             self.connection.patterning.stop()
         else:

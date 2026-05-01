@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from fibsem import acquire
 from fibsem import config as fcfg
+from fibsem.exceptions import MillingError
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import BeamType, FibsemImage, ImageSettings, MillingAlignment, Point
@@ -99,7 +100,7 @@ class FibsemMillingTaskConfig:
         """Create a FibsemMillingTaskConfig from a list of FibsemMillingStage."""
 
         if not stages:
-            raise ValueError("No milling stages provided to create task config.")
+            raise MillingError("No milling stages provided to create task config.")
 
         # Use the first stage's properties as defaults
         first_stage = stages[0]
@@ -251,7 +252,7 @@ class FibsemMillingTask:
 
         start_time = time.time()
         if self._stop_event and self._stop_event.is_set():
-                raise Exception("Milling stopped by user.")
+                raise MillingError("Milling stopped by user.")
 
         msgd =  {"msg": f"Preparing: {stage.name}",
                 "progress": {"state": "start", 

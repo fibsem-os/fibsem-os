@@ -11,6 +11,7 @@ from typing import Dict, List, Union, Tuple, Optional
 import numpy as np
 
 import fibsem.constants as constants
+from fibsem.exceptions import AcquisitionError, HardwareError
 from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
@@ -410,7 +411,7 @@ class TescanMicroscope(FibsemMicroscope):
             )
 
         if image is None:
-            raise ValueError("Failed to acquire image from microscope.")
+            raise AcquisitionError("Failed to acquire image from microscope.")
 
         # convert to FibsemImage
         fibsem_image: FibsemImage = fromTescanImage(image, effective_image_settings)
@@ -1340,7 +1341,7 @@ class TescanMicroscope(FibsemMicroscope):
         while (beam.IsBusy()):
             logging.debug(f"Waiting for the {beam_type.name} beam to become ready.")
             if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:
-                raise TimeoutError(
+                raise HardwareError(
                     f"{beam_type.name} beam is not ready. "
                     f"Timeout of {TESCAN_BEAM_READY_TIMEOUT} seconds expired."
                 )
