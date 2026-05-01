@@ -1,18 +1,18 @@
-"""Test script for LamellaTemplateConfigWidget."""
+"""Test script for LamellaDefaultConfigWidget."""
 import sys
 
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
-from fibsem.applications.autolamella.structures import LamellaTemplateConfig
+from fibsem.applications.autolamella.structures import LamellaDefaultConfig
 from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
-from fibsem.ui.widgets.lamella_template_config_widget import LamellaTemplateConfigWidget
+from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
 
 
 def main():
     app = QApplication(sys.argv)
 
     win = QWidget()
-    win.setWindowTitle("LamellaTemplateConfigWidget test")
+    win.setWindowTitle("LamellaDefaultConfigWidget test")
     win.setStyleSheet("background: #1a1b1e;")
     layout = QVBoxLayout(win)
     layout.setContentsMargins(12, 12, 12, 12)
@@ -23,10 +23,10 @@ def main():
     status.setStyleSheet("color: #a0a0a0; font-size: 10px;")
     status.setWordWrap(True)
 
-    widget = LamellaTemplateConfigWidget()
+    widget = LamellaDefaultConfigWidget()
 
     # load a non-default template so all controls are exercised
-    template = LamellaTemplateConfig(
+    template = LamellaDefaultConfig(
         use_petname=False,
         name_prefix="GridA",
         alignment_area=FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA),
@@ -34,7 +34,7 @@ def main():
     )
     widget.set_template(template)
 
-    def _on_changed(t: LamellaTemplateConfig):
+    def _on_changed(t: LamellaDefaultConfig):
         aa = t.alignment_area
         poi = t.poi
         aa_str = f"FibsemRectangle({aa.left:.3f}, {aa.top:.3f}, {aa.width:.3f}, {aa.height:.3f})" if aa else "None"
@@ -51,7 +51,7 @@ def main():
     layout.addWidget(status)
     layout.addStretch()
 
-    win.resize(380, 320)
+    win.resize(780, 340)
     win.show()
     sys.exit(app.exec_())
 

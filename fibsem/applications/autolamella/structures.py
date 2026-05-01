@@ -380,7 +380,7 @@ class AutoLamellaWorkflowOptions:
 
 @evented
 @dataclass
-class LamellaTemplateConfig:
+class LamellaDefaultConfig:
     """Initial state applied to every new Lamella created from this protocol."""
     use_petname: bool = True
     name_prefix: str = ""
@@ -399,16 +399,15 @@ class LamellaTemplateConfig:
         return d
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'LamellaTemplateConfig':
-        data = dict(data)
-        aa = data.pop("alignment_area", None)
-        poi = data.pop("poi", None)
-        obj = cls(**data)
-        if isinstance(aa, dict):
-            obj.alignment_area = FibsemRectangle.from_dict(aa)
-        if isinstance(poi, dict):
-            obj.poi = Point.from_dict(poi)
-        return obj
+    def from_dict(cls, data: Dict[str, Any]) -> 'LamellaDefaultConfig':
+        aa = data.get("alignment_area")
+        poi = data.get("poi")
+        return cls(
+            use_petname=data.get("use_petname", True),
+            name_prefix=data.get("name_prefix", ""),
+            alignment_area=FibsemRectangle.from_dict(aa) if isinstance(aa, dict) else None,
+            poi=Point.from_dict(poi) if isinstance(poi, dict) else None,
+        )
 
 
 @evented
@@ -421,7 +420,7 @@ class AutoLamellaTaskProtocol:
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(default_factory=lambda: EventedDict())   # unique_name: AutoLamellaTaskConfig
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
     options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
-    lamella_template: LamellaTemplateConfig = field(default_factory=LamellaTemplateConfig)
+    lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -432,7 +431,7 @@ class AutoLamellaTaskProtocol:
             "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
             "workflow": self.workflow_config.to_dict(),
             "options": self.options.to_dict(),
-            "lamella_template": self.lamella_template.to_dict(),
+            "lamella_defaults": self.lamella_defaults.to_dict(),
         }
 
     @classmethod
@@ -448,7 +447,7 @@ class AutoLamellaTaskProtocol:
             task_config=task_config,
             workflow_config=workflow_config,
             options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
-            lamella_template=LamellaTemplateConfig.from_dict(data.get("lamella_template", {})),
+            lamella_defaults=LamellaDefaultConfig.from_dict(data.get("lamella_defaults", {})),
         )
         if "_id" in data:
             protocol._id = data["_id"]
@@ -1274,7 +1273,7 @@ class Experiment:
                         task_config: EventedDict[str, AutoLamellaTaskConfig],
                         name: Optional[str] = None) -> None:
         """Create a new lamella and add it to the experiment."""
-        template = self.task_protocol.lamella_template
+        template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
             sep = "-" if template.name_prefix else ""

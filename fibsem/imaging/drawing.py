@@ -18,13 +18,39 @@ from fibsem.constants import MICRON_SYMBOL
 _NICE_NUMBERS = [1, 2, 5]
 
 
-@functools.lru_cache(maxsize=8)
-def _get_font(size: int) -> ImageFont.FreeTypeFont:
-    """Load a TrueType font, falling back to PIL default. Cached."""
-    try:
-        return ImageFont.truetype("arial.ttf", size)
-    except OSError:
-        return ImageFont.load_default()
+_FONT_CANDIDATES = [
+    "arial.ttf",                                                          # Windows
+    "Arial.ttf",                                                          # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                   # Ubuntu/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",   # RHEL/Fedora
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",                   # fallback Linux
+]
+
+_FONT_BOLD_CANDIDATES = [
+    "arialbd.ttf",                                                        # Windows
+    "Arial Bold.ttf",                                                     # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",              # Ubuntu/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",      # RHEL/Fedora
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",               # fallback Linux
+]
+
+
+@functools.lru_cache(maxsize=16)
+def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """Load a TrueType font that supports Unicode (e.g. µ). Cached."""
+    candidates = _FONT_BOLD_CANDIDATES if bold else _FONT_CANDIDATES
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    if bold:
+        for path in _FONT_CANDIDATES:
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
 
 
 def _pick_scalebar_length_m(fov_m: float, target_ratio: float = 0.2) -> float:
@@ -200,6 +226,90 @@ def draw_crosshair(
     arm = int(w * size_ratio)
 
     # Draw lines on RGBA overlay for alpha blending
+    base = Image.fromarray(rgb).convert("RGBA")
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    a = int(alpha * 255)
+    line_color = (*color, a)
+    draw.line([(cx - arm, cy), (cx + arm, cy)], fill=line_color, width=thickness)
+    draw.line([(cx, cy - arm), (cx, cy + arm)], fill=line_color, width=thickness)
+
+    result = Image.alpha_composite(base, overlay).convert("RGB")
+    return np.array(result)
+
+
+def draw_rectangle_reduced(
+    arr: np.ndarray,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    color: Tuple[int, int, int] = (0, 255, 0),
+    alpha: float = 0.9,
+    thickness: int = 2,
+) -> np.ndarray:
+    """Draw a rectangle outline defined by relative image coordinates [0, 1].
+
+    Args:
+        arr: Image array (grayscale or RGB, uint8).
+        left: Left edge as a fraction of image width.
+        top: Top edge as a fraction of image height.
+        width: Rectangle width as a fraction of image width.
+        height: Rectangle height as a fraction of image height.
+        color: RGB outline color.
+        alpha: Opacity of the outline (0–1).
+        thickness: Outline thickness in pixels.
+
+    Returns:
+        Modified copy of the array with the rectangle outline drawn.
+    """
+    rgb = _ensure_rgb(arr)
+    h_px, w_px = rgb.shape[:2]
+
+    x0 = int(left * w_px)
+    y0 = int(top * h_px)
+    x1 = int((left + width) * w_px)
+    y1 = int((top + height) * h_px)
+
+    base = Image.fromarray(rgb).convert("RGBA")
+    overlay = Image.new("RGBA", (w_px, h_px), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rectangle([(x0, y0), (x1, y1)], outline=(*color, int(alpha * 255)), width=thickness)
+
+    result = Image.alpha_composite(base, overlay).convert("RGB")
+    return np.array(result)
+
+
+def draw_crosshair_at(
+    arr: np.ndarray,
+    cx_frac: float = 0.5,
+    cy_frac: float = 0.5,
+    color: Tuple[int, int, int] = (255, 255, 0),
+    alpha: float = 0.9,
+    size_ratio: float = 0.05,
+    thickness: int = 1,
+) -> np.ndarray:
+    """Draw a crosshair at a specified fractional position in the image.
+
+    Args:
+        arr: Image array (grayscale or RGB, uint8).
+        cx_frac: Horizontal position as a fraction of image width (0=left, 1=right).
+        cy_frac: Vertical position as a fraction of image height (0=top, 1=bottom).
+        color: RGB color of the crosshair lines.
+        alpha: Opacity of the crosshair (0–1).
+        size_ratio: Arm length as a fraction of image width.
+        thickness: Line thickness in pixels.
+
+    Returns:
+        Modified copy of the array with crosshair drawn.
+    """
+    rgb = _ensure_rgb(arr)
+    h, w = rgb.shape[:2]
+
+    cx = int(cx_frac * w)
+    cy = int(cy_frac * h)
+    arm = max(4, int(w * size_ratio))
+
     base = Image.fromarray(rgb).convert("RGBA")
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
