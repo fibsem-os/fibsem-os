@@ -13,7 +13,7 @@ from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings, SystemSettings
 from fibsem.ui import stylesheets
-from fibsem.ui import notification_service as ns
+from fibsem.ui import notification_service
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 
 
@@ -138,7 +138,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         configuration_path = cfg.USER_CONFIGURATIONS[configuration_name]["path"]
 
         if configuration_path is None:
-            ns.show_toast(f"Configuration {configuration_name} not found.", "error")
+            notification_service.show_toast(f"Configuration {configuration_name} not found.", "error")
             return
 
         # load the configuration
@@ -157,7 +157,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         )
 
         if path == "":
-            ns.show_toast("No file selected. Configuration not loaded.", "error")
+            notification_service.show_toast("No file selected. Configuration not loaded.", "error")
             return
 
         # TODO: validate configuration
@@ -196,12 +196,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             self.microscope, self.settings = None, None
         else:
 
-            ns.show_toast("Connecting to microscope...", "info")
+            notification_service.show_toast("Connecting to microscope...", "info")
 
             configuration_path = self.load_configuration(None)
 
             if configuration_path is None:
-                ns.show_toast("Configuration not selected.", "error")
+                notification_service.show_toast("Configuration not selected.", "error")
                 return
 
             # connect
@@ -212,7 +212,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             # user notification
             msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
             logging.info(msg)
-            ns.show_toast(msg, "info")
+            notification_service.show_toast(msg, "info")
 
         self.update_ui()
 
@@ -221,7 +221,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         """Apply the microscope configuration to the microscope."""
 
         if self.microscope is None:
-            ns.show_toast("Microscope not connected.", "error")
+            notification_service.show_toast("Microscope not connected.", "error")
             return
 
         # apply the configuration

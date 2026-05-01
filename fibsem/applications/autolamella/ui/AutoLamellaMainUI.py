@@ -54,7 +54,7 @@ from fibsem.ui.stylesheets import (
     WORKFLOW_BORDER_STYLESHEET,
 )
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
-from fibsem.ui import notification_service as ns
+from fibsem.ui import notification_service
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -788,7 +788,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_workflow_finished
         )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-        ns._get_service().toast.connect(self._on_notification_service)
+        notification_service._get_service().toast.connect(self._on_notification_service)
         self.autolamella_ui.system_widget.connected_signal.connect(
             self._on_microscope_connected
         )
@@ -1418,7 +1418,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def closeEvent(self, event):
         """Clean up viewers on close."""
         try:
-            ns._get_service().toast.disconnect(self._on_notification_service)
+            notification_service._get_service().toast.disconnect(self._on_notification_service)
         except RuntimeError:
             pass
         for viewer in self.viewers:

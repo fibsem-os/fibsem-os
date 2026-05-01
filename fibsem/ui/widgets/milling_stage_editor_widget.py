@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
 from superqt import QCollapsible, QIconifyIcon
 
 from fibsem import conversions, utils
-from fibsem.ui import notification_service as ns
+from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import (
     FibsemMillingStage,
@@ -1146,7 +1146,7 @@ class FibsemMillingStageEditorWidget(QWidget):
             if not is_pattern_placement_valid(pattern=pattern_copy, image=self.image):
                 msg = f"{milling_stage.name} pattern would be outside the FIB image."
                 logging.warning(msg)
-                ns.show_toast(msg, "warning")
+                notification_service.show_toast(msg, "warning")
                 return False
 
             new_points.append((idx, new_point))

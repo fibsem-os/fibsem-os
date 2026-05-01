@@ -12,7 +12,7 @@ from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
-from fibsem.ui import notification_service as ns
+from fibsem.ui import notification_service
 from fibsem import constants, conversions, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -337,7 +337,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
-            ns.show_toast(msg)
+            notification_service.show_toast(msg)
 
         is_finished = ddict.get("finished", False)
         if is_finished:
@@ -472,7 +472,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             return
 
         if hasattr(self.parent, "milling_widget") and self.parent.milling_widget.is_milling:
-            ns.show_toast("Cannot move stage while milling is in progress.")
+            notification_service.show_toast("Cannot move stage while milling is in progress.")
             return
 
         # get coords
@@ -483,12 +483,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
 
         if beam_type is None:
-            ns.show_toast(
+            notification_service.show_toast(
                 "Clicked outside image dimensions. Please click inside the image to move."
             )
             return
         if image.metadata is None:
-            ns.show_toast(
+            notification_service.show_toast(
                 "Image metadata is not set. Please set the image metadata before moving."
             )
             return
@@ -604,13 +604,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         """Update the currently selected saved position to the current stage position"""
         current_index = self.comboBox_positions.currentIndex()
         if current_index == -1:
-            ns.show_toast("Please select a position to update", "warning")
+            notification_service.show_toast("Please select a position to update", "warning")
             return
 
         position: FibsemStagePosition = self.microscope.get_stage_position()
         position.name = self.lineEdit_position_name.text()
         if position.name == "":
-            ns.show_toast("Please enter a name for the position", "warning")
+            notification_service.show_toast("Please enter a name for the position", "warning")
             return
 
         # TODO: add dialog confirmation
@@ -632,7 +632,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             _filter="YAML Files (*.yaml)")
 
         if path == '':
-            ns.show_toast("No file selected, positions not saved")
+            notification_service.show_toast("No file selected, positions not saved")
             return
 
         response = message_box_ui(text="Do you want to overwrite the file ? Click no to append the new positions to the existing file.", 
@@ -650,7 +650,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             path = open_existing_file_dialog(msg="Select a positions file", path=cfg.POSITION_PATH, _filter="YAML Files (*.yaml)")
         
         if path == "":
-            ns.show_toast("No file selected, positions not loaded")
+            notification_service.show_toast("No file selected, positions not loaded")
             return
 
         def load_saved_positions_from_yaml(path: Optional[str] = None) -> List[FibsemStagePosition]:

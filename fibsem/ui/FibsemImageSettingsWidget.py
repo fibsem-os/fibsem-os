@@ -22,7 +22,7 @@ from fibsem.structures import (
     ImageSettings,
 )
 from fibsem.ui import stylesheets as stylesheets
-from fibsem.ui import notification_service as ns
+from fibsem.ui import notification_service
 from fibsem.ui.napari.patterns import (
     convert_reduced_area_to_napari_shape,
     convert_shape_to_image_area,
@@ -451,9 +451,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         beam_widget.sync_from_microscope()
         if name == "AutoFocus":
             wd = beam_widget.beam_settings_widget.working_distance_spinbox.value()
-            ns.show_toast(f"AutoFocus Complete. Best WD: {wd:.2f}mm")
+            notification_service.show_toast(f"AutoFocus Complete. Best WD: {wd:.2f}mm")
         if name == "AutoContrast":
-            ns.show_toast("AutoContrast Complete.")
+            notification_service.show_toast("AutoContrast Complete.")
 
     def _get_image_settings_from_ui(self) -> ImageSettings:
         """Get the image settings from the UI and return an ImageSettings object."""
@@ -568,7 +568,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
-            ns.show_toast(msg)
+            notification_service.show_toast(msg)
 
         # TODO: implement progress bar for acquisition
 
