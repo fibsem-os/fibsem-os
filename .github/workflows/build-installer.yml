@@ -1,0 +1,56 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - "v*.*.*-installer"
+
+jobs:
+  build-standard:
+    name: Standard installer (core + UI)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3.11"
+          channels: conda-forge,defaults
+          channel-priority: strict
+          auto-activate-base: true
+          activate-environment: ""
+
+      - name: Install build tools
+        shell: bash -el {0}
+        run: |
+          conda install -y constructor
+          pip install build
+
+      - name: Build fibsem wheel
+        shell: bash -el {0}
+        run: python -m build --wheel
+
+      - name: Prepare constructor directory
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          $wheel = Get-ChildItem dist\fibsem-*.whl | Select-Object -First 1
+          Copy-Item $wheel.FullName "constructor\fibsem-$version-py3-none-any.whl"
+          (Get-Content constructor\construct.yaml) -replace '__VERSION__', $version | Set-Content constructor\construct.yaml
+
+      - name: Build installer
+        shell: bash -el {0}
+        run: constructor constructor/ --output-dir dist/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/fibsem-*.exe
+
