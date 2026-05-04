@@ -787,10 +787,8 @@ def run_autofocus(
         >>> best_z = run_autofocus(microscope, roi=roi)
     """
 
-    if microscope.parent.get_stage_orientation() not in ["FM", "MILLING", "SEM"]:
-        raise ValueError(
-            "Autofocus can only be run on a FluorescenceMicroscope with FM, MILLING, or SEM stage orientation"
-        )
+    if not microscope.has_valid_orientation():
+        raise ValueError("Microscope orientation is not valid for autofocus")
 
     # Set up default z parameters if not provided
     if z_parameters is None:
