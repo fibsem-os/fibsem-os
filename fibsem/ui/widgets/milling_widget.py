@@ -26,9 +26,12 @@ class FibsemMillingWidget2(QWidget):
     This widget provides a button to start the milling task and handles
     the threading and progress updates.
     """
+
     start_milling_signal = pyqtSignal()
 
-    def __init__(self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget2"):
+    def __init__(
+        self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget2"
+    ):
         super().__init__(parent)
         self.microscope = microscope
         self.parent_widget = parent
@@ -45,12 +48,16 @@ class FibsemMillingWidget2(QWidget):
 
         self.pushButton_stop_milling = QPushButton("Stop Milling")
         self.pushButton_stop_milling.clicked.connect(self.stop_milling)
-        self.pushButton_stop_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_stop_milling.setStyleSheet(
+            stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET
+        )
         self.pushButton_stop_milling.setVisible(False)
 
         self.pushButton_pause_milling = QPushButton("Pause Milling")
         self.pushButton_pause_milling.clicked.connect(self.pause_resume_milling)
-        self.pushButton_pause_milling.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_pause_milling.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
         self.pushButton_pause_milling.setVisible(False)
 
         self.progressBar_milling = QProgressBar(self)
@@ -60,9 +67,11 @@ class FibsemMillingWidget2(QWidget):
         self.progressBar_milling_stages.setStyleSheet(
             stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
         )
-        self.progressBar_milling.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+        self.progressBar_milling.setStyleSheet(
+            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+        )
 
-        self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection) # type: ignore
+        self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection)  # type: ignore
 
         if self.parent_widget._milling_enabled:
             self.microscope.milling_progress_signal.connect(self._on_milling_progress)
@@ -145,8 +154,13 @@ class FibsemMillingWidget2(QWidget):
             self.progressBar_milling.setVisible(False)
             self.progressBar_milling_stages.setVisible(False)
 
-    def run_milling(self):
-        """Start the milling task in a separate thread."""
+    def run_milling(self, config: Optional[FibsemMillingTaskConfig] = None):
+        """Start the milling task in a separate thread.
+
+        Args:
+            config: Optional pre-built config to use. If None, calls
+                    ``parent_widget.get_config()`` to build one fresh.
+        """
         # If a milling task is already running, do nothing
         if self.is_milling:
             logging.warning("Milling task is already running.")
@@ -156,10 +170,13 @@ class FibsemMillingWidget2(QWidget):
         self._milling_stop_event.clear()
         self.pushButton_run_milling.setEnabled(False)
 
+        if config is None:
+            config = self.parent_widget.get_config()
+
         # Start the milling task in a separate thread
         self._milling_thread = threading.Thread(
             target=self._milling_worker,
-            args=(self.microscope, self.parent_widget.get_config()),
+            args=(self.microscope, config),
             daemon=True,
         )
 

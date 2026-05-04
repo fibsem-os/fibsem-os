@@ -50,3 +50,4 @@ TIME_FILE               = "%H-%M-%S"               # filename-safe time
 TIME_DISPLAY            = "%H:%M:%S"               # colon-separated time
 TIME_DISPLAY_AMPM_SHORT = "%I:%M%p"                # 12-hour time AM/PM (no space)
 DATETIME_LOG            = "%Y-%m-%d-%I-%M-%S%p"   # legacy log datetime (note: %p unavailable on Windows)
+DATETIME_FILE_NANO    = "%Y-%m-%d_%H-%M-%S-%f"    # filename-safe datetime with nanoseconds

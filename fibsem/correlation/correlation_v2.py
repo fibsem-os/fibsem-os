@@ -9,6 +9,8 @@ import yaml
 
 from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.pyto.rigid_3d import Rigid3D # NOTE: this is still a 3DCT dependency, migrate
+from fibsem.correlation.structures import Coordinate, CorrelationInputData, CorrelationPointOfInterest, CorrelationResult, PointXYZ
+from fibsem.structures import Point
 
 DEFAULT_OPTIMIZATION_PARAMETERS = {
     'random_rotations': True,
@@ -205,7 +207,7 @@ def run_correlation(
         },
         "rotation_center": list(rotation_center),
         "rotation_center_custom": list(rotation_center),
-        "method": "mulit-point",
+        "method": "multi-point",
     }
 
     # output data
@@ -219,7 +221,7 @@ def run_correlation(
         "metadata": {
             "timestamp": datetime.datetime.now().strftime(DATETIME_FILE),
             "data_path": path,
-            "csv_path": os.path.join(path, "data.csv"),
+            "csv_path": os.path.join(path, "data.csv") if path is not None else path,
             "project_path": path, # TODO: add project path
         },
         "correlation": correlation_data,
@@ -316,32 +318,6 @@ def extract_transformation_data(transf, mod_translation, reproj_3d, delta_2d) ->
 
     return transformation_data
 
-def parse_correlation_result(cor_ret: list, input_data: dict) -> dict:
-    # point of interest data
-    spots_2d = cor_ret[2]  # (points of interest in 2D image)
-    fib_image_shape = input_data["image_properties"]["fib_image_shape"]
-    pixel_size_um = input_data["image_properties"]["fib_pixel_size_um"]
-
-    poi_image_coordinates = convert_poi_to_microscope_coordinates(
-        spots_2d, fib_image_shape, pixel_size_um
-    )
-
-    # transformation data
-    transf = cor_ret[0]     # transformation matrix
-    reproj_3d = cor_ret[1]  # reprojected 3D points to 2D points
-    delta_2d = cor_ret[3]   # difference between reprojected 3D points and 2D points (in pixels)
-    mod_translation = cor_ret[5]  # translation around rotation center
-    transformation_data = extract_transformation_data(transf=transf, 
-                                                      mod_translation=mod_translation, 
-                                                      reproj_3d=reproj_3d, 
-                                                      delta_2d=delta_2d)
-
-    correlation_data = {"input": input_data, "output": {}}
-    correlation_data["output"].update(transformation_data)
-    correlation_data["output"].update({"poi": poi_image_coordinates})
-
-    return correlation_data
-
 def parse_correlation_result_v2(cor_ret: dict, input_data: dict) -> dict:
     # point of interest data
     spots_2d = cor_ret["output"]["reprojected_2d_poi"]  # (points of interest in 2D image)
@@ -376,3 +352,78 @@ def save_correlation_data(data: dict, path: str) -> str:
     logging.info(f"Correlation data saved to: {correlation_data_filename}")
 
     return correlation_data_filename
+
+
+def _coords_to_array(coords: list[Coordinate]) -> np.ndarray:
+    return np.array([[c.point.x, c.point.y, c.point.z] for c in coords], dtype=np.float32)
+
+
+def run_correlation_from_data(
+    data: CorrelationInputData,
+    path: Optional[str] = None,
+) -> CorrelationResult:
+    """Run correlation from a CorrelationInputData struct, returning a CorrelationResult."""
+
+    fib_coords = _coords_to_array(data.fib_coordinates)
+    fm_coords = _coords_to_array(data.fm_coordinates)
+    poi_coords = (
+        _coords_to_array(data.poi_coordinates)
+        if data.poi_coordinates
+        else np.zeros((0, 3), dtype=np.float32)
+    )
+
+    # image_props: (fib_shape, pixel_size_um, fm_shape_3d)
+    fib_shape = data.fib_image_shape
+    pixel_size = data.fib_image_pixel_size
+    fm_shape = data.fm_image_shape
+    if fib_shape is not None and pixel_size is not None and fm_shape is not None:
+        image_props = (fib_shape, pixel_size * 1e6, fm_shape[1:])  # (Z, Y, X)
+    else:
+        image_props = None
+
+    # rotation center: FM volume centre (matching app.py default)
+    if fm_shape is not None:
+        halfmax = int(max(fm_shape[1:]) * 0.5)
+        rotation_center = (halfmax, halfmax, halfmax)
+    else:
+        rotation_center = (0, 0, 0)
+
+    correlation_data = run_correlation(
+        fib_coords=fib_coords,
+        fm_coords=fm_coords,
+        poi_coords=poi_coords,
+        image_props=image_props,
+        rotation_center=rotation_center,
+        path=path,
+        fib_image_filename=data.fib_image_filename or "",
+        fm_image_filename=data.fm_image_filename or "",
+    )
+
+    out = correlation_data["output"]
+    transf = out["transformation"]
+    err = out["error"]
+
+    d2d = err["delta_2d"]       # [[x1,x2,...], [y1,y2,...]]
+    r3d = err["reprojected_3d"] # [[x1,...], [y1,...], [z1,...]]
+    n_markers = len(d2d[0])
+
+    return CorrelationResult(
+        poi=[
+            CorrelationPointOfInterest(
+                image_px=Point(p["image_px"][0], p["image_px"][1]),
+                px=Point(p["px"][0], p["px"][1]),
+                px_m=Point(p["px_m"][0], p["px_m"][1]),
+            )
+            for p in out["poi"]
+        ],
+        scale=transf["scale"],
+        rotation_eulers=transf["rotation_eulers"],
+        rotation_quaternion=transf["rotation_quaternion"],
+        translation=transf["translation_around_rotation_center_zero"],
+        translation_custom=transf["translation_around_rotation_center_custom"],
+        rms_error=err["rms_error"],
+        mean_absolute_error=err["mean_absolute_error"],
+        delta_2d=[Point(d2d[0][i], d2d[1][i]) for i in range(n_markers)],
+        reprojected_3d=[PointXYZ(r3d[0][i], r3d[1][i], r3d[2][i]) for i in range(len(r3d[0]))],
+        input_data=data,
+    )

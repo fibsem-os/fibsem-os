@@ -6,12 +6,12 @@ class PandasTableModel(QAbstractTableModel):
     """Custom table model to sync PyQt5 TableView with pandas DataFrame"""
     dataChanged = pyqtSignal(pd.DataFrame)
     
-    def __init__(self, df=pd.DataFrame(), display_columns=None):
+    def __init__(self, df=pd.DataFrame(), display_columns=None, editable_columns=None):
         super().__init__()
         self._df = df.copy()
         self._df.index = range(1, len(df) + 1)  # 1-based index
         self.row_order = list(range(len(df)))
-        
+
         # Set up display columns
         self.display_columns = display_columns
         if self.display_columns is None:
@@ -21,6 +21,9 @@ class PandasTableModel(QAbstractTableModel):
             missing_cols = set(self.display_columns) - set(df.columns)
             if missing_cols:
                 raise ValueError(f"Columns not found in DataFrame: {missing_cols}")
+
+        # Columns that are editable; None means all display columns are editable
+        self.editable_columns = set(editable_columns) if editable_columns is not None else None
             
         # Create a view of the DataFrame with only the display columns
         self._display_df = self._df[self.display_columns]
@@ -79,8 +82,10 @@ class PandasTableModel(QAbstractTableModel):
         return None
 
     def flags(self, index):
-        return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable | \
-               Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+        base = Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+        if self.editable_columns is None or self.display_columns[index.column()] in self.editable_columns:
+            base |= Qt.ItemIsEditable
+        return base
 
     def update_df(self, new_df):
         """Update the model's DataFrame and refresh the view"""

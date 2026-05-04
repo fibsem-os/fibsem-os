@@ -392,6 +392,7 @@ class RectanglePattern(BasePattern[FibsemRectangleSettings]):
         metadata={
             **DEFAULT_ANGLE_METADATA,
             "tooltip": "Rotation of the rectangle pattern in degrees.",
+            "advanced": True,
         },
     )
 

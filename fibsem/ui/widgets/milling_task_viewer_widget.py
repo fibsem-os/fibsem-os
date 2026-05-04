@@ -74,6 +74,7 @@ class MillingTaskViewerWidget(QWidget):
         self._milling_enabled = milling_enabled
         self._image_widget = image_widget
         self._show_alignment_area: bool = True
+        self.parent_widget = parent
 
         self._fib_image: Optional[FibsemImage] = None
         self._fib_image_layer: Optional[NapariImageLayer] = None
@@ -119,6 +120,22 @@ class MillingTaskViewerWidget(QWidget):
     def _connect_signals(self) -> None:
         self.config_widget.settings_changed.connect(self._on_settings_changed)
         self.config_widget.eye_toggled.connect(self._on_eye_toggled)
+
+    # ------------------------------------------------------------------
+    # Section visibility API
+    # ------------------------------------------------------------------
+
+    def set_parameters_visible(self, visible: bool) -> None:
+        """Show or hide the Milling Parameters panel."""
+        self.config_widget.core_panel.setVisible(visible)
+
+    def set_alignment_visible(self, visible: bool) -> None:
+        """Show or hide the Alignment panel."""
+        self.config_widget.alignment_panel.setVisible(visible)
+
+    def set_acquisition_visible(self, visible: bool) -> None:
+        """Show or hide the Acquisition panel."""
+        self.config_widget.acquisition_panel.setVisible(visible)
 
     def _setup_viewer_integration(self) -> None:
         """Connect to image_widget (injected or discovered from parent chain)."""
@@ -271,7 +288,7 @@ class MillingTaskViewerWidget(QWidget):
         iw = self._image_widget
         if iw is None:
             try:
-                iw = self.parent().image_widget  # type: ignore[attr-defined]
+                iw = self.parent_widget.image_widget  # type: ignore[attr-defined]
             except Exception:
                 return
         try:

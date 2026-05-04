@@ -655,8 +655,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             )
             fm_shape = None
             if self.microscope.fm is not None:
-                fm_shape = self.microscope.fm.camera.resolution[::-1]
-
+                try:
+                    fm_shape = self.microscope.fm.camera.resolution[::-1]
+                except Exception as e:
+                    logging.error(f"Failed to get fm image shape: {e}", exc_info=True)
             draw_crosshair_in_napari(
                 viewer=self.viewer,
                 sem_shape=self.eb_image.data.shape,

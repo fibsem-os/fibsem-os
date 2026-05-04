@@ -64,6 +64,7 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
+from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
@@ -482,6 +483,20 @@ class AutoLamellaTask(ABC):
                                                 msg="Drag to edit the Alignment Area. Press Continue when done.",
                                                 validate=self.validate)
 
+    def set_fluorescence_channels_ui(self, channel_settings: List[ChannelSettings]) -> None:
+        """Set the fluorescence channel settings in the fluorescence widget."""
+        if self.parent_ui is None:
+            return
+
+        info = {
+            "msg": "Updating Fluorescence Channel Settings",
+            "fluorescence_channel_settings": deepcopy(channel_settings),
+        }
+
+        self.parent_ui.WAITING_FOR_UI_UPDATE = True
+        self.parent_ui.workflow_update_signal.emit(info) # type: ignore
+        while self.parent_ui.WAITING_FOR_UI_UPDATE:
+            time.sleep(0.5)
 
 def get_task_supervision(task_name: str,
                     parent_ui: Optional['AutoLamellaUI'] = None) -> bool:

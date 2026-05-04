@@ -137,7 +137,7 @@ class FibsemMillingTaskConfig:
                 compatible.append((idx, stage))
 
         return compatible
-    
+
     def merge_compatible_stages(self, reference_idx: int = 0) -> 'FibsemMillingStage':
         compat_stages = self.compatible_stages(reference_idx=reference_idx)
         logging.info(f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}") 

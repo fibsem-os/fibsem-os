@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List
+from typing import List, Optional
 
 import napari
 import napari.plugins
@@ -81,7 +81,8 @@ class FMImportWizard(tdct_wizard.Ui_Wizard, QtWidgets.QWizard):
                    image: np.ndarray, 
                    pixelsize: float,
                    zstep: float, 
-                   colours: List[str] = None):
+                   colours: List[str] = None,
+                   channel_names: Optional[List[str]] = None):
         """Load the fluorescence image, set channels as separate layers, set scale"""
 
         # clear existing layers
@@ -112,8 +113,11 @@ class FMImportWizard(tdct_wizard.Ui_Wizard, QtWidgets.QWizard):
         for i in range(image.shape[0]):
             arr = image[i]
             colour = colours[i]
+            name = f"Channel {i}"
+            if channel_names is not None:
+                name = channel_names[i]
             layer = self.viewer.add_image(data=arr,
-                         name=f"Channel {i}",
+                         name=name,
                          scale=(self.zstep, self.pixelsize, self.pixelsize),
                          blending="additive",
                          colormap=colour)
@@ -123,8 +127,8 @@ class FMImportWizard(tdct_wizard.Ui_Wizard, QtWidgets.QWizard):
         self.viewer.scale_bar.unit = "m"
         # self.viewer.dims.ndim = 3
         self.viewer.dims.ndisplay = 2
-        self.viewer.dims.axis_labels = ["z", "y", "x"]
-    
+        self.viewer.dims.axis_labels = ("z", "y", "x")
+
     def on_interpolation_changed(self):
         pass
 
@@ -246,6 +250,7 @@ class FMImportWizard(tdct_wizard.Ui_Wizard, QtWidgets.QWizard):
                                    "pixel_size": self.pixelsize,
                                    "zstep": self.zstep,
                                    "colours" : self.colours,
+                                   "channel_names": self.md.get("channel_names", None),
                                    "is_fib_view": self.is_fib_view,
                                    "filename": self.filename})
         # self.viewer.close()
@@ -267,7 +272,8 @@ class FMImportWizard(tdct_wizard.Ui_Wizard, QtWidgets.QWizard):
         self.load_image(image=image,
                       pixelsize=md.get("pixel_size", 0.0),
                       zstep=md.get("zstep", 0.0),
-                      colours=md.get("colours", None))
+                      colours=md.get("colours", None),
+                      channel_names=md.get("channel_names", None),)
 
 # TODO: add napari reader func??? -> requires plugin engine
 
@@ -283,6 +289,11 @@ def main():
     viewer = napari.Viewer()
     wizard = FMImportWizard(viewer=viewer)
     PATH = "/home/patrick/github/3DCT/3D_correlation_test_dataset/test-image2.ome.tiff"
+    # fibsemos fluorescence image
+    # PATH = "/home/patrick/Downloads/02-epic-dove-z-stack-15-56-55.ome.tiff"
+    # meteor
+    # PATH = "/home/patrick/Downloads/zstack-Feature-1-Active-001.ome.tiff"
+    # PATH = "/home/patrick/Downloads/zstack-Feature-2-Active-001.ome.tiff" # meteor 
 
     wizard.open_image(PATH)
     viewer.window.add_dock_widget(wizard)

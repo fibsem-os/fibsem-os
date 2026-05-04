@@ -372,6 +372,7 @@ class FibsemMinimapWidget(QWidget):
         self._on_experiment_changed()
         self._update_position_display()
         self.draw_blank_image()
+        self._update_position_display()
 
     @property
     def microscope(self) -> FibsemMicroscope:
@@ -1088,6 +1089,9 @@ class FibsemMinimapWidget(QWidget):
     def draw_current_stage_position(self, stage_position: Optional[FibsemStagePosition] = None):
         """Draws the current stage position on the image."""
         if self.image is None or self.image.metadata is None:
+            return
+
+        if self.microscope is None:
             return
 
         if self.is_acquiring:

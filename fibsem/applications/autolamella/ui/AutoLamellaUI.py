@@ -17,8 +17,8 @@ from typing import List, Optional, TYPE_CHECKING
 import numpy as np
 import napari
 import fibsem
+from fibsem import conversions, utils
 from fibsem.ui import notification_service
-from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -39,6 +39,8 @@ from fibsem.ui import (
     MillingTaskViewerWidget,
     stylesheets,
 )
+from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
+from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont
@@ -77,6 +79,7 @@ from fibsem.ui.widgets.autolamella_load_task_protocol_widget import (
     load_task_protocol_dialog,
 )
 from fibsem.ui.fm.widgets import MinimapPlotWidget
+from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -189,6 +192,8 @@ class AutoLamellaUI(QMainWindow):
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
+        self.fm_widget: Optional[FMAcquisitionWidget] = None
+        self.fm_control_widget: Optional[FMControlWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
@@ -442,9 +447,37 @@ class AutoLamellaUI(QMainWindow):
             triggered=self._open_experiment_directory,
         )
 
+        # fluorescence menu
+        self.actionOpenFMMinimap = QAction(  # type: ignore
+            "Open Fluorescence Minimap",
+            parent=self,
+            triggered=self.open_fm_minimap_widget,
+        )
+
+        self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
+
+        # add a line separator
+        self.action_load_fm_configuration = QAction(  # type: ignore
+            text="Load Fluorescence Configuration",
+            parent=self,
+            triggered=self.load_fm_configuration,
+        )
+
+        self.action_save_fm_configuration = QAction(  # type: ignore
+            text="Save Fluorescence Configuration",
+            parent=self,
+            triggered=self.save_fm_configuration,
+        )
+
+
         # add to menu
         if os.name == "posix":
             self.menuBar().setNativeMenuBar(False)  # required for macOS
+        self.menuDevelopment.addAction(self.actionOpenFMMinimap)
+        self.menuDevelopment.addSeparator()
+        self.menuDevelopment.addAction(self.action_load_fm_configuration)
+        self.menuDevelopment.addAction(self.action_save_fm_configuration)
+        self.menuDevelopment.addSeparator()
         self.menuAutoLamella.addSeparator()
         self.menuAutoLamella.addAction(self.action_open_experiment_directory)
 
@@ -856,6 +889,16 @@ class AutoLamellaUI(QMainWindow):
             )
             self.tabWidget.addTab(self.milling_task_config_widget, "Milling")
 
+            if self.microscope.fm is not None:
+                self.fm_control_widget = FMControlWidget(
+                    microscope=self.microscope, viewer=self.viewer, parent=self
+                )
+                if self.settings is not None and self.settings.fm is not None:
+                    self.fm_control_widget._apply_fluorescence_configuration(
+                        self.settings.fm
+                    )
+                self.tabWidget.addTab(self.fm_control_widget, "Fluorescence")
+
             # add the detection widget if ml dependencies are available
             if DETECTION_AVAILABLE:
                 self.det_widget = FibsemEmbeddedDetectionWidget(parent=self)
@@ -890,6 +933,10 @@ class AutoLamellaUI(QMainWindow):
                 return
 
             # remove tabs
+            if self.fm_control_widget is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
+                self.fm_control_widget.deleteLater()
+                self.fm_control_widget = None
             if self.det_widget is not None:
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
                 self.det_widget.deleteLater()
@@ -916,6 +963,38 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+
+    def load_fm_configuration(self) -> None:
+        """Load a fluorescence microscope configuration via the control widget."""
+        if self.fm_control_widget is None:
+            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
+            logging.warning(msg)
+            napari.utils.notifications.show_warning(msg)
+            return
+
+        try:
+            self.fm_control_widget.load_fm_configuration()
+        except Exception:
+            logging.exception("Failed to load FM configuration from AutoLamella UI.")
+            napari.utils.notifications.show_error(
+                "Failed to load FM configuration. Check logs for details."
+            )
+
+    def save_fm_configuration(self) -> None:
+        """Save the current fluorescence microscope configuration via the control widget."""
+        if self.fm_control_widget is None:
+            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
+            logging.warning(msg)
+            napari.utils.notifications.show_warning(msg)
+            return
+
+        try:
+            self.fm_control_widget.save_fm_configuration()
+        except Exception:
+            logging.exception("Failed to save FM configuration from AutoLamella UI.")
+            napari.utils.notifications.show_error(
+                "Failed to save FM configuration. Check logs for details."
+            )
 
     #### REPORT GENERATION
     def action_generate_report(self) -> None:
@@ -983,6 +1062,32 @@ class AutoLamellaUI(QMainWindow):
         except Exception:
             logging.exception("Failed to open experiment directory.")
             notification_service.show_toast("Failed to open experiment directory.", "error")
+
+    #### FLUORESCENCE MINIMAP
+
+    def open_fm_minimap_widget(self):
+        if self.microscope is None:
+            napari.utils.notifications.show_warning(
+                "Please connect to a microscope first... [No Microscope Connected]"
+            )
+            return
+
+        if self.experiment is None:
+            napari.utils.notifications.show_warning(
+                "Please load an experiment first... [No Experiment Loaded]"
+            )
+            return
+
+        viewer = napari.Viewer(title="AutoLamella FM Acquisition Viewer")
+        self.fm_widget = FMAcquisitionWidget(
+            microscope=self.microscope,
+            viewer=viewer,
+            experiment=self.experiment,
+            parent=self,
+        )
+        self.fm_widget_dock = viewer.window.add_dock_widget(
+            self.fm_widget, name="FM Minimap", area="right"
+        )
 
     #### MINIMAP
 
@@ -1438,7 +1543,14 @@ class AutoLamellaUI(QMainWindow):
 
         # if the objective position is not provided, use the 'focus' position from the microscope
         if self.microscope.fm is not None:
-            lamella.fluorescence_pose = deepcopy(microscope_state)
+            # convert the fluorescence pose to 'sem' orientation
+            fluorescence_stage_position = self.microscope.get_target_position(
+                stage_position=deepcopy(microscope_state.stage_position),
+                target_orientation="SEM",
+            )
+            fluorescence_pose = deepcopy(microscope_state)
+            fluorescence_pose.stage_position = fluorescence_stage_position
+            lamella.fluorescence_pose = fluorescence_pose
             if objective_position is None:
                 objective_position = self.microscope.fm.objective.focus_position
             lamella.objective_position = objective_position
@@ -1931,6 +2043,12 @@ class AutoLamellaUI(QMainWindow):
             self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
         if info.get("clear_milling_config", False):
             self.milling_task_config_widget.clear()
+        # fluorescence channel settings
+        fluorescence_channel_settings = info.get("fluorescence_channel_settings", None)
+        if fluorescence_channel_settings is not None and self.fm_control_widget:
+            self.fm_control_widget.channelSettingsWidget.channel_settings = (
+                fluorescence_channel_settings
+            )
 
         # instruction message
         self.set_instructions_msg(

@@ -10,6 +10,7 @@ from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QIcon, QTransform
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QAbstractSpinBox,
     QAction,
     QComboBox,
     QDoubleSpinBox,
@@ -154,12 +155,13 @@ class ValueComboBox(QComboBox):
         value=None,
         unit: Optional[str] = None,
         format_fn: Optional[Callable] = None,
+        decimals: int = 1,
         parent=None,
     ) -> None:
         super().__init__(parent)
         for item in items:
             if isinstance(item, (float, int)):
-                item_str = format_value(val=item, unit=unit, precision=1)
+                item_str = format_value(val=item, unit=unit, precision=decimals)
             elif isinstance(item, Enum):
                 item_str = item.name
             elif format_fn is not None:
@@ -198,6 +200,7 @@ class ValueSpinBox(QDoubleSpinBox):
         step: Optional[float] = None,
         decimals: Optional[int] = None,
         tooltip: Optional[str] = None,
+        no_buttons: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -208,6 +211,8 @@ class ValueSpinBox(QDoubleSpinBox):
         self.setDecimals(decimals if decimals is not None else 3)
         if tooltip:
             self.setToolTip(tooltip)
+        if no_buttons:
+            self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.setKeyboardTracking(False)
         self.installEventFilter(WheelBlocker(parent=self))
 
@@ -427,9 +432,9 @@ class TitledPanel(QWidget):
         self._header_layout = QHBoxLayout(self._header)
         self._header_layout.setContentsMargins(8, 3, 4, 3)
         self._header_layout.setSpacing(4)
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: bold; background: transparent;")
-        self._header_layout.addWidget(title_label)
+        self._title_label = QLabel(title)
+        self._title_label.setStyleSheet("font-weight: bold; background: transparent;")
+        self._header_layout.addWidget(self._title_label)
         self._header_layout.addStretch()
 
         # Collapse toggle — always the last item in the header; checked=expanded
@@ -456,6 +461,14 @@ class TitledPanel(QWidget):
         if content is not None:
             self.set_content(content)
 
+    def collapse(self) -> None:
+        """Collapse the panel body."""
+        self._btn_collapse.setChecked(False)
+
+    def expand(self) -> None:
+        """Expand the panel body."""
+        self._btn_collapse.setChecked(True)
+
     def _on_collapse_toggled(self, expanded: bool) -> None:
         # Non-collapsible panels are always expanded
         if not self._collapsible:
@@ -464,6 +477,10 @@ class TitledPanel(QWidget):
         icon = "mdi:chevron-up" if expanded else "mdi:chevron-down"
         self._btn_collapse.setIcon(QIconifyIcon(icon, color=stylesheets.GRAY_ICON_COLOR))
         self._btn_collapse.setToolTip("Collapse" if expanded else "Expand")
+
+    def set_title(self, title: str) -> None:
+        """Update the panel header title text."""
+        self._title_label.setText(title)
 
     def add_header_widget(self, widget: QWidget) -> None:
         """Add a widget to the right side of the header, before the collapse button."""
@@ -675,8 +692,6 @@ class TaskNameListWidget(QWidget):
     def _restore_selection(self, names: List[str], preferred: str) -> None:
         if preferred and preferred in names:
             self.select(preferred)
-        elif "Rough Milling" in names:
-            self.select("Rough Milling")
         elif self._list.count() > 0:
             self._list.setCurrentRow(0)
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal
+from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
 
 import numpy as np
 import tifffile as tff
@@ -1179,6 +1179,7 @@ class FibsemMillingSettings:
                                         "type": str,
                                         "advanced": True,
                                         "items": ["Serial", "Parallel"],
+                                        "advanced": True,
                                         "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
                                         })
     hfw: float = field(default=150e-6, 
@@ -1602,6 +1603,7 @@ class MicroscopeSettings:
     image: ImageSettings
     milling: FibsemMillingSettings
     protocol: Optional[dict] = None
+    fm: Optional['FluorescenceConfiguration'] = None
 
     def to_dict(self) -> dict:
         settings_dict = {
@@ -1621,11 +1623,18 @@ class MicroscopeSettings:
         if protocol is None:
             protocol = settings.get("protocol", {"name": "demo"})
 
+        fm_config = None
+        fm_config_path = settings.get("fm", {}).get("config", None)
+        if fm_config_path is not None and isinstance(fm_config_path, str):
+            from fibsem.fm.structures import FluorescenceConfiguration
+            fm_config = FluorescenceConfiguration.load(fm_config_path)
+
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
             image=ImageSettings.from_dict(settings["imaging"]),
             protocol=protocol,
             milling=FibsemMillingSettings.from_dict(settings["milling"]),
+            fm=fm_config
         )
 
 

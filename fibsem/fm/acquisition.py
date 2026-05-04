@@ -1,0 +1,1564 @@
+import logging
+import os
+import threading
+import time
+from copy import deepcopy
+from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+from fibsem import utils
+from fibsem.fm.calibration import run_autofocus
+from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    ChannelSettings,
+    FluorescenceImage,
+    OverviewParameters,
+    ZParameters,
+    ZStackOrder,
+    FMStagePosition,
+    AutoFocusSettings,
+)
+from fibsem.fm.timing import estimate_tileset_acquisition_time, estimate_positions_acquisition_time
+from fibsem.structures import BeamType, FibsemStagePosition
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+
+def acquire_channels(
+    microscope: FluorescenceMicroscope,
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    stop_event: Optional[threading.Event] = None,
+) -> Optional[FluorescenceImage]:
+    """Acquire images for multiple channels."""
+
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]  # Ensure settings is a list
+
+    images: List[FluorescenceImage] = []
+    for channel in channel_settings:
+        # Check for cancellation before each channel
+        if stop_event and stop_event.is_set():
+            logging.info("Multi-channel acquisition cancelled")
+            return None
+
+        image = microscope.acquire_image(channel)
+        images.append(image)
+    return FluorescenceImage.create_multi_channel_image(images)
+
+
+def acquire_z_stack(
+    microscope: FluorescenceMicroscope,
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    zparams: ZParameters,
+    stop_event: Optional["threading.Event"] = None,
+) -> Optional[FluorescenceImage]:
+    """Acquire a Z-stack of images for a given channel."""
+
+    z_init = microscope.objective.position  # initial z position of the objective
+    z_positions = zparams.generate_positions(z_init=z_init)
+    images: List[FluorescenceImage] = []
+
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+
+    if zparams.order == ZStackOrder.Z_LEVEL:
+        # Z-level-wise: for each z-plane, acquire all channels
+        z_level_images: List[List[FluorescenceImage]] = []
+        for j, z in enumerate(z_positions):
+            if stop_event and stop_event.is_set():
+                logging.info("Z-stack acquisition cancelled before z-level acquisition")
+                microscope.objective.move_absolute(z_init)
+                return None
+
+            microscope.objective.move_absolute(z)
+            ch_images: List[FluorescenceImage] = []
+            for i, ch in enumerate(channel_settings):
+                microscope.acquisition_progress_signal.emit({
+                    "state": "acquiring",
+                    "task": "z-stack",
+                    "channel": ch.name,
+                    "channel_index": i + 1,
+                    "total_channels": len(channel_settings),
+                    "zlevel": j + 1,
+                    "total_zlevels": len(z_positions),
+                })
+                if stop_event and stop_event.is_set():
+                    logging.info("Z-stack acquisition cancelled during z-level acquisition")
+                    microscope.objective.move_absolute(z_init)
+                    return None
+                ch_images.append(microscope.acquire_image(channel_settings=ch))
+            z_level_images.append(ch_images)
+
+        # Transpose [z][ch] -> per-channel z-stacks
+        for i in range(len(channel_settings)):
+            ch_z_imgs = [z_level_images[j][i] for j in range(len(z_positions))]
+            images.append(FluorescenceImage.create_z_stack(ch_z_imgs))
+    else:
+        # Channel-wise (default): for each channel, acquire all z-planes
+        for i, ch in enumerate(channel_settings):
+            if stop_event and stop_event.is_set():
+                logging.info("Z-stack acquisition cancelled before channel acquisition")
+                microscope.objective.move_absolute(z_init)
+                return None
+
+            ch_images = []
+            for j, z in enumerate(z_positions):
+                microscope.acquisition_progress_signal.emit({
+                    "state": "acquiring",
+                    "task": "z-stack",
+                    "channel": ch.name,
+                    "channel_index": i + 1,
+                    "total_channels": len(channel_settings),
+                    "zlevel": j + 1,
+                    "total_zlevels": len(z_positions),
+                })
+                if stop_event and stop_event.is_set():
+                    logging.info("Z-stack acquisition cancelled during z-stack")
+                    microscope.objective.move_absolute(z_init)
+                    return None
+
+                microscope.objective.move_absolute(z)
+                ch_images.append(microscope.acquire_image(channel_settings=ch))
+
+            images.append(FluorescenceImage.create_z_stack(ch_images))
+
+    # restore objective to initial position
+    microscope.objective.move_absolute(z_init)
+
+    return FluorescenceImage.create_multi_channel_image(images)
+
+
+def acquire_image(
+    microscope: FluorescenceMicroscope,
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    zparams: Optional[ZParameters] = None,
+    stop_event: Optional[threading.Event] = None,
+    filename: Optional[str] = None,
+) -> Optional[FluorescenceImage]:
+    """Acquire a fluroescence image for a single channel or multiple channels.
+    If zparams is provided, a Z-stack will be acquired instead.
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Single channel or list of channels to acquire
+        zparams: ZParameters for Z-stack acquisition (optional)
+        stop_event: Threading event for cancellation (optional)
+        filename: Full file path to save the image (optional)
+    Returns:
+            FluorescenceImage object containing the acquired image(s)"""
+    if microscope.parent is None:
+        raise ValueError("Microscope parent is not set. Cannot start acquisition.")
+
+    if not microscope.has_valid_orientation():
+        raise ValueError(f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition.")
+
+    if zparams is not None:
+        # Acquire Z-stack if zparams is provided
+        image = acquire_z_stack(microscope, channel_settings, zparams, stop_event)
+    else:
+        # Acquire single image(s) for specified channel(s)
+        image = acquire_channels(microscope, channel_settings, stop_event)
+
+    # Save image if filename is provided and acquisition was successful
+    if image is not None and filename is not None:
+        try:
+            # Set description from filename (without extension)
+            image.metadata.description = os.path.basename(filename).removesuffix(
+                ".ome.tiff"
+            )
+            image.metadata.filename = filename
+            image.save(filename)
+        except Exception as e:
+            logging.error(f"Failed to save image to {filename}: {e}")
+
+    microscope.acquisition_progress_signal.emit({"state": "finished"})
+
+    return image
+
+def acquire_at_positions(
+    microscope: 'FibsemMicroscope',
+    positions: List[FMStagePosition],
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    zparams: Optional[ZParameters] = None,
+    use_autofocus: bool = False,
+    save_directory: Optional[str] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> List[FluorescenceImage]:
+    """Acquire fluorescence images at specified FMStagePosition locations.
+    This function moves both the stage and objective to each specified position and
+    acquires images for the given channel settings. If zparams is provided, a Z-stack
+    will be acquired at each position.
+    Args:
+        microscope: The fluorescence microscope instance
+        positions: List of FMStagePosition objects defining where to acquire images
+        channel_settings: Single channel or list of channels to acquire
+        zparams: ZParameters for Z-stack acquisition (optional)
+        use_autofocus: Whether to run autofocus at each position (default: False)
+        save_directory: Directory to save images in. If provided,
+                       creates subdirectories for each position (default: None)
+        stop_event: Threading event to signal cancellation (optional)
+    Returns:
+        List of FluorescenceImage objects containing the acquired images
+    Raises:
+        ValueError: If positions is empty or contains invalid stage positions
+    Example:
+        >>> stage_pos = FibsemStagePosition(x=0, y=0, z=0, name="pos1")
+        >>> fm_pos = FMStagePosition(name="Position-01", stage_position=stage_pos, objective_position=0.012)
+        >>> positions = [fm_pos]
+        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
+        ...                          emission_wavelength=450, power=0.5, exposure_time=0.1)
+        >>> images = acquire_at_positions(microscope, positions, channel,
+        ...                              save_directory="/data/experiment")
+    """
+    if microscope.fm is None:
+        raise ValueError(
+            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
+        )
+    if not microscope.fm.has_valid_orientation():
+        raise ValueError(f"Stage is not in valid orientation ({microscope.get_stage_orientation()!r}). Cannot start acquisition.")
+
+    if not positions:
+        raise ValueError("Positions list cannot be empty")
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+
+    # Calculate time estimates for the entire multi-position acquisition
+    time_estimates = estimate_positions_acquisition_time(
+        channel_settings, len(positions), zparams, use_autofocus
+    )
+    total_estimated_time = time_estimates["total_time"]
+    acquisition_start_time = time.time()
+
+    # Emit initial acquisition progress signal
+    microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
+                                                    "task": "multi-position",
+                                                    "position": "null",
+                                                    "current": 1,
+                                                    "total": len(positions),
+                                                    "estimated_total_time": total_estimated_time,
+                                                    "estimated_remaining_time": total_estimated_time,})
+
+    images: List[FluorescenceImage] = []
+    for i, fm_pos in enumerate(positions):
+
+        # Check for cancellation before each position
+        if stop_event and stop_event.is_set():
+            logging.info("Multi-position acquisition cancelled")
+            return images
+
+        logging.info(f"Acquiring at position {i + 1}/{len(positions)}: {fm_pos.name}")
+
+        # Calculate remaining time estimate based on progress
+        current_position = i + 1
+        total_positions = len(positions)
+        # Emit progress signal before starting position acquisition
+        microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
+                                                        "task": "multi-position",
+                                                       "position": fm_pos.name,
+                                                       "current": current_position,
+                                                       "total": total_positions,
+                                                    #    "estimated_total_time": total_estimated_time,
+                                                    #    "estimated_remaining_time": estimated_remaining_time,
+                                                    #    "elapsed_time": elapsed_time,
+                                                       })
+
+        # Move stage to the saved stage position and objective position
+        if microscope.get_stage_orientation(fm_pos.stage_position) not in ["SEM", "FM"]:
+            raise ValueError(f"Stage Position {fm_pos.name} is not in valid orientation: {fm_pos.stage_position}")
+        microscope.fm.acquisition_progress_signal.emit({"state": "moving", "task": "multi-position"})
+        microscope.safe_absolute_stage_movement(fm_pos.stage_position)
+        microscope.fm.objective.move_absolute(fm_pos.objective_position)
+
+        # Run autofocus if requested
+        if use_autofocus:
+            result = run_autofocus(microscope.fm, channel_settings[0], stop_event=stop_event)
+            if result is None:
+                logging.info("Multi-position acquisition cancelled during autofocus")
+                return images
+
+        # create filename/path if requested
+        filename = None
+        if save_directory is not None:
+            # Create position-specific subdirectory
+            position_name = fm_pos.name or f"position_{i + 1:03d}"
+            position_dir = os.path.join(save_directory, position_name)
+            os.makedirs(position_dir, exist_ok=True)
+
+            # Generate timestamp-based filename
+            timestamp = utils.current_timestamp_v3(timeonly=True)
+            basename = f"{position_name}-zstack-{timestamp}.ome.tiff"
+            filename = os.path.join(position_dir, basename)
+
+        # Acquire image
+        image = acquire_image(microscope=microscope.fm,
+                              channel_settings=channel_settings,
+                              zparams=zparams,
+                              stop_event=stop_event,
+                              filename=filename)
+
+        # Check if acquisition was cancelled
+        if image is None:
+            logging.info("Multi-position acquisition cancelled during image acquisition")
+            return images
+
+        image.metadata.description = f"{fm_pos.name}-{image.metadata.acquisition_date}"
+        images.append(image)
+
+        # Calculate remaining time estimate based on progress
+        elapsed_time = time.time() - acquisition_start_time
+        if current_position > 1:
+            time_per_position = elapsed_time / (current_position - 1)
+            estimated_remaining_time = time_per_position * (total_positions - current_position)
+        else:
+            estimated_remaining_time = total_estimated_time
+
+        microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
+                                                        "task": "multi-position",
+                                                       "position": fm_pos.name,
+                                                       "current": current_position,
+                                                       "total": total_positions,
+                                                       "estimated_total_time": total_estimated_time,
+                                                       "estimated_remaining_time": estimated_remaining_time,
+                                                       "elapsed_time": elapsed_time,})
+
+    microscope.fm.acquisition_progress_signal.emit({"state": "finished"})
+
+    return images
+
+def run_tileset_autofocus(
+    microscope: 'FibsemMicroscope',
+    channel_settings: Optional[ChannelSettings],
+    z_parameters: Optional[ZParameters],
+    method: str = "laplacian",
+    stop_event: Optional[threading.Event] = None,
+) -> bool:
+    """Run autofocus during tileset acquisition with error handling and logging.
+
+    Args:
+        microscope: The FIBSEM microscope instance
+        channel_settings: Channel settings for autofocus
+        z_parameters: Z parameters for autofocus range
+        context: Description of the autofocus context for logging
+        method: Autofocus method to use (default: 'laplacian')
+        stop_event: Threading event to check for cancellation (optional)
+
+    Returns:
+        True if autofocus completed successfully, False if cancelled
+    """
+    if microscope.fm is None:
+        logging.error(
+            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
+        )
+        return False
+    try:
+        result = run_autofocus(
+            microscope=microscope.fm,
+            channel_settings=channel_settings,
+            z_parameters=z_parameters,
+            method=method,
+            stop_event=stop_event,
+        )
+        if result is None:
+            logging.info("Auto-focus cancelled")
+            return False
+        return True
+    except Exception as e:
+        logging.warning(f"Auto-focus failed: {e}")
+        return False
+
+
+def acquire_tileset(
+    microscope: 'FibsemMicroscope',
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    overview_parameters: OverviewParameters,
+    zparams: Optional[ZParameters] = None,
+    beam_type: BeamType = BeamType.ELECTRON,
+    autofocus_settings: Optional[AutoFocusSettings] = None,
+    save_directory: Optional[str] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> List[List[Optional[FluorescenceImage]]]:
+    """Acquire a tileset of fluorescence images across a grid pattern.
+
+    This function moves the stage in a grid pattern to acquire multiple overlapping
+    fluorescence images that can later be stitched together to create a larger
+    field of view mosaic. The stage is moved using stable_move to maintain proper
+    focus and positioning.
+
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Single channel or list of channels to acquire
+        overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
+        zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
+        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        autofocus_settings: Optional AutoFocusSettings for autofocus configuration
+        save_directory: Optional directory path to save individual tile images (default: None)
+        stop_event: Threading event to signal cancellation (optional)
+
+    Returns:
+        List of lists containing FluorescenceImage objects organized as [row][col]
+
+    Raises:
+        ValueError: If grid_size contains non-positive values or overlap is invalid
+
+    Example:
+        >>> # Acquire a 3x3 grid with 10% overlap
+        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
+        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
+        >>> tileset = acquire_tileset(microscope, channel, grid_size=(3, 3), tile_overlap=0.1)
+        >>> print(f"Acquired {len(tileset)}x{len(tileset[0])} tiles")
+    """
+    if microscope.fm is None:
+        raise ValueError(
+            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
+        )
+
+    orientation = microscope.get_stage_orientation()
+    if orientation not in ["SEM", "FM"]:
+        raise ValueError(f"Stage is not in SEM, or FM orientation {orientation}. Cannot start acquisition.")
+
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+
+    # Extract parameters from overview_parameters
+    rows, cols = overview_parameters.rows, overview_parameters.cols
+    tile_overlap = overview_parameters.overlap
+    autofocus_mode = overview_parameters.autofocus_mode
+    
+    if rows <= 0 or cols <= 0:
+        raise ValueError("Grid size must contain positive values")
+
+    if not 0.0 <= tile_overlap < 1.0:
+        raise ValueError("Tile overlap must be between 0.0 and 1.0 (exclusive)")
+
+    logging.info(
+        f"Starting tileset acquisition: {rows}x{cols} grid with {tile_overlap:.1%} overlap"
+    )
+
+    # Store initial position to return to later
+    initial_position = microscope.get_stage_position()
+    initial_objective_position = microscope.fm.objective.position
+
+    # Calculate the physical field of view from metadata
+    pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
+    image_width, image_height = microscope.fm.camera.resolution
+    fov_x = image_width * pixel_size_x
+    fov_y = image_height * pixel_size_y
+
+    # Calculate step size accounting for overlap
+    step_x = fov_x * (1.0 - tile_overlap)
+    step_y = fov_y * (1.0 - tile_overlap)
+
+    # Set up auto-focus parameters
+    autofocus_channel = None
+    if autofocus_mode != AutoFocusMode.NONE:
+        if autofocus_settings is None:
+            raise ValueError(f"Auto focus settings must be provided when autofocus mode {autofocus_mode.value} is enabled")
+        # Find autofocus channel by name if specified in autofocus_settings
+        if autofocus_settings.channel_name:
+            for ch in channel_settings:
+                if ch.name == autofocus_settings.channel_name:
+                    autofocus_channel = ch
+                    break
+        
+        # Fall back to first channel if no specific channel found
+        if autofocus_channel is None:
+            logging.warning(f"Autofocus channel '{autofocus_settings.channel_name}' not found, using first channel")
+            autofocus_channel = channel_settings[0]
+        # if autofocus_zparams is None:
+            # autofocus_zparams = zparams
+        logging.info(f"Auto-focus mode: {autofocus_mode.value}")
+        logging.info(f"Auto-focus settings: {autofocus_settings.method.value}, coarse: {autofocus_settings.coarse_enabled}, fine: {autofocus_settings.fine_enabled}")
+
+        autofocus_method = autofocus_settings.method.value
+        # Set up Z parameters for autofocus
+        autofocus_zparams = ZParameters(
+            zmin=-autofocus_settings.fine_range/2, 
+            zmax=autofocus_settings.fine_range/2, 
+            zstep=autofocus_settings.fine_step
+        )
+        # NOTE: coarse auto-focus should only be used initially. fine-autofocus should be use at each position
+
+    # Perform initial auto-focus if mode is ONCE (before moving to starting position)
+    if autofocus_mode == AutoFocusMode.ONCE:
+        if not run_tileset_autofocus(
+            microscope,
+            autofocus_channel,
+            autofocus_zparams,
+            method=autofocus_method,
+            stop_event=stop_event,
+        ):
+            logging.info("Initial autofocus cancelled")
+            return []  # Return empty list if cancelled
+
+    # Calculate starting position (top-left corner of grid)
+    start_offset_x = -(cols - 1) * step_x / 2
+    start_offset_y = -(rows - 1) * step_y / 2
+
+    # Move to starting position
+    microscope.fm.acquisition_progress_signal.emit({
+        "state": "moving",
+        "task": "tileset",
+    })
+
+    # QUERY: How we need to change direction of movements if in SEM orientation?
+    # if orientation == "SEM":
+        # start_offset_y *= -1  # invert y offset in SEM orientation
+        # step_y *= -1  # invert y step in SEM orientation
+
+    microscope.stable_move(dx=start_offset_x, dy=start_offset_y, beam_type=beam_type)
+
+    # Initialize results array
+    tileset = []
+
+    # Calculate time estimates for the entire tileset
+    time_estimates = estimate_tileset_acquisition_time(
+        channel_settings, (rows, cols), zparams, autofocus_mode
+    )
+    total_estimated_time = time_estimates["total_time"]
+    acquisition_start_time = time.time()
+
+    # Emit initial acquisition progress signal
+    microscope.fm.acquisition_progress_signal.emit({
+        "state": "acquiring",
+        "task": "tileset",
+        "row": 1,
+        "col": 1,
+        "total_rows": rows,
+        "total_cols": cols,
+        "current": 1,
+        "total": rows * cols,
+        "estimated_total_time": total_estimated_time,
+        "estimated_remaining_time": total_estimated_time,
+    })
+
+    # TODO: migrate to generate_grid_positions
+    try:
+        for row in range(rows):
+            # Check for cancellation before each row
+            if stop_event and stop_event.is_set():
+                logging.info("Tileset acquisition cancelled")
+                return tileset
+
+            row_images = []
+
+            # Perform auto-focus at start of each row
+            if autofocus_mode == AutoFocusMode.EACH_ROW:
+                autofocus_success = run_tileset_autofocus(
+                    microscope,
+                    autofocus_channel,
+                    autofocus_zparams,
+                    method=autofocus_method,
+                    stop_event=stop_event,
+                )
+                if not autofocus_success:
+                    logging.info("Tileset acquisition cancelled during row autofocus")
+                    return tileset
+
+            for col in range(cols):
+                # Check for cancellation before each tile
+                if stop_event and stop_event.is_set():
+                    logging.info("Tileset acquisition cancelled during tile acquisition")
+                    return tileset
+
+                microscope.fm.objective.move_absolute(initial_objective_position)
+
+                # Perform auto-focus at each tile
+                if autofocus_mode == AutoFocusMode.EACH_TILE:
+                    autofocus_success = run_tileset_autofocus(
+                        microscope,
+                        autofocus_channel,
+                        autofocus_zparams,
+                        method=autofocus_method,
+                        stop_event=stop_event,
+                    )
+                    if not autofocus_success:
+                        logging.info("Tileset acquisition cancelled during tile autofocus")
+                        return tileset
+
+                logging.info(f"Acquiring tile [{row + 1}/{rows}][{col + 1}/{cols}]")
+
+                # Calculate remaining time estimate based on progress
+                current_tile = row * cols + col + 1
+                total_tiles = rows * cols
+                elapsed_time = time.time() - acquisition_start_time
+
+                if current_tile > 1:
+                    time_per_tile = elapsed_time / (current_tile - 1)
+                    estimated_remaining_time = time_per_tile * (total_tiles - current_tile + 1)
+                else:
+                    estimated_remaining_time = total_estimated_time
+
+                # emit acquisition progress signal
+                microscope.fm.acquisition_progress_signal.emit({
+                    "state": "acquiring",
+                    "task": "tileset",
+                    "row": row + 1,
+                    "col": col + 1,
+                    "total_rows": rows,
+                    "total_cols": cols,
+                    "current": current_tile,
+                    "total": total_tiles,
+                    "estimated_total_time": total_estimated_time,
+                    "estimated_remaining_time": estimated_remaining_time,
+                    "elapsed_time": elapsed_time,
+                })
+
+                # Save individual tile if save_directory is provided
+                filename = None
+                if save_directory is not None:
+                    tile_filename = f"tile-{row:02d}-{col:02d}.ome.tiff"
+                    filename = os.path.join(save_directory, tile_filename)
+
+                # Acquire all channels at current position with cancellation support
+                tile_image = acquire_image(
+                    microscope=microscope.fm,
+                    channel_settings=channel_settings,
+                    zparams=zparams,
+                    stop_event=stop_event,
+                    filename=filename
+                )
+
+                # Check if acquisition was cancelled
+                if tile_image is None:
+                    logging.info("Tileset acquisition cancelled during tile acquisition")
+                    return tileset
+
+                # max intensity projection if zparams is provided
+                if zparams is not None:
+                    tile_image = tile_image.max_intensity_projection()
+                    # tile_image = tile_image.focus_stack() # TODO: support focus stacking
+
+                row_images.append(tile_image)
+
+                # Move to next column position (except for last column)
+                if col < cols - 1:
+                    microscope.fm.acquisition_progress_signal.emit({
+                    "state": "moving",
+                    "task": "tileset",
+                    })
+                    microscope.stable_move(dx=step_x, dy=0, beam_type=beam_type)
+
+            tileset.append(row_images)
+
+            # Move to next row (except for last row)
+            if row < rows - 1:
+                microscope.fm.acquisition_progress_signal.emit({
+                    "state": "moving",
+                    "task": "tileset",
+                })
+                # Return to first column of next row
+                microscope.stable_move(
+                    dx=-(cols - 1) * step_x, dy=step_y, beam_type=beam_type
+                )
+
+        # save the parameters in a metadata json file if save_directory is provided
+        if save_directory is not None:
+            params = {
+                "grid_size": (rows, cols),
+                "tile_overlap": tile_overlap,
+                "overview_parameters": overview_parameters.to_dict(),
+                "zparameters": zparams.to_dict() if zparams is not None else None,
+                "autofocus_settings": autofocus_settings.to_dict() if autofocus_settings is not None else None,
+                "channel_settings": [ch.to_dict() for ch in channel_settings],
+            }
+            params_filename = os.path.join(save_directory, "overview-parameters.json")
+            utils.save_json(params_filename, params)
+            logging.info(f"Saved tileset acquisition parameters to {params_filename}")
+
+    except Exception as e:
+        logging.error(f"Error during tileset acquisition: {e}")
+        raise
+
+    finally:
+        # Return to initial position
+        logging.info("Returning to initial position")
+        microscope.safe_absolute_stage_movement(initial_position)
+        microscope.fm.objective.move_absolute(initial_objective_position)
+        microscope.fm.acquisition_progress_signal.emit({"state": "finished"})
+    
+    logging.info(f"Tileset acquisition complete: {rows}x{cols} tiles acquired")
+    return tileset
+
+
+def stitch_tileset(
+    tileset: List[List[FluorescenceImage]],
+    tile_overlap: float = 0.1
+) -> FluorescenceImage:
+    """Stitch a tileset of fluorescence images into a single mosaic image.
+
+    Supports both single-channel and multi-channel images. For multi-channel images,
+    each channel is stitched separately and combined into a single mosaic with
+    dimensions (nc_channel, 1, ny, nx). Overlapping regions are handled by taking
+    pixels from the rightmost/bottommost tile.
+
+    Args:
+        tileset: List of lists containing FluorescenceImage objects [row][col]
+        tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+
+    Returns:
+        Single FluorescenceImage containing the stitched mosaic
+
+    Raises:
+        ValueError: If tileset is empty or irregular
+
+    Example:
+        >>> tileset = acquire_tileset(microscope, channel, grid_size=(3, 3))
+        >>> mosaic = stitch_tileset(tileset, tile_overlap=0.1)
+        >>> print(f"Mosaic size: {mosaic.data.shape}")
+    """
+    if not tileset or not tileset[0]:
+        raise ValueError("Tileset cannot be empty")
+
+    rows = len(tileset)
+    cols = len(tileset[0])
+
+    # Validate tileset is rectangular
+    for row in tileset:
+        if len(row) != cols:
+            raise ValueError("Tileset must be rectangular (all rows same length)")
+
+    logging.info(f"Stitching {rows}x{cols} tileset with {tile_overlap:.1%} overlap")
+
+    # Get reference tile for dimensions
+    ref_tile = tileset[0][0]
+
+    # Handle both 2D and multi-dimensional data
+    if ref_tile.data.ndim == 2:
+        # 2D data (Y, X)
+        tile_height, tile_width = ref_tile.data.shape
+        nc_channels = 1
+        nz_planes = 1
+    elif ref_tile.data.ndim == 3:
+        # 3D data (Z, Y, X) or (C, Y, X)
+        nz_planes, tile_height, tile_width = ref_tile.data.shape
+        nc_channels = 1
+    elif ref_tile.data.ndim == 4:
+        # 4D data (C, Z, Y, X)
+        nc_channels, nz_planes, tile_height, tile_width = ref_tile.data.shape
+    else:
+        raise ValueError(f"Unsupported data dimensions: {ref_tile.data.ndim}")
+
+    # Calculate overlap in pixels
+    overlap_pixels_x = int(tile_width * tile_overlap)
+    overlap_pixels_y = int(tile_height * tile_overlap)
+
+    # Calculate final mosaic dimensions
+    effective_tile_width = tile_width - overlap_pixels_x
+    effective_tile_height = tile_height - overlap_pixels_y
+
+    mosaic_width = effective_tile_width * (cols - 1) + tile_width
+    mosaic_height = effective_tile_height * (rows - 1) + tile_height
+
+    logging.info(f"Tile size: {tile_height}x{tile_width}, Mosaic size: {mosaic_height}x{mosaic_width}")
+    logging.info(f"Channels: {nc_channels}, Z-planes: {nz_planes}")
+
+    # Initialize mosaic array with proper dimensions (C, Z, Y, X)
+    mosaic_data = np.zeros(
+        (nc_channels, 1, mosaic_height, mosaic_width), dtype=ref_tile.data.dtype
+    )
+
+    # Place each tile
+    for row in range(rows):
+        for col in range(cols):
+            tile = tileset[row][col]
+
+            # Calculate position in mosaic
+            y_start = row * effective_tile_height
+            x_start = col * effective_tile_width
+            y_end = y_start + tile_height
+            x_end = x_start + tile_width
+
+            # Ensure we don't exceed mosaic boundaries
+            y_end = min(y_end, mosaic_height)
+            x_end = min(x_end, mosaic_width)
+
+            # Calculate actual tile region to use
+            tile_y_end = y_end - y_start
+            tile_x_end = x_end - x_start
+
+            # Normalize tile data to CZYX format for consistent processing
+            if tile.data.ndim == 2:
+                # 2D data (Y, X) -> (1, 1, Y, X)
+                tile_data = tile.data[np.newaxis, np.newaxis, :tile_y_end, :tile_x_end]
+            elif tile.data.ndim == 3:
+                # 3D data (Z, Y, X) -> (1, Z, Y, X) or (C, Y, X) -> (C, 1, Y, X)
+                if nz_planes > 1:  # Z-stack
+                    tile_data = tile.data[np.newaxis, :, :tile_y_end, :tile_x_end]
+                else:  # Multi-channel
+                    tile_data = tile.data[:, np.newaxis, :tile_y_end, :tile_x_end]
+            elif tile.data.ndim == 4:
+                # 4D data (C, Z, Y, X) - already in correct format
+                tile_data = tile.data[:, :, :tile_y_end, :tile_x_end]
+            else:
+                raise ValueError(f"Unsupported tile data dimensions: {tile.data.ndim}")
+
+            # For multi-channel and/or z-stack, we take max intensity projection along Z
+            # to create the final mosaic with dimensions (C, 1, Y, X)
+            if tile_data.shape[1] > 1:  # Multiple Z planes
+                tile_data = np.max(tile_data, axis=1, keepdims=True)
+
+            # Place tile data for each channel
+            mosaic_data[:, 0, y_start:y_end, x_start:x_end] = tile_data[:, 0, :, :]
+
+    # Create updated metadata for stitched image
+    stitched_metadata = deepcopy(ref_tile.metadata)
+
+    # Update resolution to reflect new mosaic size
+    stitched_metadata.resolution = (mosaic_width, mosaic_height)
+
+    # Calculate the center position as average of all tile positions
+    if any(
+        hasattr(tileset[row][col].metadata, "stage_position")
+        and tileset[row][col].metadata.stage_position is not None
+        for row in range(rows)
+        for col in range(cols)
+    ):
+        # Collect all stage positions from tiles
+        x_positions = []
+        y_positions = []
+        z_positions = []
+        r_positions = []
+        t_positions = []
+        coordinate_systems = []
+
+        for row in range(rows):
+            for col in range(cols):
+                tile_metadata = tileset[row][col].metadata
+                if (
+                    hasattr(tile_metadata, "stage_position")
+                    and tile_metadata.stage_position is not None
+                ):
+                    pos = tile_metadata.stage_position
+                    x_positions.append(pos.x)
+                    y_positions.append(pos.y)
+                    z_positions.append(pos.z)
+                    r_positions.append(pos.r)
+                    t_positions.append(pos.t)
+                    coordinate_systems.append(pos.coordinate_system)
+
+        if x_positions:  # If we found any positions
+            # Calculate average position (center of mosaic)
+            avg_x = sum(x_positions) / len(x_positions)
+            avg_y = sum(y_positions) / len(y_positions)
+            avg_z = sum(z_positions) / len(z_positions)
+            avg_r = sum(r_positions) / len(r_positions)
+            avg_t = sum(t_positions) / len(t_positions)
+
+            # Use coordinate system from first tile
+            coord_system = coordinate_systems[0] if coordinate_systems else "Unknown"
+
+            # Update stage position to mosaic center
+            stitched_metadata.stage_position = FibsemStagePosition(
+                x=avg_x,
+                y=avg_y,
+                z=avg_z,
+                r=avg_r,
+                t=avg_t,
+                coordinate_system=coord_system,
+                name=f"stitched_mosaic_{rows}x{cols}",
+            )
+
+    # Create stitched FluorescenceImage
+    stitched_image = FluorescenceImage(data=mosaic_data, metadata=stitched_metadata)
+
+    logging.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
+    return stitched_image
+
+def acquire_and_stitch_tileset(
+    microscope: 'FibsemMicroscope',
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    overview_parameters: OverviewParameters,
+    zparams: Optional[ZParameters] = None,
+    beam_type: BeamType = BeamType.ELECTRON,
+    autofocus_settings: Optional[AutoFocusSettings] = None,
+    save_directory: Optional[str] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> Optional[FluorescenceImage]:
+    """Acquire a tileset and stitch it into a single mosaic image.
+
+    Args:
+        microscope: The fluorescence microscope instance
+        channel_settings: Single channel or list of channels to acquire
+        overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
+        zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
+        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        autofocus_settings: Optional AutoFocusSettings for autofocus configuration
+        save_directory: Optional directory path to save individual tile images (default: None)
+        stop_event: Optional threading event to signal cancellation
+
+    Returns:
+        Single stitched FluorescenceImage with dimensions (nc_channel, 1, ny, nx)
+    """
+
+    # TODO: support different projection methods (e.g. max intensity, focus stacking)
+
+    # Auto-convert channel_settings to list for consistent processing
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+
+    # Create timestamp and subdirectory for tiles
+    if save_directory is not None:
+        timestamp = utils.current_timestamp_v3(timeonly=True)
+        basename = f"overview-{timestamp}"
+        tiles_directory = os.path.join(save_directory, basename)
+        os.makedirs(tiles_directory, exist_ok=True)
+    else:
+        tiles_directory = None
+    
+    # Check if zparams is provided when z-stack is requested
+    if zparams is None and overview_parameters.use_zstack:
+        raise ValueError("Z-stack requested in overview parameters but no zparams provided")
+
+    # acquire the tileset
+    tileset = acquire_tileset(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        overview_parameters=overview_parameters,
+        zparams=zparams,
+        beam_type=beam_type,
+        autofocus_settings=autofocus_settings,
+        save_directory=tiles_directory,
+        stop_event=stop_event,
+    )
+
+    # Check if acquisition was cancelled (empty or incomplete tileset)
+    if not tileset or any(tile is None for row in tileset for tile in row):
+        logging.info("Tileset acquisition was cancelled, cannot stitch")
+        return None
+
+    # Stitch the tileset into a single overview image
+    overview_image = stitch_tileset(tileset, overview_parameters.overlap)  # type: ignore
+
+    # Save overview to experiment directory
+    if save_directory is not None:
+        filepath = os.path.join(save_directory, f"{basename}.ome.tiff")
+        overview_image.metadata.description = basename
+
+        try:
+            overview_image.save(filepath)
+            logging.info(f"Overview saved to: {filepath}")
+        except Exception as e:
+            logging.error(f"Failed to save overview to {filepath}: {e}")
+
+    return overview_image
+
+
+def acquire_multiple_overviews(
+    microscope: 'FibsemMicroscope',
+    positions: List[FMStagePosition],
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+    overview_parameters: OverviewParameters,
+    zparams: Optional[ZParameters] = None,
+    beam_type: BeamType = BeamType.ELECTRON,
+    autofocus_settings: Optional[AutoFocusSettings] = None,
+    save_directory: Optional[str] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> List[Optional[FluorescenceImage]]:
+    """Acquire multiple overview images at different fluorescence microscopy positions.
+
+    This function moves to each specified FMStagePosition (both stage and objective)
+    and acquires a stitched overview image using the same parameters as
+    acquire_and_stitch_tileset.
+
+    Args:
+        microscope: The FIBSEM microscope instance with fluorescence microscope
+        positions: List of FMStagePosition objects defining where to acquire overviews
+        channel_settings: Single channel or list of channels to acquire
+        overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
+        zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
+        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        autofocus_settings: Optional AutoFocusSettings for autofocus configuration
+        save_directory: Optional directory path to save overview images. Creates subdirectories
+                       for each position (default: None)
+        stop_event: Threading event to signal cancellation (optional)
+
+    Returns:
+        List of stitched FluorescenceImage objects (or None if acquisition was cancelled)
+        corresponding to each position
+
+    Raises:
+        ValueError: If positions is empty or microscope.fm is None
+
+    Example:
+        >>> # Define positions
+        >>> pos1 = FMStagePosition(name="Region1", stage_position=stage_pos1, objective_position=0.012)
+        >>> pos2 = FMStagePosition(name="Region2", stage_position=stage_pos2, objective_position=0.013)
+        >>> positions = [pos1, pos2]
+        >>>
+        >>> # Define channel settings and overview parameters  
+        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
+        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
+        >>> overview_params = OverviewParameters(rows=3, cols=3, overlap=0.1)
+        >>>
+        >>> # Acquire 3x3 overview grids at each position
+        >>> overviews = acquire_multiple_overviews(microscope, positions, channel, overview_params,
+        ...                                       save_directory="/data/experiment")
+        >>> print(f"Acquired {len(overviews)} overview images")
+    """
+    if microscope.fm is None:
+        raise ValueError(
+            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
+        )
+    if not positions:
+        raise ValueError("Positions list cannot be empty")
+
+    # Store initial positions to restore later
+    initial_stage_position = microscope.get_stage_position()
+    initial_objective_position = microscope.fm.objective.position
+
+    overview_images: List[Optional[FluorescenceImage]] = []
+
+    try:
+        for i, fm_pos in enumerate(positions):
+            # Check for cancellation before each position
+            if stop_event and stop_event.is_set():
+                logging.info("Multiple overview acquisition cancelled")
+                return overview_images  # Return images acquired so far
+
+            logging.info(
+                f"Acquiring overview at position {i + 1}/{len(positions)}: {fm_pos.name}"
+            )
+
+            # Move stage to the specified position
+            logging.info(f"Moving stage to: {fm_pos.stage_position}")
+            microscope.safe_absolute_stage_movement(fm_pos.stage_position)
+
+            # Move objective to the specified position
+            logging.info(
+                f"Moving objective to: {fm_pos.objective_position * 1e3:.2f} mm"
+            )
+            microscope.fm.objective.move_absolute(fm_pos.objective_position)
+
+            # Create position-specific save directory if requested
+            position_save_directory = None
+            if save_directory is not None:
+                position_name = fm_pos.name or f"position_{i + 1:03d}"
+                position_save_directory = os.path.join(save_directory, position_name)
+                os.makedirs(position_save_directory, exist_ok=True)
+
+            # Acquire overview at current position
+            overview_image = acquire_and_stitch_tileset(
+                microscope=microscope,
+                channel_settings=channel_settings,
+                overview_parameters=overview_parameters,
+                zparams=zparams,
+                beam_type=beam_type,
+                autofocus_settings=autofocus_settings,
+                save_directory=position_save_directory,
+                stop_event=stop_event,
+            )
+
+            # Check if acquisition was cancelled
+            if overview_image is None:
+                logging.info("Overview acquisition cancelled")
+                overview_images.append(None)
+                return overview_images  # Return images acquired so far
+
+            # Update metadata with position information
+            if overview_image is not None:
+                overview_image.metadata.description = (
+                    f"{fm_pos.name}-overview-{overview_image.metadata.acquisition_date}"
+                )
+                logging.info(f"Acquired overview at position: {fm_pos.name}")
+
+            overview_images.append(overview_image)
+
+    except Exception as e:
+        logging.error(f"Error during multiple overview acquisition: {e}")
+        raise
+
+    finally:
+        # Return to initial positions
+        logging.info("Returning to initial positions")
+        microscope.safe_absolute_stage_movement(initial_stage_position)
+        microscope.fm.objective.move_absolute(initial_objective_position)
+
+    logging.info(
+        f"Multiple overview acquisition complete: {len(overview_images)} overviews acquired"
+    )
+    return overview_images
+
+
+def generate_grid_positions(
+    ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1
+) -> List[Tuple[float, float]]:
+    """Generate a grid of positions, centered around the origin, for acquiring tiles.
+
+    Creates a regular grid of (x, y) positions that are properly centered around the origin
+    (0, 0) for both odd and even numbers of columns and rows. The spacing between positions
+    accounts for the specified field of view and tile overlap.
+
+    Args:
+        ncols: Number of columns in the grid (must be positive)
+        nrows: Number of rows in the grid (must be positive)
+        fov_x: Horizontal field of view size in meters (physical dimension of each tile)
+        fov_y: Vertical field of view size in meters (physical dimension of each tile)
+        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+
+    Returns:
+        List of (x, y) tuples representing grid positions in meters, centered around origin
+
+    Example:
+        >>> # 3x3 grid with 10μm x 8μm FOV and 10% overlap
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
+        >>> len(positions)
+        9
+        >>> positions[4]  # Center position
+        (0.0, 0.0)
+
+        >>> # 4x4 grid is also properly centered
+        >>> positions = generate_grid_positions(4, 4, 10e-6, 10e-6, 0.0)
+        >>> import numpy as np
+        >>> np.mean([pos[0] for pos in positions])  # Mean x should be ~0
+        0.0
+    """
+    positions = []
+    for i in range(ncols):
+        for j in range(nrows):
+            x = (i - (ncols - 1) / 2) * (fov_x * (1 - overlap))
+            y = (j - (nrows - 1) / 2) * (fov_y * (1 - overlap))
+            positions.append((x, y))
+
+    return positions
+
+
+def convert_grid_positions_to_stage_positions(
+    microscope: 'FibsemMicroscope',
+    positions: List[Tuple[float, float]],
+    beam_type: BeamType = BeamType.ELECTRON,
+    base_position: Optional[FibsemStagePosition] = None,
+) -> List[FibsemStagePosition]:
+    """Convert grid positions to stage positions using microscope projection.
+
+    Takes a list of (x, y) grid positions and converts them to FibsemStagePosition
+    objects using the microscope's project_stable_move method. This accounts for
+    the microscope's coordinate system and current stage configuration.
+
+    Args:
+        microscope: The FibsemMicroscope instance to use for projection
+        positions: List of (x, y) tuples representing grid positions in meters
+        beam_type: Beam type to use for projection (default: ELECTRON)
+        base_position: Base stage position to project from (default: current position)
+
+    Returns:
+        List of FibsemStagePosition objects representing the projected stage positions
+
+    Example:
+        >>> # Generate grid positions
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 0.1)
+        >>> # Convert to stage positions
+        >>> stage_positions = convert_grid_positions_to_stage_positions(
+        ...     microscope, positions, BeamType.ELECTRON
+        ... )
+        >>> len(stage_positions)
+        9
+    """
+    if base_position is None:
+        base_position = microscope.get_stage_position()
+
+    stage_positions = []
+    for pos in positions:
+        x, y = pos
+        stage_position = microscope.project_stable_move(
+            dx=x, dy=y, beam_type=beam_type, base_position=base_position
+        )
+        stage_positions.append(stage_position)
+    return stage_positions
+
+
+def calculate_grid_size_for_area(
+    area_width: float,
+    area_height: float,
+    fov_x: float,
+    fov_y: float,
+    overlap: float = 0.1,
+) -> Tuple[int, int]:
+    """Calculate the number of rows and columns needed to cover a given area.
+
+    Determines the minimum grid dimensions required to fully cover a rectangular area
+    with the specified field of view and overlap between adjacent tiles.
+
+    Args:
+        area_width: Width of the area to cover in meters
+        area_height: Height of the area to cover in meters
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+
+    Returns:
+        Tuple of (ncols, nrows) representing the minimum grid dimensions needed
+
+    Raises:
+        ValueError: If area dimensions, FOV, or overlap are invalid
+
+    Example:
+        >>> # Cover a 100x80 μm area with 10x8 μm FOV and 10% overlap
+        >>> ncols, nrows = calculate_grid_size_for_area(100e-6, 80e-6, 10e-6, 8e-6, 0.1)
+        >>> print(f"Need {ncols}x{nrows} grid")
+        Need 12x11 grid
+
+        >>> # Cover a 50x50 μm area with 20x20 μm FOV and no overlap
+        >>> ncols, nrows = calculate_grid_size_for_area(50e-6, 50e-6, 20e-6, 20e-6, 0.0)
+        >>> print(f"Need {ncols}x{nrows} grid")
+        Need 3x3 grid
+    """
+    # Validate inputs
+    if area_width <= 0 or area_height <= 0:
+        raise ValueError("Area dimensions must be positive")
+    if fov_x <= 0 or fov_y <= 0:
+        raise ValueError("FOV dimensions must be positive")
+    if not 0.0 <= overlap < 1.0:
+        raise ValueError("Overlap must be between 0.0 and 1.0 (exclusive)")
+
+    # Calculate effective step size (distance between tile centers)
+    step_x = fov_x * (1.0 - overlap)
+    step_y = fov_y * (1.0 - overlap)
+
+    # Calculate number of tiles needed
+    # For n tiles, we need: (n-1) * step + fov >= area
+    # Solving for n: n >= (area - fov) / step + 1
+
+    if area_width <= fov_x:
+        # Area fits in single tile horizontally
+        ncols = 1
+    else:
+        # Need multiple tiles
+        ncols = int(np.ceil((area_width - fov_x) / step_x)) + 1
+
+    if area_height <= fov_y:
+        # Area fits in single tile vertically
+        nrows = 1
+    else:
+        # Need multiple tiles
+        nrows = int(np.ceil((area_height - fov_y) / step_y)) + 1
+
+    return ncols, nrows
+
+
+def calculate_grid_coverage_area(
+    ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1
+) -> Tuple[float, float]:
+    """Calculate the total area covered by a grid of tiles.
+
+    Determines the total width and height of the area covered by a grid of tiles
+    with specified dimensions, field of view, and overlap between adjacent tiles.
+
+    Args:
+        ncols: Number of columns in the grid (must be positive)
+        nrows: Number of rows in the grid (must be positive)
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+
+    Returns:
+        Tuple of (total_width, total_height) in meters representing the covered area
+
+    Raises:
+        ValueError: If grid dimensions, FOV, or overlap are invalid
+
+    Example:
+        >>> # Calculate area covered by 3x4 grid with 10x8 μm FOV and 10% overlap
+        >>> width, height = calculate_grid_coverage_area(3, 4, 10e-6, 8e-6, 0.1)
+        >>> print(f"Covers {width*1e6:.1f}x{height*1e6:.1f} μm")
+        Covers 28.0x30.4 μm
+
+        >>> # Calculate area covered by 2x2 grid with 20x20 μm FOV and no overlap
+        >>> width, height = calculate_grid_coverage_area(2, 2, 20e-6, 20e-6, 0.0)
+        >>> print(f"Covers {width*1e6:.1f}x{height*1e6:.1f} μm")
+        Covers 40.0x40.0 μm
+    """
+    # Validate inputs
+    if ncols <= 0 or nrows <= 0:
+        raise ValueError("Grid dimensions must be positive")
+    if fov_x <= 0 or fov_y <= 0:
+        raise ValueError("FOV dimensions must be positive")
+    if not 0.0 <= overlap < 1.0:
+        raise ValueError("Overlap must be between 0.0 and 1.0 (exclusive)")
+
+    # Calculate step size (distance between tile centers)
+    step_x = fov_x * (1.0 - overlap)
+    step_y = fov_y * (1.0 - overlap)
+
+    # Calculate total coverage area
+    # For n tiles: total_coverage = (n-1) * step + fov
+    if ncols == 1:
+        total_width = fov_x
+    else:
+        total_width = (ncols - 1) * step_x + fov_x
+
+    if nrows == 1:
+        total_height = fov_y
+    else:
+        total_height = (nrows - 1) * step_y + fov_y
+
+    return total_width, total_height
+
+
+def calculate_grid_dimensions(positions: List[Tuple[float, float]]) -> Tuple[int, int]:
+    """Calculate the number of rows and columns from grid positions.
+
+    Analyzes the grid positions to determine the number of unique rows and columns
+    in the grid layout. Works with regular grids where positions are arranged in
+    a rectangular pattern.
+
+    Args:
+        positions: List of (x, y) tuples representing grid positions in meters
+
+    Returns:
+        Tuple of (ncols, nrows) representing the grid dimensions
+        Returns (0, 0) if positions is empty
+
+    Example:
+        >>> positions = generate_grid_positions(3, 4, 10e-6, 8e-6, 0.1)
+        >>> ncols, nrows = calculate_grid_dimensions(positions)
+        >>> print(f"Grid: {ncols}x{nrows}")
+        Grid: 3x4
+    """
+    if not positions:
+        return 0, 0
+
+    # Extract unique x and y coordinates
+    x_coords = [pos[0] for pos in positions]
+    y_coords = [pos[1] for pos in positions]
+
+    # Count unique coordinates with tolerance for floating point precision
+    tolerance = 1e-10
+
+    # Find unique x coordinates (columns)
+    unique_x = []
+    for x in x_coords:
+        if not any(abs(x - ux) < tolerance for ux in unique_x):
+            unique_x.append(x)
+
+    # Find unique y coordinates (rows)
+    unique_y = []
+    for y in y_coords:
+        if not any(abs(y - uy) < tolerance for uy in unique_y):
+            unique_y.append(y)
+
+    ncols = len(unique_x)
+    nrows = len(unique_y)
+
+    return ncols, nrows
+
+
+def calculate_grid_overlap(
+    positions: List[Tuple[float, float]], fov_x: float, fov_y: float
+) -> Tuple[float, float]:
+    """Calculate the overlap between grid positions given the FOV dimensions.
+
+    Analyzes the spacing between adjacent grid positions to determine the overlap
+    fraction in both horizontal and vertical directions.
+
+    Args:
+        positions: List of (x, y) tuples representing grid positions in meters
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+
+    Returns:
+        Tuple of (horizontal_overlap, vertical_overlap) as fractions (0.0 to 1.0)
+        Returns (0.0, 0.0) if overlap cannot be determined
+
+    Example:
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
+        >>> overlap_x, overlap_y = calculate_grid_overlap(positions, 10e-6, 8e-6)
+        >>> print(f"Horizontal overlap: {overlap_x:.1%}, Vertical overlap: {overlap_y:.1%}")
+        Horizontal overlap: 10.0%, Vertical overlap: 10.0%
+    """
+    if len(positions) < 2:
+        return 0.0, 0.0
+
+    # We'll analyze all pairs of positions to find minimum steps
+
+    # Find minimum horizontal and vertical step distances
+    min_x_step = float("inf")
+    min_y_step = float("inf")
+
+    # Check all pairs of positions to find minimum steps
+    for i, pos1 in enumerate(positions):
+        for j, pos2 in enumerate(positions):
+            if i >= j:
+                continue
+
+            x1, y1 = pos1
+            x2, y2 = pos2
+
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+
+            # Look for horizontal steps (same y, different x)
+            if abs(dy) < 1e-10 and dx > 1e-10:  # Same y coordinate
+                min_x_step = min(min_x_step, dx)
+
+            # Look for vertical steps (same x, different y)
+            if abs(dx) < 1e-10 and dy > 1e-10:  # Same x coordinate
+                min_y_step = min(min_y_step, dy)
+
+    # Calculate overlaps
+    overlap_x = 0.0
+    overlap_y = 0.0
+
+    if min_x_step != float("inf") and min_x_step > 0:
+        overlap_x = max(0.0, min(1.0, (fov_x - min_x_step) / fov_x))
+
+    if min_y_step != float("inf") and min_y_step > 0:
+        overlap_y = max(0.0, min(1.0, (fov_y - min_y_step) / fov_y))
+
+    return overlap_x, overlap_y
+
+
+def plot_grid_positions(
+    positions: List[Tuple[float, float]],
+    fov_x: float,
+    fov_y: float,
+    title: str = "Grid Positions with FOV",
+    figsize: Tuple[float, float] = (8, 8),
+    show_fov_boxes: bool = True,
+    show_grid_lines: bool = True,
+    show_center_lines: bool = True,
+    show_overlap_info: bool = True,
+) -> None:
+    """Plot grid positions with field of view bounding boxes.
+
+    Creates a visualization of the grid positions showing:
+    - Grid positions as red circles
+    - FOV bounding boxes as dashed rectangles around each position
+    - Center lines (optional)
+    - Grid lines (optional)
+    - Calculated overlap information (optional)
+
+    Args:
+        positions: List of (x, y) tuples representing grid positions in meters
+        fov_x: Horizontal field of view size in meters
+        fov_y: Vertical field of view size in meters
+        title: Plot title
+        figsize: Figure size tuple (width, height)
+        show_fov_boxes: Whether to show FOV bounding boxes around each position
+        show_grid_lines: Whether to show grid lines
+        show_center_lines: Whether to show center axis lines
+        show_overlap_info: Whether to calculate and display overlap information
+
+    Example:
+        >>> positions = generate_grid_positions(3, 3, 10e-6, 8e-6, 0.1)
+        >>> plot_grid_positions(positions, 10e-6, 8e-6)
+    """
+    _, ax = plt.subplots(figsize=figsize)
+
+    # Plot grid positions as red circles
+    for pos in positions:
+        x, y = pos
+        ax.plot(
+            x,
+            y,
+            "ro",
+            markersize=8,
+            label="Grid Position" if pos == positions[0] else "",
+        )
+
+        # Draw FOV bounding box around each position
+        if show_fov_boxes:
+            # Create rectangle centered at position
+            rect = patches.Rectangle(
+                (x - fov_x / 2, y - fov_y / 2),  # Bottom-left corner
+                fov_x,
+                fov_y,  # Width and height
+                linewidth=1,
+                edgecolor="blue",
+                facecolor="none",
+                linestyle="--",
+                alpha=0.7,
+                label="FOV Boundary" if pos == positions[0] else "",
+            )
+            ax.add_patch(rect)
+
+    # Calculate plot limits from positions and FOV dimensions
+    if positions:
+        x_coords = [pos[0] for pos in positions]
+        y_coords = [pos[1] for pos in positions]
+
+        # Find the extent of positions
+        x_min, x_max = min(x_coords), max(x_coords)
+        y_min, y_max = min(y_coords), max(y_coords)
+
+        # Add FOV/2 to account for the bounding boxes around each position
+        # Plus some padding for better visualization
+        padding_x = fov_x * 0.25
+        padding_y = fov_y * 0.25
+
+        x_extent_min = x_min - fov_x / 2 - padding_x
+        x_extent_max = x_max + fov_x / 2 + padding_x
+        y_extent_min = y_min - fov_y / 2 - padding_y
+        y_extent_max = y_max + fov_y / 2 + padding_y
+
+        ax.set_xlim(x_extent_min, x_extent_max)
+        ax.set_ylim(y_extent_min, y_extent_max)
+    else:
+        # Fallback for empty positions
+        ax.set_xlim(-fov_x, fov_x)
+        ax.set_ylim(-fov_y, fov_y)
+
+    # Add center lines
+    if show_center_lines:
+        ax.axhline(0, color="black", linewidth=0.5, linestyle="--", alpha=0.5)
+        ax.axvline(0, color="black", linewidth=0.5, linestyle="--", alpha=0.5)
+
+    # Add grid lines
+    if show_grid_lines:
+        ax.grid(True, alpha=0.3)
+
+    # Labels and title
+    ax.set_xlabel("X Position (m)")
+    ax.set_ylabel("Y Position (m)")
+    ax.set_title(title)
+
+    # Add legend
+    ax.legend(loc="upper right")
+
+    # Equal aspect ratio for proper visualization
+    ax.set_aspect("equal", adjustable="box")
+
+    # Add text annotation with grid info
+    ncols, nrows = calculate_grid_dimensions(positions)
+    if ncols > 0 and nrows > 0:
+        info_text = (
+            f"Grid: {ncols}x{nrows}\nFOV: {fov_x * 1e6:.1f}x{fov_y * 1e6:.1f} μm"
+        )
+
+        # Calculate and add total grid area
+        overlap_x, overlap_y = (
+            calculate_grid_overlap(positions, fov_x, fov_y)
+            if show_overlap_info and len(positions) > 1
+            else (0.0, 0.0)
+        )
+        overlap = max(overlap_x, overlap_y)
+        total_width, total_height = calculate_grid_coverage_area(
+            ncols, nrows, fov_x, fov_y, overlap
+        )
+        info_text += f"\nArea: {total_width * 1e6:.1f}x{total_height * 1e6:.1f} μm"
+    else:
+        info_text = (
+            f"Positions: {len(positions)}\nFOV: {fov_x * 1e6:.1f}x{fov_y * 1e6:.1f} μm"
+        )
+
+    # Optionally add overlap information
+    if show_overlap_info and len(positions) > 1:
+        overlap_x, overlap_y = calculate_grid_overlap(positions, fov_x, fov_y)
+        if overlap_x > 0 or overlap_y > 0:
+            # Use the maximum overlap value (they should be the same for regular grids)
+            overlap = max(overlap_x, overlap_y)
+            info_text += f"\nOverlap: {overlap:.1%}"
+
+    ax.text(
+        0.02,
+        0.98,
+        info_text,
+        transform=ax.transAxes,
+        fontsize=10,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+    )
+
+    plt.tight_layout()
+    plt.show()
