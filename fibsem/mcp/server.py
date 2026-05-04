@@ -13,9 +13,13 @@ import logging
 import math
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from mcp.server.fastmcp import FastMCP
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures import FibsemImage, MicroscopeSettings
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 log = logging.getLogger("fibsem.mcp")
@@ -23,9 +27,11 @@ log = logging.getLogger("fibsem.mcp")
 mcp = FastMCP("fibsem")
 
 # Global microscope state — persists across tool calls within a server session
-_microscope = None
-_settings = None
-_last_image = None  # last acquired FibsemImage, used by pick_point
+_microscope: Optional["FibsemMicroscope"] = None
+_settings: Optional["MicroscopeSettings"] = None
+_last_image: Optional["FibsemImage"] = (
+    None  # last acquired FibsemImage, used by pick_point
+)
 
 
 def _check_microscope() -> Optional[str]:
@@ -38,15 +44,65 @@ def _check_microscope() -> Optional[str]:
 def _bt(beam_type: str):
     """Convert 'electron'/'ion' string to BeamType enum."""
     from fibsem.structures import BeamType
+
     return BeamType.ELECTRON if beam_type.lower() == "electron" else BeamType.ION
+
+
+def _save_preview_png(image, path: str, filename: str) -> str:
+    """Save a normalised uint8 PNG alongside the TIFF and return the PNG path."""
+    import numpy as np
+    from PIL import Image as PILImage
+
+    data = image.data.copy()
+    if data.dtype != np.uint8:
+        d_min, d_max = int(data.min()), int(data.max())
+        if d_max > d_min:
+            data = ((data.astype(np.float32) - d_min) / (d_max - d_min) * 255).astype(np.uint8)
+        else:
+            data = np.zeros_like(data, dtype=np.uint8)
+    png_path = str(Path(path) / f"{filename}.png")
+    PILImage.fromarray(data, mode="L" if data.ndim == 2 else "RGB").save(png_path)
+    return png_path
+
+
+def _image_to_b64_jpeg(image, max_width: int = 768) -> str:
+    """Convert a FibsemImage to a base64 JPEG string (downsampled to max_width)."""
+    import base64
+    import io
+    import numpy as np
+    from PIL import Image as PILImage
+
+    data = image.data.copy()
+    if data.dtype != np.uint8:
+        d_min, d_max = int(data.min()), int(data.max())
+        if d_max > d_min:
+            data = ((data.astype(np.float32) - d_min) / (d_max - d_min) * 255).astype(np.uint8)
+        else:
+            data = np.zeros_like(data, dtype=np.uint8)
+    pil = PILImage.fromarray(data, mode="L" if data.ndim == 2 else "RGB")
+    if pil.width > max_width:
+        scale = max_width / pil.width
+        pil = pil.resize((max_width, int(pil.height * scale)), PILImage.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=70)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _image_to_jpeg_content(image):
+    """Convert a FibsemImage to an MCP ImageContent block."""
+    from mcp.types import ImageContent
+    return ImageContent(type="image", data=_image_to_b64_jpeg(image), mimeType="image/jpeg")
 
 
 # ---------------------------------------------------------------------------
 # Connection
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool()
-def connect_microscope(manufacturer: str = "Demo", ip_address: str = "localhost") -> str:
+def connect_microscope(
+    manufacturer: str = "Demo", ip_address: str = "localhost"
+) -> str:
     """Connect to a FIB/SEM microscope (in-process).
 
     Args:
@@ -56,11 +112,12 @@ def connect_microscope(manufacturer: str = "Demo", ip_address: str = "localhost"
     """
     global _microscope, _settings
     from fibsem import utils
+
     log.info("Connecting to %s at %s", manufacturer, ip_address)
     _microscope, _settings = utils.setup_session(
         manufacturer=manufacturer, ip_address=ip_address
     )
-    return f"Connected to {manufacturer} microscope at {ip_address}"
+    return f"Connected to {manufacturer} microscope at {ip_address}."
 
 
 @mcp.tool()
@@ -75,16 +132,21 @@ def connect_microscope_remote(host: str = "localhost", port: int = 8001) -> str:
     """
     global _microscope, _settings
     from fibsem.server.client import FibsemClient
+
     log.info("Connecting to remote FibsemServer at %s:%d", host, port)
     _microscope = FibsemClient(host=host, port=port)
     _settings = None
-    manufacturer = _microscope.system.info.manufacturer if _microscope.system else "unknown"
-    return f"Connected to remote FibsemServer at {host}:{port} (manufacturer: {manufacturer})"
+    manufacturer = (
+        _microscope.system.info.manufacturer if _microscope.system else "unknown"
+    )
+    dashboard = _microscope.dashboard_url if isinstance(_microscope, FibsemClient) else ""
+    return f"Connected to remote FibsemServer at {host}:{port} (manufacturer: {manufacturer}).\n  Dashboard: {dashboard}"
 
 
 # ---------------------------------------------------------------------------
 # State observation
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def get_stage_position() -> str:
@@ -95,11 +157,21 @@ def get_stage_position() -> str:
     pos = _microscope.get_stage_position()
     lines = [
         "Stage position:",
-        f"  x        = {pos.x * 1e3:.4f} mm" if pos.x is not None else "  x        = unknown",
-        f"  y        = {pos.y * 1e3:.4f} mm" if pos.y is not None else "  y        = unknown",
-        f"  z        = {pos.z * 1e3:.4f} mm" if pos.z is not None else "  z        = unknown",
-        f"  rotation = {math.degrees(pos.r):.2f}°" if pos.r is not None else "  rotation = unknown",
-        f"  tilt     = {math.degrees(pos.t):.2f}°" if pos.t is not None else "  tilt     = unknown",
+        f"  x        = {pos.x * 1e3:.4f} mm"
+        if pos.x is not None
+        else "  x        = unknown",
+        f"  y        = {pos.y * 1e3:.4f} mm"
+        if pos.y is not None
+        else "  y        = unknown",
+        f"  z        = {pos.z * 1e3:.4f} mm"
+        if pos.z is not None
+        else "  z        = unknown",
+        f"  rotation = {math.degrees(pos.r):.2f}°"
+        if pos.r is not None
+        else "  rotation = unknown",
+        f"  tilt     = {math.degrees(pos.t):.2f}°"
+        if pos.t is not None
+        else "  tilt     = unknown",
     ]
     return "\n".join(lines)
 
@@ -117,10 +189,18 @@ def get_microscope_state() -> str:
         lines = [f"\n{label} beam:"]
         if b is not None:
             lines += [
-                f"  voltage          = {b.voltage / 1e3:.1f} kV" if b.voltage is not None else "  voltage          = unknown",
-                f"  current          = {b.beam_current * 1e9:.2f} nA" if b.beam_current is not None else "  current          = unknown",
-                f"  working_distance = {b.working_distance * 1e3:.3f} mm" if b.working_distance is not None else "  working_distance = unknown",
-                f"  hfw              = {b.hfw * 1e6:.2f} µm" if b.hfw is not None else "  hfw              = unknown",
+                f"  voltage          = {b.voltage / 1e3:.1f} kV"
+                if b.voltage is not None
+                else "  voltage          = unknown",
+                f"  current          = {b.beam_current * 1e9:.2f} nA"
+                if b.beam_current is not None
+                else "  current          = unknown",
+                f"  working_distance = {b.working_distance * 1e3:.3f} mm"
+                if b.working_distance is not None
+                else "  working_distance = unknown",
+                f"  hfw              = {b.hfw * 1e6:.2f} µm"
+                if b.hfw is not None
+                else "  hfw              = unknown",
             ]
         if d is not None:
             lines += [
@@ -134,11 +214,21 @@ def get_microscope_state() -> str:
     pos = state.stage_position
     lines = [
         "Stage position:",
-        f"  x        = {pos.x * 1e3:.4f} mm" if pos.x is not None else "  x        = unknown",
-        f"  y        = {pos.y * 1e3:.4f} mm" if pos.y is not None else "  y        = unknown",
-        f"  z        = {pos.z * 1e3:.4f} mm" if pos.z is not None else "  z        = unknown",
-        f"  rotation = {math.degrees(pos.r):.2f}°" if pos.r is not None else "  rotation = unknown",
-        f"  tilt     = {math.degrees(pos.t):.2f}°" if pos.t is not None else "  tilt     = unknown",
+        f"  x        = {pos.x * 1e3:.4f} mm"
+        if pos.x is not None
+        else "  x        = unknown",
+        f"  y        = {pos.y * 1e3:.4f} mm"
+        if pos.y is not None
+        else "  y        = unknown",
+        f"  z        = {pos.z * 1e3:.4f} mm"
+        if pos.z is not None
+        else "  z        = unknown",
+        f"  rotation = {math.degrees(pos.r):.2f}°"
+        if pos.r is not None
+        else "  rotation = unknown",
+        f"  tilt     = {math.degrees(pos.t):.2f}°"
+        if pos.t is not None
+        else "  tilt     = unknown",
     ]
     lines += _beam_lines("Electron", state.electron_beam, state.electron_detector)
     lines += _beam_lines("Ion", state.ion_beam, state.ion_detector)
@@ -158,13 +248,27 @@ def get_beam_settings(beam_type: str = "electron") -> str:
     b = _microscope.get_beam_settings(_bt(beam_type))
     lines = [
         f"{beam_type.upper()} beam settings:",
-        f"  voltage          = {b.voltage / 1e3:.1f} kV" if b.voltage is not None else "  voltage          = unknown",
-        f"  current          = {b.beam_current * 1e9:.2f} nA" if b.beam_current is not None else "  current          = unknown",
-        f"  working_distance = {b.working_distance * 1e3:.3f} mm" if b.working_distance is not None else "  working_distance = unknown",
-        f"  hfw              = {b.hfw * 1e6:.2f} µm" if b.hfw is not None else "  hfw              = unknown",
-        f"  scan_rotation    = {math.degrees(b.scan_rotation):.2f}°" if b.scan_rotation is not None else "  scan_rotation    = unknown",
-        f"  shift            = ({b.shift.x * 1e6:.2f}, {b.shift.y * 1e6:.2f}) µm" if b.shift is not None else "  shift            = unknown",
-        f"  stigmation       = ({b.stigmation.x:.4f}, {b.stigmation.y:.4f})" if b.stigmation is not None else "  stigmation       = unknown",
+        f"  voltage          = {b.voltage / 1e3:.1f} kV"
+        if b.voltage is not None
+        else "  voltage          = unknown",
+        f"  current          = {b.beam_current * 1e9:.2f} nA"
+        if b.beam_current is not None
+        else "  current          = unknown",
+        f"  working_distance = {b.working_distance * 1e3:.3f} mm"
+        if b.working_distance is not None
+        else "  working_distance = unknown",
+        f"  hfw              = {b.hfw * 1e6:.2f} µm"
+        if b.hfw is not None
+        else "  hfw              = unknown",
+        f"  scan_rotation    = {math.degrees(b.scan_rotation):.2f}°"
+        if b.scan_rotation is not None
+        else "  scan_rotation    = unknown",
+        f"  shift            = ({b.shift.x * 1e6:.2f}, {b.shift.y * 1e6:.2f}) µm"
+        if b.shift is not None
+        else "  shift            = unknown",
+        f"  stigmation       = ({b.stigmation.x:.4f}, {b.stigmation.y:.4f})"
+        if b.stigmation is not None
+        else "  stigmation       = unknown",
     ]
     return "\n".join(lines)
 
@@ -202,6 +306,7 @@ def get_milling_state() -> str:
 # ---------------------------------------------------------------------------
 # Imaging
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def acquire_image(
@@ -247,7 +352,13 @@ def acquire_image(
         filename=filename,
     )
 
-    log.info("Acquiring %s image: hfw=%.1f µm, res=%dx%d", beam_type, hfw_um, resolution_x, resolution_y)
+    log.info(
+        "Acquiring %s image: hfw=%.1f µm, res=%dx%d",
+        beam_type,
+        hfw_um,
+        resolution_x,
+        resolution_y,
+    )
     image = acquire.acquire_image(_microscope, image_settings)
 
     global _last_image
@@ -261,35 +372,13 @@ def acquire_image(
         f"hfw={hfw_um} µm, pixel_size={px_str}{save_str}"
     )
 
-    import base64
-    import io
-    import numpy as np
-    from mcp.types import TextContent, ImageContent
-    from PIL import Image as PILImage
+    from mcp.types import ImageContent, TextContent
 
-    data = image.data
-    if data.dtype != np.uint8:
-        d_min, d_max = int(data.min()), int(data.max())
-        if d_max > d_min:
-            data = ((data.astype(np.float32) - d_min) / (d_max - d_min) * 255).astype(np.uint8)
-        else:
-            data = np.zeros_like(data, dtype=np.uint8)
-    pil = PILImage.fromarray(data, mode="L" if data.ndim == 2 else "RGB")
-
-    # Downsample to fit within Claude Code's MCP token limit (~800px wide is safe)
-    max_width = 800
-    if pil.width > max_width:
-        scale = max_width / pil.width
-        pil = pil.resize((max_width, int(pil.height * scale)), PILImage.Resampling.LANCZOS)
-
-    buf = io.BytesIO()
-    pil.save(buf, format="JPEG", quality=85)
-    b64 = base64.b64encode(buf.getvalue()).decode()
-
-    return [
-        TextContent(type="text", text=text),
-        ImageContent(type="image", data=b64, mimeType="image/jpeg"),
-    ]
+    if save:
+        png_path = _save_preview_png(image, path, f"{filename}_preview")
+        return f"{text}\npreview: {png_path}"
+    b64 = _image_to_b64_jpeg(image)
+    return [TextContent(type="text", text=text), ImageContent(type="image", data=b64, mimeType="image/jpeg")]
 
 
 @mcp.tool()
@@ -302,7 +391,7 @@ def acquire_both_beams(
     save: bool = False,
     path: str = "",
     filename: str = "mcp_reference",
-) -> str:
+) -> "str | list":
     """Acquire a reference pair: one SEM (electron) and one FIB (ion) image.
 
     Args:
@@ -320,6 +409,7 @@ def acquire_both_beams(
 
     from fibsem import acquire
     from fibsem.structures import ImageSettings
+    from mcp.types import TextContent
 
     image_settings = ImageSettings(
         resolution=(resolution_x, resolution_y),
@@ -332,16 +422,29 @@ def acquire_both_beams(
     )
 
     eb, ib = acquire.take_reference_images(_microscope, image_settings)
-    lines = []
+
+    from mcp.types import ImageContent
+
+    suffixes = {"SEM (electron)": "_eb", "FIB (ion)": "_ib"}
+    content = []
     for label, img in [("SEM (electron)", eb), ("FIB (ion)", ib)]:
         if img is not None:
             px = img.metadata.pixel_size if img.metadata else None
             px_str = f"{px.x * 1e9:.2f} nm" if px else "unknown"
-            lines.append(f"{label}: shape={img.data.shape}, pixel_size={px_str}")
+            if save:
+                beam_filename = f"{filename}{suffixes[label]}"
+                png_path = _save_preview_png(img, path, f"{beam_filename}_preview")
+                text = f"{label}: shape={img.data.shape}, pixel_size={px_str}, saved to {path}/{beam_filename}\npreview: {png_path}"
+            else:
+                text = f"{label}: shape={img.data.shape}, pixel_size={px_str}"
+            content.append(TextContent(type="text", text=text))
+            if not save:
+                b64 = _image_to_b64_jpeg(img)
+                content.append(ImageContent(type="image", data=b64, mimeType="image/jpeg"))
         else:
-            lines.append(f"{label}: not acquired")
+            content.append(TextContent(type="text", text=f"{label}: not acquired"))
 
-    return "\n".join(lines)
+    return content
 
 
 @mcp.tool()
@@ -376,6 +479,7 @@ def autocontrast(beam_type: str = "electron") -> str:
 # ---------------------------------------------------------------------------
 # Beam control
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def set_field_of_view(hfw_um: float, beam_type: str = "electron") -> str:
@@ -449,6 +553,7 @@ def reset_beam_shifts() -> str:
 # Stage movement
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool()
 def move_stage(
     x_mm: Optional[float] = None,
@@ -481,10 +586,13 @@ def move_stage(
         coordinate_system=current.coordinate_system,
     )
 
-    log.info("Moving stage to x=%.4f y=%.4f z=%.4f mm",
-             target.x * 1e3, target.y * 1e3, target.z * 1e3)
+    log.info(
+        "Moving stage to x=%.4f y=%.4f z=%.4f mm",
+        target.x * 1e3,
+        target.y * 1e3,
+        target.z * 1e3,
+    )
     result = _microscope.move_stage_absolute(target)
-
     return (
         f"Stage moved to: x={result.x * 1e3:.4f} mm, y={result.y * 1e3:.4f} mm, "
         f"z={result.z * 1e3:.4f} mm"
@@ -529,16 +637,16 @@ def move_stage_relative(
 
 
 @mcp.tool()
-def move_to_milling_angle(milling_angle_deg: float) -> str:
+def move_to_milling_angle(milling_angle_deg: float = 15.0) -> str:
     """Move the stage to achieve a target milling angle (moves tilt axis).
 
     Args:
-        milling_angle_deg: Target milling angle in degrees (e.g. 5–15° for cryo-lamella)
+        milling_angle_deg: Target milling angle in degrees (default 15°, typical range 7-15° for cryo-lamella)
     """
     if err := _check_microscope():
         return err
 
-    success = _microscope.move_to_milling_angle(milling_angle_deg)
+    success = _microscope.move_to_milling_angle(math.radians(milling_angle_deg))
     actual = _microscope.get_current_milling_angle()
     status = "OK" if success else "WARNING: may not be at target angle"
     return f"Moved to milling angle. Actual: {actual:.2f}° ({status})"
@@ -575,6 +683,7 @@ def link_stage() -> str:
 # Milling
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool()
 def setup_milling(
     milling_current_na: float = 0.02,
@@ -596,6 +705,7 @@ def setup_milling(
         return err
 
     from fibsem.structures import FibsemMillingSettings
+
     mill_settings = FibsemMillingSettings(
         milling_current=milling_current_na * 1e-9,
         milling_voltage=milling_voltage_kv * 1e3,
@@ -636,6 +746,7 @@ def draw_rectangle(
         return err
 
     from fibsem.structures import FibsemRectangleSettings
+
     pattern = FibsemRectangleSettings(
         width=width_um * 1e-6,
         height=height_um * 1e-6,
@@ -650,6 +761,99 @@ def draw_rectangle(
         f"Rectangle drawn: {width_um} × {height_um} µm, depth={depth_um} µm, "
         f"centre=({centre_x_um}, {centre_y_um}) µm, rotation={rotation_deg}°"
     )
+
+
+@mcp.tool()
+def draw_line(
+    start_x_um: float = 0.0,
+    start_y_um: float = -5.0,
+    end_x_um: float = 0.0,
+    end_y_um: float = 5.0,
+    depth_um: float = 1.0,
+) -> str:
+    """Draw a line milling pattern on the ion beam. Call setup_milling first.
+    Positions are offsets from the image centre.
+
+    Args:
+        start_x_um: Start X position in micrometers (offset from image centre)
+        start_y_um: Start Y position in micrometers (offset from image centre)
+        end_x_um: End X position in micrometers (offset from image centre)
+        end_y_um: End Y position in micrometers (offset from image centre)
+        depth_um: Milling depth in micrometers
+    """
+    if err := _check_microscope():
+        return err
+
+    from fibsem.structures import FibsemLineSettings
+
+    pattern = FibsemLineSettings(
+        start_x=start_x_um * 1e-6,
+        start_y=start_y_um * 1e-6,
+        end_x=end_x_um * 1e-6,
+        end_y=end_y_um * 1e-6,
+        depth=depth_um * 1e-6,
+    )
+    _microscope.draw_patterns([pattern])
+    return (
+        f"Line drawn: ({start_x_um}, {start_y_um}) → ({end_x_um}, {end_y_um}) µm, "
+        f"depth={depth_um} µm"
+    )
+
+
+@mcp.tool()
+def draw_circle(
+    centre_x_um: float = 0.0,
+    centre_y_um: float = 0.0,
+    radius_um: float = 5.0,
+    depth_um: float = 1.0,
+    start_angle_deg: float = 0.0,
+    end_angle_deg: float = 360.0,
+    thickness_um: float = 0.0,
+) -> str:
+    """Draw a circle (or arc/annulus) milling pattern on the ion beam. Call setup_milling first.
+    Positions are offsets from the image centre.
+
+    Args:
+        centre_x_um: Circle centre X in micrometers (offset from image centre)
+        centre_y_um: Circle centre Y in micrometers (offset from image centre)
+        radius_um: Circle radius in micrometers
+        depth_um: Milling depth in micrometers
+        start_angle_deg: Start angle in degrees (0 = right, 90 = up)
+        end_angle_deg: End angle in degrees — set to <360 for an arc
+        thickness_um: Annulus thickness in micrometers (0 = solid disk)
+    """
+    if err := _check_microscope():
+        return err
+
+    from fibsem.structures import FibsemCircleSettings
+
+    pattern = FibsemCircleSettings(
+        centre_x=centre_x_um * 1e-6,
+        centre_y=centre_y_um * 1e-6,
+        radius=radius_um * 1e-6,
+        depth=depth_um * 1e-6,
+        start_angle=start_angle_deg,
+        end_angle=end_angle_deg,
+        thickness=thickness_um * 1e-6,
+    )
+    _microscope.draw_patterns([pattern])
+    return (
+        f"Circle drawn: centre=({centre_x_um}, {centre_y_um}) µm, "
+        f"radius={radius_um} µm, depth={depth_um} µm, "
+        f"arc={start_angle_deg}°→{end_angle_deg}°"
+    )
+
+
+@mcp.tool()
+def clear_patterns() -> str:
+    """Clear all milling patterns from the ion beam without restoring beam settings.
+    Use this to reset patterns before redrawing. Use finish_milling to also restore
+    imaging beam conditions."""
+    if err := _check_microscope():
+        return err
+
+    _microscope.clear_patterns()
+    return "All milling patterns cleared."
 
 
 @mcp.tool()
@@ -668,7 +872,9 @@ def run_milling(
     if err := _check_microscope():
         return err
 
-    log.info("Running milling: %.3f nA, %.1f kV", milling_current_na, milling_voltage_kv)
+    log.info(
+        "Running milling: %.3f nA, %.1f kV", milling_current_na, milling_voltage_kv
+    )
     _microscope.run_milling(
         milling_current=milling_current_na * 1e-9,
         milling_voltage=milling_voltage_kv * 1e3,
@@ -719,9 +925,198 @@ def estimate_milling_time() -> str:
     return f"Estimated milling time: {t:.1f} s ({t / 60:.1f} min)"
 
 
+@mcp.tool()
+def run_milling_task(config_json: str) -> str:
+    """Run a complete milling task from a JSON configuration.
+    Handles setup, pattern drawing, milling, and cleanup in one call.
+    Supports multiple stages with optional beam-shift alignment.
+
+    Args:
+        config_json: JSON string matching the FibsemMillingTaskConfig schema.
+            Required keys: "name" (str), "stages" (list of stage dicts).
+            Each stage dict has "milling" (FibsemMillingSettings fields) and
+            "pattern" (pattern type + dimensions).
+            Optional keys: "field_of_view" (float, metres), "channel" ("ION"/"ELECTRON"),
+            "alignment" (alignment settings), "acquisition" (imaging settings).
+
+    Example config_json for a polish pass:
+        {
+          "name": "Polish",
+          "field_of_view": 60e-6,
+          "stages": [{
+            "milling": {"milling_current": 60e-12, "application_file": "Si-ccs"},
+            "pattern": {
+              "name": "Trench",
+              "width": 9e-6, "depth": 1e-6,
+              "upper_trench_height": 0.7e-6, "lower_trench_height": 0.7e-6,
+              "spacing": 0.3e-6
+            }
+          }]
+        }
+    """
+    if err := _check_microscope():
+        return err
+
+    import json
+    from fibsem.milling.tasks import (
+        FibsemMillingTaskConfig,
+        run_milling_task as _run_task,
+    )
+
+    try:
+        config_dict = json.loads(config_json)
+    except json.JSONDecodeError as exc:
+        return f"Error: invalid JSON — {exc}"
+
+    try:
+        config = FibsemMillingTaskConfig.from_dict(config_dict)
+    except Exception as exc:
+        return f"Error: could not parse milling config — {exc}"
+
+    n_stages = len(config.stages)
+    est = config.estimated_time if hasattr(config, "estimated_time") else None
+    est_str = f", estimated time: {est:.0f} s" if est else ""
+    log.info(
+        "Running milling task '%s' with %d stage(s)%s", config.name, n_stages, est_str
+    )
+
+    try:
+        _run_task(_microscope, config)
+    except Exception as exc:
+        return f"Error during milling task '{config.name}': {exc}"
+
+    return f"Milling task '{config.name}' complete ({n_stages} stage(s){est_str})."
+
+
+# ---------------------------------------------------------------------------
+# Image loading
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def load_image(path: str) -> "str | list":
+    """Load a FibsemImage from a TIFF file on disk and return it for inspection.
+    Works without a connected microscope — use this to review previously saved images.
+
+    Args:
+        path: Absolute or relative path to a .tif / .tiff file saved by fibsem
+    """
+    from fibsem.structures import FibsemImage
+    from mcp.types import TextContent
+    import math
+
+    try:
+        image = FibsemImage.load(path)
+    except FileNotFoundError:
+        return f"Error: file not found — {path}"
+    except Exception as exc:
+        return f"Error loading image: {exc}"
+
+    md = image.metadata
+    lines = [
+        f"Loaded image from: {path}",
+        f"  shape      = {image.data.shape}",
+        f"  dtype      = {image.data.dtype}",
+    ]
+
+    if md is not None:
+        px = md.pixel_size
+        if px is not None:
+            lines.append(f"  pixel_size = ({px.x * 1e9:.2f}, {px.y * 1e9:.2f}) nm")
+        ims = md.image_settings
+        if ims is not None:
+            lines.append(
+                f"  beam_type  = {ims.beam_type.name if ims.beam_type else 'unknown'}"
+            )
+            if ims.hfw is not None:
+                lines.append(f"  hfw        = {ims.hfw * 1e6:.2f} µm")
+            if ims.dwell_time is not None:
+                lines.append(f"  dwell_time = {ims.dwell_time * 1e6:.2f} µs")
+        try:
+            acq_date = md.acquisition_date
+            lines.append(f"  acquired   = {acq_date.strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception:
+            pass
+        sp = md.stage_position
+        if sp is not None and all(v is not None for v in [sp.x, sp.y, sp.z, sp.t]):
+            lines.append(
+                f"  stage      = x={sp.x * 1e3:.4f} mm, y={sp.y * 1e3:.4f} mm, "
+                f"z={sp.z * 1e3:.4f} mm, tilt={math.degrees(sp.t):.2f}°"
+            )
+    else:
+        lines.append("  metadata   = not available")
+
+    return [TextContent(type="text", text="\n".join(lines)), _image_to_jpeg_content(image)]
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_dashboard_url() -> str:
+    """Return the URL of the live fibsemOS dashboard.
+    Only available in remote mode (when connected via connect_microscope_remote).
+    Open this in VSCode Simple Browser: View → Open Simple Browser → paste URL."""
+    from fibsem.server.client import FibsemClient
+    if _microscope is None:
+        return "No microscope connected."
+    if not isinstance(_microscope, FibsemClient):
+        return (
+            "Dashboard is only available in remote mode (connect_microscope_remote). "
+            "In direct mode, images are returned inline in the chat."
+        )
+    return f"fibsemOS dashboard: {_microscope.dashboard_url}\nOpen in VSCode Simple Browser: View → Open Simple Browser → paste URL."
+
+
 # ---------------------------------------------------------------------------
 # Interactive point selection
 # ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def approve_milling(
+    prompt: str = "Approve milling?",
+    milling_current_na: float = 0.0,
+    milling_voltage_kv: float = 30.0,
+    timeout: int = 120,
+) -> str:
+    """Show an Approve/Cancel prompt on the live dashboard and wait for the user to respond.
+    Patterns already drawn will be visible as overlays on the FIB image.
+    Returns 'approved' or 'cancelled'.
+    Requires remote mode (connect_microscope_remote) and the dashboard open in a browser.
+
+    Args:
+        prompt: Message shown in the approval banner (e.g. 'Rough Mill 01 — proceed?')
+        milling_current_na: Milling current in nanoamps — shown alongside the prompt
+        milling_voltage_kv: Milling voltage in kV — shown alongside the prompt
+        timeout: Seconds to wait before auto-cancelling (default 120)
+    """
+    from fibsem.server.client import FibsemClient
+
+    if _microscope is None:
+        return "Error: no microscope connected."
+    if not isinstance(_microscope, FibsemClient):
+        return (
+            "approve_milling requires remote mode (connect_microscope_remote). "
+            "In direct mode, ask the user for confirmation in the chat instead."
+        )
+
+    params_str = ""
+    if milling_current_na > 0:
+        params_str = f"current={milling_current_na} nA   voltage={milling_voltage_kv} kV"
+
+    try:
+        _microscope.request_approval(prompt=prompt, params=params_str)
+        approved = _microscope.wait_for_approval(timeout=timeout)
+    except TimeoutError:
+        return f"Approval timed out after {timeout} s — milling NOT run."
+    except Exception as exc:
+        return f"Error: {exc}"
+
+    return "approved" if approved else "cancelled"
+
 
 @mcp.tool()
 def pick_point(title: str = "Click to select a point") -> str:
@@ -736,15 +1131,28 @@ def pick_point(title: str = "Click to select a point") -> str:
         return "Error: no image acquired yet — call acquire_image first."
 
     import matplotlib
-    matplotlib.use("TkAgg")
-    import matplotlib.pyplot as plt
+
+    try:
+        matplotlib.use("TkAgg")
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.close()
+    except Exception:
+        return (
+            "Error: pick_point requires a graphical display ($DISPLAY) — "
+            "not available in this environment. Use move_stage_relative with "
+            "known offsets instead."
+        )
     import numpy as np
 
     data = _last_image.data.copy()
     if data.dtype != np.uint8:
         d_min, d_max = int(data.min()), int(data.max())
         if d_max > d_min:
-            data = ((data.astype(np.float32) - d_min) / (d_max - d_min) * 255).astype(np.uint8)
+            data = ((data.astype(np.float32) - d_min) / (d_max - d_min) * 255).astype(
+                np.uint8
+            )
         else:
             data = np.zeros_like(data, dtype=np.uint8)
 
@@ -775,9 +1183,54 @@ def pick_point(title: str = "Click to select a point") -> str:
     return f"Selected point: pixel=({px_x:.1f}, {px_y:.1f}) — no pixel size metadata available"
 
 
+@mcp.tool()
+def pick_point_web(title: str = "Click to select a point", timeout: int = 60) -> str:
+    """Show a click prompt on the live dashboard and wait for the user to click the FIB image.
+    Returns the clicked point as an offset from image centre in micrometers.
+    Requires remote mode (connect_microscope_remote) and dashboard open in browser.
+
+    Args:
+        title: Prompt text shown on the dashboard overlay
+        timeout: Seconds to wait for a click before giving up (default 60)
+    """
+    from fibsem.server.client import FibsemClient
+    if _microscope is None:
+        return "Error: no microscope connected."
+    if not isinstance(_microscope, FibsemClient):
+        return (
+            "pick_point_web requires remote mode (connect_microscope_remote). "
+            "In direct mode, use pick_point instead."
+        )
+    if _microscope.dashboard_url is None:
+        return "Error: dashboard not available."
+
+    try:
+        _microscope.request_click(title)
+        result = _microscope.wait_for_click(timeout=timeout)
+        info = _microscope.get_dashboard_info()
+        hfw_um = info.get("hfw_um", 150.0)
+        aspect = info.get("fib_aspect", 0.667)
+    except TimeoutError:
+        return f"No point selected (timed out after {timeout} s). Dashboard: {_microscope.dashboard_url}"
+    except Exception as exc:
+        return f"Error: {exc}"
+
+    x_frac = result.get("x_frac", 0.5)
+    y_frac = result.get("y_frac", 0.5)
+    dx_um = (x_frac - 0.5) * hfw_um
+    dy_um = (y_frac - 0.5) * hfw_um * aspect
+    return (
+        f"Selected point: offset from centre = ({dx_um:+.3f} µm, {dy_um:+.3f} µm)\n"
+        f"To move stage: move_stage_relative(dx_mm={dx_um/1000:.6f}, dy_mm={dy_um/1000:.6f})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    n_tools = len(mcp._tool_manager._tools)
+    log.info("fibsemOS MCP server starting — %d tools registered", n_tools)
+    log.info("Call connect_microscope() or connect_microscope_remote() to begin.")
     mcp.run(transport="stdio")
