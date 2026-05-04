@@ -65,6 +65,10 @@ class FibsemClient:
         resp.raise_for_status()
         return FibsemImage.load(io.BytesIO(resp.content))
 
+    @property
+    def manufacturer(self) -> str:
+        return self.system.info.manufacturer
+
     # --- Health ---
 
     def health(self) -> dict:
@@ -74,6 +78,9 @@ class FibsemClient:
 
     def acquire_image(self, beam_type: BeamType = BeamType.ELECTRON, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
         """Acquire a fresh image. Pass image_settings to override current microscope settings."""
+        # image_settings.beam_type takes priority — the default beam_type=ELECTRON must not win
+        if image_settings is not None and image_settings.beam_type is not None:
+            beam_type = image_settings.beam_type
         body = {"beam_type": beam_type.name}
         if image_settings is not None:
             body["image_settings"] = image_settings.to_dict()
@@ -85,7 +92,7 @@ class FibsemClient:
     def acquire_chamber_image(self) -> FibsemImage:
         return self._post_image("acquire_chamber_image")
 
-    def autocontrast(self, beam_type: BeamType) -> None:
+    def autocontrast(self, beam_type: BeamType, reduced_area=None) -> None:
         self._post("autocontrast", {"beam_type": beam_type.name})
 
     def auto_focus(self, beam_type: BeamType) -> None:
@@ -333,3 +340,52 @@ class FibsemClient:
 
     def estimate_milling_time(self) -> float:
         return self._get("estimate_milling_time")["seconds"]
+
+    # --- Dashboard ---
+
+    @property
+    def dashboard_url(self) -> str:
+        """URL of the live dashboard served by FibsemServer."""
+        return f"{self.base_url}/dashboard"
+
+    def link_stage(self) -> None:
+        """Link stage Z to working distance (eucentric linking)."""
+        self._post("link_stage")
+
+    def request_click(self, prompt: str = "Click to select a point") -> None:
+        """Signal the dashboard that we are waiting for a user click on the FIB image."""
+        self._post("dashboard/request_click", {"prompt": prompt}, timeout=5)
+
+    def wait_for_click(self, timeout: int = 60) -> dict:
+        """Long-poll the dashboard until the user clicks the FIB image.
+        Returns {"x_frac": float, "y_frac": float} — fractions of image dimensions."""
+        resp = self._session.get(
+            f"{self.base_url}/dashboard/wait_for_click",
+            params={"timeout": timeout},
+            timeout=timeout + 10,
+        )
+        if resp.status_code == 408:
+            raise TimeoutError("Timed out waiting for dashboard click")
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_dashboard_info(self) -> dict:
+        """Get dashboard state (hfw, aspect, stage, milling state) without image data."""
+        return self._get("dashboard/info")
+
+    def request_approval(self, prompt: str = "Approve milling?", params: str = "") -> None:
+        """Show an Approve/Cancel banner on the dashboard with the given prompt and params string."""
+        self._post("dashboard/request_approval", {"prompt": prompt, "params": params}, timeout=5)
+
+    def wait_for_approval(self, timeout: int = 120) -> bool:
+        """Long-poll the dashboard until the user clicks Approve or Cancel.
+        Returns True if approved, False if cancelled."""
+        resp = self._session.get(
+            f"{self.base_url}/dashboard/wait_for_approval",
+            params={"timeout": timeout},
+            timeout=timeout + 10,
+        )
+        if resp.status_code == 408:
+            raise TimeoutError("Timed out waiting for approval")
+        resp.raise_for_status()
+        return resp.json()["approved"]
