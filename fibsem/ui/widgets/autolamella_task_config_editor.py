@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -22,6 +23,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
+from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
 from fibsem.ui.widgets.autolamella_protocol_information_widget import ProtocolInformationWidget
 from fibsem.ui.widgets.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
@@ -209,6 +211,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_open_global_editor.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_open_global_editor.setToolTip("Globally edit reference imaging settings and milling FoV across multiple tasks.")
 
+        self.pushButton_open_lamella_defaults = QPushButton("Lamella Template")
+        self.pushButton_open_lamella_defaults.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_open_lamella_defaults.setToolTip("Edit the initial state applied to every new lamella created from this protocol.")
+
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setVisible(False)
@@ -217,6 +223,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.button_layout = QVBoxLayout()
         self.button_layout.addWidget(self.pushButton_sync_to_lamella)
         self.button_layout.addWidget(self.pushButton_open_global_editor)
+        self.button_layout.addWidget(self.pushButton_open_lamella_defaults)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addWidget(self.task_list_widget, 0, 0, 1, 2)
@@ -272,6 +279,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
         self.pushButton_open_global_editor.clicked.connect(self._on_global_edit_clicked)
+        self.pushButton_open_lamella_defaults.clicked.connect(self._on_lamella_defaults_clicked)
         self.protocol_info_widget.field_changed.connect(self._on_protocol_field_changed)
 
     def _initialise_widgets(self):
@@ -432,6 +440,40 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 "Global Edit Applied",
                 msg,
             )
+
+    def _on_lamella_defaults_clicked(self):
+        """Show dialog for editing the protocol's LamellaDefaultConfig."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lamella Template")
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        template_widget = LamellaDefaultConfigWidget()
+        template_widget.set_template(self.experiment.task_protocol.lamella_defaults)
+        layout.addWidget(template_widget)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        ok_btn = QPushButton("OK")
+        cancel_btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        ok_btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        cancel_btn.setDefault(False)
+        cancel_btn.setAutoDefault(False)
+        ok_btn.setDefault(False)
+        ok_btn.setAutoDefault(False)
+        cancel_btn.clicked.connect(dialog.reject)
+        ok_btn.clicked.connect(dialog.accept)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        if dialog.exec_() == QDialog.Accepted:
+            self.experiment.task_protocol.lamella_defaults = template_widget.get_template()
+            self._save_experiment()
 
     def _on_protocol_field_changed(self, field: str, value: str) -> None:
         if self.experiment and self.experiment.task_protocol:

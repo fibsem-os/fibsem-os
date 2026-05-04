@@ -380,6 +380,38 @@ class AutoLamellaWorkflowOptions:
 
 @evented
 @dataclass
+class LamellaDefaultConfig:
+    """Initial state applied to every new Lamella created from this protocol."""
+    use_petname: bool = True
+    name_prefix: str = ""
+    alignment_area: Optional[FibsemRectangle] = None
+    poi: Optional[Point] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "use_petname": self.use_petname,
+            "name_prefix": self.name_prefix,
+        }
+        if self.alignment_area is not None:
+            d["alignment_area"] = self.alignment_area.to_dict()
+        if self.poi is not None:
+            d["poi"] = self.poi.to_dict()
+        return d
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LamellaDefaultConfig':
+        aa = data.get("alignment_area")
+        poi = data.get("poi")
+        return cls(
+            use_petname=data.get("use_petname", True),
+            name_prefix=data.get("name_prefix", ""),
+            alignment_area=FibsemRectangle.from_dict(aa) if isinstance(aa, dict) else None,
+            poi=Point.from_dict(poi) if isinstance(poi, dict) else None,
+        )
+
+
+@evented
+@dataclass
 class AutoLamellaTaskProtocol:
     name: str = "AutoLamella Task Protocol"
     description: str = "Protocol for AutoLamella"
@@ -388,6 +420,7 @@ class AutoLamellaTaskProtocol:
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(default_factory=lambda: EventedDict())   # unique_name: AutoLamellaTaskConfig
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
     options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
+    lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -398,6 +431,7 @@ class AutoLamellaTaskProtocol:
             "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
             "workflow": self.workflow_config.to_dict(),
             "options": self.options.to_dict(),
+            "lamella_defaults": self.lamella_defaults.to_dict(),
         }
 
     @classmethod
@@ -412,7 +446,8 @@ class AutoLamellaTaskProtocol:
             version=data.get("version", "1.0"),
             task_config=task_config,
             workflow_config=workflow_config,
-            options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {}))
+            options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
+            lamella_defaults=LamellaDefaultConfig.from_dict(data.get("lamella_defaults", {})),
         )
         if "_id" in data:
             protocol._id = data["_id"]
@@ -1238,10 +1273,14 @@ class Experiment:
                         task_config: EventedDict[str, AutoLamellaTaskConfig],
                         name: Optional[str] = None) -> None:
         """Create a new lamella and add it to the experiment."""
-        # create the petname and path
-        number = len(self.positions) + 1
+        template = self.task_protocol.lamella_defaults
+        number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
-            name = f"{number:02d}-{petname.generate(2)}"
+            sep = "-" if template.name_prefix else ""
+            if template.use_petname:
+                name = f"{template.name_prefix}{sep}{number:02d}-{petname.generate(2)}"
+            else:
+                name = f"{template.name_prefix}{sep}Lamella-{number:02d}"
         path = Path(os.path.join(self.path, name))
 
         # create the lamella
@@ -1249,6 +1288,10 @@ class Experiment:
                           path=path,
                           number=number,
                           task_config=deepcopy(task_config))
+        if template.alignment_area is not None:
+            lamella.alignment_area = deepcopy(template.alignment_area)
+        if template.poi is not None:
+            lamella.poi = deepcopy(template.poi)
         lamella.milling_pose = microscope_state
 
         # create the lamella directory
