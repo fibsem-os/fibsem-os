@@ -874,8 +874,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Start a FibsemMicroscope HTTP server")
-    parser.add_argument("--manufacturer", default="Demo", help="Microscope manufacturer (default: Demo)")
-    parser.add_argument("--ip-address", default="localhost", help="Microscope IP address")
+    parser.add_argument("--manufacturer", default=None, help="Microscope manufacturer (default: Demo)")
+    parser.add_argument("--ip-address", default=None, help="Microscope IP address")
     parser.add_argument("--host", default="0.0.0.0", help="Server host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8001, help="Server port (default: 8001)")
     args = parser.parse_args()
