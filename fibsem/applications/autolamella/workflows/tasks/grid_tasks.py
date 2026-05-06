@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import SampleGrid, SampleHolder
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -62,13 +62,23 @@ class GridTask(ABC):
         """Public method to run the task."""
         self._run()
 
+    def _get_stage_position_for_orientation(
+        self,
+        stage_position: FibsemStagePosition,
+        orientation: Optional[str],
+    ) -> FibsemStagePosition:
+        """Return target position for orientation, or stage_position unchanged if orientation is None."""
+        if orientation is None:
+            return stage_position
+        return self.microscope.get_target_position(stage_position, orientation)
+
 
 @dataclass
 class AcquireOverviewImageGridTaskConfig(GridTaskConfig):
     """Configuration for acquiring overview image grid task."""
     task_type: ClassVar[str] = "ACQUIRE_OVERVIEW_IMAGE_GRID"
     display_name: ClassVar[str] = "Acquire Overview Image"
-    orientation: Literal["SEM", "FIB", "MILLING"] = "SEM"
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
 
 
 class AcquireOverviewImageGridTask(GridTask):
@@ -88,7 +98,7 @@ class AcquireOverviewImageGridTask(GridTask):
 
         # self.microscope._stage.move_to_grid(self.grid.name)
 
-        target_position = self.microscope.get_target_position(self.grid.position, self.config.orientation)
+        target_position = self._get_stage_position_for_orientation(self.grid.position, self.config.orientation)
         self.microscope._stage.move_absolute(target_position)
 
         image_settings = ImageSettings(
@@ -135,7 +145,7 @@ class CryoCleaninggGridTaskConfig(GridTaskConfig):
     """Configuration for cryo cleaning milling task."""
     task_type: ClassVar[str] = "CRYO_CLEANING_GRID"
     display_name: ClassVar[str] = "Cryo Cleaning Milling"
-    orientation: Literal["SEM", "FIB", "MILLING"] = "SEM"
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
     milling_angle: float = 38.0 # degrees
     field_of_view: float = 900e-6  # meters
     duration: float = 10.0  # seconds
@@ -154,8 +164,7 @@ class CryoCleaningGridTask(GridTask):
         logging.info(f"Starting cryo cleaning for grid {self.grid.name}")
 
         # move to grid position
-        target_position = self.microscope.get_target_position(self.grid.position, 
-                                                              target_orientation=self.config.orientation)
+        target_position = self._get_stage_position_for_orientation(self.grid.position, self.config.orientation)
         self.microscope._stage.move_absolute(target_position)
 
         # set beam parameters
