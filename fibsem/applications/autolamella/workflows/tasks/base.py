@@ -343,6 +343,18 @@ class AutoLamellaTask(ABC):
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
+        FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD = False
+        if FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD:
+            alignment.align_until_converged(microscope=self.microscope, 
+                                            ref_image=ref_image, 
+                                    beam_type=BeamType.ION,
+                                    use_autocontrast=True,
+                                    max_steps=5, 
+                                    minimum_response=0.5,
+                                    stop_event=self._stop_event,
+                                    save_plot=True,
+                                    plot_title=f"{self.lamella.name} - {self.task_name}")
+            return
         alignment.multi_step_alignment_v2(microscope=self.microscope,
                                         ref_image=ref_image,
                                         beam_type=BeamType.ION,
