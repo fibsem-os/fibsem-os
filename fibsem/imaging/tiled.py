@@ -302,6 +302,7 @@ class TiledAcquisitionRunner:
         image_settings.autogamma = False
         image_settings.autocontrast = False
         image_settings.save = True
+        image_settings.reduced_area = None
 
         # save tile intermediates into a sub-folder; stitched image goes in the parent
         self._prev_path = image_settings.path
