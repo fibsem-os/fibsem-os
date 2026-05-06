@@ -443,7 +443,7 @@ class ToastManager:
         """Set the notification bell to update."""
         self.notification_bell = bell
 
-    def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000):
+    def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False):
         """Show a toast notification."""
         toast = ToastNotification(self.parent, duration)
         self.toasts.append(toast)
@@ -462,8 +462,8 @@ class ToastManager:
         # Reposition all toasts
         self._reposition_toasts()
 
-        # Add to notification bell history
-        if self.notification_bell:
+        # Add to notification bell history — skip if temporary
+        if self.notification_bell and not temporary:
             self.notification_bell.add_notification(message, notification_type)
 
     def _remove_toast(self, toast: ToastNotification):

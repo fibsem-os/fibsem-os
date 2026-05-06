@@ -56,11 +56,8 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         # move to the target position at the FIB orientation
         self.log_status_message("MOVE_TO_SPOT_BURN", "Moving to Spot Burn Position...")
         stage_position = self.lamella.stage_position
-        if self.config.orientation is None: # use current position
-            target_position = stage_position
-        else:
-            target_position = self.microscope.get_target_position(stage_position=stage_position,
-                                                         target_orientation=self.config.orientation)
+        target_position = self._get_stage_position_for_orientation(stage_position,
+                                                                   self.config.orientation)
         self.microscope.safe_absolute_stage_movement(target_position)
 
         # acquire images, set ui

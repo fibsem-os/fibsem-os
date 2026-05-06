@@ -4,7 +4,7 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Type
+from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import alignment, calibration
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
@@ -31,9 +31,9 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
         default=True,  # whether to perform charge neutralisation
         metadata={"help": "Whether to perform charge neutralisation"},
     )
-    orientation: str = field(
-        default="FIB",
-        metadata={"help": "The orientation to perform trench milling in", "items": ("SEM", "FIB", "MILLING")},
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
+        default=None,
+        metadata={"help": "The orientation to perform trench milling in", "items": ("SEM", "FIB", "MILLING", None)},
     )
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"
@@ -56,8 +56,8 @@ class MillTrenchTask(AutoLamellaTask):
         image_settings.path = self.lamella.path
 
         self.log_status_message("MOVE_TO_TRENCH", "Moving to Trench Position...")
-        trench_position = self.microscope.get_target_position(self.lamella.stage_position,
-                                                              self.config.orientation)
+        trench_position = self._get_stage_position_for_orientation(self.lamella.stage_position,
+                                                                   self.config.orientation)
         self.microscope.safe_absolute_stage_movement(trench_position)
 
         # align to reference image

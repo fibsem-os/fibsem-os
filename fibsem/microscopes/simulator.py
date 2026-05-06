@@ -991,7 +991,6 @@ class DemoMicroscope(FibsemMicroscope):
     
         # stage 
         if key == "stage_position":
-            logging.info(f"--------------GETTING STAGE POSITION--------------")
             time.sleep(0.1)
             return self.stage_system.position
         if key == "stage_homed":

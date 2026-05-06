@@ -22,7 +22,10 @@ Get the user's approval on the plan before proceeding.
 ## Step 3 — Implement
 After plan approval, implement the changes following the existing code patterns and conventions.
 
-## Step 4 — Commit
+## Step 4 — Test
+Before committing, ask the user to test the feature manually and confirm it works as expected. Wait for their confirmation before proceeding.
+
+## Step 5 — Commit
 Create a git commit with a message that:
 - Starts with the type tag matching the issue type: `[fix]`, `[feat]`, `[refactor]`, `[docs]`, etc.
 - Includes `[FIB-$ARGUMENTS]`
@@ -31,3 +34,6 @@ Create a git commit with a message that:
 Example: `[fix][FIB-$ARGUMENTS] correct milling stage drag-drop reorder`
 
 Do NOT include "Claude" or "Co-Authored-By" in the commit message (per project guidelines).
+
+## Step 6 — Mark In Review
+After the commit, update the Linear issue status to "In Review" using `mcp__linear-server__save_issue` with `state: "In Review"`.

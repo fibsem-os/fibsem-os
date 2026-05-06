@@ -2,8 +2,8 @@ import datetime
 
 import pytest
 
+from fibsem.microscopes.autoscript import THERMO_API_AVAILABLE
 from fibsem.structures import (
-    THERMO_API_AVAILABLE,
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
