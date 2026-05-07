@@ -79,6 +79,11 @@ class GridTask(ABC):
             return stage_position
         return self.microscope.get_target_position(stage_position, orientation)
 
+    def _move_to_grid_slot_position(self, orientation: str):
+        """Move to the grid slot position in the target orientation"""
+        target_position = self._get_stage_position_for_orientation(self.slot.position, orientation=orientation)
+        self.microscope._stage.move_absolute(target_position)
+
 
 @dataclass
 class AcquireOverviewImageGridTaskConfig(GridTaskConfig):
@@ -86,6 +91,21 @@ class AcquireOverviewImageGridTaskConfig(GridTaskConfig):
     task_type: ClassVar[str] = "ACQUIRE_OVERVIEW_IMAGE_GRID"
     display_name: ClassVar[str] = "Acquire Overview Image"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
+    settings: OverviewAcquisitionSettings = field(default_factory = OverviewAcquisitionSettings)
+
+    def __post_init__(self):
+        self.settings = OverviewAcquisitionSettings(
+                image_settings= ImageSettings(
+                resolution=(1024, 1024),
+                hfw=500e-6,
+                dwell_time=1e-6,
+                beam_type=BeamType.ION,
+                path=None,
+                filename="overview-image"
+            ),
+                nrows=3,
+                ncols=3,
+            )
 
 
 class AcquireOverviewImageGridTask(GridTask):
@@ -99,36 +119,66 @@ class AcquireOverviewImageGridTask(GridTask):
         if slot is None:
             raise RuntimeError(f"Grid '{self.grid.name}' is not loaded in any slot.")
 
-        microscope = self.microscope
         test_path = os.path.join(self.experiment.path, self.grid.name, self.task_name)
         os.makedirs(test_path, exist_ok=True)
+        self.config.settings.image_settings.path = test_path
 
         logging.info(f"Path: {test_path}")
         logging.info(f"Moving to grid {self.grid.name} at slot {slot}")
 
-        # self.microscope._stage.move_to_grid(self.grid.name)
+        self._move_to_grid_slot_position(self.config.orientation)
 
-        target_position = self._get_stage_position_for_orientation(self.grid.position, self.config.orientation)
-        self.microscope._stage.move_absolute(target_position)
-
-        image_settings = ImageSettings(
-                resolution=(1024, 1024),
-                hfw=500e-6,
-                dwell_time=1e-6,
-                beam_type=BeamType.ELECTRON,
-                path=test_path,
-                filename="overview-image"
-            )
         tiled_image_acquisition_and_stitch(
-            microscope=microscope,
-            settings=OverviewAcquisitionSettings(
-                image_settings=image_settings,
-                nrows=3,
-                ncols=3,
-            ),
+            microscope=self.microscope,
+            settings=self.config.settings
         )
 
         logging.info(f"Acquired overview image for grid {self.grid.name}")
+
+
+
+@dataclass
+class AcquireImageGridTaskConfig(GridTaskConfig):
+    """Configuration for acquiring overview image grid task."""
+    task_type: ClassVar[str] = "ACQUIRE_IMAGE_GRID"
+    display_name: ClassVar[str] = "Acquire Image"
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
+    voltage: float = field(default=5_000, metadata={"label": "Imaging Voltage" })
+
+
+class AcquireImageTask(GridTask):
+    """Task to acquire an image of the sample grid at a specified voltage."""
+    config_cls: ClassVar[Type[GridTaskConfig]] = AcquireImageGridTaskConfig
+    config: AcquireImageGridTaskConfig
+
+    def _run(self):
+        """Acquire an overview image of the sample grid."""
+        slot = self.slot
+        if slot is None:
+            raise RuntimeError(f"Grid '{self.grid.name}' is not loaded in any slot.")
+
+        test_path = os.path.join(self.experiment.path, self.grid.name, self.task_name)
+        os.makedirs(test_path, exist_ok=True)
+        # self.config.settings.image_settings.path = test_path
+
+        logging.info(f"Path: {test_path}")
+        logging.info(f"Moving to grid {self.grid.name} at slot {slot}")
+
+        self._move_to_grid_slot_position(self.config.orientation)
+
+        inital_state = self.microscope.get_microscope_state()
+        self.microscope.set_beam_voltage(self.config.voltage, beam_type=BeamType.ELECTRON)
+
+        image_settings  = ImageSettings(resolution=(4096, 4096), hfw=2000e-6) 
+        image_settings.save = False
+
+        from fibsem import utils
+        image = self.microscope.acquire_image(image_settings=image_settings)
+        image.save(os.path.join(test_path, f"grid-image-{utils.current_timestamp_v3()}"))
+
+        self.microscope.set_microscope_state(inital_state)
+
+        logging.info(f"Acquired image for grid {self.grid.name}")
 
 
 
@@ -218,6 +268,7 @@ class ParallelTrenchMIllingGridTaskConfig(GridTaskConfig):
 
 GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     AcquireOverviewImageGridTaskConfig.task_type: AcquireOverviewImageGridTask,
+    AcquireImageGridTaskConfig.task_type: AcquireImageTask,
     CryoCleaninggGridTaskConfig.task_type: CryoCleaningGridTask,
     # Add other tasks here as needed
 }   
@@ -253,8 +304,8 @@ def run_grid_tasks(microscope: FibsemMicroscope,
                    grid_names: list[str],
                    task_names: list[str]) -> None:
     """Run tasks for specified grids."""
-    for task_name in task_names:
-        for grid_name in grid_names:
+    for grid_name in grid_names:
+        for task_name in task_names:
             slot = microscope._stage.holder.find_slot_by_grid_name(grid_name)
             if slot is None or slot.loaded_grid is None:
                 logging.warning(f"Grid '{grid_name}' not found in any loaded slot.")

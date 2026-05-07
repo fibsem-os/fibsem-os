@@ -353,6 +353,7 @@ class SampleHolderWidget(QWidget):
 
     def set_holder(self, holder: Optional[SampleHolder]) -> None:
         self._holder = holder
+        self._microscope._stage.holder = holder
         self.setEnabled(holder is not None)
         self._edit_panel.setVisible(False)
 
