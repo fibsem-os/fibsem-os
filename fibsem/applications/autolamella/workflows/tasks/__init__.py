@@ -30,6 +30,8 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireReferenceImageTask,
     BasicMillingTask,
     SelectMillingPositionTask,
+    SelectFluorescencePositionTask,
+    AcquireFluorescenceImageTask,
 )
 
 # Built-in task config classes
@@ -43,6 +45,8 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireReferenceImageConfig,
     BasicMillingTaskConfig,
     SelectMillingPositionTaskConfig,
+    SelectFluorescencePositionConfig,
+    AcquireFluorescenceImageConfig,
 )
 
 # Helper functions and exceptions
@@ -80,7 +84,9 @@ BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
     AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
     BasicMillingTaskConfig.task_type: BasicMillingTask,
     SelectMillingPositionTaskConfig.task_type: SelectMillingPositionTask,
-    "SETUP_LAMELLA": MillFiducialTask,  # BACKWARDS_COMPATIBILITY
+    "SETUP_LAMELLA": MillFiducialTask,  # BACKWARDS_COMPATIBILITY,
+    SelectFluorescencePositionConfig.task_type: SelectFluorescencePositionTask,
+    AcquireFluorescenceImageConfig.task_type: AcquireFluorescenceImageTask,
 }
 
 # Runtime registered tasks

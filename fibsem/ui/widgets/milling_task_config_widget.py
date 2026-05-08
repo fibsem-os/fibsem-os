@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 from superqt import QIconifyIcon
 
 from fibsem import constants, utils
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.patterns2 import FiducialPattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -443,6 +444,33 @@ class MillingTaskConfigWidget(QWidget):
             self.correlation_widget.load_fib_image(image=fib_image.filtered_data,
                                                     pixel_size=fib_image.metadata.pixel_size.x,
                                                     filename=filename)
+
+        fm_image = None
+        if self.parent_widget is not None and hasattr(self.parent_widget, "parent_widget"):
+            parent_widget = self.parent_widget.parent_widget
+            if hasattr(parent_widget, "fm_image") and parent_widget.fm_image is not None:
+                fm_image: FluorescenceImage = parent_widget.fm_image
+
+
+        # from fibsem.correlation.util import multi_channel_interpolation
+        # print(f"Interpolating FM image from {self.fm_image.metadata.pixel_size_z} to {self.fm_image.metadata.pixel_size_x}")
+        # print(f"fm_image shape before: {np.array(fm_image).shape}")
+        # fm_image = multi_channel_interpolation(
+        #     image=np.array(fm_image),
+        #     pixelsize_in=self.fm_image.metadata.pixel_size_z,
+        #     pixelsize_out=self.fm_image.metadata.pixel_size_x,
+        #     method="linear",
+        #     parent_ui=None,
+        # )
+
+        if fm_image is not None and fm_image.metadata is not None:
+            fm_md = {"image": fm_image.data,
+                    "pixel_size": fm_image.metadata.pixel_size_x,
+                    "zstep": fm_image.metadata.pixel_size_z,
+                    "colours": [ch.color for ch in fm_image.metadata.channels],
+                    "filename":  "FM Image",}
+            self.correlation_widget.handle_fm_finished_signal(fm_md)
+
         # create a button to run correlation
         self.viewer.window.add_dock_widget(
             self.correlation_widget,
