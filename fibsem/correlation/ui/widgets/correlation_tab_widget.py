@@ -1573,3 +1573,21 @@ class CorrelationTabDialog(QDialog):
     @property
     def result(self):
         return self.widget.result
+
+
+def main() -> None:
+    from PyQt5.QtWidgets import QApplication
+    import sys
+
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setStyleSheet(stylesheets.NAPARI_STYLE)
+
+    widget = CorrelationTabWidget()
+    widget.show()
+
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
