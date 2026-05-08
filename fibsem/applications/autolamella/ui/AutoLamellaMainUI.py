@@ -650,12 +650,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn.show()
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message)
+        self._set_minimap_workflow_enabled(False)
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
+
+    def _set_minimap_workflow_enabled(self, enabled: bool):
+        """Enable/disable minimap acquisition and load-image buttons during workflow."""
+        if not hasattr(self, 'minimap_widget'):
+            return
+        self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
+        self.minimap_widget.pushButton_load_image.setEnabled(enabled)
 
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
