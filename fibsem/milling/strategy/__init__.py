@@ -5,7 +5,7 @@ from functools import lru_cache as cache
 from fibsem.milling.base import MillingStrategy
 from fibsem.milling.strategy.standard import StandardMillingStrategy
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
-
+from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy # noqa: F401
 
 DEFAULT_STRATEGY = StandardMillingStrategy
 DEFAULT_STRATEGY_NAME = DEFAULT_STRATEGY.name
