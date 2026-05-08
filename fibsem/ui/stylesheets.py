@@ -1,6 +1,7 @@
 # style sheets
 # TODO: TEMPLATE THIS CSS
 import os as _os
+
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
 GREEN_PUSHBUTTON_STYLE = """
@@ -66,14 +67,6 @@ QPushButton {
     background-color: none;
     }
 """
-PURPLE_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: purple;
-    color: white;
-    }
-QPushButton:hover {
-    background-color: rgba(128, 0, 128, 125);
-}"""    
 
 PROGRESS_BAR_GREEN_STYLE = "QProgressBar::chunk {background-color: green;}"
 PROGRESS_BAR_BLUE_STYLE = "QProgressBar::chunk {background-color: blue;}"
