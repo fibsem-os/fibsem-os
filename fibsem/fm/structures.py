@@ -274,10 +274,10 @@ class ZParameters:
         if self.zstep <= 0:
             raise ValueError("zstep must be a positive value.")
 
-        # Generate z positions
+        # Generate z positions from z_init+zmin to z_init+zmax inclusive
         z_positions = np.arange(
-            start=z_init + self.zmin - self.zstep,
-            stop=z_init + self.zmax,
+            start=z_init + self.zmin,
+            stop=z_init + self.zmax + self.zstep * 0.5,
             step=self.zstep
         )
 
