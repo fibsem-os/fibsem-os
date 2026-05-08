@@ -697,6 +697,7 @@ def align_until_converged(
     results: list = []
     prev_shift_magnitude = None
     divergence_count = 0
+    status = None
 
     for i in range(max_steps):
         if stop_event is not None and stop_event.is_set():
@@ -734,12 +735,14 @@ def align_until_converged(
         # gate: low correlation score
         if minimum_response is not None and score < minimum_response:
             logging.warning(f"align_until_converged: score {score:.3f} < minimum {minimum_response:.3f}, aborting.")
-            return AlignmentStatus(results=results, converged=False, aborted=True, reason="low_score")
+            status = AlignmentStatus(results=results, converged=False, aborted=True, reason="low_score")
+            break
 
         # gate: converged
         if shift_magnitude < shift_tolerance:
             logging.info(f"align_until_converged: converged at step {i+1}.")
-            return AlignmentStatus(results=results, converged=True, aborted=False, reason="converged")
+            status = AlignmentStatus(results=results, converged=True, aborted=False, reason="converged")
+            break
 
         # gate: divergence (shift grew for 2 consecutive steps)
         if detect_divergence and prev_shift_magnitude is not None:
@@ -747,7 +750,8 @@ def align_until_converged(
                 divergence_count += 1
                 if divergence_count >= 2:
                     logging.warning(f"align_until_converged: diverging at step {i+1}, aborting.")
-                    return AlignmentStatus(results=results, converged=False, aborted=True, reason="diverging")
+                    status = AlignmentStatus(results=results, converged=False, aborted=True, reason="diverging")
+                    break
             else:
                 divergence_count = 0
         prev_shift_magnitude = shift_magnitude
@@ -760,10 +764,12 @@ def align_until_converged(
         elif subsystem == "stage-vertical":
             microscope.vertical_move(dy=-dy, dx=dx)
 
-    logging.info(f"align_until_converged: reached max_steps ({max_steps}).")
-    status = AlignmentStatus(results=results, converged=False, aborted=False, reason="max_steps")
+    if status is None:
+        logging.info(f"align_until_converged: reached max_steps ({max_steps}).")
+        status = AlignmentStatus(results=results, converged=False, aborted=False, reason="max_steps")
 
     if save_plot:
+        print("HELLO WORLD PLOTTING")
         plot_multi_step_alignment_v2(ref_image, results, title=plot_title, save=True)
 
     return status

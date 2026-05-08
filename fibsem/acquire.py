@@ -291,6 +291,9 @@ def acquire_focus_stacked_image(
         image = acquire_image(microscope, image_settings)
         images.append(image)
 
+    # restore full-frame scanning mode
+    microscope.set_full_frame_scanning_mode(image_settings.beam_type)
+
     # stack images vertically
     arr = np.vstack([img.data for img in images])
 
