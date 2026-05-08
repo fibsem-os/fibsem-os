@@ -13,7 +13,7 @@ import traceback
 import warnings
 
 import napari
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -695,6 +695,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
         self.minimap_widget.pushButton_load_image.setEnabled(enabled)
 
+    def _set_minimap_workflow_enabled(self, enabled: bool):
+        """Enable/disable minimap acquisition and load-image buttons during workflow."""
+        if not hasattr(self, 'minimap_widget'):
+            return
+        self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
+        self.minimap_widget.pushButton_load_image.setEnabled(enabled)
+
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
 
@@ -796,6 +803,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope.milling_progress_signal.connect(
                 self._on_milling_progress
             )
+            try:
+                self.autolamella_ui.microscope.tiled_acquisition_signal.disconnect(
+                    self._on_tile_acquisition_progress
+                )
+            except Exception:
+                pass
+            self.autolamella_ui.microscope.tiled_acquisition_signal.connect(
+                self._on_tile_acquisition_progress
+            )
         self.btn_create_experiment.setEnabled(True)
         self.btn_load_experiment.setEnabled(True)
         self._update_instructions()
@@ -837,6 +853,41 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         elif state == "finished":
             self.milling_progress_bar.setVisible(False)
+
+    @ensure_main_thread
+    def _on_tile_acquisition_progress(self, ddict: dict) -> None:
+        """Handle tiled acquisition progress updates from the microscope."""
+        counter = ddict.get("counter", 0)
+        total = ddict.get("total", 1)
+        msg = ddict.get("msg", "Collecting tiles")
+
+        if ddict.get("finished"):
+            self.progress_widget.update_progress(ProgressUpdate.done())
+        elif counter >= total:
+            self.progress_widget.update_progress(ProgressUpdate.indeterminate(msg))
+        else:
+            self.progress_widget.update_progress(
+                ProgressUpdate.numeric(counter, total, msg)
+            )
+
+    def _on_tile_acquisition_finished(self, result: dict) -> None:
+        self.progress_widget.reset()
+        tiles = result.get("tiles", 0)
+        total = result.get("total", 0)
+        elapsed = result.get("elapsed", 0.0)
+        cancelled = result.get("cancelled", False)
+        error: Exception | None = result.get("error", None)
+
+        tile_info = f"{tiles}/{total} tiles" if total else ""
+        elapsed_info = f" in {format_duration(elapsed)}" if elapsed else ""
+
+        if error is not None:
+            if cancelled:
+                self.show_toast(f"Tile acquisition cancelled. {tile_info} collected.", "warning")
+            else:
+                self.show_toast(f"Tile acquisition failed. {tile_info} collected. {error}", "error")
+        else:
+            self.show_toast(f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success")
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
@@ -1475,6 +1526,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             viewer=self.minimap_viewer, parent=self.autolamella_ui
         )
         self.minimap_widget.setMinimumWidth(500)
+        self.minimap_widget._acquisition_finished.connect(self._on_tile_acquisition_finished)
 
         # Layout: napari viewer (left) | minimap controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
