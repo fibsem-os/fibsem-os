@@ -1,0 +1,38 @@
+channel_settings:
+-   name: Reflection Channel
+    excitation_wavelength: 550
+    emission_wavelength: null
+    power: 0.03
+    exposure_time: 0.005
+    color: gray
+-   name: Red Channel
+    excitation_wavelength: 550
+    emission_wavelength: Fluorescence
+    power: 0.15
+    exposure_time: 0.5
+    color: red
+z_parameters:
+    zmin: -9.999999999999999e-06
+    zmax: 9.999999999999999e-06
+    zstep: 1.0e-06
+overview_parameters:
+    rows: 5
+    cols: 5
+    overlap: 0.1
+    use_zstack: true
+    autofocus_mode: once
+autofocus_settings:
+    coarse_range: 5.0e-05
+    coarse_step: 5.0e-06
+    coarse_enabled: true
+    fine_range: 1.0e-05
+    fine_step: 1.0e-06
+    fine_enabled: true
+    method: laplacian
+    channel_name: Reflection Channel
+camera_settings:
+    gain: 0.01
+    binning: 4
+    transform: flip-x
+focus_position: 8.3e-03
+limit_position: 8.6e-03

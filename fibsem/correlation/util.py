@@ -41,11 +41,12 @@ def get_z_gauss(image: np.ndarray, x: int, y: int, show: bool = False) -> Tuple[
     return np.array(poptZ)  # zval, zidx, zsigma
 
 
-def fit_guass1d(data: np.ndarray, show: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+def fit_guass1d(data: np.ndarray, show: bool = False, ax=None) -> Tuple[np.ndarray, np.ndarray]:
     """Fit a 1D Gaussian to the data
     Args:
         data: 1D numpy array
         show: show the plot of the fit (for debugging)
+        ax: optional matplotlib axes to plot on
     Returns:
         popt: optimal parameters
         pcov: covariance matrix
@@ -57,7 +58,11 @@ def fit_guass1d(data: np.ndarray, show: bool = False) -> Tuple[np.ndarray, np.nd
     popt, pcov = curve_fit(gauss1d, x, data, p0=p0)
 
     # plot the data and the fit
-    if show:
+    if ax is not None:
+        ax.plot(data, label="Data")
+        ax.plot(gauss1d(x, *popt), label="Gaussian 1D fit")
+        ax.legend()
+    elif show:
         import matplotlib.pyplot as plt
         plt.title("1D Gaussian fit")
         plt.plot(data, label="Data")
@@ -67,33 +72,33 @@ def fit_guass1d(data: np.ndarray, show: bool = False) -> Tuple[np.ndarray, np.nd
 
     return popt, pcov
 
-def fit_gauss1d_mod(data: np.ndarray, show: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+def fit_gauss1d_mod(data: np.ndarray, show: bool = False, ax=None) -> Tuple[np.ndarray, np.ndarray]:
     """Fit a 1D Gaussian to the data. Modified for negative hole images
     Args:
         data: 1D numpy array
         show: show the plot of the fit (for debugging)
+        ax: optional matplotlib axes to plot on
     Returns:
         popt: optimal parameters
         pcov: covariance matrix
     """
 
-    z=data
-    xz=np.arange(z.shape[0])
+    z=data.copy()
     offset=np.max(z)
     z-=offset # shift data to 0
 
-    p0=[np.min(z)-offset,np.argmin(z),5,offset]
+    popt, pcov = fit_guass1d(z, show=show, ax=ax)
 
-    popt, pcov = curve_fit(gauss1d_offset, xz, z, p0, maxfev=10000)
+    # popt, pcov = curve_fit(gauss1d_offset, xz, z, p0, maxfev=10000)
 
     # plot the data and the fit
-    if show:
-        import matplotlib.pyplot as plt
-        plt.title("1D Gaussian fit")
-        plt.plot(data, label="Data")
-        plt.plot(gauss1d(x, *popt), label="Gaussian 1D fit")
-        plt.legend()
-        plt.show()
+    # if show:
+    #     import matplotlib.pyplot as plt
+    #     plt.title("1D Gaussian fit")
+    #     plt.plot(data, label="Data")
+    #     plt.plot(gauss1d_offset(xz, *popt), label="Gaussian 1D fit")
+    #     plt.legend()
+    #     plt.show()
 
     return popt, pcov
 
@@ -368,15 +373,14 @@ def hole_fitting_RL(img: np.ndarray,
     x: int,
     y: int,
     z: int,
-    cutout: int = 11,
+    cutout: int = 15,
     small_cutout: int = 5,
     apply_threshold: bool = False,
     threshold_val: float = 0,
     iterations: int = 5,
     show: bool = False,
 ):
-    import matplotlib.pyplot as plt
-    """refine selection of hole in reflected light image
+    """Refine selection of hole in reflected light image.
     Args:
         img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
         x,y,z initial coordinates from the user click
@@ -385,62 +389,103 @@ def hole_fitting_RL(img: np.ndarray,
         apply_threshold: apply thresholding to the image
         threshold_val: does nothing
         iterations: does nothing
+        show: show the diagnostic figure
     Returns:
         xr, yr, zr: refined x, y, z coordinates
+        fig: matplotlib figure with diagnostic plots (or None if show=False)
     """
-    # cut out the box
-    ROI=img[z-cutout*3:z+cutout*3,y-cutout:y+cutout,x-cutout:x+cutout]
-    # # fit a gaussian to estimate the in focus plane
-    # I=np.mean(ROI,axis=(1,2))
-    # popt,popcov=fit_gauss1d_mod(I,show=False)
-    # zi=int(popt[1])+z-cutout*3
-    # if show:
-    #     plt.figure()
-    #     plt.plot(I)
-    #     plt.scatter(popt[1],popt[2],color='r')
-    #     plt.show()
-    
-    # fit a 2D gaussian to the in focus plane to get rough poition
-    # slc=img[zi,y-cutout:y+cutout,x-cutout:x+cutout]
-    slc=img[z,y-cutout:y+cutout,x-cutout:x+cutout]
-    popt,popcov=fit_gauss_2d_mod(slc,show=False)
-    # get the rough position in the coordinates of the original image
-    xi=int(popt[1])+x-cutout
-    yi=int(popt[2])+y-cutout
+    import matplotlib.pyplot as plt
+
+    # --- Diagnostic figure ---
+    fig, axes = plt.subplots(1, 2)
+    fig.suptitle("Hole Fitting RL")
+
+    # --- Initial Z fit ---
+    roi = img[z-3:z+4, y-cutout:y+cutout+1, x-cutout:x+cutout+1]
+    intensity = np.mean(roi, axis=(1, 2))
+    err = None
+    try:
+        popt_z, _ = fit_gauss1d_mod(intensity, ax=axes[0])
+        popt_z, pcov = fit_guass1d(intensity, show=True, ax=axes[0] )
+
+        zi = popt_z[1]
+    except Exception as e:
+        logging.warning(f"Error in initial Z fit: {e}")
+        zi = z # fallback to input z if fit fails
+        err = e
+
+    if err:
+        axes[0].set_title("Initial Z fit failed")
+    else:
+        axes[0].set_title("Initial Z fit")
+        axes[0].axvline(popt_z[1], color='r', label='Fit')
+    axes[0].axvline(z, color='k', linestyle='--', label=f'Input Z: {z}')
+    axes[0].legend()
+
+    # --- Initial XY fit ---
+    slc_init = img[int(zi), y-cutout:y+cutout+1, x-cutout:x+cutout+1]
+    err = None
+    try:
+        popt_xy, _ = fit_gauss_2d_mod(slc_init, show=False)
+        xopt, yopt = popt_xy[1], popt_xy[2]
+    except Exception as e:
+        logging.warning(f"Error in initial XY fit: {e}")
+        xopt, yopt = cutout, cutout # fallback to center of cutout if fit fails
+        err = e
+
+    # check if xopt, yopt are within the cutout bounds, if not return the original x, y
+    if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
+        logging.warning(f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}")
+        xopt, yopt = cutout, cutout
+
+    # convert back to original image coordinates
+    xi = xopt + x - cutout
+    yi = yopt + y - cutout
+
+    im = axes[1].imshow(slc_init, cmap='gray')
+    axes[1].scatter(cutout, cutout, color='yellow', label='Input')
+    if err:
+        axes[1].set_title("Initial XY fit failed")
+    else:
+        axes[1].set_title(f"Initial XY fit (z={zi:.2f})")
+        axes[1].scatter(xopt, yopt, color='r', label='Fit')
+    fig.colorbar(im, ax=axes[1], label='Intensity')
+    axes[1].legend()
+    return xi, yi, zi, fig
+
+    # --- Refined Z fit ---
+    zmax = img.shape[0]
+    z0 = max(z - small_cutout * 6, 0)
+    z1 = min(z + small_cutout * 6, zmax)
+    ROI_ref = img[z0:z1,
+                  yi-small_cutout:yi+small_cutout,
+                  xi-small_cutout:xi+small_cutout]
+    I_ref = np.mean(ROI_ref, axis=(1, 2))
+    popt_zr, _ = fit_gauss1d_mod(I_ref, ax=axes[1, 0])
+    zr = popt_zr[1] + z0
+    axes[1, 0].set_title("Refined Z fit")
+    axes[1, 0].axvline(popt_zr[1], color='r', label='Refined Fit')
+    axes[1, 0].axvline(z - z0, color='k', linestyle='--', label='Input Z')
+    axes[1, 0].legend()
+
+    # --- Refined XY fit ---
+    slc_ref = img[int(zr),
+                  yi-small_cutout:yi+small_cutout,
+                  xi-small_cutout:xi+small_cutout]
+    popt_xyr, _ = fit_gauss_2d_mod(slc_ref, show=False)
+    xr = popt_xyr[1] + xi - small_cutout
+    yr = popt_xyr[2] + yi - small_cutout
+    axes[1, 1].set_title(f"Refined XY fit (z={int(zr)})")
+    axes[1, 1].imshow(slc_ref)
+    axes[1, 1].scatter(popt_xyr[1], popt_xyr[2], color='r', label='Fit')
+    axes[1, 1].legend()
+
+    plt.tight_layout()
+
     if show:
-        plt.figure()
-        plt.imshow(slc)
-        plt.scatter(popt[1],popt[2],color='r')
-        plt.show()
-    zi=z
-    # refine the estimates
-    # cut out a smaller box
-    ROI=img[zi-small_cutout*3:zi+small_cutout*3,yi-small_cutout:yi+small_cutout,xi-small_cutout:xi+small_cutout]
-
-    # fit a gaussian to estimate the in focus plane
-    I=np.mean(ROI,axis=(1,2))
-    popt,popcov=fit_gauss1d_mod(I,show=False)
-    zr=popt[1]+zi-small_cutout*3
-    if show:
-        plt.figure()
-        plt.plot(I)
-        plt.axvline(popt[1],color='r')
         plt.show()
 
-    # fit a 2D gaussian to the in focus plane to get rough poition
-    slc=img[int(zr),yi-small_cutout:yi+small_cutout,xi-small_cutout:xi+small_cutout]
-    popt,popcov=fit_gauss_2d_mod(slc,show=False)
-    # get the refined positions in the coordinates of the original image
-    xr=popt[1]+xi-small_cutout
-    yr=popt[2]+yi-small_cutout
-
-    if show:
-        plt.figure()
-        plt.imshow(slc)
-        plt.scatter(popt[1],popt[2],color='r')
-        plt.show()
-
-    return xr,yr,zr
+    return xr, yr, zr, fig
 
 def hole_fitting_FIB(img: np.ndarray,
     x: int,
@@ -448,34 +493,128 @@ def hole_fitting_FIB(img: np.ndarray,
     cutout: int = 15,
     show: bool = False,
 ):
-    import matplotlib.pyplot as plt
-    """refine selection of hole in FIB image
+    """Refine selection of hole in FIB image.
     Args:
-        img: 2D numpy array (X,Y)
+        img: 2D numpy array (Y,X)
         x,y initial coordinates from the user click
         cutout: size of the cutout around the point in x,y
+        show: show the diagnostic figure
     Returns:
         xr, yr: refined x, y coordinates
+        fig: matplotlib figure with diagnostic plot (or None if show=False)
     """
+    import matplotlib.pyplot as plt
+
     # cut out a box around the point
-    ROI=img[y-cutout:y+cutout,x-cutout:x+cutout]
+    roi = img[y-cutout:y+cutout, x-cutout:x+cutout]
     # fit a 2D gaussian to estimate the hole position
-    popt,popcov=fit_gauss_2d_mod(ROI,show=False)
+    err = None
+    try:
+        popt, _ = fit_gauss_2d_mod(roi, show=False)
+        xopt, yopt = popt[1], popt[2]
+    except Exception as e:
+        logging.warning(f"Error in XY fit: {e}")
+        xopt, yopt = cutout, cutout # fallback to center of cutout if fit fails
+        err = e
+
+    if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
+        logging.warning(f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}")
+        xopt, yopt = cutout, cutout
+
     # get the refined positions in the coordinates of the original image
-    xr=popt[1]+x-cutout
-    yr=popt[2]+y-cutout
+    xr = xopt + x - cutout
+    yr = yopt + y - cutout
 
     # clip the coordinates to the image bounds
     xr = np.clip(xr, cutout, img.shape[1] - cutout)
     yr = np.clip(yr, cutout, img.shape[0] - cutout)
 
+    # --- Diagnostic figure ---
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    title = "FIB Hole Fit (XY)" if err is None else "FIB Hole Fit Failed, using input XY"
+    ax.set_title(title)
+    im = ax.imshow(roi, cmap='gray')
+    ax.scatter(cutout, cutout, color='c', label='Input')
+    ax.scatter(xopt, yopt, color='r', label='Fit')
+    fig.colorbar(im, ax=ax, label='Intensity')
+    ax.legend()
+
     if show:
-        plt.figure()
-        plt.imshow(ROI)
-        plt.scatter(popt[1],popt[2],color='r')
         plt.show()
+
+    return xr, yr, fig
+
+def target_fitting_fluorescence(img: np.ndarray, 
+                                x: int, y: int, z: int, 
+                                cutout: int = 5, 
+                                show: bool=False, 
+                                use_xy_fitting: bool = False) -> tuple[int, int, int, 'plt.Figure']:
+    """Refine selection of target in fluorescence image.
+    Args:
+        img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
+        x,y,z initial coordinates from the user click
+        cutout: size of the cutout around the point in x,y. z uses 3x this value
+        show: show the diagnostic figure
+        use_xy_fitting: whether to use xy fitting or just return the input x, y
+    Returns:
+        xr, yr, zr: refined x, y, z coordinates
+        fig: matplotlib figure with diagnostic plot (or None if show=False)
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2)#, figsize=(10, 5))
+    fig.suptitle("Target Fitting Fluorescence")
+
+    roi = img[:, y-cutout:y+cutout, x-cutout:x+cutout]
+    intensity = np.mean(roi, axis=(1, 2))
+    popt_z, _ = fit_guass1d(intensity, ax=axes[0])
+
+    zi = popt_z[1]
+    axes[0].set_title("Initial Z fit")
+    axes[0].axvline(zi, color='r', label='Fit')
+    axes[0].axvline(z, color='k', linestyle='--', label=f'Input Z: {z}')
+    axes[0].legend()
+
+    slc_init = img[int(zi), y-cutout:y+cutout, x-cutout:x+cutout]
+    err = None
+    if use_xy_fitting:
+        try:
+            popt_xy, _ = fit_gauss_2d_mod(slc_init, show=False)
+            xopt, yopt = popt_xy[1], popt_xy[2]
+        except Exception as e:
+            logging.warning(f"Error in initial XY fit: {e}")
+            xopt, yopt = cutout, cutout # fallback to center of cutout if fit fails
+            err = e
+
+        if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
+            logging.warning(f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}")
+            xopt, yopt = cutout, cutout
+
+        xi = xopt + x - cutout
+        yi = yopt + y - cutout
+    else:
+        xi, yi = x, y
+        xopt, yopt = cutout, cutout # for plotting the fit result as the center of the cutout
+
     
-    return xr,yr
+    title = "Initial XY fit" if use_xy_fitting else "Input XY position"
+
+    axes[1].set_title(f"{title} (z={zi:.2f})")
+    im = axes[1].imshow(slc_init, cmap='gray')
+    axes[1].scatter(cutout, cutout, color='yellow', label='Input')
+    if err:
+        axes[1].text(0.5, 0.5, f"XY fit failed: {err}", ha='center', va='center', transform=axes[1].transAxes, color='red')
+    else:
+        axes[1].scatter(xopt, yopt, color='r', label='Fit')
+
+    fig.colorbar(im, ax=axes[1], label='Intensity')
+    axes[1].legend()
+
+    if show:
+        plt.show()
+
+    return xi, yi, zi, fig
+
 
 def zyx_targeting(
     img: np.ndarray,
@@ -550,6 +689,7 @@ def multi_channel_zyx_targeting(
     threshold_val: float = 0.1,
     cutout: int = 15,
     iterations: int = 5,
+    method: str = "gaussian",
 ) -> Tuple[int, Tuple[int, int, int]]:
     """ZYX targeting for multi-channel images
     Args:
@@ -587,25 +727,29 @@ def multi_channel_zyx_targeting(
     for i in range(image.shape[0]):
         ch_image = image[i]
         try:
-            # x1, y1, (zv, z1, zs) = zyx_targeting(
-            #     ch_image,
-            #     xinit,
-            #     yinit,
-            #     cutout=cutout,
-            #     apply_threshold=apply_threshold,
-            #     threshold_val=threshold_val,
-            #     iterations=iterations,
-            # )
-            x1, y1, zv = hole_fitting_RL(
-                ch_image,
-                xinit,
-                yinit,
-                zinit,
-                cutout=cutout,
-                apply_threshold=apply_threshold,
-                threshold_val=threshold_val,
-                iterations=iterations,
-            )
+            if method not in ["gaussian", "hole"]:
+                raise ValueError(f"method must be 'gaussian' or 'hole', got {method}")
+            if method == "gaussian":
+                x1, y1, (zv, z1, zs) = zyx_targeting(
+                    ch_image,
+                    xinit,
+                    yinit,
+                    cutout=cutout,
+                    apply_threshold=apply_threshold,
+                    threshold_val=threshold_val,
+                    iterations=iterations,
+                )
+            elif method == "hole":
+                x1, y1, zv, _ = hole_fitting_RL(
+                    ch_image,
+                    xinit,
+                    yinit,
+                    zinit,
+                    cutout=cutout,
+                    apply_threshold=apply_threshold,
+                    threshold_val=threshold_val,
+                    iterations=iterations,
+                )
         except Exception as e:
             logging.error(f"an error occured during channel {i}: {e}")
             x1, y1, zv, z1, zs = xinit, yinit, 0, None, None
@@ -646,3 +790,194 @@ def apply_refractive_index_correction(
     # update the poi coordinate in poi
     corrected_poi = (initial_poi[0], surface_coord[1] + corrected_depth)
     return corrected_poi
+
+
+
+def hole_fitting_RL_old(img: np.ndarray,
+    x: int,
+    y: int,
+    z: int,
+    cutout: int = 11,
+    small_cutout: int = 5,
+    apply_threshold: bool = False,
+    threshold_val: float = 0,
+    iterations: int = 5,
+    show: bool = False,
+):
+    import matplotlib.pyplot as plt
+    """refine selection of hole in reflected light image
+    Args:
+        img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
+        x,y,z initial coordinates from the user click
+        cutout: size of the cutout around the point in x,y. z uses 3x this value
+        small_cutout: size of the cutout for the refined fit. z uses 3x this value
+        apply_threshold: apply thresholding to the image
+        threshold_val: does nothing
+        iterations: does nothing
+    Returns:
+        xr, yr, zr: refined x, y, z coordinates
+    """
+    # cut out the box
+    ROI=img[z-cutout*3:z+cutout*3,y-cutout:y+cutout,x-cutout:x+cutout]
+    # # fit a gaussian to estimate the in focus plane
+    # I=np.mean(ROI,axis=(1,2))
+    # popt,popcov=fit_gauss1d_mod(I,show=False)
+    # zi=int(popt[1])+z-cutout*3
+    # if show:
+    #     plt.figure()
+    #     plt.plot(I)
+    #     plt.scatter(popt[1],popt[2],color='r')
+    #     plt.show()
+    
+    # fit a 2D gaussian to the in focus plane to get rough poition
+    # slc=img[zi,y-cutout:y+cutout,x-cutout:x+cutout]
+    slc=img[z,y-cutout:y+cutout,x-cutout:x+cutout]
+    popt,popcov=fit_gauss_2d_mod(slc,show=False)
+    # get the rough position in the coordinates of the original image
+    xi=int(popt[1])+x-cutout
+    yi=int(popt[2])+y-cutout
+    if show:
+        plt.figure()
+        plt.imshow(slc)
+        plt.scatter(popt[1],popt[2],color='r')
+        plt.show()
+    zi=z
+    # refine the estimates
+    # cut out a smaller box
+    ROI=img[zi-small_cutout*3:zi+small_cutout*3,yi-small_cutout:yi+small_cutout,xi-small_cutout:xi+small_cutout]
+
+    # fit a gaussian to estimate the in focus plane
+    I=np.mean(ROI,axis=(1,2))
+    print(ROI.shape, I.shape)
+    popt,popcov=fit_gauss1d_mod_old(I,show=False)
+    zr=popt[1]+zi-small_cutout*3
+    if show:
+        plt.figure()
+        plt.plot(I)
+        plt.axvline(popt[1],color='r')
+        plt.show()
+
+    # fit a 2D gaussian to the in focus plane to get rough poition
+    slc=img[int(zr),yi-small_cutout:yi+small_cutout,xi-small_cutout:xi+small_cutout]
+    popt,popcov=fit_gauss_2d_mod(slc,show=False)
+    # get the refined positions in the coordinates of the original image
+    xr=popt[1]+xi-small_cutout
+    yr=popt[2]+yi-small_cutout
+
+    if show:
+        plt.figure()
+        plt.imshow(slc)
+        plt.scatter(popt[1],popt[2],color='r')
+        plt.show()
+
+    return xr,yr,zr
+
+
+def fit_gauss1d_mod_old(data: np.ndarray, show: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+    """Fit a 1D Gaussian to the data. Modified for negative hole images
+    Args:
+        data: 1D numpy array
+        show: show the plot of the fit (for debugging)
+    Returns:
+        popt: optimal parameters
+        pcov: covariance matrix
+    """
+
+    z=data.copy()
+    print(z.shape)
+    xz=np.arange(z.shape[0])
+    offset=np.max(z)
+    z-=offset # shift data to 0
+
+    p0=[np.min(z)-offset,np.argmin(z),5,offset]
+
+    popt, pcov = curve_fit(gauss1d_offset, xz, z, p0, maxfev=10000)
+
+    # plot the data and the fit
+    # if show:
+    #     import matplotlib.pyplot as plt
+    #     plt.title("1D Gaussian fit")
+    #     plt.plot(data, label="Data")
+    #     # plt.plot(gauss1d(x, *popt), label="Gaussian 1D fit")
+    #     plt.legend()
+    #     plt.show()
+
+    return popt, pcov
+
+
+
+
+def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, 'plt.Figure']:
+
+    import matplotlib.pyplot as plt
+    from scipy.ndimage import gaussian_filter
+
+    fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+
+    zmin = 10
+    zmax = 5
+    zmin1 = int(z) - zmin
+    zmax1 = int(z) + zmax
+
+    # query: use the argmin/argmax to set the z-window?
+    zmin_arg=  np.argmin(da[:, y, x])
+    zmax_arg = np.argmax(da[:, y, x])
+    # zmin1 = zmax_arg
+
+    roi = da[zmin1:zmax1, 
+                            y-cutout:y+cutout+1, 
+                            x-cutout:x+cutout+1]
+    intensity = np.mean(roi, axis=(1, 2))
+
+    # invert intensity for hole fitting
+    intensity = intensity.max() - intensity
+    popt, pcov = fit_guass1d(intensity, ax=axes[1] )
+    zopt = popt[1]
+    zreal = zopt + zmin1 # convert back to original z coordinate
+
+    # xy fitting
+    xy_cutout = 15
+    roi_fitted = da[round(zreal), y-xy_cutout:y+xy_cutout+1, x-xy_cutout:x+xy_cutout+1]
+
+    popt_xy, _ = fit_gauss_2d_mod(roi_fitted)
+    xopt, yopt = popt_xy[1], popt_xy[2]
+
+    # transform back to original image coordinates
+    xopt_real = xopt + x - xy_cutout
+    yopt_real = yopt + y - xy_cutout
+
+    # # print(zmin1, zmax1)
+    # # print(xopt, yopt)
+    # print(f"Fitted Z: {zopt}, Input Z: {z}, Z Fitted (Real) {zreal:.2f}")
+    # print(f"Fitted XY: ({xopt_real:.2f}, {yopt_real:.2f}), Input XY: ({x}, {y})")
+
+    # fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+    fig.suptitle("Hole Fitting (Reflection)")
+
+    axes[0].plot(da[:, y, x])
+    axes[0].set_title(f"Original Z Profile at (x={x}, y={y})")
+    axes[0].axvline(z, color='r', linestyle='--', label=f'Input Z: {z:.2f}')
+    axes[0].axvline(zreal, color='g', linestyle='--', label=f'Fitted Z: {zreal:.2f}')
+    axes[0].axvline(zmin1, color='orange', linestyle='--', label=f'Cutout Start: {zmin1}')
+    axes[0].axvline(zmax1, color='orange', linestyle='--', label=f'Cutout End: {zmax1}')
+    axes[0].set_xlabel("Z Slice")
+    axes[0].set_ylabel("Intensity")
+    axes[0].axvline(zmin_arg, color="purple", linestyle='--', label="Min Z Value")
+    axes[0].axvline(zmax_arg, color="magenta", linestyle='--', label="Max Z Value")
+    axes[0].legend()
+
+    axes[1].set_title(f"Mean Intensity Profile Along Z Axis (Cutout: {cutout})")
+    axes[1].set_xlabel("Z Slice")
+    axes[1].set_ylabel("Mean Intensity")
+    axes[1].axvline(zopt, color='g', linestyle='--', label=f'Fitted Z: {zopt:.2f}')
+    axes[1].axvline(zmin, color='r', linestyle='--', label=f'Input Z: {zmin}')
+    axes[1].legend()
+
+    im = axes[2].imshow(gaussian_filter(roi_fitted, sigma=1), cmap='gray')
+    axes[2].set_title(f"Z Projection of ROI (Cutout: {cutout}, z={zreal:.2f})")
+    axes[2].plot(15, 15, "r+", label=f'Initial Point (x={x:.2f}, y={y:.2f})')
+    axes[2].plot(xopt, yopt, "g+", label=f'Fitted Point (x={xopt_real:.2f}, y={yopt_real:.2f})')
+    fig.colorbar(im, ax=axes[2])
+    axes[2].legend()
+
+    return xopt_real, yopt_real, zreal, fig

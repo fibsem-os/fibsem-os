@@ -304,6 +304,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
 
+        action_open_fm_minimap = QAction("Open Fluorescence Minimap", self)
+        action_open_fm_minimap.triggered.connect(self._open_fm_minimap_widget)
+        dev_menu.addAction(action_open_fm_minimap)
+
+        dev_menu.addSeparator()
+
+        action_load_fm_configuration = QAction("Load Fluorescence Configuration", self)
+        action_load_fm_configuration.triggered.connect(self._load_fm_configuration)
+        dev_menu.addAction(action_load_fm_configuration)
+
+        action_save_fm_configuration = QAction("Save Fluorescence Configuration", self)
+        action_save_fm_configuration.triggered.connect(self._save_fm_configuration)
+        dev_menu.addAction(action_save_fm_configuration)
+
     def _create_test_menu(self):
         """Create a test menu for toast notifications and sounds."""
 
@@ -522,6 +536,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is not None:
             self.autolamella_ui.actionGenerate_Overview_Plot.trigger()
 
+    def _open_fm_minimap_widget(self):
+        """Open the Fluorescence Minimap widget."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.open_fm_minimap_widget()
+
+    def _load_fm_configuration(self):
+        """Load a fluorescence microscope configuration."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.load_fm_configuration()
+
+    def _save_fm_configuration(self):
+        """Save the current fluorescence microscope configuration."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.save_fm_configuration()
+
     def _open_coincidence_milling_viewer(self):
         """Open the Coincidence Milling Viewer dialog."""
         if self.autolamella_ui is not None:
@@ -680,10 +709,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
+        self._set_minimap_workflow_enabled(True)
 
     def _set_minimap_workflow_enabled(self, enabled: bool):
         """Enable/disable minimap acquisition and load-image buttons during workflow."""
-        if not hasattr(self, "minimap_widget"):
+        if not hasattr(self, 'minimap_widget'):
             return
         self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
         self.minimap_widget.pushButton_load_image.setEnabled(enabled)

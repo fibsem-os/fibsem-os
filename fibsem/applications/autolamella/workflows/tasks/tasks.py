@@ -38,6 +38,12 @@ __all__ = [
     # basic milling
     "BasicMillingTaskConfig",
     "BasicMillingTask",
+    # acquire fluorescence image
+    "AcquireFluorescenceImageConfig",
+    "AcquireFluorescenceImageTask",
+    # select fluorescence position
+    "SelectFluorescencePositionConfig",
+    "SelectFluorescencePositionTask",
 ]
 
 from fibsem.applications.autolamella.workflows.tasks.base import (
@@ -83,6 +89,14 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
     BasicMillingTaskConfig,
     BasicMillingTask,
+)
+from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
+    AcquireFluorescenceImageConfig,
+    AcquireFluorescenceImageTask,
+)
+from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_position import (
+    SelectFluorescencePositionConfig,
+    SelectFluorescencePositionTask,
 )
 
 # related tasks (must be defined after task definitions, due to circular nature)

@@ -132,6 +132,10 @@ class TaskManager:
                 msg=msg,
             )
 
+        # if the objective is inserted, retract for safety
+        if self.microscope.fm is not None and self.microscope.fm.objective.state == "Inserted":
+            self.microscope.fm.objective.retract()
+
         self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
         update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
         print(self.experiment.task_history_dataframe())
