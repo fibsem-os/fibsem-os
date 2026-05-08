@@ -146,6 +146,27 @@ def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[
     return result
 
 
+def validate_tile_stage_positions(
+    ordered: list[TilePosition],
+    tile_stage_positions: list[FibsemStagePosition],
+    limits: dict,
+) -> list[tuple[int, int]]:
+    """Return (row, col) pairs for any tile positions that exceed stage limits.
+
+    Args:
+        ordered: Tile grid positions in acquisition order.
+        tile_stage_positions: Projected stage position for each tile (same order).
+        limits: Dict[str, RangeLimit] from microscope._stage.limits.
+    Returns:
+        List of (row, col) tuples for out-of-bounds tiles (empty if all OK).
+    """
+    return [
+        (tile.row, tile.col)
+        for tile, sp in zip(ordered, tile_stage_positions)
+        if not sp.is_within_limits(limits, axes=["x", "y"])
+    ]
+
+
 def plot_tile_positions(
     tiles: list[TilePosition],
     settings: OverviewAcquisitionSettings,
@@ -378,6 +399,16 @@ class TiledAcquisitionRunner:
         ]
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
             logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+
+        out_of_bounds = validate_tile_stage_positions(
+            self._ordered, self._tile_stage_positions, self.microscope._stage.limits
+        )
+        if out_of_bounds:
+            details = ", ".join(f"({r},{c})" for r, c in out_of_bounds)
+            raise ValueError(
+                f"Overview acquisition grid extends beyond stage limits. "
+                f"{len(out_of_bounds)} tile(s) out of bounds: {details}"
+            )
 
         # EVERY_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
         # so promote it to EVERY_TILE so focus is always fresh.

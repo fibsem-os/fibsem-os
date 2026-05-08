@@ -831,16 +831,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         total = result.get("total", 0)
         elapsed = result.get("elapsed", 0.0)
         cancelled = result.get("cancelled", False)
-        error = result.get("error", False)
+        error: Exception | None = result.get("error", None)
 
         tile_info = f"{tiles}/{total} tiles" if total else ""
         elapsed_info = f" in {format_duration(elapsed)}" if elapsed else ""
 
-        if error:
+        if error is not None:
             if cancelled:
                 self.show_toast(f"Tile acquisition cancelled. {tile_info} collected.", "warning")
             else:
-                self.show_toast(f"Tile acquisition failed. {tile_info} collected.", "error")
+                self.show_toast(f"Tile acquisition failed. {tile_info} collected. {error}", "error")
         else:
             self.show_toast(f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success")
 

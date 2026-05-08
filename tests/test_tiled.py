@@ -1,8 +1,8 @@
 import pytest
 from matplotlib.figure import Figure
 
-from fibsem.imaging.tiled import TilePosition, _spiral_order, compute_tile_grid, order_tiles, plot_tile_positions
-from fibsem.structures import ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
+from fibsem.imaging.tiled import TilePosition, _spiral_order, compute_tile_grid, order_tiles, plot_tile_positions, validate_tile_stage_positions
+from fibsem.structures import FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings, RangeLimit, TileOrderStrategy
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +224,43 @@ def test_plot_tile_positions_returns_figure():
     tiles = order_tiles(compute_tile_grid(s), s.tile_order)
     fig = plot_tile_positions(tiles, s)
     assert isinstance(fig, Figure)
+
+
+# ---------------------------------------------------------------------------
+# validate_tile_stage_positions
+# ---------------------------------------------------------------------------
+
+def _make_limits(x_max=100e-3, y_max=100e-3):
+    return {
+        "x": RangeLimit(min=-x_max, max=x_max),
+        "y": RangeLimit(min=-y_max, max=y_max),
+    }
+
+
+def _make_pairs(positions_xy):
+    """Build (TilePosition list, FibsemStagePosition list) from (x, y) tuples."""
+    tiles = [TilePosition(row=i, col=0, dx=0, dy=0, canvas_x=0, canvas_y=0)
+             for i in range(len(positions_xy))]
+    stage_positions = [FibsemStagePosition(x=x, y=y) for x, y in positions_xy]
+    return tiles, stage_positions
+
+
+def test_validate_positions_all_within_limits():
+    tiles, sps = _make_pairs([(0.0, 0.0), (10e-3, 5e-3)])
+    assert validate_tile_stage_positions(tiles, sps, _make_limits()) == []
+
+
+def test_validate_positions_one_out_of_bounds():
+    tiles, sps = _make_pairs([(0.0, 0.0), (200e-3, 0.0)])
+    result = validate_tile_stage_positions(tiles, sps, _make_limits())
+    assert result == [(1, 0)]
+
+
+def test_validate_positions_all_out_of_bounds():
+    tiles, sps = _make_pairs([(200e-3, 200e-3), (-200e-3, -200e-3)])
+    result = validate_tile_stage_positions(tiles, sps, _make_limits())
+    assert len(result) == 2
+
+
+def test_validate_positions_empty():
+    assert validate_tile_stage_positions([], [], _make_limits()) == []

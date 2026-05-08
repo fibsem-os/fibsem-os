@@ -591,7 +591,12 @@ class FibsemMinimapWidget(QWidget):
     def tile_collection_finished(self, result: dict):
         self._acquisition_worker = None
         self._thread_stop_event.clear()
-        notification_service.show_toast("Tile collection finished.")
+        if result.get("error"):
+            notification_service.show_toast(str(result["error"]), "error")
+        elif result.get("cancelled"):
+            notification_service.show_toast("Tile collection cancelled.", "warning")
+        else:
+            notification_service.show_toast("Tile collection finished.")
         self.update_viewer(self.image)
         self.toggle_interaction(enable=True)
 
@@ -604,7 +609,7 @@ class FibsemMinimapWidget(QWidget):
         self._tiles_acquired: int = 0
         self._tile_total_count: int = 0
         _start_time = time.time()
-        _error: bool = False
+        _error: Optional[Exception] = None
         try:
             self.image = tiled.tiled_image_acquisition_and_stitch(
                 microscope=microscope,
@@ -613,7 +618,7 @@ class FibsemMinimapWidget(QWidget):
             )
         except Exception as e:
             logging.error(f"Error in tile collection: {e}", exc_info=True)
-            _error = True
+            _error = e
         finally:
             elapsed = time.time() - _start_time
             cancelled = self._thread_stop_event.is_set()
