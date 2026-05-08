@@ -16,6 +16,7 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
+    ReferenceImageParameters,
     TileOrderStrategy,
 )
 
@@ -371,3 +372,66 @@ if THERMO_API_AVAILABLE:
         assert stage_position.r == 0
         assert stage_position.t == autoscript_compustage_position.a
         assert stage_position.coordinate_system == "SPECIMEN"
+
+
+# ── ImageSettings.estimated_time ─────────────────────────────────────────────
+
+def test_image_settings_estimated_time_basic():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
+    expected = 1536 * 1024 * 1e-6
+    assert img.estimated_time == pytest.approx(expected)
+
+
+def test_image_settings_estimated_time_frame_integration():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6, frame_integration=4)
+    expected = 1536 * 1024 * 1e-6 * 4
+    assert img.estimated_time == pytest.approx(expected)
+
+
+def test_image_settings_estimated_time_line_integration():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6, line_integration=2)
+    expected = 1536 * 1024 * 1e-6 * 2
+    assert img.estimated_time == pytest.approx(expected)
+
+
+def test_image_settings_estimated_time_both_integrations():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6, frame_integration=4, line_integration=2)
+    expected = 1536 * 1024 * 1e-6 * 4 * 2
+    assert img.estimated_time == pytest.approx(expected)
+
+
+# ── ReferenceImageParameters.estimated_time ───────────────────────────────────
+
+def test_reference_image_parameters_estimated_time_both_beams_both_fovs():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
+    ref = ReferenceImageParameters(
+        imaging=img, acquire_sem=True, acquire_fib=True, acquire_image1=True, acquire_image2=True
+    )
+    # 2 FOVs × 2 beams = 4 images
+    assert ref.estimated_time == pytest.approx(img.estimated_time * 4)
+
+
+def test_reference_image_parameters_estimated_time_sem_only():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
+    ref = ReferenceImageParameters(
+        imaging=img, acquire_sem=True, acquire_fib=False, acquire_image1=True, acquire_image2=True
+    )
+    # 2 FOVs × 1 beam = 2 images
+    assert ref.estimated_time == pytest.approx(img.estimated_time * 2)
+
+
+def test_reference_image_parameters_estimated_time_one_fov():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
+    ref = ReferenceImageParameters(
+        imaging=img, acquire_sem=True, acquire_fib=True, acquire_image1=True, acquire_image2=False
+    )
+    # 1 FOV × 2 beams = 2 images
+    assert ref.estimated_time == pytest.approx(img.estimated_time * 2)
+
+
+def test_reference_image_parameters_estimated_time_no_images():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
+    ref = ReferenceImageParameters(
+        imaging=img, acquire_sem=False, acquire_fib=False, acquire_image1=True, acquire_image2=True
+    )
+    assert ref.estimated_time == 0.0

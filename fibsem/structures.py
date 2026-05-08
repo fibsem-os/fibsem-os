@@ -652,6 +652,12 @@ class ImageSettings:
         """Set the horizontal field width (hfw) based on the desired field of view."""
         self.hfw = value
 
+    @property
+    def estimated_time(self) -> float:
+        """Estimated acquisition time for a single image in seconds."""
+        pixel_time = self.resolution[0] * self.resolution[1] * self.dwell_time
+        return pixel_time * (self.frame_integration or 1) * (self.line_integration or 1)
+
     @staticmethod
     def fromFibsemImage(image: "FibsemImage") -> "ImageSettings":
         """Returns the image settings for a FibsemImage object.
@@ -2437,3 +2443,9 @@ class ReferenceImageParameters:
         if self.acquire_image2:
             fovs.append(self.field_of_view2)
         return tuple(sorted(fovs, reverse=True)) # largest to smallest
+
+    @property
+    def estimated_time(self) -> float:
+        n_fovs = sum([self.acquire_image1, self.acquire_image2])
+        n_beams = sum([self.acquire_sem, self.acquire_fib])
+        return self.imaging.estimated_time * n_fovs * n_beams

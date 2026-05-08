@@ -229,11 +229,10 @@ class AutoLamellaTaskConfig(ABC):
 
     @property
     def estimated_time(self) -> float:
-        """Estimate the total milling time for this task configuration."""
-        total_time = 0.0
-        for milling_task in self.milling.values():
-            total_time += milling_task.estimated_time
-        return total_time
+        """Estimate the total time for this task (milling + reference imaging)."""
+        milling_time = sum(t.estimated_time for t in self.milling.values())
+        imaging_time = self.reference_imaging.estimated_time
+        return milling_time + imaging_time
     
     @property
     def imaging(self) -> ImageSettings:
