@@ -265,3 +265,7 @@ class Stage:
         self.move_absolute(grid.position)
 
         return self.position
+
+    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
+        """Move the stage to a specific orientation."""
+        return self.parent.move_to_orientation(orientation)

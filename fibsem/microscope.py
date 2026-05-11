@@ -323,7 +323,19 @@ class FibsemMicroscope(ABC):
         pass
 
     def move_flat_to_beam(self, beam_type: BeamType, _safe:bool = True) -> None:
-        """Move the sample surface flat to the electron or ion beam."""
+        """Move the sample surface flat to the electron or ion beam.
+
+        .. deprecated::
+            Use :meth:`move_to_orientation` instead. This method will be removed in the next version.
+            ``move_flat_to_beam(BeamType.ELECTRON)`` → ``move_to_orientation("SEM")``
+            ``move_flat_to_beam(BeamType.ION)`` → ``move_to_orientation("FIB")``
+        """
+        warnings.warn(
+            "move_flat_to_beam is deprecated and will be removed in the next version. "
+            "Use move_to_orientation('SEM') or move_to_orientation('FIB') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         stage_settings = self.system.stage
         shuttle_pre_tilt = stage_settings.shuttle_pre_tilt
@@ -358,12 +370,16 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
-    def move_to_orientation(self, orientation: str) -> None:
-        """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING')."""
-        pos = self.get_orientation(orientation)
-        stage_position = FibsemStagePosition(r=pos.r, t=pos.t, coordinate_system="Raw")
-        logging.info(f"moving to orientation: {orientation}")
+    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
+        """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING').
+        Args:
+            orientation: The name of the orientation to move to.
+        Returns:
+            FibsemStagePosition: The new stage position after moving to the orientation.
+        """
+        stage_position = self.get_orientation(orientation)
         self.safe_absolute_stage_movement(stage_position)
+        return self._stage.position
 
     @abstractmethod
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:

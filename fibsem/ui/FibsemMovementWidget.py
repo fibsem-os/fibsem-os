@@ -133,10 +133,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move = QtWidgets.QPushButton("Move to Position")
         self.gridLayout_3.addWidget(self.pushButton_move, 5, 0, 1, 2)
 
-        self.pushButton_move_flat_electron = QtWidgets.QPushButton("Move Flat to ELECTRON Beam")
-        self.pushButton_move_flat_ion = QtWidgets.QPushButton("Move Flat to ION Beam")
-        self.gridLayout_3.addWidget(self.pushButton_move_flat_electron, 6, 0)
-        self.gridLayout_3.addWidget(self.pushButton_move_flat_ion, 6, 1)
+        self.pushButton_move_to_sem_orientation = QtWidgets.QPushButton("Move Flat to ELECTRON Beam")
+        self.pushButton_move_to_fib_orientation = QtWidgets.QPushButton("Move Flat to ION Beam")
+        self.gridLayout_3.addWidget(self.pushButton_move_to_sem_orientation, 6, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_to_fib_orientation, 6, 1)
 
         self.doubleSpinBox_milling_angle = QtWidgets.QDoubleSpinBox()
         self.pushButton_move_to_milling_angle = QtWidgets.QPushButton("Move to Milling Angle")
@@ -196,8 +196,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         self._move_buttons = [
             self.pushButton_move,
-            self.pushButton_move_flat_ion,
-            self.pushButton_move_flat_electron,
+            self.pushButton_move_to_fib_orientation,
+            self.pushButton_move_to_sem_orientation,
             self.pushButton_move_to_milling_angle,
             self.pushButton_go_to,
         ]
@@ -213,8 +213,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # buttons
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
-        self.pushButton_move_flat_ion.clicked.connect(self.move_flat_to_beam)
-        self.pushButton_move_flat_electron.clicked.connect(self.move_flat_to_beam)
+        self.pushButton_move_to_fib_orientation.clicked.connect(lambda: self.move_to_orientation("FIB"))
+        self.pushButton_move_to_sem_orientation.clicked.connect(lambda: self.move_to_orientation("SEM"))
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
@@ -272,8 +272,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # stylesheets
         self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_move_flat_ion.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_move_flat_electron.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_fib_orientation.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_sem_orientation.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_save_position.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
         self.pushButton_remove_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
@@ -283,13 +283,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_update_position.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
 
         # display orientation values on tooltips
-        self.pushButton_move_flat_electron.setText("Move to SEM Orientation")
-        self.pushButton_move_flat_ion.setText("Move to FIB Orientation")
+        self.pushButton_move_to_sem_orientation.setText("Move to SEM Orientation")
+        self.pushButton_move_to_fib_orientation.setText("Move to FIB Orientation")
         sem = self.microscope.get_orientation("SEM")
         fib = self.microscope.get_orientation("FIB")
         milling = self.microscope.get_orientation("MILLING")
-        self.pushButton_move_flat_electron.setToolTip(sem.pretty_orientation)
-        self.pushButton_move_flat_ion.setToolTip(fib.pretty_orientation)
+        self.pushButton_move_to_sem_orientation.setToolTip(sem.pretty_orientation)
+        self.pushButton_move_to_fib_orientation.setToolTip(fib.pretty_orientation)
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
 
         # milling angle controls
@@ -531,22 +531,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.movement_progress_signal.emit({"msg": "Move finished, updating UI"})
         self.update_ui_after_movement()
 
-    def move_flat_to_beam(self)-> None:
-        """Move to the specifed beam orientation"""
-        beam_type = BeamType.ION if self.sender() == self.pushButton_move_flat_ion else BeamType.ELECTRON
-        self._toggle_interactions(False)
-        worker = self.move_flat_to_beam_worker(beam_type)
-        worker.finished.connect(self.move_stage_finished)
-        worker.start()
-
-    @thread_worker
-    def move_flat_to_beam_worker(self, beam_type: BeamType) -> None:
-        """Threaded worker function to move the stage to the specified beam"""
-        self.movement_progress_signal.emit({"msg": f"Moving flat to {beam_type.name} beam"})
-        self.microscope.move_flat_to_beam(beam_type=beam_type)
-        self.update_ui_after_movement()
-
-    # TODO: migrate to this from move_flat_to_beam
     def move_to_orientation(self, orientation: str)-> None:
         """Move to the specifed orientation"""
         if orientation not in ["SEM", "FIB", "MILLING"]:
@@ -559,9 +543,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @thread_worker
     def move_to_orientation_worker(self, orientation: str) -> None:
         """Threaded worker function to move the stage to the specified orientation"""
-        self.movement_progress_signal.emit({"msg": f"Moving flat to {orientation}"})
-        stage_orientation = self.microscope.get_orientation(orientation)
-        self.microscope.safe_absolute_stage_movement(stage_orientation)
+        self.movement_progress_signal.emit({"msg": f"Moving to {orientation} orientation..."})
+        self.microscope.move_to_orientation(orientation)
         self.update_ui_after_movement()
 
 #### SAVED POSITIONS
