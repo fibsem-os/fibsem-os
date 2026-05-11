@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import sys
 from typing import TYPE_CHECKING, Optional, Union
+from fibsem.microscopes._stage import SampleGridLoader, SampleHolder, Stage
 
 if TYPE_CHECKING:
+    from fibsem.microscope import ThermoMicroscope
     from fibsem.structures import (
         BeamType,
         FibsemImage,
@@ -278,3 +280,65 @@ def fibsem_image_from_adorned_image(
         microscope_state=state,
     )
     return FibsemImage(data=adorned.data, metadata=metadata)
+
+
+class AutoscriptManipulator:
+    """Manipulator interface for AutoScript-based microscopes."""
+
+    def __init__(
+        self,
+        parent: "ThermoMicroscope",
+    ) -> None:
+        self.parent = parent
+
+    def __repr__(self) -> str:
+        return f"<Manipulator: position={self.position}>"
+
+    @property
+    def position(self) -> FibsemManipulatorPosition:
+        return self.parent.get_manipulator_position()
+
+    def insert(self) -> None:
+        """Insert the manipulator."""
+        self.parent.insert_manipulator()
+
+    def retract(self) -> None:
+        """Retract the manipulator."""
+        self.parent.retract_manipulator()
+
+    def move_absolute(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
+        pass
+
+    def move_relative(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
+        pass
+
+    def move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> FibsemManipulatorPosition:
+        pass
+
+
+class AutoscriptStage(Stage):
+    """Stage interface for AutoScript-based microscopes."""
+
+    def __init__(
+        self,
+        parent: "ThermoMicroscope",
+        holder: SampleHolder,
+        loader: Optional["SampleGridLoader"] = None,
+    ) -> None:
+        super().__init__(parent, holder, loader)
+
+
+class AutoscriptCompustage(Stage):
+    """Compustage interface for AutoScript-based microscopes."""
+
+    def __init__(
+        self,
+        parent: "ThermoMicroscope",
+        holder: SampleHolder,
+        loader: Optional["SampleGridLoader"] = None,
+    ) -> None:
+        super().__init__(parent, holder, loader)
+
+
+class AutoscriptSputterCoater:
+    pass
