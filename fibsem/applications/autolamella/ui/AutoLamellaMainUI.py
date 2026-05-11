@@ -926,6 +926,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.lamella_list.defect_changed.connect(
             self._on_lamella_defect_changed
         )
+        self.autolamella_ui.lamella_list.lamella_selected.connect(
+            self._on_experiment_lamella_selected
+        )
 
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
@@ -1272,6 +1275,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Track which experiment's position events we're connected to
         self._lamella_list_experiment = None
 
+        # Guard against bidirectional selection sync loops
+        self._syncing_selection = False
+
         # Connect protocol editor → workflow tab (deferred here since task_widget is created first)
         self.task_widget.workflow_config_changed.connect(
             self.lamella_workflow_widget.set_workflow_config
@@ -1286,6 +1292,40 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_task_image_widget.set_lamella(lamella)
         if lamella is not None:
             self.lamella_widget.select_lamella(lamella.name)
+            if not self._syncing_selection:
+                self._syncing_selection = True
+                try:
+                    self.autolamella_ui.lamella_list.select(lamella.name)
+                    if hasattr(self, "minimap_widget"):
+                        self.minimap_widget.lamella_list.select(lamella.name)
+                finally:
+                    self._syncing_selection = False
+
+    def _on_experiment_lamella_selected(self, lamella):
+        """Sync card container and minimap when experiment-tab list selection changes."""
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        if not hasattr(self, "lamella_card_container"):
+            return
+        self._syncing_selection = True
+        try:
+            self.lamella_card_container.select_lamella(lamella.name)
+            if hasattr(self, "minimap_widget"):
+                self.minimap_widget.lamella_list.select(lamella.name)
+        finally:
+            self._syncing_selection = False
+
+    def _on_minimap_lamella_selected(self, lamella):
+        """Sync experiment list and card container when minimap list selection changes."""
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
 
     def _save_workflow_config(self, *_args):
         """Persist the current task list to the experiment protocol after any task change."""
@@ -1527,6 +1567,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.minimap_widget.setMinimumWidth(500)
         self.minimap_widget._acquisition_finished.connect(self._on_tile_acquisition_finished)
+        self.minimap_widget.lamella_list.lamella_selected.connect(
+            self._on_minimap_lamella_selected
+        )
 
         # Layout: napari viewer (left) | minimap controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
