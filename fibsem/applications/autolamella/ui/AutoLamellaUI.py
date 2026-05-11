@@ -1400,12 +1400,11 @@ class AutoLamellaUI(QMainWindow):
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
 
         # set objective position (show as mm)
-        obj_controls_enabled = lamella.objective_position is not None
+        obj_pos = lamella.fluorescence_pose.objective_position if lamella.fluorescence_pose is not None else None
+        obj_controls_enabled = obj_pos is not None
         if obj_controls_enabled:
             self.doubleSpinBox_lamella_objective_position.blockSignals(True)
-            self.doubleSpinBox_lamella_objective_position.setValue(
-                lamella.objective_position * 1e3
-            )
+            self.doubleSpinBox_lamella_objective_position.setValue(obj_pos * 1e3)
             self.doubleSpinBox_lamella_objective_position.blockSignals(False)
         self.label_lamella_objective_position.setVisible(obj_controls_enabled)
         self.doubleSpinBox_lamella_objective_position.setVisible(obj_controls_enabled)
@@ -1550,10 +1549,10 @@ class AutoLamellaUI(QMainWindow):
             )
             fluorescence_pose = deepcopy(microscope_state)
             fluorescence_pose.stage_position = fluorescence_stage_position
-            lamella.fluorescence_pose = fluorescence_pose
             if objective_position is None:
                 objective_position = self.microscope.fm.objective.focus_position
-            lamella.objective_position = objective_position
+            fluorescence_pose.objective_position = objective_position
+            lamella.fluorescence_pose = fluorescence_pose
 
         self.experiment.save()
         self.update_lamella_combobox(latest=True)
@@ -1776,8 +1775,10 @@ class AutoLamellaUI(QMainWindow):
             return
 
         lamella = self.experiment.positions[idx]
+        if lamella.fluorescence_pose is None:
+            return
         # convert from mm to m
-        lamella.objective_position = value * 1e-3
+        lamella.fluorescence_pose.objective_position = value * 1e-3
         self.experiment.save()
 
     def get_selected_lamella(self) -> Optional[Lamella]:
