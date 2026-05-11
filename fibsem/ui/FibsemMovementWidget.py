@@ -1,19 +1,16 @@
 
 import logging
-import os
-from copy import deepcopy
-from typing import List, Optional
+from typing import Optional
 
 import napari
 import numpy as np
-import yaml
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
 from fibsem.ui import notification_service
-from fibsem import constants, conversions, utils
+from fibsem import constants, conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -23,28 +20,17 @@ from fibsem.structures import (
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.napari.utilities import update_text_overlay
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
     DISABLED_PUSHBUTTON_STYLE,
-    GRAY_PUSHBUTTON_STYLE,
-    GREEN_PUSHBUTTON_STYLE,
     LABEL_INSTRUCTIONS_STYLE,
-    ORANGE_PUSHBUTTON_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
-    RED_PUSHBUTTON_STYLE,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.utils import (
-    WheelBlocker,
-    message_box_ui,
-    open_existing_file_dialog,
-    open_save_file_dialog,
-)
+from fibsem.ui.utils import WheelBlocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
 class FibsemMovementWidget(QtWidgets.QWidget):
-    saved_positions_updated_signal = QtCore.pyqtSignal(object)
     movement_progress_signal = QtCore.pyqtSignal(dict)
 
     def __init__(
@@ -64,9 +50,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.microscope = microscope
         self.viewer = parent.viewer
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
-        self.positions: List[FibsemStagePosition] = []
-
-        self.import_positions(cfg.POSITION_PATH)
         self.setup_connections()
 
     def _setup_ui(self):
@@ -155,51 +138,16 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # Options panel removed — movement acquisition prefs are now in Edit > Preferences
 
         # --- Panel: Saved Positions ---
-        saved_content = QtWidgets.QWidget()
-        self.gridLayout_5 = QtWidgets.QGridLayout(saved_content)
-        self.gridLayout_5.setContentsMargins(0, 0, 0, 0)
-
-        self.label_positions_header_info = QtWidgets.QLabel("All positions in mm and degrees")
-        self.gridLayout_5.addWidget(self.label_positions_header_info, 0, 0, 1, 2)
-
-        self.pushButton_save_position = QtWidgets.QPushButton("Add Position")
-        self.pushButton_remove_position = QtWidgets.QPushButton("Remove Position")
-        self.gridLayout_5.addWidget(self.pushButton_save_position, 1, 0)
-        self.gridLayout_5.addWidget(self.pushButton_remove_position, 1, 1)
-
-        self.label_saved_positions = QtWidgets.QLabel("Saved Positions")
-        self.comboBox_positions = QtWidgets.QComboBox()
-        self.gridLayout_5.addWidget(self.label_saved_positions, 2, 0)
-        self.gridLayout_5.addWidget(self.comboBox_positions, 2, 1)
-
-        self.pushButton_go_to = QtWidgets.QPushButton("Go To Position")
-        self.label_current_position = QtWidgets.QLabel("")
-        self.gridLayout_5.addWidget(self.pushButton_go_to, 3, 0)
-        self.gridLayout_5.addWidget(self.label_current_position, 3, 1)
-
-        self.pushButton_update_position = QtWidgets.QPushButton("Update Position")
-        self.lineEdit_position_name = QtWidgets.QLineEdit()
-        self.lineEdit_position_name.setSizePolicy(
-            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
-        )
-        self.gridLayout_5.addWidget(self.pushButton_update_position, 4, 0)
-        self.gridLayout_5.addWidget(self.lineEdit_position_name, 4, 1)
-
-        self.pushButton_import = QtWidgets.QPushButton("Import Positions")
-        self.pushButton_export = QtWidgets.QPushButton("Export Positions")
-        self.gridLayout_5.addWidget(self.pushButton_import, 5, 0)
-        self.gridLayout_5.addWidget(self.pushButton_export, 5, 1)
-
-        self.saved_positions_panel = TitledPanel("Saved Positions", content=saved_content, collapsible=False)
+        from fibsem.ui.widgets.saved_position_widget import SavedPositionListWidget
+        self.saved_positions_widget = SavedPositionListWidget(microscope=None)
+        self.saved_positions_panel = TitledPanel("Saved Positions", content=self.saved_positions_widget, collapsible=True)
         self.gridLayout_2.addWidget(self.saved_positions_panel, 2, 0)
-        self.saved_positions_panel.setVisible(False)
 
         self._move_buttons = [
             self.pushButton_move,
             self.pushButton_move_to_fib_orientation,
             self.pushButton_move_to_sem_orientation,
             self.pushButton_move_to_milling_angle,
-            self.pushButton_go_to,
         ]
 
         # Bottom spacer
@@ -229,18 +177,14 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.label_movement_instructions.setStyleSheet(LABEL_INSTRUCTIONS_STYLE)
 
         # saved positions
-        self.comboBox_positions.currentIndexChanged.connect(self.current_selected_position_changed)
-        self.pushButton_save_position.clicked.connect(self.add_position)
-        self.pushButton_remove_position.clicked.connect(self.delete_position)
-        self.pushButton_go_to.clicked.connect(self.move_to_selected_saved_position)
-        self.pushButton_update_position.clicked.connect(self.update_saved_position)
-        self.pushButton_export.clicked.connect(self.export_positions)
-        self.pushButton_import.clicked.connect(self.import_positions)
+        self.saved_positions_widget.microscope = self.microscope
+        self.saved_positions_widget._header.btn_add.setEnabled(True)
+        self.saved_positions_widget._load_default_positions()
+        self.saved_positions_widget.move_to_requested.connect(self.move_to_position)
 
         # signals
         self.movement_progress_signal.connect(self.handle_movement_progress_update)
         self.image_widget.acquisition_progress_signal.connect(self.handle_acquisition_update)
-        self.saved_positions_updated_signal.connect(self.update_saved_positions_ui)
 
         stage_limits = self.microscope._stage.limits
         xlimits = stage_limits['x']
@@ -275,12 +219,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_fib_orientation.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_move_to_sem_orientation.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_save_position.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_remove_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
-        self.pushButton_go_to.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_export.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_import.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        self.pushButton_update_position.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
 
         # display orientation values on tooltips
         self.pushButton_move_to_sem_orientation.setText("Move to SEM Orientation")
@@ -360,17 +298,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_z.setValue(stage_position.z * constants.SI_TO_MILLI)
         self.doubleSpinBox_movement_stage_rotation.setValue(np.degrees(stage_position.r))
         self.doubleSpinBox_movement_stage_tilt.setValue(np.degrees(stage_position.t))
-
-        has_saved_positions = bool(len(self.positions))
-        self.pushButton_remove_position.setEnabled(has_saved_positions)
-        self.pushButton_go_to.setVisible(has_saved_positions)
-        self.pushButton_update_position.setVisible(has_saved_positions)
-        self.pushButton_export.setVisible(has_saved_positions)
-        self.comboBox_positions.setVisible(has_saved_positions)
-        self.pushButton_import.setVisible(has_saved_positions)
-        self.label_saved_positions.setVisible(has_saved_positions)
-        self.label_current_position.setVisible(has_saved_positions)
-        self.lineEdit_position_name.setVisible(has_saved_positions)
 
         # update the current position label
         update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
@@ -547,104 +474,3 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.microscope.move_to_orientation(orientation)
         self.update_ui_after_movement()
 
-#### SAVED POSITIONS
-
-    def current_selected_position_changed(self):
-        """Callback for when the selected position is changed"""
-        current_index = self.comboBox_positions.currentIndex()
-        if current_index == -1:
-            return
-        position = self.positions[current_index]
-        self.label_current_position.setText(position.pretty_string)
-        self.lineEdit_position_name.setText(position.name)
-
-    def add_position(self) -> None:
-        """Add the current stage position to the saved positions"""
-
-        position = self.microscope.get_stage_position()
-        position.name = f"Position {len(self.positions):02d}"
-        self.positions.append(deepcopy(position))
-        self.saved_positions_updated_signal.emit(self.positions)
-        logging.info(f"Added position {position.name}")
-
-    def delete_position(self):
-        """Delete the currently selected position"""
-        current_index = self.comboBox_positions.currentIndex()
-        position = self.positions.pop(current_index)
-        self.saved_positions_updated_signal.emit(self.positions)
-        logging.info(f"Removed position {position.name}")
-
-    def update_saved_positions_ui(self, positions: List[FibsemStagePosition]) -> None:
-        """Update the positions in the widget"""
-
-        self.comboBox_positions.clear()
-        for position in positions:
-            self.comboBox_positions.addItem(position.name)
-
-        # set index to the last position
-        self.comboBox_positions.setCurrentIndex(len(positions) - 1)
-        self.lineEdit_position_name.setText(positions[-1].name)
-        self.update_ui()
-
-    def update_saved_position(self):
-        """Update the currently selected saved position to the current stage position"""
-        current_index = self.comboBox_positions.currentIndex()
-        if current_index == -1:
-            notification_service.show_toast("Please select a position to update", "warning")
-            return
-
-        position: FibsemStagePosition = self.microscope.get_stage_position()
-        position.name = self.lineEdit_position_name.text()
-        if position.name == "":
-            notification_service.show_toast("Please enter a name for the position", "warning")
-            return
-
-        # TODO: add dialog confirmation
-        self.positions[current_index] = deepcopy(position)
-
-        logging.info(f"Updated position {position}")
-        self.saved_positions_updated_signal.emit(self.positions) # redraw combobox, TODO: need to re-select the current index
-
-    def move_to_selected_saved_position(self) -> None: 
-        """Move the stage to the selected saved position"""
-        current_index = self.comboBox_positions.currentIndex()
-        stage_position = self.positions[current_index]
-        self.move_to_position(stage_position)
-
-    def export_positions(self):
-
-        path = open_save_file_dialog(msg="Select or create file", 
-            path=cfg.POSITION_PATH, 
-            _filter="YAML Files (*.yaml)")
-
-        if path == '':
-            notification_service.show_toast("No file selected, positions not saved")
-            return
-
-        response = message_box_ui(text="Do you want to overwrite the file ? Click no to append the new positions to the existing file.", 
-            title="Overwrite ?", buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-
-        # save positions
-        utils.save_positions(self.positions, path, overwrite=response)
-
-        logging.info(f"Positions saved to {path}")
-
-    def import_positions(self, path: Optional[str] = None):
-        """Import saved positions from a file"""
-        
-        if path is None:
-            path = open_existing_file_dialog(msg="Select a positions file", path=cfg.POSITION_PATH, _filter="YAML Files (*.yaml)")
-        
-        if path == "":
-            notification_service.show_toast("No file selected, positions not loaded")
-            return
-
-        def load_saved_positions_from_yaml(path: Optional[str] = None) -> List[FibsemStagePosition]:
-            if path is None or not os.path.exists(path):
-                return []
-            with open(path, "r") as f:
-                ddict = yaml.safe_load(f)
-            return [FibsemStagePosition.from_dict(pdict) for pdict in ddict]
-
-        self.positions = load_saved_positions_from_yaml(path)
-        self.saved_positions_updated_signal.emit(self.positions)
