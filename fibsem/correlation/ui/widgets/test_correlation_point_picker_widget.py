@@ -7,6 +7,8 @@ Usage
 -----
     python fibsem/correlation/ui/widgets/test_correlation_point_picker_widget.py
 """
+from __future__ import annotations
+
 import os
 import sys
 

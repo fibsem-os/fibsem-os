@@ -4,6 +4,7 @@ This module provides focus measure algorithms used in focus stacking and autofoc
 applications. Different algorithms are suitable for different types of samples
 and imaging conditions.
 """
+from __future__ import annotations
 
 import logging
 import threading

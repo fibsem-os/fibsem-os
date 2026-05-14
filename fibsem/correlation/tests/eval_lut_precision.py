@@ -1,4 +1,5 @@
 """Compare full-precision vs 2dp LUT: file size, load time, interpolation accuracy."""
+from __future__ import annotations
 
 import time
 import os
