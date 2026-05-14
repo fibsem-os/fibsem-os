@@ -6,6 +6,8 @@ Usage
 -----
     python fibsem/correlation/ui/widgets/test_fm_image_display_widget.py
 """
+from __future__ import annotations
+
 import os
 import sys
 

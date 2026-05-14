@@ -10,6 +10,7 @@ Usage::
 
 The ticker resizes itself to always match the parent's width.
 """
+from __future__ import annotations
 
 import math
 from typing import Optional

@@ -8,6 +8,8 @@ Usage
 -----
     python fibsem/correlation/ui/widgets/test_image_point_canvas.py
 """
+from __future__ import annotations
+
 import sys
 
 import numpy as np

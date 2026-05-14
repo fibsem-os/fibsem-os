@@ -6,6 +6,8 @@ Usage
 -----
     python fibsem/correlation/test_correlation_v2.py
 """
+from __future__ import annotations
+
 import os
 import pandas as pd
 
