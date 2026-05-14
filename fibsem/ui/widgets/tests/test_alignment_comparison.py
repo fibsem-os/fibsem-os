@@ -16,6 +16,7 @@ Outputs:
     - /tmp/alignment_comparison.png  — debug plot (v2 layout)
     - /tmp/alignment_comparison_agreement.png — agreement scatter plot
 """
+from __future__ import annotations
 
 import argparse
 import os
