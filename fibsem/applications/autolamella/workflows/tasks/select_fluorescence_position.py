@@ -30,7 +30,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
         if self.microscope.fm is None:
             raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
-        if self.lamella.objective_position is None:
+        if self.lamella.fluorescence_pose is None or self.lamella.fluorescence_pose.objective_position is None:
             raise ValueError(f"Objective position for {self.lamella.name} is not set. Please set the objective position before acquiring fluorescence images.")
         if self.lamella.stage_position is None:
             raise ValueError(f"Stage position for {self.lamella.name} is not set. Please set the stage position before acquiring fluorescence images.")
@@ -58,7 +58,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
         if not self.microscope.fm.objective.state == "Inserted":
             logging.info("Objective is not inserted. Inserting the objective before acquiring fluorescence images.")
             self.microscope.fm.objective.insert()
-        self.microscope.fm.objective.move_absolute(self.lamella.objective_position)
+        self.microscope.fm.objective.move_absolute(self.lamella.fluorescence_pose.objective_position)
 
         # Acquire image
         self.log_status_message("ACQUIRE_FLUORESCENCE_IMAGE", "Acquiring Fluorescence Image...")
@@ -74,5 +74,5 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
         # store the fluorescence pose
         self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
-        self.lamella.objective_position = self.microscope.fm.objective.position
+        self.lamella.fluorescence_pose.objective_position = self.microscope.fm.objective.position
 

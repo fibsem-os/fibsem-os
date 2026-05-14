@@ -302,6 +302,17 @@ class LamellaCardContainer(QWidget):
             card.deleteLater()
         self._cards.clear()
 
+    def select_lamella(self, name: str) -> None:
+        """Programmatically select the card matching name. Does NOT emit lamella_selected."""
+        if self._selected_id and self._selected_id in self._cards:
+            self._cards[self._selected_id].set_selected(False)
+        for lid, card in self._cards.items():
+            if card.lamella.name == name:
+                self._selected_id = lid
+                card.set_selected(True)
+                return
+        self._selected_id = None
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

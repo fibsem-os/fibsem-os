@@ -1,4 +1,6 @@
 """Test script for SVG spinner icons using superqt's QIconifyIcon + QTimer rotation."""
+from __future__ import annotations
+
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
