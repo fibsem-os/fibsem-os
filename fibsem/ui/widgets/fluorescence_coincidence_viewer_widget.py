@@ -874,13 +874,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self.btn_pause_acquisition.setVisible(False)
 
-        self._btn_test_border = QPushButton("Border")
-        self._btn_test_border.setToolTip("Cycle border state (dev only)")
-        self._btn_test_border.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self._btn_test_border.setFixedWidth(60)
-        self._btn_test_border.clicked.connect(self._cycle_border_state)
-        layout.addWidget(self._btn_test_border)
-
         layout.addWidget(self.label_threshold_chip)
         layout.addWidget(self.progressBar_stages)
         layout.addWidget(self.progressBar_stage)
@@ -1626,16 +1619,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             style.unpolish(self._border_frame)
             style.polish(self._border_frame)
         self._border_frame.update()
-
-    def _cycle_border_state(self) -> None:
-        """Cycle through border states (dev / test helper)."""
-        idx = (
-            self._BORDER_STATES.index(self._border_state)
-            if self._border_state in self._BORDER_STATES
-            else 0
-        )
-        next_state = self._BORDER_STATES[(idx + 1) % len(self._BORDER_STATES)]
-        self._set_border_state(next_state)
 
     def _set_selected_view(self, index: int) -> None:
         """Set the active canvas (0 = FM, 1 = FIB) and update border highlights."""
