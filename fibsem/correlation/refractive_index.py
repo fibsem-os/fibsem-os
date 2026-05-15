@@ -25,6 +25,8 @@ Usage::
 
 from __future__ import annotations
 
+import logging
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -33,7 +35,22 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
 
-_LUT_PATH = Path(__file__).parent / "scaling_factor_lookup_table.csv"
+_LUT_FILENAME = "table_refractive_index_lookup.csv"
+_LUT_PATH = Path(__file__).parent / "data" / _LUT_FILENAME
+_LUT_URL = (
+    "https://github.com/fibsem-os/fibsem-os/releases/download/data-0.1.0/"
+    + _LUT_FILENAME
+)
+
+
+def _ensure_lut() -> None:
+    """Download the LUT CSV from the data release if not present locally."""
+    if _LUT_PATH.exists():
+        return
+    logging.info(f"Lookup table not found — downloading from {_LUT_URL}")
+    _LUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(_LUT_URL, _LUT_PATH)
+    logging.info(f"Lookup table saved to {_LUT_PATH}")
 
 
 @dataclass
@@ -58,6 +75,8 @@ class SliceScalingFactorLUT:
     """
 
     def __init__(self, csv_path: Path = _LUT_PATH) -> None:
+        if csv_path == _LUT_PATH:
+            _ensure_lut()
         lut = pd.read_csv(csv_path)
 
         # Sort in the order that defines the tensor axes

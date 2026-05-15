@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, lookup_zeta
+from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, _ensure_lut, lookup_zeta
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 
 _LUT_MISSING_MSG = (
@@ -57,6 +57,11 @@ class RefractiveIndexWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._zeta: Optional[float] = None
+        try:
+            _ensure_lut()
+        except Exception as e:
+            import logging
+            logging.warning(f"Failed to download refractive index LUT: {e}")
         self._setup_ui()
         self._connect_signals()
         self._recompute()

@@ -586,6 +586,7 @@ class _RITab(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._poi: List[CorrelationPointOfInterest] = []
+        self._surface_coordinate: Optional[Coordinate] = None
         self._surface_y: Optional[float] = None
         self._result: Optional[CorrelationResult] = None
         self._setup_ui()
@@ -649,6 +650,7 @@ class _RITab(QWidget):
     ) -> None:
         self._result = result
         self._poi = result.poi if result else []
+        self._surface_coordinate = surface_coordinate
         self._surface_y = surface_coordinate.point.y if surface_coordinate else None
 
         logging.debug(
@@ -691,7 +693,7 @@ class _RITab(QWidget):
         if not self._poi:
             self._lbl_warning.setText("No POI available.")
             return
-        if self._surface_y is None:
+        if self._surface_y is None or self._surface_coordinate is None:
             self._lbl_warning.setText(
                 "No surface coordinate — cannot apply correction."
             )
@@ -721,6 +723,9 @@ class _RITab(QWidget):
         if self._result is None:
             logging.warning("[RITab._apply] No result to update with correction.")
             return
+
+        # apply surface_y to the result for internal consistency (in case it wasn't set before)
+        self._result.input_data.surface_coordinate = self._surface_coordinate # type: ignore
 
         # Update POI 0 in the result and propagate (reads input_data internally)
         self._result.apply_refractive_index_correction(factor)
