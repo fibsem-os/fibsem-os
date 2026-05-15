@@ -289,6 +289,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_print_hello = QAction("Print Hello", self)
         self.action_print_hello.triggered.connect(lambda: print("Hello"))
         dev_menu.addAction(self.action_print_hello)
+
+        self._action_coincidence_separator = dev_menu.addSeparator()
+        self.action_open_coincidence_viewer = QAction(
+            "Open Coincidence Milling Viewer", self
+        )
+        self.action_open_coincidence_viewer.triggered.connect(
+            self._open_coincidence_milling_viewer
+        )
+        dev_menu.addAction(self.action_open_coincidence_viewer)
+
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
 
@@ -450,13 +460,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Toggle dev/test menu visibility
         self._dev_menu.menuAction().setVisible(d.dev_mode)
         self._test_menu.menuAction().setVisible(d.dev_mode)
+        # Toggle coincidence milling viewer action
+        coincidence_enabled = self._preferences.features.coincidence_milling_enabled
+        self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
+        self._action_coincidence_separator.setVisible(coincidence_enabled)
 
     def show_toast(
-        self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False
+        self,
+        message: str,
+        notification_type: str = "info",
+        duration: int = 5000,
+        temporary: bool = False,
     ):
         """Show a toast notification."""
         if self._toasts_enabled:
-            self.toast_manager.show_toast(message, notification_type, duration, temporary=temporary)
+            self.toast_manager.show_toast(
+                message, notification_type, duration, temporary=temporary
+            )
         elif self.toast_manager.notification_bell and not temporary:
             # Still log to notification bell even when toasts are disabled
             self.toast_manager.notification_bell.add_notification(
@@ -532,6 +552,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Save the current fluorescence microscope configuration."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.save_fm_configuration()
+
+    def _open_coincidence_milling_viewer(self):
+        """Open the Coincidence Milling Viewer dialog."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui._open_coincidence_milling_viewer()
 
     def _create_status_bar(self):
         """Create the status bar."""
@@ -687,13 +712,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
         self._set_minimap_workflow_enabled(True)
-
-    def _set_minimap_workflow_enabled(self, enabled: bool):
-        """Enable/disable minimap acquisition and load-image buttons during workflow."""
-        if not hasattr(self, 'minimap_widget'):
-            return
-        self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
-        self.minimap_widget.pushButton_load_image.setEnabled(enabled)
 
     def _set_minimap_workflow_enabled(self, enabled: bool):
         """Enable/disable minimap acquisition and load-image buttons during workflow."""
@@ -883,11 +901,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if error is not None:
             if cancelled:
-                self.show_toast(f"Tile acquisition cancelled. {tile_info} collected.", "warning")
+                self.show_toast(
+                    f"Tile acquisition cancelled. {tile_info} collected.", "warning"
+                )
             else:
-                self.show_toast(f"Tile acquisition failed. {tile_info} collected. {error}", "error")
+                self.show_toast(
+                    f"Tile acquisition failed. {tile_info} collected. {error}", "error"
+                )
         else:
-            self.show_toast(f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success")
+            self.show_toast(
+                f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success"
+            )
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
@@ -912,9 +936,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
-        self.autolamella_ui.experiment_update_signal.connect(
-            self._on_experiment_update
-        )
+        self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
@@ -1587,13 +1609,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
-    def _on_notification_service(self, message: str, notification_type: str, temporary: bool) -> None:
+    def _on_notification_service(
+        self, message: str, notification_type: str, temporary: bool
+    ) -> None:
         self.show_toast(message, notification_type, temporary=temporary)
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
         try:
-            notification_service._get_service().toast.disconnect(self._on_notification_service)
+            notification_service._get_service().toast.disconnect(
+                self._on_notification_service
+            )
         except RuntimeError:
             pass
         for viewer in self.viewers:

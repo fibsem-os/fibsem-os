@@ -1089,6 +1089,23 @@ class AutoLamellaUI(QMainWindow):
             self.fm_widget, name="FM Minimap", area="right"
         )
 
+    def _open_coincidence_milling_viewer(self):
+        """Open FluorescenceCoincidenceViewerWidget as a standalone dialog."""
+        if self.microscope is None or self.experiment is None:
+            notification_service.show_toast(
+                "Please connect a microscope and load an experiment first.", "warning"
+            )
+            return
+        from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+            open_coincidence_viewer_dialog,
+        )
+
+        self._coincidence_viewer_dialog = open_coincidence_viewer_dialog(
+            microscope=self.microscope,
+            experiment=self.experiment,
+            parent=self,
+        )
+
     #### MINIMAP
 
     def open_minimap_widget(self):
