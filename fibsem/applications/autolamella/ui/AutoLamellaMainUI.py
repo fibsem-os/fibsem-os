@@ -290,16 +290,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_print_hello.triggered.connect(lambda: print("Hello"))
         dev_menu.addAction(self.action_print_hello)
 
-        DEVELOPMENT_COINCIDENCE_MILLING_ENABLED = False
-        if DEVELOPMENT_COINCIDENCE_MILLING_ENABLED:
-            dev_menu.addSeparator()
-            action_open_coincidence_viewer = QAction(
-                "Open Coincidence Milling Viewer", self
-            )
-            action_open_coincidence_viewer.triggered.connect(
-                self._open_coincidence_milling_viewer
-            )
-            dev_menu.addAction(action_open_coincidence_viewer)
+        self._action_coincidence_separator = dev_menu.addSeparator()
+        self.action_open_coincidence_viewer = QAction(
+            "Open Coincidence Milling Viewer", self
+        )
+        self.action_open_coincidence_viewer.triggered.connect(
+            self._open_coincidence_milling_viewer
+        )
+        dev_menu.addAction(self.action_open_coincidence_viewer)
 
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
@@ -462,6 +460,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Toggle dev/test menu visibility
         self._dev_menu.menuAction().setVisible(d.dev_mode)
         self._test_menu.menuAction().setVisible(d.dev_mode)
+        # Toggle coincidence milling viewer action
+        coincidence_enabled = self._preferences.features.coincidence_milling_enabled
+        self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
+        self._action_coincidence_separator.setVisible(coincidence_enabled)
 
     def show_toast(
         self,
