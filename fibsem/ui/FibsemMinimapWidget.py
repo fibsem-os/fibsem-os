@@ -453,8 +453,10 @@ class FibsemMinimapWidget(QWidget):
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
         self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
 
-        # right-click context menu
+        # viewer-level click callbacks
         self.viewer.mouse_drag_callbacks.append(self._on_right_click)
+        self.viewer.mouse_drag_callbacks.append(self.on_single_click)
+        self.viewer.mouse_double_click_callbacks.append(self.on_double_click)
 
         self._update_position_display()
         self.toggle_interaction(enable=True)
@@ -764,10 +766,6 @@ class FibsemMinimapWidget(QWidget):
                 notification_service.show_toast("Error adding image layer to viewer.", "error")
                 return
 
-            self.image_layer.mouse_drag_callbacks.clear()
-            self.image_layer.mouse_double_click_callbacks.clear()
-            self.image_layer.mouse_drag_callbacks.append(self.on_single_click) # TODO: migrate to use viewer.events, rather than image layer
-            self.image_layer.mouse_double_click_callbacks.append(self.on_double_click)
             self.viewer.reset_view()
 
             # NOTE: how to do respace scaling, convert to infinite canvas
@@ -810,69 +808,22 @@ class FibsemMinimapWidget(QWidget):
 
         return coords, point
 
-    def on_single_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
-        """Callback for single click on the image layer.
-        Supports adding and updating positions with Shift and Alt modifiers.
-        No modifier: checks closest experiment position.
-        Args:
-            layer: The image layer.
-            event: The event object.
-        """
-
-        update_position: bool = "Shift" in event.modifiers
-        add_new_position: bool = "Alt" in event.modifiers
-        no_modifier: bool = len(event.modifiers) == 0
-
-        # left click only
+    def on_single_click(self, viewer, event: NapariEvent) -> None:
+        """Callback for single click on the viewer. Selects the nearest experiment position."""
         if event.button != 1:
             return
-
-        coords, point = self.get_coordinate_in_microscope_coordinates(layer, event)
-
-        if point is False: # clicked outside image
+        if self.image_layer is None or self.image_layer not in self.viewer.layers:
             return
-
+        coords, point = self.get_coordinate_in_microscope_coordinates(self.image_layer, event)
+        if point is False:
+            return
         if self.image is None or self.image.metadata is None:
             return
-
-        # get the stage position (xyzrt) based on the clicked point and projection
         stage_position = self.microscope.project_stable_move(
-                    dx=point.x, dy=point.y,
-                    beam_type=self.image.metadata.image_settings.beam_type,
-                    base_position=self.image.metadata.stage_position)
-
-        # no modifier: check closest position
-        if no_modifier:
-            self.check_closest_experiment_position(stage_position)
-            return
-
-        # handle case where multiple modifiers are pressed
-        if update_position and add_new_position:
-            notification_service.show_toast("Please select either Shift or Alt modifier, not both.", "warning")
-            return
-
-        if self.parent_widget is None or self.parent_widget.experiment is None:
-            return # prevent editing positions directly if not using autolamella
-
-        # check if position is within stage limits
-        if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
-            notification_service.show_toast("Position is outside stage limits. Please select a position within the stage limits.", "warning")
-            return
-
-        if update_position:
-            idx = self.lamella_list.selected_index
-            if idx == -1:
-                logging.debug("No position selected to update.")
-                return
-            self.parent_widget.experiment.positions[idx].stage_position = stage_position # not evented, so need to manually update
-            self.parent_widget.experiment.save()
-            self._update_position_display()
-        elif add_new_position:
-            self.parent_widget.add_new_lamella(stage_position)
-            # NOTE: PY_38 doesnt support callback for experiment.events required to refresh the display, so we
-            # are hacking it here, by force calling the update display
-            if sys.version_info < (3, 9):
-                self._update_position_display()
+            dx=point.x, dy=point.y,
+            beam_type=self.image.metadata.image_settings.beam_type,
+            base_position=self.image.metadata.stage_position)
+        self.check_closest_experiment_position(stage_position)
 
     def check_closest_experiment_position(self, clicked_position: FibsemStagePosition) -> None:
         """Check and print distances to all experiment positions, highlighting the closest one.
@@ -903,22 +854,19 @@ class FibsemMinimapWidget(QWidget):
             self.lamella_list.select(closest_name)
             return
 
-    def on_double_click(self, layer: NapariImageLayer, event: NapariEvent) -> None:
-        """Callback for double click on the image layer.
-        Moves the stage to the clicked position.
-        Args:
-            layer: The image layer.
-            event: The event object.
-        """
-
+    def on_double_click(self, viewer, event: NapariEvent) -> None:
+        """Callback for double click on the viewer. Moves the stage to the clicked position."""
         if self.parent_widget.is_workflow_running:
             notification_service.show_toast("Cannot move stage while workflow is running.", "warning")
             return
 
-        if event.button != 1: # left click only
+        if event.button != 1:
             return
 
-        coords, point = self.get_coordinate_in_microscope_coordinates(layer, event)
+        if self.image_layer is None or self.image_layer not in self.viewer.layers:
+            return
+
+        coords, point = self.get_coordinate_in_microscope_coordinates(self.image_layer, event)
 
         if point is False: # clicked outside image
             return
