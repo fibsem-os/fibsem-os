@@ -1643,10 +1643,15 @@ class ThermoMicroscope(FibsemMicroscope):
         self.milling_channel: BeamType = BeamType.ION
 
         try:
-            from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope
-            self.fm = ThermoFisherFluorescenceMicroscope(self, self.connection)
-            self.fm.set_active_channel() # this will fail if no fm available
-            logging.info("Thermo Fisher Fluorescence Microscope initialized successfully.")
+            if not self.stage_is_compustage:
+                logging.warning("Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available.")
+                self.fm = None
+                self.set_channel(BeamType.ELECTRON)
+            else:
+                from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope
+                self.fm = ThermoFisherFluorescenceMicroscope(self, self.connection)
+                self.fm.set_active_channel() # this will fail if no fm available
+                logging.info("Thermo Fisher Fluorescence Microscope initialized successfully.")
         except Exception as e:
             logging.error(f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}")
             self.fm = None
