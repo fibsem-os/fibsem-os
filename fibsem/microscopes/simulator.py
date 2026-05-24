@@ -251,7 +251,11 @@ class DemoMicroscope(FibsemMicroscope):
             logging.error("Failed to set up sim image iterators: %s", str(e))
             
         # fluorescence microscope
-        self.fm = FluorescenceMicroscope(self)
+        if self.stage_is_compustage:
+            self.fm = FluorescenceMicroscope(self)
+        else:
+            logging.warning("Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available.")
+            self.fm = None
 
         # user, experiment metadata
         # TODO: remove once db integrated
