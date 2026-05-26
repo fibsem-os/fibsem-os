@@ -1,7 +1,7 @@
 import copy
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QGridLayout, QWidget
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
 )
@@ -13,6 +13,8 @@ from fibsem.ui.fm.widgets import (
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
 
@@ -22,7 +24,7 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
     settings_changed = pyqtSignal(AcquireFluorescenceImageConfig)
 
     def __init__(self, 
-                 microscope,
+                 microscope: 'FibsemMicroscope',
                  config: Optional[AcquireFluorescenceImageConfig] = None,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
