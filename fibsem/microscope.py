@@ -160,6 +160,42 @@ class FibsemMicroscope(ABC):
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
 
+    # MCAP telemetry logger — attached via attach_logger()
+    _logger: Optional["FibsemMCAPLogger"] = None
+
+    def attach_logger(self, logger: "FibsemMCAPLogger") -> None:
+        """Attach an MCAP logger. The microscope will automatically record
+        stage position, beam settings, detector settings, images, and state."""
+        from fibsem.mcap_logger import FibsemMCAPLogger
+        if not isinstance(logger, FibsemMCAPLogger):
+            raise TypeError(f"Expected FibsemMCAPLogger, got {type(logger)}")
+        self._logger = logger
+        # Patch acquire_image on this instance so images are logged automatically.
+        import functools
+        original = self.acquire_image
+        @functools.wraps(original)
+        def _acquire_image_logging(*args, **kwargs):
+            image = original(*args, **kwargs)
+            if image is not None and self._logger is not None:
+                try:
+                    self._logger.log_image(image)
+                except Exception as exc:
+                    logging.debug("MCAP logger failed to log image: %s", exc)
+            return image
+        self._acquire_image_logging = _acquire_image_logging
+        self.acquire_image = _acquire_image_logging
+
+    def detach_logger(self) -> None:
+        """Remove the attached MCAP logger and restore the original acquire_image."""
+        self._logger = None
+        if hasattr(self, "_acquire_image_logging"):
+            # Restore the class-level method by deleting the instance override.
+            try:
+                del self.__dict__["acquire_image"]
+            except KeyError:
+                pass
+            del self._acquire_image_logging
+
     @abstractmethod
     def connect_to_microscope(self, ip_address: str, port: int, reset_beam_shift: bool = True) -> None:
         pass
@@ -261,6 +297,12 @@ class FibsemMicroscope(ABC):
         if not self._stage_position.is_close2(stage_position, tol=1e-6):
             self._stage_position = deepcopy(stage_position)
             self.stage_position_changed.emit(self._stage_position)
+
+        if self._logger is not None:
+            try:
+                self._logger.log_stage_position(stage_position)
+            except Exception as exc:
+                logging.debug("MCAP logger failed to log stage position: %s", exc)
 
         return deepcopy(stage_position)
 
@@ -672,6 +714,12 @@ class FibsemMicroscope(ABC):
         self.set("preset", beam_settings.preset, beam_settings.beam_type)
 
         logging.debug({"msg": "set_beam_settings", "beam_settings": beam_settings.to_dict(), "beam_type": beam_settings.beam_type.name})
+
+        if self._logger is not None:
+            try:
+                self._logger.log_beam_settings(beam_settings)
+            except Exception as exc:
+                logging.debug("MCAP logger failed to log beam settings: %s", exc)
         return
 
     def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
@@ -733,6 +781,11 @@ class FibsemMicroscope(ABC):
         self.set_detector_contrast(detector_settings.contrast, beam_type)
         logging.debug({"msg": "set_detector_settings", "detector_settings": detector_settings.to_dict(), "beam_type": beam_type.name})
 
+        if self._logger is not None:
+            try:
+                self._logger.log_detector_settings(detector_settings, beam_type)
+            except Exception as exc:
+                logging.debug("MCAP logger failed to log detector settings: %s", exc)
         return
 
     def get_microscope_state(self, beam_type: Optional[BeamType] = None) -> MicroscopeState:
@@ -769,6 +822,12 @@ class FibsemMicroscope(ABC):
         )
 
         logging.debug({"msg": "get_microscope_state", "state": current_microscope_state.to_dict()})
+
+        if self._logger is not None:
+            try:
+                self._logger.log_microscope_state(current_microscope_state)
+            except Exception as exc:
+                logging.debug("MCAP logger failed to log microscope state: %s", exc)
 
         return deepcopy(current_microscope_state)
 

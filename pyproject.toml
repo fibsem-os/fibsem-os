@@ -66,6 +66,7 @@ reporting = [
 ]
 
 server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0"]
+logging = ["mcap>=1.1.0"]
 
 [project.scripts]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
