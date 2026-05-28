@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -48,9 +49,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread, QIconifyIcon
+from superqt import ensure_main_thread, QDoubleSlider, QIconifyIcon
 
 from fibsem import conversions
+from fibsem.imaging.autogamma import apply_gamma
 from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
@@ -89,6 +91,80 @@ def _fmt_timestamp(ts: float) -> str:
     return f"{h}:{dt.strftime('%M:%S')}{ampm}"
 
 
+_HISTOGRAM_PANEL_STYLE = (
+    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
+    " border-radius: 4px; }"
+    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
+    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
+    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
+    "QPushButton:hover { background: rgba(80,83,90,220); }"
+)
+
+
+def _build_histogram_panel(canvas, on_min, on_max, on_gamma, on_reset):
+    """Create a floating histogram/contrast panel parented to *canvas*.
+
+    Returns (panel, sld_min, lbl_min, sld_max, lbl_max, sld_gamma, lbl_gamma).
+    """
+    panel = QFrame(canvas)
+    panel.setStyleSheet(_HISTOGRAM_PANEL_STYLE)
+    panel.setFixedWidth(240)
+
+    outer = QVBoxLayout(panel)
+    outer.setContentsMargins(8, 6, 8, 6)
+    outer.setSpacing(4)
+
+    title = QLabel("Contrast / Gamma")
+    title.setStyleSheet(
+        "color: #aaa; font-size: 10px; font-weight: bold;"
+        " background: transparent; border: none;"
+    )
+    outer.addWidget(title)
+
+    form = QFormLayout()
+    form.setContentsMargins(0, 0, 0, 0)
+    form.setSpacing(3)
+    form.setLabelAlignment(Qt.AlignRight)  # type: ignore[attr-defined]
+
+    def _make_row(lo, hi, default, step):
+        slider = QDoubleSlider(Qt.Horizontal)  # type: ignore[attr-defined]
+        slider.setRange(lo, hi)
+        slider.setSingleStep(step)
+        slider.setValue(default)
+        lbl = QLabel(f"{default:.2f}")
+        lbl.setFixedWidth(32)
+        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore[attr-defined]
+        row = QWidget()
+        row.setStyleSheet("background: transparent; border: none;")
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(4)
+        rl.addWidget(slider)
+        rl.addWidget(lbl)
+        return slider, lbl, row
+
+    sld_min, lbl_min, row_min = _make_row(0.0, 1.0, 0.0, 0.01)
+    sld_max, lbl_max, row_max = _make_row(0.0, 1.0, 1.0, 0.01)
+    sld_gamma, lbl_gamma, row_gamma = _make_row(0.1, 3.0, 1.0, 0.05)
+
+    form.addRow(QLabel("Min"), row_min)
+    form.addRow(QLabel("Max"), row_max)
+    form.addRow(QLabel("Gamma"), row_gamma)
+    outer.addLayout(form)
+
+    btn_reset = QPushButton("Reset")
+    btn_reset.clicked.connect(on_reset)
+    outer.addWidget(btn_reset, alignment=Qt.AlignRight)  # type: ignore[attr-defined]
+
+    sld_min.valueChanged.connect(on_min)
+    sld_max.valueChanged.connect(on_max)
+    sld_gamma.valueChanged.connect(on_gamma)
+
+    panel.setVisible(False)
+    panel.adjustSize()
+    return panel, sld_min, lbl_min, sld_max, lbl_max, sld_gamma, lbl_gamma
+
+
 # ---------------------------------------------------------------------------
 # FIB quadrant — FibsemImageCanvas + yellow drag-only RectOverlay
 # ---------------------------------------------------------------------------
@@ -99,6 +175,10 @@ class _FibImageCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._contrast_min: float = 0.0
+        self._contrast_max: float = 1.0
+        self._gamma: float = 1.0
+        self._raw_frame: Optional[np.ndarray] = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -123,8 +203,103 @@ class _FibImageCanvas(QWidget):
 
         layout.addWidget(self.canvas)
 
+        self.btn_histogram = self.canvas._add_overlay_button(
+            "mdi:contrast-box", "Histogram Controls", self._toggle_histogram_panel, checkable=True
+        )
+        (
+            self._histogram_panel,
+            self._sld_min, self._lbl_min,
+            self._sld_max, self._lbl_max,
+            self._sld_gamma, self._lbl_gamma,
+        ) = _build_histogram_panel(
+            self.canvas,
+            self._on_min_changed,
+            self._on_max_changed,
+            self._on_gamma_changed,
+            self._reset_histogram_controls,
+        )
+
+    def _on_min_changed(self, val: float) -> None:
+        if val >= self._contrast_max:
+            val = max(0.0, self._contrast_max - 0.01)
+            self._sld_min.setValue(val)
+        self._contrast_min = val
+        self._lbl_min.setText(f"{val:.2f}")
+        self._refresh_display()
+
+    def _on_max_changed(self, val: float) -> None:
+        if val <= self._contrast_min:
+            val = min(1.0, self._contrast_min + 0.01)
+            self._sld_max.setValue(val)
+        self._contrast_max = val
+        self._lbl_max.setText(f"{val:.2f}")
+        self._refresh_display()
+
+    def _on_gamma_changed(self, val: float) -> None:
+        self._gamma = val
+        self._lbl_gamma.setText(f"{val:.2f}")
+        self._refresh_display()
+
+    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
+        fmin, fmax = float(frame.min()), float(frame.max())
+        if fmax > fmin:
+            norm = (frame.astype(np.float32) - fmin) / (fmax - fmin)
+        else:
+            norm = np.zeros_like(frame, dtype=np.float32)
+        lo, hi = self._contrast_min, self._contrast_max
+        norm = np.clip(norm, lo, hi)
+        if hi > lo:
+            norm = (norm - lo) / (hi - lo)
+        if self._gamma != 1.0:
+            norm = apply_gamma(norm, self._gamma)
+        return norm
+
+    def _refresh_display(self) -> None:
+        if self._raw_frame is not None:
+            processed = self._process_frame(self._raw_frame)
+            self.canvas.update_display(processed)
+            imgs = self.canvas._ax.get_images()
+            if imgs:
+                imgs[0].set_clim(0.0, 1.0)
+            self.canvas.draw_idle()
+
+    def _reset_histogram_controls(self) -> None:
+        self._contrast_min = 0.0
+        self._contrast_max = 1.0
+        self._gamma = 1.0
+        self._sld_min.setValue(0.0)
+        self._sld_max.setValue(1.0)
+        self._sld_gamma.setValue(1.0)
+        self._refresh_display()
+
+    def _toggle_histogram_panel(self) -> None:
+        visible = not self._histogram_panel.isVisible()
+        self._histogram_panel.setVisible(visible)
+        if visible:
+            self._position_histogram_panel()
+            self._histogram_panel.raise_()
+
+    def _position_histogram_panel(self) -> None:
+        btn = self.btn_histogram
+        panel = self._histogram_panel
+        panel.adjustSize()
+        x = self.canvas.width() - panel.width() - 4
+        y = btn.y() + btn.height() + 4
+        panel.move(x, y)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._histogram_panel.isVisible():
+            self._position_histogram_panel()
+
     def set_image(self, image: FibsemImage):
+        self._raw_frame = image.data
         self.canvas.set_image(image)
+        processed = self._process_frame(image.data)
+        self.canvas.update_display(processed)
+        imgs = self.canvas._ax.get_images()
+        if imgs:
+            imgs[0].set_clim(0.0, 1.0)
 
     def set_scan_direction(
         self, cx: float, cy: float, h_px: float, scan_direction: str
@@ -133,6 +308,7 @@ class _FibImageCanvas(QWidget):
         self.arrow_overlay.set_arrow(cx, cy, h_px, scan_direction)
 
     def clear(self):
+        self._raw_frame = None
         self.canvas.clear()
 
 
@@ -153,6 +329,10 @@ class _FmImageCanvas(QWidget):
         self._image: Optional[FluorescenceImage] = None
         self._data: Optional[np.ndarray] = None
         self._img_shape: Optional[tuple] = None  # (H, W)
+        self._contrast_min: float = 0.0
+        self._contrast_max: float = 1.0
+        self._gamma: float = 1.0
+        self._raw_frame: Optional[np.ndarray] = None
         self._setup_ui()
         self._connect_signals()
 
@@ -173,6 +353,23 @@ class _FmImageCanvas(QWidget):
         self.canvas.add_overlay(self.rect_overlay)
         self.canvas.set_crosshair_visible(True)
         layout.addWidget(self.canvas, 1)
+
+        # Histogram controls button (4th from right, after reset/scalebar/crosshair)
+        self.btn_histogram = self.canvas._add_overlay_button(
+            "mdi:contrast-box", "Histogram Controls", self._toggle_histogram_panel, checkable=True
+        )
+        (
+            self._histogram_panel,
+            self._sld_min, self._lbl_min,
+            self._sld_max, self._lbl_max,
+            self._sld_gamma, self._lbl_gamma,
+        ) = _build_histogram_panel(
+            self.canvas,
+            self._on_min_changed,
+            self._on_max_changed,
+            self._on_gamma_changed,
+            self._reset_histogram_controls,
+        )
 
         # Timelapse scrubber row (hidden until frames accumulate)
         scrubber_row = QHBoxLayout()
@@ -205,6 +402,80 @@ class _FmImageCanvas(QWidget):
     def _connect_signals(self):
         self.time_slider.valueChanged.connect(self._on_scrub)
         self.btn_live.clicked.connect(self.reset_live_requested.emit)
+
+    def _on_min_changed(self, val: float) -> None:
+        if val >= self._contrast_max:
+            val = max(0.0, self._contrast_max - 0.01)
+            self._sld_min.setValue(val)
+        self._contrast_min = val
+        self._lbl_min.setText(f"{val:.2f}")
+        self._refresh_display()
+
+    def _on_max_changed(self, val: float) -> None:
+        if val <= self._contrast_min:
+            val = min(1.0, self._contrast_min + 0.01)
+            self._sld_max.setValue(val)
+        self._contrast_max = val
+        self._lbl_max.setText(f"{val:.2f}")
+        self._refresh_display()
+
+    def _on_gamma_changed(self, val: float) -> None:
+        self._gamma = val
+        self._lbl_gamma.setText(f"{val:.2f}")
+        self._refresh_display()
+
+    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Normalize frame, apply contrast limits and gamma; returns float32 [0, 1]."""
+        fmin, fmax = float(frame.min()), float(frame.max())
+        if fmax > fmin:
+            norm = (frame.astype(np.float32) - fmin) / (fmax - fmin)
+        else:
+            norm = np.zeros_like(frame, dtype=np.float32)
+        lo, hi = self._contrast_min, self._contrast_max
+        norm = np.clip(norm, lo, hi)
+        if hi > lo:
+            norm = (norm - lo) / (hi - lo)
+        if self._gamma != 1.0:
+            norm = apply_gamma(norm, self._gamma)
+        return norm
+
+    def _refresh_display(self) -> None:
+        if self._raw_frame is not None:
+            processed = self._process_frame(self._raw_frame)
+            self.canvas.update_display(processed)
+            imgs = self.canvas._ax.get_images()
+            if imgs:
+                imgs[0].set_clim(0.0, 1.0)
+            self.canvas.draw_idle()
+
+    def _reset_histogram_controls(self) -> None:
+        self._contrast_min = 0.0
+        self._contrast_max = 1.0
+        self._gamma = 1.0
+        self._sld_min.setValue(0.0)
+        self._sld_max.setValue(1.0)
+        self._sld_gamma.setValue(1.0)
+        self._refresh_display()
+
+    def _toggle_histogram_panel(self) -> None:
+        visible = not self._histogram_panel.isVisible()
+        self._histogram_panel.setVisible(visible)
+        if visible:
+            self._position_histogram_panel()
+            self._histogram_panel.raise_()
+
+    def _position_histogram_panel(self) -> None:
+        btn = self.btn_histogram
+        panel = self._histogram_panel
+        panel.adjustSize()
+        x = self.canvas.width() - panel.width() - 4
+        y = btn.y() + btn.height() + 4
+        panel.move(x, y)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._histogram_panel.isVisible():
+            self._position_histogram_panel()
 
     def _on_scrub(self, idx: int) -> None:
         self.scrub_requested.emit(idx)
@@ -246,9 +517,19 @@ class _FmImageCanvas(QWidget):
             return
         try:
             frame = np.max(self._data[:, z, :, :], axis=0)  # (Y, X)
+            self._raw_frame = frame
+            processed = self._process_frame(frame)
             nz = self._data.shape[1]
 
+            def _apply_processed(p: np.ndarray) -> None:
+                self.canvas.update_display(p)
+                _imgs = self.canvas._ax.get_images()
+                if _imgs:
+                    _imgs[0].set_clim(0.0, 1.0)
+
             if reset_overlays:
+                # FibsemImage requires uint8/uint16 — use the raw frame for
+                # overlay/scalebar setup, then swap in the processed display data.
                 wrapped = FibsemImage(
                     data=frame,
                     metadata=self._image.metadata
@@ -256,6 +537,7 @@ class _FmImageCanvas(QWidget):
                     else None,
                 )
                 self.canvas.set_image(wrapped)
+                _apply_processed(processed)
                 # FluorescenceImageMetadata uses pixel_size_x, not pixel_size.x —
                 # set _pixel_size directly so the scalebar is rendered.
                 px = getattr(
@@ -264,12 +546,12 @@ class _FmImageCanvas(QWidget):
                 if px:
                     self.canvas._pixel_size = px
                     self.canvas._refresh_scalebar()
-                    self.canvas.draw_idle()
                 self.canvas._ax.set_title(
                     f"FM  z={z}/{nz - 1}", color="white", fontsize=10
                 )
+                self.canvas.draw_idle()
             else:
-                self.canvas.update_display(frame)
+                _apply_processed(processed)
                 self.canvas._ax.set_title(
                     f"FM  z={z}/{nz - 1}", color="white", fontsize=10
                 )
@@ -281,6 +563,7 @@ class _FmImageCanvas(QWidget):
         self._image = None
         self._data = None
         self._img_shape = None
+        self._raw_frame = None
         self.canvas.clear()
 
 
