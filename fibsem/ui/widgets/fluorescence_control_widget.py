@@ -7,6 +7,7 @@ import napari
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGridLayout,
     QLabel,
@@ -158,6 +159,15 @@ class FMControlWidget(QWidget):
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
+        # Default orientation for fluorescence pose when adding a lamella
+        self.label_default_orientation = QLabel("Default Orientation", self)
+        self.comboBox_default_orientation = QComboBox(self)
+        self.comboBox_default_orientation.addItems(["SEM", "FM"])
+        self.comboBox_default_orientation.setCurrentText(self.fm.default_orientation)
+        self.comboBox_default_orientation.setToolTip(
+            "Stage orientation used when computing the fluorescence pose for new lamellas"
+        )
+
         # Checkbox for lamella association
         self.checkBox_associate_with_lamella = QCheckBox(
             "Save to Selected Lamella", self
@@ -200,15 +210,17 @@ class FMControlWidget(QWidget):
 
         # create grid layout for buttons
         button_layout = QGridLayout()
-        button_layout.addWidget(self.checkBox_associate_with_lamella, 0, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_toggle_acquisition, 1, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_run_autofocus, 2, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_single_image, 3, 0)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 3, 1)
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 4, 0, 1, 2)
-        button_layout.addWidget(self.progressText, 5, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_current_acquisition, 6, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_acquisition_task, 7, 0, 1, 2)
+        button_layout.addWidget(self.label_default_orientation, 0, 0)
+        button_layout.addWidget(self.comboBox_default_orientation, 0, 1)
+        button_layout.addWidget(self.checkBox_associate_with_lamella, 1, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_toggle_acquisition, 2, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 3, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_single_image, 4, 0)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 4, 1)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
+        button_layout.addWidget(self.progressText, 6, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_current_acquisition, 7, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_acquisition_task, 8, 0, 1, 2)
 
         # Main layout with scroll area and buttons
         layout = QVBoxLayout()
@@ -262,6 +274,9 @@ class FMControlWidget(QWidget):
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
         self.btn_refresh_objective.clicked.connect(
             lambda: self.objectiveControlWidget.update_objective_position_labels(None)
+        )
+        self.comboBox_default_orientation.currentTextChanged.connect(
+            lambda orientation: setattr(self.fm, "default_orientation", orientation)
         )
 
         # microscope signals

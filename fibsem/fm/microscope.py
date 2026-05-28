@@ -586,6 +586,7 @@ class FluorescenceMicroscope(ABC):
             "MILLING",
         ]  # valid orientations for fluorescence acquisition
         self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
+        self.default_orientation: str = "FM"  # orientation used when computing fluorescence pose for new lamellas
 
     def has_valid_orientation(
         self, stage_position: Optional["FibsemStagePosition"] = None
