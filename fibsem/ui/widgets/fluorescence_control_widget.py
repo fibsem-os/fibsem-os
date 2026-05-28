@@ -990,6 +990,7 @@ class FMControlWidget(QWidget):
             self.objectiveControlWidget._set_focus_position(config.focus_position)
         if config.limit_position:
             self.objectiveControlWidget._set_limit_position(config.limit_position)
+        self.comboBox_default_orientation.setCurrentText(config.default_orientation)
 
     def save_fm_configuration(self):
         """Save current FM configuration to a YAML file."""
@@ -1016,6 +1017,7 @@ class FMControlWidget(QWidget):
                 autofocus_settings=AutoFocusSettings(),
                 camera_settings=settings["camera_settings"],
                 focus_position=self.fm.objective.focus_position,
+                default_orientation=self.fm.default_orientation,
             )
 
             # Export configuration
