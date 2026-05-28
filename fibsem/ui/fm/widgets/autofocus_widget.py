@@ -13,7 +13,7 @@ from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusMethod
 
 AUTOFOCUS_CONFIG = {
     "coarse_range": {
-        "range": (1.0, 100.0),  # 1 to 100 µm range
+        "range": (1.0, 2000.0),  # 1 to 2000 µm range
         "step": 1.0,
         "decimals": 1,
         "suffix": " µm",
@@ -21,7 +21,7 @@ AUTOFOCUS_CONFIG = {
         "tooltip": "Range for coarse autofocus search (±range/2)",
     },
     "coarse_step": {
-        "range": (0.1, 20.0),  # 0.1 to 20 µm step
+        "range": (0.1, 500.0),  # 0.1 to 500 µm step
         "step": 0.1,
         "decimals": 1,
         "suffix": " µm",
@@ -29,7 +29,7 @@ AUTOFOCUS_CONFIG = {
         "tooltip": "Step size for coarse autofocus search",
     },
     "fine_range": {
-        "range": (1.0, 50.0),  # 1 to 50 µm range
+        "range": (1.0, 2000.0),  # 1 to 2000 µm range
         "step": 0.5,
         "decimals": 1,
         "suffix": " µm",
@@ -37,7 +37,7 @@ AUTOFOCUS_CONFIG = {
         "tooltip": "Range for fine autofocus search (±range/2)",
     },
     "fine_step": {
-        "range": (0.1, 5.0),  # 0.1 to 5 µm step
+        "range": (0.1, 500.0),  # 0.1 to 500 µm step
         "step": 0.1,
         "decimals": 2,
         "suffix": " µm",
