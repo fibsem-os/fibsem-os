@@ -490,7 +490,11 @@ class _FmImageCanvas(QWidget):
         self, arr: np.ndarray, idx: int, total: int, ts: float = 0.0
     ) -> None:
         """Show a pre-processed timelapse frame without disrupting the live canvas state."""
-        self.canvas.update_display(arr)
+        processed = self._process_frame(arr)
+        self.canvas.update_display(processed)
+        imgs = self.canvas._ax.get_images()
+        if imgs:
+            imgs[0].set_clim(0.0, 1.0)
         self.frame_label.setText(f"{_fmt_timestamp(ts)} ({idx}/{total - 1})")
 
     def set_image(self, image: FluorescenceImage):
