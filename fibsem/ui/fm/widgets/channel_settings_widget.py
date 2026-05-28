@@ -48,8 +48,8 @@ class ChannelSettingsWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self._channel: Optional[ChannelSettings] = None
-        self._emission_items: List = list(fm.filter_set.available_emission_wavelengths)
-        self._excitation_items: List[float] = list(fm.filter_set.available_excitation_wavelengths)
+        self._emission_items: List = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        self._excitation_items: List[float] = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
 
         self._setup_ui()
         self._connect_signals()

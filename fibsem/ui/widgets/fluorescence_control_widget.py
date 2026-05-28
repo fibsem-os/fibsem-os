@@ -144,7 +144,7 @@ class FMControlWidget(QWidget):
         self.autofocusPanel = TitledPanel(
             "Autofocus Settings", content=self.autofocusWidget, collapsible=True
         )
-        self.autofocusPanel.setVisible(False)  # Hide autofocus settings by default
+        self.autofocusPanel.collapse()
 
         # image histogram
         self.histogramWidget = HistogramWidget(parent=self)
@@ -889,29 +889,36 @@ class FMControlWidget(QWidget):
         # Get current settings
         settings = self._get_current_settings()
         channel_settings = settings["selected_channel_settings"]
-        z_parameters = settings["z_parameters"]
-        # autofocus_settings = settings['autofocus_settings']
+        autofocus_settings = settings["autofocus_settings"]
 
         # Start auto-focus thread
         self._acquisition_thread = threading.Thread(
             target=self._autofocus_worker,
-            args=(channel_settings, z_parameters),
+            args=(channel_settings, autofocus_settings),
             daemon=True,
         )
         self._acquisition_thread.start()
 
     def _autofocus_worker(
-        self, channel_settings: ChannelSettings, z_parameters: ZParameters
+        self, channel_settings: ChannelSettings, autofocus_settings: AutoFocusSettings
     ):
         """Worker thread for auto-focus."""
         try:
-            logging.info("Running auto-focus with laplacian method")
+            z_parameters = ZParameters(
+                zmin=-autofocus_settings.fine_range / 2,
+                zmax=autofocus_settings.fine_range / 2,
+                zstep=autofocus_settings.fine_step,
+            )
+            logging.info(
+                f"Running auto-focus: range={autofocus_settings.fine_range*1e6:.1f} µm, "
+                f"step={autofocus_settings.fine_step*1e6:.1f} µm, method={autofocus_settings.method.value}"
+            )
 
             best_z = run_autofocus(
                 microscope=self.fm,
                 channel_settings=channel_settings,
-                # z_parameters=z_parameters,
-                method="laplacian",
+                z_parameters=z_parameters,
+                method=autofocus_settings.method.value,
                 stop_event=self._acquisition_stop_event,
             )
 
