@@ -82,3 +82,72 @@ def test_move_to_orientation_round_trip(orientation):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.move_to_orientation(orientation)
     assert microscope.get_stage_orientation() == orientation
+
+# ---------------------------------------------------------------------------
+# get_target_position: MILLING <-> FM conversions (FIB-234)
+# ---------------------------------------------------------------------------
+
+def test_get_target_position_milling_to_fm_compustage():
+    """MILLING -> FM is now supported on compustage systems."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope._update_orientations()
+
+    milling_pos = FibsemStagePosition(
+        r=np.radians(0), t=np.radians(-23), x=1e-3, y=2e-3, z=0.0
+    )
+    result = microscope.get_target_position(milling_pos, target_orientation="FM")
+
+    fm_orientation = microscope.get_orientation("FM")
+    assert np.isclose(result.r, fm_orientation.r, atol=1e-6)
+    assert np.isclose(result.t, fm_orientation.t, atol=1e-6)
+    # x/y coordinates are preserved
+    assert np.isclose(result.x, milling_pos.x, atol=1e-9)
+    assert np.isclose(result.y, milling_pos.y, atol=1e-9)
+
+
+def test_get_target_position_fm_to_milling_compustage():
+    """FM -> MILLING is now supported on compustage systems."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope._update_orientations()
+
+    fm_pos = FibsemStagePosition(
+        r=np.radians(0), t=np.radians(-180), x=1e-3, y=2e-3, z=0.0
+    )
+    result = microscope.get_target_position(fm_pos, target_orientation="MILLING")
+
+    milling_orientation = microscope.get_orientation("MILLING")
+    assert np.isclose(result.r, milling_orientation.r, atol=1e-6)
+    assert np.isclose(result.t, milling_orientation.t, atol=1e-6)
+
+
+def test_get_target_position_milling_to_fm_non_compustage_raises():
+    """MILLING -> FM still raises on non-compustage systems."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = False
+    microscope.system.stage.shuttle_pre_tilt = 35
+    microscope._update_orientations()
+
+    milling_pos = FibsemStagePosition(
+        r=np.radians(0), t=np.radians(12)
+    )
+    with pytest.raises(ValueError, match="Cannot move to FM position on non-compustage"):
+        microscope.get_target_position(milling_pos, target_orientation="FM")
+
+
+def test_get_target_position_milling_same_orientation_noop():
+    """MILLING -> MILLING returns the position unchanged."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope._update_orientations()
+
+    milling_pos = FibsemStagePosition(
+        r=np.radians(0), t=np.radians(-23), x=5e-3, y=3e-3
+    )
+    result = microscope.get_target_position(milling_pos, target_orientation="MILLING")
+    assert np.isclose(result.r, milling_pos.r, atol=1e-6)
+    assert np.isclose(result.t, milling_pos.t, atol=1e-6)
