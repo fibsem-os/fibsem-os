@@ -205,6 +205,12 @@ def open_information_dialog(microscope: FibsemMicroscope, parent: Optional[QWidg
     
     fibsem_version = fibsem.__version__
     from fibsem.structures import SystemInfo
+    if microscope is None:
+        msg = QMessageBox(parent)
+        msg.setWindowTitle("fibsemOS Information")
+        msg.setText(f"fibsemOS: {fibsem_version}\n\nNo microscope connected.")
+        msg.exec()
+        return
     info: SystemInfo = microscope.system.info
 
     text = f"""
