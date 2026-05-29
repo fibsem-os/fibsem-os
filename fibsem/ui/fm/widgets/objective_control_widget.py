@@ -171,7 +171,7 @@ class ObjectiveControlWidget(QWidget):
         layout.addWidget(self.pushButton_set_focus_position, 3, 0, 1, 1)
         layout.addWidget(self.pushButton_move_to_focus, 3, 1, 1, 1)
         layout.addWidget(self.label_objective_control, 4, 0)
-        layout.addWidget(self.doubleSpinBox_objective_position, 4, 1) 
+        layout.addWidget(self.doubleSpinBox_objective_position, 4, 1)
         layout.addWidget(self.label_objective_step_size, 5, 0)
         layout.addWidget(self.doubleSpinBox_objective_step_size, 5, 1)
         layout.addWidget(self.pushButton_refresh_position, 6, 0, 1, 2)

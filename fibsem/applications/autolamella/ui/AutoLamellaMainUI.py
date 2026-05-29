@@ -248,15 +248,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
 
-        self.action_toggle_layer_controls = QAction("Show Layer Controls", self)
-        self.action_toggle_layer_controls.setCheckable(True)
-        self.action_toggle_layer_controls.setChecked(True)
-        self.action_toggle_layer_controls.triggered.connect(
-            self._on_toggle_layer_controls
+        layer_controls_menu = view_menu.addMenu("Show Layer Controls")
+
+        self.action_layer_controls_microscope = QAction("Microscope", self)
+        self.action_layer_controls_microscope.setCheckable(True)
+        self.action_layer_controls_microscope.setChecked(True)
+        self.action_layer_controls_microscope.triggered.connect(
+            lambda checked: self._on_toggle_viewer_layer_controls(checked, "microscope")
         )
 
+        self.action_layer_controls_overview = QAction("Overview", self)
+        self.action_layer_controls_overview.setCheckable(True)
+        self.action_layer_controls_overview.setChecked(True)
+        self.action_layer_controls_overview.triggered.connect(
+            lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
+        )
+
+        self.action_layer_controls_lamella = QAction("Lamella Editor", self)
+        self.action_layer_controls_lamella.setCheckable(True)
+        self.action_layer_controls_lamella.setChecked(False)
+        self.action_layer_controls_lamella.triggered.connect(
+            lambda checked: self._on_toggle_viewer_layer_controls(checked, "lamella")
+        )
+
+        layer_controls_menu.addAction(self.action_layer_controls_microscope)
+        layer_controls_menu.addAction(self.action_layer_controls_overview)
+        layer_controls_menu.addAction(self.action_layer_controls_lamella)
+
         view_menu.addAction(self.action_show_minimap)
-        view_menu.addAction(self.action_toggle_layer_controls)
 
         # add tools menu, reporting submenu
         tools_menu = menu_bar.addMenu("Tools")
@@ -521,9 +540,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.minimap_plot_dock.setVisible(checked)
             self.autolamella_ui.minimap_plot_dock.activateWindow()
 
-    def _on_toggle_layer_controls(self, checked: bool):
-        """Toggle the layer list and layer controls for all viewers."""
-        for viewer in self.viewers:
+    def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
+        """Toggle the layer list and layer controls for a specific viewer."""
+        viewer_map = {
+            "microscope": self.main_viewer,
+            "overview": self.minimap_viewer,
+            "lamella": self.lamella_viewer,
+        }
+        viewer = viewer_map.get(viewer_key)
+        if viewer is not None:
             qt_viewer = viewer.window._qt_viewer
             qt_viewer.dockLayerList.setVisible(checked)
             qt_viewer.dockLayerControls.setVisible(checked)

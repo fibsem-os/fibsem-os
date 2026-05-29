@@ -7,6 +7,7 @@ import napari
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGridLayout,
     QLabel,
@@ -143,7 +144,7 @@ class FMControlWidget(QWidget):
         self.autofocusPanel = TitledPanel(
             "Autofocus Settings", content=self.autofocusWidget, collapsible=True
         )
-        self.autofocusPanel.setVisible(False)  # Hide autofocus settings by default
+        self.autofocusPanel.collapse()
 
         # image histogram
         self.histogramWidget = HistogramWidget(parent=self)
@@ -157,6 +158,15 @@ class FMControlWidget(QWidget):
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
+
+        # Default orientation for fluorescence pose when adding a lamella
+        self.label_default_orientation = QLabel("Default Orientation", self)
+        self.comboBox_default_orientation = QComboBox(self)
+        self.comboBox_default_orientation.addItems(["SEM", "FM"])
+        self.comboBox_default_orientation.setCurrentText(self.fm.default_orientation)
+        self.comboBox_default_orientation.setToolTip(
+            "Stage orientation used when computing the fluorescence pose for new lamellas"
+        )
 
         # Checkbox for lamella association
         self.checkBox_associate_with_lamella = QCheckBox(
@@ -200,15 +210,17 @@ class FMControlWidget(QWidget):
 
         # create grid layout for buttons
         button_layout = QGridLayout()
-        button_layout.addWidget(self.checkBox_associate_with_lamella, 0, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_toggle_acquisition, 1, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_run_autofocus, 2, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_single_image, 3, 0)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 3, 1)
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 4, 0, 1, 2)
-        button_layout.addWidget(self.progressText, 5, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_current_acquisition, 6, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_acquisition_task, 7, 0, 1, 2)
+        button_layout.addWidget(self.label_default_orientation, 0, 0)
+        button_layout.addWidget(self.comboBox_default_orientation, 0, 1)
+        button_layout.addWidget(self.checkBox_associate_with_lamella, 1, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_toggle_acquisition, 2, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 3, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_single_image, 4, 0)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 4, 1)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
+        button_layout.addWidget(self.progressText, 6, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_current_acquisition, 7, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_acquisition_task, 8, 0, 1, 2)
 
         # Main layout with scroll area and buttons
         layout = QVBoxLayout()
@@ -262,6 +274,9 @@ class FMControlWidget(QWidget):
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
         self.btn_refresh_objective.clicked.connect(
             lambda: self.objectiveControlWidget.update_objective_position_labels(None)
+        )
+        self.comboBox_default_orientation.currentTextChanged.connect(
+            lambda orientation: setattr(self.fm, "default_orientation", orientation)
         )
 
         # microscope signals
@@ -874,29 +889,36 @@ class FMControlWidget(QWidget):
         # Get current settings
         settings = self._get_current_settings()
         channel_settings = settings["selected_channel_settings"]
-        z_parameters = settings["z_parameters"]
-        # autofocus_settings = settings['autofocus_settings']
+        autofocus_settings = settings["autofocus_settings"]
 
         # Start auto-focus thread
         self._acquisition_thread = threading.Thread(
             target=self._autofocus_worker,
-            args=(channel_settings, z_parameters),
+            args=(channel_settings, autofocus_settings),
             daemon=True,
         )
         self._acquisition_thread.start()
 
     def _autofocus_worker(
-        self, channel_settings: ChannelSettings, z_parameters: ZParameters
+        self, channel_settings: ChannelSettings, autofocus_settings: AutoFocusSettings
     ):
         """Worker thread for auto-focus."""
         try:
-            logging.info("Running auto-focus with laplacian method")
+            z_parameters = ZParameters(
+                zmin=-autofocus_settings.fine_range / 2,
+                zmax=autofocus_settings.fine_range / 2,
+                zstep=autofocus_settings.fine_step,
+            )
+            logging.info(
+                f"Running auto-focus: range={autofocus_settings.fine_range*1e6:.1f} µm, "
+                f"step={autofocus_settings.fine_step*1e6:.1f} µm, method={autofocus_settings.method.value}"
+            )
 
             best_z = run_autofocus(
                 microscope=self.fm,
                 channel_settings=channel_settings,
-                # z_parameters=z_parameters,
-                method="laplacian",
+                z_parameters=z_parameters,
+                method=autofocus_settings.method.value,
                 stop_event=self._acquisition_stop_event,
             )
 
@@ -968,6 +990,7 @@ class FMControlWidget(QWidget):
             self.objectiveControlWidget._set_focus_position(config.focus_position)
         if config.limit_position:
             self.objectiveControlWidget._set_limit_position(config.limit_position)
+        self.comboBox_default_orientation.setCurrentText(config.default_orientation)
 
     def save_fm_configuration(self):
         """Save current FM configuration to a YAML file."""
@@ -994,6 +1017,7 @@ class FMControlWidget(QWidget):
                 autofocus_settings=AutoFocusSettings(),
                 camera_settings=settings["camera_settings"],
                 focus_position=self.fm.objective.focus_position,
+                default_orientation=self.fm.default_orientation,
             )
 
             # Export configuration

@@ -1559,10 +1559,10 @@ class AutoLamellaUI(QMainWindow):
 
         # if the objective position is not provided, use the 'focus' position from the microscope
         if self.microscope.fm is not None:
-            # convert the fluorescence pose to 'sem' orientation
+            # convert the fluorescence pose to the configured orientation
             fluorescence_stage_position = self.microscope.get_target_position(
                 stage_position=deepcopy(microscope_state.stage_position),
-                target_orientation="SEM",
+                target_orientation=self.microscope.fm.default_orientation,
             )
             fluorescence_pose = deepcopy(microscope_state)
             fluorescence_pose.stage_position = fluorescence_stage_position

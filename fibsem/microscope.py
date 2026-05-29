@@ -1153,8 +1153,8 @@ class FibsemMicroscope(ABC):
             target_position = stage_position
             target_position.r = orientation.r
             target_position.t = orientation.t
-        elif ((currrent_orientation in ["SEM", "FIB"] and target_orientation == "FM") or
-              (currrent_orientation == "FM" and target_orientation in ["SEM", "FIB"])):
+        elif ((currrent_orientation in ["SEM", "FIB", "MILLING"] and target_orientation == "FM") or
+              (currrent_orientation == "FM" and target_orientation in ["SEM", "FIB", "MILLING"])):
             if not self.stage_is_compustage:
                 raise ValueError("Cannot move to FM position on non-compustage systems.")
             # Convert from FIB to FM

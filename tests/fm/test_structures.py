@@ -4,12 +4,14 @@ import numpy as np
 from datetime import datetime
 
 from fibsem.fm.structures import (
+    AutoFocusMode,
     ChannelSettings,
-    ZParameters,
+    FluorescenceConfiguration,
     FluorescenceImage,
     FluorescenceChannelMetadata,
     FluorescenceImageMetadata,
-    AutoFocusMode,
+    OverviewParameters,
+    ZParameters,
 )
 from fibsem.fm.timing import (
     DEFAULT_STAGE_MOVE_TIME,
@@ -2137,3 +2139,91 @@ def test_estimate_tileset_acquisition_time_scaling():
     # Total images should scale with tiles
     assert result_3x3["total_images"] / result_2x2["total_images"] == 9 / 4
     assert result_4x4["total_images"] / result_2x2["total_images"] == 16 / 4
+
+
+# ---------------------------------------------------------------------------
+# FluorescenceConfiguration tests
+# ---------------------------------------------------------------------------
+
+def _make_minimal_config(**kwargs) -> FluorescenceConfiguration:
+    """Helper: build a FluorescenceConfiguration with minimal required fields."""
+    channel = ChannelSettings(
+        name="DAPI",
+        excitation_wavelength=365,
+        emission_wavelength=450,
+        power=0.5,
+        exposure_time=0.1,
+    )
+    defaults = dict(
+        channel_settings=[channel],
+        z_parameters=ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6),
+        overview_parameters=OverviewParameters(),
+    )
+    defaults.update(kwargs)
+    return FluorescenceConfiguration(**defaults)
+
+
+def test_fluorescence_configuration_default_orientation():
+    """default_orientation defaults to 'FM'."""
+    config = _make_minimal_config()
+    assert config.default_orientation == "FM"
+
+
+def test_fluorescence_configuration_custom_orientation():
+    """default_orientation can be set to 'SEM'."""
+    config = _make_minimal_config(default_orientation="SEM")
+    assert config.default_orientation == "SEM"
+
+
+def test_fluorescence_configuration_to_dict_includes_orientation():
+    """to_dict serialises default_orientation."""
+    config = _make_minimal_config(default_orientation="SEM")
+    d = config.to_dict()
+    assert "default_orientation" in d
+    assert d["default_orientation"] == "SEM"
+
+
+def test_fluorescence_configuration_from_dict_with_orientation():
+    """from_dict round-trips default_orientation when the key is present."""
+    config = _make_minimal_config(default_orientation="SEM")
+    restored = FluorescenceConfiguration.from_dict(config.to_dict())
+    assert restored.default_orientation == "SEM"
+
+
+def test_fluorescence_configuration_from_dict_missing_orientation():
+    """from_dict falls back to 'FM' when default_orientation key is absent (old config)."""
+    config = _make_minimal_config(default_orientation="SEM")
+    d = config.to_dict()
+    del d["default_orientation"]  # simulate an old config file
+    restored = FluorescenceConfiguration.from_dict(d)
+    assert restored.default_orientation == "FM"
+
+
+def test_fluorescence_configuration_yaml_roundtrip():
+    """Export to YAML and reload preserves default_orientation."""
+    config = _make_minimal_config(default_orientation="SEM")
+    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+        filename = f.name
+    try:
+        config.export(filename)
+        loaded = FluorescenceConfiguration.load(filename)
+        assert loaded.default_orientation == "SEM"
+    finally:
+        import os
+        if os.path.exists(filename):
+            os.unlink(filename)
+
+
+def test_fluorescence_configuration_yaml_roundtrip_fm():
+    """Export to YAML and reload preserves default_orientation 'FM'."""
+    config = _make_minimal_config(default_orientation="FM")
+    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+        filename = f.name
+    try:
+        config.export(filename)
+        loaded = FluorescenceConfiguration.load(filename)
+        assert loaded.default_orientation == "FM"
+    finally:
+        import os
+        if os.path.exists(filename):
+            os.unlink(filename)
