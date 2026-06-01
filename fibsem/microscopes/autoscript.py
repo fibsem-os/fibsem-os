@@ -390,10 +390,10 @@ class AutoscriptGISPort:
 
     @property
     def temperature(self) -> float:
-        self._port.get_temperature()
+        return self._port.get_temperature()
 
     def turn_heater_on(self, target_temp: float = 300, timeout: float = 15):
-        self._port.turn_heater_on()
+        self._port.turn_heater_on(target_temp, timeout)
 
     def turn_heater_off(self):
         self._port.turn_heater_off()

@@ -9,9 +9,7 @@ from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes._stage import GridSlot, SampleGrid
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
-from fibsem.microscopes._stage import SampleGrid, SampleHolder
+from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings
 
 if TYPE_CHECKING:
@@ -228,8 +226,7 @@ class CryoCleaningGridTask(GridTask):
         logging.info(f"Starting cryo cleaning for grid {self.grid.name}")
 
         # move to grid position
-        target_position = self._get_stage_position_for_orientation(self.grid.position, self.config.orientation)
-        self.microscope._stage.move_absolute(target_position)
+        self._move_to_grid_slot_position(self.config.orientation)
 
         # set beam parameters
         self.microscope.set_beam_current(self.config.current, beam_type=BeamType.ION)

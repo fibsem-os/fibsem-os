@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
+import numpy as np
 import yaml
 from psygnal import Signal
 
-from fibsem import constants
+from fibsem.config import (
+    DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH,
+    SAMPLE_HOLDER_CONFIGURATION_PATH,
+)
 from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
 
 if TYPE_CHECKING:
@@ -57,13 +62,19 @@ class GridSlot:
             "name": self.name,
             "index": self.index,
             "position": self.position.to_dict(),
-            "loaded_grid": self.loaded_grid.to_dict() if self.loaded_grid is not None else None,
+            "loaded_grid": self.loaded_grid.to_dict()
+            if self.loaded_grid is not None
+            else None,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "GridSlot":
         loaded_grid_data = data.get("loaded_grid")
-        loaded_grid = SampleGrid.from_dict(loaded_grid_data) if loaded_grid_data is not None else None
+        loaded_grid = (
+            SampleGrid.from_dict(loaded_grid_data)
+            if loaded_grid_data is not None
+            else None
+        )
         slot = GridSlot(
             name=data.get("name", ""),
             index=data.get("index", 0),
@@ -82,26 +93,6 @@ class SampleHolder:
     description: str = field(
         default="", metadata={"tooltip": "Description of the sample holder"}
     )
-    pre_tilt: float = field(
-        default=0.0,
-        metadata={
-            "units": constants.DEGREE_SYMBOL,
-            "minimum": 0.0,
-            "maximum": 90.0,
-            "decimals": 0,
-            "tooltip": "Pre-tilt angle of the sample holder",
-        },
-    )
-    reference_rotation: float = field(
-        default=0.0,
-        metadata={
-            "units": constants.DEGREE_SYMBOL,
-            "minimum": 0.0,
-            "maximum": 360.0,
-            "decimals": 0,
-            "tooltip": "Reference rotation angle of the sample holder",
-        },
-    )
     capacity: int = field(
         default=2,
         metadata={
@@ -112,10 +103,25 @@ class SampleHolder:
     )
     slots: dict[str, GridSlot] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self._parent: Optional["FibsemMicroscope"] = None
+
+    @property
+    def pre_tilt(self) -> float:
+        if self._parent is not None:
+            return self._parent.system.stage.shuttle_pre_tilt
+        return 0.0
+
+    @property
+    def reference_rotation(self) -> float:
+        if self._parent is not None:
+            return self._parent.system.stage.rotation_reference
+        return 0.0
+
     def find_slot_for_grid(self, grid: "SampleGrid") -> Optional["GridSlot"]:
         """Return the slot that has this SampleGrid loaded, or None."""
         for slot in self.slots.values():
-            if slot.loaded_grid is grid:
+            if slot.loaded_grid is not None and slot.loaded_grid.name == grid.name:
                 return slot
         return None
 
@@ -136,15 +142,15 @@ class SampleHolder:
                     index=i,
                     position=FibsemStagePosition(name=name, x=0.0, y=0.0, z=0.0),
                 )
-        for name in [n for n, s in list(self.slots.items()) if s.index >= self.capacity]:
+        for name in [
+            n for n, s in list(self.slots.items()) if s.index >= self.capacity
+        ]:
             del self.slots[name]
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "capacity": self.capacity,
-            "pre_tilt": self.pre_tilt,
-            "reference_rotation": self.reference_rotation,
             "slots": {name: slot.to_dict() for name, slot in self.slots.items()},
             "description": self.description,
         }
@@ -158,8 +164,6 @@ class SampleHolder:
         holder = SampleHolder(
             name=data.get("name", "Sample Holder"),
             capacity=data.get("capacity", max(len(slots), 1)),
-            pre_tilt=data.get("pre_tilt", 0.0),
-            reference_rotation=data.get("reference_rotation", 0.0),
             slots=slots,
             description=data.get("description", ""),
         )
@@ -206,7 +210,11 @@ class SampleGridLoader:
         """Return all slots that currently have a grid loaded."""
         if self.parent._stage.holder is None:
             return []
-        return [s for s in self.parent._stage.holder.slots.values() if s.loaded_grid is not None]
+        return [
+            s
+            for s in self.parent._stage.holder.slots.values()
+            if s.loaded_grid is not None
+        ]
 
 
 class Stage:
@@ -254,7 +262,9 @@ class Stage:
             return None
         stage_position = self.parent._stage_position
         for slot in self.holder.slots.values():
-            if stage_position.is_close2(slot.position, tol=GRID_RADIUS, axes=["x", "y"]):
+            if stage_position.is_close2(
+                slot.position, tol=GRID_RADIUS, axes=["x", "y"]
+            ):
                 return slot
         return None
 
@@ -274,7 +284,9 @@ class Stage:
     def move_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         return self.parent.move_stage_relative(position)
 
-    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
+    def stable_move(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemStagePosition:
         return self.parent.stable_move(dx, dy, beam_type)
 
     def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
@@ -312,3 +324,33 @@ class Stage:
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Alias for move_to_slot for backward compatibility."""
         return self.move_to_slot(grid_name)
+
+
+def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
+
+    if microscope.stage_is_compustage:
+        slot01 = GridSlot(
+            name="Slot-01",
+            index=0,
+            position=FibsemStagePosition(
+                name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
+            ),
+        )
+        holder = SampleHolder(
+            name="CompuStage Holder", capacity=1, slots={"Slot-01": slot01}
+        )
+        loader: Optional[SampleGridLoader] = SampleGridLoader(parent=microscope)
+    else:
+        path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
+        if not path.exists():
+            logging.info(f"Sample holder config not found at {path}, using default.")
+            path = Path(DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
+        orientation = microscope.get_orientation("SEM")
+        holder = SampleHolder.load(path)
+        for slot in holder.slots.values():
+            slot.position.r = orientation.r
+            slot.position.t = orientation.t
+        loader = None
+
+    holder._parent = microscope
+    return Stage(parent=microscope, holder=holder, loader=loader)

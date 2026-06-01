@@ -30,7 +30,6 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 
-SHOW_SAMPLE_HOLDER_WIDGET = True
 
 class FibsemMovementWidget(QtWidgets.QWidget):
     movement_progress_signal = QtCore.pyqtSignal(dict)
@@ -256,7 +255,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_tilt.installEventFilter(self.wheel_blocker)
         self.doubleSpinBox_milling_angle.installEventFilter(self.wheel_blocker)
 
-        if SHOW_SAMPLE_HOLDER_WIDGET:
+        if cfg.FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED:
             from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
             self.sample_holder_widget = SampleHolderWidget(microscope=self.microscope)
             self.sample_holder_widget.set_holder(self.microscope._stage.holder)

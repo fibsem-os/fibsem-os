@@ -5,15 +5,12 @@ from typing import Optional
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenu,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -74,35 +71,27 @@ class _GridSlotRowWidget(QWidget):
         self.grid_label = QLabel()
         layout.addWidget(self.grid_label, 1)
 
-        # Stage position actions in "..." dropdown
-        self._btn_actions = QToolButton()
-        self._btn_actions.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
-        self._btn_actions.setStyleSheet(
-            _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
-        )
-        self._btn_actions.setIcon(
-            QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self._btn_actions.setToolTip("Actions")
-        self._btn_actions.setPopupMode(QToolButton.InstantPopup)
-        self._btn_actions.setVisible(has_microscope and show_move)
+        _show_move = has_microscope and show_move
 
-        _menu = QMenu(self)
-        if has_microscope and show_move:
-            _action_capture = _menu.addAction(
-                QIconifyIcon("mdi:map-marker-plus", color=stylesheets.GRAY_ICON_COLOR),
-                "Update Position",
-            )
-            _action_move = _menu.addAction(
-                QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR),
-                "Move to Position",
-            )
-            _action_capture.triggered.connect(lambda: self.capture_clicked.emit(self.slot))
-            _action_move.triggered.connect(lambda: self.move_clicked.emit(self.slot))
+        self.btn_capture = QToolButton()
+        self.btn_capture.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
+        self.btn_capture.setStyleSheet(_BTN_STYLE)
+        self.btn_capture.setIcon(QIconifyIcon("mdi:map-marker-plus", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_capture.setToolTip("Update Position")
+        self.btn_capture.setVisible(_show_move)
+        self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
+        self.btn_capture.installEventFilter(self)
+        layout.addWidget(self.btn_capture)
 
-        self._btn_actions.setMenu(_menu)
-        self._btn_actions.installEventFilter(self)
-        layout.addWidget(self._btn_actions)
+        self.btn_move = QToolButton()
+        self.btn_move.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
+        self.btn_move.setStyleSheet(_BTN_STYLE)
+        self.btn_move.setIcon(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move.setToolTip("Move to Position")
+        self.btn_move.setVisible(_show_move)
+        self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
+        self.btn_move.installEventFilter(self)
+        layout.addWidget(self.btn_move)
 
         # Clear button — always visible, enabled only when a grid is loaded
         self.btn_clear = QToolButton()
@@ -275,29 +264,24 @@ class SampleHolderWidget(QWidget):
             maximum=90.0,
             step=1.0,
             decimals=0,
-            tooltip="Pre-tilt angle of the sample holder",
+            tooltip="Pre-tilt angle (read from system configuration)",
         )
+        self.pre_tilt_spin.setEnabled(False)
         self.reference_rotation_spin = ValueSpinBox(
             suffix="°",
             minimum=0.0,
             maximum=360.0,
             step=1.0,
             decimals=0,
-            tooltip="Reference rotation angle of the sample holder",
+            tooltip="Reference rotation (read from system configuration)",
         )
+        self.reference_rotation_spin.setEnabled(False)
+
         form.addRow("Name", self.name_edit)
         form.addRow("Description", self.description_edit)
         form.addRow("Capacity", self.capacity_spin)
         form.addRow("Pre-Tilt", self.pre_tilt_spin)
         form.addRow("Ref. Rotation", self.reference_rotation_spin)
-
-        save_load_row = QHBoxLayout()
-        self.btn_save = QPushButton("Save Holder")
-        self.btn_save.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_load_file = QPushButton("Load Holder")
-        self.btn_load_file.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        save_load_row.addWidget(self.btn_save)
-        save_load_row.addWidget(self.btn_load_file)
 
         self._header = _GridListHeader("Slots")
 
@@ -321,7 +305,6 @@ class SampleHolderWidget(QWidget):
         inner_layout.setContentsMargins(0, 0, 0, 4)
         inner_layout.setSpacing(4)
         inner_layout.addWidget(form_widget)
-        inner_layout.addLayout(save_load_row)
         inner_layout.addWidget(self._header)
         inner_layout.addWidget(self._list)
         inner_layout.addWidget(self._empty_label)
@@ -338,11 +321,7 @@ class SampleHolderWidget(QWidget):
         self.name_edit.editingFinished.connect(self._on_holder_form_changed)
         self.description_edit.editingFinished.connect(self._on_holder_form_changed)
         self.capacity_spin.valueChanged.connect(self._on_capacity_changed)
-        self.pre_tilt_spin.valueChanged.connect(self._on_holder_form_changed)
-        self.reference_rotation_spin.valueChanged.connect(self._on_holder_form_changed)
-
-        self.btn_save.clicked.connect(self._handle_save_holder)
-        self.btn_load_file.clicked.connect(self._handle_load_holder)
+        self.holder_changed.connect(self._auto_save)
 
         self._list.currentRowChanged.connect(self._on_list_row_changed)
         self._edit_panel.slot_changed.connect(self._on_slot_changed)
@@ -356,6 +335,9 @@ class SampleHolderWidget(QWidget):
         self._microscope._stage.holder = holder
         self.setEnabled(holder is not None)
         self._edit_panel.setVisible(False)
+
+        if holder is not None:
+            holder._parent = self._microscope
 
         self._updating = True
         if holder is None:
@@ -461,8 +443,6 @@ class SampleHolderWidget(QWidget):
             return
         self._holder.name = self.name_edit.text()
         self._holder.description = self.description_edit.text()
-        self._holder.pre_tilt = self.pre_tilt_spin.value()
-        self._holder.reference_rotation = self.reference_rotation_spin.value()
         self.holder_changed.emit(self._holder)
 
     def _on_capacity_changed(self) -> None:
@@ -493,38 +473,14 @@ class SampleHolderWidget(QWidget):
         except Exception as e:
             logging.warning(f"Failed to move to slot '{slot.name}': {e}")
 
-    def _handle_save_holder(self) -> None:
-        if self._holder is None:
+    def _auto_save(self, holder: SampleHolder) -> None:
+        if holder is None:
             return
         from fibsem import config as cfg
-
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Sample Holder", cfg.CONFIG_PATH, "YAML (*.yaml *.yml)"
-        )
-        if not path:
-            return
-        if not path.endswith((".yaml", ".yml")):
-            path += ".yaml"
         try:
-            self._holder.save(path)
-            logging.info(f"Saved sample holder to {path}")
+            holder.save(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH)
         except Exception as e:
-            logging.error(f"Failed to save holder: {e}")
-
-    def _handle_load_holder(self) -> None:
-        from fibsem import config as cfg
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load Sample Holder", cfg.CONFIG_PATH, "YAML (*.yaml *.yml)"
-        )
-        if not path:
-            return
-        try:
-            holder = SampleHolder.load(path)
-            self.set_holder(holder)
-            self.holder_changed.emit(holder)
-        except Exception as e:
-            logging.error(f"Failed to load holder: {e}")
+            logging.warning(f"Auto-save of sample holder failed: {e}")
 
 
 if __name__ == "__main__":
