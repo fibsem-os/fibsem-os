@@ -342,3 +342,78 @@ class AutoscriptCompustage(Stage):
 
 class AutoscriptSputterCoater:
     pass
+
+
+
+from typing import TYPE_CHECKING
+import time 
+if TYPE_CHECKING:
+    from fibsem.microscope import ThermoMicroscope
+from fibsem.structures import FibsemStagePosition
+
+class AutoscriptGISPort:
+    port_name: str = "Pt dep"
+    zlimit: float = 4.0e-3 # RAW_COORDINATES
+
+    def __init__(self, parent: 'ThermoMicroscope'):
+        self.parent = parent
+
+        available_ports = self.parent.connection.gas.list_all_gis_ports()
+
+        print(f"available gis ports: {available_ports}")
+        self._port = self.parent.connection.gas.get_gis_port(self.port_name)
+
+    def insert(self):
+
+        self._run_safety_check()
+
+        self._port.insert()
+
+    def retract(self):
+        self._port.retract()
+
+    def _move_to_safe_gis_position(self):
+
+        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit-500e-6))
+
+    def _run_safety_check(self):
+
+        stage_position = self.parent.get_stage_position()
+        if stage_position.z > self.zlimit:
+            raise ValueError(f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit*1e3}mm")
+
+    def open(self):
+        self._port.open()
+
+    def close(self):
+        self._port.close()
+
+    @property
+    def temperature(self) -> float:
+        return self._port.get_temperature()
+
+    def turn_heater_on(self, target_temp: float = 300, timeout: float = 15):
+        self._port.turn_heater_on(target_temp, timeout)
+
+    def turn_heater_off(self):
+        self._port.turn_heater_off()
+
+    def run_deposition(self, duration: int) -> None:
+
+        self.insert()
+
+        # QUERY: acquire diagnostic sem image?
+
+        self.open()
+
+        remaining_time = duration
+        while True:
+            print(f"Depositing: {self.port_name} - {remaining_time}s")
+            time.sleep(1)
+            remaining_time -= 1
+
+            if remaining_time <= 0:
+                break
+
+        self.close()
+        self.retract()

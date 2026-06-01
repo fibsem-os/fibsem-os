@@ -1264,7 +1264,7 @@ class FibsemMinimapWidget(QWidget):
 
         # grid positions
         if FEATURE_DISPLAY_GRID_CENTER_MARKER:
-            grid_positions = [g.position for g in self.microscope._stage.holder.grids.values()]
+            grid_positions = [s.position for s in self.microscope._stage.holder.slots.values()]
             grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
             for i, grid_point in enumerate(grid_points):
                 grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)

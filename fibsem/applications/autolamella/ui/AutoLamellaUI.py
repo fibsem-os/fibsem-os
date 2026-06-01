@@ -1151,16 +1151,9 @@ class AutoLamellaUI(QMainWindow):
             # Set the data (delay redraw until all data updated...)
             if selected_name is not None:
                 self.minimap_plot_widget.selected_name = selected_name
-            self.minimap_plot_widget.lamella_positions = (
-                self.experiment.get_milling_positions()
-            )
-            if (
-                self.minimap_plot_widget.grid_positions is None
-                and cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER
-            ):
-                self.minimap_plot_widget.grid_positions = [
-                    g.position for g in self.microscope._stage.holder.grids.values()
-                ]
+            self.minimap_plot_widget.lamella_positions = self.experiment.get_milling_positions()
+            if self.minimap_plot_widget.grid_positions is None and cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER:
+                self.minimap_plot_widget.grid_positions = [s.position for s in self.microscope._stage.holder.slots.values()]
             self.minimap_plot_widget.fov_width = fov
             if stage_position is not None:
                 self.minimap_plot_widget.set_current_position(stage_position)

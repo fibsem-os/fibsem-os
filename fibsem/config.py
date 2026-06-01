@@ -82,6 +82,9 @@ MICROSCOPE_CONFIGURATION_PATH = os.path.join(
 SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "sample-holder.yaml"
 )
+DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
+    CONFIG_PATH, "default-sample-holder.yaml"
+)
 
 # Alignment reference image filename
 REFERENCE_FILENAME = "alignment_reference"
@@ -252,6 +255,7 @@ class FeatureFlags:
     display_grid_center_marker: bool = False
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
+    sample_holder_widget: bool = True
 
 @dataclass
 class PathPreferences:
@@ -343,6 +347,7 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_DISPLAY_GRID_CENTER_MARKER
     global FEATURE_VIEWER_MOVEMENT_EVENTS
     global FEATURE_COINCIDENCE_MILLING_ENABLED
+    global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
     f = prefs.features
     FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
@@ -350,6 +355,7 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
+    FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -380,3 +386,4 @@ FEATURE_POSE_CONTROLS_ENABLED = True
 FEATURE_DISPLAY_GRID_CENTER_MARKER = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
+FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = True
