@@ -1140,9 +1140,10 @@ class FibsemMicroscope(ABC):
         elif ((currrent_orientation in ["SEM", "FIB", "MILLING"] and target_orientation == "FM") or
               (currrent_orientation == "FM" and target_orientation in ["SEM", "FIB", "MILLING"])):
             if not self.stage_is_compustage:
-                raise ValueError("Cannot move to FM position on non-compustage systems.")
-            # Convert from FIB to FM
-            target_position = stage_position
+                target_position = self._get_compucentric_rotation_position(stage_position)
+                # raise ValueError("Cannot move to FM position on non-compustage systems.")
+            else:# Convert from FIB to FM
+                target_position = stage_position
             target_position.r = orientation.r
             target_position.t = orientation.t
         else:
@@ -1246,8 +1247,12 @@ class FibsemMicroscope(ABC):
                 t=np.radians(-180),
             )
         else:
-            # only x/y translation, no rotation
-            self.orientations["FM"] = deepcopy(self.orientations["FIB"])
+            # When a ChamberDeviceGeometry is configured on the FM, use its default_orientation
+            # for the FM entry. Otherwise fall back to a copy of the FIB orientation (inline mount).
+            if self.fm is not None and self.fm.geometry is not None:
+                self.orientations["FM"] = self.fm.geometry.default_orientation
+            else:
+                self.orientations["FM"] = deepcopy(self.orientations["FIB"])
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the 'stored' milling angle in the system settings."""
@@ -1354,7 +1359,10 @@ class FibsemMicroscope(ABC):
         # retract objective (safety precaution)
         self.fm.objective.retract()
 
-        TRANSLATION_DX = 48.8e-3  # 48.8 mm # THIS needs to be configurable for different microscopes
+        if self.fm.geometry is not None:
+            TRANSLATION_DX = self.fm.geometry.offset.x or 48.8e-3
+        else:
+            TRANSLATION_DX = 48.8e-3  # legacy inline default (iflm/piescope/meteor)
         transf = FibsemStagePosition(x=TRANSLATION_DX)
 
         # move to FIBSEM

@@ -17,9 +17,12 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
+
+from fibsem.devices.base import ChamberDevice
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
+    from fibsem.devices.base import ChamberDeviceGeometry
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures import FibsemStagePosition
 
@@ -530,12 +533,14 @@ class FilterSet(ABC):
         self._emission_wavelength = value
 
 
-class FluorescenceMicroscope(ABC):
+class FluorescenceMicroscope(ChamberDevice, ABC):
     """Abstract base class for fluorescence microscope control.
 
-    Provides a unified interface for controlling all aspects of fluorescence microscopy
-    including objective lens, camera, light source, and filter sets. Supports both
-    single image acquisition and live/continuous acquisition modes.
+    Extends :class:`~fibsem.devices.base.ChamberDevice` so that FM instances that
+    are mounted at a geometric offset from the FIBSEM automatically gain coordinate
+    transforms, sample-plane movement, and orientation checks.  Set ``geometry``
+    (a :class:`~fibsem.devices.base.ChamberDeviceGeometry`) to activate these; leave
+    it as ``None`` for inline FM configurations (backward-compatible default).
 
     Attributes:
         objective: The objective lens controller
@@ -559,15 +564,19 @@ class FluorescenceMicroscope(ABC):
     _stop_acquisition_event = threading.Event()
     _acquisition_thread: Optional[threading.Thread] = None
 
-    def __init__(self, parent: Optional["FibsemMicroscope"] = None):
+    def __init__(
+        self,
+        parent: Optional["FibsemMicroscope"] = None,
+        geometry: Optional["ChamberDeviceGeometry"] = None,
+    ):
         """Initialize the fluorescence microscope with default components.
 
         Args:
-            parent: Optional parent FibsemMicroscope instance for stage access
+            parent: Optional parent FibsemMicroscope instance for stage access.
+            geometry: Optional ChamberDeviceGeometry for offset-mounted FM
+                configurations.  ``None`` (default) preserves inline behaviour.
         """
-        super().__init__()
-
-        self.parent = parent
+        super().__init__(geometry=geometry, parent=parent)
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
@@ -584,9 +593,48 @@ class FluorescenceMicroscope(ABC):
             "FM",
             "SEM",
             "MILLING",
-        ]  # valid orientations for fluorescence acquisition
+        ]  # valid orientations for fluorescence acquisition (used when geometry is None)
         self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
         self.default_orientation: str = "FM"  # orientation used when computing fluorescence pose for new lamellas
+        self.column_tilt: float = 0.0  # rad — objective insertion angle; set from config for offset-mounted FM
+
+    def stable_move(self, dx: float, dy: float) -> "FibsemStagePosition":
+        """Move the stage in the FM image plane.
+
+        Uses the same Y/Z decomposition as
+        :meth:`FibsemMicroscope._y_corrected_stage_movement`, substituting
+        ``self.column_tilt`` for the FIB column tilt.  ``column_tilt = 0``
+        (default) is correct for an inline FM where the objective is vertical.
+
+        Args:
+            dx: Desired movement along the image x-axis (metres).
+            dy: Desired movement along the image y-axis (metres).
+
+        Returns:
+            Actual stage position after the move.
+        """
+        from fibsem.structures import FibsemStagePosition
+
+        parent = self.parent
+        sem_column_tilt = np.deg2rad(parent.system.electron.column_tilt)
+        stage_pretilt = np.deg2rad(parent.system.stage.shuttle_pre_tilt)
+        current_pos = parent.get_stage_position()
+        stage_tilt = current_pos.t
+
+        PRETILT_SIGN = 1.0
+        if parent.get_stage_orientation() in ["FIB", "FM"]:
+            PRETILT_SIGN = -1.0
+
+        corrected_pretilt = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
+        perspective_tilt = -corrected_pretilt - self.column_tilt
+
+        y_sample_move = dy / np.cos(stage_tilt + perspective_tilt)
+        y_move = y_sample_move * np.cos(corrected_pretilt)
+        z_move = -y_sample_move * np.sin(corrected_pretilt)
+
+        rel_pos = FibsemStagePosition(x=dx, y=y_move, z=z_move, r=0, t=0, coordinate_system="RAW")
+        parent.move_stage_relative(rel_pos)
+        return parent.get_stage_position()
 
     def has_valid_orientation(
         self, stage_position: Optional["FibsemStagePosition"] = None
@@ -594,6 +642,9 @@ class FluorescenceMicroscope(ABC):
         """Return True if the current (or given) stage orientation is allowed for FM acquisition."""
         if self._allow_unknown_orientations:
             return True
+        if self.geometry is not None:
+            orientation = self.parent.get_stage_orientation(stage_position)
+            return orientation in self.geometry.available_orientations
         orientation = self.parent.get_stage_orientation(stage_position)
         return orientation in self.valid_orientations
 

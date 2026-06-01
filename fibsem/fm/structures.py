@@ -1581,6 +1581,7 @@ class FluorescenceConfiguration:
     focus_position: Optional[float] = None  # meters
     limit_position: Optional[float] = None  # meters
     default_orientation: str = "FM"
+    geometry: Optional[object] = None  # ChamberDeviceGeometry when FM is offset-mounted; None = inline
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -1595,6 +1596,7 @@ class FluorescenceConfiguration:
             "focus_position": self.focus_position,
             "limit_position": self.limit_position,
             "default_orientation": self.default_orientation,
+            "geometry": self.geometry.to_dict() if self.geometry is not None else None,
         }
 
     @classmethod
@@ -1612,6 +1614,11 @@ class FluorescenceConfiguration:
         else:
             camera_settings = CameraSettings()
 
+        geometry = None
+        if ddict.get("geometry"):
+            from fibsem.devices.base import ChamberDeviceGeometry
+            geometry = ChamberDeviceGeometry.from_dict(ddict["geometry"])
+
         return cls(
             channel_settings=[
                 ChannelSettings.from_dict(ch) for ch in ddict["channel_settings"]
@@ -1625,6 +1632,7 @@ class FluorescenceConfiguration:
             focus_position=ddict.get("focus_position"),
             limit_position=ddict.get("limit_position"),
             default_orientation=ddict.get("default_orientation", "FM"),
+            geometry=geometry,
         )
 
     def export(self, filename: str) -> str:
