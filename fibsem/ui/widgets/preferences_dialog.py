@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QMessageBox,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -24,6 +25,7 @@ class PreferencesDialog(QDialog):
         self._preferences = preferences
         self._setup_ui()
         self._load_from_preferences(preferences)
+        self._chk_coincidence_milling.toggled.connect(self._on_coincidence_milling_toggled)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -57,10 +59,12 @@ class PreferencesDialog(QDialog):
         self._chk_lamella_live = QCheckBox()
         self._chk_pose = QCheckBox()
         self._chk_grid_marker = QCheckBox()
+        self._chk_coincidence_milling = QCheckBox()
         features_form.addRow("Minimap plot widget", self._chk_minimap)
         features_form.addRow("Lamella position on live view", self._chk_lamella_live)
         features_form.addRow("Pose controls", self._chk_pose)
         features_form.addRow("Grid center marker", self._chk_grid_marker)
+        features_form.addRow("Coincidence milling viewer", self._chk_coincidence_milling)
         content_layout.addWidget(
             TitledPanel("Feature Flags", content=features_content, collapsible=False)
         )
@@ -111,6 +115,7 @@ class PreferencesDialog(QDialog):
         self._chk_lamella_live.setChecked(f.lamella_position_on_live_view)
         self._chk_pose.setChecked(f.pose_controls)
         self._chk_grid_marker.setChecked(f.display_grid_center_marker)
+        self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
 
         p = prefs.paths
         self._dir_experiment.setText(p.default_experiment_directory)
@@ -119,6 +124,17 @@ class PreferencesDialog(QDialog):
         m = prefs.movement
         self._chk_acquire_sem.setChecked(m.acquire_sem_after_stage_movement)
         self._chk_acquire_fib.setChecked(m.acquire_fib_after_stage_movement)
+
+    def _on_coincidence_milling_toggled(self, checked: bool):
+        if not checked:
+            return
+        QMessageBox.warning(
+            self,
+            "Coincidence Milling — Restricted Use",
+            "This mode can only be used on the ThermoFisher Arctis that has the modified "
+            "sample holder. It also requires disabling the software restrictions related to "
+            "running the fluorescence microscope while milling.",
+        )
 
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state."""
@@ -142,6 +158,7 @@ class PreferencesDialog(QDialog):
                 lamella_position_on_live_view=self._chk_lamella_live.isChecked(),
                 pose_controls=self._chk_pose.isChecked(),
                 display_grid_center_marker=self._chk_grid_marker.isChecked(),
+                coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
             ),
             paths=PathPreferences(
                 default_experiment_directory=self._dir_experiment.text(),

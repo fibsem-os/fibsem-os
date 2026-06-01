@@ -36,6 +36,7 @@ ion:
     detector_type:              ETD                         
 fm:
   enabled: true
+#   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
 manipulator:
     enabled:                    false                        
     rotation:                   false                       

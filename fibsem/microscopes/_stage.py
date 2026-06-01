@@ -305,6 +305,10 @@ class Stage:
         self.move_absolute(slot.position)
         return self.position
 
+    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
+        """Move the stage to a specific orientation."""
+        return self.parent.move_to_orientation(orientation)
+
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Alias for move_to_slot for backward compatibility."""
         return self.move_to_slot(grid_name)

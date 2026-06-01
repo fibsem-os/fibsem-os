@@ -1,5 +1,7 @@
 import logging
+import threading
 from typing import List, Optional
+import numpy as np
 
 import napari
 import napari.utils.notifications
@@ -30,6 +32,7 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.viewer: napari.Viewer = parent.viewer
         self.microscope: FibsemMicroscope = parent.microscope
         self.worker: FunctionWorker = None
+        self.stop_event: threading.Event = threading.Event()
 
         # napari layers
         self.pts_layer: Optional[NapariPointsLayer] = None
@@ -66,17 +69,24 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.progressBar.setVisible(False)
         self.spot_burn_progress_signal.connect(self._update_progress_bar)
 
-    def set_active(self):
-        """Called when the widget is activated."""
+    def _add_points_layer(self):
         # check if the points layer exists, if not create it
         if SPOT_BURN_POINTS_LAYER_NAME not in self.viewer.layers:
             self.pts_layer = self.viewer.add_points(data=[],
-                                   name=SPOT_BURN_POINTS_LAYER_NAME,
-                                   visible=True,
-                                   size=20)
+                                name=SPOT_BURN_POINTS_LAYER_NAME,
+                                visible=True,
+                                size=20)
             self.pts_layer.events.data.connect(self._on_data_changed)
         else:
             self.pts_layer = self.viewer.layers[SPOT_BURN_POINTS_LAYER_NAME]
+
+    def set_active(self):
+        """Called when the widget is activated."""
+
+        # add the points layer if it doesn't exist
+        self._add_points_layer()
+        if self.pts_layer is None:
+            raise RuntimeError("Failed to create points layer for spot burn.")
 
         self.viewer.layers.selection.active = self.pts_layer
         self.pts_layer.visible = True
@@ -95,7 +105,11 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         """Update the parameters for the spot burn."""
         milling_current = parameters.get("milling_current", None)
         exposure_time = parameters.get("exposure_time", None)
+        coordinates = parameters.get("coordinates", None)
 
+        if self.pts_layer is None:
+            self._add_points_layer() # ensure points layer exists
+    
         if milling_current is not None:
             index = self.comboBox_beam_current.findData(milling_current)
             if index != -1:
@@ -103,6 +117,44 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
         if exposure_time is not None:
             self.doubleSpinBox_exposure_time.setValue(exposure_time)
+
+        if coordinates and self.pts_layer is not None:
+            self._set_coordinates(coordinates)
+
+    def _set_coordinates(self, coordinates: list):
+        """Pre-populate the points layer from normalised image coordinates (0-1)."""
+
+        self.image_layer = self.parent.image_widget.ib_layer
+        if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
+            return
+
+        image_shape = self.image_layer.data.shape
+        translate = self.image_layer.translate
+
+        # convert normalised (0-1) Point coordinates to napari pixel coordinates
+        pts = np.array([[pt.y * image_shape[0] + translate[0],
+                         pt.x * image_shape[1] + translate[1]]
+                        for pt in coordinates])
+        self.pts_layer.data = pts
+        self._on_data_changed()
+
+    def get_coordinates(self) -> list:
+        """Get the current spot burn positions as normalised image coordinates (0-1)."""
+        if self.pts_layer is None or len(self.pts_layer.data) == 0:
+            return []
+
+        self.image_layer = self.parent.image_widget.ib_layer
+        if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
+            return []
+
+        layer_translated = self.pts_layer.data - self.image_layer.translate
+        image_shape = self.image_layer.data.shape
+
+        coordinates = [Point(float(pt[1] / image_shape[1]), float(pt[0] / image_shape[0]))
+                       for pt in layer_translated]
+        # exclude points outside of image bounds
+        coordinates = [pt for pt in coordinates if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
+        return coordinates
 
     def clear_points_layer(self):
         """Clear the points layer."""
@@ -112,6 +164,8 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
     def _on_data_changed(self, event = None):
         """Called when the data in the points layer changes."""
+        if self.pts_layer is None:
+            return
         coordinates = self.pts_layer.data
         
         enabled = bool(len(coordinates) > 0)
@@ -131,28 +185,7 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
             napari.utils.notifications.show_warning("No points layer found. Requires 'spot-burn-points' layer.")
             return
 
-        # check if there is a points layer, and that it has points in it
-        if self.pts_layer is None:
-            napari.utils.notifications.show_warning("No points layer found.")
-            return
-    
-        if len(self.pts_layer.data) == 0:
-            napari.utils.notifications.show_warning("No points selected.")
-            return
-
-        # get the fib image parameters
-        self.image_layer = self.parent.image_widget.ib_layer
-        if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
-            napari.utils.notifications.show_warning("No FIB image layer found.")
-            return
-        layer_translated = self.pts_layer.data - self.image_layer.translate
-        image_shape = self.image_layer.data.shape
-
-        # convert to relative image coordinates (0 - 1)
-        coordinates = [Point(x=pt[1]/image_shape[1], y=pt[0] / image_shape[0]) for pt in layer_translated]
-
-        # exclude points outside of image bounds
-        coordinates = [pt for pt in coordinates if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
+        coordinates = self.get_coordinates()  # ensure coordinates are valid and within bounds
 
         if len(coordinates) == 0:
             napari.utils.notifications.show_warning("No points selected within FIB image bounds.")
@@ -163,6 +196,12 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
         logging.info(f"Running spot burn with {len(coordinates)} points. Beam current: {beam_current} A, exposure time: {exposure_time} s")
 
+        self.stop_event.clear()
+        self.pushButton_run_spot_burn.setText("Cancel")
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_run_spot_burn.clicked.disconnect()
+        self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
+
         self.worker = self._spot_burn_worker(microscope=self.microscope,
                                              coordinates=coordinates,
                                              exposure_time=exposure_time,
@@ -171,22 +210,26 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.worker.errored.connect(self.spot_burn_errored)
         self.worker.start()
 
+    def cancel_spot_burn(self):
+        """Cancel the running spot burn."""
+        logging.info("Cancelling spot burn...")
+        self.stop_event.set()
+
     @thread_worker
     def _spot_burn_worker(self, microscope: FibsemMicroscope, coordinates: List[Point], exposure_time: float, milling_current: float):
         """Worker function to run the spot burn."""
-        self.pushButton_run_spot_burn.setEnabled(False)
-        self.pushButton_run_spot_burn.setText("Burning Spot...")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
-
         run_spot_burn(microscope=microscope,
                        coordinates=coordinates,
                        exposure_time=exposure_time,
                        milling_current=milling_current,
                        beam_type=BeamType.ION,
-                       parent_ui=self)
+                       parent_ui=self,
+                       stop_event=self.stop_event)
 
     def spot_burn_finished(self, result):
         """Called when the spot burn is finished."""
+        self.pushButton_run_spot_burn.clicked.disconnect()
+        self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)
         self.pushButton_run_spot_burn.setText("Burn Spot")
         self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
@@ -224,8 +267,8 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.progressBar.setMinimum(0)
         
         if total_elapsed_time > 0 and total_estimated_time > 0:
-            self.progressBar.setMaximum(total_estimated_time)
-            self.progressBar.setValue(total_elapsed_time)
+            self.progressBar.setMaximum(int(total_estimated_time))
+            self.progressBar.setValue(int(total_elapsed_time))
             self.progressBar.setTextVisible(True)
             self.progressBar.setFormat(f"Burning Spot {current_point}/{total_points}... {int(remaining_time)}s remaining")
         else:

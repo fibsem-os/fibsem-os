@@ -1,5 +1,7 @@
+from __future__ import annotations
 
 import copy
+import datetime
 import glob
 import logging
 import os
@@ -20,12 +22,18 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import conversions
+from fibsem import conversions, constants
 from fibsem.applications.autolamella.structures import (
     Lamella,
 )
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, FibsemRectangle, Point, ReferenceImageParameters
+from fibsem.structures import (
+    FibsemImage,
+    FibsemRectangle,
+    Point,
+    ReferenceImageParameters,
+)
 from fibsem.ui.napari.patterns import (
     MILLING_ALIGNMENT_AREA_LAYER_NAME,
     MILLING_PATTERN_LAYER_NAME,
@@ -47,9 +55,21 @@ from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
 from fibsem.utils import format_value
+from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
+    AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
+)
+from fibsem.applications.autolamella.workflows.tasks.tasks import (
+    AcquireFluorescenceImageConfig,
+    SpotBurnFiducialTaskConfig,
+)
+from fibsem.ui.widgets.autolamella_spot_burn_coordinates_widget import (
+    AutoLamellaSpotBurnCoordinatesWidget,
+    SPOT_BURN_EDITOR_POINTS_LAYER,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.correlation.structures import CorrelationResult
 
 REFERENCE_IMAGE_LAYER_NAME = "Reference Image (FIB)"
 REFERENCE_IMAGE_SEM_LAYER_NAME = "Reference Image (SEM)"
@@ -59,17 +79,16 @@ POINT_OF_INTEREST_LAYER_NAME = "Point of Interest"
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
-    def __init__(self,
-                viewer: napari.Viewer,
-                parent: 'AutoLamellaUI'):
+    def __init__(self, viewer: napari.Viewer, parent: "AutoLamellaUI"):
         super().__init__(parent)
         self.parent_widget = parent
         self.viewer = viewer
 
         # add placeholder image layer to prevent napari help screen showing
-        self.viewer.add_image(np.zeros((10,10)), name="Placeholder", visible=False)
+        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.image: FibsemImage
+        self.fm_image: Optional[FluorescenceImage] = None
         self.show_related_milling_tasks = True
         self.show_sem_image = False
         self.show_alignment_area = True
@@ -88,7 +107,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.parent_widget.microscope is None:
             raise ValueError("Microscope in parent widget is None, cannot proceed.")
         self.microscope = self.parent_widget.microscope
-        if hasattr(self, 'milling_task_editor'):
+        if hasattr(self, "milling_task_editor"):
             # Reconnect: widget already initialized, just update microscope reference
             self.milling_task_editor.microscope = self.microscope
         else:
@@ -100,7 +119,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """Set the experiment for the protocol editor."""
         self._refresh_experiment_positions()
 
-    def set_active_lamella_name(self, lamella_name: Optional[str], task_name: Optional[str] = None) -> None:
+    def set_active_lamella_name(
+        self, lamella_name: Optional[str], task_name: Optional[str] = None
+    ) -> None:
         """Track which lamella/task is actively being processed and lock/unlock editing accordingly."""
         self._active_lamella_name = lamella_name
         self._active_task_name = task_name
@@ -111,9 +132,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return False
         selected_name = self._selected_lamella.name if self._selected_lamella else ""
         selected_task = self.listWidget_selected_task.selected_task
-        return (
-            selected_name == self._active_lamella_name
-            and (self._active_task_name is None or selected_task == self._active_task_name)
+        return selected_name == self._active_lamella_name and (
+            self._active_task_name is None or selected_task == self._active_task_name
         )
 
     def _apply_editing_lock(self, locked: bool) -> None:
@@ -121,7 +141,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.ref_image_params_widget.setEnabled(not locked)
         self.milling_task_editor.setEnabled(not locked)
         if locked:
-            self.label_lamella_warning.setText("This lamella is currently being processed and cannot be edited.")
+            self.label_lamella_warning.setText(
+                "This lamella is currently being processed and cannot be edited."
+            )
         else:
             self.label_lamella_warning.setText("")
 
@@ -137,15 +159,29 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.milling_task_editor.setMinimumHeight(550)
         self.milling_task_editor.set_alignment_area_visible(False)
 
-        self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
+        self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(
+            parent=self
+        )
 
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
+
+        self.fluorescence_acquisition_task_config_widget = (
+            AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
+                microscope=self.microscope, config=None, parent=self
+            )
+        )
+
+        self.spot_burn_coordinates_widget = AutoLamellaSpotBurnCoordinatesWidget(
+            viewer=self.viewer, config=None, parent=self
+        )
 
         self.pushButton_refresh_positions = IconToolButton(
             icon="mdi:refresh",
             tooltip="Reload task configs and images for the current lamella.",
         )
-        self.pushButton_refresh_positions.clicked.connect(self._refresh_experiment_positions)
+        self.pushButton_refresh_positions.clicked.connect(
+            self._refresh_experiment_positions
+        )
         self.pushButton_apply_to_other = IconToolButton(
             icon="mdi:file-transfer",
             tooltip="Apply this lamella's task configurations to other lamella in the experiment.",
@@ -155,8 +191,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             icon="mdi:target",
             tooltip="Open the 3D correlation tool to align the FIB and FM images.",
         )
-        self.pushButton_open_correlation.clicked.connect(self._open_correlation_widget)
-        self.pushButton_open_correlation.setVisible(False) # TMP: disable until refactored
+        self.pushButton_open_correlation.clicked.connect(self._open_correlation_dialog)
 
         self.pushButton_toggle_sem_image = IconToolButton(
             icon="mdi:eye-off",
@@ -176,7 +211,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             checkable=True,
             checked=self.show_related_milling_tasks,
         )
-        self.pushButton_toggle_related_tasks.toggled.connect(self._on_toggle_related_tasks)
+        self.pushButton_toggle_related_tasks.toggled.connect(
+            self._on_toggle_related_tasks
+        )
 
         self.pushButton_toggle_alignment_area = IconToolButton(
             icon="mdi:crop-free",
@@ -186,7 +223,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             checkable=True,
             checked=self.show_alignment_area,
         )
-        self.pushButton_toggle_alignment_area.toggled.connect(self._on_toggle_alignment_area)
+        self.pushButton_toggle_alignment_area.toggled.connect(
+            self._on_toggle_alignment_area
+        )
 
         self.pushButton_edit_alignment_area = IconToolButton(
             icon="mdi:pencil-off",
@@ -197,7 +236,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             checked=self.alignment_area_editable,
         )
         self.pushButton_edit_alignment_area.setEnabled(self.show_alignment_area)
-        self.pushButton_edit_alignment_area.toggled.connect(self._on_toggle_alignment_area_editable)
+        self.pushButton_edit_alignment_area.toggled.connect(
+            self._on_toggle_alignment_area_editable
+        )
 
         self.label_lamella_name = QLabel("")
         self.label_lamella_name.setStyleSheet(
@@ -258,30 +299,53 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.scroll_content_layout = QVBoxLayout()
 
         self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True) # required to resize
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)       # type: ignore
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)    # type: ignore
+        self.scroll_area.setWidgetResizable(True)  # required to resize
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # type: ignore
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
         self.scroll_content_layout.addLayout(self.grid_layout)
         self.scroll_content_layout.addWidget(self.task_parameters_config_widget)
-        self.scroll_content_layout.addWidget(self.ref_image_params_widget)      # type: ignore
-        self.scroll_content_layout.addWidget(self.milling_task_editor)     # type: ignore
+        self.scroll_content_layout.addWidget(self.spot_burn_coordinates_widget)
+        self.scroll_content_layout.addWidget(self.ref_image_params_widget)  # type: ignore
+        self.scroll_content_layout.addWidget(self.milling_task_editor)  # type: ignore
+        self.scroll_content_layout.addWidget(
+            self.fluorescence_acquisition_task_config_widget
+        )  # type: ignore
         self.scroll_content_layout.addStretch()
 
         self.scroll_content_widget = QWidget()
         self.scroll_content_widget.setLayout(self.scroll_content_layout)
-        self.scroll_area.setWidget(self.scroll_content_widget) # type: ignore
-        self.main_layout.addWidget(self.scroll_area) # type: ignore
+        self.scroll_area.setWidget(self.scroll_content_widget)  # type: ignore
+        self.main_layout.addWidget(self.scroll_area)  # type: ignore
 
     def _initialise_widgets(self):
         """Initialise the widgets based on the current experiment protocol."""
-        self.listWidget_selected_task.task_selected.connect(lambda _: self._on_selected_task_changed())
-        self.milling_task_editor.settings_changed.connect(self._on_milling_task_config_updated)
-        self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
-        self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
-        self.milling_task_editor.set_right_click_menu_actions(self._add_poi_context_menu_action)
+        self.listWidget_selected_task.task_selected.connect(
+            lambda _: self._on_selected_task_changed()
+        )
+        self.milling_task_editor.settings_changed.connect(
+            self._on_milling_task_config_updated
+        )
+        self.task_parameters_config_widget.parameter_changed.connect(
+            self._on_task_parameters_config_changed
+        )
+        self.ref_image_params_widget.settings_changed.connect(
+            self._on_ref_image_settings_changed
+        )
+        self.milling_task_editor.set_right_click_menu_actions(
+            self._add_poi_context_menu_action
+        )
         self._correlation_open = False
+        self.fluorescence_acquisition_task_config_widget.settings_changed.connect(
+            self._on_fluorescence_acquisition_settings_changed
+        )
+        self.spot_burn_coordinates_widget.settings_changed.connect(
+            self._on_spot_burn_coordinates_changed
+        )
 
-        if self.parent_widget.experiment is not None and self.parent_widget.experiment.positions:  # type: ignore
+        if (
+            self.parent_widget.experiment is not None
+            and self.parent_widget.experiment.positions
+        ):  # type: ignore
             self._selected_lamella = self.parent_widget.experiment.positions[0]
             self._on_selected_lamella_changed()
 
@@ -291,16 +355,17 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if experiment is None:
             return
         current_name = self._selected_lamella.name if self._selected_lamella else ""
-        self._selected_lamella = (
-            experiment.get_lamella_by_name(current_name)
-            or (experiment.positions[0] if experiment.positions else None)
+        self._selected_lamella = experiment.get_lamella_by_name(current_name) or (
+            experiment.positions[0] if experiment.positions else None
         )
         if self._selected_lamella is not None:
             self._on_selected_lamella_changed()
 
     def select_lamella(self, name: str) -> None:
         """Select a lamella by name and refresh the editor. Called externally (e.g. card click)."""
-        if self.parent_widget.experiment is None or not hasattr(self, "label_lamella_name"):
+        if self.parent_widget.experiment is None or not hasattr(
+            self, "label_lamella_name"
+        ):
             return
         lamella = self.parent_widget.experiment.get_lamella_by_name(name)
         if lamella is not None:
@@ -309,12 +374,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_selected_lamella_changed(self):
         """Callback when the selected lamella changes."""
-        selected_lamella: Lamella = self._selected_lamella
+        selected_lamella = self._selected_lamella
         if selected_lamella is None:
             return
         self.label_lamella_name.setText(selected_lamella.name)
 
-        task_names = self._sort_task_names_by_workflow(list(selected_lamella.task_config.keys()))
+        task_names = self._sort_task_names_by_workflow(
+            list(selected_lamella.task_config.keys())
+        )
         self.listWidget_selected_task.set_tasks(task_names)
 
         # load fluorescence image
@@ -323,13 +390,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fm_filenames.clear()
         for f in filenames:
             self.combobox_fm_filenames.addItem(os.path.basename(f))
-        self.combobox_fm_filenames.setCurrentIndex(len(filenames)-1)  # Select latest by default
+        self.combobox_fm_filenames.setCurrentIndex(
+            len(filenames) - 1
+        )  # Select latest by default
         self.combobox_fm_filenames.blockSignals(False)
 
         # load fib reference image
         self.combobox_fib_filenames.blockSignals(True)
-        fib_filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*_ib.tif")))
-        fib_filenames = [f for f in fib_filenames if "alignment" not in f] # show all non-alignment images
+        fib_filenames = sorted(
+            glob.glob(os.path.join(selected_lamella.path, "*_ib.tif"))
+        )
+        fib_filenames = [
+            f for f in fib_filenames if "alignment" not in f
+        ]  # show all non-alignment images
 
         # remember selected fib filename
         selected_fib_filename = self.combobox_fib_filenames.currentText()
@@ -341,12 +414,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         latest_task_filename = ""
         if selected_lamella.last_completed_task is not None:
-            last_task_name = selected_lamella.last_completed_task.name          
+            last_task_name = selected_lamella.last_completed_task.name
             reference_image_filename = f"ref_{last_task_name}_final_res_*_ib.tif"
-            matching_filenames = glob.glob(os.path.join(selected_lamella.path, reference_image_filename))
+            matching_filenames = glob.glob(
+                os.path.join(selected_lamella.path, reference_image_filename)
+            )
             if len(matching_filenames) > 0:
                 # pick the latest by modification time
-                latest_task_filename = os.path.basename(sorted(matching_filenames, key=os.path.getmtime)[-1])
+                latest_task_filename = os.path.basename(
+                    sorted(matching_filenames, key=os.path.getmtime)[-1]
+                )
 
         # set default fib image filename
         default_filename = fib_filenames[-1] if len(fib_filenames) > 0 else ""
@@ -360,7 +437,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # load sem reference image
         self.combobox_sem_filenames.blockSignals(True)
-        sem_filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*_eb.tif")))
+        sem_filenames = sorted(
+            glob.glob(os.path.join(selected_lamella.path, "*_eb.tif"))
+        )
         sem_filenames = [f for f in sem_filenames if "alignment" not in f]
 
         selected_sem_filename = self.combobox_sem_filenames.currentText()
@@ -374,9 +453,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_lamella.last_completed_task is not None:
             last_task_name = selected_lamella.last_completed_task.name
             reference_sem_filename = f"ref_{last_task_name}_final_res_*_eb.tif"
-            matching_sem_filenames = glob.glob(os.path.join(selected_lamella.path, reference_sem_filename))
+            matching_sem_filenames = glob.glob(
+                os.path.join(selected_lamella.path, reference_sem_filename)
+            )
             if len(matching_sem_filenames) > 0:
-                latest_sem_task_filename = os.path.basename(sorted(matching_sem_filenames, key=os.path.getmtime)[-1])
+                latest_sem_task_filename = os.path.basename(
+                    sorted(matching_sem_filenames, key=os.path.getmtime)[-1]
+                )
 
         default_sem_filename = sem_filenames[-1] if sem_filenames else ""
         if latest_sem_task_filename in sem_base_filenames:
@@ -394,7 +477,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_fib_filenames_label.setVisible(len(fib_filenames) > 0)
         self.combobox_sem_filenames.setVisible(len(sem_filenames) > 0)
         self.combobox_sem_filenames_label.setVisible(len(sem_filenames) > 0)
-        self.combobox_sem_filenames.setEnabled(self.show_sem_image and len(sem_filenames) > 0)
+        self.combobox_sem_filenames.setEnabled(
+            self.show_sem_image and len(sem_filenames) > 0
+        )
         self.pushButton_toggle_sem_image.setEnabled(len(sem_filenames) > 0)
 
         # warnings and widget enablement
@@ -419,7 +504,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _on_toggle_sem_image(self, checked: bool):
         """Toggle displaying the sem image and enablement of sem controls."""
         self.show_sem_image = checked
-        self.combobox_sem_filenames.setEnabled(self.show_sem_image and self.combobox_sem_filenames.count() > 0)
+        self.combobox_sem_filenames.setEnabled(
+            self.show_sem_image and self.combobox_sem_filenames.count() > 0
+        )
         self._on_image_selected(0)
 
     def _on_toggle_related_tasks(self, checked: bool):
@@ -429,13 +516,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_image_selected(self, index):
         """Callback when an image is selected."""
-        p: Lamella = self._selected_lamella
+        p = self._selected_lamella
+        if p is None:
+            return
+        fm_filename = self.combobox_fm_filenames.currentText()
         fib_filename = self.combobox_fib_filenames.currentText()
         sem_filename = self.combobox_sem_filenames.currentText()
 
         # load the fib reference image
         reference_image_path = os.path.join(p.path, fib_filename)
-        if os.path.exists(reference_image_path) and os.path.isfile(reference_image_path):
+        if os.path.exists(reference_image_path) and os.path.isfile(
+            reference_image_path
+        ):
             self.image = FibsemImage.load(reference_image_path)
         else:
             self.image = FibsemImage.generate_blank_image(hfw=100e-6, random=False)
@@ -447,10 +539,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             if os.path.exists(sem_image_path) and os.path.isfile(sem_image_path):
                 sem_image = FibsemImage.load(sem_image_path)
 
+        # load the fluorescence image
+        self.fm_image = None
+        fm_image_path = os.path.join(p.path, fm_filename) if fm_filename else None
+        if fm_image_path and os.path.exists(fm_image_path):
+            self.fm_image = FluorescenceImage.load(fm_image_path)
+
         # clear existing layers, except images to maintain the layer parameters (e.g. gamma, contrast limits)
-        for layer in list(self.viewer.layers): # type: ignore
-            if layer.name not in [REFERENCE_IMAGE_LAYER_NAME, REFERENCE_IMAGE_SEM_LAYER_NAME]:
-                self.viewer.layers.remove(layer) # type: ignore
+        for layer in list(self.viewer.layers):  # type: ignore
+            if layer.name not in [
+                REFERENCE_IMAGE_LAYER_NAME,
+                REFERENCE_IMAGE_SEM_LAYER_NAME,
+            ]:
+                self.viewer.layers.remove(layer)  # type: ignore
 
         self._update_fib_image_layer()
         self._update_sem_image_layer(sem_image)
@@ -458,10 +559,24 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._on_selected_task_changed()
         self.viewer.reset_view()
 
+    def _update_fm_image_layer(self):
+        if self.fm_image is not None:
+            for ch in range(self.fm_image.data.shape[0]):
+                fm_data = np.array([d for d in self.fm_image.data[ch]])
+                name = f"{self.fm_image.metadata.channels[ch].name}"
+                self.viewer.add_image(
+                    fm_data,
+                    name=name,
+                    colormap=self.fm_image.metadata.channels[ch].color,
+                    blending="additive",
+                )
+
     def _update_fib_image_layer(self):
         """Update the FIB reference image layer with the currently selected image, or create it if it doesn't exist."""
         if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].data = self.image.filtered_data # type: ignore
+            self.viewer.layers[
+                REFERENCE_IMAGE_LAYER_NAME
+            ].data = self.image.filtered_data  # type: ignore
         else:
             self.viewer.add_image(
                 data=self.image.filtered_data,
@@ -474,19 +589,21 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """Add or update the SEM reference image layer, or remove it if no SEM image is provided."""
         if sem_image is None:
             if REFERENCE_IMAGE_SEM_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(REFERENCE_IMAGE_SEM_LAYER_NAME) # type: ignore
+                self.viewer.layers.remove(REFERENCE_IMAGE_SEM_LAYER_NAME)  # type: ignore
             return
-            
+
         if REFERENCE_IMAGE_SEM_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[REFERENCE_IMAGE_SEM_LAYER_NAME].data = sem_image.filtered_data # type: ignore
+            self.viewer.layers[
+                REFERENCE_IMAGE_SEM_LAYER_NAME
+            ].data = sem_image.filtered_data  # type: ignore
         else:
             self.viewer.add_image(
                 data=sem_image.filtered_data,
                 name=REFERENCE_IMAGE_SEM_LAYER_NAME,
                 colormap="gray",
                 blending="additive",
-            translate=(0, -sem_image.data.shape[1]),
-        )
+                translate=(0, -sem_image.data.shape[1]),
+            )
 
     # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:
@@ -505,7 +622,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         return sorted(
             task_names,
-            key=lambda name: (workflow_order.get(name, default_order), original_order[name]),
+            key=lambda name: (
+                workflow_order.get(name, default_order),
+                original_order[name],
+            ),
         )
 
     def _on_selected_task_changed(self):
@@ -513,7 +633,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_stage_name = self.listWidget_selected_task.selected_task
         if not selected_stage_name:
             return
-        selected_lamella: Lamella = self._selected_lamella
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None:
+            return
 
         task_config = selected_lamella.task_config[selected_stage_name]
         self.task_parameters_config_widget.set_task_config(task_config)
@@ -523,8 +645,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         milling_task_config = copy.deepcopy(task_config.milling)
         background_milling_stages = []
 
-        if self.show_related_milling_tasks and (related_configs := task_config.related_tasks):
-            for related_task_name, related_task_config in selected_lamella.task_config.items():
+        if self.show_related_milling_tasks and (
+            related_configs := task_config.related_tasks
+        ):
+            for (
+                related_task_name,
+                related_task_config,
+            ) in selected_lamella.task_config.items():
                 if isinstance(related_task_config, tuple(related_configs)):
                     cfg = selected_lamella.task_config.get(related_task_name, None)
                     if cfg is not None and cfg.milling:
@@ -533,10 +660,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if milling_task_config:
             self._current_milling_key = next(iter(milling_task_config))
-            image_layer = self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME] if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers else None
+            image_layer = (
+                self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME]
+                if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers
+                else None
+            )
             self.milling_task_editor.set_fib_image(self.image, image_layer)
-            self.milling_task_editor.set_config(milling_task_config[self._current_milling_key])
-            self.milling_task_editor.set_background_milling_stages(background_milling_stages)
+            self.milling_task_editor.set_config(
+                milling_task_config[self._current_milling_key]
+            )
+            self.milling_task_editor.set_background_milling_stages(
+                background_milling_stages
+            )
             self._on_milling_fov_changed(milling_task_config)
             self.milling_task_editor.setVisible(True)
         else:
@@ -544,7 +679,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.milling_task_editor.clear()
             self.milling_task_editor.setVisible(False)
             if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME) # type: ignore
+                self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME)  # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # Re-apply lock if this lamella/task is currently being processed
@@ -557,8 +692,59 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_status.setText(msg)
         self.label_status.setVisible(bool(msg))
 
+        # special handling for fluorescence acquisition task
+        is_fluorescence_task = isinstance(task_config, AcquireFluorescenceImageConfig)
+        self.fluorescence_acquisition_task_config_widget.setVisible(
+            is_fluorescence_task
+        )
+        self.task_parameters_config_widget.setVisible(not is_fluorescence_task)
+        self.ref_image_params_widget.setVisible(not is_fluorescence_task)
+        self.combobox_fm_filenames.setEnabled(is_fluorescence_task)
+        self.combobox_fm_filenames_label.setEnabled(is_fluorescence_task)
+        self.combobox_fm_filenames.setToolTip(
+            ""
+            if is_fluorescence_task
+            else "Only available for Acquire Fluorescence Image tasks"
+        )
+        if is_fluorescence_task:
+            self.fluorescence_acquisition_task_config_widget.set_task_config(
+                task_config
+            )
+            # add FM layers if not already present (they're cleared on image reload)
+            if self.fm_image is not None and not any(
+                layer.name
+                not in (
+                    REFERENCE_IMAGE_LAYER_NAME,
+                    REFERENCE_IMAGE_SEM_LAYER_NAME,
+                    POINT_OF_INTEREST_LAYER_NAME,
+                )
+                for layer in self.viewer.layers
+            ):
+                self._update_fm_image_layer()
+
+        # special handling for spot burn fiducial task
+        is_spot_burn_task = isinstance(task_config, SpotBurnFiducialTaskConfig)
+        self.spot_burn_coordinates_widget.setVisible(is_spot_burn_task)
+        if is_spot_burn_task:
+            self.spot_burn_coordinates_widget.set_task_config(task_config)
+
         self._draw_point_of_interest(selected_lamella.poi)
         self._draw_alignment_area()
+
+        # toggle napari image layer visibility based on task type
+        _fib_sem_layers = (
+            REFERENCE_IMAGE_LAYER_NAME,
+            REFERENCE_IMAGE_SEM_LAYER_NAME,
+            POINT_OF_INTEREST_LAYER_NAME,
+            MILLING_ALIGNMENT_AREA_LAYER_NAME,
+            MILLING_PATTERN_LAYER_NAME,
+            SPOT_BURN_EDITOR_POINTS_LAYER,
+        )
+        for layer in self.viewer.layers:
+            if layer.name in _fib_sem_layers:
+                layer.visible = not is_fluorescence_task
+            else:
+                layer.visible = is_fluorescence_task
 
     def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
         """Display a warning if the milling FoV does not match the image FoV."""
@@ -567,9 +753,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             milling_fov = config[key].field_of_view
             image_hfw = self.image.metadata.image_settings.hfw  # type: ignore
             if not np.isclose(milling_fov, image_hfw):
-                milling_fov_um = format_value(milling_fov, unit='m', precision=0)
-                image_fov_um = format_value(image_hfw, unit='m', precision=0)
-                self.label_warning.setText(f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um}).")
+                milling_fov_um = format_value(milling_fov, unit="m", precision=0)
+                image_fov_um = format_value(image_hfw, unit="m", precision=0)
+                self.label_warning.setText(
+                    f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um})."
+                )
                 self.label_warning.setVisible(True)
                 return
         except Exception as e:
@@ -583,23 +771,33 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_task_name = self.listWidget_selected_task.selected_task
         if not selected_task_name:
             return
-        selected_lamella: Lamella = self._selected_lamella
-        key = getattr(self, '_current_milling_key', None)
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None:
+            return
+        key = getattr(self, "_current_milling_key", None)
         if key:
             selected_lamella.task_config[selected_task_name].milling[key] = config
-            logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task, milling key '{key}'")
+            logging.info(
+                f"Updated {selected_lamella.name}, {selected_task_name} Task, milling key '{key}'"
+            )
 
         self._save_experiment()
 
-        self._on_milling_fov_changed(selected_lamella.task_config[selected_task_name].milling)
+        self._on_milling_fov_changed(
+            selected_lamella.task_config[selected_task_name].milling
+        )
 
     def _on_task_parameters_config_changed(self, field_name: str, new_value: Any):
         """Callback when the task parameters config is updated."""
         selected_task_name = self.listWidget_selected_task.selected_task
         if not selected_task_name:
             return
-        selected_lamella: Lamella = self._selected_lamella
-        logging.info(f"Updated {selected_lamella.name}, {selected_task_name} Task Parameters: {field_name} = {new_value}")
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None:
+            return
+        logging.info(
+            f"Updated {selected_lamella.name}, {selected_task_name} Task Parameters: {field_name} = {new_value}"
+        )
 
         # TODO: we should integrate both milling and parameter updates into a single config update method
 
@@ -615,23 +813,62 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         selected_task_name = self.listWidget_selected_task.selected_task
         if not selected_task_name:
             return
-        selected_lamella: Lamella = self._selected_lamella
+
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None:
+            return
         selected_lamella.task_config[selected_task_name].reference_imaging = settings
 
         # Save the experiment
         self._save_experiment()
 
+    def _on_fluorescence_acquisition_settings_changed(
+        self, config: "AcquireFluorescenceImageConfig"
+    ):
+        """Callback when the fluorescence acquisition settings are changed."""
+
+        # Update the task config
+        selected_task_name = self.listWidget_selected_task.selected_task
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None or selected_task_name is None:
+            return
+        selected_lamella.task_config[selected_task_name] = config
+        logging.info(
+            f"Updated {selected_lamella.name}, {selected_task_name} Fluorescence Acquisition Settings"
+        )
+
+        # Save the experiment
+        self._save_experiment()
+
+    def _on_spot_burn_coordinates_changed(self, config: "SpotBurnFiducialTaskConfig"):
+        """Callback when the spot burn coordinates are changed."""
+        selected_task_name = self.listWidget_selected_task.selected_task
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None or selected_task_name is None:
+            return
+        selected_lamella.task_config[selected_task_name] = config
+        logging.info(
+            f"Updated {selected_lamella.name}, {selected_task_name} Spot Burn Coordinates"
+        )
+        self._save_experiment()
+
     def _on_point_of_interest_updated(self, point: Point):
         """Callback when the point of interest is updated."""
-        selected_lamella: Lamella = self._selected_lamella
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None:
+            return
+
         logging.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
 
         # update point of interest in the task config
         selected_lamella.poi = point
 
-        # move patterns for tasks with sync_to_poi enabled
-        self._sync_task_patterns_to_poi(selected_lamella, point)
+        # update point of interest in the task config, and optionally sync pattern positions to the new point
+        selected_lamella.poi = point
+        synced_tasks = selected_lamella.sync_tasks_to_poi()
         self._draw_point_of_interest(point)
+        if synced_tasks:
+            self._on_selected_task_changed()  # refresh milling task editor to show updated pattern positions
 
         self._save_experiment()
 
@@ -644,18 +881,20 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             pixel_size=self.image.metadata.pixel_size.x,
         )
 
-        if  POINT_OF_INTEREST_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[POINT_OF_INTEREST_LAYER_NAME].data = np.array([[image_coords.y, image_coords.x]])  # yx format
+        if POINT_OF_INTEREST_LAYER_NAME in self.viewer.layers:
+            self.viewer.layers[POINT_OF_INTEREST_LAYER_NAME].data = np.array(
+                [[image_coords.y, image_coords.x]]
+            )  # yx format
         else:
             add_points_layer(
                 viewer=self.viewer,
                 data=np.array([[image_coords.y, image_coords.x]]),  # yx format
                 name=POINT_OF_INTEREST_LAYER_NAME,
                 size=20,
-                face_color='magenta',
-                border_color='white',
-                symbol='cross',
-                blending='additive',
+                face_color="magenta",
+                border_color="white",
+                symbol="cross",
+                blending="additive",
                 border_width=None,
                 border_width_is_relative=False,
             )
@@ -690,8 +929,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME)  # type: ignore
             return
 
-        translate = tuple(self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].translate) \
-            if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers else (0, 0)
+        translate = (
+            tuple(self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].translate)
+            if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers
+            else (0, 0)
+        )
 
         setup_editable_alignment_layer(
             viewer=self.viewer,
@@ -709,7 +951,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._selected_lamella.alignment_area = rect
         self._save_experiment()
 
-    def _add_poi_context_menu_action(self, config: ContextMenuConfig, point: Point) -> None:
+    def _add_poi_context_menu_action(
+        self, config: ContextMenuConfig, point: Point
+    ) -> None:
         """Add POI movement action to the right-click context menu."""
         if self._correlation_open:
             return
@@ -718,97 +962,48 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             callback=lambda: self._on_point_of_interest_updated(point),
         )
 
-    def _sync_task_patterns_to_poi(self, lamella: Lamella, point: Point):
-        """Move milling patterns to the point of interest for tasks with sync_to_poi enabled."""
-        synced_tasks = []
+    def _open_correlation_dialog(self) -> None:
+        """Open CorrelationTabWidget in a modal dialog."""
+        selected_lamella = self._selected_lamella
+        if selected_lamella is None:
+            logging.error("No lamella selected, cannot open correlation dialog.")
+            return
 
-        for task_name, task_config in lamella.task_config.items():
-            # check if task has sync_to_poi enabled
-            if not getattr(task_config, "sync_to_poi", False):
-                continue
-            if not task_config.milling:
-                continue
-
-            for milling_config in task_config.milling.values():
-                if not milling_config.stages:
-                    continue
-                # calculate offset from the first stage's pattern point
-                diff = point - milling_config.stages[0].pattern.point
-                for stage in milling_config.stages:
-                    stage.pattern.point = stage.pattern.point + diff
-
-            synced_tasks.append(task_name)
-
-
-        if synced_tasks:
-            logging.info(f"Synced patterns to POI for tasks: {synced_tasks}")
-            self._on_selected_task_changed()  # refresh milling task editor to show updated pattern positions
-
-    def _open_correlation_widget(self):
-        """Open the 3D correlation widget in the viewer."""
-
-        # close existing correlation widget if open
-        try:
-            if hasattr(self, "correlation_widget") and self.correlation_widget is not None:
-                self.correlation_widget.close()
-                self.correlation_widget = None
-        except Exception as e:
-            logging.warning(f"Error closing correlation widget: {e}")
-
-        # snapshot existing layers so we can restore visibility later
-        self._existing_layers = [layer.name for layer in self.viewer.layers]
-        for layer_name in self._existing_layers:
-            self.viewer.layers[layer_name].visible = False
-
-        from fibsem.correlation.app import CorrelationUI
-        self.correlation_widget = CorrelationUI(viewer=self.viewer, parent_ui=self)
-        self.correlation_widget.continue_pressed_signal.connect(self._handle_correlation_continue_signal)
-        self._correlation_open = True
-
-        # load fib image
-        selected_lamella: Lamella = self._selected_lamella
-        project_path = str(selected_lamella.path) if selected_lamella is not None else ""
-        self.correlation_widget.set_project_path(project_path)
-
-        fib_image: FibsemImage = self.image
-        if fib_image is not None and fib_image.metadata is not None:
-            fib_filename = fib_image.metadata.image_settings.filename if fib_image.metadata.image_settings.filename else "FIB Image"
-            self.correlation_widget.load_fib_image(
-                image=fib_image.filtered_data,
-                pixel_size=fib_image.metadata.pixel_size.x,
-                filename=fib_filename,
-            )
-
-        self.viewer.window.add_dock_widget(
-            self.correlation_widget,
-            area="right",
-            name="3DCT Correlation",
-            tabify=True,
+        from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+            CorrelationTabDialog,
         )
 
-    def _handle_correlation_continue_signal(self, data: dict):
-        """Handle the result from the correlation widget."""
-        logging.info(f"correlation-data: {data}")
+        project_path = os.path.join(
+            selected_lamella.path,
+            "Correlation",
+            datetime.datetime.now().strftime(constants.DATETIME_FILE),
+        )
+        os.makedirs(project_path, exist_ok=True)
 
-        poi = data.get("poi", None)
-        if poi is not None:
-            point = Point(x=poi[0], y=poi[1])
-            self._on_point_of_interest_updated(point)
+        dialog = CorrelationTabDialog(parent=self)
+        dialog.set_project_dir(project_path)
 
-        self._close_correlation_widget()
+        fib_image = self.image
+        if fib_image is not None:
+            dialog.set_fib_image(fib_image)
 
-    def _close_correlation_widget(self):
-        """Close the correlation widget and restore layer visibility."""
-        # restore layers visibility
-        for layer_name in self._existing_layers:
-            if layer_name in self.viewer.layers:
-                self.viewer.layers[layer_name].visible = True
+        fm_image = self.fm_image
+        if fm_image is not None:
+            dialog.set_fm_image(fm_image)
 
-        # remove dock widget and clean up
-        self.viewer.window.remove_dock_widget(self.correlation_widget)
-        self.correlation_widget = None
-        self._existing_layers = []
-        self._correlation_open = False
+        if dialog.exec_() == QDialog.Accepted and dialog.result is not None:
+            self._handle_correlation_dialog_result(dialog.result)
+
+    def _handle_correlation_dialog_result(self, result: "CorrelationResult") -> None:
+        """Handle the CorrelationResult returned from CorrelationTabDialog."""
+        if result is None or not result.poi:
+            logging.warning("Correlation dialog closed with no POI result.")
+            return
+        logging.info(
+            f"correlation-result: rms={result.rms_error:.3f}, poi={result.poi[0].px_m}"
+        )
+        poi: Point = result.poi[0].px_m  # Point in metres, same format as old signal
+        self._on_point_of_interest_updated(poi)
 
     def _on_apply_to_other_clicked(self):
         """Open dialog to apply this lamella's config to other lamella."""
@@ -825,8 +1020,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             )
             return
 
-        other_names = [p.name for p in experiment.positions if p._id != source_lamella._id]
-        task_names = self._sort_task_names_by_workflow(list(source_lamella.task_config.keys()))
+        other_names = [
+            p.name for p in experiment.positions if p._id != source_lamella._id
+        ]
+        task_names = self._sort_task_names_by_workflow(
+            list(source_lamella.task_config.keys())
+        )
 
         dialog = ApplyLamellaConfigDialog(
             source_name=source_lamella.name,

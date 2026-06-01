@@ -229,11 +229,10 @@ class AutoLamellaTaskConfig(ABC):
 
     @property
     def estimated_time(self) -> float:
-        """Estimate the total milling time for this task configuration."""
-        total_time = 0.0
-        for milling_task in self.milling.values():
-            total_time += milling_task.estimated_time
-        return total_time
+        """Estimate the total time for this task (milling + reference imaging)."""
+        milling_time = sum(t.estimated_time for t in self.milling.values())
+        imaging_time = self.reference_imaging.estimated_time
+        return milling_time + imaging_time
     
     @property
     def imaging(self) -> ImageSettings:
@@ -695,7 +694,6 @@ class Lamella:
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List['AutoLamellaTaskState'] = field(default_factory=list)
     defect: DefectState = field(default_factory=DefectState)
-    objective_position: Optional[float] = None  # TODO: deprecate, use poses instead
     milling_angle: Optional[float] = None
     poi: Point = field(default_factory=lambda: Point(0,0))  # point of interest within lamella area (milling coordinate system)
 
@@ -789,7 +787,7 @@ class Lamella:
 
     @property
     def fluorescence_selected(self) -> bool:
-        return self.fluorescence_pose is not None and self.objective_position is not None
+        return self.fluorescence_pose is not None and self.fluorescence_pose.objective_position is not None
 
     def to_dict(self):
         return {
@@ -803,7 +801,6 @@ class Lamella:
             "task_state": self.task_state.to_dict(),
             "task_history": [task.to_dict() for task in self.task_history],
             "defect": self.defect.to_dict(),
-            "objective_position": self.objective_position,
             "milling_angle": self.milling_angle,
             "poi": self.poi.to_dict(),
         }
@@ -819,11 +816,8 @@ class Lamella:
     @property
     def pretty_fm_name(self) -> str:
         """Generate a pretty name for the stage position."""
-        if self.objective_position is None:
-            objective_str = "N/A"
-        else:
-            objective_str = f"{self.objective_position * 1e3:.3f}mm"
-
+        obj_pos = self.fluorescence_pose.objective_position if self.fluorescence_pose is not None else None
+        objective_str = f"{obj_pos * 1e3:.3f}mm" if obj_pos is not None else "N/A"
         return f"{self.name} ({self.stage_position.x * 1e6:.1f}μm, {self.stage_position.y * 1e6:.1f}μm, {objective_str})"
 
     @classmethod
@@ -834,18 +828,24 @@ class Lamella:
 
         from fibsem.applications.autolamella.workflows.tasks import load_task_config
 
+        poses = {k: MicroscopeState.from_dict(v) for k, v in data.get("poses", {}).items()}
+        # backwards compat: migrate legacy top-level objective_position into fluorescence_pose
+        legacy_obj_pos = data.get("objective_position", None)
+        if legacy_obj_pos is not None and "FLUORESCENCE" in poses:
+            if poses["FLUORESCENCE"].objective_position is None:
+                poses["FLUORESCENCE"].objective_position = legacy_obj_pos
+
         return cls(
             petname=data["petname"],
             path=data["path"],
             alignment_area=alignment_area,
             number=data.get("number", data.get("number", 0)),
             _id=data.get("id", ""),
-            poses = {k: MicroscopeState.from_dict(v) for k, v in data.get("poses", {}).items()},
+            poses=poses,
             task_config=load_task_config(data.get("task_config", {})),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
             task_history=[AutoLamellaTaskState.from_dict(task) for task in data.get("task_history", [])],
             defect=DefectState.from_dict(data.get("defect", {})),
-            objective_position=data.get("objective_position", None),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x":0,"y":0})),
         )

@@ -73,7 +73,7 @@ LOG_PATH = os.path.join(BASE_PATH, "fibsem", "log")
 DATA_PATH = os.path.join(LOG_PATH, "data")
 DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
-POSITION_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
+POSITION_PATH = os.path.join(CONFIG_PATH, "saved-positions.yaml")
 USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
 MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
@@ -251,6 +251,7 @@ class FeatureFlags:
     pose_controls: bool = False
     display_grid_center_marker: bool = False
     viewer_movement_events: bool = False
+    coincidence_milling_enabled: bool = False
 
 @dataclass
 class PathPreferences:
@@ -341,12 +342,14 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_POSE_CONTROLS_ENABLED
     global FEATURE_DISPLAY_GRID_CENTER_MARKER
     global FEATURE_VIEWER_MOVEMENT_EVENTS
+    global FEATURE_COINCIDENCE_MILLING_ENABLED
     f = prefs.features
     FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
     FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
     FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
+    FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -355,6 +358,7 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
         al_cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
         al_cfg.FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
         al_cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
+        al_cfg.FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     except ImportError:
         pass
 
@@ -372,6 +376,7 @@ os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
 ####### FEATURE FLAGS
 FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True
 FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
-FEATURE_POSE_CONTROLS_ENABLED = False
+FEATURE_POSE_CONTROLS_ENABLED = True
 FEATURE_DISPLAY_GRID_CENTER_MARKER = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
+FEATURE_COINCIDENCE_MILLING_ENABLED = False

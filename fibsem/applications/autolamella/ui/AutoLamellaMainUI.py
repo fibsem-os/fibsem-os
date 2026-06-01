@@ -13,7 +13,7 @@ import traceback
 import warnings
 
 import napari
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -248,15 +248,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
 
-        self.action_toggle_layer_controls = QAction("Show Layer Controls", self)
-        self.action_toggle_layer_controls.setCheckable(True)
-        self.action_toggle_layer_controls.setChecked(True)
-        self.action_toggle_layer_controls.triggered.connect(
-            self._on_toggle_layer_controls
+        layer_controls_menu = view_menu.addMenu("Show Layer Controls")
+
+        self.action_layer_controls_microscope = QAction("Microscope", self)
+        self.action_layer_controls_microscope.setCheckable(True)
+        self.action_layer_controls_microscope.setChecked(True)
+        self.action_layer_controls_microscope.triggered.connect(
+            lambda checked: self._on_toggle_viewer_layer_controls(checked, "microscope")
         )
 
+        self.action_layer_controls_overview = QAction("Overview", self)
+        self.action_layer_controls_overview.setCheckable(True)
+        self.action_layer_controls_overview.setChecked(True)
+        self.action_layer_controls_overview.triggered.connect(
+            lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
+        )
+
+        self.action_layer_controls_lamella = QAction("Lamella Editor", self)
+        self.action_layer_controls_lamella.setCheckable(True)
+        self.action_layer_controls_lamella.setChecked(False)
+        self.action_layer_controls_lamella.triggered.connect(
+            lambda checked: self._on_toggle_viewer_layer_controls(checked, "lamella")
+        )
+
+        layer_controls_menu.addAction(self.action_layer_controls_microscope)
+        layer_controls_menu.addAction(self.action_layer_controls_overview)
+        layer_controls_menu.addAction(self.action_layer_controls_lamella)
+
         view_menu.addAction(self.action_show_minimap)
-        view_menu.addAction(self.action_toggle_layer_controls)
 
         # add tools menu, reporting submenu
         tools_menu = menu_bar.addMenu("Tools")
@@ -289,8 +308,32 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_print_hello = QAction("Print Hello", self)
         self.action_print_hello.triggered.connect(lambda: print("Hello"))
         dev_menu.addAction(self.action_print_hello)
+
+        self._action_coincidence_separator = dev_menu.addSeparator()
+        self.action_open_coincidence_viewer = QAction(
+            "Open Coincidence Milling Viewer", self
+        )
+        self.action_open_coincidence_viewer.triggered.connect(
+            self._open_coincidence_milling_viewer
+        )
+        dev_menu.addAction(self.action_open_coincidence_viewer)
+
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
+
+        action_open_fm_minimap = QAction("Open Fluorescence Minimap", self)
+        action_open_fm_minimap.triggered.connect(self._open_fm_minimap_widget)
+        dev_menu.addAction(action_open_fm_minimap)
+
+        dev_menu.addSeparator()
+
+        action_load_fm_configuration = QAction("Load Fluorescence Configuration", self)
+        action_load_fm_configuration.triggered.connect(self._load_fm_configuration)
+        dev_menu.addAction(action_load_fm_configuration)
+
+        action_save_fm_configuration = QAction("Save Fluorescence Configuration", self)
+        action_save_fm_configuration.triggered.connect(self._save_fm_configuration)
+        dev_menu.addAction(action_save_fm_configuration)
 
     def _create_test_menu(self):
         """Create a test menu for toast notifications and sounds."""
@@ -436,13 +479,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Toggle dev/test menu visibility
         self._dev_menu.menuAction().setVisible(d.dev_mode)
         self._test_menu.menuAction().setVisible(d.dev_mode)
+        # Toggle coincidence milling viewer action
+        coincidence_enabled = self._preferences.features.coincidence_milling_enabled
+        self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
+        self._action_coincidence_separator.setVisible(coincidence_enabled)
 
     def show_toast(
-        self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False
+        self,
+        message: str,
+        notification_type: str = "info",
+        duration: int = 5000,
+        temporary: bool = False,
     ):
         """Show a toast notification."""
         if self._toasts_enabled:
-            self.toast_manager.show_toast(message, notification_type, duration, temporary=temporary)
+            self.toast_manager.show_toast(
+                message, notification_type, duration, temporary=temporary
+            )
         elif self.toast_manager.notification_bell and not temporary:
             # Still log to notification bell even when toasts are disabled
             self.toast_manager.notification_bell.add_notification(
@@ -487,9 +540,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.minimap_plot_dock.setVisible(checked)
             self.autolamella_ui.minimap_plot_dock.activateWindow()
 
-    def _on_toggle_layer_controls(self, checked: bool):
-        """Toggle the layer list and layer controls for all viewers."""
-        for viewer in self.viewers:
+    def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
+        """Toggle the layer list and layer controls for a specific viewer."""
+        viewer_map = {
+            "microscope": self.main_viewer,
+            "overview": self.minimap_viewer,
+            "lamella": self.lamella_viewer,
+        }
+        viewer = viewer_map.get(viewer_key)
+        if viewer is not None:
             qt_viewer = viewer.window._qt_viewer
             qt_viewer.dockLayerList.setVisible(checked)
             qt_viewer.dockLayerControls.setVisible(checked)
@@ -503,6 +562,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Generate Overview Plot action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.actionGenerate_Overview_Plot.trigger()
+
+    def _open_fm_minimap_widget(self):
+        """Open the Fluorescence Minimap widget."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.open_fm_minimap_widget()
+
+    def _load_fm_configuration(self):
+        """Load a fluorescence microscope configuration."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.load_fm_configuration()
+
+    def _save_fm_configuration(self):
+        """Save the current fluorescence microscope configuration."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.save_fm_configuration()
+
+    def _open_coincidence_milling_viewer(self):
+        """Open the Coincidence Milling Viewer dialog."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui._open_coincidence_milling_viewer()
 
     def _create_status_bar(self):
         """Create the status bar."""
@@ -650,12 +729,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn.show()
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message)
+        self._set_minimap_workflow_enabled(False)
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
+        self._set_minimap_workflow_enabled(True)
+
+    def _set_minimap_workflow_enabled(self, enabled: bool):
+        """Enable/disable minimap acquisition and load-image buttons during workflow."""
+        if not hasattr(self, 'minimap_widget'):
+            return
+        self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
+        self.minimap_widget.pushButton_load_image.setEnabled(enabled)
 
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
@@ -758,6 +846,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope.milling_progress_signal.connect(
                 self._on_milling_progress
             )
+            try:
+                self.autolamella_ui.microscope.tiled_acquisition_signal.disconnect(
+                    self._on_tile_acquisition_progress
+                )
+            except Exception:
+                pass
+            self.autolamella_ui.microscope.tiled_acquisition_signal.connect(
+                self._on_tile_acquisition_progress
+            )
         self.btn_create_experiment.setEnabled(True)
         self.btn_load_experiment.setEnabled(True)
         self._update_instructions()
@@ -800,6 +897,47 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif state == "finished":
             self.milling_progress_bar.setVisible(False)
 
+    @ensure_main_thread
+    def _on_tile_acquisition_progress(self, ddict: dict) -> None:
+        """Handle tiled acquisition progress updates from the microscope."""
+        counter = ddict.get("counter", 0)
+        total = ddict.get("total", 1)
+        msg = ddict.get("msg", "Collecting tiles")
+
+        if ddict.get("finished"):
+            self.progress_widget.update_progress(ProgressUpdate.done())
+        elif counter >= total:
+            self.progress_widget.update_progress(ProgressUpdate.indeterminate(msg))
+        else:
+            self.progress_widget.update_progress(
+                ProgressUpdate.numeric(counter, total, msg)
+            )
+
+    def _on_tile_acquisition_finished(self, result: dict) -> None:
+        self.progress_widget.reset()
+        tiles = result.get("tiles", 0)
+        total = result.get("total", 0)
+        elapsed = result.get("elapsed", 0.0)
+        cancelled = result.get("cancelled", False)
+        error: Exception | None = result.get("error", None)
+
+        tile_info = f"{tiles}/{total} tiles" if total else ""
+        elapsed_info = f" in {format_duration(elapsed)}" if elapsed else ""
+
+        if error is not None:
+            if cancelled:
+                self.show_toast(
+                    f"Tile acquisition cancelled. {tile_info} collected.", "warning"
+                )
+            else:
+                self.show_toast(
+                    f"Tile acquisition failed. {tile_info} collected. {error}", "error"
+                )
+        else:
+            self.show_toast(
+                f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success"
+            )
+
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
@@ -823,9 +961,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
-        self.autolamella_ui.experiment_update_signal.connect(
-            self._on_experiment_update
-        )
+        self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
@@ -836,6 +972,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.autolamella_ui.lamella_list.defect_changed.connect(
             self._on_lamella_defect_changed
+        )
+        self.autolamella_ui.lamella_list.lamella_selected.connect(
+            self._on_experiment_lamella_selected
         )
 
         # hide menu bar
@@ -1183,6 +1322,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Track which experiment's position events we're connected to
         self._lamella_list_experiment = None
 
+        # Guard against bidirectional selection sync loops
+        self._syncing_selection = False
+
         # Connect protocol editor → workflow tab (deferred here since task_widget is created first)
         self.task_widget.workflow_config_changed.connect(
             self.lamella_workflow_widget.set_workflow_config
@@ -1197,6 +1339,40 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_task_image_widget.set_lamella(lamella)
         if lamella is not None:
             self.lamella_widget.select_lamella(lamella.name)
+            if not self._syncing_selection:
+                self._syncing_selection = True
+                try:
+                    self.autolamella_ui.lamella_list.select(lamella.name)
+                    if hasattr(self, "minimap_widget"):
+                        self.minimap_widget.lamella_list.select(lamella.name)
+                finally:
+                    self._syncing_selection = False
+
+    def _on_experiment_lamella_selected(self, lamella):
+        """Sync card container and minimap when experiment-tab list selection changes."""
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        if not hasattr(self, "lamella_card_container"):
+            return
+        self._syncing_selection = True
+        try:
+            self.lamella_card_container.select_lamella(lamella.name)
+            if hasattr(self, "minimap_widget"):
+                self.minimap_widget.lamella_list.select(lamella.name)
+        finally:
+            self._syncing_selection = False
+
+    def _on_minimap_lamella_selected(self, lamella):
+        """Sync experiment list and card container when minimap list selection changes."""
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
 
     def _save_workflow_config(self, *_args):
         """Persist the current task list to the experiment protocol after any task change."""
@@ -1437,6 +1613,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             viewer=self.minimap_viewer, parent=self.autolamella_ui
         )
         self.minimap_widget.setMinimumWidth(500)
+        self.minimap_widget._acquisition_finished.connect(self._on_tile_acquisition_finished)
+        self.minimap_widget.lamella_list.lamella_selected.connect(
+            self._on_minimap_lamella_selected
+        )
 
         # Layout: napari viewer (left) | minimap controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
@@ -1454,13 +1634,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
-    def _on_notification_service(self, message: str, notification_type: str, temporary: bool) -> None:
+    def _on_notification_service(
+        self, message: str, notification_type: str, temporary: bool
+    ) -> None:
         self.show_toast(message, notification_type, temporary=temporary)
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
         try:
-            notification_service._get_service().toast.disconnect(self._on_notification_service)
+            notification_service._get_service().toast.disconnect(
+                self._on_notification_service
+            )
         except RuntimeError:
             pass
         for viewer in self.viewers:

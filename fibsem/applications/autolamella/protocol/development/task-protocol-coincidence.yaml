@@ -1,0 +1,290 @@
+name: AutoLamella Coincidence Protocol
+description: New task based protocol for coincidence milling on Arctis
+version: '1.0'
+tasks:
+    Select Milling Position:
+        task_type: SELECT_MILLING_POSITION
+        parameters:
+            milling_angle: 15
+        reference_imaging: 
+            acquire_sem: false
+            acquire_fib: true
+            field_of_view1: 120.0e-6
+    Spot Burn Fiducial:
+        task_type: SPOT_BURN_FIDUCIAL
+        parameters:
+            milling_current: 6.0e-11
+            exposure_time: 10
+            orientation: MILLING
+        milling: {}
+        coordinates:
+            # cross_spots:
+            - {"x": 0.16, "y": 0.45} # A1 - center
+            - {"x": 0.15, "y": 0.45} # A2 - left-arm
+            - {"x": 0.17, "y": 0.45} # A3 - right-arm
+            - {"x": 0.16, "y": 0.46} # A4 - top-arm
+            - {"x": 0.16, "y": 0.44} # A5 - bottom-arm
+
+            # doublet_spots:
+            - {"x": 0.65, "y": 0.55} # C1 - left
+            - {"x": 0.66, "y": 0.55} # C2 - right
+
+            # L-shaped_spots:
+            - {"x": 0.47, "y": 0.65}   # D1 - corner
+            - {"x": 0.48, "y": 0.65}   # D2 - horizontal-arm
+            - {"x": 0.47, "y": 0.66}   # D3 - vertical-arm
+            - {"x": 0.47, "y": 0.67}   # D4 - vertical-arm2
+
+            # standard_spots:
+            - {"x": 0.25, "y": 0.55}   # S2
+            - {"x": 0.35, "y": 0.6}   # S3
+            - {"x": 0.60, "y": 0.6} # S4
+            - {"x": 0.52, "y": 0.55} # S5
+            - {"x": 0.78, "y": 0.50} # S6
+            - {"x": 0.85, "y": 0.35} # S7
+
+    Mill Fiducial:
+        task_type: MILL_FIDUCIAL
+        parameters:
+            alignment_expansion: 100
+        reference_imaging:
+            acquire_sem: false
+            acquire_fib: true
+        milling:
+            fiducial:
+                name: Fiducial
+                field_of_view: 120.0e-6
+                channel: ION
+                alignment:
+                    enabled: false
+                acquisition:
+                    acquire_sem: false
+                stages:
+                -   name: Fiducial 1
+                    milling:
+                        milling_current: 1.0e-09
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 2.5e-05
+                            y: 0.0
+                            name: null
+                        width: 1.0e-06
+                        height: 1.0e-05
+                        depth: 1.0e-06
+                        rotation: 45
+                        cross_section: Rectangle
+                        asymmetric: true
+                        name: Fiducial
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: false
+                -   name: Fiducial 2
+                    milling:
+                        milling_current: 1.0e-09
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: -2.5e-05
+                            y: 0.0
+                            name: null
+                        width: 1.0e-06
+                        height: 1.0e-05
+                        depth: 1.0e-06
+                        rotation: 45
+                        cross_section: Rectangle
+                        asymmetric: true
+                        name: Fiducial
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: false
+    Rough Milling:
+        task_type: MILL_ROUGH
+        parameters:
+            orientation: MILLING
+        reference_imaging:
+            acquire_sem: false
+            acquire_fib: true
+        milling:
+            mill_rough:
+                name: Rough Milling
+                field_of_view: 120.0e-6
+                channel: ION
+                alignment:
+                    enabled: true
+                acquisition:
+                    acquire_sem: false
+                stages:
+                -   name: Rough Mill 01
+                    milling:
+                        milling_current: 7.4e-10
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 1.0e-05
+                        depth: 6.5e-07
+                        spacing: 4.6e-06
+                        upper_trench_height: 3.5e-06
+                        lower_trench_height: 3.5e-06
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                -   name: Rough Mill 02
+                    milling:
+                        milling_current: 2.0e-10
+                        hfw: 0.00015
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.5e-06
+                        depth: 6.5e-07
+                        spacing: 1.6e-06
+                        upper_trench_height: 2.0e-06
+                        lower_trench_height: 2.0e-06
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+                -   name: Stress Relief Feature
+                    milling:
+                        milling_current: 1.0e-09
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 5.0e-07
+                        height: 1.8e-05
+                        depth: 1.0e-06
+                        distance: 1.0e-05
+                        name: MicroExpansion
+                    strategy:
+                        name: Standard
+                        config: {}
+                    alignment:
+                        enabled: true
+    Coincidence Milling:
+        task_type: MILL_COINCIDENT
+        parameters:
+            orientation: MILLING
+        reference_imaging:
+            acquire_sem: false
+            acquire_fib: true
+        milling:
+            mill_coincident:
+                name: Coincident Milling
+                field_of_view: 120.0e-6
+                channel: ION
+                alignment:
+                    enabled: true
+                acquisition:
+                    acquire_sem: false
+                stages:
+                -   name: Coincidence Milling 01
+                    milling:
+                        milling_current: 6.0e-11
+                        hfw: 0.00015
+                        application_file: Si-ccs
+                        milling_voltage: 30000.0
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.0e-06
+                        depth: 4.0e-07
+                        spacing: 3.0e-07
+                        upper_trench_height: 7.0e-07
+                        lower_trench_height: 7.0e-07
+                        cross_section: CleaningCrossSection
+                        name: Trench
+                    strategy:
+                        name: CoincidenceMilling
+                        config: {}
+    Acquire Fluorescence Image:
+        task_type: ACQUIRE_FLUORESCENCE_IMAGE
+        channel_settings:
+        -   name: Reflection Channel
+            excitation_wavelength: 550
+            emission_wavelength: null
+            power: 0.03
+            exposure_time: 0.005
+            color: gray
+        -   name: Red Channel
+            excitation_wavelength: 550
+            emission_wavelength: Fluorescence
+            power: 0.3
+            exposure_time: 0.5
+            color: red
+        zparams:
+            zmin: -9.999999999999999e-06
+            zmax: 9.999999999999999e-06
+            zstep: 1.0e-06
+        autofocus_settings:
+            coarse_range: 5.0e-05
+            coarse_step: 5.0e-06
+            coarse_enabled: true
+            fine_range: 1.0e-05
+            fine_step: 1.0e-06
+            fine_enabled: true
+            method: laplacian
+            channel_name: Reflection Channel
+        milling: {}
+workflow:
+    name: ''
+    description: ''
+    tasks:
+    -   name: Select Milling Position
+        supervise: true
+        required: false
+        requires: []
+    -   name: Acquire Fluorescence Image
+        supervise: false
+        required: false
+        requires: []
+    -   name: Mill Fiducial
+        supervise: true
+        required: true
+        requires: []
+    -   name: Acquire Fluorescence Image
+        supervise: false
+        required: false
+        requires: []
+    -   name: Rough Milling
+        supervise: true
+        required: true
+        requires:
+        - Mill Fiducial
+    -   name: Coincidence Milling
+        supervise: true
+        required: true
+        requires:
+        - Rough Milling
+options:
+    turn_beams_off: false

@@ -14,7 +14,11 @@ from fibsem.applications.autolamella.structures import (
     LamellaDefaultConfig,
     Lamella,
 )
-from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, MicroscopeState, Point
+from fibsem.applications.autolamella.workflows.tasks.basic_milling import BasicMillingTaskConfig
+from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemMillingSettings, FibsemRectangle, ImageSettings, MicroscopeState, Point, ReferenceImageParameters
 from psygnal.containers import EventedDict
 
 # ── DefectState tests ─────────────────────────────────────────────────────────
@@ -250,4 +254,57 @@ def test_add_new_lamella_no_name_collision_after_delete(tmp_path):
     names = [lam.name for lam in exp.positions]
     assert len(names) == len(set(names)), f"Duplicate names after delete: {names}"
     assert "Lamella-04" in names
+
+
+# ── AutoLamellaTaskConfig.estimated_time ─────────────────────────────────────
+
+def _make_task_config(n_stages: int = 1) -> BasicMillingTaskConfig:
+    stage = FibsemMillingStage(
+        milling=FibsemMillingSettings(milling_current=2e-9),
+        pattern=RectanglePattern(width=10e-6, height=5e-6, depth=1e-6),
+    )
+    milling_task = FibsemMillingTaskConfig(stages=[stage] * n_stages)
+    config = BasicMillingTaskConfig(milling={"mill": milling_task})
+    return config
+
+
+def test_task_config_estimated_time_is_float():
+    config = _make_task_config()
+    assert isinstance(config.estimated_time, float)
+    assert config.estimated_time >= 0.0
+
+
+def test_task_config_estimated_time_includes_milling():
+    config = _make_task_config(n_stages=1)
+    milling_time = sum(t.estimated_time for t in config.milling.values())
+    assert config.estimated_time >= milling_time
+
+
+def test_task_config_estimated_time_includes_reference_imaging():
+    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
+    ref = ReferenceImageParameters(
+        imaging=img, acquire_sem=True, acquire_fib=True, acquire_image1=True, acquire_image2=True
+    )
+    config = _make_task_config()
+    config.reference_imaging = ref
+    milling_time = sum(t.estimated_time for t in config.milling.values())
+    assert config.estimated_time == pytest.approx(milling_time + ref.estimated_time)
+
+
+def test_task_config_estimated_time_no_imaging():
+    ref = ReferenceImageParameters(
+        acquire_sem=False, acquire_fib=False, acquire_image1=False, acquire_image2=False
+    )
+    config = _make_task_config()
+    config.reference_imaging = ref
+    milling_time = sum(t.estimated_time for t in config.milling.values())
+    assert config.estimated_time == pytest.approx(milling_time)
+
+
+def test_task_protocol_estimated_time_per_task():
+    from fibsem import config as fcfg
+    protocol = AutoLamellaTaskProtocol.load(fcfg.AUTOLAMELLA_TASK_PROTOCOL_PATH)
+    for task in protocol.task_config.values():
+        assert isinstance(task.estimated_time, float)
+        assert task.estimated_time >= 0.0
 

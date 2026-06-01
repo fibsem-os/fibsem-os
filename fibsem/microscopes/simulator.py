@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
     ThermoMicroscope,
@@ -248,6 +249,13 @@ class DemoMicroscope(FibsemMicroscope):
             self._setup_image_iterators()
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
+            
+        # fluorescence microscope
+        if self.stage_is_compustage:
+            self.fm = FluorescenceMicroscope(self)
+        else:
+            logging.warning("Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available.")
+            self.fm = None
 
         # user, experiment metadata
         # TODO: remove once db integrated

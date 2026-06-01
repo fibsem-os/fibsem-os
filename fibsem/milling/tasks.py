@@ -37,6 +37,13 @@ class MillingTaskAcquisitionSettings:
     def enabled(self) -> bool:
         return self.acquire_sem or self.acquire_fib
 
+    @property
+    def estimated_time(self) -> float:
+        if not self.enabled:
+            return 0.0
+        n = sum([self.acquire_sem, self.acquire_fib])
+        return self.imaging.estimated_time * n
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "acquire_sem": self.acquire_sem,
@@ -119,7 +126,8 @@ class FibsemMillingTaskConfig:
     @property
     def estimated_time(self) -> float:
         """Estimate the total milling time for a list of milling stages"""
-        return sum([stage.estimated_time for stage in self.stages])
+        milling_time = sum(stage.estimated_time for stage in self.stages)
+        return milling_time + self.acquisition.estimated_time
 
     def compatible_stages(self, reference_idx: int = 0) -> List[Tuple[int, FibsemMillingStage]]:
         """Return stages whose milling settings & strategy match the stage at reference_idx."""
@@ -137,7 +145,7 @@ class FibsemMillingTaskConfig:
                 compatible.append((idx, stage))
 
         return compatible
-    
+
     def merge_compatible_stages(self, reference_idx: int = 0) -> 'FibsemMillingStage':
         compat_stages = self.compatible_stages(reference_idx=reference_idx)
         logging.info(f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}") 

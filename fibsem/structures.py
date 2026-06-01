@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal
+from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
 
 import numpy as np
 import tifffile as tff
@@ -149,6 +149,19 @@ class ManipulatorState(Enum):
     RETRACTED = 0
     INSERTED = 1
     MOVING = 2
+
+
+class AutoFocusMode(Enum):
+    NONE = 0
+    ONCE = 1
+    EVERY_ROW = 2
+    EVERY_TILE = 3
+
+
+class TileOrderStrategy(Enum):
+    TYPEWRITER = "typewriter"   # rows always left-to-right
+    SERPENTINE = "serpentine"   # alternating: row 0 L→R, row 1 R→L, ...
+    SPIRAL     = "spiral"       # outward clockwise spiral from centre tile
 
 
 @dataclass
@@ -639,6 +652,12 @@ class ImageSettings:
         """Set the horizontal field width (hfw) based on the desired field of view."""
         self.hfw = value
 
+    @property
+    def estimated_time(self) -> float:
+        """Estimated acquisition time for a single image in seconds."""
+        pixel_time = self.resolution[0] * self.resolution[1] * self.dwell_time
+        return pixel_time * (self.frame_integration or 1) * (self.line_integration or 1)
+
     @staticmethod
     def fromFibsemImage(image: "FibsemImage") -> "ImageSettings":
         """Returns the image settings for a FibsemImage object.
@@ -662,6 +681,57 @@ class ImageSettings:
 
 
 @dataclass
+class FocusStackSettings:
+    """Settings for focus-stack acquisition in tiled overview acquisition.
+
+    Attributes:
+        enabled: Whether to use focus stacking for each tile.
+        n_steps: Number of vertical strips to divide each tile into.
+        auto_focus: Whether to run autofocus for each strip.
+    """
+
+    enabled: bool = False
+    n_steps: int = 3
+    auto_focus: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "n_steps": self.n_steps,
+            "auto_focus": self.auto_focus,
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "FocusStackSettings":
+        return FocusStackSettings(
+            enabled=d.get("enabled", False),
+            n_steps=d.get("n_steps", 3),
+            auto_focus=d.get("auto_focus", True),
+        )
+
+
+@dataclass
+class AutoFocusSettings:
+    """Settings for autofocus in tiled overview acquisition.
+
+    Attributes:
+        mode: When to apply autofocus (NONE, ONCE, EVERY_ROW, EVERY_TILE).
+              beam_type and reduced_area are taken from image_settings at acquisition time.
+    """
+
+    mode: AutoFocusMode = AutoFocusMode.NONE
+
+    def to_dict(self) -> dict:
+        return {"mode": self.mode.name}
+
+    @staticmethod
+    def from_dict(d: dict) -> "AutoFocusSettings":
+        return AutoFocusSettings(
+            mode=AutoFocusMode[d.get("mode", "NONE")]
+        )
+
+
+@dataclass
 class OverviewAcquisitionSettings:
     """Settings for a tiled overview acquisition.
 
@@ -676,21 +746,46 @@ class OverviewAcquisitionSettings:
     nrows: int = 3
     ncols: int = 3
     overlap: float = 0.0
-    use_focus_stack: bool = False
+    focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
+    autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
+    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
+
+    @property
+    def total_fov_x(self) -> float:
+        """Total horizontal FOV in meters, accounting for overlap."""
+        hfw = self.image_settings.hfw
+        dx = hfw * (1 - self.overlap)
+        return (self.ncols - 1) * dx + hfw
+
+    @property
+    def total_fov_y(self) -> float:
+        """Total vertical FOV in meters, accounting for overlap and tile aspect ratio."""
+        w, h = self.image_settings.resolution
+        hfw = self.image_settings.hfw
+        tile_fov_y = hfw * (h / w) if w > 0 else hfw
+        dy = tile_fov_y * (1 - self.overlap)
+        return (self.nrows - 1) * dy + tile_fov_y
 
     @property
     def total_fov(self) -> float:
-        """Total field of view in meters (width = ncols * tile_hfw)."""
-        return self.ncols * self.image_settings.hfw
+        """Total horizontal FOV in meters (alias for total_fov_x)."""
+        return self.total_fov_x
 
     @staticmethod
     def from_dict(d: dict) -> "OverviewAcquisitionSettings":
+        # backward compat: old configs had a bare use_focus_stack bool
+        if "focus_stack_settings" not in d and "use_focus_stack" in d:
+            fss = FocusStackSettings(enabled=d["use_focus_stack"])
+        else:
+            fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
             nrows=d.get("nrows", 3),
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.0),
-            use_focus_stack=d.get("use_focus_stack", False),
+            focus_stack_settings=fss,
+            autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
+            tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
         )
 
     def to_dict(self) -> dict:
@@ -699,7 +794,9 @@ class OverviewAcquisitionSettings:
             "nrows": self.nrows,
             "ncols": self.ncols,
             "overlap": self.overlap,
-            "use_focus_stack": self.use_focus_stack,
+            "focus_stack_settings": self.focus_stack_settings.to_dict(),
+            "autofocus_settings": self.autofocus_settings.to_dict(),
+            "tile_order": self.tile_order.value,
         }
 
 
@@ -1179,6 +1276,7 @@ class FibsemMillingSettings:
                                         "type": str,
                                         "advanced": True,
                                         "items": ["Serial", "Parallel"],
+                                        "advanced": True,
                                         "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
                                         })
     hfw: float = field(default=150e-6, 
@@ -1602,6 +1700,7 @@ class MicroscopeSettings:
     image: ImageSettings
     milling: FibsemMillingSettings
     protocol: Optional[dict] = None
+    fm: Optional['FluorescenceConfiguration'] = None
 
     def to_dict(self) -> dict:
         settings_dict = {
@@ -1621,11 +1720,18 @@ class MicroscopeSettings:
         if protocol is None:
             protocol = settings.get("protocol", {"name": "demo"})
 
+        fm_config = None
+        fm_config_path = settings.get("fm", {}).get("config", None)
+        if fm_config_path is not None and isinstance(fm_config_path, str):
+            from fibsem.fm.structures import FluorescenceConfiguration
+            fm_config = FluorescenceConfiguration.load(fm_config_path)
+
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
             image=ImageSettings.from_dict(settings["imaging"]),
             protocol=protocol,
             milling=FibsemMillingSettings.from_dict(settings["milling"]),
+            fm=fm_config
         )
 
 
@@ -2346,3 +2452,9 @@ class ReferenceImageParameters:
         if self.acquire_image2:
             fovs.append(self.field_of_view2)
         return tuple(sorted(fovs, reverse=True)) # largest to smallest
+
+    @property
+    def estimated_time(self) -> float:
+        n_fovs = sum([self.acquire_image1, self.acquire_image2])
+        n_beams = sum([self.acquire_sem, self.acquire_fib])
+        return self.imaging.estimated_time * n_fovs * n_beams

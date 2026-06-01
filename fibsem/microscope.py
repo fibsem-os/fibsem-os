@@ -120,7 +120,9 @@ from fibsem.structures import (
     Point,
     RangeLimit,
     SystemSettings,
+    RangeLimit,
 )
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.transformations import get_stage_tilt_from_milling_angle
 from fibsem.microscopes.autoscript import (
     fibsem_image_from_adorned_image,
@@ -152,7 +154,8 @@ class FibsemMicroscope(ABC):
     _acquisition_thread: threading.Thread = None
     _threading_lock: threading.RLock = threading.RLock()
 
-    fm: 'FluorescenceMicroscope' = None
+    # fluorescence
+    fm: Optional[FluorescenceMicroscope]
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
@@ -320,7 +323,19 @@ class FibsemMicroscope(ABC):
         pass
 
     def move_flat_to_beam(self, beam_type: BeamType, _safe:bool = True) -> None:
-        """Move the sample surface flat to the electron or ion beam."""
+        """Move the sample surface flat to the electron or ion beam.
+
+        .. deprecated::
+            Use :meth:`move_to_orientation` instead. This method will be removed in the next version.
+            ``move_flat_to_beam(BeamType.ELECTRON)`` → ``move_to_orientation("SEM")``
+            ``move_flat_to_beam(BeamType.ION)`` → ``move_to_orientation("FIB")``
+        """
+        warnings.warn(
+            "move_flat_to_beam is deprecated and will be removed in the next version. "
+            "Use move_to_orientation('SEM') or move_to_orientation('FIB') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         stage_settings = self.system.stage
         shuttle_pre_tilt = stage_settings.shuttle_pre_tilt
@@ -355,12 +370,16 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
-    def move_to_orientation(self, orientation: str) -> None:
-        """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING')."""
-        pos = self.get_orientation(orientation)
-        stage_position = FibsemStagePosition(r=pos.r, t=pos.t, coordinate_system="Raw")
-        logging.info(f"moving to orientation: {orientation}")
+    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
+        """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING').
+        Args:
+            orientation: The name of the orientation to move to.
+        Returns:
+            FibsemStagePosition: The new stage position after moving to the orientation.
+        """
+        stage_position = self.get_orientation(orientation)
         self.safe_absolute_stage_movement(stage_position)
+        return self._stage.position
 
     @abstractmethod
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
@@ -1134,8 +1153,8 @@ class FibsemMicroscope(ABC):
             target_position = stage_position
             target_position.r = orientation.r
             target_position.t = orientation.t
-        elif ((currrent_orientation in ["SEM", "FIB"] and target_orientation == "FM") or
-              (currrent_orientation == "FM" and target_orientation in ["SEM", "FIB"])):
+        elif ((currrent_orientation in ["SEM", "FIB", "MILLING"] and target_orientation == "FM") or
+              (currrent_orientation == "FM" and target_orientation in ["SEM", "FIB", "MILLING"])):
             if not self.stage_is_compustage:
                 raise ValueError("Cannot move to FM position on non-compustage systems.")
             # Convert from FIB to FM
@@ -1170,6 +1189,7 @@ class FibsemMicroscope(ABC):
         sem = self.get_orientation("SEM")
         fib = self.get_orientation("FIB")
         milling = self.get_orientation("MILLING")
+        fm = self.get_orientation("FM")
         if sem is None or fib is None or milling is None:
             raise ValueError("SEM, FIB or MILLING orientation not defined in the system.")
         if sem.r is None or sem.t is None or fib.r is None or fib.t is None or milling.r is None or milling.t is None:
@@ -1177,10 +1197,13 @@ class FibsemMicroscope(ABC):
 
         is_sem_rotation = movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5) # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
         is_fib_rotation = movement.rotation_angle_is_smaller(stage_rotation, fib.r, atol=5)
+        is_fm_rotation = movement.rotation_angle_is_smaller(stage_rotation, fm.r, atol=5)
 
         is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
         is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
+
         is_milling_tilt = np.radians(-45) < stage_tilt and not is_sem_tilt
+        is_fm_tilt = np.isclose(stage_tilt, fm.t, atol=0.1)
 
         if is_sem_rotation and is_sem_tilt:
             return "SEM"
@@ -1188,6 +1211,8 @@ class FibsemMicroscope(ABC):
             return "MILLING"
         if is_fib_rotation and is_fib_tilt:
             return "FIB"
+        if is_fm_rotation and is_fm_tilt:
+            return "FM"
 
         return "NONE"
 
@@ -1310,7 +1335,73 @@ class FibsemMicroscope(ABC):
         logging.warning(f"move_to_device is not implemented for {self.__class__.__name__}.")
         pass
 
-    @property
+    def move_to_microscope(self, target: str) -> None:
+        """Move the stage to the specified microscope (FIBSEM <-> FM)"""
+        if target not in ["FIBSEM", "FM"]:
+            raise ValueError(f"Microscope {target} not supported.")
+
+        if self.stage_is_compustage:
+            self.move_to_microscope_compustage(target)
+            return
+        
+        if not self.fm:
+            raise ValueError("FM module is not available. Cannot move to FM position.")
+
+        stage_position = self.get_stage_position()
+
+        if target == "FM" and self.get_stage_orientation(stage_position) != "FIB":
+            raise ValueError("Cannot move to FM from SEM or MILLING orientation. Please switch to FIB orientation first.")
+
+        # check if we are already at the target position
+        # this is for TFS SDB chamber: e.g. piescope, meteor, iflm
+        # arctis has same range for FIBSEM/FM (stage is flipped upside down)
+        FM_RANGE  = (40e-3, 60e-3)  # 40 mm to 60 mm
+        FIBSEM_RANGE = (-20e-3, 20e-3)  # -20 mm to 20 mm
+        if target == "FM" and (FM_RANGE[0] < stage_position.x < FM_RANGE[1]):
+            logging.info("Already at FM position, no need to move.")
+            return
+
+        if target == "FIBSEM" and (FIBSEM_RANGE[0] < stage_position.x < FIBSEM_RANGE[1]):
+            logging.info("Already at FIBSEM position, no need to move.")
+            return
+
+        logging.info(f"Moving to {target} position...")
+
+        # retract objective (safety precaution)
+        self.fm.objective.retract()
+
+        TRANSLATION_DX = 48.8e-3  # 48.8 mm # THIS needs to be configurable for different microscopes
+        transf = FibsemStagePosition(x=TRANSLATION_DX)
+
+        # move to FIBSEM
+        if target == "FIBSEM":
+            transf.x *= -1
+            self.move_stage_relative(transf)
+        # move to FM
+        if target == "FM":
+            self.move_stage_relative(transf)
+            self.fm.objective.insert()
+
+    def move_to_microscope_compustage(self, target: str) -> None:
+        """Special method to move to the specified microscope (FIBSEM <-> FM) for Compustage microscopes."""
+
+        if not self.stage_is_compustage:
+            raise ValueError("This method is only available for Compustage microscopes.")
+        
+        if not self.fm:
+            raise ValueError("FM module is not available. Cannot move to FM position.")
+
+        self.fm.objective.retract()  # retract objective (safety precaution)
+
+        if target == "FIBSEM":
+            self.move_flat_to_beam(BeamType.ELECTRON) # or ION?
+
+        if target == "FM":
+            fm_orientation = self.get_orientation("FM")
+            self.move_stage_absolute(fm_orientation)
+            self.fm.objective.insert()  # insert objective
+
+    @property      
     def current_grid(self) -> str:
         try:
             grid = self._stage.current_grid
@@ -1551,6 +1642,21 @@ class ThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
+        try:
+            if not self.stage_is_compustage:
+                logging.warning("Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available.")
+                self.fm = None
+                self.set_channel(BeamType.ELECTRON)
+            else:
+                from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope
+                self.fm = ThermoFisherFluorescenceMicroscope(self, self.connection)
+                self.fm.set_active_channel() # this will fail if no fm available
+                logging.info("Thermo Fisher Fluorescence Microscope initialized successfully.")
+        except Exception as e:
+            logging.error(f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}")
+            self.fm = None
+            self.set_channel(BeamType.ELECTRON)
+        
         try:
             self._create_sample_stage()
         except Exception as e:
@@ -2007,6 +2113,10 @@ class ThermoMicroscope(FibsemMicroscope):
         # convert to autoscript position
         autoscript_position = stage_position_to_autoscript(position, compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
+        if self.get_stage_orientation() == "FM":
+            autoscript_position.z = None
+            autoscript_position.r = None
+
         logging.info(f"Moving stage to {position}.")
         self.stage.absolute_move(autoscript_position, MoveSettings(rotate_compucentric=True)) # TODO: This needs at least an optional safe move to prevent collision?
 
@@ -2109,6 +2219,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # TODO: ARCTIS Do we need to reverse the direction of the movement because of the inverted stage tilt?
         if self.stage_is_compustage:
+            dy *= -1.0
             stage_tilt = self.get_stage_position().t
             if stage_tilt >= np.deg2rad(-90):
                 dy *= -1.0
@@ -2229,8 +2340,8 @@ class ThermoMicroscope(FibsemMicroscope):
 
         if self.stage_is_compustage:
 
-            if stage_tilt <= 0:
-                expected_y *= -1.0
+            # if stage_tilt < 0:
+            expected_y *= -1.0
 
             stage_tilt += np.pi
         # QUERY: for compustage, can we just return the expected y? there is no pre-tilt?

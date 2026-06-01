@@ -64,6 +64,7 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
+from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
@@ -343,6 +344,18 @@ class AutoLamellaTask(ABC):
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
+        FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD = False
+        if FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD:
+            alignment.align_until_converged(microscope=self.microscope, 
+                                            ref_image=ref_image, 
+                                    beam_type=BeamType.ION,
+                                    use_autocontrast=True,
+                                    max_steps=5, 
+                                    minimum_response=0.5,
+                                    stop_event=self._stop_event,
+                                    save_plot=True,
+                                    plot_title=f"{self.lamella.name} - {self.task_name}")
+            return
         alignment.multi_step_alignment_v2(microscope=self.microscope,
                                         ref_image=ref_image,
                                         beam_type=BeamType.ION,
@@ -482,6 +495,20 @@ class AutoLamellaTask(ABC):
                                                 msg="Drag to edit the Alignment Area. Press Continue when done.",
                                                 validate=self.validate)
 
+    def set_fluorescence_channels_ui(self, channel_settings: List[ChannelSettings]) -> None:
+        """Set the fluorescence channel settings in the fluorescence widget."""
+        if self.parent_ui is None:
+            return
+
+        info = {
+            "msg": "Updating Fluorescence Channel Settings",
+            "fluorescence_channel_settings": deepcopy(channel_settings),
+        }
+
+        self.parent_ui.WAITING_FOR_UI_UPDATE = True
+        self.parent_ui.workflow_update_signal.emit(info) # type: ignore
+        while self.parent_ui.WAITING_FOR_UI_UPDATE:
+            time.sleep(0.5)
 
 def get_task_supervision(task_name: str,
                     parent_ui: Optional['AutoLamellaUI'] = None) -> bool:
