@@ -82,3 +82,4 @@ fibsem/ui/OFFLINE_ICONS.md
 fibsem/correlation/scaling_factor_lookup_table.csv
 fibsem/correlation/slice_scaling_factor_LUT.ipynb
 sashimi/*
+fibsem/applications/sashimi/log/*
