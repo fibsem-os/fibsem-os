@@ -60,11 +60,13 @@ class PreferencesDialog(QDialog):
         self._chk_pose = QCheckBox()
         self._chk_grid_marker = QCheckBox()
         self._chk_coincidence_milling = QCheckBox()
+        self._chk_sample_holder = QCheckBox()
         features_form.addRow("Minimap plot widget", self._chk_minimap)
         features_form.addRow("Lamella position on live view", self._chk_lamella_live)
         features_form.addRow("Pose controls", self._chk_pose)
         features_form.addRow("Grid center marker", self._chk_grid_marker)
         features_form.addRow("Coincidence milling viewer", self._chk_coincidence_milling)
+        features_form.addRow("Sample holder widget", self._chk_sample_holder)
         content_layout.addWidget(
             TitledPanel("Feature Flags", content=features_content, collapsible=False)
         )
@@ -116,6 +118,7 @@ class PreferencesDialog(QDialog):
         self._chk_pose.setChecked(f.pose_controls)
         self._chk_grid_marker.setChecked(f.display_grid_center_marker)
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
+        self._chk_sample_holder.setChecked(f.sample_holder_widget)
 
         p = prefs.paths
         self._dir_experiment.setText(p.default_experiment_directory)
@@ -159,6 +162,7 @@ class PreferencesDialog(QDialog):
                 pose_controls=self._chk_pose.isChecked(),
                 display_grid_center_marker=self._chk_grid_marker.isChecked(),
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
+                sample_holder_widget=self._chk_sample_holder.isChecked(),
             ),
             paths=PathPreferences(
                 default_experiment_directory=self._dir_experiment.text(),

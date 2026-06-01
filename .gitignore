@@ -52,6 +52,7 @@ fibsem/config/*.yaml
 !fibsem/config/tescan-*.yaml
 !fibsem/config/sim-*.yaml
 !fibsem/config/sample-holder.yaml
+!fibsem/config/default-sample-holder.yaml
 
 **/wandb/*
 tests/notebook.ipynb
@@ -82,3 +83,4 @@ fibsem/ui/OFFLINE_ICONS.md
 fibsem/correlation/scaling_factor_lookup_table.csv
 fibsem/correlation/slice_scaling_factor_LUT.ipynb
 sashimi/*
+fibsem/applications/sashimi/log/*

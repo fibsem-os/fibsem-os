@@ -266,24 +266,8 @@ class FibsemMicroscope(ABC):
 
     def _create_sample_stage(self) -> None:
         """Create the sample stage and holder based on the system settings."""
-
-        from fibsem.microscopes._stage import SampleGrid, SampleHolder, Stage, SampleGridLoader
-        if self.stage_is_compustage:
-            grid01 = SampleGrid(name="Grid-01", index=1, 
-                                position=FibsemStagePosition(name="Grid-01", x=-0e-3, y=0.0, z=0.0, r=0.0, t=np.radians(0)))
-            holder = SampleHolder(name="CompuStage Holder", pre_tilt=0.0, reference_rotation=0.0, grids={"Grid-01": grid01})
-            loader = SampleGridLoader(parent=self)
-        else:
-            from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
-            orientation = self.get_orientation("SEM")
-            holder = SampleHolder.load(SAMPLE_HOLDER_CONFIGURATION_PATH)
-            for grid_name, grid in holder.grids.items():
-                grid.position.r = orientation.r
-                grid.position.t = orientation.t
-
-            loader = None
-
-        self._stage = Stage(parent=self, holder=holder, loader=loader)
+        from fibsem.microscopes._stage import _create_sample_stage
+        self._stage = _create_sample_stage(self)
 
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits from the microscope."""

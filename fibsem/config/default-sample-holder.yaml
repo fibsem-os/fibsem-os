@@ -3,8 +3,6 @@
 name: "Pre-Tilted 35deg Shuttle"
 description: "Standard 35 degree pre-tilt shuttle with 2 grid slots"
 capacity: 2
-pre_tilt: 35.0  # degrees
-reference_rotation: 0.0  # degrees
 
 slots:
   Slot-01:
