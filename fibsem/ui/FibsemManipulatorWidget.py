@@ -9,7 +9,8 @@ from PyQt5.QtWidgets import QMessageBox
 
 from fibsem import config as cfg
 from fibsem import constants, conversions
-from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings

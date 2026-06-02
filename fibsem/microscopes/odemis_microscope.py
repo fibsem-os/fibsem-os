@@ -6,7 +6,8 @@ from typing import Optional, TYPE_CHECKING
 import numpy as np
 from psygnal import Signal
 
-from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     BeamSettings,
