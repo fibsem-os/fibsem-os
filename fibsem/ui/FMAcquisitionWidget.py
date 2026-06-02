@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from scipy.ndimage import median_filter
-from superqt import QCollapsible, ensure_main_thread
+from superqt import ensure_main_thread
 
 from fibsem import config as fcfg
 from fibsem import constants, utils
@@ -85,13 +85,11 @@ from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
 )
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
-    GRAY_PUSHBUTTON_STYLE,
-    GREEN_PUSHBUTTON_STYLE,
-    ORANGE_PUSHBUTTON_STYLE,
-    PROGRESS_BAR_GREEN_STYLE,
-    RED_PUSHBUTTON_STYLE,
+    MILLING_PROGRESS_BAR_STYLESHEET,
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.utils import format_duration
 
 
@@ -441,34 +439,33 @@ class FMAcquisitionWidget(QWidget):
 
         # Add objective control widget
         self.objectiveControlWidget = ObjectiveControlWidget(fm=self.fm, parent=self)
-        self.objectiveCollapsible = QCollapsible("Objective Control", self)
-        self.objectiveCollapsible.addWidget(self.objectiveControlWidget)
+        self.objectivePanel = TitledPanel("Objective Control", content=self.objectiveControlWidget, collapsible=True)
+        self.objectivePanel.expand()
 
         # Add stage position control widget
         self.stagePositionControlWidget = StagePositionControlWidget(microscope=self.microscope, parent=self)
-        self.stagePositionCollapsible = QCollapsible("Stage Position Control", self)
-        self.stagePositionCollapsible.addWidget(self.stagePositionControlWidget)
+        self.stagePositionPanel = TitledPanel("Stage Position Control", content=self.stagePositionControlWidget, collapsible=True)
+        self.stagePositionPanel.collapse()
 
         # add SEM image acquisition widget
         self.semAcquisitionWidget = SEMAcquisitionWidget(microscope=self.microscope, parent=self)
-        self.semAcquisitionCollapsible = QCollapsible("SEM Image Acquisition", self)
-        self.semAcquisitionCollapsible.addWidget(self.semAcquisitionWidget)
-        self.semAcquisitionCollapsible.setVisible(False)  # Hide SEM acquisition by default
+        self.semAcquisitionPanel = TitledPanel("SEM Image Acquisition", content=self.semAcquisitionWidget, collapsible=True)
+        self.semAcquisitionPanel.setVisible(False)  # Hide SEM acquisition by default
 
         # create z parameters widget
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
-        self.zParametersCollapsible = QCollapsible("Z-Stack Parameters", self)
-        self.zParametersCollapsible.addWidget(self.zParametersWidget)
+        self.zParametersPanel = TitledPanel("Z-Stack Parameters", content=self.zParametersWidget, collapsible=True)
+        self.zParametersPanel.collapse()
 
         # create overview parameters widget
         self.overviewParametersWidget = OverviewParametersWidget(parent=self)
-        self.overviewCollapsible = QCollapsible("Overview Parameters", self)
-        self.overviewCollapsible.addWidget(self.overviewParametersWidget)
+        self.overviewPanel = TitledPanel("Overview Parameters", content=self.overviewParametersWidget, collapsible=True)
+        self.overviewPanel.collapse()
 
         # create saved positions widget
         self.savedPositionsWidget = SavedPositionsWidget(parent=self)
-        self.positionsCollapsible = QCollapsible("Saved Positions", self)
-        self.positionsCollapsible.addWidget(self.savedPositionsWidget)
+        self.positionsPanel = TitledPanel("Saved Positions", content=self.savedPositionsWidget, collapsible=True)
+        self.positionsPanel.collapse()
 
         # create channel settings widget
         self.channelSettingsWidget = FluorescenceMultiChannelWidget(
@@ -476,26 +473,16 @@ class FMAcquisitionWidget(QWidget):
             channel_settings=channel_settings,
             parent=self
         )
-        self.channelCollapsible = QCollapsible("Channel Settings", self)
-        self.channelCollapsible.addWidget(self.channelSettingsWidget)
+        self.channelPanel = TitledPanel("Channel Settings", content=self.channelSettingsWidget, collapsible=True)
+        self.channelPanel.expand()
 
         # Create autofocus widget
         self.autofocusWidget = AutofocusWidget(
             channel_settings=self.channelSettingsWidget.channel_settings,
             parent=self
         )
-        self.autofocusCollapsible = QCollapsible("Autofocus Settings", self)
-        self.autofocusCollapsible.addWidget(self.autofocusWidget)
-
-        # Set content margins to 0 for all collapsible widgets
-        self.objectiveCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.stagePositionCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.semAcquisitionCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.zParametersCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.overviewCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.positionsCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.channelCollapsible.setContentsMargins(0, 0, 0, 0)
-        self.autofocusCollapsible.setContentsMargins(0, 0, 0, 0)
+        self.autofocusPanel = TitledPanel("Autofocus Settings", content=self.autofocusWidget, collapsible=True)
+        self.autofocusPanel.collapse()
 
         # create histogram widget
         self.histogramWidget = HistogramWidget(parent=self)
@@ -516,30 +503,30 @@ class FMAcquisitionWidget(QWidget):
         self.progressBar_current_acquisition = QProgressBar(self)
         self.progressBar_acquisition_task = QProgressBar(self)
         self.progressText = QLabel("Acquisition Progress", self)
-        self.progressBar_acquisition_task.setStyleSheet(PROGRESS_BAR_GREEN_STYLE)
-        self.progressBar_current_acquisition.setStyleSheet(PROGRESS_BAR_GREEN_STYLE)
+        self.progressBar_acquisition_task.setStyleSheet(MILLING_PROGRESS_BAR_STYLESHEET)
+        self.progressBar_current_acquisition.setStyleSheet(MILLING_PROGRESS_BAR_STYLESHEET)
         self.progressBar_current_acquisition.hide()
         self.progressBar_acquisition_task.hide()
         self.progressText.hide()
 
         # Define button configurations for data-driven state management
         self.button_configs = [
-            (self.pushButton_toggle_acquisition, GREEN_PUSHBUTTON_STYLE),
-            (self.pushButton_acquire_single_image, BLUE_PUSHBUTTON_STYLE),
-            (self.pushButton_acquire_zstack, BLUE_PUSHBUTTON_STYLE),
-            (self.pushButton_acquire_overview, BLUE_PUSHBUTTON_STYLE),
-            (self.pushButton_run_autofocus, ORANGE_PUSHBUTTON_STYLE),
+            (self.pushButton_toggle_acquisition, PRIMARY_BUTTON_STYLESHEET),
+            (self.pushButton_acquire_single_image, SECONDARY_BUTTON_STYLESHEET),
+            (self.pushButton_acquire_zstack, SECONDARY_BUTTON_STYLESHEET),
+            (self.pushButton_acquire_overview, SECONDARY_BUTTON_STYLESHEET),
+            (self.pushButton_run_autofocus, SECONDARY_BUTTON_STYLESHEET),
         ]
 
         layout = QVBoxLayout()
-        layout.addWidget(self.stagePositionCollapsible)     # type: ignore
-        layout.addWidget(self.semAcquisitionCollapsible)    # type: ignore
-        layout.addWidget(self.objectiveCollapsible)         # type: ignore
-        layout.addWidget(self.channelCollapsible)           # type: ignore
-        layout.addWidget(self.autofocusCollapsible)         # type: ignore
-        layout.addWidget(self.zParametersCollapsible)       # type: ignore
-        layout.addWidget(self.positionsCollapsible)         # type: ignore
-        layout.addWidget(self.overviewCollapsible)          # type: ignore
+        layout.addWidget(self.stagePositionPanel)
+        layout.addWidget(self.semAcquisitionPanel)
+        layout.addWidget(self.objectivePanel)
+        layout.addWidget(self.channelPanel)
+        layout.addWidget(self.autofocusPanel)
+        layout.addWidget(self.zParametersPanel)
+        layout.addWidget(self.positionsPanel)
+        layout.addWidget(self.overviewPanel)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # create grid layout for buttons
@@ -623,13 +610,13 @@ class FMAcquisitionWidget(QWidget):
         self.viewer.layers.selection.events.changed.connect(self._on_layer_selection_changed)
 
         # stylesheets
-        self.pushButton_toggle_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_acquire_single_image.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_acquire_zstack.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_acquire_overview.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_run_autofocus.setStyleSheet(ORANGE_PUSHBUTTON_STYLE)
-        self.pushButton_cancel_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.pushButton_toggle_acquisition.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_acquire_single_image.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_acquire_zstack.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_acquire_overview.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_acquire_at_positions.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_run_autofocus.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_cancel_acquisition.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_cancel_acquisition.hide()  # Hide by default, show when acquisition starts
         self.pushButton_toggle_acquisition.setEnabled(True)
 
@@ -1427,12 +1414,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_at_positions.setText(button_text)
 
         # Enable/disable button based on whether checked positions exist
-        if num_checked_positions == 0:
-            self.pushButton_acquire_at_positions.setEnabled(False)
-            self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        else:
-            self.pushButton_acquire_at_positions.setEnabled(True)
-            self.pushButton_acquire_at_positions.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_acquire_at_positions.setEnabled(num_checked_positions > 0)
 
     def acquire_at_positions(self):
         """Start threaded acquisition at all checked saved positions."""
@@ -1840,30 +1822,21 @@ class FMAcquisitionWidget(QWidget):
         # Special case buttons with unique behavior
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
 
-        # Update toggle acquisition button text and style based on state
+        # Update toggle acquisition button text based on state
         if self.fm.is_acquiring:
             self.pushButton_toggle_acquisition.setText("Stop Acquisition")
-            self.pushButton_toggle_acquisition.setStyleSheet(RED_PUSHBUTTON_STYLE)
         else:
             self.pushButton_toggle_acquisition.setText("Start Acquisition")
-            self.pushButton_toggle_acquisition.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
 
         # Update standard buttons using configuration from initUI (excluding toggle button)
-        for button, normal_style in self.button_configs:
+        for button, _ in self.button_configs:
             if button == self.pushButton_toggle_acquisition:
-                # Toggle button is always enabled, handled separately above
                 continue
-            if any_acquisition_active:
-                button.setEnabled(False)
-                button.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            else:
-                button.setEnabled(True)
-                button.setStyleSheet(normal_style)
+            button.setEnabled(not any_acquisition_active)
 
         # Special handling for positions button (depends on saved positions)
         if any_acquisition_active:
             self.pushButton_acquire_at_positions.setEnabled(False)
-            self.pushButton_acquire_at_positions.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
         else:
             self._update_positions_button()
 

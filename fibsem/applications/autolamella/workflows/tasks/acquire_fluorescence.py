@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 from typing import (
     ClassVar,
+    Optional,
     Type,
 )
 
@@ -32,6 +33,9 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings,
                                                   metadata={"help": "Settings for autofocus before acquiring fluorescence images",
                                                             "label": "Autofocus Settings"})
+    orientation: Optional[str] = field(default=None,
+                                       metadata={"help": "Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
+                                                 "label": "Orientation"})
 
     def to_dict(self) -> dict:
         ddict = {}
@@ -39,6 +43,7 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
         ddict["channel_settings"] = [cs.to_dict() for cs in self.channel_settings]
         ddict["autofocus_settings"] = self.autofocus_settings.to_dict()
         ddict["zparams"] = self.zparams.to_dict()
+        ddict["orientation"] = self.orientation
         return ddict
 
     @classmethod
@@ -48,10 +53,11 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
         zparams = ZParameters.from_dict(data.get("zparams", {}))
         return cls(
             task_name=data.get("task_name", ""),
-            milling=data.get("milling", {}) ,
+            milling=data.get("milling", {}),
             channel_settings=channel_settings,
             autofocus_settings=autofocus_settings,
-            zparams=zparams
+            zparams=zparams,
+            orientation=data.get("orientation", None),
         )
 
 # TODO: implement time estimates...
@@ -63,7 +69,6 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
     def _run(self) -> None:
         """Run the task to acquire fluorescence image with the specified settings."""
 
-
         if self.microscope.fm is None:
             raise ValueError("Fluorescence microscope not initialized in the FibsemMicroscope instance")
         if self.lamella.fluorescence_pose is None or self.lamella.fluorescence_pose.objective_position is None:
@@ -71,31 +76,11 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         if self.lamella.stage_position is None:
             raise ValueError(f"Stage position for {self.lamella.name} is not set. Please set the stage position before acquiring fluorescence images.")
 
-        if self.lamella.fluorescence_pose is not None and self.lamella.fluorescence_pose.stage_position is not None:
-            stage_position = self.lamella.fluorescence_pose.stage_position
-        else:
-            stage_position = self.lamella.stage_position
 
-        if not self.microscope.fm.has_valid_orientation(stage_position):
-            logging.warning(f"Stage Position {self.lamella.name} is not in a valid orientation: {stage_position}, moving to SEM orientation...")
-            stage_position = self.microscope.get_target_position(stage_position=stage_position, target_orientation="SEM")
+        self._move_to_stage_position()
 
-        # Check for cancellation before each position
-        if self._stop_event and self._stop_event.is_set():
-            logging.info(f"{self.task_name}: {self.lamella.name} - Acquisition cancelled")
-            return
+        self._move_to_objective_position()
 
-        # Move stage to the saved stage position and objective position
-        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        self.microscope.fm.acquisition_progress_signal.emit({"state": "moving", "task": f"{self.task_name}"})
-        self.microscope.safe_absolute_stage_movement(stage_position)
-
-        # move objective to saved position
-        self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
-        if not self.microscope.fm.objective.state == "Inserted":
-            logging.warning("Objective is not inserted. Inserting the objective before acquiring fluorescence images.")
-            self.microscope.fm.objective.insert()
-        self.microscope.fm.objective.move_absolute(self.lamella.fluorescence_pose.objective_position)
 
         # Run autofocus if requested
         if self.config.autofocus_settings.fine_enabled:
@@ -120,12 +105,6 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
         self.lamella.fluorescence_pose.objective_position = self.microscope.fm.objective.position
 
-        # QUERY: update objective position to use new focused position?
-        try:
-            if self.parent_ui is not None and hasattr(self.parent_ui, 'fm_widget') and self.parent_ui.fm_widget is not None:
-                self.parent_ui.fm_widget.update_persistent_image_signal.emit(image)
-        except Exception as e:
-            logging.error(f"Error setting FM image: {e}")
 
     def _run_autofocus(self,):
         """Run autofocus with the specified settings."""
@@ -166,3 +145,37 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         if result is None:
             logging.info("Autofocus cancelled")
             raise InterruptedError(f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus.")
+
+    def _move_to_stage_position(self):
+        """Move the stage to the fluorescence pose stage position, or the lamella stage position if fluorescence pose is not set."""
+        if self.lamella.fluorescence_pose is not None and self.lamella.fluorescence_pose.stage_position is not None:
+            stage_position = self.lamella.fluorescence_pose.stage_position
+        else:
+            stage_position = self.lamella.stage_position
+
+        if self.config.orientation is not None:
+            stage_position = self.microscope.get_target_position(
+                stage_position=stage_position,
+                target_orientation=self.config.orientation
+            )
+        elif not self.microscope.fm.has_valid_orientation(stage_position):
+            logging.warning(f"Stage Position {self.lamella.name} is not in a valid orientation: {stage_position}, moving to SEM orientation...")
+            stage_position = self.microscope.get_target_position(stage_position=stage_position, target_orientation="SEM")
+
+        # Check for cancellation before each position
+        if self._stop_event and self._stop_event.is_set():
+            logging.info(f"{self.task_name}: {self.lamella.name} - Acquisition cancelled")
+            return
+
+        # Move stage to the saved stage position and objective position
+        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
+        self.microscope.fm.acquisition_progress_signal.emit({"state": "moving", "task": f"{self.task_name}"})
+        self.microscope.safe_absolute_stage_movement(stage_position)
+
+    def _move_to_objective_position(self):
+        # move objective to saved position
+        self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
+        if not self.microscope.fm.objective.state == "Inserted":
+            logging.warning("Objective is not inserted. Inserting the objective before acquiring fluorescence images.")
+            self.microscope.fm.objective.insert()
+        self.microscope.fm.objective.move_absolute(self.lamella.fluorescence_pose.objective_position)

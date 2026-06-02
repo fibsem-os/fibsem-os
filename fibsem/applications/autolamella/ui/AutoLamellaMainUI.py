@@ -8,12 +8,10 @@ try:
 except Exception:
     pass
 
-import logging
-import traceback
 import warnings
 
 import napari
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -1494,7 +1492,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         else:
             self._set_border_state("idle")
         timings["set_border_state"] = time.time() - t1
-
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
