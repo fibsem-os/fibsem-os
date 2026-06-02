@@ -325,6 +325,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         action_open_fm_minimap.triggered.connect(self._open_fm_minimap_widget)
         dev_menu.addAction(action_open_fm_minimap)
 
+        action_open_fm_image_viewer = QAction("Open Fluorescence Image Viewer", self)
+        action_open_fm_image_viewer.triggered.connect(self._open_fm_image_viewer)
+        dev_menu.addAction(action_open_fm_image_viewer)
+
         dev_menu.addSeparator()
 
         action_load_fm_configuration = QAction("Load Fluorescence Configuration", self)
@@ -515,7 +519,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_open_experiment_directory(self):
         """Handle Open Experiment Directory action."""
         if self.autolamella_ui is not None:
-            self.autolamella_ui.action_open_experiment_directory.trigger()
+            self.autolamella_ui._open_experiment_directory()
 
     def _on_load_protocol(self):
         """Handle Load Protocol action."""
@@ -530,7 +534,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _show_about_dialog(self):
         """Show the About dialog."""
         if self.autolamella_ui is not None:
-            self.autolamella_ui.actionInformation.trigger()
+            self.autolamella_ui.open_information_dialog()
 
     def _on_toggle_minimap_widget(self, checked: bool):
         """Toggle the minimap plot dock widget visibility."""
@@ -556,17 +560,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_generate_report(self):
         """Handle Generate Report action."""
         if self.autolamella_ui is not None:
-            self.autolamella_ui.actionGenerate_Report.trigger()
+            self.autolamella_ui.action_generate_report()
 
     def _on_generate_overview_plot(self):
         """Handle Generate Overview Plot action."""
         if self.autolamella_ui is not None:
-            self.autolamella_ui.actionGenerate_Overview_Plot.trigger()
+            self.autolamella_ui.action_generate_overview_plot()
 
     def _open_fm_minimap_widget(self):
         """Open the Fluorescence Minimap widget."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.open_fm_minimap_widget()
+
+    def _open_fm_image_viewer(self):
+        """Open the Fluorescence Image Viewer widget."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui._open_fm_image_viewer()
 
     def _load_fm_configuration(self):
         """Load a fluorescence microscope configuration."""
@@ -740,7 +749,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _set_minimap_workflow_enabled(self, enabled: bool):
         """Enable/disable minimap acquisition and load-image buttons during workflow."""
-        if not hasattr(self, 'minimap_widget'):
+        if not hasattr(self, "minimap_widget"):
             return
         self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
         self.minimap_widget.pushButton_load_image.setEnabled(enabled)
@@ -980,7 +989,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # hide menu bar
         self.autolamella_ui.menuBar().setVisible(False)
         self.autolamella_ui.setMinimumWidth(550)
-        self.autolamella_ui.label_title.setVisible(False)
 
         # Layout: napari viewer (left) | autolamella controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
@@ -1487,12 +1495,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._set_border_state("idle")
         timings["set_border_state"] = time.time() - t1
 
-        t_total = time.time() - t0
-        col_w = max(len(k) for k in timings) if timings else 10
-        rows = "\n".join(
-            f"  {k:<{col_w}}  {v * 1000:>8.1f} ms" for k, v in timings.items()
-        )
-        # logging.info(f"------ END WORKFLOW UPDATE ({t_total*1000:.1f} ms total) ------\n{rows}")
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
@@ -1613,7 +1615,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             viewer=self.minimap_viewer, parent=self.autolamella_ui
         )
         self.minimap_widget.setMinimumWidth(500)
-        self.minimap_widget._acquisition_finished.connect(self._on_tile_acquisition_finished)
+        self.minimap_widget._acquisition_finished.connect(
+            self._on_tile_acquisition_finished
+        )
         self.minimap_widget.lamella_list.lamella_selected.connect(
             self._on_minimap_lamella_selected
         )
