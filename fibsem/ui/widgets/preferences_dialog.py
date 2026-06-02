@@ -55,16 +55,10 @@ class PreferencesDialog(QDialog):
         # --- Feature Flags ---
         features_content = QWidget()
         features_form = QFormLayout(features_content)
-        self._chk_minimap = QCheckBox()
         self._chk_lamella_live = QCheckBox()
-        self._chk_pose = QCheckBox()
-        self._chk_grid_marker = QCheckBox()
         self._chk_coincidence_milling = QCheckBox()
         self._chk_sample_holder = QCheckBox()
-        features_form.addRow("Minimap plot widget", self._chk_minimap)
         features_form.addRow("Lamella position on live view", self._chk_lamella_live)
-        features_form.addRow("Pose controls", self._chk_pose)
-        features_form.addRow("Grid center marker", self._chk_grid_marker)
         features_form.addRow("Coincidence milling viewer", self._chk_coincidence_milling)
         features_form.addRow("Sample holder widget", self._chk_sample_holder)
         content_layout.addWidget(
@@ -113,10 +107,7 @@ class PreferencesDialog(QDialog):
         self._chk_dev_mode.setChecked(d.dev_mode)
 
         f = prefs.features
-        self._chk_minimap.setChecked(f.minimap_plot_widget)
         self._chk_lamella_live.setChecked(f.lamella_position_on_live_view)
-        self._chk_pose.setChecked(f.pose_controls)
-        self._chk_grid_marker.setChecked(f.display_grid_center_marker)
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
 
@@ -157,10 +148,7 @@ class PreferencesDialog(QDialog):
                 dev_mode=self._chk_dev_mode.isChecked(),
             ),
             features=FeatureFlags(
-                minimap_plot_widget=self._chk_minimap.isChecked(),
                 lamella_position_on_live_view=self._chk_lamella_live.isChecked(),
-                pose_controls=self._chk_pose.isChecked(),
-                display_grid_center_marker=self._chk_grid_marker.isChecked(),
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
             ),

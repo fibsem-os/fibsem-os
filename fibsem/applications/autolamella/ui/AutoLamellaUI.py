@@ -1442,7 +1442,7 @@ class AutoLamellaUI(QMainWindow):
             self.comboBox_lamella_pose.blockSignals(False)
 
         # hide pose controls if no poses
-        enable_pose_controls = bool(lamella.poses) and cfg.FEATURE_POSE_CONTROLS_ENABLED
+        enable_pose_controls = bool(lamella.poses)
         self.label_lamella_pose.setVisible(enable_pose_controls)
         self.comboBox_lamella_pose.setVisible(enable_pose_controls)
         self.label_lamella_pose_position.setVisible(enable_pose_controls)

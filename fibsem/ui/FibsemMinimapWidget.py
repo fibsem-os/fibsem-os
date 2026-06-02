@@ -31,9 +31,6 @@ from superqt import ensure_main_thread
 
 from fibsem import constants, conversions
 from fibsem.ui import notification_service
-from fibsem.applications.autolamella.config import (
-    FEATURE_DISPLAY_GRID_CENTER_MARKER,
-)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -1263,18 +1260,17 @@ class FibsemMinimapWidget(QWidget):
             ))
 
         # grid positions
-        if FEATURE_DISPLAY_GRID_CENTER_MARKER:
-            grid_positions = [s.position for s in self.microscope._stage.holder.slots.values()]
-            grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
-            for i, grid_point in enumerate(grid_points):
-                grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)
-                for line, txt in zip(grid_lines, [grid_positions[i].name, ""]):
-                    overlays.append(NapariShapeOverlay(
-                        shape=line,
-                        color=CROSSHAIR_CONFIG["colors"]["grid"],
-                        label=txt,
-                        shape_type="line"
-                    ))
+        grid_positions = [s.position for s in self.microscope._stage.holder.slots.values()]
+        grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
+        for i, grid_point in enumerate(grid_points):
+            grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)
+            for line, txt in zip(grid_lines, [grid_positions[i].name, ""]):
+                overlays.append(NapariShapeOverlay(
+                    shape=line,
+                    color=CROSSHAIR_CONFIG["colors"]["grid"],
+                    label=txt,
+                    shape_type="line"
+                ))
 
         # current stage position
         current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)

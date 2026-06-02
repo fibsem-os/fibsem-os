@@ -249,13 +249,10 @@ class DisplayPreferences:
 
 @dataclass
 class FeatureFlags:
-    minimap_plot_widget: bool = True
     lamella_position_on_live_view: bool = False
-    pose_controls: bool = False
-    display_grid_center_marker: bool = False
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
-    sample_holder_widget: bool = True
+    sample_holder_widget: bool = False
 
 @dataclass
 class PathPreferences:
@@ -341,18 +338,12 @@ def save_user_preferences(preferences) -> None:
 def apply_feature_flags(prefs: UserPreferences) -> None:
     """Update module-level FEATURE_* constants from user preferences."""
     import fibsem.config as _self
-    global FEATURE_MINIMAP_PLOT_WIDGET_ENABLED
     global FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED
-    global FEATURE_POSE_CONTROLS_ENABLED
-    global FEATURE_DISPLAY_GRID_CENTER_MARKER
     global FEATURE_VIEWER_MOVEMENT_EVENTS
     global FEATURE_COINCIDENCE_MILLING_ENABLED
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
     f = prefs.features
-    FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
-    FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
-    FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
@@ -360,10 +351,7 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     # Also update the autolamella config module which re-exports these
     try:
         import fibsem.applications.autolamella.config as al_cfg
-        al_cfg.FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = f.minimap_plot_widget
         al_cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
-        al_cfg.FEATURE_POSE_CONTROLS_ENABLED = f.pose_controls
-        al_cfg.FEATURE_DISPLAY_GRID_CENTER_MARKER = f.display_grid_center_marker
         al_cfg.FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     except ImportError:
         pass
@@ -380,10 +368,7 @@ AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
 
 ####### FEATURE FLAGS
-FEATURE_MINIMAP_PLOT_WIDGET_ENABLED = True
 FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
-FEATURE_POSE_CONTROLS_ENABLED = True
-FEATURE_DISPLAY_GRID_CENTER_MARKER = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
-FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = True
+FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
