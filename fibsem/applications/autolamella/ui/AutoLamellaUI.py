@@ -39,7 +39,7 @@ from fibsem.ui import (
     MillingTaskViewerWidget,
     stylesheets,
 )
-from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
+from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
 from PyQt5.QtCore import pyqtSignal
@@ -185,7 +185,7 @@ class AutoLamellaUI(QMainWindow):
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
-        self.fm_widget: Optional[FMAcquisitionWidget] = None
+        self._fm_acquisition_dialog = None
         self.fm_control_widget: Optional[FMControlWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
@@ -882,21 +882,23 @@ class AutoLamellaUI(QMainWindow):
             )
             return
 
+        if self.microscope.fm is None:
+            notification_service.show_toast(
+                "Connected microscope does not have fluorescence capabilities.",
+                "warning",
+            )
+            return
+
         if self.experiment is None:
             notification_service.show_toast(
                 "Please load an experiment first... [No Experiment Loaded]", "warning"
             )
             return
 
-        viewer = napari.Viewer(title="AutoLamella FM Acquisition Viewer")
-        self.fm_widget = FMAcquisitionWidget(
+        self._fm_acquisition_dialog = open_fm_acquisition_dialog(
             microscope=self.microscope,
-            viewer=viewer,
             experiment=self.experiment,
             parent=self,
-        )
-        self.fm_widget_dock = viewer.window.add_dock_widget(
-            self.fm_widget, name="FM Minimap", area="right"
         )
 
     def _open_fm_image_viewer(self):

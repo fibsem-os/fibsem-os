@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QShortcut,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +38,6 @@ from fibsem.applications.autolamella.config import LOG_PATH
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.fm.acquisition import (
     acquire_and_stitch_tileset,
-    acquire_at_positions,
     acquire_image,
     calculate_grid_coverage_area,
 )
@@ -62,7 +62,6 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui.fm.widgets import (
-    AcquisitionSummaryDialog,
     AutofocusWidget,
     FluorescenceMultiChannelWidget,
     DisplayOptionsDialog,
@@ -73,8 +72,6 @@ from fibsem.ui.fm.widgets import (
     OverviewConfirmationDialog,
     OverviewParametersWidget,
     SavedPositionsWidget,
-    SEMAcquisitionWidget,
-    StagePositionControlWidget,
     ZParametersWidget,
 )
 from fibsem.ui.napari.utilities import (
@@ -334,7 +331,6 @@ class FMAcquisitionWidget(QWidget):
 
     def __init__(self,
                  microscope: FibsemMicroscope,
-                 viewer: napari.Viewer,
                  experiment: Optional[Experiment] = None,
                  parent: Optional['AutoLamellaUI'] = None):
         super().__init__(parent)
@@ -344,14 +340,15 @@ class FMAcquisitionWidget(QWidget):
 
         self.microscope = microscope
         self.fm: FluorescenceMicroscope = microscope.fm
-        self.viewer = viewer
+        self.viewer = napari.Viewer(show=False, title="FM Acquisition")
+        self.viewer.window._qt_window.menuBar().hide()
+        self.viewer.window._qt_window.statusBar().hide()
         self.experiment: Optional[Experiment] = experiment
         self.parent_widget = parent
 
         # widgets
         self.channelSettingsWidget: FluorescenceMultiChannelWidget
         self.objectiveControlWidget: ObjectiveControlWidget
-        self.stagePositionControlWidget: StagePositionControlWidget
         self.zParametersWidget: ZParametersWidget
         self.overviewParametersWidget: OverviewParametersWidget
         self.savedPositionsWidget: SavedPositionsWidget
@@ -375,19 +372,13 @@ class FMAcquisitionWidget(QWidget):
         self.show_circle_overlays = True
         self.show_histogram = True
 
-        self.sync_experiment_positions()
         self.initUI()
         self._update_stage_position_display()
-
-    def sync_experiment_positions(self):
-        """Sync stage positions from the experiment to the widget."""
-        pass
 
     def toggle_widgets(self):
         """Toggle widgets based on current stage orientation."""
 
         is_fm_enabled = self.microscope.get_stage_orientation() in ["FM", "SEM"]
-        is_sem_enabled = self.microscope.get_stage_orientation() == "SEM"
 
         self.objectiveControlWidget.setEnabled(is_fm_enabled)
         self.zParametersWidget.setEnabled(is_fm_enabled)
@@ -395,7 +386,6 @@ class FMAcquisitionWidget(QWidget):
         self.autofocusWidget.setEnabled(is_fm_enabled)
         self.savedPositionsWidget.setEnabled(is_fm_enabled)
         self.overviewParametersWidget.setEnabled(is_fm_enabled)
-        self.semAcquisitionWidget.setEnabled(is_fm_enabled)
         # toggle acquisition buttons based on orientation
         for btn, _ in self.button_configs:
             btn.setEnabled(is_fm_enabled)
@@ -442,16 +432,6 @@ class FMAcquisitionWidget(QWidget):
         self.objectivePanel = TitledPanel("Objective Control", content=self.objectiveControlWidget, collapsible=True)
         self.objectivePanel.expand()
 
-        # Add stage position control widget
-        self.stagePositionControlWidget = StagePositionControlWidget(microscope=self.microscope, parent=self)
-        self.stagePositionPanel = TitledPanel("Stage Position Control", content=self.stagePositionControlWidget, collapsible=True)
-        self.stagePositionPanel.collapse()
-
-        # add SEM image acquisition widget
-        self.semAcquisitionWidget = SEMAcquisitionWidget(microscope=self.microscope, parent=self)
-        self.semAcquisitionPanel = TitledPanel("SEM Image Acquisition", content=self.semAcquisitionWidget, collapsible=True)
-        self.semAcquisitionPanel.setVisible(False)  # Hide SEM acquisition by default
-
         # create z parameters widget
         self.zParametersWidget = ZParametersWidget(z_parameters=z_parameters, parent=self)
         self.zParametersPanel = TitledPanel("Z-Stack Parameters", content=self.zParametersWidget, collapsible=True)
@@ -495,7 +475,6 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
         self.pushButton_acquire_overview = QPushButton("Acquire Overview", self)
-        self.pushButton_acquire_at_positions = QPushButton("Acquire at Positions (0/0)", self)
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
@@ -519,8 +498,6 @@ class FMAcquisitionWidget(QWidget):
         ]
 
         layout = QVBoxLayout()
-        layout.addWidget(self.stagePositionPanel)
-        layout.addWidget(self.semAcquisitionPanel)
         layout.addWidget(self.objectivePanel)
         layout.addWidget(self.channelPanel)
         layout.addWidget(self.autofocusPanel)
@@ -536,29 +513,42 @@ class FMAcquisitionWidget(QWidget):
         button_layout.addWidget(self.pushButton_acquire_single_image, 2, 0)
         button_layout.addWidget(self.pushButton_acquire_zstack, 2, 1)
         button_layout.addWidget(self.pushButton_acquire_overview, 3, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_at_positions, 4, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
-        button_layout.addWidget(self.progressText, 6, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_current_acquisition, 7, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_acquisition_task, 8, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 4, 0, 1, 2)
+        button_layout.addWidget(self.progressText, 5, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_current_acquisition, 6, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_acquisition_task, 7, 0, 1, 2)
         button_layout.setContentsMargins(0, 0, 0, 0)
 
-        # set layout -> content -> scroll area -> main layout
-        main_layout = QVBoxLayout()
+        # Scroll area wrapping the panels
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        content_widget = QWidget(self)
+        content_widget = QWidget()
         content_widget.setLayout(layout)
         layout.addStretch()
         scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area)
-        main_layout.addLayout(button_layout)
-        self.setLayout(main_layout)
-        scroll_area.setContentsMargins(0, 0, 0, 0)
+
+        # Side panel: scroll area + button grid
+        side_panel = QWidget()
+        side_layout = QVBoxLayout(side_panel)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.setSpacing(0)
+        side_layout.addWidget(scroll_area)
+        side_layout.addLayout(button_layout)
+        side_panel.setMinimumWidth(450)
+
+        # Splitter: viewer (left) | controls (right)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.viewer.window._qt_window)
+        splitter.addWidget(side_panel)
+        splitter.setSizes([900, 450])
+
+        main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_area.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(splitter)
+        self.setLayout(main_layout)
 
         # connect signals
         self.overviewParametersWidget.spinBox_rows.valueChanged.connect(self._update_overview_bounding_box)
@@ -573,7 +563,6 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_single_image.clicked.connect(self.acquire_image)
         self.pushButton_acquire_zstack.clicked.connect(self.acquire_image)
         self.pushButton_acquire_overview.clicked.connect(self.acquire_overview)
-        self.pushButton_acquire_at_positions.clicked.connect(self.acquire_at_positions)
         self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
 
@@ -614,7 +603,6 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_single_image.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_acquire_zstack.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_acquire_overview.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_acquire_at_positions.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_run_autofocus.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_cancel_acquisition.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_cancel_acquisition.hide()  # Hide by default, show when acquisition starts
@@ -624,15 +612,13 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_acquire_single_image.setEnabled(True)
         self.pushButton_acquire_zstack.setEnabled(True)
         self.pushButton_acquire_overview.setEnabled(True)
-        self.pushButton_acquire_at_positions.setEnabled(True)
         self.pushButton_run_autofocus.setEnabled(True)
 
-        # Initialize positions button state
+        # Initialize positions widget state
         if self.experiment is not None:
             self.savedPositionsWidget.update_positions(self.experiment.positions) # type: ignore
             if self.parent_widget is not None:
                 self.experiment.events.connect(self._on_experiment_positions_changed)
-        self._update_positions_button()
         self.overviewParametersWidget._update_channel_names_from_parent()
         self.autofocusWidget.update_channels(self.channelSettingsWidget.channel_settings)
 
@@ -702,7 +688,7 @@ class FMAcquisitionWidget(QWidget):
         inverted = self.microscope.get_stage_orientation() == "FM"
         stage_position = napari_world_coordinate_to_stage_position(Point(x=position_clicked[1], y=position_clicked[0]), inverted=inverted)
         current_stage_position = self.microscope.get_stage_position()
-        stage_position.r = current_stage_position.r  
+        stage_position.r = current_stage_position.r
         stage_position.t = current_stage_position.t
         stage_position.z = current_stage_position.z  # keep current z,r,t
         logging.info(f"Mouse clicked at {event.position}. Stage position: {stage_position}")
@@ -753,13 +739,12 @@ class FMAcquisitionWidget(QWidget):
                 return
 
             # Update only the stage position, keep name and objective position
-            self.experiment.positions[current_index].stage_position = stage_position
+            self.experiment.positions[current_index].fluorescence_pose.stage_position = stage_position
             logging.info(f"Updated position '{current_position.name}' to new stage coordinates: {stage_position}")
 
-        # Update positions button and widget
+        # Update positions widget
         self.savedPositionsWidget.update_positions(self.experiment.positions)
         self.draw_stage_position_crosshairs()
-        self._update_positions_button()
         event.handled = True
 
     def on_mouse_double_click(self, viewer, event):
@@ -889,7 +874,6 @@ class FMAcquisitionWidget(QWidget):
 
             # Update the saved positions widget
             self.savedPositionsWidget.update_positions(self.experiment.positions)
-            self._update_positions_button()
             self.draw_stage_position_crosshairs()
 
             # Show success message
@@ -1185,9 +1169,6 @@ class FMAcquisitionWidget(QWidget):
             fov_rect = None
             # if current_orientation == "FM":
             fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
-            # elif current_orientation == "SEM":
-                # fov = self.semAcquisitionWidget.image_settings.hfw  # square fov
-                # fov_rect = create_rectangle_shape(center_point, fov, fov, layer_scale)
             if fov_rect is not None:
                 overlays.append(NapariShapeOverlay(
                     shape=fov_rect,
@@ -1243,7 +1224,8 @@ class FMAcquisitionWidget(QWidget):
                 selected_index = self.savedPositionsWidget.comboBox_positions.currentIndex()
 
             for i, saved_pos in enumerate(self.experiment.positions):
-                center_point = stage_position_to_napari_world_coordinate(saved_pos.stage_position, inverted=inverted)
+                center_point = stage_position_to_napari_world_coordinate(
+                    saved_pos.fluorescence_pose.stage_position, inverted=inverted)
                 fov_rect = create_rectangle_shape(center_point, fov_x, fov_y, layer_scale)
 
                 # Use lime for selected position, cyan for others
@@ -1406,116 +1388,6 @@ class FMAcquisitionWidget(QWidget):
 
         return overlays
 
-    def _update_positions_button(self):
-        """Update the positions acquisition button text and state based on checked positions."""
-        num_total_positions = len(self.experiment.positions) if self.experiment else 0
-        num_checked_positions = len(self.savedPositionsWidget.get_checked_positions()) if hasattr(self, 'savedPositionsWidget') else 0
-        button_text = f"Acquire at Positions ({num_checked_positions}/{num_total_positions})"
-        self.pushButton_acquire_at_positions.setText(button_text)
-
-        # Enable/disable button based on whether checked positions exist
-        self.pushButton_acquire_at_positions.setEnabled(num_checked_positions > 0)
-
-    def acquire_at_positions(self):
-        """Start threaded acquisition at all checked saved positions."""
-
-        if self.experiment is not None and not self.experiment.positions:
-            logging.warning("No saved positions available for acquisition.")
-            return
-
-        # Get only checked positions from the saved positions widget
-        lamella_positions = self.savedPositionsWidget.get_checked_positions()
-        if not lamella_positions:
-            logging.warning("No positions are checked for acquisition. Please check at least one position.")
-            return
-
-        if self.is_acquiring:
-            logging.warning("Another acquisition is already in progress.")
-            return
-
-        # Get current settings
-        settings = self._get_current_settings()
-        channel_settings = settings['channel_settings']
-        z_parameters = settings['z_parameters']
-        
-        # Get auto focus setting from the saved positions widget
-        use_autofocus = self.savedPositionsWidget.get_auto_focus_enabled()
-
-        # convert to fm stage positions...
-        checked_positions: List[FMStagePosition] = [FMStagePosition(p.name, p.stage_position, p.objective_position) for p in lamella_positions]
-
-        invalid_positions = [p.name for p in checked_positions if p.objective_position is None]
-        if invalid_positions:
-            msg = f"{len(invalid_positions)} Positions '{', '.join(invalid_positions)}' do not have valid objective positions for FM acquisition. \n\nCannot start acquisition."
-            msgbox = QMessageBox(parent=self)
-            msgbox.setIcon(QMessageBox.Warning)
-            msgbox.setWindowTitle("Invalid Objective Position")
-            msgbox.setText(msg)
-            msgbox.exec_()
-            return
-
-        # Show acquisition summary dialog
-        summary_dialog = AcquisitionSummaryDialog(
-            checked_positions=checked_positions,
-            channel_settings=channel_settings,
-            z_parameters=z_parameters,
-            use_autofocus=use_autofocus,
-            parent=self
-        )
-
-        # Only proceed if user confirms
-        if summary_dialog.exec_() != QDialog.Accepted:
-            logging.info("Acquisition cancelled by user")
-            return
-
-        logging.info(f"Starting acquisition at {len(checked_positions)} checked positions")
-        self._current_acquisition_type = "positions"
-        self._last_remaining_time = None
-        self._update_acquisition_button_states()
-        self._acquisition_stop_event.clear()
-
-        # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._positions_worker,
-            args=(checked_positions, channel_settings, z_parameters, use_autofocus),
-            daemon=True
-        )
-        self._acquisition_thread.start()
-
-    def _positions_worker(self,
-                          checked_positions: List[FMStagePosition],
-                          channel_settings: List[ChannelSettings],
-                          z_parameters: Optional[ZParameters],
-                          use_autofocus: bool):
-        """Worker thread for positions acquisition."""
-        try:
-            logging.info(f"Acquiring at {len(checked_positions)} checked positions")
-
-            # acquire images at only the checked positions
-            images = acquire_at_positions(
-                microscope=self.microscope,
-                positions=checked_positions,
-                channel_settings=channel_settings,
-                zparams=z_parameters,
-                stop_event=self._acquisition_stop_event,
-                use_autofocus=use_autofocus,
-                save_directory=self.experiment.path,
-            )
-
-            if self._acquisition_stop_event.is_set():
-                logging.info("Positions acquisition was cancelled")
-                return
-
-            # Emit each acquired image
-            for image in images:
-                self.update_persistent_image_signal.emit(image)
-
-        except Exception as e:
-            logging.error(f"Error during positions acquisition: {e}")
-
-        finally:
-            self.acquisition_finished_signal.emit()
-    
     def _on_acquisition_finished(self):
         """Handle consolidated acquisition completion in the main thread."""
 
@@ -1812,7 +1684,6 @@ class FMAcquisitionWidget(QWidget):
             self.pushButton_toggle_acquisition.setEnabled(False)
             self.pushButton_acquire_zstack.setEnabled(False)
             self.pushButton_acquire_overview.setEnabled(False)
-            self.pushButton_acquire_at_positions.setEnabled(False)
             self.pushButton_cancel_acquisition.setEnabled(False)
             return
 
@@ -1834,15 +1705,8 @@ class FMAcquisitionWidget(QWidget):
                 continue
             button.setEnabled(not any_acquisition_active)
 
-        # Special handling for positions button (depends on saved positions)
-        if any_acquisition_active:
-            self.pushButton_acquire_at_positions.setEnabled(False)
-        else:
-            self._update_positions_button()
-
         # Disable control widgets during acquisition
         self.objectiveControlWidget.setEnabled(not self.is_acquisition_active)
-        self.stagePositionControlWidget.setEnabled(not any_acquisition_active)
         self.zParametersWidget.setEnabled(not any_acquisition_active)
         self.overviewParametersWidget.setEnabled(not any_acquisition_active)
         self.savedPositionsWidget.setEnabled(not any_acquisition_active)
@@ -2031,6 +1895,7 @@ class FMAcquisitionWidget(QWidget):
         self._last_remaining_time = None
 
         self.histogramWidget.close()
+        self.viewer.close()
         event.accept()
 
     def run_autofocus(self):
@@ -2083,7 +1948,32 @@ class FMAcquisitionWidget(QWidget):
             self.acquisition_finished_signal.emit()
 
 
-def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
+def open_fm_acquisition_dialog(
+    microscope: "FibsemMicroscope",
+    experiment=None,
+    parent=None,
+) -> QDialog:
+    """Open FMAcquisitionWidget in a non-modal QDialog window.
+
+    Returns the dialog — caller must keep a reference to prevent GC.
+    """
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("FM Acquisition")
+    dlg.setWindowFlags(dlg.windowFlags() | Qt.Window)
+    dlg.resize(1400, 800)
+
+    widget = FMAcquisitionWidget(
+        microscope=microscope, experiment=experiment, parent=dlg
+    )
+    layout = QVBoxLayout(dlg)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(widget)
+
+    dlg.show()
+    return dlg
+
+
+def create_widget() -> FMAcquisitionWidget:
     # CONFIG_PATH = r"C:\Users\User\Documents\github\openfibsem\fibsem-os\fibsem\config\tfs-arctis-configuration.yaml"
     CONFIG_PATH = "/Users/patrickcleeve/Documents/fibsem/fibsem/fibsem/config/sim-arctis-configuration.yaml"
     if not os.path.exists(CONFIG_PATH):
@@ -2101,22 +1991,14 @@ def create_widget(viewer: napari.Viewer) -> FMAcquisitionWidget:
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
 
-
-    widget = FMAcquisitionWidget(microscope=microscope,
-                                 viewer=viewer,
-                                 parent=None)
-
-    return widget
+    return FMAcquisitionWidget(microscope=microscope, parent=None)
 
 def main():
-
-    viewer = napari.Viewer()
-    widget = create_widget(viewer)    
-    viewer.window.add_dock_widget(widget, area="right")
+    widget = create_widget()
     if widget.experiment is None:
-        widget.show_new_experiment_dialog()  # Show experiment creation dialog on startup
+        widget.show_new_experiment_dialog()
+    widget.show()
     napari.run()
-
     return
 
 
