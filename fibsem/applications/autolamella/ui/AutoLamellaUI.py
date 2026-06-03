@@ -46,9 +46,11 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -57,6 +59,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
     LamellaNameListWidget,
     TitledPanel,
     ValueSpinBox,
@@ -252,6 +255,17 @@ class AutoLamellaUI(QMainWindow):
         self.doubleSpinBox_lamella_objective_position = ValueSpinBox(
             suffix="mm", decimals=3, step=0.001, minimum=-20.0, maximum=20.0
         )
+        self.btn_lamella_objective_actions = IconToolButton(
+            "mdi:dots-horizontal", tooltip="Actions"
+        )
+        self.btn_lamella_objective_actions.setPopupMode(IconToolButton.InstantPopup)
+        self.btn_lamella_objective_actions.setStyleSheet(
+            "QToolButton::menu-indicator { image: none; }"
+        )
+        _obj_menu = QMenu(self)
+        self._action_use_current_obj_pos = _obj_menu.addAction("Use Current Objective Position")
+        self._action_apply_obj_to_all = _obj_menu.addAction("Apply to All Lamella")
+        self.btn_lamella_objective_actions.setMenu(_obj_menu)
 
         self.label_lamella_pose = QLabel("Pose")
         self.comboBox_lamella_pose = QComboBox()
@@ -263,8 +277,14 @@ class AutoLamellaUI(QMainWindow):
         selected_content = QWidget()
         selected_layout = QGridLayout(selected_content)
         selected_layout.setContentsMargins(0, 0, 0, 0)
+        _obj_row = QWidget()
+        _obj_row_layout = QHBoxLayout(_obj_row)
+        _obj_row_layout.setContentsMargins(0, 0, 0, 0)
+        _obj_row_layout.setSpacing(2)
+        _obj_row_layout.addWidget(self.doubleSpinBox_lamella_objective_position)
+        _obj_row_layout.addWidget(self.btn_lamella_objective_actions)
         selected_layout.addWidget(self.label_lamella_objective_position, 0, 0)
-        selected_layout.addWidget(self.doubleSpinBox_lamella_objective_position, 0, 1)
+        selected_layout.addWidget(_obj_row, 0, 1)
         selected_layout.addWidget(self.label_lamella_pose, 1, 0)
         selected_layout.addWidget(self.comboBox_lamella_pose, 1, 1)
         selected_layout.addWidget(self.label_lamella_pose_position, 2, 0, 1, 2)
@@ -363,6 +383,12 @@ class AutoLamellaUI(QMainWindow):
 
         self.doubleSpinBox_lamella_objective_position.valueChanged.connect(
             self.update_lamella_objective_position
+        )
+        self._action_use_current_obj_pos.triggered.connect(
+            self._use_current_objective_position
+        )
+        self._action_apply_obj_to_all.triggered.connect(
+            self._apply_objective_position_to_all
         )
 
         self.comboBox_lamella_pose.currentIndexChanged.connect(
@@ -1214,6 +1240,7 @@ class AutoLamellaUI(QMainWindow):
             self.doubleSpinBox_lamella_objective_position.blockSignals(False)
         self.label_lamella_objective_position.setVisible(obj_controls_enabled)
         self.doubleSpinBox_lamella_objective_position.setVisible(obj_controls_enabled)
+        self.btn_lamella_objective_actions.setVisible(obj_controls_enabled)
 
         # set lamella pose display
         if lamella.poses:
@@ -1579,6 +1606,32 @@ class AutoLamellaUI(QMainWindow):
             f"Moved to pose '{pose_name}' for {lamella.name}.", "info"
         )
 
+    def _use_current_objective_position(self):
+        """Read the current FM objective position and apply it to the selected lamella."""
+        if self.microscope is None or self.microscope.fm is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self.get_selected_lamella()
+        if lamella is None or lamella.fluorescence_pose is None:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        obj = self.microscope.fm.objective
+        if obj.state == "Inserted":
+            value_m = obj.position
+        else:
+            value_m = obj.focus_position
+        if value_m is None:
+            notification_service.show_toast("Objective position unavailable.", "warning")
+            return
+        lamella.fluorescence_pose.objective_position = value_m
+        self.experiment.save()
+        self.doubleSpinBox_lamella_objective_position.blockSignals(True)
+        self.doubleSpinBox_lamella_objective_position.setValue(value_m * 1e3)
+        self.doubleSpinBox_lamella_objective_position.blockSignals(False)
+        notification_service.show_toast(
+            f"Set objective position to {value_m * 1e3:.3f} mm for {lamella.name}.", "info"
+        )
+
     def update_lamella_objective_position(self, value: float):
         """Update the objective position of the current lamella."""
 
@@ -1594,6 +1647,23 @@ class AutoLamellaUI(QMainWindow):
         # convert from mm to m
         lamella.fluorescence_pose.objective_position = value * 1e-3
         self.experiment.save()
+
+    def _apply_objective_position_to_all(self):
+        """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
+        if self.experiment is None:
+            return
+        value_mm = self.doubleSpinBox_lamella_objective_position.value()
+        value_m = value_mm * 1e-3
+        count = 0
+        for lamella in self.experiment.positions:
+            if lamella.fluorescence_pose is not None:
+                lamella.fluorescence_pose.objective_position = value_m
+                count += 1
+        if count:
+            self.experiment.save()
+            notification_service.show_toast(
+                f"Applied objective position ({value_mm:.3f} mm) to {count} lamella.", "info"
+            )
 
     def get_selected_lamella(self) -> Optional[Lamella]:
         """Get the currently selected lamella from the combobox.
