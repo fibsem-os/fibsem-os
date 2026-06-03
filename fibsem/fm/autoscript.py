@@ -55,7 +55,7 @@ ARCTIS_CONFIGURATION = {
     "working_distance": 4e-3,
     "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
     "resolution": (4512, 4512),
-    "focus_position": 7.6e-3,  # 7600 microns
+    "focus_position": 8.0e-3,  # 8000 microns
     "limit_position": 8.6e-3,  # 8600 microns
 }
 
