@@ -58,16 +58,35 @@ def make_synthetic_result(n_positions=25, image_shape=(256, 256)):
 if __name__ == "__main__":
     import os
 
+    # Single-stage (25 positions, 2-row thumbnails)
     result = make_synthetic_result(n_positions=25)
     save_path = "/tmp/test_autofocus_plot.png"
     plot_autofocus(result, save_path=save_path)
-    print(f"Saved to {save_path}")
+    print(f"Saved single-stage to {save_path}")
 
-    # Also test with fewer positions (< 10) to check it handles small sets
+    # Single-stage small (< 10 positions, 1-row thumbnails)
     result_small = make_synthetic_result(n_positions=5)
     save_path_small = "/tmp/test_autofocus_plot_small.png"
     plot_autofocus(result_small, save_path=save_path_small)
     print(f"Saved small to {save_path_small}")
 
-    os.system(f"open {save_path}")
-    os.system(f"open {save_path_small}")
+    # Multi-stage: 3 iterations with halving range (simulates IterativeAutoFocusStrategy)
+    stages = []
+    for i, n_pos in enumerate([20, 12, 8]):
+        r = make_synthetic_result(n_positions=n_pos)
+        stages.append(r)
+    final = stages[-1]
+    final.iterations = stages
+    save_path_iter = "/tmp/test_autofocus_plot_iterative.png"
+    plot_autofocus(final, save_path=save_path_iter)
+    print(f"Saved iterative to {save_path_iter}")
+
+    # Multi-stage: 2 stages (simulates CoarseFineAutoFocusStrategy)
+    coarse = make_synthetic_result(n_positions=20)
+    fine = make_synthetic_result(n_positions=10)
+    fine.iterations = [coarse, fine]
+    save_path_cf = "/tmp/test_autofocus_plot_coarsefine.png"
+    plot_autofocus(fine, save_path=save_path_cf)
+    print(f"Saved coarse-fine to {save_path_cf}")
+
+    os.system(f"open {save_path} {save_path_small} {save_path_iter} {save_path_cf}")

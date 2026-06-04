@@ -44,6 +44,15 @@ def test_autofocus_result_optional_fields_default_none():
     r = _make_result()
     assert r.roi is None
     assert r.channel_settings is None
+    assert r.iterations == []
+
+
+def test_autofocus_result_iterations_stores_correctly():
+    r1 = _make_result(n=5)
+    r2 = _make_result(n=3)
+    r2.iterations = [r1, r2]
+    assert len(r2.iterations) == 2
+    assert r2.iterations[0] is r1
 
 
 def test_autofocus_result_with_roi():
@@ -108,6 +117,24 @@ def test_plot_method_default_save_path(monkeypatch):
 
     _make_result().plot()
     assert called_with["save_path"] is None
+
+
+def test_plot_with_iterations_passes_result_with_iterations(monkeypatch):
+    called_with = {}
+
+    def fake_plot_autofocus(result, save_path=None):
+        called_with["result"] = result
+
+    import fibsem.fm.calibration as cal
+    monkeypatch.setattr(cal, "plot_autofocus", fake_plot_autofocus)
+
+    r1 = _make_result(n=5)
+    r2 = _make_result(n=3)
+    r2.iterations = [r1, r2]
+    r2.plot()
+
+    assert called_with["result"] is r2
+    assert len(called_with["result"].iterations) == 2
 
 
 # ---------------------------------------------------------------------------

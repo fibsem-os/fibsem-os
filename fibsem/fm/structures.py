@@ -323,6 +323,7 @@ class AutoFocusResult:
     method: str
     roi: Optional[FibsemRectangle] = None
     channel_settings: Optional[Any] = None
+    iterations: "List[AutoFocusResult]" = field(default_factory=list)
 
     @property
     def n_positions(self) -> int:

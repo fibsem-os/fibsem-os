@@ -104,4 +104,5 @@ class CoarseFineAutoFocusStrategy(AutoFocusStrategy[CoarseFineAutoFocusConfig]):
             f"Final position {fine_result.best_z * 1e6:.1f} μm "
             f"(total adjustment: {total_adjustment * 1e6:.1f} μm)"
         )
+        fine_result.iterations = [coarse_result, fine_result]
         return fine_result

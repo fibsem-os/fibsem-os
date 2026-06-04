@@ -52,7 +52,7 @@ class IterativeAutoFocusStrategy(AutoFocusStrategy[IterativeAutoFocusConfig]):
 
         current_range = self.config.initial_range
         current_step = self.config.initial_step
-        last_result: Optional[AutoFocusResult] = None
+        all_results: list[AutoFocusResult] = []
 
         for i in range(self.config.num_iterations):
             logging.info(
@@ -73,10 +73,13 @@ class IterativeAutoFocusStrategy(AutoFocusStrategy[IterativeAutoFocusConfig]):
                 roi=roi,
             )
             if result is None:
-                return last_result
+                if all_results:
+                    all_results[-1].iterations = all_results
+                return all_results[-1] if all_results else None
 
-            last_result = result
+            all_results.append(result)
             current_range *= self.config.reduction_factor
             current_step *= self.config.reduction_factor
 
-        return last_result
+        all_results[-1].iterations = all_results
+        return all_results[-1]
