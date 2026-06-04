@@ -435,7 +435,7 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope,
         if microscope.fm is not None:
             if objective_position is None:
                 objective_position = microscope.fm.objective.position
-            obj_txt = f"OBJECTIVE: {objective_position*1e3:.3f} mm"
+            obj_txt = f"OBJECTIVE: {objective_position * constants.METRE_TO_MICRON:.1f} µm"
 
         # Create combined text for overlay
         overlay_text = (

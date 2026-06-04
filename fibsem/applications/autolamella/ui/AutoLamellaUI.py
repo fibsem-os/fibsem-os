@@ -18,6 +18,7 @@ import numpy as np
 import napari
 import fibsem
 from fibsem import conversions, utils
+from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -253,7 +254,7 @@ class AutoLamellaUI(QMainWindow):
 
         self.label_lamella_objective_position = QLabel("Objective Position")
         self.doubleSpinBox_lamella_objective_position = ValueSpinBox(
-            suffix="mm", decimals=3, step=0.001, minimum=-20.0, maximum=20.0
+            suffix="µm", decimals=1, step=1.0, minimum=-20000.0, maximum=20000.0
         )
         self.btn_lamella_objective_actions = IconToolButton(
             "mdi:dots-horizontal", tooltip="Actions"
@@ -1227,7 +1228,7 @@ class AutoLamellaUI(QMainWindow):
         lamella: Lamella = self.experiment.positions[idx]
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
 
-        # set objective position (show as mm)
+        # set objective position (show as µm)
         obj_pos = (
             lamella.fluorescence_pose.objective_position
             if lamella.fluorescence_pose is not None
@@ -1236,7 +1237,7 @@ class AutoLamellaUI(QMainWindow):
         obj_controls_enabled = obj_pos is not None
         if obj_controls_enabled:
             self.doubleSpinBox_lamella_objective_position.blockSignals(True)
-            self.doubleSpinBox_lamella_objective_position.setValue(obj_pos * 1e3)
+            self.doubleSpinBox_lamella_objective_position.setValue(obj_pos * METRE_TO_MICRON)
             self.doubleSpinBox_lamella_objective_position.blockSignals(False)
         self.label_lamella_objective_position.setVisible(obj_controls_enabled)
         self.doubleSpinBox_lamella_objective_position.setVisible(obj_controls_enabled)
@@ -1626,10 +1627,10 @@ class AutoLamellaUI(QMainWindow):
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
         self.doubleSpinBox_lamella_objective_position.blockSignals(True)
-        self.doubleSpinBox_lamella_objective_position.setValue(value_m * 1e3)
+        self.doubleSpinBox_lamella_objective_position.setValue(value_m * METRE_TO_MICRON)
         self.doubleSpinBox_lamella_objective_position.blockSignals(False)
         notification_service.show_toast(
-            f"Set objective position to {value_m * 1e3:.3f} mm for {lamella.name}.", "info"
+            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
         )
 
     def update_lamella_objective_position(self, value: float):
@@ -1644,16 +1645,16 @@ class AutoLamellaUI(QMainWindow):
         lamella = self.experiment.positions[idx]
         if lamella.fluorescence_pose is None:
             return
-        # convert from mm to m
-        lamella.fluorescence_pose.objective_position = value * 1e-3
+        # convert from µm to m
+        lamella.fluorescence_pose.objective_position = value * MICRON_TO_METRE
         self.experiment.save()
 
     def _apply_objective_position_to_all(self):
         """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
         if self.experiment is None:
             return
-        value_mm = self.doubleSpinBox_lamella_objective_position.value()
-        value_m = value_mm * 1e-3
+        value_um = self.doubleSpinBox_lamella_objective_position.value()
+        value_m = value_um * MICRON_TO_METRE
         count = 0
         for lamella in self.experiment.positions:
             if lamella.fluorescence_pose is not None:
@@ -1662,7 +1663,7 @@ class AutoLamellaUI(QMainWindow):
         if count:
             self.experiment.save()
             notification_service.show_toast(
-                f"Applied objective position ({value_mm:.3f} mm) to {count} lamella.", "info"
+                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.", "info"
             )
 
     def get_selected_lamella(self) -> Optional[Lamella]:
