@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Tuple, Type, Ty
 
 from pydantic import BaseModel, ConfigDict
 
+from fibsem.fm.structures import AutoFocusResult
+
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.fm.structures import ChannelSettings
@@ -105,8 +107,8 @@ class AutoFocusStrategy(ABC, Generic[TAutoFocusStrategyConfig]):
         channel_settings: Optional["ChannelSettings"] = None,
         roi: Optional["FibsemRectangle"] = None,
         stop_event: Optional[threading.Event] = None,
-    ) -> Optional[float]:
-        """Run autofocus and return the best focus z-position in metres, or None if cancelled."""
+    ) -> Optional[AutoFocusResult]:
+        """Run autofocus and return the result, or None if cancelled."""
         pass
 
 
@@ -141,7 +143,7 @@ def run_autofocus_strategy(
     channel_settings: Optional["ChannelSettings"] = None,
     roi: Optional["FibsemRectangle"] = None,
     stop_event: Optional[threading.Event] = None,
-) -> Optional[float]:
+) -> Optional[AutoFocusResult]:
     """Run an autofocus strategy from a config instance.
 
     Args:
@@ -152,7 +154,7 @@ def run_autofocus_strategy(
         stop_event: Optional threading event to cancel mid-run.
 
     Returns:
-        Best focus z-position in metres, or None if cancelled.
+        AutoFocusResult with all acquired data, or None if cancelled.
     """
     return get_strategy_from_config(config).run(
         microscope=microscope,

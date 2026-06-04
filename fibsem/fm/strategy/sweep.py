@@ -3,7 +3,7 @@ from typing import ClassVar, Optional
 from pydantic import Field
 
 from fibsem.fm.strategy.base import AutoFocusStrategy, AutoFocusStrategyConfig
-from fibsem.fm.structures import FocusMethod, ZParameters
+from fibsem.fm.structures import AutoFocusResult, FocusMethod, ZParameters
 
 
 class SweepAutoFocusConfig(AutoFocusStrategyConfig):
@@ -36,7 +36,7 @@ class SweepAutoFocusStrategy(AutoFocusStrategy[SweepAutoFocusConfig]):
         channel_settings=None,
         roi=None,
         stop_event=None,
-    ) -> Optional[float]:
+    ) -> Optional[AutoFocusResult]:
         from fibsem.fm.calibration import run_autofocus
 
         z_params = ZParameters(

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 import numpy as np
 
-from fibsem.fm.structures import AutoFocusSettings, ZParameters
+from fibsem.fm.structures import AutoFocusResult, AutoFocusSettings, ZParameters
 from fibsem.structures import FibsemRectangle
 
 if TYPE_CHECKING:
@@ -671,69 +671,84 @@ def adaptive_frame_integration(
 
 
 def plot_autofocus(
-    z_positions: List[float],
-    scores: List[float],
-    best_idx: int,
-    images: List[np.ndarray],
-    roi: Optional[FibsemRectangle] = None,
-    method: str = "laplacian",
+    result: "AutoFocusResult",
     save_path: Optional[str] = None,
-):
+) -> None:
     """Generate a diagnostic plot for autofocus results.
 
-    Shows the focus score curve and thumbnail images at selected z positions
-    (first, best, last).
+    Shows the focus score curve and up to 10 thumbnail images (best + next-best
+    by score), ordered by acquisition index. The best image gets a lime-green border.
+    Thumbnails are downsampled to 1/4 size to keep the figure compact.
 
     Args:
-        z_positions: List of z positions tested (in meters).
-        scores: Focus scores at each z position.
-        best_idx: Index of the best focus position.
-        images: List of image arrays acquired at each z position.
-        roi: ROI used for focus evaluation (shown in title if provided).
-        method: Focus measure method used.
-        save_path: Optional path to save the figure. If None, saves to current directory.
+        result: AutoFocusResult returned by run_autofocus.
+        save_path: Optional path to save the figure. If None, saves to autofocus/ directory.
     """
     import os
     from datetime import datetime
+    from math import ceil
 
+    import matplotlib.gridspec as gridspec
     from matplotlib.figure import Figure
-    from matplotlib.axes import Axes
 
-    z_um = [z * 1e6 for z in z_positions]
-    best_z_um = z_um[best_idx]
+    z_um = [z * 1e6 for z in result.z_positions]
+    best_z_um = z_um[result.best_idx]
+    n = len(result.images)
 
-    # Select thumbnail indices: first, best, last
-    thumb_indices = sorted(set([0, best_idx, len(images) - 1]))
+    # Pick up to 10 indices: best + next-best 9 by score, then re-sort by index
+    MAX_THUMBS = 10
+    ranked = sorted(range(n), key=lambda i: result.scores[i], reverse=True)
+    thumb_indices = sorted(ranked[:MAX_THUMBS])
 
     n_thumbs = len(thumb_indices)
-    fig = Figure(figsize=(4 * (1 + n_thumbs), 4))
-    axes: list[Axes]= fig.subplots(1, 1 + n_thumbs)
+    n_rows = 2 if n_thumbs > 5 else 1
+    n_cols = ceil(n_thumbs / n_rows)  # columns used by the thumbnail grid
 
-    # Focus score curve
-    ax_score = axes[0]
-    ax_score.plot(z_um, scores, "o-", color="tab:blue", markersize=4)
-    ax_score.axvline(best_z_um, color="tab:red", linestyle="--", alpha=0.7, label=f"Best: {best_z_um:.1f} μm")
+    thumb_height = 1.8 if n_rows > 1 else 2.5
+    fig = Figure(figsize=(2 + n_cols * 1.5, n_rows * thumb_height), layout="constrained")
+    gs = gridspec.GridSpec(n_rows, 1 + n_cols, figure=fig,
+                           width_ratios=[2] + [1] * n_cols)
+    fig.get_layout_engine().set(hspace=0.0, wspace=0.02, h_pad=0.1, w_pad=0.02)
+
+    # Focus score curve spanning all thumbnail rows
+    ax_score = fig.add_subplot(gs[:, 0])
+    ax_score.plot(z_um, result.scores, "o-", color="tab:blue", markersize=3)
+    ax_score.axvline(best_z_um, color="limegreen", linestyle="--", alpha=0.8,
+                     label=f"Best: {best_z_um:.1f} μm")
     ax_score.set_xlabel("Z position (μm)")
     ax_score.set_ylabel("Focus score")
-    title = f"Autofocus ({method})"
-    if roi is not None:
-        title += f"\nROI: l={roi.left:.2f} t={roi.top:.2f} w={roi.width:.2f} h={roi.height:.2f}"
+    title = f"Autofocus ({result.method})"
+    if result.roi is not None:
+        title += f"\nROI: l={result.roi.left:.2f} t={result.roi.top:.2f} w={result.roi.width:.2f} h={result.roi.height:.2f}"
     ax_score.set_title(title, fontsize="small")
     ax_score.legend(fontsize="small")
 
     # Thumbnail images
     for i, idx in enumerate(thumb_indices):
-        ax = axes[1 + i]
-        img = images[idx]
-        # Handle multi-dimensional data by taking last 2 dims
+        row = i // n_cols
+        col = i % n_cols
+        ax = fig.add_subplot(gs[row, 1 + col])
+
+        img = result.images[idx]
         if img.ndim > 2:
             img = img.reshape(-1, img.shape[-2], img.shape[-1])[0]
-        ax.imshow(img, cmap="gray")
-        label = "Best" if idx == best_idx else f"Z[{idx}]"
-        ax.set_title(f"{label}\n{z_um[idx]:.1f} μm\nscore: {scores[idx]:.2f}", fontsize="small")
-        ax.axis("off")
+        thumb = img[::4, ::4]
+        ax.imshow(thumb, cmap="gray")
 
-    fig.tight_layout()
+        is_best = idx == result.best_idx
+        ax.set_title(f"{idx}: {z_um[idx]:.1f} μm ({result.scores[idx]:.2f})", fontsize=6, pad=2)
+
+        # Hide ticks/labels but keep spines so the border stays visible
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Lime-green border for the best image, thin neutral border for the rest
+        border_color = "limegreen" if is_best else "#444444"
+        border_width = 3 if is_best else 0.5
+        for spine in ax.spines.values():
+            spine.set_edgecolor(border_color)
+            spine.set_linewidth(border_width)
+
 
     # Save figure
     if save_path is None:
@@ -752,7 +767,7 @@ def run_autofocus(
     stop_event: Optional[threading.Event] = None,
     roi: Optional[FibsemRectangle] = None,
     save_plot: bool = False,
-) -> Optional[float]:
+) -> Optional[AutoFocusResult]:
     """Run autofocus by acquiring images at different z positions and finding the best focus.
 
     Uses the focus measure functions to evaluate image sharpness at different
@@ -769,7 +784,7 @@ def run_autofocus(
         save_plot: Whether to save a diagnostic plot of the autofocus results (default: False).
 
     Returns:
-        Best focus position in meters, or None if cancelled
+        AutoFocusResult with all acquired data, or None if cancelled
 
     Example:
         >>> # Run autofocus with default parameters
@@ -841,7 +856,7 @@ def run_autofocus(
         )
 
     # Find best focus position
-    best_idx = np.argmax(scores)
+    best_idx = int(np.argmax(scores))
     best_z_position = z_positions[best_idx]
     best_score = scores[best_idx]
 
@@ -850,11 +865,22 @@ def run_autofocus(
 
     logging.info(f"Autofocus complete: Best position {best_z_position * 1e6:.1f} μm (score: {best_score:.4f})")
 
-    # Generate diagnostic plot
-    if save_plot:
-        plot_autofocus(z_positions, scores, best_idx, images, roi=roi, method=method)
+    result = AutoFocusResult(
+        best_z=best_z_position,
+        best_idx=best_idx,
+        best_score=best_score,
+        z_positions=z_positions,
+        scores=scores,
+        images=images,
+        method=method,
+        roi=roi,
+        channel_settings=channel_settings,
+    )
 
-    return best_z_position
+    if save_plot:
+        plot_autofocus(result)
+
+    return result
 
 
 def run_coarse_fine_autofocus(
@@ -862,7 +888,7 @@ def run_coarse_fine_autofocus(
     autofocus_settings: AutoFocusSettings,
     channel_settings: Optional["ChannelSettings"] = None,
     roi: Optional[FibsemRectangle] = None,
-) -> Optional[float]:
+) -> Optional[AutoFocusResult]:
     """Run two-stage autofocus: coarse search followed by fine adjustment.
 
     Performs an initial coarse search over a large range, then a fine search
@@ -875,7 +901,7 @@ def run_coarse_fine_autofocus(
         channel_settings: Channel settings to use for autofocus (overrides autofocus_settings.channel_name if provided)
 
     Returns:
-        Best focus position in meters after fine adjustment
+        AutoFocusResult from the final stage used, or None if cancelled
 
     Example:
         >>> # Two-stage autofocus for precise focusing
@@ -888,64 +914,20 @@ def run_coarse_fine_autofocus(
         >>> best_z = run_coarse_fine_autofocus(microscope, af_settings)
     """
 
-    initial_position = microscope.objective.position
-    logging.info(f"Starting two-stage autofocus from {initial_position * 1e6:.1f} μm")
+    from fibsem.fm.strategy.coarse_fine import CoarseFineAutoFocusConfig, CoarseFineAutoFocusStrategy
 
-    # Stage 1: Coarse search (if enabled)
-    if autofocus_settings.coarse_enabled:
-        logging.info(f"Coarse search: {autofocus_settings.coarse_range * 1e6:.1f} μm, step {autofocus_settings.coarse_step * 1e6:.1f} μm")
-        coarse_z_params = ZParameters(
-            zmin=-autofocus_settings.coarse_range / 2, 
-            zmax=autofocus_settings.coarse_range / 2, 
-            zstep=autofocus_settings.coarse_step
-        )
-
-        coarse_best_z = run_autofocus(
-            microscope=microscope,
-            channel_settings=channel_settings,
-            z_parameters=coarse_z_params,
-            method=autofocus_settings.method.value,
-            roi=roi,
-        )
-        if coarse_best_z is None:
-            logging.warning("Coarse autofocus cancelled or failed")
-            return None
-
-        # Move to coarse best position for fine search
-        microscope.objective.move_absolute(coarse_best_z)
-        coarse_position = coarse_best_z
-    else:
-        logging.info("Coarse search disabled, starting fine search from current position")
-        coarse_position = initial_position
-
-    # Stage 2: Fine search (if enabled)
-    if not autofocus_settings.fine_enabled:
-        logging.info("Fine search disabled, returning coarse result")
-        return coarse_position
-
-    logging.info(f"Fine search around {coarse_position * 1e6:.1f} μm: {autofocus_settings.fine_range * 1e6:.1f} μm, step {autofocus_settings.fine_step * 1e6:.1f} μm")
-
-    fine_z_params = ZParameters(
-        zmin=-autofocus_settings.fine_range / 2, 
-        zmax=autofocus_settings.fine_range / 2, 
-        zstep=autofocus_settings.fine_step
+    config = CoarseFineAutoFocusConfig(
+        coarse_range=autofocus_settings.coarse_range,
+        coarse_step=autofocus_settings.coarse_step,
+        fine_range=autofocus_settings.fine_range,
+        fine_step=autofocus_settings.fine_step,
+        method=autofocus_settings.method,
     )
-
-    fine_best_z = run_autofocus(
+    return CoarseFineAutoFocusStrategy(config=config).run(
         microscope=microscope,
         channel_settings=channel_settings,
-        z_parameters=fine_z_params,
-        method=autofocus_settings.method.value,
         roi=roi,
     )
-    if fine_best_z is None:
-        logging.warning("Fine autofocus cancelled or failed")
-        return coarse_position  # Return coarse result if fine search fails
-
-    total_adjustment = fine_best_z - initial_position
-    logging.info(f"Final position {fine_best_z * 1e6:.1f} μm (total adjustment: {total_adjustment * 1e6:.1f} μm)")
-
-    return fine_best_z
 
 
 def run_multi_position_autofocus(

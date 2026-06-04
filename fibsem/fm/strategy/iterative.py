@@ -4,7 +4,7 @@ from typing import ClassVar, Optional
 from pydantic import Field
 
 from fibsem.fm.strategy.base import AutoFocusStrategy, AutoFocusStrategyConfig
-from fibsem.fm.structures import FocusMethod, ZParameters
+from fibsem.fm.structures import AutoFocusResult, FocusMethod, ZParameters
 
 
 class IterativeAutoFocusConfig(AutoFocusStrategyConfig):
@@ -47,12 +47,12 @@ class IterativeAutoFocusStrategy(AutoFocusStrategy[IterativeAutoFocusConfig]):
         channel_settings=None,
         roi=None,
         stop_event=None,
-    ) -> Optional[float]:
+    ) -> Optional[AutoFocusResult]:
         from fibsem.fm.calibration import run_autofocus
 
         current_range = self.config.initial_range
         current_step = self.config.initial_step
-        best_z: Optional[float] = None
+        last_result: Optional[AutoFocusResult] = None
 
         for i in range(self.config.num_iterations):
             logging.info(
@@ -73,10 +73,10 @@ class IterativeAutoFocusStrategy(AutoFocusStrategy[IterativeAutoFocusConfig]):
                 roi=roi,
             )
             if result is None:
-                return best_z
+                return last_result
 
-            best_z = result
+            last_result = result
             current_range *= self.config.reduction_factor
             current_step *= self.config.reduction_factor
 
-        return best_z
+        return last_result

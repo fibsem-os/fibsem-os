@@ -3,7 +3,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import tifffile as tff
@@ -309,6 +309,32 @@ class ZParameters:
 
         order_str = "channel-wise" if self.order == ZStackOrder.CHANNEL else "z-level-wise"
         return f"Z-Stack: {num_planes} planes ({self.zmin * 1e6:.1f}μm to {self.zmax * 1e6:.1f}μm, step {self.zstep * 1e6:.1f}μm, {order_str})"
+
+
+@dataclass
+class AutoFocusResult:
+    """Result of an autofocus run, containing all acquired data."""
+    best_z: float
+    best_idx: int
+    best_score: float
+    z_positions: List[float]
+    scores: List[float]
+    images: List[np.ndarray]
+    method: str
+    roi: Optional[FibsemRectangle] = None
+    channel_settings: Optional[Any] = None
+
+    @property
+    def n_positions(self) -> int:
+        return len(self.z_positions)
+
+    @property
+    def z_range_m(self) -> float:
+        return max(self.z_positions) - min(self.z_positions)
+
+    def plot(self, save_path: Optional[str] = None) -> None:
+        from fibsem.fm.calibration import plot_autofocus
+        plot_autofocus(self, save_path=save_path)
 
 
 @dataclass

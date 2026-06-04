@@ -85,7 +85,6 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # Run autofocus if requested
         if self.config.autofocus_settings.fine_enabled:
             self._run_autofocus()
-            # TODO: store the focused objective position?
 
         # Generate timestamp-based filename
         timestamp = utils.current_timestamp_v3(timeonly=True)
@@ -109,6 +108,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
     def _run_autofocus(self,):
         """Run autofocus with the specified settings."""
         # Find autofocus channel by name if specified in autofocus_settings
+        autofocus_channel = None
         if self.config.autofocus_settings.channel_name:
             for ch in self.config.channel_settings:
                 if ch.name == self.config.autofocus_settings.channel_name:
@@ -145,6 +145,12 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         if result is None:
             logging.info("Autofocus cancelled")
             raise InterruptedError(f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus.")
+        try:
+            timestamp = utils.current_timestamp_v3(timeonly=True)
+            save_path = os.path.join(self.lamella.path, f"{self.task_name}-autofocus-{timestamp}.png")
+            result.plot(save_path)
+        except Exception as e:
+            logging.warning(f"Failed to plot autofocus result: {e}")
 
     def _move_to_stage_position(self):
         """Move the stage to the fluorescence pose stage position, or the lamella stage position if fluorescence pose is not set."""
