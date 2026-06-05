@@ -314,6 +314,7 @@ class FibsemMillingStageWidget(QWidget):
             if conf.get("hidden", False) is True:
                 continue
             # QUERY: use a data structure for field metadata instead of dict?
+            type_ = conf.get("type")
             label_text = conf.get("label") or name.replace("_", " ").title()
             scale = conf.get("scale")
             units = conf.get("unit")
@@ -349,14 +350,14 @@ class FibsemMillingStageWidget(QWidget):
                 control = _create_combobox_control(value, items, units, format_fn)
 
             # add line edit controls
-            elif isinstance(value, str):
+            elif type_ is str or isinstance(value, str):
                 if is_filepath:
                     control = QFilePathLineEdit()
                 else:
                     control = QLineEdit()
                 control.setText(value)
             # add checkbox controls
-            elif isinstance(value, bool):
+            elif type_ is bool or isinstance(value, bool):
                 control = QCheckBox()
                 control.setChecked(value)
             elif isinstance(value, (float, int)):
