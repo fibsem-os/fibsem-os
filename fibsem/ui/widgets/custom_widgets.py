@@ -109,7 +109,48 @@ class QDirectoryLineEdit(QWidget):
     def setText(self, text: str) -> None:
         self.lineEdit.setText(text)
 
-def _create_combobox_control(value: Union[str, int, float, Enum], 
+class QFileLineEdit(QWidget):
+    """Line edit with a browse button that opens a file picker dialog."""
+
+    textChanged = pyqtSignal(str)
+    editingFinished = pyqtSignal()
+
+    def __init__(self, filter: str = "YAML files (*.yaml *.yml)", parent=None):
+        super().__init__(parent)
+        self._filter = filter
+
+        layout = QHBoxLayout(self)
+        self.lineEdit = QLineEdit(self)
+        self.button_browse = QToolButton(self)
+        self.button_browse.setText("...")
+        self.button_browse.setMaximumWidth(80)
+        layout.addWidget(self.lineEdit)
+        layout.addWidget(self.button_browse)
+
+        self.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+
+        self.button_browse.clicked.connect(self.browse_file)
+        self.lineEdit.textChanged.connect(self.textChanged.emit)
+        self.lineEdit.editingFinished.connect(self.editingFinished.emit)
+
+    def browse_file(self):
+        start = self.lineEdit.text() or ""
+        path, _ = QFileDialog.getOpenFileName(self, "Select File", start, self._filter)
+        if path:
+            self.lineEdit.setText(path)
+            self.textChanged.emit(path)
+            self.editingFinished.emit()
+
+    def text(self) -> str:
+        return self.lineEdit.text()
+
+    def setText(self, text: str) -> None:
+        self.lineEdit.setText(text)
+
+
+def _create_combobox_control(value: Union[str, int, float, Enum],
                              items: list, 
                              units: Optional[str], 
                              format_fn: Optional[Callable] = None, 

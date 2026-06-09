@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.config import UserPreferences
-from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, TitledPanel
+from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit, TitledPanel
 
 
 class PreferencesDialog(QDialog):
@@ -69,7 +69,7 @@ class PreferencesDialog(QDialog):
         paths_content = QWidget()
         paths_form = QFormLayout(paths_content)
         self._dir_experiment = QDirectoryLineEdit()
-        self._dir_protocol = QDirectoryLineEdit()
+        self._dir_protocol = QFileLineEdit()
         paths_form.addRow("Default experiment directory", self._dir_experiment)
         paths_form.addRow("Default protocol path", self._dir_protocol)
         content_layout.addWidget(
