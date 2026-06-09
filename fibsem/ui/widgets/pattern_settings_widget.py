@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import List, Optional, Union
@@ -185,6 +186,7 @@ class FibsemPatternSettingsWidget(QWidget):
                 display_val = value * effective_scale if effective_scale else value
                 control.setValue(display_val)
             else:
+                logging.warning("Control for '%s' is unsupported", field_name)
                 continue  # unsupported type
 
             label = QLabel(label_text)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from typing import Any, List, Optional
 
@@ -116,6 +117,7 @@ class FibsemStrategySettingsWidget(QWidget):
                 )
                 control.setValue(value * effective_scale if effective_scale else value)
             else:
+                logging.warning("Control for '%s' is unsupported", field_name)
                 continue  # unsupported type
 
             label_text = m.get("label") or field_name.replace("_", " ").title()
