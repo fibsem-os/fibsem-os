@@ -17,6 +17,49 @@ from PyQt5.QtWidgets import (
 from fibsem.config import UserPreferences
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 
+# ---------------------------------------------------------------------------
+# Labels and tooltips — edit here to update both text and hover description
+# ---------------------------------------------------------------------------
+
+# Display
+_LBL_SOUND         = "Enable Sound Notifications"
+_TIP_SOUND         = "Play an audio alert when the workflow requires the user's attention."
+_LBL_TOASTS        = "Enable Toast Notifications"
+_TIP_TOASTS        = "Show brief pop-up messages in the corner of the screen for workflow events."
+_LBL_BORDER        = "Enable Workflow Border"
+_TIP_BORDER        = "Highlight the viewport border while an automated workflow is running."
+_LBL_DEV_MODE      = "Enable Development Mode"
+_TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
+
+# Features
+_LBL_LAMELLA_LIVE  = "Show Lamella Position on Live View"
+_TIP_LAMELLA_LIVE  = "Overlay lamella target positions on the live SEM/FIB image during acquisition."
+_LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
+_TIP_COINCIDENCE   = (
+    "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
+    "Restricted to ThermoFisher Arctis with the modified sample holder."
+)
+_LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
+_TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
+
+# Experiment defaults
+_LBL_EXP_DIR       = "Default Experiment Directory"
+_TIP_EXP_DIR       = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
+_LBL_EXP_PROTOCOL  = "Default Protocol File"
+_TIP_EXP_PROTOCOL  = "Protocol file (.yaml) to load automatically when creating a new experiment."
+_LBL_EXP_USER      = "Default User"
+_TIP_EXP_USER      = "User name pre-filled in the metadata fields when creating a new experiment."
+_LBL_EXP_PROJECT   = "Default Project"
+_TIP_EXP_PROJECT   = "Project name pre-filled in the metadata fields when creating a new experiment."
+_LBL_EXP_ORG       = "Default Organisation"
+_TIP_EXP_ORG       = "Organisation name pre-filled in the metadata fields when creating a new experiment."
+
+# Movement
+_LBL_ACQ_SEM       = "Acquire SEM After Stage Movement"
+_TIP_ACQ_SEM       = "Automatically acquire a new SEM image after each stage movement."
+_LBL_ACQ_FIB       = "Acquire FIB After Stage Movement"
+_TIP_ACQ_FIB       = "Automatically acquire a new FIB image after each stage movement."
+
 
 class PreferencesDialog(QDialog):
     """Dialog for editing user preferences."""
@@ -52,48 +95,62 @@ class PreferencesDialog(QDialog):
         display_page = QWidget()
         display_form = QFormLayout(display_page)
         self._chk_sound = QCheckBox()
+        self._chk_sound.setToolTip(_TIP_SOUND)
         self._chk_toasts = QCheckBox()
+        self._chk_toasts.setToolTip(_TIP_TOASTS)
         self._chk_border = QCheckBox()
+        self._chk_border.setToolTip(_TIP_BORDER)
         self._chk_dev_mode = QCheckBox()
-        display_form.addRow("Sound notifications", self._chk_sound)
-        display_form.addRow("Toast notifications", self._chk_toasts)
-        display_form.addRow("Workflow border", self._chk_border)
-        display_form.addRow("Development mode", self._chk_dev_mode)
+        self._chk_dev_mode.setToolTip(_TIP_DEV_MODE)
+        display_form.addRow(_LBL_SOUND, self._chk_sound)
+        display_form.addRow(_LBL_TOASTS, self._chk_toasts)
+        display_form.addRow(_LBL_BORDER, self._chk_border)
+        display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
         self._stack.addWidget(display_page)
 
         # --- Feature Flags ---
         features_page = QWidget()
         features_form = QFormLayout(features_page)
         self._chk_lamella_live = QCheckBox()
+        self._chk_lamella_live.setToolTip(_TIP_LAMELLA_LIVE)
         self._chk_coincidence_milling = QCheckBox()
+        self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
         self._chk_sample_holder = QCheckBox()
-        features_form.addRow("Lamella position on live view", self._chk_lamella_live)
-        features_form.addRow("Coincidence milling viewer", self._chk_coincidence_milling)
-        features_form.addRow("Sample holder widget", self._chk_sample_holder)
+        self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
+        features_form.addRow(_LBL_LAMELLA_LIVE, self._chk_lamella_live)
+        features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
+        features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
         experiment_page = QWidget()
         experiment_form = QFormLayout(experiment_page)
         self._dir_experiment = QDirectoryLineEdit()
+        self._dir_experiment.setToolTip(_TIP_EXP_DIR)
         self._dir_protocol = QFileLineEdit()
+        self._dir_protocol.setToolTip(_TIP_EXP_PROTOCOL)
         self._edit_exp_user = QLineEdit()
+        self._edit_exp_user.setToolTip(_TIP_EXP_USER)
         self._edit_exp_project = QLineEdit()
+        self._edit_exp_project.setToolTip(_TIP_EXP_PROJECT)
         self._edit_exp_organisation = QLineEdit()
-        experiment_form.addRow("Default experiment directory", self._dir_experiment)
-        experiment_form.addRow("Default protocol path", self._dir_protocol)
-        experiment_form.addRow("User", self._edit_exp_user)
-        experiment_form.addRow("Project", self._edit_exp_project)
-        experiment_form.addRow("Organisation", self._edit_exp_organisation)
+        self._edit_exp_organisation.setToolTip(_TIP_EXP_ORG)
+        experiment_form.addRow(_LBL_EXP_DIR, self._dir_experiment)
+        experiment_form.addRow(_LBL_EXP_PROTOCOL, self._dir_protocol)
+        experiment_form.addRow(_LBL_EXP_USER, self._edit_exp_user)
+        experiment_form.addRow(_LBL_EXP_PROJECT, self._edit_exp_project)
+        experiment_form.addRow(_LBL_EXP_ORG, self._edit_exp_organisation)
         self._stack.addWidget(experiment_page)
 
         # --- Movement ---
         movement_page = QWidget()
         movement_form = QFormLayout(movement_page)
         self._chk_acquire_sem = QCheckBox()
+        self._chk_acquire_sem.setToolTip(_TIP_ACQ_SEM)
         self._chk_acquire_fib = QCheckBox()
-        movement_form.addRow("Acquire SEM after movement", self._chk_acquire_sem)
-        movement_form.addRow("Acquire FIB after movement", self._chk_acquire_fib)
+        self._chk_acquire_fib.setToolTip(_TIP_ACQ_FIB)
+        movement_form.addRow(_LBL_ACQ_SEM, self._chk_acquire_sem)
+        movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
