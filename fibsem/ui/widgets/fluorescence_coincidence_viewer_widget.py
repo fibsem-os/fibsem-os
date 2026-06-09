@@ -2076,7 +2076,7 @@ def main():
     microscope, settings = utils.setup_session()
     import os
 
-    path = load_user_preferences().paths.last_experiment_path
+    path = load_user_preferences().experiment.last_experiment_path
     exp = Experiment.load(os.path.join(path, "experiment.yaml"))
 
     widget = FluorescenceCoincidenceViewerWidget(microscope=microscope, experiment=exp)

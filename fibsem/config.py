@@ -255,22 +255,25 @@ class FeatureFlags:
     sample_holder_widget: bool = False
 
 @dataclass
-class PathPreferences:
-    default_experiment_directory: str = ""
-    last_experiment_path: str = ""
-    default_protocol_path: str = ""
-
-@dataclass
 class MovementPreferences:
     acquire_sem_after_stage_movement: bool = True
     acquire_fib_after_stage_movement: bool = True
 
 @dataclass
+class ExperimentPreferences:
+    default_experiment_directory: str = ""
+    default_protocol_path: str = ""
+    last_experiment_path: str = ""
+    user: str = ""
+    project: str = ""
+    organisation: str = ""
+
+@dataclass
 class UserPreferences:
     display: DisplayPreferences = field(default_factory=DisplayPreferences)
     features: FeatureFlags = field(default_factory=FeatureFlags)
-    paths: PathPreferences = field(default_factory=PathPreferences)
     movement: MovementPreferences = field(default_factory=MovementPreferences)
+    experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -278,24 +281,23 @@ class UserPreferences:
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        # If the dict has nested sub-dicts, reconstruct directly
-        if any(k in d for k in ("display", "features", "paths", "movement")):
+        if any(k in d for k in ("display", "features", "movement", "experiment")):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
-                paths=_sub_from_dict(PathPreferences, d.get("paths", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
+                experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),
             )
-        # Legacy flat format (4-key YAML from previous version)
+        # Legacy flat format
         prefs = cls()
         if "acquire_sem_after_stage_movement" in d:
             prefs.movement.acquire_sem_after_stage_movement = d["acquire_sem_after_stage_movement"]
         if "acquire_fib_after_stage_movement" in d:
             prefs.movement.acquire_fib_after_stage_movement = d["acquire_fib_after_stage_movement"]
         if "experiment_directory" in d:
-            prefs.paths.default_experiment_directory = d["experiment_directory"]
+            prefs.experiment.default_experiment_directory = d["experiment_directory"]
         if "last_experiment_path" in d:
-            prefs.paths.last_experiment_path = d["last_experiment_path"]
+            prefs.experiment.last_experiment_path = d["last_experiment_path"]
         return prefs
 
 

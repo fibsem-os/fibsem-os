@@ -232,7 +232,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         # Default to last used experiment directory if available
         default_path = str(cfg.LOG_PATH)
         prefs = load_user_preferences()
-        last_path = prefs.paths.last_experiment_path
+        last_path = prefs.experiment.last_experiment_path
         if last_path and os.path.exists(last_path):
             default_path = last_path
 
@@ -385,7 +385,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         # Save last used experiment path
         prefs = load_user_preferences()
-        prefs.paths.last_experiment_path = str(self.experiment.path)
+        prefs.experiment.last_experiment_path = str(self.experiment.path)
         save_user_preferences(prefs)
 
         # Accept the dialog

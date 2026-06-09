@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QLineEdit,
     QMessageBox,
     QScrollArea,
     QVBoxLayout,
@@ -65,15 +66,21 @@ class PreferencesDialog(QDialog):
             TitledPanel("Feature Flags", content=features_content, collapsible=False)
         )
 
-        # --- Paths ---
-        paths_content = QWidget()
-        paths_form = QFormLayout(paths_content)
+        # --- Experiment Defaults ---
+        experiment_content = QWidget()
+        experiment_form = QFormLayout(experiment_content)
         self._dir_experiment = QDirectoryLineEdit()
         self._dir_protocol = QFileLineEdit()
-        paths_form.addRow("Default experiment directory", self._dir_experiment)
-        paths_form.addRow("Default protocol path", self._dir_protocol)
+        self._edit_exp_user = QLineEdit()
+        self._edit_exp_project = QLineEdit()
+        self._edit_exp_organisation = QLineEdit()
+        experiment_form.addRow("Default experiment directory", self._dir_experiment)
+        experiment_form.addRow("Default protocol path", self._dir_protocol)
+        experiment_form.addRow("User", self._edit_exp_user)
+        experiment_form.addRow("Project", self._edit_exp_project)
+        experiment_form.addRow("Organisation", self._edit_exp_organisation)
         content_layout.addWidget(
-            TitledPanel("Paths", content=paths_content, collapsible=False)
+            TitledPanel("Experiment Defaults", content=experiment_content, collapsible=False)
         )
 
         # --- Movement ---
@@ -111,9 +118,12 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
 
-        p = prefs.paths
-        self._dir_experiment.setText(p.default_experiment_directory)
-        self._dir_protocol.setText(p.default_protocol_path)
+        e = prefs.experiment
+        self._dir_experiment.setText(e.default_experiment_directory)
+        self._dir_protocol.setText(e.default_protocol_path)
+        self._edit_exp_user.setText(e.user)
+        self._edit_exp_project.setText(e.project)
+        self._edit_exp_organisation.setText(e.organisation)
 
         m = prefs.movement
         self._chk_acquire_sem.setChecked(m.acquire_sem_after_stage_movement)
@@ -134,9 +144,9 @@ class PreferencesDialog(QDialog):
         """Build a UserPreferences instance from current widget state."""
         from fibsem.config import (
             DisplayPreferences,
+            ExperimentPreferences,
             FeatureFlags,
             MovementPreferences,
-            PathPreferences,
         )
 
         return UserPreferences(
@@ -152,13 +162,16 @@ class PreferencesDialog(QDialog):
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
             ),
-            paths=PathPreferences(
-                default_experiment_directory=self._dir_experiment.text(),
-                last_experiment_path=self._preferences.paths.last_experiment_path,
-                default_protocol_path=self._dir_protocol.text(),
-            ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
                 acquire_fib_after_stage_movement=self._chk_acquire_fib.isChecked(),
+            ),
+            experiment=ExperimentPreferences(
+                default_experiment_directory=self._dir_experiment.text(),
+                default_protocol_path=self._dir_protocol.text(),
+                last_experiment_path=self._preferences.experiment.last_experiment_path,
+                user=self._edit_exp_user.text(),
+                project=self._edit_exp_project.text(),
+                organisation=self._edit_exp_organisation.text(),
             ),
         )

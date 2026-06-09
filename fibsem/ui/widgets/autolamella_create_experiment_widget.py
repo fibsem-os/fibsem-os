@@ -88,13 +88,21 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         # Experiment Directory
         self.lineEdit_experiment_directory = QDirectoryLineEdit()
         prefs = load_user_preferences()
-        pref_dir = prefs.paths.default_experiment_directory
+        pref_dir = prefs.experiment.default_experiment_directory
         if pref_dir and os.path.isdir(pref_dir):
             self.lineEdit_experiment_directory.setText(pref_dir)
         else:
             if pref_dir:
                 logging.warning(f"Preference default_experiment_directory '{pref_dir}' does not exist; using default.")
             self.lineEdit_experiment_directory.setText(str(cfg.LOG_PATH))
+
+        exp_prefs = prefs.experiment
+        if exp_prefs.user:
+            self.lineEdit_experiment_user.setText(exp_prefs.user)
+        if exp_prefs.project:
+            self.lineEdit_experiment_project.setText(exp_prefs.project)
+        if exp_prefs.organisation:
+            self.lineEdit_experiment_organisation.setText(exp_prefs.organisation)
 
         exp_form_layout.addRow("Name", self.lineEdit_experiment_name)
         exp_form_layout.addRow("Description", self.lineEdit_experiment_description)
@@ -220,7 +228,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
     def _load_default_protocol(self):
         """Load the default task protocol, preferring the path set in user preferences."""
         prefs = load_user_preferences()
-        pref_protocol = prefs.paths.default_protocol_path
+        pref_protocol = prefs.experiment.default_protocol_path
         if pref_protocol and os.path.isfile(pref_protocol):
             protocol_path_to_load = pref_protocol
         else:
@@ -403,7 +411,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
             # Save last used experiment path
             prefs = load_user_preferences()
-            prefs.paths.last_experiment_path = str(self.experiment.path)
+            prefs.experiment.last_experiment_path = str(self.experiment.path)
             save_user_preferences(prefs)
 
             # Accept the dialog
