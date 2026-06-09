@@ -442,12 +442,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._preferences.display.toasts_enabled = checked
         fibsem_cfg.save_user_preferences(self._preferences)
 
-    def _on_timeline_toggle(self, checked: bool):
-        """Handle workflow timeline toggle."""
-        self.workflow_timeline.setVisible(checked)
-        self._preferences.display.workflow_timeline_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
-
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
         self._border_enabled = checked
@@ -473,7 +467,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._toasts_enabled = d.toasts_enabled
         self._border_enabled = d.border_enabled
         self.dev_mode = d.dev_mode
-        self.workflow_timeline.setVisible(d.workflow_timeline_enabled)
         # Sync Test menu toggle actions
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_toasts_toggle.setChecked(d.toasts_enabled)

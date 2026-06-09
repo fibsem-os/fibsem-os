@@ -54,12 +54,10 @@ class PreferencesDialog(QDialog):
         self._chk_sound = QCheckBox()
         self._chk_toasts = QCheckBox()
         self._chk_border = QCheckBox()
-        self._chk_timeline = QCheckBox()
         self._chk_dev_mode = QCheckBox()
         display_form.addRow("Sound notifications", self._chk_sound)
         display_form.addRow("Toast notifications", self._chk_toasts)
         display_form.addRow("Workflow border", self._chk_border)
-        display_form.addRow("Workflow timeline", self._chk_timeline)
         display_form.addRow("Development mode", self._chk_dev_mode)
         self._stack.addWidget(display_page)
 
@@ -112,7 +110,6 @@ class PreferencesDialog(QDialog):
         self._chk_sound.setChecked(d.sound_enabled)
         self._chk_toasts.setChecked(d.toasts_enabled)
         self._chk_border.setChecked(d.border_enabled)
-        self._chk_timeline.setChecked(d.workflow_timeline_enabled)
         self._chk_dev_mode.setChecked(d.dev_mode)
 
         f = prefs.features
@@ -156,7 +153,6 @@ class PreferencesDialog(QDialog):
                 sound_enabled=self._chk_sound.isChecked(),
                 toasts_enabled=self._chk_toasts.isChecked(),
                 border_enabled=self._chk_border.isChecked(),
-                workflow_timeline_enabled=self._chk_timeline.isChecked(),
                 dev_mode=self._chk_dev_mode.isChecked(),
             ),
             features=FeatureFlags(
