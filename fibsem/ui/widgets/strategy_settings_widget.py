@@ -16,7 +16,13 @@ from PyQt5.QtWidgets import (
 from fibsem import utils
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.ui.widgets.custom_widgets import FormRow, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    FormRow,
+    QLineEdit,
+    QFilePathLineEdit,
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 
 class FibsemStrategySettingsWidget(QWidget):
@@ -103,6 +109,12 @@ class FibsemStrategySettingsWidget(QWidget):
                 control = ValueComboBox(
                     items, value, m.get("unit"), format_fn=m.get("format_fn")
                 )
+            elif type_ is str:
+                if m.get("filepath"):
+                    control = QFilePathLineEdit()
+                else:
+                    control = QLineEdit()
+                control.setText(str(value) if value else "")
             elif type_ is bool or isinstance(value, bool):
                 control = QCheckBox()
                 control.setChecked(bool(value))

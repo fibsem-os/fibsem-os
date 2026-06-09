@@ -23,6 +23,7 @@ from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType, Point
 from fibsem.ui.widgets.custom_widgets import (
     FormRow,
+    QLineEdit,
     QFilePathLineEdit,
     ValueComboBox,
     ValueSpinBox,
@@ -168,8 +169,11 @@ class FibsemPatternSettingsWidget(QWidget):
                 control = ValueComboBox(items_list, value, m.get("unit"))
             elif items:
                 control = ValueComboBox(items, value, m.get("unit"))
-            elif m.get("filepath"):
-                control = QFilePathLineEdit()
+            elif type_ is str:
+                if m.get("filepath"):
+                    control = QFilePathLineEdit()
+                else:
+                    control = QLineEdit()
                 control.setText(str(value) if value else "")
             elif type_ is bool or isinstance(value, bool):
                 control = QCheckBox()
