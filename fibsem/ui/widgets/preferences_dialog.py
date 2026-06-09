@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMessageBox,
+    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -156,10 +157,16 @@ class PreferencesDialog(QDialog):
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
 
         # Buttons
+        btn_layout = QHBoxLayout()
+        self._btn_restore = QPushButton("Restore Defaults")
+        self._btn_restore.clicked.connect(self._on_restore_defaults)
+        btn_layout.addWidget(self._btn_restore)
+        btn_layout.addStretch()
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        btn_layout.addWidget(buttons)
+        layout.addLayout(btn_layout)
 
     def _load_from_preferences(self, prefs: UserPreferences):
         """Populate widgets from a UserPreferences instance."""
@@ -184,6 +191,17 @@ class PreferencesDialog(QDialog):
         m = prefs.movement
         self._chk_acquire_sem.setChecked(m.acquire_sem_after_stage_movement)
         self._chk_acquire_fib.setChecked(m.acquire_fib_after_stage_movement)
+
+    def _on_restore_defaults(self):
+        reply = QMessageBox.question(
+            self,
+            "Restore Defaults",
+            "Reset all preferences to their default values?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply == QMessageBox.Yes:
+            self._load_from_preferences(UserPreferences())
 
     def _on_coincidence_milling_toggled(self, checked: bool):
         if not checked:
