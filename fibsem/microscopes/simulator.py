@@ -17,8 +17,8 @@ from skimage.transform import resize
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
-    ThermoMicroscope,
 )
+from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,

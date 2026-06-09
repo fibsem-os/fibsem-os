@@ -309,7 +309,7 @@ def validate_microscope(microscope: FibsemMicroscope):
 
 
     # ThermoFisher specific validation
-    from fibsem.microscope import ThermoMicroscope
+    from fibsem.microscopes.autoscript import ThermoMicroscope
     from fibsem.microscopes.simulator import DemoMicroscope
     if isinstance(microscope, (ThermoMicroscope, DemoMicroscope)):
         # check stage is homed
