@@ -228,6 +228,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_sync_to_lamella = QPushButton("Apply Config to Existing Lamella")
         self.pushButton_sync_to_lamella.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_sync_to_lamella.setToolTip("Update all existing lamella with the current task configuration")
+        self._protocol_dirty = False
 
         self.pushButton_open_global_editor = QPushButton("Global Edit")
         self.pushButton_open_global_editor.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
@@ -293,6 +294,19 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         self._main_layout.addWidget(splitter)
 
+    def _set_protocol_dirty(self, dirty: bool):
+        self._protocol_dirty = dirty
+        if dirty and self.pushButton_sync_to_lamella.isEnabled():
+            self.pushButton_sync_to_lamella.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+            self.pushButton_sync_to_lamella.setToolTip(
+                "Protocol edited — click to apply current task configuration to existing lamella."
+            )
+        else:
+            self.pushButton_sync_to_lamella.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_sync_to_lamella.setToolTip(
+                "Update all existing lamella with the current task configuration"
+            )
+
     def _setup_connections(self):
         """Setup signal connections - called once during initialization."""
         self.task_list_widget.task_selected.connect(lambda _: self._on_selected_task_changed())
@@ -345,6 +359,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if is_fluorescence_task:
             self.fluorescence_acquisition_task_config_widget.set_task_config(task_config)
 
+        self._set_protocol_dirty(False)
+
         # special handling for spot burn fiducial task
         # is_spot_burn_task = isinstance(task_config, SpotBurnFiducialTaskConfig)
         # self.spot_burn_coordinates_widget.setVisible(is_spot_burn_task)
@@ -353,7 +369,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_milling_settings_changed(self, config: 'FibsemMillingTaskConfig'):
         """Callback when the milling task config is changed."""
-
+        self._set_protocol_dirty(True)
         selected_task_name = self.task_list_widget.selected_task
         key = self._current_milling_key
         if key and selected_task_name in self.experiment.task_protocol.task_config:
@@ -365,6 +381,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_task_parameters_config_changed(self, field_name: str, new_value: Any):
         """Callback when the task parameters config is updated."""
+        self._set_protocol_dirty(True)
         selected_task_name = self.task_list_widget.selected_task
         logging.info(f"Updated {selected_task_name} Task Parameters: {field_name} = {new_value}")
 
@@ -376,6 +393,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_ref_image_settings_changed(self, settings: 'ReferenceImageParameters'):
         """Callback when the image settings are changed."""
+        self._set_protocol_dirty(True)
         # Update the image settings in the task config
         selected_task_name = self.task_list_widget.selected_task
         self.experiment.task_protocol.task_config[selected_task_name].reference_imaging = settings
@@ -385,7 +403,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_fluorescence_acquisition_settings_changed(self, config: 'AcquireFluorescenceImageConfig'):
         """Callback when the fluorescence acquisition settings are changed."""
-
+        self._set_protocol_dirty(True)
         # Update the task config
         selected_task_name = self.task_list_widget.selected_task
         self.experiment.task_protocol.task_config[selected_task_name] = config
@@ -581,6 +599,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
             # Save the experiment
             self._save_experiment()
+            self._set_protocol_dirty(False)
 
             # Show success message
             QMessageBox.information(
