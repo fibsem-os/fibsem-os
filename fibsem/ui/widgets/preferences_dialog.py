@@ -5,15 +5,17 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLineEdit,
+    QListWidget,
     QMessageBox,
-    QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.config import UserPreferences
-from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit, TitledPanel
+from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 
 
 class PreferencesDialog(QDialog):
@@ -31,14 +33,24 @@ class PreferencesDialog(QDialog):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
+        # Sidebar + stack
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._sidebar = QListWidget()
+        self._sidebar.setFixedWidth(120)
+        self._sidebar.addItems(["Display", "Features", "Experiment", "Movement"])
+        self._sidebar.setCurrentRow(0)
+
+        self._stack = QStackedWidget()
+        body_layout.addWidget(self._sidebar)
+        body_layout.addWidget(self._stack)
+        layout.addWidget(body)
 
         # --- Display ---
-        display_content = QWidget()
-        display_form = QFormLayout(display_content)
+        display_page = QWidget()
+        display_form = QFormLayout(display_page)
         self._chk_sound = QCheckBox()
         self._chk_toasts = QCheckBox()
         self._chk_border = QCheckBox()
@@ -49,26 +61,22 @@ class PreferencesDialog(QDialog):
         display_form.addRow("Workflow border", self._chk_border)
         display_form.addRow("Workflow timeline", self._chk_timeline)
         display_form.addRow("Development mode", self._chk_dev_mode)
-        content_layout.addWidget(
-            TitledPanel("Display", content=display_content, collapsible=False)
-        )
+        self._stack.addWidget(display_page)
 
         # --- Feature Flags ---
-        features_content = QWidget()
-        features_form = QFormLayout(features_content)
+        features_page = QWidget()
+        features_form = QFormLayout(features_page)
         self._chk_lamella_live = QCheckBox()
         self._chk_coincidence_milling = QCheckBox()
         self._chk_sample_holder = QCheckBox()
         features_form.addRow("Lamella position on live view", self._chk_lamella_live)
         features_form.addRow("Coincidence milling viewer", self._chk_coincidence_milling)
         features_form.addRow("Sample holder widget", self._chk_sample_holder)
-        content_layout.addWidget(
-            TitledPanel("Feature Flags", content=features_content, collapsible=False)
-        )
+        self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
-        experiment_content = QWidget()
-        experiment_form = QFormLayout(experiment_content)
+        experiment_page = QWidget()
+        experiment_form = QFormLayout(experiment_page)
         self._dir_experiment = QDirectoryLineEdit()
         self._dir_protocol = QFileLineEdit()
         self._edit_exp_user = QLineEdit()
@@ -79,24 +87,18 @@ class PreferencesDialog(QDialog):
         experiment_form.addRow("User", self._edit_exp_user)
         experiment_form.addRow("Project", self._edit_exp_project)
         experiment_form.addRow("Organisation", self._edit_exp_organisation)
-        content_layout.addWidget(
-            TitledPanel("Experiment Defaults", content=experiment_content, collapsible=False)
-        )
+        self._stack.addWidget(experiment_page)
 
         # --- Movement ---
-        movement_content = QWidget()
-        movement_form = QFormLayout(movement_content)
+        movement_page = QWidget()
+        movement_form = QFormLayout(movement_page)
         self._chk_acquire_sem = QCheckBox()
         self._chk_acquire_fib = QCheckBox()
         movement_form.addRow("Acquire SEM after movement", self._chk_acquire_sem)
         movement_form.addRow("Acquire FIB after movement", self._chk_acquire_fib)
-        content_layout.addWidget(
-            TitledPanel("Movement", content=movement_content, collapsible=False)
-        )
+        self._stack.addWidget(movement_page)
 
-        content_layout.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll)
+        self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
 
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
