@@ -43,7 +43,7 @@ class FibsemMillingWidget2(QWidget):
 
         # pushbutton for run milling
         self.pushButton_run_milling = QPushButton("Run Milling")
-        self.pushButton_run_milling.clicked.connect(self.run_milling)
+        self.pushButton_run_milling.clicked.connect(lambda: self.run_milling(None))
         self.pushButton_run_milling.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         self.pushButton_stop_milling = QPushButton("Stop Milling")
@@ -115,6 +115,7 @@ class FibsemMillingWidget2(QWidget):
             msg = progress.get("msg", "Preparing Milling Conditions...")
             current_stage = progress_info.get("current_stage", 0)
             total_stages = progress_info.get("total_stages", 1)
+            stage_name = progress_info.get("stage_name", f"Stage {current_stage + 1}")
             self.progressBar_milling.setVisible(True)
             self.progressBar_milling_stages.setVisible(True)
             self.progressBar_milling.setValue(0)
@@ -125,7 +126,7 @@ class FibsemMillingWidget2(QWidget):
                 int((current_stage + 1) / total_stages * 100)
             )
             self.progressBar_milling_stages.setFormat(
-                f"Milling Stage: {current_stage + 1}/{total_stages}"
+                f"Milling Stage: {current_stage + 1}/{total_stages} - {stage_name}"
             )
 
         # update
@@ -195,7 +196,7 @@ class FibsemMillingWidget2(QWidget):
             )
 
         except Exception as e:
-            logging.error(f"Error occurred while running milling task: {e}")
+            logging.error(f"Error occurred while running milling task: {e}", exc_info=True)
 
         finally:
             self._milling_thread = None

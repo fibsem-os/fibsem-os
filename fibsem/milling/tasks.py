@@ -267,7 +267,8 @@ class FibsemMillingTask:
                             "current_stage": idx, 
                             "total_stages": len(self.stages),
                             "task_id": self.task_id,
-                            "task_name": self.name
+                            "task_name": self.name,
+                            "stage_name": stage.name,
                             }}
         self._handle_progress(msgd)
 

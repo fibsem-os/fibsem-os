@@ -872,11 +872,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             msg = progress.get("msg", "Milling...")
             current_stage = progress_info.get("current_stage", 0)
             total_stages = progress_info.get("total_stages", 1)
+            stage_name = progress_info.get("stage_name", f"Stage {current_stage + 1}")
             self.milling_progress_bar.setVisible(True)
             self.milling_progress_bar.setValue(0)
             self.milling_progress_bar.setFormat(msg)
             self.milling_progress_bar.setToolTip(
-                f"Milling Stage: {current_stage + 1}/{total_stages}"
+                f"Milling Stage: {current_stage + 1}/{total_stages} - {stage_name}"
             )
 
         elif state == "update":
