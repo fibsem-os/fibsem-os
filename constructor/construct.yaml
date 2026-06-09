@@ -1,0 +1,39 @@
+name: fibsem
+version: __VERSION__
+
+channels:
+  - conda-forge
+  - defaults
+
+specs:
+  - python=3.11
+  # Core
+  - tifffile>=2021.7.2
+  - numpy>=2.0.0
+  - scipy>=1.10.0
+  - py-opencv
+  - scikit-image>=0.19.3
+  - matplotlib-base>=3.7.0
+  - tqdm>=4.65.0
+  - petname>=2.6
+  - pandas>=2.0.0
+  - pyyaml>=6.0
+  - psygnal
+  - ome-types
+  - lxml
+  - pip
+  # UI
+  - napari>=0.5.1,<=0.5.6
+  - pyqt>=5.15.9
+  - matplotlib-scalebar>=0.8.1
+
+installer_type: exe
+initialize_by_default: false
+register_python: false
+
+license_file: ../LICENSE
+
+extra_files:
+  - fibsem-__VERSION__-py3-none-any.whl
+
+post_install: post_install.bat
