@@ -199,7 +199,7 @@ class CryoSputterGridTaskConfig(GridTaskConfig):
 
 
 @dataclass
-class CryoCleaninggGridTaskConfig(GridTaskConfig):
+class CryoCleaningGridTaskConfig(GridTaskConfig):
     """Configuration for cryo cleaning milling task."""
     task_type: ClassVar[str] = "CRYO_CLEANING_GRID"
     display_name: ClassVar[str] = "Cryo Cleaning Milling"
@@ -212,8 +212,8 @@ class CryoCleaninggGridTaskConfig(GridTaskConfig):
 
 class CryoCleaningGridTask(GridTask):
     """Task to perform cryo cleaning on the sample grid."""
-    config_cls: ClassVar[Type[GridTaskConfig]] = CryoCleaninggGridTaskConfig
-    config: CryoCleaninggGridTaskConfig
+    config_cls: ClassVar[Type[GridTaskConfig]] = CryoCleaningGridTaskConfig
+    config: CryoCleaningGridTaskConfig
 
     # ref: https://www.nature.com/articles/s41467-025-57493-3
 
@@ -256,7 +256,7 @@ class CryoCleaningGridTask(GridTask):
         image.save(os.path.join(path, "post-grid-cleaining_ib.tif"))
 
 @dataclass
-class ParallelTrenchMIllingGridTaskConfig(GridTaskConfig):
+class ParallelTrenchMillingGridTaskConfig(GridTaskConfig):
     """Configuration for parallel trench milling task."""
     task_type: ClassVar[str] = "PARALLEL_TRENCH_MILLING_GRID"
     display_name: ClassVar[str] = "Parallel Trench Milling"
@@ -266,7 +266,7 @@ class ParallelTrenchMIllingGridTaskConfig(GridTaskConfig):
 GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     AcquireOverviewImageGridTaskConfig.task_type: AcquireOverviewImageGridTask,
     AcquireImageGridTaskConfig.task_type: AcquireImageTask,
-    CryoCleaninggGridTaskConfig.task_type: CryoCleaningGridTask,
+    CryoCleaningGridTaskConfig.task_type: CryoCleaningGridTask,
     # Add other tasks here as needed
 }   
 
