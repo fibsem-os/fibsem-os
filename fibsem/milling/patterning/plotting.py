@@ -356,7 +356,7 @@ def _add_bitmap_mpl(
     if shape.flip_y:
         bitmap = np.flip(bitmap, axis=0)
 
-    dwell_time_array = bitmap[:, :, 0].astype(np.float_)
+    dwell_time_array = bitmap[:, :, 0].astype(np.float64)
     blanking_array = bitmap[:, :, 1] == 1
 
     # Ensure no rectangles will be subpixel (these are not displayed)
@@ -892,7 +892,7 @@ def draw_bitmap_shape(
         image_resized = image_resized.rotate(pattern_settings.rotation, expand=True)
 
     # Create base rectangle shape
-    shape = np.asarray(image_resized, dtype=np.float_)
+    shape = np.asarray(image_resized, dtype=np.float64)
 
     # get pattern centre in image coordinates
     pos = Point(x=cx, y=cy)
