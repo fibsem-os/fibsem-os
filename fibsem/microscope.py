@@ -3254,7 +3254,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _resize_bitmap_to_pattern(
         self, pattern_settings: FibsemBitmapSettings
-    ) -> NDArray[np.float_ | np.uint8]:
+    ) -> NDArray[np.float64 | np.uint8]:
         points = pattern_settings.bitmap
 
         if points is None:
@@ -3293,11 +3293,11 @@ class ThermoMicroscope(FibsemMicroscope):
         resized_points = np.empty((*new_shape, 2), dtype=object)
 
         resized_points[:, :, 0] = transform.resize(
-            points[:, :, 0].reshape(points.shape[0], points.shape[1]).astype(np.float_),
+            points[:, :, 0].reshape(points.shape[0], points.shape[1]).astype(np.float64),
             output_shape=new_shape,
             order=order,
             preserve_range=True,
-        ).astype(np.float_)
+        ).astype(np.float64)
         resized_points[:, :, 1] = transform.resize(
             points[:, :, 1].reshape(points.shape[0], points.shape[1]).astype(np.uint8),
             output_shape=new_shape,
