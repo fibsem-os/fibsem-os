@@ -27,9 +27,13 @@ def test_mill_stages_with_acquisitions(tmp_path: Path) -> None:
     files = glob.glob(os.path.join(tmp_path, "**", "*alignment_reference*.tif"), recursive=True)
     assert len(files) > 0, f"No alignment reference files found in {tmp_path}"
 
-    # check for beam shift alignment files
-    files = glob.glob(os.path.join(tmp_path, "**", "*beam_shift_alignment*.tif"), recursive=True)
-    assert len(files) > 0, f"No beam shift alignment files found in {tmp_path}"
+    # check for the per-step alignment images (saved in the AlignmentRun directory)
+    files = glob.glob(os.path.join(tmp_path, "**", "new_image_*.tif"), recursive=True)
+    assert len(files) > 0, f"No alignment step images found in {tmp_path}"
+
+    # check the alignment run data was serialised (new AlignmentRun layout)
+    files = glob.glob(os.path.join(tmp_path, "**", "Alignment", "**", "data.json"), recursive=True)
+    assert len(files) > 0, f"No alignment run data found in {tmp_path}"
 
     # check for post-milling reference images (SEM + FIB = 2 files)
     files = glob.glob(os.path.join(tmp_path, "**", "*_finished_*.tif"), recursive=True)
