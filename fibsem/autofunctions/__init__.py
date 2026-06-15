@@ -16,8 +16,22 @@ from fibsem.autofunctions.stacking import (
     create_block_based_focus_stack,
 )
 from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
+from fibsem.structures import ImageStats
+from fibsem.imaging.utils import percentile_stretch
+from fibsem.autofunctions.acb import (
+    AutoContrastBrightnessSettings,
+    AutoContrastBrightnessIteration,
+    AutoContrastBrightnessResult,
+    run_auto_contrast_brightness,
+)
 
 __all__ = [
+    "ImageStats",
+    "AutoContrastBrightnessSettings",
+    "percentile_stretch",
+    "AutoContrastBrightnessIteration",
+    "AutoContrastBrightnessResult",
+    "run_auto_contrast_brightness",
     "auto_gamma",
     "apply_gamma",
     "apply_clahe",

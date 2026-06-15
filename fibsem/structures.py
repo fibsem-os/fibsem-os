@@ -537,6 +537,7 @@ class ImageSettings:
     dwell_time: float = 1e-6
     hfw: float = 150e-6
     autocontrast: bool = False
+    autocontrast_method: str = "vendor"  # "vendor" | "hardware"
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
@@ -597,6 +598,7 @@ class ImageSettings:
             dwell_time=settings.get("dwell_time", 1.0e-6),
             hfw=settings.get("hfw", 150e-6),
             autocontrast=settings.get("autocontrast", False),
+            autocontrast_method=settings.get("autocontrast_method", "vendor"),
             beam_type=BeamType[beam_name.upper()],
             autogamma=settings.get("autogamma", False),
             save=settings.get("save", False),
@@ -620,6 +622,7 @@ class ImageSettings:
             "autocontrast": self.autocontrast
             if self.autocontrast is not None
             else None,
+            "autocontrast_method": self.autocontrast_method,
             "autogamma": self.autogamma
             if self.autogamma is not None
             else None,
@@ -1889,6 +1892,38 @@ class FibsemImageMetadata:
         return metadata
 
 
+@dataclass
+class ImageStats:
+    """Histogram statistics for a FibsemImage.
+
+    All intensity values are normalised to [0, 1] relative to the dtype maximum.
+    """
+    mean: float
+    std: float
+    p01: float              # 1st percentile
+    p99: float              # 99th percentile
+    saturation_lo: float    # fraction of pixels at dtype min
+    saturation_hi: float    # fraction of pixels at dtype max
+    contrast_ratio: float   # coefficient of variation: std / mean
+    range_utilisation: float  # p99 - p01
+    median: float           # normalised median (robust alternative to mean)
+    snr: float              # mean / std
+    entropy: float          # Shannon entropy of the normalised histogram (bits)
+
+    def __str__(self) -> str:
+        return (
+            f"mean={self.mean:.3f}, median={self.median:.3f}, std={self.std:.3f}, "
+            f"p01={self.p01:.3f}, p99={self.p99:.3f}, "
+            f"sat_lo={self.saturation_lo:.4f}, sat_hi={self.saturation_hi:.4f}, "
+            f"CV={self.contrast_ratio:.3f}, SNR={self.snr:.2f}, "
+            f"range={self.range_utilisation:.3f}, entropy={self.entropy:.2f}b"
+        )
+
+    def converged(self, mean_target: float, mean_tolerance: float, saturation_limit: float) -> bool:
+        """Return True when mean and saturation hard criteria are both satisfied."""
+        return abs(self.mean - mean_target) <= mean_tolerance and self.saturation_hi <= saturation_limit
+
+
 class FibsemImage:
 
     """
@@ -2226,6 +2261,67 @@ class FibsemImage:
         from fibsem.autofunctions.gamma import apply_gamma as _apply_gamma
         from copy import deepcopy
         return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
+
+    def auto_contrast_brightness(
+        self,
+        clip_percentile_lo: float = 0.5,
+        clip_percentile_hi: float = 99.5,
+    ) -> "FibsemImage":
+        """Return a copy of the image with a percentile stretch applied.
+
+        Pixel values are clipped to [p_lo, p_hi] and linearly rescaled to fill
+        the full dtype range.
+
+        Args:
+            clip_percentile_lo: Lower clip percentile (default 0.5).
+            clip_percentile_hi: Upper clip percentile (default 99.5).
+
+        Returns:
+            FibsemImage: New image with stretched data and the same metadata.
+        """
+        from copy import deepcopy
+        from fibsem.imaging.utils import percentile_stretch
+        stretched = percentile_stretch(self.data, clip_percentile_lo, clip_percentile_hi)
+        return FibsemImage(data=stretched, metadata=deepcopy(self.metadata))
+
+    def compute_stats(self) -> "ImageStats":
+        """Compute histogram statistics for this image.
+
+        Returns:
+            ImageStats with all metrics normalised to [0, 1].
+        """
+        data = self.data.astype(np.float64)
+        dtype_max = float(np.iinfo(self.data.dtype).max)
+
+        norm = data / dtype_max
+        mean = float(np.mean(norm))
+        std = float(np.std(norm))
+        p01 = float(np.percentile(norm, 1))
+        p99 = float(np.percentile(norm, 99))
+        sat_lo = float(np.mean(self.data == 0))
+        sat_hi = float(np.mean(self.data == int(dtype_max)))
+        cv = std / mean if mean > 0 else 0.0
+        median = float(np.median(norm))
+        snr = mean / std if std > 0 else 0.0
+
+        counts, _ = np.histogram(norm, bins=256, range=(0.0, 1.0))
+        probs = counts / counts.sum()
+        probs = probs[probs > 0]
+        entropy = float(-np.sum(probs * np.log2(probs)))
+
+        return ImageStats(
+            mean=mean,
+            std=std,
+            p01=p01,
+            p99=p99,
+            saturation_lo=sat_lo,
+            saturation_hi=sat_hi,
+            contrast_ratio=cv,
+            range_utilisation=p99 - p01,
+            median=median,
+            snr=snr,
+            entropy=entropy,
+        )
 
     @property
     def brightness(self) -> float:
