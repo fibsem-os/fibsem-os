@@ -11,8 +11,6 @@ from pathlib import Path
 
 import numpy as np
 
-from fibsem.imaging.utils import percentile_stretch
-from fibsem.structures import BeamType, FibsemImage, ImageStats
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +63,7 @@ class AutoContrastBrightnessIteration:
 
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoContrastBrightnessIteration":
+        from fibsem.structures import FibsemImage, ImageStats
         return cls(
             brightness=d["brightness"],
             contrast=d["contrast"],
@@ -148,6 +147,7 @@ class AutoContrastBrightnessResult:
             for it_data in data["iterations"]
         ]
 
+        from fibsem.structures import FibsemImage, ImageStats
         final_image = FibsemImage.load(str(result_dir / "final.tif"))
         final_stats = ImageStats(**data["final_stats"])
         settings_data = data.get("settings")
@@ -164,7 +164,7 @@ class AutoContrastBrightnessResult:
 
 def run_auto_contrast_brightness(
     microscope,
-    beam_type: BeamType = BeamType.ELECTRON,
+    beam_type=None,
     hfw: float = 150e-6,
     settings: AutoContrastBrightnessSettings = None,
 ) -> AutoContrastBrightnessResult:
@@ -184,8 +184,10 @@ def run_auto_contrast_brightness(
         ``AutoContrastBrightnessResult`` with the final probe image, stats, convergence
         flag, and the full per-iteration history.
     """
-    from fibsem.structures import ImageSettings
+    from fibsem.structures import BeamType, ImageSettings
 
+    if beam_type is None:
+        beam_type = BeamType.ELECTRON
     if settings is None:
         settings = AutoContrastBrightnessSettings()
 

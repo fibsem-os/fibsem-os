@@ -16,8 +16,6 @@ from fibsem.autofunctions.stacking import (
     create_block_based_focus_stack,
 )
 from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
-from fibsem.imaging.utils import percentile_stretch
-from fibsem.structures import ImageStats
 from fibsem.autofunctions.acb import (
     AutoContrastBrightnessSettings,
     AutoContrastBrightnessIteration,
@@ -30,6 +28,16 @@ from fibsem.autofunctions.autofocus import (
     AutoFocusResult,
     run_auto_focus,
 )
+
+def __getattr__(name):
+    if name == "percentile_stretch":
+        from fibsem.imaging.utils import percentile_stretch
+        return percentile_stretch
+    if name == "ImageStats":
+        from fibsem.structures import ImageStats
+        return ImageStats
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "ImageStats",
