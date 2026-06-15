@@ -4,7 +4,7 @@ import copy
 import os
 from typing import Optional, Tuple
 
-from fibsem.imaging import autogamma
+from fibsem.autofunctions import gamma as autogamma
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,

@@ -14,7 +14,7 @@ import numpy as np
 
 from fibsem.fm.structures import AutoFocusResult, AutoFocusSettings, ZParameters
 from fibsem.structures import FibsemRectangle
-from fibsem.fm.calibration.metrics import (
+from fibsem.autofunctions.metrics import (
     get_focus_measure_function,
     laplacian_focus_measure,
     sobel_focus_measure,
@@ -23,14 +23,14 @@ from fibsem.fm.calibration.metrics import (
     find_best_focus_plane,
     calculate_focus_quality,
 )
-from fibsem.fm.calibration.focus import (
+from fibsem.autofunctions.stacking import (
     block_based_focus_selection,
     create_focus_stack_from_selection,
     pixel_based_focus_selection,
     create_pixel_based_focus_stack,
     create_block_based_focus_stack,
 )
-from fibsem.fm.calibration.integration import frame_integration, adaptive_frame_integration
+from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
 from fibsem.fm.calibration.plotting import plot_autofocus
 
 __all__ = [

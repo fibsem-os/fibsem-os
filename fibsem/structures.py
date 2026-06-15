@@ -2223,7 +2223,7 @@ class FibsemImage:
         Raises:
             ValueError: If gamma is not positive.
         """
-        from fibsem.imaging.autogamma import apply_gamma as _apply_gamma
+        from fibsem.autofunctions.gamma import apply_gamma as _apply_gamma
         from copy import deepcopy
         return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
 
