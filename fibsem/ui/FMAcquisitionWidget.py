@@ -2186,7 +2186,7 @@ class FMAcquisitionWidget(QWidget):
         try:
             logging.info("Running auto-focus with laplacian method")
 
-            best_z = run_autofocus(
+            result = run_autofocus(
                 microscope=self.fm,
                 channel_settings=channel_settings,
                 # z_parameters=z_parameters,
@@ -2194,12 +2194,12 @@ class FMAcquisitionWidget(QWidget):
                 stop_event=self._acquisition_stop_event,
             )
 
-            if best_z is None or self._acquisition_stop_event.is_set():
+            if result is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {best_z * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result.best_z * 1e6:.1f} μm"
             )
 
         except Exception as e:
