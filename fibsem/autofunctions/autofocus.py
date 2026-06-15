@@ -10,8 +10,6 @@ from pathlib import Path
 
 import numpy as np
 
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
-
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +56,7 @@ class AutoFocusSettings:
 
     @classmethod
     def from_dict(cls, d: dict) -> "AutoFocusSettings":
+        from fibsem.structures import FibsemRectangle
         d = dict(d)
         passes = [FocusSweepPass(**p) for p in d.pop("passes", [])] or [FocusSweepPass()]
         ra = d.pop("reduced_area", None)
@@ -86,6 +85,7 @@ class AutoFocusIteration:
 
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoFocusIteration":
+        from fibsem.structures import FibsemImage
         return cls(
             pass_index=d.get("pass_index", 0),
             working_distance=d["working_distance"],
@@ -157,6 +157,7 @@ class AutoFocusResult:
             for it_data in data["iterations"]
         ]
 
+        from fibsem.structures import FibsemImage
         best_image = FibsemImage.load(str(result_dir / "best.tif"))
         settings_data = data.get("settings")
         settings = AutoFocusSettings.from_dict(settings_data) if settings_data is not None else None
@@ -173,7 +174,7 @@ class AutoFocusResult:
 
 def run_auto_focus(
     microscope,
-    beam_type: BeamType = BeamType.ELECTRON,
+    beam_type=None,
     hfw: float = 150e-6,
     settings: AutoFocusSettings = None,
 ) -> AutoFocusResult:
@@ -195,8 +196,10 @@ def run_auto_focus(
         distance, focus score, and full per-pass iteration history.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
-    from fibsem.structures import ImageSettings
+    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
 
+    if beam_type is None:
+        beam_type = BeamType.ELECTRON
     if settings is None:
         settings = AutoFocusSettings()
 
