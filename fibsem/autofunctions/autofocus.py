@@ -7,8 +7,14 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from fibsem.structures import BeamType
 
 import numpy as np
+if TYPE_CHECKING:
+    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+    from fibsem.microscope import FibsemMicroscope
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +44,7 @@ class AutoFocusSettings:
     passes: list = None             # list[FocusSweepPass]; None → single default pass
     probe_resolution: tuple = (768, 512)
     probe_dwell_time: float = 0.5e-6
-    reduced_area: FibsemRectangle = None
+    reduced_area: 'FibsemRectangle' = None
 
     def __post_init__(self):
         if self.passes is None:
@@ -72,7 +78,7 @@ class AutoFocusIteration:
     working_distance: float
     focus_score: float
     pass_index: int
-    image: FibsemImage
+    image: 'FibsemImage'
 
     def to_dict(self, index: int) -> dict:
         return {
@@ -173,8 +179,8 @@ class AutoFocusResult:
 
 
 def run_auto_focus(
-    microscope,
-    beam_type=None,
+    microscope: 'FibsemMicroscope',
+    beam_type: BeamType = BeamType.ELECTRON,
     hfw: float = 150e-6,
     settings: AutoFocusSettings = None,
 ) -> AutoFocusResult:
@@ -196,7 +202,7 @@ def run_auto_focus(
         distance, focus score, and full per-pass iteration history.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
-    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+    from fibsem.structures import BeamType, ImageSettings
 
     if beam_type is None:
         beam_type = BeamType.ELECTRON
