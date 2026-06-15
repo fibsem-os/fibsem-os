@@ -1,5 +1,4 @@
 from fibsem.autofunctions.gamma import auto_gamma, apply_gamma, apply_clahe
-from fibsem.autofunctions.focus import auto_focus_beam
 from fibsem.autofunctions.metrics import (
     laplacian_focus_measure,
     sobel_focus_measure,
@@ -22,7 +21,6 @@ __all__ = [
     "auto_gamma",
     "apply_gamma",
     "apply_clahe",
-    "auto_focus_beam",
     "laplacian_focus_measure",
     "sobel_focus_measure",
     "variance_focus_measure",
