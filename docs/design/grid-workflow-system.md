@@ -237,12 +237,44 @@ Route grid tasks through orchestration that reuses the shared `TaskQueue` so gri
 - **3b — Magazine model.** `SampleGridLoader` now owns its own `capacity` + `slots` (the magazine, human-loaded) distinct from the holder working slot, with `run_inventory()` / `assign_grid()` / `find_grid()`. `ensure_loaded` sources the real `SampleGrid` (with geometry) from the magazine; `sync_grids_from_holder` also enumerates the magazine inventory on autoloader systems.
 
 ### Phase 4 — Results & UI
-Flesh out `GridRecord` (introduced in Phase 1) with screening `results`, and add the grid-workflow UI: grid task-config and workflow-order editor widgets analogous to [`autolamella_task_config_editor.py`](../../fibsem/ui/widgets/autolamella_task_config_editor.py) and [`workflow_config_widget.py`](../../fibsem/ui/widgets/workflow_config_widget.py).
+Flesh out `GridRecord` (introduced in Phase 1) with screening `results`, and add the grid-workflow UI. Hosted as a single new **"Grids" tab** in `AutoLamellaMainUI` with four sub-sections: **Magazine + Holder | Protocol | Run | Results**. The lamella UI is parameter-driven, so much is reused rather than rebuilt. See [Phase 4 UI design](#phase-4-ui-design) for the widget breakdown.
 
 ### Phase 5 — Screening integration
 Wire the `fibsem/targeting` grid-screening pipeline (overview acquisition → segmentation → target scoring/selection) in as grid tasks that emit `Lamella` targets — closing the loop from grid-level screening to lamella-level milling. This is the headline workflow the whole effort enables: load a grid → screen it → produce lamella targets → mill them.
 
 ---
+
+### Phase 4 UI design
+
+Hosting: one **"Grids" tab** with sub-sections **Magazine + Holder | Protocol | Run | Results**. `SampleHolderWidget` exists but is not currently hosted anywhere — wiring it into the app is part of this work. Results are **minimal** for Phase 4 (status + overview image + task-history timeline); rich screening results (segmentation, target overlays) arrive with Phase 5.
+
+| # | Widget | Build | Reuses / mirrors |
+|---|---|---|---|
+| 1 | `GridProtocolEditor` | new (thin container) | `AutoLamellaProtocolTaskConfigEditor`; generic `AutoLamellaTaskParametersConfigWidget` for `.parameters`; `overview_acquisition_settings_widget` for the nested `settings` field. **No milling viewer.** Persists to `experiment.grid_protocol`. |
+| 2 | `GridListWidget` | new | `LamellaListWidget` — lists `GridRecord`s with `task_state` status |
+| 3 | `GridWorkflowWidget` | new (container) | `LamellaWorkflowWidget` + reuse `WorkflowConfigWidget` (task-agnostic); Run/Stop → `GridTaskManager.run` on a thread |
+| 4 | `LoaderMagazineWidget` ✅ built | new | `SampleHolderWidget` row/edit patterns (see below) |
+| 5 | `GridResultsWidget` | new (minimal) | `autolamella_overview_image_widget` + `workflow_timeline_widget` |
+| 6 | `GridRecord.results: dict` | backend addition | feeds #5 (overview image path, etc.) |
+
+**Magazine + Holder sub-section** (detailed first). Hosts two widgets side by side, mirroring `SampleHolderWidget`'s structure (form + `QListWidget` of row widgets + edit panel + auto-save):
+
+- **`SampleHolderWidget`** (existing, finally hosted) — the holder *working* slots. Used directly on a static shuttle (grids live in slots); on an autoloader it shows the single working slot.
+- **`LoaderMagazineWidget`** (new) — the loader *magazine* (storage inventory). Bound to `microscope._stage.loader`; hidden/disabled when `loader is None` (static shuttle).
+  - **Top:** loader name (read-only), capacity (read-only, from `loader.capacity`), a **"Run Inventory"** button → `loader.run_inventory()` (hardware presence scan; sets each slot's loaded/empty state).
+  - **List:** one `_MagazineSlotRowWidget` per magazine slot (`Magazine-01…`), mirroring `_GridSlotRowWidget`. Row columns: slot label | **presence toggle** (loaded/empty) | grid name/description | actions.
+  - **Presence is separate from naming.** A slot's loaded/empty state is set either by `run_inventory()` (hardware) or the per-row presence toggle (manual/sim). Toggling a slot *loaded* creates an unnamed `SampleGrid`; naming/describing it (via the reused `_GridSlotEditPanel`) is a **second step, enabled only for loaded slots**. Empty slots cannot be named.
+  - **Manual "Load → beam".** Each loaded row has a **Load → beam** button → emits `load_requested(grid_name)`; the Grids-tab controller runs `GridTaskManager.ensure_loaded` on a background thread (with progress + `GridExchangeError` handling), so an operator can stage a grid for setup/alignment outside a workflow run.
+  - **Signals:** `magazine_changed()`, `presence_toggled(slot_name, bool)`, `grid_selected(slot_name, GridSlot)`, `load_requested(grid_name)`.
+  - **Persistence:** none in Phase 4 — magazine state is in-memory only; where it persists (holder config vs. experiment) is decided later.
+
+**Run sub-section** (detailed). Mirrors the lamella run flow ([`LamellaWorkflowWidget`](../../fibsem/ui/widgets/lamella_workflow_widget.py) + `_start_run_workflow_thread` → daemon thread → `manager.run(parent_ui=self)` → `workflow_update_signal` → Stop = `manager.stop()`).
+
+- **`GridListWidget`** (new, mirrors `LamellaListWidget`) — checkbox multi-select list of `GridRecord`s with a status badge from `task_state.status`. `set_experiment(exp)`, `get_selected_grids() → List[GridRecord]`, signal `grid_selection_changed(list)`.
+- **`GridWorkflowWidget`** (new container, mirrors `LamellaWorkflowWidget`) — `GridListWidget` (top) + reused `WorkflowConfigWidget` (bottom). The config widget is task-agnostic; populate it with task entries derived from `experiment.grid_protocol.task_config` keys. For Phase 4 the supervise / schedule / dependency columns are **hidden** (via the existing `enable_*_button` toggles) — grid Run is just **task selection + grid-outer order**. Exposes `get_selected_grids()`, `get_selected_tasks()` (in display order).
+- **Run / Stop** live in the Run sub-section header (not the global status-bar button), enabled when ≥1 grid **and** ≥1 task selected. Run → confirm dialog → `_start_grid_workflow_thread(task_names, grid_names)`: a daemon thread builds `GridTaskManager(microscope, experiment, parent_ui=self)` and calls `manager.run(task_names, grid_names)`; a finished signal re-enables Run. Stop → `manager.stop()` (already threaded through `_stop_event` and checked each queue item in Phase 3a).
+- **Backend addition (status):** `GridTaskManager` currently runs headless. Phase 4 adds **minimal status emission** — on each item it calls `parent_ui.grid_workflow_update_signal.emit({...})` (mirroring `TaskManager._emit_status`), and the UI refreshes the `GridListWidget` badges + a status label. Rich progress/timeline reuse is deferred (consistent with minimal Results).
+- **Note:** a *persisted* grid workflow order/supervision (`GridTaskProtocol.workflow_config`, analogous to `AutoLamellaWorkflowConfig`) is a future addition; Phase 4 Run uses an ephemeral selection/order.
 
 ## 7. Data Model
 
