@@ -4,9 +4,12 @@ import os
 import uuid
 import time
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, GridRecord
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
@@ -29,14 +32,20 @@ class GridTaskConfig(ABC):
 
 
 class GridTask(ABC):
-    """Base class for AutoLamella tasks."""
+    """Base class for grid-level workflow tasks.
+
+    A GridTask operates on a :class:`GridRecord` (the workflow unit), mirroring
+    the ``AutoLamellaTask`` lifecycle: ``pre_task() -> _run() -> post_task()``,
+    writing progress into the record's ``task_state`` / ``task_history``. The
+    hardware slot is resolved live from the holder by the grid's name.
+    """
     config_cls: ClassVar[GridTaskConfig]
     config: GridTaskConfig
 
     def __init__(self,
                  microscope: FibsemMicroscope,
                  config: GridTaskConfig,
-                 grid: SampleGrid,
+                 grid: 'GridRecord',
                  experiment: 'Experiment',
                  parent_ui: Optional['AutoLamellaUI'] = None,
                  task_manager: Optional['TaskManager'] = None):
@@ -51,8 +60,12 @@ class GridTask(ABC):
 
     @property
     def slot(self) -> Optional[GridSlot]:
-        """Find the slot this grid is currently loaded in."""
-        return self.microscope._stage.holder.find_slot_for_grid(self.grid)
+        """Resolve the hardware slot this grid is loaded in, live, by name."""
+        return self.microscope._stage.holder.find_slot_by_grid_name(self.grid.name)
+
+    @property
+    def task_type(self) -> str:
+        return self.config.task_type
 
     @property
     def task_name(self) -> str:
@@ -64,8 +77,49 @@ class GridTask(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     def run(self):
-        """Public method to run the task."""
-        self._run()
+        """Execute the task lifecycle: pre_task -> _run -> post_task."""
+        self.pre_task()
+        try:
+            self._run()
+        except Exception as error:
+            self.on_failure(error)
+            raise
+        self.post_task()
+
+    def pre_task(self) -> None:
+        """Mark the grid's task_state as InProgress and stamp the start time."""
+        logging.info(
+            f"Running grid task {self.task_name} ({self.task_type}, {self.task_id}) "
+            f"for grid {self.grid.name} ({self.grid._id})"
+        )
+        ts = self.grid.task_state
+        ts.name = self.task_name
+        ts.task_id = self.task_id
+        ts.task_type = self.task_type
+        ts.start_timestamp = datetime.timestamp(datetime.now())
+        ts.end_timestamp = None
+        ts.status = AutoLamellaTaskStatus.InProgress
+        ts.status_message = ""
+
+    def post_task(self) -> None:
+        """Mark the grid's task_state Completed and append it to history."""
+        ts = self.grid.task_state
+        ts.end_timestamp = datetime.timestamp(datetime.now())
+        ts.status = AutoLamellaTaskStatus.Completed
+        ts.status_message = ""
+        self.grid.task_history.append(deepcopy(ts))
+        logging.info(f"Completed grid task {self.task_name} for grid {self.grid.name}")
+
+    def on_failure(self, error: Exception) -> None:
+        """Record a task failure on the grid's task_state and history."""
+        ts = self.grid.task_state
+        ts.end_timestamp = datetime.timestamp(datetime.now())
+        ts.status = AutoLamellaTaskStatus.Failed
+        ts.status_message = str(error)
+        self.grid.task_history.append(deepcopy(ts))
+        logging.warning(
+            f"Grid task {self.task_name} failed for grid {self.grid.name}: {error}"
+        )
 
     def _get_stage_position_for_orientation(
         self,
@@ -270,17 +324,14 @@ GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     # Add other tasks here as needed
 }   
 
-def run_grid_task(microscope: FibsemMicroscope, 
-          task_name: str, 
+def run_grid_task(microscope: FibsemMicroscope,
+          task_name: str,
           experiment: 'Experiment',
-          grid: SampleGrid, 
+          grid: 'GridRecord',
           parent_ui: Optional['AutoLamellaUI'] = None) -> None:
-    """Run a specific AutoLamella task."""
+    """Run a single grid task against a GridRecord, persisting state afterwards."""
 
-    # task_config = experiment.task_protocol.task_config.get(task_name)
-    # if task_config is None:
-        # raise ValueError(f"Task configuration for {task_name} not found in lamella tasks.")
-
+    # TODO (Phase 2): read saved config from experiment.task_protocol instead of defaults.
     task_cls = GRID_TASK_REGISTRY.get(task_name)
     if task_cls is None:
         raise ValueError(f"Task {task_name} is not registered.")
@@ -293,20 +344,24 @@ def run_grid_task(microscope: FibsemMicroscope,
                     grid=grid,
                     parent_ui=parent_ui)
     task.run()
-    # TODO: add task config to experiment, integrate into runner
+    experiment.save()  # persist the grid's updated task_state / history
 
 
-def run_grid_tasks(microscope: FibsemMicroscope, 
-                   experiment: 'Experiment', 
+def run_grid_tasks(microscope: FibsemMicroscope,
+                   experiment: 'Experiment',
                    grid_names: list[str],
                    task_names: list[str]) -> None:
-    """Run tasks for specified grids."""
+    """Run tasks for the named grids, creating GridRecords on demand."""
     for grid_name in grid_names:
-        for task_name in task_names:
+        record = experiment.get_grid_by_name(grid_name)
+        if record is None:
             slot = microscope._stage.holder.find_slot_by_grid_name(grid_name)
             if slot is None or slot.loaded_grid is None:
                 logging.warning(f"Grid '{grid_name}' not found in any loaded slot.")
                 continue
+            record = GridRecord(name=grid_name)
+            experiment.add_grid(record)
 
+        for task_name in task_names:
             logging.info(f"Running task {task_name} on grid {grid_name}.")
-            run_grid_task(microscope, task_name, experiment=experiment, grid=slot.loaded_grid)
+            run_grid_task(microscope, task_name, experiment=experiment, grid=record)

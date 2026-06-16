@@ -62,7 +62,7 @@ class SampleGrid:
     radius: float = field(default=GRID_RADIUS)  # GRID_RADIUS = 1e-3 m (1 mm)
 ```
 
-`radius` doubles as the tolerance used for slot matching (see `Stage.current_slot`). `to_dict`/`from_dict` provide YAML serialization.
+`radius` is currently descriptive geometry only — it is *not* read during slot matching. `Stage.current_slot` matches against the fixed module constant `GRID_RADIUS` (the value `SampleGrid.radius` happens to default to), not the per-grid field. `to_dict`/`from_dict` provide YAML serialization.
 
 ### GridSlot — [`_stage.py:51`](../../fibsem/microscopes/_stage.py#L51)
 
@@ -225,8 +225,8 @@ The grid task system is intentionally a sibling of the AutoLamella task system. 
 
 The goal is to grow the grid workflow layer to match the lamella task system, reusing its patterns (and, where sensible, its code) rather than building a divergent system. Proposed in phases so each step is independently useful.
 
-### Phase 1 — Lifecycle & state
-Give `GridTask` a `pre_task` / `post_task` lifecycle matching `AutoLamellaTask`, and introduce a per-grid `task_state` + `task_history` record. This makes grid-task progress observable (UI status), resumable, and auditable — the single biggest gap today.
+### Phase 1 — Grid record, lifecycle & state ✅ *implemented*
+Introduce a minimal `GridRecord` — the first-class workflow entity under `Experiment`, distinct from the hardware `SampleGrid` (see [Decisions](#8-decisions)) — carrying identity plus per-grid `task_state` + `task_history`. Give `GridTask` a `pre_task` / `post_task` lifecycle matching `AutoLamellaTask` that writes progress into the record. This makes grid-task progress observable (UI status), resumable, and auditable — the single biggest gap today, and the foundation the later phases build on. See [Data Model](#7-data-model) for the record shape and its relationship to lamella.
 
 ### Phase 2 — Config persistence
 Add `to_dict` / `from_dict` to `GridTaskConfig` and store grid task configs in a **grid protocol** on `Experiment`, mirroring `AutoLamellaTaskProtocol`. Update `run_grid_task` to read saved config from the protocol instead of instantiating defaults (`config_cls()`), removing the standing TODO.
@@ -234,11 +234,15 @@ Add `to_dict` / `from_dict` to `GridTaskConfig` and store grid task configs in a
 ### Phase 3 — Orchestration
 Route grid tasks through the existing `TaskManager` / `TaskQueue` (or a shared base class extracted from them) so grid workflows inherit skip conditions, dependency ordering, scheduling, stop handling, and UI status signals. The work matrix becomes *(grid × task)* over the holder's loaded slots.
 
-### Phase 4 — First-class grid record & UI
-Promote grids to a workflow entity under `Experiment` — `GridRecord`, holding state, history, and results, distinct from the hardware `SampleGrid` (see [Decisions](#7-decisions)). Add grid task-config and workflow-order editor widgets analogous to [`autolamella_task_config_editor.py`](../../fibsem/ui/widgets/autolamella_task_config_editor.py) and [`workflow_config_widget.py`](../../fibsem/ui/widgets/workflow_config_widget.py).
+### Phase 4 — Results & UI
+Flesh out `GridRecord` (introduced in Phase 1) with screening `results`, and add the grid-workflow UI: grid task-config and workflow-order editor widgets analogous to [`autolamella_task_config_editor.py`](../../fibsem/ui/widgets/autolamella_task_config_editor.py) and [`workflow_config_widget.py`](../../fibsem/ui/widgets/workflow_config_widget.py).
 
 ### Phase 5 — Screening integration
 Wire the `fibsem/targeting` grid-screening pipeline (overview acquisition → segmentation → target scoring/selection) in as grid tasks that emit `Lamella` targets — closing the loop from grid-level screening to lamella-level milling. This is the headline workflow the whole effort enables: load a grid → screen it → produce lamella targets → mill them.
+
+---
+
+## 7. Data Model
 
 ### Grid ↔ Lamella relationship
 
@@ -333,13 +337,22 @@ lamella.grid_id = record._id if record else None
 
 ---
 
-## 7. Decisions
+## 8. Decisions
 
 - **Grid workflow record placement (resolved).** Grids become a first-class workflow entity, `GridRecord`, held under `Experiment` (e.g. `grids: EventedList[GridRecord]`) and kept distinct from the hardware `SampleGrid` (geometry, owned by the holder config). Workflow state — identity, `task_state`, `task_history`, screening results — lives on `GridRecord`; it links to hardware by name (`GridRecord.name → SampleGrid.name`) and resolves its current slot live via the holder rather than freezing slot occupancy into the experiment. The grid↔lamella containment is modelled by a `Lamella.grid_id → GridRecord._id` back-reference; see [Grid ↔ Lamella relationship](#grid--lamella-relationship). To avoid disrupting the mature lamella pipeline, `Experiment.positions` stays the canonical flat list of lamella initially, with per-grid lamella derived by filtering on `grid_id`.
+- **Holder & loader semantics (resolved).** One orchestration path covers both the static multi-slot shuttle and the CompuStage autoloader:
+  - **Two-level model: magazine → working slot.** The loader owns a **magazine** — its own set of storage slots at a fixed capacity (existing loaders hold 12), filled by a human operator — *distinct* from the holder's working slot(s) in the beam. This extends `SampleGridLoader` with its own `capacity` + `slots` (today it only mutates `holder.slots`). The magazine is the inventory of grids available to load; the working slot is where exactly one of them sits at a time.
+  - **Inventory & naming.** Presence is detected, not assumed. `SampleGridLoader` gains a `run_inventory()` method that scans which magazine slots hold a grid. The user assigns a name/description to a grid only for a *loaded* slot — a magazine slot on an autoloader, or a holder slot on a static shuttle; empty slots cannot be named. `GridRecord`s are the workflow inventory, created from these named grids — from the loader's magazine on an autoloader, or via `sync_grids_from_holder` on a static shuttle (no loader).
+  - **Implicit exchange.** When a task's requested grid differs from the grid currently in the holder's working slot, the orchestrator performs the exchange implicitly via an `ensure_loaded(record)` step — robotically moving the grid from its magazine slot into the working slot (and the previous grid back) — rather than modelling it as a first-class task. On a static shuttle (no loader) every grid is already in a holder slot, so `ensure_loaded` is a no-op followed by a stage move.
+  - **Iteration order.** Grid-outer by default (load a grid, run all its tasks, then exchange) to amortise exchanges; task-outer ordering is permitted only when there is no loader (static shuttle). Implemented as an ordering option on `TaskQueue.build_from_matrix`.
+  - **Failure handling.** If an exchange fails, halt the workflow and raise — no skip, no retry.
+  - `ensure_loaded` lives in the grid manager's per-grid loop and becomes an overridable no-op for lamella when the shared base is extracted.
+- **Orchestration: share the queue, parallel manager, extract a base later (resolved).** The orchestration core is generic; only five seams bind it to lamella (unit collection `positions`, accessor `get_lamella_by_name`, the unit state interface `is_failure`/`has_completed_task`/`task_state`/`task_config`, the task registry, and status-dict key naming). Therefore: (1) reuse `TaskQueue` directly — it is already unit-agnostic; the only change is renaming `WorkItem.lamella_name` → `unit_name` with a back-compat alias for the UI status dict. (2) Implement a thin `GridTaskManager` mirroring `TaskManager` short-term rather than refactoring the working lamella path up-front. (3) Once both managers are concrete, extract a `BaseTaskManager` that injects the five seams via a small "workflow unit" interface (`.name`, `.is_failure`, `.has_completed_task`, `.task_state`, `.task_config`), which both `Lamella` and `GridRecord` satisfy. This shares code (so the grid side does not permanently lag) while avoiding a premature, risky refactor of the mature pipeline.
+- **Config schema reuse: lean grid configs, flat serialization (resolved).** `GridTaskConfig` stays lean — it does **not** inherit `milling` / `reference_imaging` (lamella-specific; no current grid task patterns-mills or does alignment-reference imaging). A grid task that genuinely mills (e.g. the `ParallelTrenchMilling` stub) adds its own `milling` field opt-in.
+  - **Keep the `parameters` *property*** (the list of task-specific field names). It is what the task-config UI iterates to auto-generate the editor form per task type ([`autolamella_task_config_widget.py:327`](../../fibsem/ui/widgets/autolamella_task_config_widget.py#L327)), and the Phase 4 grid editor will want the same.
+  - **Serialize grid configs flat, not via a `parameters` subdict.** Each field self-serializes; nested dataclasses (e.g. `settings: OverviewAcquisitionSettings`) call their own `to_dict`/`from_dict`. This is type-correct (the subdict's `getattr` dump assumes primitives and already needs hand-patched exclusions on the lamella side, e.g. `spot_burn` excluding `coordinates`) and transparent.
+  - **Consequence:** grid and lamella on-disk formats diverge by design. The eventual shared `TaskConfigBase` (extracted in the later refactor) shares **identity + the `parameters` property**, but each side keeps its own `to_dict`/`from_dict`. Killing the lamella subdict is out of scope (it is already on disk and would need a `protocol.yaml` migration).
 
-## 8. Open Questions
+## 9. Open Questions
 
-1. **Shared vs. parallel orchestration.** Extract a generic task base/`TaskManager` shared by both lamella and grid tasks, or keep two parallel implementations? Sharing reduces drift but couples the two systems' evolution.
-2. **CompuStage single-slot vs. multi-slot holders.** The grid × task matrix and "loaded slots" semantics differ between an autoloader (one slot, many grids over time) and a static multi-slot shuttle (many slots, grids fixed for the session). The orchestration model must handle both.
-3. **Config schema reuse.** How much of `AutoLamellaTaskConfig` (milling, reference imaging) should `GridTaskConfig` share via a common base, versus keep grid configs intentionally lean?
-4. **Targeting coupling.** Where does the `fibsem/targeting` screening pipeline sit relative to grid tasks — is screening *one* grid task that produces targets, or a multi-task sub-workflow (acquire → segment → score → select)?
+1. **Targeting coupling (deferred).** Where does the `fibsem/targeting` screening pipeline sit relative to grid tasks — is screening *one* grid task that produces targets, or a multi-task sub-workflow (acquire → segment → score → select)? Deferred until `fibsem/targeting` lands on this branch (currently on `feat-automated-ml-grid-targeting`). Pointers for when we pick it up: the pipeline entry point is `run_detection_pipeline(model, image, ...) -> SegmentationTargetResult`, with `generate_screened_positions(model, run, ...)` looping it over a `GridScreeningRun`'s images. `SegmentationTargetResult.targets` yields enabled `LamellaTarget`s (each already carrying `stage_position` + `poi`), which is the natural hand-off into `Experiment.add_new_lamella` with `grid_id` stamped (the Phase 5 loop).
