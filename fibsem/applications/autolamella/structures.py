@@ -44,6 +44,7 @@ from fibsem.utils import configure_logging, format_duration
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.applications.autolamella.workflows.tasks.grid_tasks import GridTaskConfig
 
 
 
@@ -978,6 +979,44 @@ class GridRecord:
 
 @evented
 @dataclass
+class GridTaskProtocol:
+    """Stores grid task configurations for an Experiment, keyed by task_name.
+
+    The grid-side analogue of ``AutoLamellaTaskProtocol.task_config``. Lean for
+    now — no workflow ordering / options yet (that arrives with Phase 3
+    orchestration). Configs serialize flat via ``GridTaskConfig.to_dict``.
+    """
+    name: str = "Grid Protocol"
+    description: str = ""
+    task_config: EventedDict[str, 'GridTaskConfig'] = field(default_factory=EventedDict)
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> 'GridTaskProtocol':
+        # lazy import to avoid a structures <-> grid_tasks import cycle
+        from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+            load_grid_task_config,
+        )
+        protocol = cls(
+            name=ddict.get("name", "Grid Protocol"),
+            description=ddict.get("description", ""),
+        )
+        for name, value in ddict.get("task_config", {}).items():
+            config = load_grid_task_config(value)
+            if config is not None:
+                config.task_name = name
+                protocol.task_config[name] = config
+        return protocol
+
+
+@evented
+@dataclass
 class Experiment:
     name: str
     _id: str
@@ -987,6 +1026,7 @@ class Experiment:
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
     created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
     task_protocol: 'AutoLamellaTaskProtocol' = field(default_factory=lambda: AutoLamellaTaskProtocol())
+    grid_protocol: 'GridTaskProtocol' = field(default_factory=lambda: GridTaskProtocol())
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __init__(self, path: Path,
@@ -1009,6 +1049,7 @@ class Experiment:
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None # must be set externally
+        self.grid_protocol: GridTaskProtocol = GridTaskProtocol()
         self.metadata: Dict[str, Any] = metadata if metadata is not None else {}
 
     def to_dict(self, include_protocol: bool = False) -> dict:
@@ -1019,6 +1060,7 @@ class Experiment:
             "path": self.path,
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "grids": [deepcopy(grid.to_dict()) for grid in self.grids],
+            "grid_protocol": self.grid_protocol.to_dict(),
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -1048,6 +1090,9 @@ class Experiment:
         # load grid records from dict (.get for back-compat with pre-grids experiments)
         for grid_dict in ddict.get("grids", []):
             experiment.grids.append(GridRecord.from_dict(grid_dict))
+
+        # load grid protocol (.get for back-compat)
+        experiment.grid_protocol = GridTaskProtocol.from_dict(ddict.get("grid_protocol", {}))
 
         # load landing positions
         for landing_dict in ddict.get("landing_positions", []):

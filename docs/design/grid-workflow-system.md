@@ -228,8 +228,8 @@ The goal is to grow the grid workflow layer to match the lamella task system, re
 ### Phase 1 — Grid record, lifecycle & state ✅ *implemented*
 Introduce a minimal `GridRecord` — the first-class workflow entity under `Experiment`, distinct from the hardware `SampleGrid` (see [Decisions](#8-decisions)) — carrying identity plus per-grid `task_state` + `task_history`. Give `GridTask` a `pre_task` / `post_task` lifecycle matching `AutoLamellaTask` that writes progress into the record. This makes grid-task progress observable (UI status), resumable, and auditable — the single biggest gap today, and the foundation the later phases build on. See [Data Model](#7-data-model) for the record shape and its relationship to lamella.
 
-### Phase 2 — Config persistence
-Add `to_dict` / `from_dict` to `GridTaskConfig` and store grid task configs in a **grid protocol** on `Experiment`, mirroring `AutoLamellaTaskProtocol`. Update `run_grid_task` to read saved config from the protocol instead of instantiating defaults (`config_cls()`), removing the standing TODO.
+### Phase 2 — Config persistence ✅ *implemented*
+Add `to_dict` / `from_dict` to `GridTaskConfig` (flat serialization; nested dataclasses self-serialize) and store grid task configs in a **grid protocol** (`GridTaskProtocol`) on `Experiment`, mirroring `AutoLamellaTaskProtocol`. `run_grid_task` now reads saved config from `experiment.grid_protocol` (keyed by task_name), falling back to defaults only when none is saved — removing the standing TODO. Typed reconstruction via `load_grid_task_config` (task_type → registry → `config_cls.from_dict`). Serialized within `experiment.yaml` (back-compat: `.get("grid_protocol", {})`).
 
 ### Phase 3 — Orchestration
 Route grid tasks through the existing `TaskManager` / `TaskQueue` (or a shared base class extracted from them) so grid workflows inherit skip conditions, dependency ordering, scheduling, stop handling, and UI status signals. The work matrix becomes *(grid × task)* over the holder's loaded slots.

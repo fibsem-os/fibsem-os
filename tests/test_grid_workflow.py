@@ -12,10 +12,16 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
+    GridTaskProtocol,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+    GRID_TASK_REGISTRY,
+    AcquireOverviewImageGridTaskConfig,
+    CryoCleaningGridTaskConfig,
     GridTask,
     GridTaskConfig,
+    load_grid_task_config,
+    run_grid_task,
 )
 
 
@@ -151,3 +157,109 @@ def test_grid_task_lifecycle_failure_records_state(demo_microscope, experiment):
     assert record.task_state.status is AutoLamellaTaskStatus.Failed
     assert record.is_failure
     assert record.task_state.status_message == "boom"
+
+
+# --- Phase 2: config serialization & protocol -----------------------------
+
+def test_grid_config_flat_round_trip_with_nested_settings():
+    c = AcquireOverviewImageGridTaskConfig(task_name="overview")
+    c.orientation = "FIB"
+    c.settings.nrows, c.settings.ncols = 5, 4
+
+    d = c.to_dict()
+    assert d["task_type"] == "ACQUIRE_OVERVIEW_IMAGE_GRID"
+    assert d["task_name"] == "overview"
+    assert d["orientation"] == "FIB"
+    assert "parameters" not in d  # flat, not a parameters subdict
+    assert isinstance(d["settings"], dict) and d["settings"]["nrows"] == 5  # nested self-serialized
+
+    c2 = load_grid_task_config(d)
+    assert isinstance(c2, AcquireOverviewImageGridTaskConfig)
+    assert c2.orientation == "FIB"
+    assert c2.settings.nrows == 5 and c2.settings.ncols == 4
+    assert c2.task_name == "overview"
+
+
+def test_overview_config_default_factory_preserves_rich_default():
+    # the default still carries the rich overview defaults (not clobbered)
+    cfg = AcquireOverviewImageGridTaskConfig()
+    assert cfg.settings.image_settings.resolution == (1024, 1024)
+
+
+def test_grid_config_parameters_property_excludes_core():
+    cc = CryoCleaningGridTaskConfig(task_name="clean")
+    assert "task_name" not in cc.parameters
+    assert {"orientation", "milling_angle", "field_of_view", "duration", "current"} <= set(cc.parameters)
+
+
+def test_load_grid_task_config_unknown_returns_none():
+    assert load_grid_task_config({"task_type": "NOT_A_REAL_TASK"}) is None
+
+
+def test_grid_protocol_persist_and_reload(experiment):
+    overview = AcquireOverviewImageGridTaskConfig(task_name="overview")
+    overview.settings.nrows = 5
+    experiment.grid_protocol.task_config["overview"] = overview
+    experiment.grid_protocol.task_config["clean"] = CryoCleaningGridTaskConfig(task_name="clean")
+    experiment.save()
+
+    loaded = Experiment.load(f"{experiment.path}/experiment.yaml")
+    assert set(loaded.grid_protocol.task_config.keys()) == {"overview", "clean"}
+    ov = loaded.grid_protocol.task_config["overview"]
+    assert isinstance(ov, AcquireOverviewImageGridTaskConfig)
+    assert ov.settings.nrows == 5 and ov.task_name == "overview"
+
+
+def test_experiment_back_compat_without_grid_protocol(experiment):
+    ddict = experiment.to_dict()
+    del ddict["grid_protocol"]
+    restored = Experiment.from_dict(ddict)
+    assert isinstance(restored.grid_protocol, GridTaskProtocol)
+    assert len(restored.grid_protocol.task_config) == 0
+
+
+# --- Phase 2: run_grid_task reads saved config ----------------------------
+
+@dataclass
+class _MarkedGridConfig(GridTaskConfig):
+    task_type: ClassVar[str] = "MARKED_GRID"
+    display_name: ClassVar[str] = "Marked"
+    marker: str = "default"
+
+
+class _RecordingGridTask(GridTask):
+    config_cls = _MarkedGridConfig
+    seen: ClassVar[list] = []
+
+    def _run(self):
+        type(self).seen.append(self.config.marker)
+
+
+@pytest.fixture
+def register_marked_task():
+    GRID_TASK_REGISTRY["MARKED_GRID"] = _RecordingGridTask
+    _RecordingGridTask.seen.clear()
+    try:
+        yield
+    finally:
+        GRID_TASK_REGISTRY.pop("MARKED_GRID", None)
+
+
+def test_run_grid_task_uses_saved_config(demo_microscope, experiment, register_marked_task):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    experiment.grid_protocol.task_config["step"] = _MarkedGridConfig(
+        task_name="step", marker="from-protocol")
+
+    run_grid_task(demo_microscope, "step", experiment, record)
+
+    assert _RecordingGridTask.seen == ["from-protocol"]
+
+
+def test_run_grid_task_falls_back_to_default_config(demo_microscope, experiment, register_marked_task):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    # no saved config; task_name == task_type → default config
+    run_grid_task(demo_microscope, "MARKED_GRID", experiment, record)
+
+    assert _RecordingGridTask.seen == ["default"]

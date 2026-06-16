@@ -5,9 +5,20 @@ import uuid
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
+from enum import Enum
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    get_type_hints,
+)
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, GridRecord
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
@@ -25,10 +36,60 @@ import logging
 
 @dataclass
 class GridTaskConfig(ABC):
-    """Configuration for AutoLamella tasks."""
+    """Base configuration for grid tasks.
+
+    Grid configs are intentionally lean: they carry only ``task_name`` plus
+    each task's own fields (no shared milling / reference-imaging blocks).
+    Serialization is **flat** — each task-specific field is written at the top
+    level, and nested dataclasses serialize via their own ``to_dict`` /
+    ``from_dict`` (rather than a generic ``parameters`` subdict). The
+    ``parameters`` property is retained for generic UI form generation.
+    """
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     task_name: str = ""
+
+    @property
+    def parameters(self) -> Tuple[str, ...]:
+        """Names of this task's own fields (everything except the core fields)."""
+        core = {f.name for f in fields(GridTaskConfig)}
+        return tuple(f.name for f in fields(self) if f.name not in core)
+
+    @staticmethod
+    def _serialize(value: Any) -> Any:
+        if value is None:
+            return None
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        if isinstance(value, Enum):
+            return value.value
+        return value
+
+    def to_dict(self) -> dict:
+        ddict: Dict[str, Any] = {"task_type": self.task_type, "task_name": self.task_name}
+        for name in self.parameters:
+            ddict[name] = self._serialize(getattr(self, name))
+        return ddict
+
+    @classmethod
+    def from_dict(cls, ddict: Dict[str, Any]) -> "GridTaskConfig":
+        hints = get_type_hints(cls)
+        core = {f.name for f in fields(GridTaskConfig)}
+        kwargs: Dict[str, Any] = {}
+        if "task_name" in ddict:
+            kwargs["task_name"] = ddict["task_name"]
+        for f in fields(cls):
+            if f.name in core or f.name not in ddict:
+                continue
+            typ = hints.get(f.name)
+            value = ddict[f.name]
+            if value is not None and isinstance(typ, type) and hasattr(typ, "from_dict"):
+                kwargs[f.name] = typ.from_dict(value)
+            elif value is not None and isinstance(typ, type) and issubclass(typ, Enum):
+                kwargs[f.name] = typ(value)
+            else:
+                kwargs[f.name] = value
+        return cls(**kwargs)
 
 
 class GridTask(ABC):
@@ -137,27 +198,29 @@ class GridTask(ABC):
         self.microscope._stage.move_absolute(target_position)
 
 
+def _default_overview_settings() -> OverviewAcquisitionSettings:
+    """Default tiled-overview settings for the overview grid task."""
+    return OverviewAcquisitionSettings(
+        image_settings=ImageSettings(
+            resolution=(1024, 1024),
+            hfw=500e-6,
+            dwell_time=1e-6,
+            beam_type=BeamType.ION,
+            path=None,
+            filename="overview-image",
+        ),
+        nrows=3,
+        ncols=3,
+    )
+
+
 @dataclass
 class AcquireOverviewImageGridTaskConfig(GridTaskConfig):
     """Configuration for acquiring overview image grid task."""
     task_type: ClassVar[str] = "ACQUIRE_OVERVIEW_IMAGE_GRID"
     display_name: ClassVar[str] = "Acquire Overview Image"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
-    settings: OverviewAcquisitionSettings = field(default_factory = OverviewAcquisitionSettings)
-
-    def __post_init__(self):
-        self.settings = OverviewAcquisitionSettings(
-                image_settings= ImageSettings(
-                resolution=(1024, 1024),
-                hfw=500e-6,
-                dwell_time=1e-6,
-                beam_type=BeamType.ION,
-                path=None,
-                filename="overview-image"
-            ),
-                nrows=3,
-                ncols=3,
-            )
+    settings: OverviewAcquisitionSettings = field(default_factory=_default_overview_settings)
 
 
 class AcquireOverviewImageGridTask(GridTask):
@@ -322,21 +385,52 @@ GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     AcquireImageGridTaskConfig.task_type: AcquireImageTask,
     CryoCleaningGridTaskConfig.task_type: CryoCleaningGridTask,
     # Add other tasks here as needed
-}   
+}
+
+
+def get_grid_task_config_cls(task_type: str) -> Type[GridTaskConfig]:
+    """Return the GridTaskConfig subclass registered for a task_type."""
+    task_cls = GRID_TASK_REGISTRY.get(task_type)
+    if task_cls is None:
+        raise ValueError(f"Grid task type '{task_type}' is not registered.")
+    return task_cls.config_cls
+
+
+def load_grid_task_config(ddict: Dict[str, Any]) -> Optional[GridTaskConfig]:
+    """Reconstruct a typed GridTaskConfig from a serialized dict via its task_type.
+
+    Returns None (with a warning) if the task_type is not registered, so an
+    unknown task in a saved protocol is skipped rather than fatal.
+    """
+    task_type = ddict.get("task_type")
+    if task_type not in GRID_TASK_REGISTRY:
+        logging.warning(f"Grid task type '{task_type}' is not registered. Skipping.")
+        return None
+    return get_grid_task_config_cls(task_type).from_dict(ddict)
+
 
 def run_grid_task(microscope: FibsemMicroscope,
           task_name: str,
           experiment: 'Experiment',
           grid: 'GridRecord',
           parent_ui: Optional['AutoLamellaUI'] = None) -> None:
-    """Run a single grid task against a GridRecord, persisting state afterwards."""
+    """Run a single grid task against a GridRecord, persisting state afterwards.
 
-    # TODO (Phase 2): read saved config from experiment.task_protocol instead of defaults.
-    task_cls = GRID_TASK_REGISTRY.get(task_name)
-    if task_cls is None:
-        raise ValueError(f"Task {task_name} is not registered.")
+    The config is read from ``experiment.grid_protocol`` (keyed by task_name);
+    if no saved config exists, ``task_name`` is treated as a task_type and a
+    default config is instantiated.
+    """
+    config = experiment.grid_protocol.task_config.get(task_name)
+    if config is not None:
+        task_cls = GRID_TASK_REGISTRY.get(config.task_type)
+    else:
+        # fallback: task_name is a task_type → run with defaults
+        task_cls = GRID_TASK_REGISTRY.get(task_name)
+        if task_cls is not None:
+            config = task_cls.config_cls(task_name=task_name)
 
-    config = task_cls.config_cls()
+    if task_cls is None or config is None:
+        raise ValueError(f"No registered grid task for '{task_name}'.")
 
     task = task_cls(microscope=microscope,
                     config=config,
