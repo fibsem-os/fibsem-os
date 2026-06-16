@@ -203,8 +203,10 @@ class SampleGridLoader:
 
     def __init__(self, parent: "FibsemMicroscope",
                  capacity: int = LOADER_CAPACITY,
-                 slots: Optional[dict[str, GridSlot]] = None) -> None:
+                 slots: Optional[dict[str, GridSlot]] = None,
+                 name: str = "Autoloader Magazine") -> None:
         self.parent = parent
+        self.name = name
         self.capacity = capacity
         self.slots: dict[str, GridSlot] = slots if slots is not None else {}
         self._ensure_slots()

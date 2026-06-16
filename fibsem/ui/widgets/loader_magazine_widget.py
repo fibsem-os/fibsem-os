@@ -1,11 +1,15 @@
 """Loader magazine widget — the autoloader's storage inventory.
 
-Mirrors :class:`SampleHolderWidget` (form + list of slot rows + edit panel) but
-for the loader *magazine* (``microscope._stage.loader``) rather than the holder
-working slots. Magazine slots are storage, not beam-accessible, so the row
-actions differ: a presence toggle (loaded/empty), a Load → beam button (emits
-``load_requested`` for the host to run an exchange), and Clear. Naming a grid is
-a second step, enabled only for loaded slots.
+Mirrors :class:`SampleHolderWidget`'s form + slot-list shape, but for the loader
+*magazine* (``microscope._stage.loader``) rather than the holder working slots.
+Each row edits its grid's name + description **inline** (magazine slots are
+storage, not beam-accessible, so there is no stage position to show).
+
+The status dot beside Load is both indicator and control:
+  - gray  : empty — click to mark available
+  - white : available (grid present) — click to clear; type a name to enable Load
+  - green : loaded in the working slot (beam) — use Unload to retract
+Typing a name also marks the slot available (no separate toggle needed).
 
 Phase 4: in-memory only (no persistence).
 """
@@ -13,14 +17,14 @@ Phase 4: in-memory only (no persistence).
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
-from PyQt5.QtCore import QEvent, Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QCheckBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QToolButton,
@@ -35,26 +39,49 @@ from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.sample_holder_widget import (
     _ACTIONS_BTN_SIZE,
     _BTN_STYLE,
-    _EMPTY_STYLE,
-    _LOADED_STYLE,
     _ROW_HEIGHT,
-    _SLOT_LABEL_WIDTH,
     _GridListHeader,
-    _GridSlotEditPanel,
 )
+
+_STATUS_COLORS = {
+    "gray": "#606060",   # empty
+    "white": "#d6d6d6",  # available
+    "green": "#4caf50",  # loaded in the working slot (beam)
+}
+_STATUS_TOOLTIPS = {
+    "gray": "Empty — click to mark available",
+    "white": "Available — click to clear",
+    "green": "Loaded on Microscope",
+}
+
+
+def _dot_style(color: str) -> str:
+    return (
+        f"QToolButton {{ background: transparent; border: none; font-size: 16px; color: {color}; }}"
+        " QToolButton:hover { background: rgba(255,255,255,25); border-radius: 4px; }"
+    )
 
 
 class _MagazineSlotRowWidget(QWidget):
-    """A single magazine slot row: label | presence toggle | grid | load | clear."""
+    """A magazine slot row: number | name | description | status dot | load.
 
-    presence_toggled = pyqtSignal(object, bool)  # GridSlot, loaded
+    The status dot toggles availability (empty <-> available) on click. Typing a
+    name also marks the slot available. Naming gates the load action.
+    """
+
+    presence_toggled = pyqtSignal(object, bool)  # GridSlot, available
+    grid_changed = pyqtSignal(object)            # GridSlot (name/desc edited)
     load_clicked = pyqtSignal(object)            # GridSlot
-    clear_clicked = pyqtSignal(object)           # GridSlot
-    row_clicked = pyqtSignal(object)             # GridSlot
 
-    def __init__(self, slot: GridSlot, parent=None):
+    def __init__(self, slot: GridSlot,
+                 beam_check: Optional[Callable[[SampleGrid], bool]] = None,
+                 name_in_use: Optional[Callable[[GridSlot, str], bool]] = None,
+                 parent=None):
         super().__init__(parent)
         self.slot = slot
+        self._beam_check = beam_check
+        self._name_in_use = name_in_use
+        self._updating = False
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -62,82 +89,137 @@ class _MagazineSlotRowWidget(QWidget):
         layout.setSpacing(4)
 
         self.slot_label = QLabel()
-        self.slot_label.setFixedWidth(_SLOT_LABEL_WIDTH)
+        self.slot_label.setFixedWidth(28)
         self.slot_label.setStyleSheet("font-weight: bold; background: transparent;")
         layout.addWidget(self.slot_label)
 
-        # presence toggle — loaded / empty (independent of naming)
-        self.presence_check = QCheckBox()
-        self.presence_check.setToolTip("Slot loaded / empty")
-        self.presence_check.toggled.connect(
-            lambda checked: self.presence_toggled.emit(self.slot, checked)
-        )
-        layout.addWidget(self.presence_check)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Name")
+        self.name_edit.editingFinished.connect(self._on_name_edited)
+        layout.addWidget(self.name_edit, 2)
 
-        self.grid_label = QLabel()
-        layout.addWidget(self.grid_label, 1)
+        self.desc_edit = QLineEdit()
+        self.desc_edit.setPlaceholderText("Description")
+        self.desc_edit.editingFinished.connect(self._on_desc_edited)
+        layout.addWidget(self.desc_edit, 3)
+
+        self.status_dot = QToolButton()
+        self.status_dot.setText("●")  # ●
+        self.status_dot.setFixedSize(22, 22)
+        self.status_dot.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.status_dot.clicked.connect(self._on_dot_clicked)
+        layout.addWidget(self.status_dot)
 
         self.btn_load = QToolButton()
         self.btn_load.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_load.setStyleSheet(_BTN_STYLE)
-        self.btn_load.setIcon(QIconifyIcon("mdi:tray-arrow-up", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_load.setIcon(QIconifyIcon("mdi:login-variant", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_load.setToolTip("Load this grid into the beam")
         self.btn_load.clicked.connect(lambda: self.load_clicked.emit(self.slot))
-        self.btn_load.installEventFilter(self)
         layout.addWidget(self.btn_load)
-
-        self.btn_clear = QToolButton()
-        self.btn_clear.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
-        self.btn_clear.setStyleSheet(_BTN_STYLE)
-        self.btn_clear.setIcon(
-            QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self.btn_clear.setToolTip("Remove grid from this magazine slot")
-        self.btn_clear.clicked.connect(lambda: self.clear_clicked.emit(self.slot))
-        self.btn_clear.installEventFilter(self)
-        layout.addWidget(self.btn_clear)
 
         self.refresh()
 
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.FocusIn:
-            self.row_clicked.emit(self.slot)
-        return super().eventFilter(obj, event)
+    # --- model mutations (row is self-contained) ---
 
-    def mousePressEvent(self, event) -> None:
-        child = self.childAt(event.pos())
-        if child is None or child is self:
-            self.row_clicked.emit(self.slot)
-        super().mousePressEvent(event)
+    def _default_name(self) -> str:
+        """A slot-based default grid name (e.g. 'Grid-01'), kept unique."""
+        base = f"Grid-{self.slot.index + 1:02d}"
+        if self._name_in_use is None or not self._name_in_use(self.slot, base):
+            return base
+        i = 1  # rare: base already taken by another slot's manual name
+        while self._name_in_use(self.slot, f"{base}-{i}"):
+            i += 1
+        return f"{base}-{i}"
+
+    def _ensure_grid(self) -> None:
+        if self.slot.loaded_grid is None:
+            self.slot.loaded_grid = SampleGrid(name=self._default_name())
+
+    def _on_dot_clicked(self) -> None:
+        # toggle availability; green (in beam) is controlled by Load/Unload, not here
+        if self.status() == "green":
+            return
+        available = self.slot.loaded_grid is None
+        if available:
+            self._ensure_grid()
+        else:
+            self.slot.loaded_grid = None
+        self.refresh()
+        self.presence_toggled.emit(self.slot, available)
+
+    def _on_name_edited(self) -> None:
+        if self._updating:
+            return
+        text = self.name_edit.text()
+        if text.strip() and self._name_in_use is not None and self._name_in_use(self.slot, text):
+            # duplicate name → reject: revert the field and flag it
+            self.refresh()
+            self.name_edit.setStyleSheet("border: 1px solid #c0392b;")
+            self.name_edit.setToolTip("Name already in use")
+            return
+        if text.strip():
+            self._ensure_grid()
+        if self.slot.loaded_grid is not None:
+            self.slot.loaded_grid.name = text
+        self.refresh()
+        self.grid_changed.emit(self.slot)
+
+    def _on_desc_edited(self) -> None:
+        if self._updating:
+            return
+        text = self.desc_edit.text()
+        if text.strip():
+            self._ensure_grid()
+        if self.slot.loaded_grid is not None:
+            self.slot.loaded_grid.description = text
+            self.refresh()
+            self.grid_changed.emit(self.slot)
+
+    # --- status ---
+
+    def status(self) -> str:
+        """Beam state: 'gray' (empty), 'white' (available), 'green' (loaded)."""
+        grid = self.slot.loaded_grid
+        if grid is None:
+            return "gray"
+        if self._beam_check is not None and self._beam_check(grid):
+            return "green"
+        return "white"
 
     def refresh(self) -> None:
         loaded = self.slot.loaded_grid is not None
-        self.slot_label.setText(self.slot.name)
+        self._updating = True
+        self.slot_label.setText(f"{self.slot.index + 1:02d}")  # just the slot number
+        self.name_edit.setText(self.slot.loaded_grid.name if loaded else "")
+        self.name_edit.setStyleSheet("")  # clear any duplicate-name flag
+        self.name_edit.setToolTip("")
+        self.desc_edit.setText(self.slot.loaded_grid.description if loaded else "")
+        self._updating = False
 
-        # presence checkbox reflects loaded state without re-emitting
-        self.presence_check.blockSignals(True)
-        self.presence_check.setChecked(loaded)
-        self.presence_check.blockSignals(False)
-
-        if loaded:
-            self.grid_label.setText(self.slot.loaded_grid.name or "(unnamed)")
-            self.grid_label.setStyleSheet(_LOADED_STYLE)
+        status = self.status()
+        self.status_dot.setStyleSheet(_dot_style(_STATUS_COLORS[status]))
+        self.status_dot.setToolTip(_STATUS_TOOLTIPS[status])
+        # available + named + not already loaded → can load
+        named = loaded and bool(self.slot.loaded_grid.name.strip())
+        self.btn_load.setEnabled(status == "white" and named)
+        if status == "green":
+            self.btn_load.setToolTip("Already loaded on the microscope")
+        elif status == "gray":
+            self.btn_load.setToolTip("Empty slot")
+        elif not named:
+            self.btn_load.setToolTip("Name the grid before loading")
         else:
-            self.grid_label.setText("Empty")
-            self.grid_label.setStyleSheet(_EMPTY_STYLE)
-
-        # load / clear only meaningful when a grid is present
-        self.btn_load.setEnabled(loaded)
-        self.btn_clear.setEnabled(loaded)
+            self.btn_load.setToolTip("Load this grid onto the microscope")
 
 
 class LoaderMagazineWidget(QWidget):
     """Magazine inventory for the autoloader (``microscope._stage.loader``)."""
 
     magazine_changed = pyqtSignal()
-    presence_toggled = pyqtSignal(str, bool)   # slot_name, loaded
-    grid_selected = pyqtSignal(str, object)    # slot_name, GridSlot
+    presence_toggled = pyqtSignal(str, bool)   # slot_name, available
     load_requested = pyqtSignal(str)           # grid_name
+    unload_requested = pyqtSignal()            # retract the working-slot grid
 
     def __init__(self, microscope=None, parent=None):
         super().__init__(parent)
@@ -163,6 +245,12 @@ class LoaderMagazineWidget(QWidget):
         form.addRow("Capacity", self.capacity_label)
 
         self._header = _GridListHeader("Magazine")
+        self.btn_unload = QToolButton()
+        self.btn_unload.setText("Unload")
+        self.btn_unload.setToolTip("Unload the grid currently in the working slot")
+        self.btn_unload.clicked.connect(self.unload_requested)
+        self._header.layout().addWidget(self.btn_unload)
+
         self.btn_inventory = QToolButton()
         self.btn_inventory.setText("Run Inventory")
         self.btn_inventory.setToolTip("Scan the magazine for loaded grids")
@@ -180,9 +268,6 @@ class LoaderMagazineWidget(QWidget):
         self._empty_label.setStyleSheet("color: #606060; font-style: italic; padding: 8px;")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._edit_panel = _GridSlotEditPanel()
-        self._edit_panel.slot_changed.connect(self._on_grid_edited)
-
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(0, 0, 0, 4)
@@ -191,7 +276,6 @@ class LoaderMagazineWidget(QWidget):
         inner_layout.addWidget(self._header)
         inner_layout.addWidget(self._list)
         inner_layout.addWidget(self._empty_label)
-        inner_layout.addWidget(self._edit_panel)
 
         self._panel = TitledPanel("Loader Magazine", content=inner, collapsible=True)
         layout.addWidget(self._panel)
@@ -207,33 +291,61 @@ class LoaderMagazineWidget(QWidget):
         self._loader = loader
         self.setEnabled(loader is not None)
         self._empty_label.setVisible(loader is None)
+        self.name_label.setText(getattr(loader, "name", "Autoloader Magazine") if loader else "—")
         self.capacity_label.setText(str(loader.capacity) if loader is not None else "—")
         self._populate()
+        self._update_unload_enabled()
+
+    def refresh_rows(self) -> None:
+        """Refresh every row (e.g. after a load/unload changes beam state)."""
+        for i in range(self._list.count()):
+            row = self._list.itemWidget(self._list.item(i))
+            if row is not None:
+                row.refresh()
+        self._update_unload_enabled()
+
+    def _update_unload_enabled(self) -> None:
+        """Unload is only meaningful when a grid sits in the working slot."""
+        self.btn_unload.setEnabled(bool(self._loader and self._loader.loaded_slots))
+
+    # --- beam state ---
+
+    def _beam_loaded(self, grid: SampleGrid) -> bool:
+        """True if this exact grid object currently sits in a holder working slot."""
+        holder = getattr(getattr(self._microscope, "_stage", None), "holder", None)
+        if holder is None or grid is None:
+            return False
+        return any(s.loaded_grid is grid for s in holder.slots.values())
+
+    def _name_in_use(self, slot: GridSlot, name: str) -> bool:
+        """True if another magazine slot already holds a grid with this name.
+
+        Names are the grid identity (used for load + GridRecord lookup), so they
+        must be unique within the magazine.
+        """
+        if self._loader is None:
+            return False
+        return any(
+            s is not slot and s.loaded_grid is not None and s.loaded_grid.name == name
+            for s in self._loader.slots.values()
+        )
 
     # --- population ---
 
     def _populate(self) -> None:
         self._list.clear()
-        self._edit_panel.set_slot(None)
         if self._loader is None:
             return
         for slot in self._loader.slots.values():
-            row = _MagazineSlotRowWidget(slot)
+            row = _MagazineSlotRowWidget(
+                slot, beam_check=self._beam_loaded, name_in_use=self._name_in_use)
             row.presence_toggled.connect(self._on_presence_toggled)
+            row.grid_changed.connect(lambda _slot: self.magazine_changed.emit())
             row.load_clicked.connect(self._on_load_clicked)
-            row.clear_clicked.connect(self._on_clear_clicked)
-            row.row_clicked.connect(self._on_row_clicked)
             item = QListWidgetItem(self._list)
             item.setSizeHint(row.sizeHint())
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
-
-    def _row_for(self, slot: GridSlot) -> Optional[_MagazineSlotRowWidget]:
-        for i in range(self._list.count()):
-            row = self._list.itemWidget(self._list.item(i))
-            if row is not None and row.slot is slot:
-                return row
-        return None
 
     # --- handlers ---
 
@@ -242,43 +354,12 @@ class LoaderMagazineWidget(QWidget):
             return
         loaded = self._loader.run_inventory()
         logging.info(f"Magazine inventory: {len(loaded)} slot(s) loaded.")
-        for i in range(self._list.count()):
-            row = self._list.itemWidget(self._list.item(i))
-            if row is not None:
-                row.refresh()
+        self.refresh_rows()
 
-    def _on_presence_toggled(self, slot: GridSlot, loaded: bool) -> None:
-        if loaded and slot.loaded_grid is None:
-            slot.loaded_grid = SampleGrid(name=slot.name)  # unnamed default; rename in edit panel
-        elif not loaded:
-            slot.loaded_grid = None
-        row = self._row_for(slot)
-        if row is not None:
-            row.refresh()
-        # naming is enabled only when loaded
-        self._edit_panel.set_slot(slot if slot.loaded_grid is not None else None)
-        self.presence_toggled.emit(slot.name, loaded)
+    def _on_presence_toggled(self, slot: GridSlot, available: bool) -> None:
+        self.presence_toggled.emit(slot.name, available)
         self.magazine_changed.emit()
 
     def _on_load_clicked(self, slot: GridSlot) -> None:
-        if slot.loaded_grid is not None:
+        if slot.loaded_grid is not None and slot.loaded_grid.name.strip():
             self.load_requested.emit(slot.loaded_grid.name)
-
-    def _on_clear_clicked(self, slot: GridSlot) -> None:
-        slot.loaded_grid = None
-        row = self._row_for(slot)
-        if row is not None:
-            row.refresh()
-        self._edit_panel.set_slot(None)
-        self.magazine_changed.emit()
-
-    def _on_row_clicked(self, slot: GridSlot) -> None:
-        # naming panel only for loaded slots
-        self._edit_panel.set_slot(slot if slot.loaded_grid is not None else None)
-        self.grid_selected.emit(slot.name, slot)
-
-    def _on_grid_edited(self, slot: GridSlot) -> None:
-        row = self._row_for(slot)
-        if row is not None:
-            row.refresh()
-        self.magazine_changed.emit()
