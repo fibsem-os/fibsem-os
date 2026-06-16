@@ -24,7 +24,7 @@ import os
 import numpy as np
 
 from fibsem.alignment import (
-    AlignmentResult,
+    AlignmentIteration,
     crosscorrelation_cv2,
     plot_multi_step_alignment_v2,
     shift_from_crosscorrelation,
@@ -163,7 +163,7 @@ def main():
 
     # v2 debug plot
     results = [
-        AlignmentResult(
+        AlignmentIteration(
             shift=r["shift"],
             shift_px=r["shift_px"],
             score=r["score"],

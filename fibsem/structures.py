@@ -128,11 +128,6 @@ class BeamType(Enum):
     # CCD_CAM = 3
     # NavCam = 4 # see enumerations/ImagingDevice
 
-class AlignmentSubsystem(Enum):
-    BEAM_SHIFT = "beam-shift"
-    STAGE = "stage"
-    STAGE_VERTICAL = "stage-vertical"
-
 class ImagingState(Enum):
     IDLE = 0
     RUNNING = 1

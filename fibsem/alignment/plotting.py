@@ -10,7 +10,7 @@ from fibsem.constants import DATETIME_DISPLAY
 from fibsem.structures import ImageSettings
 
 if TYPE_CHECKING:
-    from fibsem.alignment import AlignmentDifferential, AlignmentResult
+    from fibsem.alignment import AlignmentDifferential, AlignmentIteration
     from fibsem.structures import FibsemImage
     from matplotlib.figure import Figure
     from matplotlib.axes import Axes
@@ -49,7 +49,7 @@ def _alignment_save_path(ref_image: FibsemImage) -> tuple:
 
 def plot_multi_step_alignment(
     ref_image: FibsemImage,
-    alignment_results: list[AlignmentResult],
+    alignment_results: list[AlignmentIteration],
     title: Optional[str] = None,
     save: bool = True,
     final_image: Optional[FibsemImage] = None,
@@ -60,7 +60,7 @@ def plot_multi_step_alignment(
 
     Args:
         ref_image: The reference image used for alignment.
-        alignment_results: List of AlignmentResult from multi_step_alignment_v2.
+        alignment_results: List of AlignmentIteration from multi_step_alignment_v2.
         save: Whether to save the figure to disk. Defaults to True.
         final_image: Optional post-alignment image acquired after all steps. When provided,
             a third row is added comparing the reference and final images side by side.

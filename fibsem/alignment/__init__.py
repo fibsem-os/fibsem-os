@@ -11,7 +11,6 @@ import numpy as np
 
 from fibsem import acquire, utils
 from fibsem.structures import (
-    AlignmentSubsystem,
     BeamType,
     FibsemImage,
     ImageSettings,
@@ -39,6 +38,12 @@ from fibsem.alignment.plotting import (
 ALIGNMENT_SUBDIR = "Alignment"
 
 
+class AlignmentSubsystem(Enum):
+    BEAM_SHIFT = "beam-shift"
+    STAGE = "stage"
+    STAGE_VERTICAL = "stage-vertical"
+
+
 class AlignmentMethod(Enum):
     CROSS_CORRELATION = "cross-correlation"
     PHASE_CORRELATION = "phase-correlation"
@@ -49,7 +54,7 @@ DEFAULT_ALIGNMENT_METHOD = AlignmentMethod.CROSS_CORRELATION
 
 
 @dataclass
-class AlignmentResult:
+class AlignmentIteration:
     """Result of a single alignment step."""
 
     shift: Point  # (x, y) shift applied, in metres
@@ -78,8 +83,8 @@ class AlignmentResult:
         }
 
     @staticmethod
-    def from_dict(d: dict, image: FibsemImage) -> "AlignmentResult":
-        return AlignmentResult(
+    def from_dict(d: dict, image: FibsemImage) -> "AlignmentIteration":
+        return AlignmentIteration(
             shift=Point.from_dict(d["shift"]),
             score=d["score"],
             image=image,
@@ -92,7 +97,7 @@ class AlignmentResult:
 class AlignmentDifferential:
     """Pairwise comparison of shift estimates across alignment methods."""
 
-    results: "list[AlignmentResult]"  # one per method, in method order
+    results: "list[AlignmentIteration]"  # one per method, in method order
     shifts_px: "dict[str, Point]"  # method name → shift in pixels
     max_disagreement_px: float  # max pairwise |shift_a − shift_b| in pixels
     agreement: bool  # True if max_disagreement_px < threshold
@@ -111,7 +116,7 @@ class AlignmentDifferential:
     @staticmethod
     def from_dict(d: dict) -> "AlignmentDifferential":
         return AlignmentDifferential(
-            results=[],  # images not serialised; reload via AlignmentRun.load()
+            results=[],  # images not serialised; reload via AlignmentResult.load()
             shifts_px={k: Point.from_dict(v) for k, v in d["shifts_px"].items()},
             max_disagreement_px=d["max_disagreement_px"],
             agreement=d["agreement"],
@@ -122,14 +127,14 @@ class AlignmentDifferential:
 
 
 @dataclass
-class AlignmentRun:
+class AlignmentResult:
     """Inputs and per-step results for a single multi-step alignment operation."""
 
     name: str
     reference_image: FibsemImage
     subsystem: AlignmentSubsystem
     method: AlignmentMethod
-    results: list[AlignmentResult]
+    results: list[AlignmentIteration]
     final_image: Optional[FibsemImage] = None
     validation: Optional[AlignmentDifferential] = None
 
@@ -180,8 +185,8 @@ class AlignmentRun:
         return fig
 
     @classmethod
-    def load(cls, run_dir: str) -> "AlignmentRun":
-        """Load a previously saved AlignmentRun from its directory."""
+    def load(cls, run_dir: str) -> "AlignmentResult":
+        """Load a previously saved AlignmentResult from its directory."""
         import json
 
         with open(os.path.join(run_dir, "data.json")) as f:
@@ -192,7 +197,7 @@ class AlignmentRun:
         results = []
         for i, rd in enumerate(d["results"]):
             image = FibsemImage.load(os.path.join(run_dir, f"new_image_{i:02d}.tif"))
-            results.append(AlignmentResult.from_dict(rd, image))
+            results.append(AlignmentIteration.from_dict(rd, image))
 
         final_path = os.path.join(run_dir, "final_image.tif")
         final_image = (
@@ -243,7 +248,7 @@ def _calculate_shift(
     ref_image: FibsemImage,
     new_image: FibsemImage,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
-) -> AlignmentResult:
+) -> AlignmentIteration:
     """Calculate the shift between two images using the specified alignment method."""
     logging.debug(f"Calculating shift using method: {method.value}...")
     if method is AlignmentMethod.SKIMAGE_PHASE_CORRELATION:
@@ -262,7 +267,7 @@ def _calculate_shift(
             sigma=5,
             use_rect_mask=True,
         )
-    return AlignmentResult(
+    return AlignmentIteration(
         shift=Point(dx, dy),
         score=score,
         image=new_image,
@@ -363,7 +368,7 @@ def align_with_reference_image(
     use_autofocus: bool = False,
     subsystem: AlignmentSubsystem = AlignmentSubsystem.BEAM_SHIFT,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
-) -> AlignmentResult:
+) -> AlignmentIteration:
     """Align to a reference image. Delegates to beam_shift_alignment_v2."""
     return beam_shift_alignment_v2(
         microscope=microscope,
@@ -438,12 +443,12 @@ def multi_step_alignment_v2(
     use_autofocus: bool = False,
     subsystem: AlignmentSubsystem = AlignmentSubsystem.BEAM_SHIFT,
     stop_event: Optional[ThreadingEvent] = None,
-    run_name: str = "AlignmentRun",
+    run_name: str = "AlignmentResult",
     acquire_final_image: bool = True,
     validate: bool = True,
     path: Optional[str] = None,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
-) -> AlignmentRun:
+) -> AlignmentResult:
     """Runs the beam shift alignment multiple times."""
 
     alignment_results = []
@@ -484,7 +489,7 @@ def multi_step_alignment_v2(
                 )
 
     ts = utils.current_timestamp_v3(timeonly=True)
-    run = AlignmentRun(
+    run = AlignmentResult(
         name=f"{run_name}-{ts}",
         reference_image=ref_image,
         subsystem=subsystem,

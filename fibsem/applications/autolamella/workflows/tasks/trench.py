@@ -17,7 +17,8 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
     MAX_ALIGNMENT_ATTEMPTS,
 )
-from fibsem.structures import AlignmentSubsystem, BeamType, FibsemImage
+from fibsem.alignment import AlignmentSubsystem
+from fibsem.structures import BeamType, FibsemImage
 
 
 @dataclass

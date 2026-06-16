@@ -13,7 +13,7 @@ from fibsem.imaging import utils as image_utils
 from fibsem.structures import FibsemImage, Point
 
 if TYPE_CHECKING:
-    from fibsem.alignment import AlignmentResult
+    from fibsem.alignment import AlignmentIteration
 
 # ---------------------------------------------------------------------------
 # Shift coordinate convention
@@ -361,7 +361,7 @@ def shift_from_skimage_phase_correlation(
     new_image: FibsemImage,
     upsample_factor: int = 10,
     minimum_response: Optional[float] = None,
-) -> AlignmentResult:
+) -> AlignmentIteration:
     """Calculate shift using skimage phase_cross_correlation with DFT upsampling.
 
     Sub-pixel accuracy is achieved by re-evaluating the DFT in a fine grid around
@@ -377,11 +377,11 @@ def shift_from_skimage_phase_correlation(
             ``success=False``. Defaults to None (no gate).
 
     Returns:
-        AlignmentResult with shift in metres, score in [0, 1] (higher = better),
+        AlignmentIteration with shift in metres, score in [0, 1] (higher = better),
         shift_px in pixels, and success flag.
     """
     from skimage.registration import phase_cross_correlation
-    from fibsem.alignment import AlignmentResult  # lazy: avoids circular import at load time
+    from fibsem.alignment import AlignmentIteration  # lazy: avoids circular import at load time
 
     pixelsize_x = new_image.metadata.pixel_size.x
     pixelsize_y = new_image.metadata.pixel_size.y
@@ -419,7 +419,7 @@ def shift_from_skimage_phase_correlation(
         "score": score,
     })
 
-    return AlignmentResult(
+    return AlignmentIteration(
         shift=Point(dx, dy),
         score=score,
         image=new_image,

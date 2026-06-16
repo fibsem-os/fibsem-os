@@ -9,8 +9,8 @@ from fibsem.structures import FibsemImage
 from fibsem.alignment import (
     AlignmentDifferential,
     AlignmentMethod,
+    AlignmentIteration,
     AlignmentResult,
-    AlignmentRun,
     AlignmentSubsystem,
     compare_alignment_methods,
     crosscorrelation_cv2,
@@ -249,7 +249,7 @@ def test_compare_alignment_methods_returns_differential():
 
 
 def test_compare_alignment_methods_results_tagged_with_method():
-    """Each AlignmentResult in the differential has its method field set."""
+    """Each AlignmentIteration in the differential has its method field set."""
     ref_image, new_image, _ = _make_shifted_images(20, 20)
     differential = compare_alignment_methods(ref_image, new_image)
 
@@ -393,7 +393,7 @@ def test_multi_step_alignment_no_validate_no_validation(demo_session, tmp_path):
 
 
 def test_multi_step_alignment_run_to_dict_json_serialisable_with_validation(demo_session, tmp_path):
-    """AlignmentRun.to_dict() with validation must be JSON-serialisable."""
+    """AlignmentResult.to_dict() with validation must be JSON-serialisable."""
     microscope, settings = demo_session
     ref_image = acquire.acquire_image(microscope, settings.image)
 
@@ -466,11 +466,11 @@ def test_alignment_differential_from_dict_round_trip():
 
 
 # ---------------------------------------------------------------------------
-# AlignmentRun.load round-trip
+# AlignmentResult.load round-trip
 # ---------------------------------------------------------------------------
 
 def test_alignment_run_save_load_round_trip(demo_session, tmp_path):
-    """AlignmentRun.save() followed by .load() recovers all scalar fields."""
+    """AlignmentResult.save() followed by .load() recovers all scalar fields."""
     microscope, settings = demo_session
     ref_image = acquire.acquire_image(microscope, settings.image)
 
@@ -483,7 +483,7 @@ def test_alignment_run_save_load_round_trip(demo_session, tmp_path):
     )
 
     run_dir = os.path.join(str(tmp_path), run.name)
-    reloaded = AlignmentRun.load(run_dir)
+    reloaded = AlignmentResult.load(run_dir)
 
     assert reloaded.name == run.name
     assert reloaded.method == run.method

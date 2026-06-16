@@ -8,7 +8,7 @@ import numpy as np
 
 from fibsem import acquire, utils
 from fibsem.alignment import (
-    AlignmentResult,
+    AlignmentIteration,
     crosscorrelation_cv2,
     plot_multi_step_alignment_v2,
     shift_from_crosscorrelation_v2,
@@ -44,7 +44,7 @@ def main():
         new = make_shifted_image(ref, ox, oy)
         shift_x, shift_y, score = crosscorrelation_cv2(ref.data, new.data)
         dx, dy, _ = shift_from_crosscorrelation_v2(ref, new)
-        r = AlignmentResult(
+        r = AlignmentIteration(
             shift=Point(dx, dy),
             shift_px=Point(shift_x, shift_y),
             score=score,
