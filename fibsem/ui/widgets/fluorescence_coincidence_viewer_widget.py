@@ -52,7 +52,7 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread, QDoubleSlider, QIconifyIcon
 
 from fibsem import conversions
-from fibsem.imaging.autogamma import apply_gamma
+from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
