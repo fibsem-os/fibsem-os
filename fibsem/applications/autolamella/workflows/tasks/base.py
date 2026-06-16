@@ -380,7 +380,7 @@ class AutoLamellaTask(ABC):
                 hfw=hfw or self.image_settings.hfw,
                 settings=settings,
             )
-            result_dir = result.save(path=self.lamella.path, name=f"{self.task_name}_autofocus")
+            result_dir = result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus")
             result.plot(save_path=str(result_dir / "plot.png"))
             self.log_status_message(
                 "AUTOFOCUS",
