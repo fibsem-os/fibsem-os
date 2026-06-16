@@ -36,16 +36,30 @@ class TaskQueue:
     # --- Build ---
 
     def build_from_matrix(self, task_names: List[str],
-                          lamella_names: List[str]) -> List[WorkItem]:
-        """Populate queue from task x lamella matrix (task-outer, lamella-inner)."""
+                          lamella_names: List[str],
+                          unit_outer: bool = False) -> List[WorkItem]:
+        """Populate queue from a task x unit matrix.
+
+        Default is task-outer, unit-inner (lamella workflows: run a task across
+        all units, then the next task). Set ``unit_outer=True`` for unit-outer,
+        task-inner ordering (grid workflows: run all of a unit's tasks before
+        moving on, so a grid exchange is amortised across its task group).
+        """
         with self._lock:
             self._task_names = list(task_names)
             self._lamella_names = list(lamella_names)
-            self._items = [
-                WorkItem(lamella_name=ln, task_name=tn)
-                for tn in task_names
-                for ln in lamella_names
-            ]
+            if unit_outer:
+                self._items = [
+                    WorkItem(lamella_name=ln, task_name=tn)
+                    for ln in lamella_names
+                    for tn in task_names
+                ]
+            else:
+                self._items = [
+                    WorkItem(lamella_name=ln, task_name=tn)
+                    for tn in task_names
+                    for ln in lamella_names
+                ]
             self._active = None
             return list(self._items)
 

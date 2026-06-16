@@ -7,7 +7,7 @@ from typing import ClassVar
 import pytest
 
 from fibsem import utils
-from fibsem.microscopes._stage import SampleGrid
+from fibsem.microscopes._stage import SampleGrid, _create_sample_stage
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
@@ -22,6 +22,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
     GridTaskConfig,
     load_grid_task_config,
     run_grid_task,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
+    GridExchangeError,
+    GridTaskManager,
+    run_grid_workflow,
 )
 
 
@@ -263,3 +268,96 @@ def test_run_grid_task_falls_back_to_default_config(demo_microscope, experiment,
     run_grid_task(demo_microscope, "MARKED_GRID", experiment, record)
 
     assert _RecordingGridTask.seen == ["default"]
+
+
+# --- Phase 3: orchestration (GridTaskManager) -----------------------------
+
+@dataclass
+class _OrderConfig(GridTaskConfig):
+    task_type: ClassVar[str] = "ORDER_GRID"
+    display_name: ClassVar[str] = "Order"
+    fail_on: str = ""
+
+
+class _OrderGridTask(GridTask):
+    config_cls = _OrderConfig
+    log: ClassVar[list] = []
+
+    def _run(self):
+        type(self).log.append((self.grid.name, self.task_name))
+        if self.config.fail_on == self.grid.name:
+            raise RuntimeError("boom")
+
+
+@pytest.fixture
+def register_order_task():
+    GRID_TASK_REGISTRY["ORDER_GRID"] = _OrderGridTask
+    _OrderGridTask.log = []
+    try:
+        yield
+    finally:
+        GRID_TASK_REGISTRY.pop("ORDER_GRID", None)
+
+
+def _load_two_grids(microscope):
+    names = list(microscope._stage.holder.slots.keys())[:2]
+    microscope._stage.holder.slots[names[0]].loaded_grid = SampleGrid(name="A")
+    microscope._stage.holder.slots[names[1]].loaded_grid = SampleGrid(name="B")
+
+
+def test_workflow_runs_grid_outer(demo_microscope, experiment, register_order_task):
+    _load_two_grids(demo_microscope)
+    experiment.sync_grids_from_holder(demo_microscope)
+    experiment.grid_protocol.task_config["t1"] = _OrderConfig(task_name="t1")
+    experiment.grid_protocol.task_config["t2"] = _OrderConfig(task_name="t2")
+
+    run_grid_workflow(demo_microscope, experiment, ["t1", "t2"], grid_names=["A", "B"])
+
+    # all of A's tasks before any of B's
+    assert _OrderGridTask.log == [("A", "t1"), ("A", "t2"), ("B", "t1"), ("B", "t2")]
+    assert experiment.get_grid_by_name("A").has_completed_task("t2")
+
+
+def test_task_failure_isolated_to_its_grid(demo_microscope, experiment, register_order_task):
+    _load_two_grids(demo_microscope)
+    experiment.sync_grids_from_holder(demo_microscope)
+    experiment.grid_protocol.task_config["t1"] = _OrderConfig(task_name="t1", fail_on="A")
+    experiment.grid_protocol.task_config["t2"] = _OrderConfig(task_name="t2")
+
+    run_grid_workflow(demo_microscope, experiment, ["t1", "t2"], grid_names=["A", "B"])
+
+    # A,t1 fails -> A,t2 skipped (grid marked failure); B runs fully
+    assert _OrderGridTask.log == [("A", "t1"), ("B", "t1"), ("B", "t2")]
+    assert experiment.get_grid_by_name("A").is_failure
+
+
+def test_ensure_loaded_noop_when_already_loaded(demo_microscope, experiment):
+    name = list(demo_microscope._stage.holder.slots.keys())[0]
+    demo_microscope._stage.holder.slots[name].loaded_grid = SampleGrid(name="X")
+    record = GridRecord(name="X")
+    experiment.add_grid(record)
+
+    slot = GridTaskManager(demo_microscope, experiment).ensure_loaded(record)
+    assert slot.loaded_grid.name == "X"
+
+
+def test_ensure_loaded_halts_without_loader(demo_microscope, experiment):
+    record = GridRecord(name="ghost")  # not in any slot, static holder (no loader)
+    experiment.add_grid(record)
+
+    with pytest.raises(GridExchangeError):
+        GridTaskManager(demo_microscope, experiment).ensure_loaded(record)
+
+
+def test_ensure_loaded_exchanges_on_autoloader(experiment):
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)  # single slot + loader
+    assert microscope._stage.loader is not None
+
+    record = GridRecord(name="new-grid")
+    experiment.add_grid(record)
+
+    slot = GridTaskManager(microscope, experiment).ensure_loaded(record)
+    assert slot.loaded_grid.name == "new-grid"
+    assert microscope._stage.holder.find_slot_by_grid_name("new-grid") is not None

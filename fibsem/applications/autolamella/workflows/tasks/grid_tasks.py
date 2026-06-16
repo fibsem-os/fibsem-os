@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.applications.autolamella.workflows.tasks.grid_manager import GridTaskManager
 
 import logging
 
@@ -413,12 +414,14 @@ def run_grid_task(microscope: FibsemMicroscope,
           task_name: str,
           experiment: 'Experiment',
           grid: 'GridRecord',
-          parent_ui: Optional['AutoLamellaUI'] = None) -> None:
+          parent_ui: Optional['AutoLamellaUI'] = None,
+          task_manager: Optional['GridTaskManager'] = None) -> None:
     """Run a single grid task against a GridRecord, persisting state afterwards.
 
     The config is read from ``experiment.grid_protocol`` (keyed by task_name);
     if no saved config exists, ``task_name`` is treated as a task_type and a
-    default config is instantiated.
+    default config is instantiated. ``task_manager`` (when supplied) provides
+    the stop event so long-running tasks can be interrupted.
     """
     config = experiment.grid_protocol.task_config.get(task_name)
     if config is not None:
@@ -436,7 +439,8 @@ def run_grid_task(microscope: FibsemMicroscope,
                     config=config,
                     experiment=experiment,
                     grid=grid,
-                    parent_ui=parent_ui)
+                    parent_ui=parent_ui,
+                    task_manager=task_manager)
     task.run()
     experiment.save()  # persist the grid's updated task_state / history
 
