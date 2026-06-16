@@ -361,3 +361,67 @@ def test_ensure_loaded_exchanges_on_autoloader(experiment):
     slot = GridTaskManager(microscope, experiment).ensure_loaded(record)
     assert slot.loaded_grid.name == "new-grid"
     assert microscope._stage.holder.find_slot_by_grid_name("new-grid") is not None
+
+
+# --- Phase 3b: loader magazine --------------------------------------------
+
+@pytest.fixture
+def autoloader_microscope():
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)  # single working slot + loader
+    return microscope
+
+
+def test_loader_has_magazine(autoloader_microscope):
+    loader = autoloader_microscope._stage.loader
+    assert loader.capacity == 12
+    assert len(loader.slots) == 12
+    assert loader.run_inventory() == []  # empty until the operator loads it
+
+
+def test_loader_assign_find_and_inventory(autoloader_microscope):
+    loader = autoloader_microscope._stage.loader
+    loader.assign_grid("Magazine-01", SampleGrid(name="A", radius=2e-3))
+    loader.assign_grid("Magazine-02", SampleGrid(name="B"))
+
+    assert {s.loaded_grid.name for s in loader.run_inventory()} == {"A", "B"}
+    assert loader.find_grid("A").loaded_grid.radius == 2e-3
+    assert loader.find_grid("missing") is None
+
+
+def test_sync_grids_sources_loader_magazine(autoloader_microscope, experiment):
+    loader = autoloader_microscope._stage.loader
+    loader.assign_grid("Magazine-01", SampleGrid(name="A"))
+    loader.assign_grid("Magazine-02", SampleGrid(name="B"))
+
+    experiment.sync_grids_from_holder(autoloader_microscope)
+    assert {g.name for g in experiment.grids} == {"A", "B"}
+
+
+def test_ensure_loaded_pulls_real_grid_from_magazine(autoloader_microscope, experiment):
+    loader = autoloader_microscope._stage.loader
+    loader.assign_grid("Magazine-01", SampleGrid(name="A", radius=2e-3))
+    record = GridRecord(name="A")
+    experiment.add_grid(record)
+
+    slot = GridTaskManager(autoloader_microscope, experiment).ensure_loaded(record)
+    # the real magazine grid (with its geometry) is what gets inserted
+    assert slot.loaded_grid.name == "A"
+    assert slot.loaded_grid.radius == 2e-3
+
+
+def test_ensure_loaded_exchanges_between_magazine_grids(autoloader_microscope, experiment):
+    loader = autoloader_microscope._stage.loader
+    loader.assign_grid("Magazine-01", SampleGrid(name="A"))
+    loader.assign_grid("Magazine-02", SampleGrid(name="B"))
+    experiment.add_grid(GridRecord(name="A"))
+    experiment.add_grid(GridRecord(name="B"))
+    mgr = GridTaskManager(autoloader_microscope, experiment)
+
+    mgr.ensure_loaded(experiment.get_grid_by_name("A"))
+    mgr.ensure_loaded(experiment.get_grid_by_name("B"))
+
+    holder = autoloader_microscope._stage.holder
+    assert holder.find_slot_by_grid_name("B") is not None
+    assert holder.find_slot_by_grid_name("A") is None  # A retracted on exchange

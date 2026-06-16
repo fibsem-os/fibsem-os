@@ -1159,12 +1159,24 @@ class Experiment:
         logging.info(f"Added grid {grid.name} to experiment {self.name}")
 
     def sync_grids_from_holder(self, microscope: 'FibsemMicroscope') -> None:
-        """Create GridRecords for any holder-loaded grid not yet tracked. Idempotent."""
+        """Create GridRecords for any loaded grid not yet tracked. Idempotent.
+
+        Sources both the holder working slots (static shuttle: grids live there)
+        and, when present, the loader magazine (autoloader inventory).
+        """
         tracked = {g.name for g in self.grids}
-        for slot in microscope._stage.holder.slots.values():
-            grid = slot.loaded_grid
-            if grid is not None and grid.name not in tracked:
-                self.add_grid(GridRecord(name=grid.name))
+
+        def _track(slots) -> None:
+            for slot in slots:
+                grid = slot.loaded_grid
+                if grid is not None and grid.name not in tracked:
+                    self.add_grid(GridRecord(name=grid.name))
+                    tracked.add(grid.name)
+
+        _track(microscope._stage.holder.slots.values())
+        loader = microscope._stage.loader
+        if loader is not None:
+            _track(loader.run_inventory())
         self.save()
 
     def save(self, save_protocol: bool = False) -> None:

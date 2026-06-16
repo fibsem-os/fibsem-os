@@ -87,11 +87,15 @@ class GridTaskManager:
             raise GridExchangeError(
                 f"Grid '{record.name}' is not loaded and there is no loader to load it."
             )
+        # source the real grid (with geometry) from the magazine; fall back to a
+        # bare grid only if the record has no magazine entry
+        magazine_slot = loader.find_grid(record.name)
+        grid = magazine_slot.loaded_grid if magazine_slot is not None else SampleGrid(name=record.name)
         try:
             for loaded in loader.loaded_slots:
                 loader.unload_grid(loaded.name)
             target = next(iter(holder.slots))
-            loader.load_grid(target, SampleGrid(name=record.name))
+            loader.load_grid(target, grid)
         except Exception as e:  # noqa: BLE001 - re-raised as a halt
             raise GridExchangeError(
                 f"Failed to exchange grid '{record.name}' into the working slot: {e}"
