@@ -7,13 +7,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from fibsem.structures import BeamType
 
 import numpy as np
 if TYPE_CHECKING:
-    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
     from fibsem.microscope import FibsemMicroscope
 
 logger = logging.getLogger(__name__)
@@ -114,8 +114,8 @@ class AutoFocusResult:
     def n_iterations(self) -> int:
         return len(self.iterations)
 
-    def plot(self, save_path: str = None) -> None:
-        from fibsem.autofunctions.autofocus_plotting import plot_autofocus_result
+    def plot(self, save_path: str = "autofocus.png") -> None:
+        from fibsem.autofunctions.plotting import plot_autofocus_result
         plot_autofocus_result(self, save_path=save_path)
 
     def save(self, path: str = ".", name: str = "autofocus") -> Path:
@@ -176,6 +176,40 @@ class AutoFocusResult:
             iterations=iterations,
             settings=settings,
         )
+
+
+def _run_sweep(
+    microscope: "FibsemMicroscope",
+    probe_settings: "ImageSettings",
+    focus_fn: "Callable[[np.ndarray], np.ndarray]",
+    centre_wd: float,
+    sweep_pass: FocusSweepPass,
+    pass_index: int,
+    beam_type: BeamType,
+) -> "tuple[list[AutoFocusIteration], float]":
+    """Acquire images across a WD range and return iterations + best WD."""
+    half_range = sweep_pass.n_steps / 2 * sweep_pass.step_size
+    wds = np.linspace(centre_wd - half_range, centre_wd + half_range, sweep_pass.n_steps + 1)
+
+    iterations = []
+    for i, wd in enumerate(wds):
+        microscope.set_working_distance(wd, beam_type)
+        probe = microscope.acquire_image(image_settings=probe_settings)
+        score = float(np.mean(focus_fn(probe.data.astype(np.float32))))
+        iterations.append(AutoFocusIteration(
+            pass_index=pass_index,
+            working_distance=float(wd),
+            focus_score=score,
+            image=probe,
+        ))
+        logger.debug("AutoFocus pass %d step %d/%d: wd=%.4e score=%.4f",
+                     pass_index, i, sweep_pass.n_steps, wd, score)
+
+    best_idx = int(np.argmax([it.focus_score for it in iterations]))
+    best_wd = iterations[best_idx].working_distance
+    logger.info("AutoFocus pass %d complete: best WD=%.4e score=%.4f",
+                pass_index, best_wd, iterations[best_idx].focus_score)
+    return iterations, best_wd
 
 
 def run_auto_focus(
@@ -240,33 +274,11 @@ def run_auto_focus(
 
     try:
         for pass_index, sweep_pass in enumerate(settings.passes):
-            half_range = sweep_pass.n_steps / 2 * sweep_pass.step_size
-            wds = np.linspace(centre_wd - half_range, centre_wd + half_range, sweep_pass.n_steps + 1)
-
-            pass_scores = []
-            for i, wd in enumerate(wds):
-                microscope.set_working_distance(wd, beam_type)
-                probe = microscope.acquire_image(image_settings=probe_settings)
-                score = float(np.mean(focus_fn(probe.data.astype(np.float32))))
-                iterations.append(AutoFocusIteration(
-                    pass_index=pass_index,
-                    working_distance=float(wd),
-                    focus_score=score,
-                    image=probe,
-                ))
-                pass_scores.append(score)
-                logger.debug(
-                    "AutoFocus pass %d step %d/%d: wd=%.4e score=%.4f",
-                    pass_index, i, sweep_pass.n_steps, wd, score,
-                )
-
-            best_in_pass = int(np.argmax(pass_scores))
-            centre_wd = float(wds[best_in_pass])
-            logger.info(
-                "AutoFocus pass %d complete: best WD=%.4e score=%.4f",
-                pass_index, centre_wd, pass_scores[best_in_pass],
+            pass_iters, centre_wd = _run_sweep(
+                microscope, probe_settings, focus_fn,
+                centre_wd, sweep_pass, pass_index, beam_type,
             )
-
+            iterations.extend(pass_iters)
     except Exception:
         logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
         microscope.set_working_distance(initial_wd, beam_type)

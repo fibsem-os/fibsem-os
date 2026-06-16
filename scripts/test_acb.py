@@ -7,13 +7,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from fibsem.structures import FibsemImage
+from fibsem.imaging.utils import percentile_stretch
 from fibsem.autofunctions.acb import (
     AutoContrastBrightnessIteration,
     AutoContrastBrightnessResult,
     AutoContrastBrightnessSettings,
-    percentile_stretch,
 )
-from fibsem.autofunctions.acb_plotting import plot_acb_result
+from fibsem.autofunctions.plotting import plot_acb_result
 
 
 def make_probe_image(mean_frac: float, noise_frac: float = 0.05) -> FibsemImage:

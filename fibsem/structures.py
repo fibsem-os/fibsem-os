@@ -2291,15 +2291,18 @@ class FibsemImage:
             ImageStats with all metrics normalised to [0, 1].
         """
         data = self.data.astype(np.float64)
-        dtype_max = float(np.iinfo(self.data.dtype).max)
+        if np.issubdtype(self.data.dtype, np.floating):
+            dtype_max = 1.0
+        else:
+            dtype_max = float(np.iinfo(self.data.dtype).max)
 
         norm = data / dtype_max
         mean = float(np.mean(norm))
         std = float(np.std(norm))
         p01 = float(np.percentile(norm, 1))
         p99 = float(np.percentile(norm, 99))
-        sat_lo = float(np.mean(self.data == 0))
-        sat_hi = float(np.mean(self.data == int(dtype_max)))
+        sat_lo = float(np.mean(norm <= 0.0))
+        sat_hi = float(np.mean(norm >= 1.0))
         cv = std / mean if mean > 0 else 0.0
         median = float(np.median(norm))
         snr = mean / std if std > 0 else 0.0

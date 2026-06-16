@@ -8,9 +8,14 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from fibsem.structures import BeamType
+
+if TYPE_CHECKING:
+    from fibsem.structures import FibsemImage, ImageStats
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +90,8 @@ class AutoContrastBrightnessResult:
     def n_iterations(self) -> int:
         return len(self.iterations)
 
-    def plot(self, save_path: str = None) -> None:
-        from fibsem.autofunctions.acb_plotting import plot_acb_result
+    def plot(self, save_path: str = "acb.png") -> None:
+        from fibsem.autofunctions.plotting import plot_acb_result
         plot_acb_result(self, save_path=save_path)
 
     def save(self, path: str = ".", name: str = "acb") -> Path:
@@ -164,7 +169,7 @@ class AutoContrastBrightnessResult:
 
 def run_auto_contrast_brightness(
     microscope,
-    beam_type=None,
+    beam_type: BeamType = BeamType.ELECTRON,
     hfw: float = 150e-6,
     settings: AutoContrastBrightnessSettings = None,
 ) -> AutoContrastBrightnessResult:
@@ -184,10 +189,8 @@ def run_auto_contrast_brightness(
         ``AutoContrastBrightnessResult`` with the final probe image, stats, convergence
         flag, and the full per-iteration history.
     """
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures import ImageSettings
 
-    if beam_type is None:
-        beam_type = BeamType.ELECTRON
     if settings is None:
         settings = AutoContrastBrightnessSettings()
 
