@@ -25,6 +25,7 @@ from fibsem.autofunctions.autofocus import (
     run_auto_focus,
 )
 from fibsem.autofunctions.plotting import plot_acb_result, plot_autofocus_result
+from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -374,3 +375,16 @@ def test_plot_autofocus_threadsafe(tmp_path):
 
     assert not errors
     assert all((tmp_path / f"af_{i}.png").exists() for i in range(4))
+
+
+# ── Charge neutralisation ─────────────────────────────────────────────────────
+
+def test_auto_charge_neutralisation():
+    from fibsem.structures import ImageSettings
+    m = MagicMock()
+    image_settings = MagicMock(spec=ImageSettings)
+    image_settings.hfw = 150e-6
+
+    with patch("fibsem.acquire.new_image", return_value=make_image()) as mock_new_image:
+        auto_charge_neutralisation(m, image_settings, n_iterations=3)
+        assert mock_new_image.call_count == 4  # 3 discharge + 1 final
