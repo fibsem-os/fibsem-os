@@ -365,6 +365,31 @@ class AutoLamellaTask(ABC):
                                         stop_event=self._stop_event,
                                         plot_title=f"{self.lamella.name} - {self.task_name}")
 
+    def _run_autofocus(self, beam_type, hfw: float = None) -> None:
+        """Run autofocus using either the hardware routine or the image-based sweep.
+
+        Controlled by cfg.FEATURE_AUTOFUNCTIONS_AUTOFOCUS. When enabled, saves
+        diagnostic plots and JSON to the lamella path.
+        """
+        if fcfg.FEATURE_AUTOFUNCTIONS_AUTOFOCUS:
+            from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings
+            settings = AutoFocusSettings()
+            result = run_auto_focus(
+                self.microscope,
+                beam_type=beam_type,
+                hfw=hfw or self.image_settings.hfw,
+                settings=settings,
+            )
+            result_dir = result.save(path=self.lamella.path, name=f"{self.task_name}_autofocus")
+            result.plot(save_path=str(result_dir / "plot.png"))
+            self.log_status_message(
+                "AUTOFOCUS",
+                f"Autofocus (image-based): WD={result.working_distance*1e3:.3f}mm score={result.focus_score:.2f}",
+                f"Autofocus complete: WD={result.working_distance*1e3:.3f}mm",
+            )
+        else:
+            self.microscope.auto_focus(beam_type=beam_type)
+
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""
         acquire_fib = self.config.reference_imaging.acquire_fib
