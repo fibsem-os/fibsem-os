@@ -301,3 +301,81 @@ def run_auto_focus(
         iterations=iterations,
         settings=settings,
     )
+
+
+# ── Legacy beam autofocus ─────────────────────────────────────────────────────
+
+def auto_focus_beam(
+    microscope,
+    settings,
+    beam_type,
+    metric_fn=None,
+    focus_image_settings=None,
+    step_size: float = 0.05e-3,
+    num_steps: int = 5,
+    kwargs: dict = {},
+    verbose: bool = False,
+) -> None:
+    """Image-based autofocus by sweeping working distance and maximising a focus metric.
+
+    If no metric_fn is provided, delegates to the hardware autofocus routine.
+    Prefer :func:`run_auto_focus` for new code.
+    """
+    import numpy as np
+    from fibsem import acquire, utils
+    from fibsem.structures import FibsemRectangle, ImageSettings
+
+    if metric_fn is None:
+        microscope.auto_focus(beam_type=beam_type)
+        return
+
+    if focus_image_settings is None:
+        focus_image_settings = ImageSettings(
+            resolution=[768, 512],
+            dwell_time=200e-9,
+            hfw=100e-6,
+            beam_type=beam_type,
+            save=True,
+            path=settings.image.path,
+            autocontrast=True,
+            autogamma=False,
+            filename=f"{utils.current_timestamp()}_",
+            reduced_area=FibsemRectangle(0.3, 0.3, 0.4, 0.4),
+        )
+
+    current_wd = microscope.get("working_distance", beam_type)
+    min_wd = current_wd - (num_steps * step_size / 2)
+    max_wd = current_wd + (num_steps * step_size / 2)
+    wds = np.linspace(min_wd, max_wd, num_steps + 1)
+
+    metrics = []
+    for i, wd in enumerate(wds):
+        logger.info("image %d: %.2e", i, wd)
+        microscope.set("working_distance", wd, beam_type)
+        focus_image_settings.filename = f"{utils.current_timestamp()}_sharpness_{i}"
+        img = acquire.new_image(microscope, focus_image_settings)
+        metrics.append(metric_fn(img, **kwargs))
+
+    idx = int(np.argmax(metrics))
+    if verbose:
+        logger.info("%s", list(zip(wds, metrics)))
+        logger.info("%d, %.2e, %.4f", idx, wds[idx], metrics[idx])
+
+    microscope.set("working_distance", wds[idx], beam_type)
+
+
+def _sharpness(img, **kwargs) -> float:
+    """Gradient-based acutance focus metric."""
+    import skimage
+    from skimage.filters.rank import gradient
+    from skimage.morphology import disk
+    disk_size = kwargs.get("disk_size", 5)
+    return float(np.mean(gradient(skimage.filters.median(np.copy(img.data)), disk(disk_size))))
+
+
+def _dog(img, **kwargs) -> float:
+    """Difference-of-Gaussians focus metric."""
+    from skimage.filters import difference_of_gaussians
+    low = kwargs.get("low", 3)
+    high = kwargs.get("high", 9)
+    return float(np.mean(difference_of_gaussians(np.copy(img.data), low, high)))
