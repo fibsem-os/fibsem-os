@@ -16,6 +16,7 @@ from fibsem.autofunctions.stacking import (
     create_block_based_focus_stack,
 )
 from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
+from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.autofunctions.acb import (
     AutoContrastBrightnessSettings,
     AutoContrastBrightnessIteration,
@@ -67,4 +68,5 @@ __all__ = [
     "create_block_based_focus_stack",
     "frame_integration",
     "adaptive_frame_integration",
+    "auto_charge_neutralisation",
 ]

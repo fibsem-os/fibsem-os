@@ -13,36 +13,6 @@ from fibsem.structures import (
 )
 
 
-def auto_charge_neutralisation(
-    microscope: FibsemMicroscope,
-    image_settings: ImageSettings,
-    discharge_settings: ImageSettings = None,
-    n_iterations: int = 10,
-) -> None:
-
-    # take sequence of images quickly,
-
-    # use preset settings if not defined
-    if discharge_settings is None:
-        discharge_settings = ImageSettings(
-            resolution=[768, 512],
-            dwell_time=200e-9,
-            hfw=image_settings.hfw,
-            beam_type=BeamType.ELECTRON,
-            save=False,
-            autocontrast=False,
-            autogamma=False,
-            filename=None,
-        )
-
-    for i in range(n_iterations):
-        acquire.new_image(microscope, discharge_settings)
-
-    # take image
-    acquire.new_image(microscope, image_settings)
-
-    logging.info("BAM! and the charge is gone!")  # important information
-
 
 # def auto_needle_calibration(
 #     microscope: FibsemMicroscope, settings: MicroscopeSettings, validate: bool = True
