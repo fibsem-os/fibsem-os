@@ -252,7 +252,7 @@ class FeatureFlags:
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
-    autofunctions_autofocus: bool = False
+    autofunctions_autofocus: bool = True
 
 @dataclass
 class MovementPreferences:
@@ -376,4 +376,4 @@ FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
-FEATURE_AUTOFUNCTIONS_AUTOFOCUS = False
+FEATURE_AUTOFUNCTIONS_AUTOFOCUS = True
