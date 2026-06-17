@@ -217,6 +217,27 @@ class TestSaveLoad:
         with pytest.raises(FileNotFoundError):
             SampleHolder.load(tmp_path / "nonexistent.yaml")
 
+    def test_save_geometry_only_excludes_loaded_grids(self, tmp_path):
+        # include_grids=False persists holder geometry but treats which grid is
+        # loaded as transient hardware state (the Sample tab auto-save path).
+        path = tmp_path / "holder.yaml"
+        h = _make_holder(capacity=2, name="SavedHolder")
+        h.slots["Slot-01"].loaded_grid = SampleGrid(name="Grid-A")
+        h.save(path, include_grids=False)
+
+        h2 = SampleHolder.load(path)
+        assert h2.name == "SavedHolder"
+        assert len(h2.slots) == 2
+        # geometry round-trips, but the loaded grid is not persisted
+        assert h2.slots["Slot-01"].loaded_grid is None
+        assert h2.slots["Slot-02"].loaded_grid is None
+
+    def test_to_dict_include_grids_flag(self):
+        h = _make_holder(capacity=1, name="H")
+        h.slots["Slot-01"].loaded_grid = SampleGrid(name="Grid-A")
+        assert h.to_dict()["slots"]["Slot-01"]["loaded_grid"] is not None
+        assert h.to_dict(include_grids=False)["slots"]["Slot-01"]["loaded_grid"] is None
+
 
 # ---------------------------------------------------------------------------
 # Slot lookup helpers

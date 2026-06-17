@@ -66,18 +66,26 @@ def test_dot_click_marks_available_and_emits(magazine_widget):
     assert seen[-1] == (row.slot.name, True)
 
 
-def test_inline_naming_autoloads_without_ticking(magazine_widget):
+def test_empty_slot_name_disabled_until_added(magazine_widget):
     widget, _ = magazine_widget
     changed = []
     widget.magazine_changed.connect(lambda: changed.append(True))
 
     row = _first_row(widget)
-    assert row.slot.loaded_grid is None  # starts empty
-    row.name_edit.setText("grid-aspen")
-    row._on_name_edited()  # editingFinished
+    # empty slot: name/description are disabled — the dot is the only add path
+    assert row.slot.loaded_grid is None
+    assert not row.name_edit.isEnabled()
+    assert not row.desc_edit.isEnabled()
 
-    # typing a name loaded the slot and marked it available — no dot click needed
+    # click the dot to add (auto-names Grid-NN), then the name becomes editable
+    row.status_dot.click()
     assert row.slot.loaded_grid is not None
+    assert row.name_edit.isEnabled()
+    assert row.desc_edit.isEnabled()
+
+    # now the grid can be renamed inline
+    row.name_edit.setText("grid-aspen")
+    row._on_name_edited()
     assert row.slot.loaded_grid.name == "grid-aspen"
     assert row.status() == "white"
     assert changed
@@ -103,18 +111,25 @@ def test_duplicate_name_is_rejected(magazine_widget):
     assert row0.slot.loaded_grid.name == "grid-aspen"
 
 
-def test_unload_button_disabled_until_loaded(magazine_widget):
+def test_row_action_toggles_to_unload_when_loaded(magazine_widget):
     widget, microscope = magazine_widget
-    assert not widget.btn_unload.isEnabled()  # nothing in the working slot
-
     row = _first_row(widget)
+
+    # available, not loaded → action button loads
+    row.status_dot.click()
     row.name_edit.setText("grid-aspen")
     row._on_name_edited()
+    assert row.status() == "white"
+    assert row.btn_load.toolTip() == "Load this grid onto the microscope"
+
+    # put it in the working slot → the same button now unloads
     from fibsem.applications.autolamella.structures import GridRecord
     from fibsem.applications.autolamella.workflows.tasks.grid_manager import GridTaskManager
     GridTaskManager(microscope, experiment=None).ensure_loaded(GridRecord(name="grid-aspen"))
     widget.refresh_rows()
-    assert widget.btn_unload.isEnabled()
+    assert row.status() == "green"
+    assert row.btn_load.isEnabled()
+    assert row.btn_load.toolTip() == "Unload this grid from the microscope"
 
 
 def test_loader_name_shown(magazine_widget):
@@ -139,7 +154,22 @@ def test_run_inventory_reflects_loaded_slots(magazine_widget):
 
     loaded = microscope._stage.loader.run_inventory()
     assert len(loaded) == 1
-    widget._on_run_inventory()  # must not raise
+    widget._on_run_inventory()  # instant path (no delay) — must not raise
+
+
+def test_run_inventory_threads_with_spinner_when_delayed(qapp, magazine_widget):
+    widget, microscope = magazine_widget
+    microscope._stage.loader.inventory_delay_s = 0.05  # force the threaded path
+
+    widget._on_run_inventory()
+    assert widget._inv_thread is not None and widget._inv_thread.is_alive()
+    assert widget._spinner._timer.isActive()  # spinner spinning during scan
+    assert not widget.btn_inventory.isEnabled()
+
+    widget._inv_thread.join(timeout=2.0)
+    qapp.processEvents()  # deliver the _inventory_done signal
+    assert not widget._spinner._timer.isActive()  # stopped on completion
+    assert widget.btn_inventory.isEnabled()
 
 
 def test_load_button_emits_load_requested(magazine_widget):
@@ -155,13 +185,14 @@ def test_load_button_emits_load_requested(magazine_widget):
     assert seen == ["grid-aspen"]
 
 
-def test_unload_button_emits_unload_requested(magazine_widget):
+def test_row_action_emits_unload_requested_when_loaded(magazine_widget):
     widget, microscope = magazine_widget
     seen = []
     widget.unload_requested.connect(lambda: seen.append(True))
 
-    # unload is enabled only once a grid is in the working slot
+    # load a grid into the working slot, then click its (now Unload) action
     row = _first_row(widget)
+    row.status_dot.click()
     row.name_edit.setText("grid-aspen")
     row._on_name_edited()
     from fibsem.applications.autolamella.structures import GridRecord
@@ -169,7 +200,8 @@ def test_unload_button_emits_unload_requested(magazine_widget):
     GridTaskManager(microscope, experiment=None).ensure_loaded(GridRecord(name="grid-aspen"))
     widget.refresh_rows()
 
-    widget.btn_unload.click()
+    assert row.status() == "green"
+    row.btn_load.click()  # same button, now unloads
 
     assert seen == [True]
 
@@ -204,13 +236,28 @@ def test_status_dot_reflects_beam_state(magazine_widget):
     assert row.status() == "white"
     assert row.btn_load.isEnabled()
 
-    # put it in the working slot -> green, load disabled (already loaded)
+    # put it in the working slot -> green, action button toggles to Unload
     from fibsem.applications.autolamella.structures import GridRecord
     from fibsem.applications.autolamella.workflows.tasks.grid_manager import GridTaskManager
     GridTaskManager(microscope, experiment=None).ensure_loaded(GridRecord(name="grid-aspen"))
     widget.refresh_rows()
     assert row.status() == "green"
-    assert not row.btn_load.isEnabled()
+    assert row.btn_load.isEnabled()
+    assert row.btn_load.toolTip() == "Unload this grid from the microscope"
+
+
+def test_set_busy_runs_spinner_and_blocks(magazine_widget):
+    widget, _ = magazine_widget
+
+    widget.set_busy(True)
+    assert widget._spinner._timer.isActive()  # spinner spinning
+    assert not widget._list.isEnabled()        # rows blocked
+    assert not widget.btn_inventory.isEnabled()
+
+    widget.set_busy(False)
+    assert not widget._spinner._timer.isActive()
+    assert widget._list.isEnabled()
+    assert widget.btn_inventory.isEnabled()
 
 
 def test_disabled_without_loader(qapp):

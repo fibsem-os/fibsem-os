@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
@@ -57,14 +59,17 @@ class GridSlot:
     position: FibsemStagePosition
     loaded_grid: Optional[SampleGrid] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self, include_grids: bool = True) -> dict:
+        loaded_grid = (
+            self.loaded_grid.to_dict()
+            if (include_grids and self.loaded_grid is not None)
+            else None
+        )
         return {
             "name": self.name,
             "index": self.index,
             "position": self.position.to_dict(),
-            "loaded_grid": self.loaded_grid.to_dict()
-            if self.loaded_grid is not None
-            else None,
+            "loaded_grid": loaded_grid,
         }
 
     @classmethod
@@ -147,11 +152,14 @@ class SampleHolder:
         ]:
             del self.slots[name]
 
-    def to_dict(self) -> dict:
+    def to_dict(self, include_grids: bool = True) -> dict:
         return {
             "name": self.name,
             "capacity": self.capacity,
-            "slots": {name: slot.to_dict() for name, slot in self.slots.items()},
+            "slots": {
+                name: slot.to_dict(include_grids=include_grids)
+                for name, slot in self.slots.items()
+            },
             "description": self.description,
         }
 
@@ -179,14 +187,21 @@ class SampleHolder:
             data = yaml.safe_load(f)
         return cls.from_dict(data)
 
-    def save(self, path: Union[str, Path]) -> None:
+    def save(self, path: Union[str, Path], include_grids: bool = True) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
-            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+            yaml.dump(
+                self.to_dict(include_grids=include_grids),
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
 
 
 LOADER_CAPACITY = 12  # storage slots in a typical autoloader magazine
+LOADER_SIM_MOVE_DELAY_S = 5.0  # simulated autoloader exchange time (sim only)
+LOADER_SIM_INVENTORY_DELAY_S = 15.0  # simulated magazine inventory scan (sim only)
 
 
 class SampleGridLoader:
@@ -209,7 +224,15 @@ class SampleGridLoader:
         self.name = name
         self.capacity = capacity
         self.slots: dict[str, GridSlot] = slots if slots is not None else {}
+        # simulated timings (seconds); 0 = instant. Set by the simulator setup so
+        # demo load/unload + inventory feel like real autoloader hardware.
+        self.move_delay_s: float = 0.0
+        self.inventory_delay_s: float = 0.0
         self._ensure_slots()
+
+    def _simulate_move(self) -> None:
+        if self.move_delay_s > 0:
+            time.sleep(self.move_delay_s)
 
     def _ensure_slots(self) -> None:
         """Materialise exactly ``capacity`` magazine slots (Magazine-01, …)."""
@@ -226,8 +249,10 @@ class SampleGridLoader:
         """Scan the magazine and return the slots that hold a grid.
 
         In a real loader this queries the hardware; here it reports the current
-        magazine state.
+        magazine state (after a simulated scan delay, if configured).
         """
+        if self.inventory_delay_s > 0:
+            time.sleep(self.inventory_delay_s)
         return self.loaded_magazine_slots
 
     @property
@@ -253,12 +278,14 @@ class SampleGridLoader:
         """Insert a SampleGrid into the named holder working slot."""
         slot = self.parent._stage.holder.slots.get(slot_name)
         if slot is not None:
+            self._simulate_move()
             slot.loaded_grid = grid
 
     def unload_grid(self, slot_name: str) -> None:
         """Retract the SampleGrid from the named holder working slot."""
         slot = self.parent._stage.holder.slots.get(slot_name)
         if slot is not None:
+            self._simulate_move()
             slot.loaded_grid = None
 
     @property
@@ -396,6 +423,11 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
             name="CompuStage Holder", capacity=1, slots={"Slot-01": slot01}
         )
         loader: Optional[SampleGridLoader] = SampleGridLoader(parent=microscope)
+        # give the simulated loader realistic exchange + inventory timing in the
+        # app, but keep it instant under pytest so the suite stays fast.
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            loader.move_delay_s = LOADER_SIM_MOVE_DELAY_S
+            loader.inventory_delay_s = LOADER_SIM_INVENTORY_DELAY_S
     else:
         path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
         if not path.exists():

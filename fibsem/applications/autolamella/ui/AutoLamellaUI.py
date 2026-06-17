@@ -43,7 +43,7 @@ from fibsem.ui import (
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -56,9 +56,12 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpacerItem,
+    QSplitter,
     QTabWidget,
     QWidget,
 )
+from fibsem.ui.widgets.loader_magazine_widget import LoaderMagazineWidget
+from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     LamellaNameListWidget,
@@ -163,6 +166,9 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
+    # (action, grid_name, error) — thread-safe bridge for the Sample tab
+    # hardware exchange (action is "load"/"unload"; error is None on success)
+    _sample_exchange_finished_signal = pyqtSignal(str, str, object)
 
     def __init__(
         self,
@@ -193,6 +199,12 @@ class AutoLamellaUI(QMainWindow):
         self.fm_control_widget: Optional[FMControlWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
+
+        # sample (holder + optional loader magazine) tab
+        self.sample_tab: Optional[QWidget] = None
+        self.holder_widget: Optional[SampleHolderWidget] = None
+        self.magazine_widget: Optional[LoaderMagazineWidget] = None
+        self._sample_worker_thread: Optional[threading.Thread] = None
 
         # minimap plot widget
         self.minimap_plot_widget = MinimapPlotWidget(self)
@@ -720,6 +732,10 @@ class AutoLamellaUI(QMainWindow):
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
+
+            # sample tab: holder (always) + loader magazine (compustage only)
+            self.sample_tab = self._create_sample_tab()
+            self.tabWidget.addTab(self.sample_tab, "Sample")
             self.milling_task_config_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
                 viewer=self.viewer,
@@ -790,6 +806,12 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.milling_task_config_widget.deleteLater()
                 self.milling_task_config_widget = None
+            if self.sample_tab is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_tab))
+                self.sample_tab.deleteLater()
+                self.sample_tab = None
+                self.holder_widget = None
+                self.magazine_widget = None
             if self.movement_widget is not None:
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
                 self.movement_widget.deleteLater()
@@ -802,6 +824,114 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+
+    # -------------------------------------------------------------------------
+    # Sample tab (holder + optional loader magazine)
+    # -------------------------------------------------------------------------
+    def _create_sample_tab(self) -> QWidget:
+        """Build the Sample tab: holder (always) + loader magazine (if present).
+
+        Pure hardware staging — no Experiment coupling. The bridge to the
+        experiment's grid records lives in the Grids tab.
+        """
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+
+        # magazine (storage / source) — compustage only, shown on top
+        if self.microscope._stage.loader is not None:
+            self.magazine_widget = LoaderMagazineWidget(microscope=self.microscope)
+            self.magazine_widget.set_microscope(self.microscope)
+            self.magazine_widget.magazine_changed.connect(self._on_magazine_changed)
+            self.magazine_widget.load_requested.connect(self._on_grid_load_requested)
+            self.magazine_widget.unload_requested.connect(self._on_grid_unload_requested)
+            splitter.addWidget(self.magazine_widget)
+
+        # holder (working slot / destination) — always present
+        self.holder_widget = SampleHolderWidget(microscope=self.microscope)
+        self.holder_widget.set_holder(self.microscope._stage.holder)
+        splitter.addWidget(self.holder_widget)
+
+        # thread-safe bridge for the hardware exchange worker
+        self._sample_exchange_finished_signal.connect(self._on_sample_exchange_finished)
+
+        container = QWidget()
+        layout = QGridLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(splitter)
+        return container
+
+    def _on_magazine_changed(self) -> None:
+        """Keep the holder view in sync — a magazine grid and the working slot
+        can reference the same SampleGrid object once loaded."""
+        if self.holder_widget is not None:
+            self.holder_widget.refresh()
+
+    def _on_grid_load_requested(self, grid_name: str) -> None:
+        """Exchange a magazine grid into the working slot (on a worker thread)."""
+        if self._sample_worker_thread is not None and self._sample_worker_thread.is_alive():
+            return
+        self._set_sample_busy(True)
+        self._sample_worker_thread = threading.Thread(
+            target=self._sample_exchange_worker,
+            args=("load", grid_name),
+            daemon=True,
+        )
+        self._sample_worker_thread.start()
+
+    def _on_grid_unload_requested(self) -> None:
+        """Retract whatever grid occupies the working slot (on a worker thread)."""
+        if self._sample_worker_thread is not None and self._sample_worker_thread.is_alive():
+            return
+        self._set_sample_busy(True)
+        self._sample_worker_thread = threading.Thread(
+            target=self._sample_exchange_worker,
+            args=("unload", ""),
+            daemon=True,
+        )
+        self._sample_worker_thread.start()
+
+    def _sample_exchange_worker(self, action: str, grid_name: str) -> None:
+        """Worker thread: physically move the autoloader, then signal the GUI."""
+        from fibsem.applications.autolamella.structures import GridRecord
+        from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
+            GridExchangeError,
+            GridTaskManager,
+        )
+
+        error: Optional[str] = None
+        try:
+            if action == "load":
+                manager = GridTaskManager(self.microscope, experiment=self.experiment)
+                manager.ensure_loaded(GridRecord(name=grid_name))
+            else:  # unload the working slot(s)
+                loader = self.microscope._stage.loader
+                for slot in list(loader.loaded_slots):
+                    loader.unload_grid(slot.name)
+        except GridExchangeError as e:
+            error = str(e)
+        except Exception as e:  # noqa: BLE001 - surface unexpected failures too
+            error = str(e)
+        self._sample_exchange_finished_signal.emit(action, grid_name, error)
+
+    def _on_sample_exchange_finished(
+        self, action: str, grid_name: str, error: Optional[str]
+    ) -> None:
+        """GUI thread: refresh views, re-enable buttons, toast on failure."""
+        self._set_sample_busy(False)
+        if self.holder_widget is not None:
+            self.holder_widget.refresh()
+        if self.magazine_widget is not None:
+            self.magazine_widget.refresh_rows()
+        if error is not None:
+            notification_service.show_toast(f"Grid exchange failed: {error}", "error")
+        elif action == "load":
+            notification_service.show_toast(f"Loaded '{grid_name}' into the beam.", "info")
+
+    def _set_sample_busy(self, busy: bool) -> None:
+        """Show the magazine spinner + block its controls during a hardware exchange."""
+        if self.magazine_widget is None:
+            return
+        self.magazine_widget.set_busy(busy)
 
     def load_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
