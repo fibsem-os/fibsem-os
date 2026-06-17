@@ -206,7 +206,8 @@ def plot_autofocus_result(
             fig.add_subplot(gs[row, 1 + col]).set_visible(False)
 
     _save_figure(fig, save_path)
-    fig.clf()
+    # fig.clf()
+    return fig
 
 
 # ── shared ────────────────────────────────────────────────────────────────────
