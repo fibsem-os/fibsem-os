@@ -42,12 +42,16 @@ def make_image(mean_frac: float = 0.5, size: int = 64, dtype=np.uint16) -> Fibse
     return FibsemImage(data=data, metadata=None)
 
 
+def _sharpness_score(wd: float, best_wd: float) -> float:
+    """Deterministic focus score that peaks at best_wd."""
+    return max(0.01, 1.0 - abs(wd - best_wd) / 0.003)
+
+
 def make_sharp_image(wd: float, best_wd: float, size: int = 64) -> FibsemImage:
-    """Synthetic image whose Laplacian peaks when wd == best_wd. No noise for determinism."""
-    sharpness = max(0.01, 1.0 - abs(wd - best_wd) / 0.003)
-    x = np.linspace(0, 8 * np.pi, size)
-    base = np.outer(np.sin(x * sharpness * 3), np.cos(x * sharpness * 3))
-    data = np.clip((base + 1) / 2 * 65535 * 0.8, 0, 65535).astype(np.uint16)
+    """Synthetic image. The score is embedded as the mean pixel value so the
+    mock focus function (which reads mean) peaks reliably at best_wd."""
+    score = _sharpness_score(wd, best_wd)
+    data = np.full((size, size), int(score * 65535), dtype=np.uint16)
     return FibsemImage(data=data, metadata=None)
 
 
@@ -253,6 +257,11 @@ def test_autofocus_settings_reduced_area_round_trip():
 
 # ── run_auto_focus ────────────────────────────────────────────────────────────
 
+def _mean_focus_fn(arr):
+    """Focus function that returns mean — peaks at best_wd in make_sharp_image."""
+    return np.array([np.mean(arr)])
+
+
 def test_run_auto_focus_single_pass():
     best_wd = 4.5e-3
     m = mock_microscope(best_wd=best_wd, initial_wd=4.5e-3)
@@ -260,9 +269,10 @@ def test_run_auto_focus_single_pass():
         method="laplacian",
         passes=[FocusSweepPass(n_steps=10, step_size=0.5e-3)],
     )
-    result = run_auto_focus(m, settings=settings)
+    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+        result = run_auto_focus(m, settings=settings)
 
-    assert abs(result.working_distance - best_wd) <= 2 * settings.passes[0].step_size
+    assert result.working_distance == pytest.approx(best_wd, abs=settings.passes[0].step_size)
     assert result.initial_working_distance == pytest.approx(4.5e-3)
     assert result.settings is settings
     assert len(result.iterations) == settings.passes[0].n_steps + 1
@@ -270,7 +280,6 @@ def test_run_auto_focus_single_pass():
 
 def test_run_auto_focus_multi_pass_converges():
     best_wd = 4.5e-3
-    m = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
     single = AutoFocusSettings(passes=[FocusSweepPass(10, 2e-3)])
     multi = AutoFocusSettings(passes=[
         FocusSweepPass(10, 2e-3),
@@ -281,8 +290,9 @@ def test_run_auto_focus_multi_pass_converges():
     m_single = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
     m_multi = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
 
-    r_single = run_auto_focus(m_single, settings=single)
-    r_multi = run_auto_focus(m_multi, settings=multi)
+    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+        r_single = run_auto_focus(m_single, settings=single)
+        r_multi = run_auto_focus(m_multi, settings=multi)
 
     assert abs(r_multi.working_distance - best_wd) <= abs(r_single.working_distance - best_wd)
 
@@ -291,7 +301,8 @@ def test_run_auto_focus_iteration_count():
     m = mock_microscope()
     passes = [FocusSweepPass(5, 1e-3), FocusSweepPass(4, 0.1e-3)]
     settings = AutoFocusSettings(passes=passes)
-    result = run_auto_focus(m, settings=settings)
+    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+        result = run_auto_focus(m, settings=settings)
     expected = sum(p.n_steps + 1 for p in passes)
     assert len(result.iterations) == expected
 
