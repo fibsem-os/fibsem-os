@@ -259,7 +259,7 @@ def test_autofocus_settings_reduced_area_round_trip():
 
 def test_run_auto_focus_single_pass():
     best_wd = 4.5e-3
-    m = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
+    m = mock_microscope(best_wd=best_wd, initial_wd=4.5e-3)
     settings = AutoFocusSettings(
         method="laplacian",
         passes=[FocusSweepPass(n_steps=10, step_size=0.5e-3)],
@@ -267,7 +267,7 @@ def test_run_auto_focus_single_pass():
     result = run_auto_focus(m, settings=settings)
 
     assert abs(result.working_distance - best_wd) <= settings.passes[0].step_size
-    assert result.initial_working_distance == pytest.approx(7.0e-3)
+    assert result.initial_working_distance == pytest.approx(4.5e-3)
     assert result.settings is settings
     assert len(result.iterations) == settings.passes[0].n_steps + 1
 
