@@ -109,17 +109,12 @@ def make_autofocus_result(n_passes: int = 1) -> AutoFocusResult:
     for pi, sp in enumerate(passes):
         half = sp.n_steps / 2 * sp.step_size
         wds = np.linspace(centre_wd - half, centre_wd + half, sp.n_steps + 1)
-        scores = []
-        for wd in wds:
-            img = make_sharp_image(wd, best_wd)
-            from fibsem.autofunctions.metrics import get_focus_measure_function
-            fn = get_focus_measure_function("laplacian")
-            score = float(np.mean(fn(img.data.astype(np.float32))))
+        scores = [_sharpness_score(wd, best_wd) for wd in wds]
+        for wd, score in zip(wds, scores):
             iters.append(AutoFocusIteration(
                 pass_index=pi, working_distance=float(wd),
-                focus_score=score, image=img,
+                focus_score=score, image=make_image(),
             ))
-            scores.append(score)
         centre_wd = float(wds[int(np.argmax(scores))])
     best_idx = int(np.argmax([it.focus_score for it in iters]))
     best = iters[best_idx]
