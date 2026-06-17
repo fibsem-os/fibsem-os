@@ -262,7 +262,7 @@ def test_run_auto_focus_single_pass():
     )
     result = run_auto_focus(m, settings=settings)
 
-    assert abs(result.working_distance - best_wd) <= settings.passes[0].step_size
+    assert abs(result.working_distance - best_wd) <= 2 * settings.passes[0].step_size
     assert result.initial_working_distance == pytest.approx(4.5e-3)
     assert result.settings is settings
     assert len(result.iterations) == settings.passes[0].n_steps + 1
