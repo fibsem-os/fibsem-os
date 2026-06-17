@@ -43,15 +43,11 @@ def make_image(mean_frac: float = 0.5, size: int = 64, dtype=np.uint16) -> Fibse
 
 
 def make_sharp_image(wd: float, best_wd: float, size: int = 64) -> FibsemImage:
-    """Synthetic image whose Laplacian peaks when wd == best_wd."""
+    """Synthetic image whose Laplacian peaks when wd == best_wd. No noise for determinism."""
     sharpness = max(0.01, 1.0 - abs(wd - best_wd) / 0.003)
     x = np.linspace(0, 8 * np.pi, size)
     base = np.outer(np.sin(x * sharpness * 3), np.cos(x * sharpness * 3))
-    rng = np.random.default_rng(seed=int(abs(wd) * 1e6) % (2**31))
-    data = np.clip(
-        (base + 1) / 2 * 65535 * 0.8 + rng.standard_normal((size, size)) * 65535 * 0.02,
-        0, 65535,
-    ).astype(np.uint16)
+    data = np.clip((base + 1) / 2 * 65535 * 0.8, 0, 65535).astype(np.uint16)
     return FibsemImage(data=data, metadata=None)
 
 
