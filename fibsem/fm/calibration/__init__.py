@@ -190,6 +190,7 @@ def run_coarse_fine_autofocus(
     autofocus_settings: AutoFocusSettings,
     channel_settings: Optional["ChannelSettings"] = None,
     roi: Optional[FibsemRectangle] = None,
+    stop_event = None
 ) -> Optional[AutoFocusResult]:
     """Run two-stage autofocus: coarse search followed by fine adjustment.
 
@@ -229,6 +230,7 @@ def run_coarse_fine_autofocus(
         microscope=microscope,
         channel_settings=channel_settings,
         roi=roi,
+        stop_event =stop_event
     )
 
 

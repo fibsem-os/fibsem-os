@@ -137,11 +137,25 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         self.log_status_message("AUTOFOCUS", "Running Autofocus...")
         self.microscope.fm.acquisition_progress_signal.emit({"state": "autofocusing", "task": f"{self.task_name}"}) # type: ignore
-        result = run_autofocus(microscope=self.microscope.fm,                                                       # type: ignore
-                                channel_settings=autofocus_channel,
-                                z_parameters=autofocus_zparams, 
-                                method=autofocus_method,
-                                stop_event=self._stop_event)
+        # result = run_autofocus(microscope=self.microscope.fm,                                                       # type: ignore
+        #                         channel_settings=autofocus_channel,
+        #                         z_parameters=autofocus_zparams, 
+        #                         method=autofocus_method,
+        #                         stop_event=self._stop_event)
+        # af_settings = AutoFocusSettings(
+        #         coarse_range=self.config.autofocus_settings.coarse_range,
+        #         coarse_step=self.config.autofocus_settings.coarse_step,
+        #         fine_range=10e-6,
+        #         fine_step=1e-6,
+        #         method=autofocus_settings.method
+        #     )
+        from fibsem.fm.calibration import run_coarse_fine_autofocus
+        result= run_coarse_fine_autofocus(
+                self.microscope.fm, 
+                autofocus_settings=self.config.autofocus_settings, 
+                # roi=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+                stop_event=self._stop_event
+            )
         if result is None:
             logging.info("Autofocus cancelled")
             raise InterruptedError(f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus.")

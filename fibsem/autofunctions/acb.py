@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, FibsemRectangle
 
 if TYPE_CHECKING:
     from fibsem.structures import FibsemImage, ImageStats
@@ -202,6 +202,7 @@ def run_auto_contrast_brightness(
         autocontrast=False,
         autogamma=False,
         save=False,
+        reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5)
     )
 
     brightness = microscope.get_detector_brightness(beam_type)

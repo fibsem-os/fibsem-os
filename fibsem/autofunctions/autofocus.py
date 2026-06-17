@@ -45,6 +45,7 @@ class AutoFocusSettings:
     probe_resolution: tuple = (768, 512)
     probe_dwell_time: float = 0.5e-6
     reduced_area: 'FibsemRectangle' = None
+    use_autocontrast: bool = True
 
     def __post_init__(self):
         if self.passes is None:
@@ -195,7 +196,7 @@ def _run_sweep(
     for i, wd in enumerate(wds):
         microscope.set_working_distance(wd, beam_type)
         probe = microscope.acquire_image(image_settings=probe_settings)
-        score = float(np.mean(focus_fn(probe.data.astype(np.float32))))
+        score = float(np.mean(focus_fn(probe.filtered_data.astype(np.float32))))
         iterations.append(AutoFocusIteration(
             pass_index=pass_index,
             working_distance=float(wd),
@@ -271,6 +272,9 @@ def run_auto_focus(
     initial_wd = microscope.get_working_distance(beam_type)
     centre_wd = initial_wd
     iterations: list[AutoFocusIteration] = []
+
+    if settings.use_autocontrast:
+        microscope.autocontrast(beam_type, settings.reduced_area)
 
     try:
         for pass_index, sweep_pass in enumerate(settings.passes):

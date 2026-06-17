@@ -372,8 +372,15 @@ class AutoLamellaTask(ABC):
         diagnostic plots and JSON to the lamella path.
         """
         if fcfg.FEATURE_AUTOFUNCTIONS_AUTOFOCUS:
-            from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings
-            settings = AutoFocusSettings()
+            from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
+            settings = AutoFocusSettings(
+                method="tenengrad",
+                passes=[
+                    FocusSweepPass(n_steps=10, step_size=100e-6),
+                    FocusSweepPass(n_steps=10, step_size=10e-6),
+                ],
+                reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+                use_autocontrast=True)
             result = run_auto_focus(
                 self.microscope,
                 beam_type=beam_type,

@@ -52,7 +52,7 @@ def plot_acb_result(
     final_idx = n - 1
     for col, idx in enumerate(thumb_indices):
         ax = fig.add_subplot(gs[0, col])
-        img = iters[idx].image.data
+        img = iters[idx].image.filtered_data
         ax.imshow(img[::4, ::4], cmap="gray")
         is_final = idx == final_idx
         label = f"iter {idx}" + (" ★" if is_final else "")
@@ -104,7 +104,8 @@ def plot_acb_result(
     status = "converged" if result.converged else "not converged"
     fig.suptitle(f"Auto Contrast/Brightness — {n} iterations, {status}", fontsize=9)
     _save_figure(fig, save_path)
-    fig.clf()
+    # fig.clf()
+    return fig
 
 
 # ── Autofocus ─────────────────────────────────────────────────────────────────
@@ -189,7 +190,7 @@ def plot_autofocus_result(
         thumb_indices = per_pass_thumbs[row]
         for col, tidx in enumerate(thumb_indices):
             ax_img = fig.add_subplot(gs[row, 1 + col])
-            img = iters[tidx].image.data
+            img = iters[tidx].image.filtered_data
             ds = max(1, img.shape[0] // 96)
             ax_img.imshow(img[::ds, ::ds], cmap="gray", interpolation="nearest")
             z_off = z_um[tidx]

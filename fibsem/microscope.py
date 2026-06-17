@@ -1689,7 +1689,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self.set_field_of_view(hfw=image_settings.hfw, beam_type=image_settings.beam_type)
 
         logging.info(f"acquiring new {image_settings.beam_type.name} image.")
-        self.set_channel(image_settings.beam_type)
 
         # set the imaging frame settings
         frame_settings = GrabFrameSettings(
@@ -1702,6 +1701,7 @@ class ThermoMicroscope(FibsemMicroscope):
             drift_correction=image_settings.drift_correction,
         )
 
+        self.set_channel(image_settings.beam_type)
         image = self.connection.imaging.grab_frame(frame_settings)
 
         # restore to full frame imaging

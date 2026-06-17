@@ -67,6 +67,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         # acquire an image at the milling position
         if self.config.use_autofocus:
+            self._run_autofocus(beam_type=BeamType.ELECTRON)
             self._run_autofocus(beam_type=BeamType.ION)
         self._acquire_reference_image(image_settings=self.image_settings,
                                       filename=f"ref_{self.task_name}_start",

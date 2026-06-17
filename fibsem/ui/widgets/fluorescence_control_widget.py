@@ -914,13 +914,32 @@ class FMControlWidget(QWidget):
                 f"step={autofocus_settings.fine_step*1e6:.1f} µm, method={autofocus_settings.method.value}"
             )
 
-            result = run_autofocus(
-                microscope=self.fm,
-                channel_settings=channel_settings,
-                z_parameters=z_parameters,
-                method=autofocus_settings.method.value,
-                stop_event=self._acquisition_stop_event,
+            from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
+
+            af_settings = AutoFocusSettings(
+                coarse_range=autofocus_settings.fine_range,
+                coarse_step=autofocus_settings.fine_step,
+                fine_step=1e-6,
+                fine_range=10e-6,
+                method=autofocus_settings.method
             )
+
+            result= run_coarse_fine_autofocus(
+                self.fm, 
+                autofocus_settings=af_settings, 
+                # roi=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+                stop_event=self._acquisition_stop_event
+            )
+
+            # result = run_autofocus(
+            #     microscope=self.fm,
+            #     channel_settings=channel_settings,
+            #     z_parameters=z_parameters,
+            #     method=autofocus_settings.method.value,
+            #     stop_event=self._acquisition_stop_event,
+            # )
+            if result is not None:
+                plot_autofocus(result)
 
             if result is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")

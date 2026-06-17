@@ -2290,7 +2290,7 @@ class FibsemImage:
         Returns:
             ImageStats with all metrics normalised to [0, 1].
         """
-        data = self.data.astype(np.float64)
+        data = self.filtered_data.astype(np.float64)
         if np.issubdtype(self.data.dtype, np.floating):
             dtype_max = 1.0
         else:
