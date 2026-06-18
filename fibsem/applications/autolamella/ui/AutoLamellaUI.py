@@ -172,6 +172,9 @@ class AutoLamellaUI(QMainWindow):
     # emitted after a load/unload changes which grid is in the working slot, so
     # hosts (e.g. the Grids tab) can refresh their "in microscope" state
     sample_state_changed_signal = pyqtSignal()
+    # per-grid/task progress from GridTaskManager (thread → GUI), payload shape
+    # mirrors workflow_update_signal: {"msg": str, "status": {...}}
+    grid_workflow_update_signal = pyqtSignal(dict)
 
     def __init__(
         self,

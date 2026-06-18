@@ -965,6 +965,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
         self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
         self.autolamella_ui.sample_state_changed_signal.connect(self._refresh_grid_list)
+        self.autolamella_ui.grid_workflow_update_signal.connect(
+            self._on_grid_workflow_update
+        )
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
@@ -1356,6 +1359,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 f"Unloading '{record.name}' from the microscope…", "info"
             )
             self.autolamella_ui.request_grid_unload()
+
+    def _on_grid_workflow_update(self, info: dict):
+        """Reflect live grid workflow progress on the cards (runs on the GUI thread)."""
+        self._refresh_grid_list()
 
     def _on_grid_selected(self, record):
         """Placeholder until the Protocol/Run/Results sub-tabs land."""

@@ -45,6 +45,7 @@ _BTN_SIZE = 24
 _GREEN = "#4caf50"
 _RED = "#e24b4a"
 _GRAY = "#808080"
+_AMBER = "#e0a030"
 
 _CARD_STYLE = "QFrame#GridCard { background: #2b2d31; border: 1px solid #3a3d42; border-radius: 8px; }"
 _CARD_SELECTED_STYLE = "QFrame#GridCard { background: #2b2d31; border: 2px solid #007ACC; border-radius: 8px; }"
@@ -56,6 +57,9 @@ _BTN_STYLE = (
 
 def _status(record: "GridRecord"):
     """(text, color) status summary for a grid record."""
+    if record.task_state.status.name == "InProgress":
+        task = record.task_state.name
+        return (f"Running — {task}" if task else "Running…"), _AMBER
     if record.is_failure:
         task = record.task_state.name
         return (f"Failed — {task}" if task else "Failed"), _RED

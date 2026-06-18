@@ -331,6 +331,46 @@ def test_task_failure_isolated_to_its_grid(demo_microscope, experiment, register
     assert experiment.get_grid_by_name("A").is_failure
 
 
+class _StubSignal:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, payload):
+        self.events.append(payload)
+
+
+class _StubUI:
+    def __init__(self):
+        self.grid_workflow_update_signal = _StubSignal()
+
+
+def test_workflow_emits_status_updates(demo_microscope, experiment, register_order_task):
+    _load_two_grids(demo_microscope)
+    experiment.sync_grids_from_holder(demo_microscope)
+    experiment.grid_protocol.task_config["t1"] = _OrderConfig(task_name="t1")
+
+    ui = _StubUI()
+    GridTaskManager(demo_microscope, experiment, parent_ui=ui).run(["t1"], grid_names=["A", "B"])
+
+    triples = [
+        (e["status"]["item_name"], e["status"]["task_name"], e["status"]["status"])
+        for e in ui.grid_workflow_update_signal.events
+    ]
+    assert ("A", "t1", "InProgress") in triples
+    assert ("A", "t1", "Completed") in triples
+    assert ("B", "t1", "Completed") in triples
+    assert triples[-1] == ("", "", "Completed")  # final "workflow complete"
+
+    # progress indices are populated on the status dicts (neutral item_* keys)
+    a_start = next(
+        e["status"] for e in ui.grid_workflow_update_signal.events
+        if e["status"]["item_name"] == "A" and e["status"]["status"] == "InProgress"
+    )
+    assert a_start["total_items"] == 2 and a_start["current_item_index"] == 0
+    assert a_start["total_tasks"] == 1 and a_start["current_task_index"] == 0
+    assert a_start["grid_name"] == "A"  # grid-specific alias still present
+
+
 def test_ensure_loaded_noop_when_already_loaded(demo_microscope, experiment):
     name = list(demo_microscope._stage.holder.slots.keys())[0]
     demo_microscope._stage.holder.slots[name].loaded_grid = SampleGrid(name="X")

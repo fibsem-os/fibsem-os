@@ -14,6 +14,7 @@ be extracted once both are concrete (see the design doc, §8 Decisions).
 
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, GridRecord
@@ -43,6 +44,8 @@ class GridTaskManager:
         self.parent_ui = parent_ui
         self._stop_event = threading.Event()
         self.queue = TaskQueue()
+        self._task_names: List[str] = []
+        self._grid_names: List[str] = []
 
     # --- public API ---
 
@@ -56,6 +59,8 @@ class GridTaskManager:
         if grid_names is None:
             grid_names = [g.name for g in self.experiment.grids]
 
+        self._task_names = list(task_names)
+        self._grid_names = list(grid_names)
         self.queue.build_from_matrix(task_names, grid_names, unit_outer=True)
         self._run_queue(required=grid_names)
 
@@ -110,7 +115,7 @@ class GridTaskManager:
             if item is None:
                 break
 
-            record = self.experiment.get_grid_by_name(item.lamella_name)
+            record = self.experiment.get_grid_by_name(item.item_name)
             if record is None:
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 continue
@@ -121,15 +126,48 @@ class GridTaskManager:
                     f"Skipping grid {record.name} for {item.task_name}: {skip_reason}."
                 )
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self._emit_status(record.name, item.task_name, "Skipped",
+                                  skip_reason=skip_reason)
                 continue
 
             # bring the grid into the working slot (halts the workflow on failure)
             self.ensure_loaded(record)
 
+            self._emit_status(record.name, item.task_name, "InProgress",
+                              msg=f"Running {item.task_name} on {record.name}")
             self._run_single_task(item.task_name, record)
             self.queue.mark_done(item, record.task_state.status)
+            self._emit_status(record.name, item.task_name,
+                              record.task_state.status.name,
+                              error_message=record.task_state.status_message or None)
 
         logging.info("Grid workflow complete.\n%s", self.queue.items)
+        self._emit_status("", "", "Completed", msg="Grid workflow complete.")
+
+    def _emit_status(self, grid_name: str, task_name: str, status: str, *,
+                     msg: Optional[str] = None, error_message: Optional[str] = None,
+                     skip_reason: Optional[str] = None) -> None:
+        """Emit grid_workflow_update_signal (thread → GUI). No-op without a UI."""
+        if self.parent_ui is None:
+            return
+        tasks, grids = self._task_names, self._grid_names
+        status_dict = {
+            "item_name": grid_name,   # neutral key shared with the timeline
+            "grid_name": grid_name,   # grid-specific alias for grid consumers
+            "task_name": task_name,
+            "status": status,
+            "timestamp": time.time(),
+            "error_message": error_message,
+            "skip_reason": skip_reason,
+            "task_names": tasks,
+            "total_tasks": len(tasks),
+            "current_task_index": tasks.index(task_name) if task_name in tasks else None,
+            "item_names": grids,
+            "total_items": len(grids),
+            "current_item_index": grids.index(grid_name) if grid_name in grids else None,
+            "queue_items": self.queue.items,
+        }
+        self.parent_ui.grid_workflow_update_signal.emit({"msg": msg or "", "status": status_dict})
 
     def _should_skip(self, record: GridRecord, task_name: str,
                      required: List[str]) -> Optional[str]:

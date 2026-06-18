@@ -78,13 +78,13 @@ class TaskManager:
             if item is None:
                 break
 
-            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            lamella = self.experiment.get_lamella_by_name(item.item_name)
             if lamella is None:
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 continue
 
             task_names = self.queue.task_names
-            lamella_names = self.queue.lamella_names
+            lamella_names = self.queue.item_names
 
             skip_reason = self._should_skip(lamella, item.task_name, lamella_names)
             if skip_reason is not None:
@@ -186,7 +186,8 @@ class TaskManager:
 
         status_dict = {
             "task_name": task_name,
-            "lamella_name": lamella.name,
+            "item_name": lamella.name,    # neutral key shared with the timeline
+            "lamella_name": lamella.name,  # lamella-specific alias (status bar)
             "status": status,
             "timestamp": time.time(),
             "error_message": error_message,
