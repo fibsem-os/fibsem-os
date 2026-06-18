@@ -1158,6 +1158,14 @@ class Experiment:
         self.grids.append(grid)
         logging.info(f"Added grid {grid.name} to experiment {self.name}")
 
+    def remove_grid(self, name: str) -> None:
+        """Remove the grid record with the given name from the experiment."""
+        record = self.get_grid_by_name(name)
+        if record is None:
+            return
+        self.grids.remove(record)
+        logging.info(f"Removed grid {name} from experiment {self.name}")
+
     def sync_grids_from_holder(self, microscope: 'FibsemMicroscope') -> None:
         """Create GridRecords for any loaded grid not yet tracked. Idempotent.
 
@@ -1176,7 +1184,9 @@ class Experiment:
         _track(microscope._stage.holder.slots.values())
         loader = microscope._stage.loader
         if loader is not None:
-            _track(loader.run_inventory())
+            # read the already-known magazine state directly; run_inventory()
+            # simulates a slow hardware scan and would block the caller.
+            _track(loader.loaded_magazine_slots)
         self.save()
 
     def save(self, save_protocol: bool = False) -> None:

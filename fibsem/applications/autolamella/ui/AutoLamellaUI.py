@@ -169,6 +169,9 @@ class AutoLamellaUI(QMainWindow):
     # (action, grid_name, error) — thread-safe bridge for the Sample tab
     # hardware exchange (action is "load"/"unload"; error is None on success)
     _sample_exchange_finished_signal = pyqtSignal(str, str, object)
+    # emitted after a load/unload changes which grid is in the working slot, so
+    # hosts (e.g. the Grids tab) can refresh their "in microscope" state
+    sample_state_changed_signal = pyqtSignal()
 
     def __init__(
         self,
@@ -866,6 +869,14 @@ class AutoLamellaUI(QMainWindow):
         if self.holder_widget is not None:
             self.holder_widget.refresh()
 
+    def request_grid_load(self, grid_name: str) -> None:
+        """Public entry: load a grid into the working slot (e.g. from the Grids tab)."""
+        self._on_grid_load_requested(grid_name)
+
+    def request_grid_unload(self) -> None:
+        """Public entry: retract the working-slot grid (e.g. from the Grids tab)."""
+        self._on_grid_unload_requested()
+
     def _on_grid_load_requested(self, grid_name: str) -> None:
         """Exchange a magazine grid into the working slot (on a worker thread)."""
         if self._sample_worker_thread is not None and self._sample_worker_thread.is_alive():
@@ -926,6 +937,8 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(f"Grid exchange failed: {error}", "error")
         elif action == "load":
             notification_service.show_toast(f"Loaded '{grid_name}' into the beam.", "info")
+        # notify hosts (Grids tab) so the "in microscope" state stays in sync
+        self.sample_state_changed_signal.emit()
 
     def _set_sample_busy(self, busy: bool) -> None:
         """Show the magazine spinner + block its controls during a hardware exchange."""

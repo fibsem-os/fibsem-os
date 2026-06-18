@@ -52,6 +52,15 @@ def main() -> None:
     # emits connected_signal -> builds the microscope tabs, including "Sample"
     system_widget.update_ui()
 
+    # create a throwaway experiment so the Grids tab's "Add from Loader" has
+    # somewhere to import into (experiment.grids).
+    import tempfile
+    from fibsem.applications.autolamella.structures import Experiment
+
+    exp = Experiment.create(path=tempfile.mkdtemp(), name="grids-demo")
+    window.autolamella_ui.experiment = exp
+    window.autolamella_ui.experiment_update_signal.emit()
+
     # jump straight to the Sample sub-tab
     inner = window.autolamella_ui.tabWidget
     if window.autolamella_ui.sample_tab is not None:
