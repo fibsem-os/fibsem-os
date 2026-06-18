@@ -139,14 +139,32 @@ class GridTask(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     def run(self):
-        """Execute the task lifecycle: pre_task -> _run -> post_task."""
+        """Execute the task lifecycle: pre_task -> _run -> post_task, firing
+        lifecycle hooks (logging / notifications / webhooks)."""
         self.pre_task()
+        self._fire_hook("task_started")
         try:
             self._run()
         except Exception as error:
             self.on_failure(error)
+            self._fire_hook("task_failed", error=str(error))
             raise
         self.post_task()
+        self._fire_hook("task_completed")
+
+    def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
+        hook_manager = getattr(self.task_manager, "hook_manager", None)
+        if hook_manager is None:
+            return
+        from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext
+        hook_manager.fire(HookContext(
+            event=event,
+            task_name=self.task_name,
+            task_type=self.task_type,
+            item_name=self.grid.name,
+            task_state=self.grid.task_state,
+            error=error,
+        ))
 
     def pre_task(self) -> None:
         """Mark the grid's task_state as InProgress and stamp the start time."""
@@ -179,8 +197,9 @@ class GridTask(ABC):
         ts.status = AutoLamellaTaskStatus.Failed
         ts.status_message = str(error)
         self.grid.task_history.append(deepcopy(ts))
-        logging.warning(
-            f"Grid task {self.task_name} failed for grid {self.grid.name}: {error}"
+        logging.error(
+            f"Grid task {self.task_name} failed for grid {self.grid.name}: {error}",
+            exc_info=True,
         )
 
     def _get_stage_position_for_orientation(
@@ -210,8 +229,8 @@ def _default_overview_settings() -> OverviewAcquisitionSettings:
             path=None,
             filename="overview-image",
         ),
-        nrows=3,
-        ncols=3,
+        nrows=1,
+        ncols=2,
     )
 
 

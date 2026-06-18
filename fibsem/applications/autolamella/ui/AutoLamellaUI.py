@@ -385,6 +385,10 @@ class AutoLamellaUI(QMainWindow):
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
+        # a grid workflow exchanges grids (ensure_loaded) as it runs — keep the
+        # Sample tab's holder + magazine views in sync with the working slot
+        self.grid_workflow_update_signal.connect(self._refresh_sample_views)
+        self._workflow_finished_signal.connect(lambda *_: self._refresh_sample_views())
 
         # labels and placeholders
         self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
@@ -943,6 +947,14 @@ class AutoLamellaUI(QMainWindow):
         # notify hosts (Grids tab) so the "in microscope" state stays in sync
         self.sample_state_changed_signal.emit()
 
+    def _refresh_sample_views(self, *args) -> None:
+        """Refresh the Sample tab's holder + magazine to match the working slot
+        (e.g. after a grid workflow exchanges grids on its worker thread)."""
+        if self.holder_widget is not None:
+            self.holder_widget.refresh()
+        if self.magazine_widget is not None:
+            self.magazine_widget.refresh_rows()
+
     def _set_sample_busy(self, busy: bool) -> None:
         """Show the magazine spinner + block its controls during a hardware exchange."""
         if self.magazine_widget is None:
@@ -1214,10 +1226,89 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
+    def _start_grid_workflow_thread(
+        self, task_names: List[str], grid_names: List[str]
+    ) -> None:
+        """Run a grid workflow on a worker thread (shares the workflow thread slot
+        + Run/Stop infra with the lamella workflow → mutually exclusive)."""
+        self._task_worker_thread = threading.Thread(
+            target=self._run_grid_tasks_worker,
+            args=(task_names, grid_names),
+            daemon=True,
+        )
+        self._task_worker_thread.start()
+
+    def _run_grid_tasks_worker(
+        self, task_names: List[str], grid_names: Optional[List[str]] = None
+    ) -> None:
+        """Worker thread for the grid workflow."""
+        from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
+            GridTaskManager,
+        )
+
+        try:
+            self._workflow_stop_event.clear()
+            if self.microscope is None or self.experiment is None:
+                logging.error("No microscope or experiment loaded.")
+                return
+
+            if not self.microscope.is_on(BeamType.ELECTRON):
+                self.microscope.turn_on(BeamType.ELECTRON)
+            if not self.microscope.is_on(BeamType.ION):
+                self.microscope.turn_on(BeamType.ION)
+
+            logging.info(f"Starting grid tasks: {task_names}, for grids: {grid_names}")
+            self._task_manager = GridTaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_grid_hooks(),
+            )
+            self._task_manager.run(task_names=task_names, grid_names=grid_names)
+        except Exception as e:
+            logging.error(f"Error during running grid tasks: {e}")
+        finally:
+            cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            self._task_manager = None
+            self._task_worker_thread = None
+            self._workflow_finished_signal.emit(cancelled)  # type: ignore
+
     def stop_task_workflow(self):
         if not self.is_workflow_running:
             return
         self._stop_workflow_thread()
+
+    def setup_grid_hooks(self) -> HookManager:
+        """Build the HookManager for grid task lifecycle events (logging + toasts)."""
+        manager = HookManager()
+        manager.register(
+            LoggingHook(
+                name="grid_task_logger",
+                events=[
+                    HookEvent.TASK_STARTED,
+                    HookEvent.TASK_COMPLETED,
+                    HookEvent.TASK_FAILED,
+                ],
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="grid_completion_toast",
+                events=[HookEvent.TASK_COMPLETED],
+                notification_type="success",
+                message_template="Grid task {task_name} complete for {item_name}",
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="grid_failure_toast",
+                events=[HookEvent.TASK_FAILED],
+                notification_type="error",
+                message_template="Grid task {task_name} FAILED for {item_name}: {error}",
+            )
+        )
+        manager.wire(self)
+        return manager
 
     def setup_hooks(self) -> HookManager:
         """Build the default HookManager for task lifecycle events."""

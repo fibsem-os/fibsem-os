@@ -26,6 +26,7 @@ from fibsem.microscopes._stage import GridSlot, SampleGrid
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.workflows.tasks.hooks import HookManager
 
 
 class GridExchangeError(RuntimeError):
@@ -38,10 +39,12 @@ class GridTaskManager:
     def __init__(self,
                  microscope: FibsemMicroscope,
                  experiment: 'Experiment',
-                 parent_ui: Optional['AutoLamellaUI'] = None):
+                 parent_ui: Optional['AutoLamellaUI'] = None,
+                 hook_manager: Optional['HookManager'] = None):
         self.microscope = microscope
         self.experiment = experiment
         self.parent_ui = parent_ui
+        self.hook_manager = hook_manager
         self._stop_event = threading.Event()
         self.queue = TaskQueue()
         self._task_names: List[str] = []
@@ -173,8 +176,9 @@ class GridTaskManager:
                      required: List[str]) -> Optional[str]:
         if required and record.name not in required:
             return "not_required"
-        if record.is_failure:
-            return "failure"
+        # NOTE: a failed task does NOT fail the grid — grid tasks are independent,
+        # so a failure is recorded per-task (task_state/history) but the grid's
+        # other tasks (and other grids) still run.
         return None
 
     def _run_single_task(self, task_name: str, record: GridRecord) -> Optional[Exception]:
@@ -183,8 +187,9 @@ class GridTaskManager:
                           parent_ui=self.parent_ui, task_manager=self)
             return None
         except Exception as e:
-            logging.warning(
-                f"Error running grid task {task_name} for grid {record.name}: {e}"
+            logging.error(
+                f"Error running grid task {task_name} for grid {record.name}: {e}",
+                exc_info=True,
             )
             # task.on_failure already recorded Failed state; persist it
             self.experiment.save()

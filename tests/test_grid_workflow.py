@@ -55,6 +55,15 @@ class _BoomGridTask(GridTask):
 @pytest.fixture
 def demo_microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
+    # build a deterministic 2-slot, non-compustage holder (no loader) so the grid
+    # tests don't depend on the machine's default config / suite-order state.
+    from fibsem.microscopes._stage import SampleHolder, Stage
+
+    microscope.stage_is_compustage = False
+    holder = SampleHolder(name="Test Holder", capacity=2)
+    holder._ensure_slots()
+    holder._parent = microscope
+    microscope._stage = Stage(parent=microscope, holder=holder, loader=None)
     return microscope
 
 
@@ -318,7 +327,9 @@ def test_workflow_runs_grid_outer(demo_microscope, experiment, register_order_ta
     assert experiment.get_grid_by_name("A").has_completed_task("t2")
 
 
-def test_task_failure_isolated_to_its_grid(demo_microscope, experiment, register_order_task):
+def test_task_failure_does_not_skip_grid(demo_microscope, experiment, register_order_task):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
     _load_two_grids(demo_microscope)
     experiment.sync_grids_from_holder(demo_microscope)
     experiment.grid_protocol.task_config["t1"] = _OrderConfig(task_name="t1", fail_on="A")
@@ -326,9 +337,43 @@ def test_task_failure_isolated_to_its_grid(demo_microscope, experiment, register
 
     run_grid_workflow(demo_microscope, experiment, ["t1", "t2"], grid_names=["A", "B"])
 
-    # A,t1 fails -> A,t2 skipped (grid marked failure); B runs fully
-    assert _OrderGridTask.log == [("A", "t1"), ("B", "t1"), ("B", "t2")]
-    assert experiment.get_grid_by_name("A").is_failure
+    # A,t1 fails but A,t2 STILL runs — a failed task does not fail the grid
+    assert _OrderGridTask.log == [("A", "t1"), ("A", "t2"), ("B", "t1"), ("B", "t2")]
+
+    grid_a = experiment.get_grid_by_name("A")
+    # the failure is recorded per-task in history, not as a grid-level failure
+    assert any(ts.status is AutoLamellaTaskStatus.Failed for ts in grid_a.task_history)
+    assert not grid_a.is_failure  # last task (t2) completed, so grid isn't failed
+
+
+def test_workflow_fires_lifecycle_hooks(demo_microscope, experiment, register_order_task):
+    from fibsem.applications.autolamella.workflows.tasks.grid_manager import GridTaskManager
+    from fibsem.applications.autolamella.workflows.tasks.hooks import (
+        FunctionHook,
+        HookEvent,
+        HookManager,
+    )
+
+    _load_two_grids(demo_microscope)
+    experiment.sync_grids_from_holder(demo_microscope)
+    experiment.grid_protocol.task_config["t1"] = _OrderConfig(task_name="t1", fail_on="A")
+
+    fired = []
+    hooks = HookManager()
+    hooks.register(FunctionHook(
+        name="capture",
+        events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED, HookEvent.TASK_FAILED],
+        callback=lambda ctx: fired.append((ctx.item_name, ctx.task_name, ctx.event)),
+    ))
+
+    GridTaskManager(demo_microscope, experiment, hook_manager=hooks).run(
+        ["t1"], grid_names=["A", "B"]
+    )
+
+    # A fails its task, B completes — hooks fire with the grid name as item_name
+    assert ("A", "t1", "task_started") in fired
+    assert ("A", "t1", "task_failed") in fired
+    assert ("B", "t1", "task_completed") in fired
 
 
 class _StubSignal:
