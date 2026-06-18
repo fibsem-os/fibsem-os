@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 
@@ -61,6 +62,7 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.ui.widgets.grid_card_widget import GridCardContainer
+from fibsem.ui.widgets.grid_results_widget import GridResultsWidget
 from fibsem.ui.widgets.grid_workflow_widget import GridWorkflowWidget
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
@@ -1259,8 +1261,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._on_lamella_card_selected(None)
 
     def add_grids_tab(self):
-        """Grids tab: experiment grid records (left) + placeholder for the
-        Protocol / Run / Results sub-tabs (right). Phase 4a is list + add/remove.
+        """Grids tab: experiment grid records (left) + Protocol / Results
+        sub-tabs (right). Execution lives in the Workflow tab, not here.
         """
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -1285,13 +1287,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         left_layout.addWidget(self.grids_view)
         splitter.addWidget(left)
 
-        # right: placeholder until Protocol / Run / Results are built
-        self._grids_placeholder = QLabel(
-            "Select a grid.\n\nProtocol · Run · Results coming soon."
+        # right: Protocol (experiment-wide grid task config) | Results (per grid)
+        self.grids_right_tabs = QTabWidget()
+        self._grids_protocol_placeholder = QLabel(
+            "Grid protocol editor — coming soon."
         )
-        self._grids_placeholder.setAlignment(Qt.AlignCenter)
-        self._grids_placeholder.setStyleSheet("color: #808080; padding: 24px;")
-        splitter.addWidget(self._grids_placeholder)
+        self._grids_protocol_placeholder.setAlignment(Qt.AlignCenter)
+        self._grids_protocol_placeholder.setStyleSheet("color: #808080; padding: 24px;")
+        self.grids_right_tabs.addTab(self._grids_protocol_placeholder, "Protocol")
+
+        self.grids_results_widget = GridResultsWidget()
+        self.grids_right_tabs.addTab(self.grids_results_widget, "Results")
+
+        splitter.addWidget(self.grids_right_tabs)
+        splitter.setStretchFactor(1, 1)
         splitter.setSizes([340, 99999])
 
         layout.addWidget(splitter)
@@ -1324,6 +1333,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if s.loaded_grid is not None
         }
 
+    def _grid_thumbnails(self) -> dict:
+        """Map grid name → overview thumbnail PNG path (from results), if it exists."""
+        out = {}
+        for g in self.autolamella_ui.experiment.grids:
+            for art in g.results.values():
+                thumb = art.get("thumbnail") if isinstance(art, dict) else None
+                if thumb and os.path.exists(thumb):
+                    out[g.name] = thumb
+                    break
+        return out
+
     def _refresh_grid_list(self):
         ui = self.autolamella_ui
         if ui is None or ui.experiment is None:
@@ -1335,6 +1355,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._grid_slot_labels(),
             self._grid_beam_names(),
             loader_present,
+            self._grid_thumbnails(),
         )
         # keep the Workflow-tab grid checklist in sync (built in a later tab)
         if hasattr(self, "grid_workflow_widget"):
@@ -1410,13 +1431,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_timeline.update_from_status(status_msg)
             self.set_workflow_running(info.get("msg") or "Running grid workflow")
         self._refresh_grid_list()
+        # refresh the Results view for the running grid as artifacts appear
+        running = status_msg.get("item_name") if status_msg else None
+        if running and self.grids_view.selected_grid is not None \
+                and self.grids_view.selected_grid.name == running:
+            self._on_grid_selected(self.grids_view.selected_grid)
 
     def _on_grid_selected(self, record):
-        """Placeholder until the Protocol/Run/Results sub-tabs land."""
-        if record is not None:
-            self._grids_placeholder.setText(
-                f"{record.name}\n\nProtocol · Run · Results coming soon."
-            )
+        """Show the selected grid's results in the Results sub-tab."""
+        exp = self.autolamella_ui.experiment if self.autolamella_ui else None
+        slot = self._grid_slot_labels().get(record.name, "") if record else ""
+        in_beam = record.name in self._grid_beam_names() if record else False
+        self.grids_results_widget.set_grid(record, exp, slot, in_beam)
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""

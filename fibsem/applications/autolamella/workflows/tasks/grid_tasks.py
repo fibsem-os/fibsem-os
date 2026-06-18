@@ -202,6 +202,11 @@ class GridTask(ABC):
             exc_info=True,
         )
 
+    def record_result(self, **artifacts: Any) -> None:
+        """Record this task's output artifacts/metadata on the grid record, keyed
+        by task_name, for the Results UI (e.g. record_result(overview=path))."""
+        self.grid.results[self.task_name] = dict(artifacts)
+
     def _get_stage_position_for_orientation(
         self,
         stage_position: FibsemStagePosition,
@@ -263,12 +268,34 @@ class AcquireOverviewImageGridTask(GridTask):
 
         self._move_to_grid_slot_position(self.config.orientation)
 
-        tiled_image_acquisition_and_stitch(
+        image = tiled_image_acquisition_and_stitch(
             microscope=self.microscope,
             settings=self.config.settings
         )
 
+        # save the stitched overview (full) + a small thumbnail (for grid cards)
+        overview_path = os.path.join(test_path, "overview.tif")
+        image.save(overview_path)
+        thumb_path = self._save_thumbnail(image)
+        self.record_result(overview=overview_path, thumbnail=thumb_path)
+
         logging.info(f"Acquired overview image for grid {self.grid.name}")
+
+    def _save_thumbnail(self, image, width: int = 400) -> str:
+        """Save a small resized PNG thumbnail of the overview for grid cards."""
+        import numpy as np
+        from PIL import Image as PILImage
+
+        data = image.data
+        if data.ndim == 3:
+            data = data[..., :3]
+        else:
+            data = np.stack([data, data, data], axis=2)
+        thumb = PILImage.fromarray(data.astype(np.uint8))
+        thumb.thumbnail((width, width))  # preserves aspect ratio
+        thumb_path = os.path.join(self.experiment.path, self.grid.name, "thumbnail.png")
+        thumb.save(thumb_path)
+        return thumb_path
 
 
 
@@ -309,7 +336,9 @@ class AcquireImageTask(GridTask):
 
         from fibsem import utils
         image = self.microscope.acquire_image(image_settings=image_settings)
-        image.save(os.path.join(test_path, f"grid-image-{utils.current_timestamp_v3()}"))
+        image_path = os.path.join(test_path, f"grid-image-{utils.current_timestamp_v3()}.tif")
+        image.save(image_path)
+        self.record_result(image=image_path)
 
         self.microscope.set_microscope_state(inital_state)
 
@@ -390,7 +419,9 @@ class CryoCleaningGridTask(GridTask):
         image = self.microscope.acquire_image(beam_type=BeamType.ION)
         path = os.path.join(self.experiment.path, self.grid.name, self.task_name)
         os.makedirs(path, exist_ok=True)
-        image.save(os.path.join(path, "post-grid-cleaining_ib.tif"))
+        fib_path = os.path.join(path, "post-grid-cleaining_ib.tif")
+        image.save(fib_path)
+        self.record_result(fib=fib_path)
 
 @dataclass
 class ParallelTrenchMillingGridTaskConfig(GridTaskConfig):

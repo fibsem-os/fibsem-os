@@ -15,6 +15,8 @@ image arrive with later phases.
 
 from __future__ import annotations
 
+import os
+
 from typing import TYPE_CHECKING, List, Optional
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
@@ -152,6 +154,7 @@ class GridCardWidget(QWidget):
 
     def __init__(self, record: "GridRecord", slot_label: str = "",
                  in_beam: bool = False, loader_present: bool = True,
+                 thumbnail_path: Optional[str] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.record = record
@@ -172,6 +175,11 @@ class GridCardWidget(QWidget):
 
         self._thumb = _GridThumbnail(_CARD_WIDTH - 8 - 16, _THUMB_HEIGHT)
         self._thumb.set_in_beam(in_beam)
+        # show the persisted overview thumbnail (small PNG) if present, else mesh
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            pm = QPixmap(thumbnail_path)
+            if not pm.isNull():
+                self._thumb.set_pixmap(pm)
         card_layout.addWidget(self._thumb)
 
         sep = QFrame()
@@ -330,10 +338,12 @@ class GridCardContainer(QWidget):
     # --- public API (mirrors GridListWidget) ---
 
     def set_grids(self, grids: List["GridRecord"], slot_labels: Optional[dict] = None,
-                  beam_names: Optional[set] = None, loader_present: bool = True) -> None:
+                  beam_names: Optional[set] = None, loader_present: bool = True,
+                  thumbnails: Optional[dict] = None) -> None:
         """Rebuild the cards, preserving selection by name."""
         slot_labels = slot_labels or {}
         beam_names = beam_names or set()
+        thumbnails = thumbnails or {}
         prev = self._selected_name
 
         for card in self._cards:
@@ -346,6 +356,7 @@ class GridCardContainer(QWidget):
                 slot_label=slot_labels.get(record.name, ""),
                 in_beam=record.name in beam_names,
                 loader_present=loader_present,
+                thumbnail_path=thumbnails.get(record.name),
             )
             card.clicked.connect(self._on_card_clicked)
             card.remove_requested.connect(self.remove_requested)

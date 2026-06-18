@@ -52,6 +52,13 @@ class _BoomGridTask(GridTask):
         raise RuntimeError("boom")
 
 
+class _ResultGridTask(GridTask):
+    config_cls = _NoOpGridConfig
+
+    def _run(self):
+        self.record_result(overview="/tmp/overview.tif", pixel_size=1.2e-8)
+
+
 @pytest.fixture
 def demo_microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -158,6 +165,24 @@ def test_grid_task_lifecycle_success(demo_microscope, experiment):
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
     assert record.has_completed_task("NOOP_GRID")
     assert record.task_state.duration >= 0
+
+
+def test_grid_task_records_result(demo_microscope, experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+
+    _ResultGridTask(demo_microscope, _NoOpGridConfig(task_name="NOOP_GRID"),
+                    record, experiment).run()
+
+    assert record.results["NOOP_GRID"]["overview"] == "/tmp/overview.tif"
+    assert record.results["NOOP_GRID"]["pixel_size"] == 1.2e-8
+
+
+def test_grid_record_results_roundtrip():
+    record = GridRecord(name="grid-aspen")
+    record.results = {"OVERVIEW": {"overview": "/p/overview.tif", "pixel_size": 1e-8}}
+    restored = GridRecord.from_dict(record.to_dict())
+    assert restored.results == record.results
 
 
 def test_grid_task_lifecycle_failure_records_state(demo_microscope, experiment):

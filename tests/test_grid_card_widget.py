@@ -95,6 +95,27 @@ def test_card_remove_emits(container):
     assert seen and seen[0].name == "grid-birch"
 
 
+def test_thumbnail_loaded_into_card(container, tmp_path):
+    from PIL import Image
+    import numpy as np
+
+    thumb = tmp_path / "thumbnail.png"
+    Image.fromarray(np.zeros((40, 60, 3), dtype=np.uint8)).save(thumb)
+
+    rec = GridRecord(name="grid-aspen")
+    container.set_grids([rec], thumbnails={"grid-aspen": str(thumb)})
+    card = _cards(container)[0]
+    # the card's thumbnail widget received the loaded pixmap (mesh fallback = None)
+    assert card._thumb._pixmap is not None
+    assert not card._thumb._pixmap.isNull()
+
+
+def test_no_thumbnail_keeps_mesh(container):
+    rec = GridRecord(name="grid-birch")
+    container.set_grids([rec])  # no thumbnails
+    assert _cards(container)[0]._thumb._pixmap is None
+
+
 def test_loader_present_flag_on_cards(container):
     records = _records()
     container.set_grids(records, loader_present=False)

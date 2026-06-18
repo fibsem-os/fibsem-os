@@ -18,17 +18,37 @@ Run (PYTHONPATH so the worktree's fibsem is imported, not an installed copy):
     PYTHONPATH=$PWD python fibsem/ui/widgets/tests/launch-sample-tab.py
 """
 
+import os
 import sys
 
 from PyQt5.QtWidgets import QApplication
 
+from fibsem import config as cfg
 from fibsem import utils
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
     AutoLamellaSingleWindowUI,
 )
 from fibsem.microscopes._stage import SampleGrid
 
 ARCTIS_SIM_CONFIG = "fibsem/config/sim-arctis-configuration.yaml"
+DEMO_GRIDS = ["Grid-04", "Grid-05", "Grid-06"]
+
+
+def _load_experiment() -> Experiment:
+    """Load the user's last experiment, or create a throwaway one as a fallback."""
+    last = cfg.load_user_preferences().experiment.last_experiment_path
+    if last and os.path.exists(os.path.join(last, "experiment.yaml")):
+        try:
+            exp = Experiment.load(os.path.join(last, "experiment"))
+            print(f"Loaded last experiment: {exp.name} ({last})")
+            return exp
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to load last experiment ({last}): {e}")
+    import tempfile
+
+    print("No last experiment; creating a throwaway one.")
+    return Experiment.create(path=tempfile.mkdtemp(), name="grids-demo")
 
 
 def main() -> None:
@@ -44,21 +64,16 @@ def main() -> None:
         config_path=ARCTIS_SIM_CONFIG,
     )
 
-    # pre-load a couple of magazine slots so there's something to see
+    # pre-load Grid-04/05/06 into matching magazine slots so they're ready
     loader = system_widget.microscope._stage.loader
-    loader.assign_grid("Magazine-01", SampleGrid(name="grid-aspen"))
-    loader.assign_grid("Magazine-02", SampleGrid(name="grid-birch"))
+    for i, name in enumerate(DEMO_GRIDS, start=4):
+        loader.assign_grid(f"Magazine-{i:02d}", SampleGrid(name=name))
 
     # emits connected_signal -> builds the microscope tabs, including "Sample"
     system_widget.update_ui()
 
-    # create a throwaway experiment so the Grids tab's "Add from Loader" has
-    # somewhere to import into (experiment.grids).
-    import tempfile
-    from fibsem.applications.autolamella.structures import Experiment
-
-    exp = Experiment.create(path=tempfile.mkdtemp(), name="grids-demo")
-    window.autolamella_ui.experiment = exp
+    # load the user's last experiment (so grids/results persist between runs)
+    window.autolamella_ui.experiment = _load_experiment()
     window.autolamella_ui.experiment_update_signal.emit()
 
     # jump straight to the Sample sub-tab

@@ -942,6 +942,9 @@ class GridRecord:
     _id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List['AutoLamellaTaskState'] = field(default_factory=list)
+    # per-task artifacts/metadata (task_name -> {image paths, pixel_size, ...}),
+    # written by tasks via GridTask.record_result; read by the Results UI
+    results: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def completed_tasks(self) -> List[str]:
@@ -963,6 +966,7 @@ class GridRecord:
             "_id": self._id,
             "task_state": self.task_state.to_dict(),
             "task_history": [ts.to_dict() for ts in self.task_history],
+            "results": deepcopy(self.results),
         }
 
     @classmethod
@@ -974,6 +978,7 @@ class GridRecord:
         record.task_history = [
             AutoLamellaTaskState.from_dict(ts) for ts in data.get("task_history", [])
         ]
+        record.results = dict(data.get("results", {}))
         return record
 
 
