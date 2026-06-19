@@ -80,11 +80,12 @@ def test_task_order_and_supervise_persist(widget):
     changed = []
     widget.workflow_changed.connect(lambda: changed.append(True))
 
-    # move B up → run order is B, A; get_selected_tasks honors order
-    widget._tasks._rows[1].move_requested.emit(widget._tasks._rows[1].task, -1)
+    # drag B above A → run order B, A (simulate the list's drop → reordered)
+    a, b = widget._tasks._rows[0].task, widget._tasks._rows[1].task
+    widget._tasks._on_reordered([b, a])
     assert proto.workflow_config.order == ["B", "A"]
 
-    # supervise toggle persists onto the description
+    # supervise toggle persists onto the description (row 0 is now B)
     widget._tasks._rows[0].btn_supervise.setChecked(True)
     assert proto.workflow_config.get("B").supervise is True
     assert changed  # both edits emitted workflow_changed → host persists
