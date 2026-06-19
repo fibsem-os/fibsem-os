@@ -55,10 +55,11 @@ class AcquireOverviewImageGridTask(GridTask):
         self.config.settings.image_settings.path = test_path
 
         logging.info(f"Path: {test_path}")
-        logging.info(f"Moving to grid {self.grid.name} at slot {slot}")
+        self.update_status_ui(f"Moving to grid {self.grid.name}...")
 
         self._move_to_grid_slot_position(self.config.orientation)
 
+        self.update_status_ui("Acquiring overview image...")
         image = tiled_image_acquisition_and_stitch(
             microscope=self.microscope,
             settings=self.config.settings
@@ -125,10 +126,11 @@ class AcquireImageTask(GridTask):
         # self.config.settings.image_settings.path = test_path
 
         logging.info(f"Path: {test_path}")
-        logging.info(f"Moving to grid {self.grid.name} at slot {slot}")
+        self.update_status_ui(f"Moving to grid {self.grid.name}...")
 
         self._move_to_grid_slot_position(self.config.orientation)
 
+        self.update_status_ui("Acquiring image...")
         image_settings = self.config.image_settings  # per-run copy (run_grid_task deepcopies)
         image_settings.save = False
 

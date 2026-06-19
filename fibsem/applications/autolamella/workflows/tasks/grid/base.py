@@ -217,6 +217,44 @@ class GridTask(ABC):
         os.makedirs(path, exist_ok=True)
         return path
 
+    # --- user interaction (mirrors the lamella task primitives) ---
+
+    @property
+    def validate(self) -> bool:
+        """Whether this task is supervised (pauses for user confirmation).
+
+        Read live from the grid workflow config's per-task supervise flag (the
+        grid analogue of the lamella ``get_task_supervision``).
+        """
+        protocol = getattr(self.experiment, "grid_protocol", None)
+        wf = getattr(protocol, "workflow_config", None)
+        if wf is None:
+            return False
+        desc = wf.get(self.task_name)
+        return bool(desc.supervise) if desc is not None else False
+
+    def update_status_ui(self, message: str, workflow_info: Optional[str] = None) -> None:
+        """Push a status message to the shared workflow status bar (prefixed with
+        the grid + task). No-op (logs) in headless mode."""
+        # lazy import to avoid pulling the heavy workflows.ui module at import time
+        from fibsem.applications.autolamella.workflows.ui import update_status_ui
+        update_status_ui(
+            parent_ui=self.parent_ui,
+            msg=f"{self.grid.name} [{self.task_name}] {message}",
+            workflow_info=workflow_info,
+        )
+
+    def ask_user(self, msg: str, pos: str = "Continue", neg: Optional[str] = "Cancel") -> bool:
+        """Pause for user confirmation when supervised; auto-continue otherwise.
+
+        Returns True to proceed. When the task is not supervised (or headless),
+        returns True immediately without prompting.
+        """
+        if not self.validate:
+            return True
+        from fibsem.applications.autolamella.workflows.ui import ask_user
+        return ask_user(parent_ui=self.parent_ui, msg=msg, pos=pos, neg=neg)
+
     def _get_stage_position_for_orientation(
         self,
         stage_position: FibsemStagePosition,

@@ -224,6 +224,58 @@ def test_protocol_back_compat_without_workflow_config():
     assert restored.workflow_config.order == ["Overview"]
 
 
+# --- task user-interaction primitives (ask_user / update_status_ui) --------
+
+def test_grid_task_validate_reads_supervise(demo_microscope, experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"), record, experiment)
+    # no workflow description → not supervised
+    assert task.validate is False
+    experiment.grid_protocol.workflow_config.tasks = [
+        GridTaskDescription(name="T", supervise=True)
+    ]
+    assert task.validate is True
+    experiment.grid_protocol.workflow_config.get("T").supervise = False
+    assert task.validate is False
+
+
+def test_grid_task_ask_user_gated_by_supervise(demo_microscope, experiment, monkeypatch):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+    calls = []
+    monkeypatch.setattr(wfui, "ask_user", lambda **kw: (calls.append(kw), "RESPONSE")[1])
+
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"),
+                         record, experiment, parent_ui=object())
+
+    # not supervised → auto-continue (True), module ask_user not called
+    assert task.ask_user("Go?") is True
+    assert calls == []
+
+    # supervised → delegates to the module ask_user with the message/buttons
+    experiment.grid_protocol.workflow_config.tasks = [
+        GridTaskDescription(name="T", supervise=True)
+    ]
+    assert task.ask_user("Go?", pos="Start", neg="Skip") == "RESPONSE"
+    assert calls[-1]["msg"] == "Go?" and calls[-1]["pos"] == "Start" and calls[-1]["neg"] == "Skip"
+
+
+def test_grid_task_update_status_ui_prefixes(demo_microscope, experiment, monkeypatch):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+    seen = []
+    monkeypatch.setattr(
+        wfui, "update_status_ui",
+        lambda parent_ui, msg, workflow_info=None: seen.append(msg),
+    )
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"), record, experiment)
+    task.update_status_ui("Working...")
+    assert seen == ["grid-aspen [T] Working..."]
+
+
 # --- GridTask lifecycle ----------------------------------------------------
 
 def test_grid_task_lifecycle_success(demo_microscope, experiment):

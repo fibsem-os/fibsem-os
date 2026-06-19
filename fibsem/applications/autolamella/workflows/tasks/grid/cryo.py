@@ -61,7 +61,18 @@ class CryoCleaningGridTask(GridTask):
         logging.info(f"Starting cryo cleaning for grid {self.grid.name}")
 
         # move to grid position
+        self.update_status_ui(f"Moving to grid {self.grid.name}...")
         self._move_to_grid_slot_position(self.config.orientation)
+
+        # supervised checkpoint before the (destructive) FIB clean
+        if not self.ask_user(
+            f"Start cryo cleaning on '{self.grid.name}' "
+            f"({self.config.duration:.0f}s at {self.config.current * 1e9:.1f} nA)?",
+            pos="Start", neg="Skip",
+        ):
+            self.update_status_ui("Cryo cleaning skipped by user.")
+            logging.info(f"Cryo cleaning skipped for grid {self.grid.name}")
+            return
 
         # set beam parameters
         self.microscope.set_beam_current(self.config.current, beam_type=BeamType.ION)
@@ -76,7 +87,7 @@ class CryoCleaningGridTask(GridTask):
                 break
             time.sleep(1)  # wait for 1 second before checking again
             remaining_time = self.config.duration - (time.time() - start_time)
-            logging.info(f"Cryo cleaning in progress... {remaining_time:.1f} seconds remaining.")
+            self.update_status_ui(f"Cryo cleaning... {remaining_time:.0f}s remaining")
         self.microscope.stop_acquisition()
 
         # restore previous settings if needed
