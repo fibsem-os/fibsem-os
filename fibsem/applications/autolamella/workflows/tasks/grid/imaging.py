@@ -57,6 +57,8 @@ class AcquireOverviewImageGridTask(GridTask):
         logging.info(f"Path: {test_path}")
         self.update_status_ui(f"Moving to grid {self.grid.name}...")
 
+        self.ask_user(f"Confirm grid is loaded in slot {slot} and ready for overview acquisition.")
+
         self._move_to_grid_slot_position(self.config.orientation)
 
         self.update_status_ui("Acquiring overview image...")

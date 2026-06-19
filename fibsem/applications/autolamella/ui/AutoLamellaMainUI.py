@@ -626,6 +626,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add supervised status chip (shown during workflow to indicate supervision mode)
         self._current_task_name = None  # Track current task for supervision toggle
+        self._active_grid_workflow = False  # current task is a grid task (vs lamella)
         self.supervised_status_btn = QPushButton("Supervised")
         self.supervised_status_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         self.supervised_status_btn.setToolTip("Click to toggle supervision")
@@ -686,8 +687,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         if self._grid_workflow_active():
+            self._active_grid_workflow = True
             self.grid_tab.run_workflow()
             return
+        self._active_grid_workflow = False
 
         if ui.experiment.task_protocol is None:
             return
@@ -786,7 +789,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_name = self._current_task_name
         if task_name is None or self.autolamella_ui is None:
             return False
-        supervised = get_task_supervision(task_name, self.autolamella_ui)
+        if self._active_grid_workflow:
+            supervised = self._grid_task_supervised(task_name)
+        else:
+            supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised:
             self.supervised_status_btn.setIcon(
                 QIconifyIcon("mdi:account-hard-hat", color="white")
@@ -813,23 +819,48 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         return supervised
 
+    def _grid_task_supervised(self, task_name: str) -> bool:
+        """Supervision flag for a grid task, from the grid workflow config."""
+        exp = self.autolamella_ui.experiment if self.autolamella_ui else None
+        wf = getattr(getattr(exp, "grid_protocol", None), "workflow_config", None)
+        if wf is None:
+            return False
+        desc = wf.get(task_name)
+        return bool(desc.supervise) if desc is not None else False
+
     def _on_supervised_status_clicked(self):
         """Toggle supervision for the current task in the protocol."""
         if self._current_task_name is None or self.autolamella_ui is None:
             return
-        protocol = self.autolamella_ui.protocol
-        if protocol is None:
-            return
-        for task in protocol.workflow_config.tasks:
-            if task.name == self._current_task_name:
-                task.supervise = not task.supervise
-                break
+
+        if self._active_grid_workflow:
+            # grid workflow: toggle the grid task's supervise flag + persist
+            desc = None
+            exp = self.autolamella_ui.experiment
+            wf = getattr(getattr(exp, "grid_protocol", None), "workflow_config", None)
+            if wf is not None:
+                desc = wf.get(self._current_task_name)
+            if desc is None:
+                return
+            desc.supervise = not desc.supervise
+            exp.save()
+            if hasattr(self, "grid_workflow_widget"):
+                self.grid_workflow_widget.set_protocol(exp.grid_protocol)
+        else:
+            protocol = self.autolamella_ui.protocol
+            if protocol is None:
+                return
+            for task in protocol.workflow_config.tasks:
+                if task.name == self._current_task_name:
+                    task.supervise = not task.supervise
+                    break
+            # Refresh the workflow widget to reflect the toggled supervise state
+            if hasattr(self, "lamella_workflow_widget"):
+                self.lamella_workflow_widget.workflow.refresh_all()
+
         supervised = self._update_supervised_status()
         if self.autolamella_ui.is_workflow_running:
             self._set_border_state("supervised" if supervised else "automated")
-        # Refresh the workflow widget to reflect the toggled supervise state
-        if hasattr(self, "lamella_workflow_widget"):
-            self.lamella_workflow_widget.workflow.refresh_all()
 
     def _update_instructions(self):
         """Update the status bar with the current instruction based on application state."""

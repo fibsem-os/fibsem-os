@@ -63,6 +63,25 @@ def test_tasks_populate_from_protocol_instances(widget):
     assert "Acquire Image" in widget.get_selected_tasks()
 
 
+def test_grid_task_supervised_lookup(qapp):
+    # the status-bar chip reads grid supervision via this helper
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+
+    proto = _protocol("A", "B")
+    proto.workflow_config.get("B").supervise = True
+    stub = SimpleNamespace(
+        autolamella_ui=SimpleNamespace(experiment=SimpleNamespace(grid_protocol=proto))
+    )
+    f = AutoLamellaSingleWindowUI._grid_task_supervised
+    assert f(stub, "B") is True
+    assert f(stub, "A") is False
+    assert f(stub, "missing") is False  # absent description → automated
+
+
 def test_protocol_changes_refresh_checklist(widget):
     proto = _protocol("Acquire Image")
     widget.set_protocol(proto)

@@ -137,6 +137,14 @@ class GridTabWidget(QWidget):
                     self.main._workflow_timeline_initialized = True
             self.main.workflow_timeline.update_from_status(status_msg)
             self.main.set_workflow_running(info.get("msg") or "Running grid workflow")
+            # drive the shared supervised/automated chip for the running grid task
+            task_name = status_msg.get("task_name")
+            if status_msg.get("status") == "Completed":
+                self.main._active_grid_workflow = False
+            elif task_name:
+                self.main._current_task_name = task_name
+                self.main._active_grid_workflow = True
+                self.main._update_supervised_status()
         self.refresh()
         # refresh the Results view for the running grid as artifacts appear
         running = status_msg.get("item_name") if status_msg else None
