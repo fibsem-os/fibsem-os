@@ -52,6 +52,20 @@ class _BoomGridTask(GridTask):
         raise RuntimeError("boom")
 
 
+@dataclass
+class _MutatingGridConfig(GridTaskConfig):
+    task_type: ClassVar[str] = "MUTATING_GRID"
+    display_name: ClassVar[str] = "Mutating"
+    marker: int = 0
+
+
+class _MutatingGridTask(GridTask):
+    config_cls = _MutatingGridConfig
+
+    def _run(self):
+        self.config.marker += 1  # mutate the config (simulates hfw/path writeback)
+
+
 class _ResultGridTask(GridTask):
     config_cls = _NoOpGridConfig
 
@@ -176,6 +190,26 @@ def test_grid_task_records_result(demo_microscope, experiment):
 
     assert record.results["NOOP_GRID"]["overview"] == "/tmp/overview.tif"
     assert record.results["NOOP_GRID"]["pixel_size"] == 1.2e-8
+
+
+def test_protocol_config_not_mutated_across_grids(demo_microscope, experiment):
+    # the saved protocol config is a shared template; running a task on multiple
+    # grids must NOT mutate it (regression: tiled acquisition wrote total_fov
+    # back into the shared config's hfw, breaking subsequent grids).
+    GRID_TASK_REGISTRY["MUTATING_GRID"] = _MutatingGridTask
+    try:
+        _load_two_grids(demo_microscope)
+        experiment.sync_grids_from_holder(demo_microscope)
+        cfg = _MutatingGridConfig(task_name="MUTATING_GRID", marker=0)
+        experiment.grid_protocol.task_config["MUTATING_GRID"] = cfg
+
+        run_grid_workflow(demo_microscope, experiment, ["MUTATING_GRID"],
+                          grid_names=["A", "B"])
+
+        # the shared template is untouched; each grid ran on its own copy
+        assert experiment.grid_protocol.task_config["MUTATING_GRID"].marker == 0
+    finally:
+        GRID_TASK_REGISTRY.pop("MUTATING_GRID", None)
 
 
 def test_grid_record_results_roundtrip():

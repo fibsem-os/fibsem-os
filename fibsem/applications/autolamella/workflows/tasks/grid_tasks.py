@@ -299,6 +299,16 @@ class AcquireOverviewImageGridTask(GridTask):
 
 
 
+def _default_acquire_image_settings() -> ImageSettings:
+    """Default image settings for the single-image grid task."""
+    return ImageSettings(
+        resolution=(4096, 4096),
+        hfw=2000e-6,
+        dwell_time=1e-6,
+        beam_type=BeamType.ELECTRON,
+    )
+
+
 @dataclass
 class AcquireImageGridTaskConfig(GridTaskConfig):
     """Configuration for acquiring overview image grid task."""
@@ -306,6 +316,8 @@ class AcquireImageGridTaskConfig(GridTaskConfig):
     display_name: ClassVar[str] = "Acquire Image"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
     voltage: float = field(default=5_000, metadata={"label": "Imaging Voltage" })
+    beam_current: float = field(default=1e-9, metadata={"label": "Beam Current"})
+    image_settings: ImageSettings = field(default_factory=_default_acquire_image_settings)
 
 
 class AcquireImageTask(GridTask):
@@ -328,11 +340,14 @@ class AcquireImageTask(GridTask):
 
         self._move_to_grid_slot_position(self.config.orientation)
 
-        inital_state = self.microscope.get_microscope_state()
-        self.microscope.set_beam_voltage(self.config.voltage, beam_type=BeamType.ELECTRON)
-
-        image_settings  = ImageSettings(resolution=(4096, 4096), hfw=2000e-6) 
+        image_settings = self.config.image_settings  # per-run copy (run_grid_task deepcopies)
         image_settings.save = False
+
+        # apply voltage/current to the beam the image is acquired on (not always ELECTRON)
+        beam_type = image_settings.beam_type
+        inital_state = self.microscope.get_microscope_state()
+        self.microscope.set_beam_voltage(self.config.voltage, beam_type=beam_type)
+        self.microscope.set_beam_current(self.config.beam_current, beam_type=beam_type)
 
         from fibsem import utils
         image = self.microscope.acquire_image(image_settings=image_settings)
@@ -484,6 +499,11 @@ def run_grid_task(microscope: FibsemMicroscope,
 
     if task_cls is None or config is None:
         raise ValueError(f"No registered grid task for '{task_name}'.")
+
+    # the protocol config is a shared template — run on a copy so per-run
+    # mutation (e.g. tiled acquisition writing total_fov back into hfw, paths,
+    # filenames) does not leak across grids or corrupt the saved protocol.
+    config = deepcopy(config)
 
     task = task_cls(microscope=microscope,
                     config=config,

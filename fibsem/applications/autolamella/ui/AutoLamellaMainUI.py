@@ -62,6 +62,7 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.ui.widgets.grid_card_widget import GridCardContainer
+from fibsem.ui.widgets.grid_protocol_editor_widget import GridProtocolEditorWidget
 from fibsem.ui.widgets.grid_results_widget import GridResultsWidget
 from fibsem.ui.widgets.grid_workflow_widget import GridWorkflowWidget
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
@@ -1048,6 +1049,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         self._refresh_grid_list()
+        self.grid_protocol_editor.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -1289,12 +1291,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # right: Protocol (experiment-wide grid task config) | Results (per grid)
         self.grids_right_tabs = QTabWidget()
-        self._grids_protocol_placeholder = QLabel(
-            "Grid protocol editor — coming soon."
-        )
-        self._grids_protocol_placeholder.setAlignment(Qt.AlignCenter)
-        self._grids_protocol_placeholder.setStyleSheet("color: #808080; padding: 24px;")
-        self.grids_right_tabs.addTab(self._grids_protocol_placeholder, "Protocol")
+        self.grid_protocol_editor = GridProtocolEditorWidget()
+        self.grids_right_tabs.addTab(self.grid_protocol_editor, "Protocol")
 
         self.grids_results_widget = GridResultsWidget()
         self.grids_right_tabs.addTab(self.grids_results_widget, "Results")
