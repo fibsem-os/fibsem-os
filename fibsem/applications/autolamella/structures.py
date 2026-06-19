@@ -984,22 +984,101 @@ class GridRecord:
 
 @evented
 @dataclass
-class GridTaskProtocol:
-    """Stores grid task configurations for an Experiment, keyed by task_name.
+class GridTaskDescription:
+    """A task's run-order entry + supervision flag in a grid workflow.
 
-    The grid-side analogue of ``AutoLamellaTaskProtocol.task_config``. Lean for
-    now — no workflow ordering / options yet (that arrives with Phase 3
-    orchestration). Configs serialize flat via ``GridTaskConfig.to_dict``.
+    The grid analogue of :class:`AutoLamellaTaskDescription` (minimal for now:
+    name + supervise). ``name`` is the task_name key into
+    ``GridTaskProtocol.task_config``.
+    """
+    name: str
+    supervise: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "supervise": self.supervise}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GridTaskDescription':
+        return cls(name=data.get("name", ""), supervise=bool(data.get("supervise", False)))
+
+
+@evented
+@dataclass
+class GridWorkflowConfig:
+    """Ordered run config for grid tasks: run order + per-task supervise flags.
+
+    Auto-mirrors ``GridTaskProtocol.task_config`` — every configured instance
+    appears here. ``sync_to`` reconciles to the current instance names: drops
+    missing, appends new (supervise=False), preserves existing order + flags.
+    """
+    name: str = "Grid Workflow"
+    description: str = ""
+    tasks: List[GridTaskDescription] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GridWorkflowConfig':
+        return cls(
+            name=data.get("name", "Grid Workflow"),
+            description=data.get("description", ""),
+            tasks=[GridTaskDescription.from_dict(t) for t in data.get("tasks", [])],
+        )
+
+    @property
+    def order(self) -> List[str]:
+        """Task names in run order."""
+        return [t.name for t in self.tasks]
+
+    def get(self, name: str) -> Optional['GridTaskDescription']:
+        for t in self.tasks:
+            if t.name == name:
+                return t
+        return None
+
+    def sync_to(self, names) -> None:
+        """Reconcile descriptions to ``names``: drop missing, append new
+        (supervise=False), preserve the order + flags of existing entries."""
+        names = list(names)
+        keep = [t for t in self.tasks if t.name in names]
+        have = {t.name for t in keep}
+        for n in names:
+            if n not in have:
+                keep.append(GridTaskDescription(name=n))
+        self.tasks = keep
+
+
+@evented
+@dataclass
+class GridTaskProtocol:
+    """Stores grid task configurations + run order for an Experiment.
+
+    The grid-side analogue of ``AutoLamellaTaskProtocol``: ``task_config`` is
+    the config store (keyed by task_name), ``workflow_config`` is the run order
+    + per-task supervise flags. The workflow auto-mirrors the configured
+    instances (see ``reconcile_workflow``). Configs serialize flat via
+    ``GridTaskConfig.to_dict``.
     """
     name: str = "Grid Protocol"
     description: str = ""
     task_config: EventedDict[str, 'GridTaskConfig'] = field(default_factory=EventedDict)
+    workflow_config: 'GridWorkflowConfig' = field(default_factory=lambda: GridWorkflowConfig())
+
+    def reconcile_workflow(self) -> None:
+        """Align the workflow run order to the current task_config instances."""
+        self.workflow_config.sync_to(self.task_config.keys())
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "description": self.description,
             "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
+            "workflow_config": self.workflow_config.to_dict(),
         }
 
     @classmethod
@@ -1017,6 +1096,12 @@ class GridTaskProtocol:
             if config is not None:
                 config.task_name = name
                 protocol.task_config[name] = config
+        wf = ddict.get("workflow_config")
+        if wf is not None:
+            protocol.workflow_config = GridWorkflowConfig.from_dict(wf)
+        # back-compat: derive order from task_config when absent, and keep the
+        # workflow aligned to the loaded instances
+        protocol.reconcile_workflow()
         return protocol
 
 

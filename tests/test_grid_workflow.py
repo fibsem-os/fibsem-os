@@ -12,6 +12,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
+    GridTaskDescription,
+    GridWorkflowConfig,
     GridTaskProtocol,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -165,6 +167,61 @@ def test_sync_grids_from_holder_is_idempotent(demo_microscope, experiment):
     experiment.sync_grids_from_holder(demo_microscope)  # must not duplicate
 
     assert [g.name for g in experiment.grids] == ["grid-aspen", "grid-birch"]
+
+
+# --- GridWorkflowConfig (run order + supervise) ----------------------------
+
+def test_grid_workflow_config_sync_to_adds_drops_preserves():
+    wf = GridWorkflowConfig(tasks=[
+        GridTaskDescription(name="a", supervise=True),
+        GridTaskDescription(name="b"),
+    ])
+    # 'b' dropped, 'c' appended; 'a' keeps its order + supervise flag
+    wf.sync_to(["a", "c"])
+    assert wf.order == ["a", "c"]
+    assert wf.get("a").supervise is True
+    assert wf.get("c").supervise is False
+
+
+def test_grid_workflow_config_roundtrip():
+    wf = GridWorkflowConfig(tasks=[
+        GridTaskDescription(name="Overview", supervise=True),
+        GridTaskDescription(name="Acquire Image"),
+    ])
+    restored = GridWorkflowConfig.from_dict(wf.to_dict())
+    assert restored.order == ["Overview", "Acquire Image"]
+    assert restored.get("Overview").supervise is True
+
+
+def test_protocol_reconcile_mirrors_task_config():
+    proto = GridTaskProtocol()
+    proto.task_config["Overview"] = AcquireOverviewImageGridTaskConfig(task_name="Overview")
+    proto.task_config["Clean"] = CryoCleaningGridTaskConfig(task_name="Clean")
+    proto.reconcile_workflow()
+    assert proto.workflow_config.order == ["Overview", "Clean"]
+
+
+def test_protocol_workflow_persists_and_reloads():
+    proto = GridTaskProtocol()
+    proto.task_config["Overview"] = AcquireOverviewImageGridTaskConfig(task_name="Overview")
+    proto.task_config["Clean"] = CryoCleaningGridTaskConfig(task_name="Clean")
+    proto.reconcile_workflow()
+    # reorder + supervise, then roundtrip
+    proto.workflow_config.tasks = list(reversed(proto.workflow_config.tasks))
+    proto.workflow_config.get("Overview").supervise = True
+    restored = GridTaskProtocol.from_dict(proto.to_dict())
+    assert restored.workflow_config.order == ["Clean", "Overview"]
+    assert restored.workflow_config.get("Overview").supervise is True
+
+
+def test_protocol_back_compat_without_workflow_config():
+    # an old protocol dict (no workflow_config key) reconciles order from configs
+    proto = GridTaskProtocol()
+    proto.task_config["Overview"] = AcquireOverviewImageGridTaskConfig(task_name="Overview")
+    ddict = proto.to_dict()
+    del ddict["workflow_config"]
+    restored = GridTaskProtocol.from_dict(ddict)
+    assert restored.workflow_config.order == ["Overview"]
 
 
 # --- GridTask lifecycle ----------------------------------------------------

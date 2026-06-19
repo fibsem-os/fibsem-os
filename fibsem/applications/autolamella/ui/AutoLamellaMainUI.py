@@ -1351,6 +1351,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.grid_workflow_widget.task_selection_changed.connect(
             self._on_workflow_selection_changed
         )
+        # persist run-order / supervise edits (the grid_protocol is the live
+        # experiment object, so a save is all that's needed)
+        self.grid_workflow_widget.workflow_changed.connect(self._save_grid_workflow)
         self.workflow_subtabs.addTab(self.grid_workflow_widget, "Grids")
         self.workflow_subtabs.currentChanged.connect(
             self._on_workflow_selection_changed
@@ -1435,6 +1438,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self.autolamella_ui._on_workflow_config_changed(protocol.workflow_config)
+
+    def _save_grid_workflow(self, *_args):
+        """Persist grid run-order / supervise edits. The widget edits the live
+        experiment.grid_protocol in place, so a save is sufficient."""
+        ui = self.autolamella_ui
+        if ui is not None and ui.experiment is not None:
+            ui.experiment.save()
 
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""

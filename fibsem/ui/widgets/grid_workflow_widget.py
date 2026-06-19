@@ -1,10 +1,12 @@
 """Grid workflow selection widget — the grid analogue of the lamella workflow
-selection UI, but lean: two checklists (grids + tasks) with select-all.
+selection UI: a grids checklist (top) + an ordered task list (bottom) with
+run order, per-task supervise toggle, and run selection.
 
 Lives as the "Grids" sub-tab of the main Workflow tab. The host reads the
 selections and runs them through GridTaskManager (sharing the Run/Stop +
-timeline infra with the lamella workflow). No task ordering / supervise /
-scheduling yet — that arrives if/when grid workflows need it.
+timeline infra with the lamella workflow). The task list auto-mirrors the
+protocol's configured instances; ordering/supervise persist via the
+``workflow_changed`` signal.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.grid_workflow_config_widget import GridWorkflowConfigWidget
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import GridRecord, GridTaskProtocol
@@ -132,7 +135,8 @@ class GridWorkflowWidget(QWidget):
     """Grids + tasks selection for running a grid workflow."""
 
     grid_selection_changed = pyqtSignal(list)  # List[GridRecord]
-    task_selection_changed = pyqtSignal(list)  # List[str] task_name keys
+    task_selection_changed = pyqtSignal(list)  # List[str] task_name keys (ordered)
+    workflow_changed = pyqtSignal()            # run order / supervise edited → persist
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -146,13 +150,15 @@ class GridWorkflowWidget(QWidget):
         )
         layout.addWidget(self._grids)
 
-        self._tasks = _CheckList("Tasks")
-        self._tasks.changed.connect(
-            lambda: self.task_selection_changed.emit(self.get_selected_tasks())
+        self._tasks = GridWorkflowConfigWidget()
+        self._tasks.selection_changed.connect(
+            lambda names: self.task_selection_changed.emit(list(names))
         )
+        self._tasks.order_changed.connect(lambda *_: self.workflow_changed.emit())
+        self._tasks.supervised_changed.connect(lambda *_: self.workflow_changed.emit())
         layout.addWidget(self._tasks)
 
-        # tasks are the protocol's configured instances (set via set_protocol)
+        # the task list auto-mirrors the protocol's configured instances
         self._protocol: Optional["GridTaskProtocol"] = None
 
     # --- public API ---
@@ -161,10 +167,9 @@ class GridWorkflowWidget(QWidget):
         self._grids.set_items([(g.name, g) for g in grids])
 
     def set_protocol(self, protocol: Optional["GridTaskProtocol"]) -> None:
-        """Populate the task checklist from the protocol's configured instances
-        (keyed by unique task_name = the value passed to the runner). Subscribes
-        to the task_config so add/remove/reorder in the Protocol editor refresh
-        the checklist live."""
+        """Render the protocol's workflow (ordered tasks + supervise). Subscribes
+        to task_config so add/remove in the Protocol editor reconciles + refreshes
+        the list live (membership auto-mirrors the configured instances)."""
         prev = getattr(self, "_protocol", None)
         if prev is not None:
             for sig in (prev.task_config.events.added,
@@ -183,15 +188,17 @@ class GridWorkflowWidget(QWidget):
         self._refresh_tasks()
 
     def _refresh_tasks(self, *args) -> None:
-        items: List[Tuple[str, object]] = []
         protocol = getattr(self, "_protocol", None)
-        if protocol is not None:
-            for name in protocol.task_config.keys():
-                items.append((name, name))
-        self._tasks.set_items(items)
+        if protocol is None:
+            self._tasks.set_config(None)
+            return
+        # reconcile run order to the current instances, then render
+        protocol.reconcile_workflow()
+        self._tasks.set_config(protocol.workflow_config)
 
     def get_selected_grids(self) -> List["GridRecord"]:
         return list(self._grids.checked_values())
 
     def get_selected_tasks(self) -> List[str]:
-        return list(self._tasks.checked_values())
+        """Checked task names, in run order."""
+        return self._tasks.selected_tasks()

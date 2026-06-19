@@ -40,37 +40,59 @@ def _check(checklist, i):
     checklist._list.item(i).setCheckState(Qt.Checked)
 
 
+def _check_task(widget, i):
+    widget._tasks._rows[i].checkbox.setChecked(True)
+
+
 def _protocol(*names) -> GridTaskProtocol:
     proto = GridTaskProtocol()
     for n in names:
         proto.task_config[n] = AcquireImageGridTaskConfig(task_name=n)
+    proto.reconcile_workflow()
     return proto
 
 
 def test_tasks_populate_from_protocol_instances(widget):
-    # the checklist lists configured instances (task_name), not registry types,
-    # so multiples of the same task type each appear as a distinct entry
+    # the task list shows configured instances (task_name), not registry types,
+    # so multiples of the same task type each appear as a distinct ordered row
     widget.set_protocol(_protocol("Acquire Image", "Acquire Image (2)"))
-    assert widget._tasks._list.count() == 2
-    values = {
-        widget._tasks._list.item(i).data(Qt.UserRole)
-        for i in range(widget._tasks._list.count())
-    }
-    assert values == {"Acquire Image", "Acquire Image (2)"}
+    rows = widget._tasks._rows
+    assert [r.task.name for r in rows] == ["Acquire Image", "Acquire Image (2)"]
     # selected values are the task_names passed to the runner
-    _check(widget._tasks, 0)
+    _check_task(widget, 0)
     assert "Acquire Image" in widget.get_selected_tasks()
 
 
 def test_protocol_changes_refresh_checklist(widget):
     proto = _protocol("Acquire Image")
     widget.set_protocol(proto)
-    assert widget._tasks._list.count() == 1
-    # adding an instance in the (separate) editor tab refreshes the checklist live
+    assert len(widget._tasks._rows) == 1
+    # adding an instance in the (separate) editor tab reconciles + refreshes live
     proto.task_config["Acquire Image (lo-mag)"] = AcquireImageGridTaskConfig(
         task_name="Acquire Image (lo-mag)"
     )
-    assert widget._tasks._list.count() == 2
+    assert len(widget._tasks._rows) == 2
+
+
+def test_task_order_and_supervise_persist(widget):
+    proto = _protocol("A", "B")
+    widget.set_protocol(proto)
+    changed = []
+    widget.workflow_changed.connect(lambda: changed.append(True))
+
+    # move B up → run order is B, A; get_selected_tasks honors order
+    widget._tasks._rows[1].move_requested.emit(widget._tasks._rows[1].task, -1)
+    assert proto.workflow_config.order == ["B", "A"]
+
+    # supervise toggle persists onto the description
+    widget._tasks._rows[0].btn_supervise.setChecked(True)
+    assert proto.workflow_config.get("B").supervise is True
+    assert changed  # both edits emitted workflow_changed → host persists
+
+    # selection returns checked names in run order
+    widget._tasks._rows[0].checkbox.setChecked(True)  # B
+    widget._tasks._rows[1].checkbox.setChecked(True)  # A
+    assert widget.get_selected_tasks() == ["B", "A"]
 
 
 def test_grids_populate_and_select(widget):
@@ -89,7 +111,7 @@ def test_selection_changed_signals(widget):
     widget.task_selection_changed.connect(tasks_seen.append)
 
     _check(widget._grids, 0)
-    _check(widget._tasks, 0)
+    _check_task(widget, 0)
 
     assert grids_seen and [g.name for g in grids_seen[-1]] == ["grid-aspen"]
     assert tasks_seen and len(tasks_seen[-1]) == 1
