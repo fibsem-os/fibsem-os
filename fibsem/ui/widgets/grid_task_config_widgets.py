@@ -155,8 +155,8 @@ class AcquireImageGridConfigWidget(GridTaskConfigWidget):
         form.addRow("Beam Current", self.current_combo)
         v.addWidget(TitledPanel("Beam / Stage Conditions", content=conditions, collapsible=True))
 
-        # image settings
-        self.image_settings_widget = ImageSettingsWidget()
+        # image settings (expose beam type — the task applies voltage/current to it)
+        self.image_settings_widget = ImageSettingsWidget(show_beam_type=True)
         self.image_settings_widget.settings_changed.connect(lambda *_: self._on_changed())
         v.addWidget(TitledPanel("Image Settings", content=self.image_settings_widget, collapsible=True))
         v.addStretch(1)

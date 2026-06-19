@@ -22,21 +22,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import GRID_TASK_REGISTRY
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import GridRecord
-
-
-def _grid_task_choices() -> List[Tuple[str, str]]:
-    """(task_type, display_name) for each registered grid task."""
-    choices = []
-    for task_type, task_cls in GRID_TASK_REGISTRY.items():
-        display = getattr(task_cls.config_cls, "display_name", task_type)
-        choices.append((task_type, display))
-    return choices
+    from fibsem.applications.autolamella.structures import GridRecord, GridTaskProtocol
 
 
 class _CheckList(QWidget):
@@ -142,7 +132,7 @@ class GridWorkflowWidget(QWidget):
     """Grids + tasks selection for running a grid workflow."""
 
     grid_selection_changed = pyqtSignal(list)  # List[GridRecord]
-    task_selection_changed = pyqtSignal(list)  # List[str] task_type keys
+    task_selection_changed = pyqtSignal(list)  # List[str] task_name keys
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -162,13 +152,43 @@ class GridWorkflowWidget(QWidget):
         )
         layout.addWidget(self._tasks)
 
-        # tasks come from the registry (static)
-        self._tasks.set_items([(disp, key) for key, disp in _grid_task_choices()])
+        # tasks are the protocol's configured instances (set via set_protocol)
+        self._protocol: Optional["GridTaskProtocol"] = None
 
     # --- public API ---
 
     def set_grids(self, grids: List["GridRecord"]) -> None:
         self._grids.set_items([(g.name, g) for g in grids])
+
+    def set_protocol(self, protocol: Optional["GridTaskProtocol"]) -> None:
+        """Populate the task checklist from the protocol's configured instances
+        (keyed by unique task_name = the value passed to the runner). Subscribes
+        to the task_config so add/remove/reorder in the Protocol editor refresh
+        the checklist live."""
+        prev = getattr(self, "_protocol", None)
+        if prev is not None:
+            for sig in (prev.task_config.events.added,
+                        prev.task_config.events.removed,
+                        prev.task_config.events.changed):
+                try:
+                    sig.disconnect(self._refresh_tasks)
+                except Exception:
+                    pass
+        self._protocol = protocol
+        if protocol is not None:
+            for sig in (protocol.task_config.events.added,
+                        protocol.task_config.events.removed,
+                        protocol.task_config.events.changed):
+                sig.connect(self._refresh_tasks)
+        self._refresh_tasks()
+
+    def _refresh_tasks(self, *args) -> None:
+        items: List[Tuple[str, object]] = []
+        protocol = getattr(self, "_protocol", None)
+        if protocol is not None:
+            for name in protocol.task_config.keys():
+                items.append((name, name))
+        self._tasks.set_items(items)
 
     def get_selected_grids(self) -> List["GridRecord"]:
         return list(self._grids.checked_values())

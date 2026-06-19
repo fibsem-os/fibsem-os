@@ -13,7 +13,6 @@ from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (  # noqa: E402
-    GRID_TASK_REGISTRY,
     AcquireImageGridTaskConfig,
     AcquireOverviewImageGridTaskConfig,
     CryoCleaningGridTaskConfig,
@@ -101,6 +100,21 @@ def test_set_config_does_not_emit(qapp):
     assert not seen  # programmatic load must not look like a user edit
 
 
+# --- add dialog ---
+
+def test_add_dialog_validates_duplicate_name(qapp):
+    from fibsem.ui.widgets.grid_protocol_editor_widget import AddGridTaskDialog
+
+    d = AddGridTaskDialog(existing_names={"Acquire Image": object()})
+    # default name auto-uniques against existing
+    assert d.lineEdit_task_name.text() != "Acquire Image"
+    # an explicit duplicate is rejected; a fresh name is accepted
+    d.lineEdit_task_name.setText("Acquire Image")
+    assert d.validate_task_name() is False
+    d.lineEdit_task_name.setText("Acquire Image (lo-mag)")
+    assert d.validate_task_name() is True
+
+
 # --- host ---
 
 @pytest.fixture
@@ -113,29 +127,91 @@ def editor(qapp):
     return w, exp
 
 
-def test_host_lists_all_tasks(editor):
+def _count(w):
+    return w._task_list._list.count()
+
+
+def test_host_starts_empty(editor):
     w, _ = editor
-    assert w._list.count() == len(GRID_TASK_REGISTRY)
+    # instance-driven: nothing configured until the user adds a task
+    assert _count(w) == 0
 
 
-def test_host_persists_edits_to_protocol(editor):
+def test_host_add_persists_instance(editor):
     w, exp = editor
-    # default selection is the first task (overview); edit it
+    name = w.add_task("ACQUIRE_OVERVIEW_IMAGE_GRID")
+    assert name in exp.grid_protocol.task_config
     w._editor.orientation_combo.setCurrentText("FIB")
-    key = w._task_type
-    assert key in exp.grid_protocol.task_config
-    assert exp.grid_protocol.task_config[key].orientation == "FIB"
+    assert exp.grid_protocol.task_config[name].orientation == "FIB"
 
 
-def test_host_reuses_saved_config(editor):
+def test_host_add_generates_unique_names(editor):
+    w, _ = editor
+    # adding the same type twice without an explicit name must not collide
+    n1 = w.add_task("ACQUIRE_IMAGE_GRID")
+    n2 = w.add_task("ACQUIRE_IMAGE_GRID")
+    assert n1 != n2 and _count(w) == 2
+
+
+def test_host_add_explicit_collision_does_not_overwrite(editor):
     w, exp = editor
-    # pre-seed a saved config for the acquire-image task (preset voltage)
-    exp.grid_protocol.task_config["ACQUIRE_IMAGE_GRID"] = AcquireImageGridTaskConfig(
-        task_name="ACQUIRE_IMAGE_GRID", voltage=10000
+    n1 = w.add_task("ACQUIRE_IMAGE_GRID", "Imaging")
+    w._editor.voltage_combo.set_value(20000)
+    # an explicit colliding name is uniquified, not overwritten
+    n2 = w.add_task("ACQUIRE_OVERVIEW_IMAGE_GRID", "Imaging")
+    assert n2 != n1 and _count(w) == 2
+    assert exp.grid_protocol.task_config[n1].voltage == 20000  # original intact
+    assert exp.grid_protocol.task_config[n1].task_type == "ACQUIRE_IMAGE_GRID"
+
+
+def test_host_multiple_instances_same_type(editor):
+    w, exp = editor
+    # two Acquire Image tasks, different voltages — the whole point of the change
+    n1 = w.add_task("ACQUIRE_IMAGE_GRID", "Acquire Image — lo-mag")
+    w._editor.voltage_combo.set_value(5000)
+    n2 = w.add_task("ACQUIRE_IMAGE_GRID", "Acquire Image — hi-mag")
+    w._editor.voltage_combo.set_value(30000)
+    assert n1 != n2
+    assert _count(w) == 2
+    cfg = exp.grid_protocol.task_config
+    assert cfg[n1].voltage == 5000 and cfg[n2].voltage == 30000
+    assert cfg[n1].task_type == cfg[n2].task_type == "ACQUIRE_IMAGE_GRID"
+
+
+def test_host_duplicate_clones_with_chosen_name(editor):
+    w, exp = editor
+    n1 = w.add_task("ACQUIRE_IMAGE_GRID")
+    w._editor.voltage_combo.set_value(15000)
+    n2 = w.duplicate_task("Acquire Image — copy")  # user-chosen name
+    assert n2 == "Acquire Image — copy" and _count(w) == 2
+    # clone carries the source's edited value, independently
+    assert exp.grid_protocol.task_config[n2].voltage == 15000
+    w._editor.voltage_combo.set_value(2000)
+    assert exp.grid_protocol.task_config[n1].voltage == 15000  # original untouched
+
+
+def test_duplicate_dialog_locks_type_and_prefills_name(qapp):
+    from fibsem.ui.widgets.grid_protocol_editor_widget import AddGridTaskDialog
+
+    d = AddGridTaskDialog(
+        existing_names={"Acquire Image": object()},
+        task_type="ACQUIRE_IMAGE_GRID",
+        lock_task_type=True,
+        default_name="Acquire Image (2)",
     )
-    # select that task in the list
-    for i in range(w._list.count()):
-        if w._list.item(i).data(0x0100) == "ACQUIRE_IMAGE_GRID":  # Qt.UserRole
-            w._list.setCurrentRow(i)
-            break
-    assert w._editor.get_config().voltage == 10000  # loaded the saved value
+    assert d.comboBox_task_type.isEnabled() is False  # type locked to source
+    assert d.comboBox_task_type.currentData() == "ACQUIRE_IMAGE_GRID"
+    assert d.lineEdit_task_name.text() == "Acquire Image (2)"  # editable suggestion
+    task_type, name = d.get_task_info()
+    assert task_type == "ACQUIRE_IMAGE_GRID" and name == "Acquire Image (2)"
+
+
+def test_host_remove_instance(editor):
+    w, exp = editor
+    w.add_task("ACQUIRE_IMAGE_GRID")
+    name = w.add_task("CRYO_CLEANING_GRID")
+    w.remove_task(name)
+    assert name not in exp.grid_protocol.task_config
+    assert _count(w) == 1
+
+

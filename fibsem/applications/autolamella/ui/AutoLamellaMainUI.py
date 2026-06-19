@@ -1355,9 +1355,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             loader_present,
             self._grid_thumbnails(),
         )
-        # keep the Workflow-tab grid checklist in sync (built in a later tab)
+        # keep the Workflow-tab grid checklist + task instances in sync
         if hasattr(self, "grid_workflow_widget"):
             self.grid_workflow_widget.set_grids(ui.experiment.grids)
+            self.grid_workflow_widget.set_protocol(ui.experiment.grid_protocol)
 
     def _on_grids_add_from_loader(self):
         """Import grids loaded in the magazine / working slot into the experiment."""

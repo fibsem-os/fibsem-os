@@ -662,6 +662,7 @@ class TaskNameListWidget(QWidget):
     task_selected = pyqtSignal(str)
     add_clicked = pyqtSignal()
     remove_clicked = pyqtSignal()
+    duplicate_clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -681,8 +682,11 @@ class TaskNameListWidget(QWidget):
         header_layout.addWidget(lbl)
         header_layout.addStretch()
         self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=24)
+        self.btn_duplicate = IconToolButton("mdi:content-copy", tooltip="Duplicate task", size=24)
         self.btn_remove = IconToolButton("mdi:trash-can-outline", tooltip="Remove task", size=24)
+        self.btn_duplicate.setVisible(False)  # opt-in (hidden by default)
         header_layout.addWidget(self.btn_add)
+        header_layout.addWidget(self.btn_duplicate)
         header_layout.addWidget(self.btn_remove)
         outer.addWidget(header)
 
@@ -698,11 +702,13 @@ class TaskNameListWidget(QWidget):
         )
         self.btn_add.clicked.connect(self.add_clicked)
         self.btn_remove.clicked.connect(self.remove_clicked)
+        self.btn_duplicate.clicked.connect(self.duplicate_clicked)
 
-    def set_buttons_visible(self, add: bool, remove: bool) -> None:
-        """Show or hide the add and remove header buttons independently."""
+    def set_buttons_visible(self, add: bool, remove: bool, duplicate: bool = False) -> None:
+        """Show or hide the header buttons independently (duplicate off by default)."""
         self.btn_add.setVisible(add)
         self.btn_remove.setVisible(remove)
+        self.btn_duplicate.setVisible(duplicate)
 
     @property
     def selected_task(self) -> str:
