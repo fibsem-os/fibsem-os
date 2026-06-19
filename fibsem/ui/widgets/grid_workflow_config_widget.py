@@ -41,6 +41,26 @@ _NAME_MIN_WIDTH = 180
 _BTN_SIZE = 32
 _ROW_HEIGHT = 40
 
+# the supervise toggle is checkable, but should read as automated/supervised via
+# its icon only — not a checked-state background (matches the lamella button,
+# which is a plain non-checkable QToolButton). Keep hover, drop :checked styling.
+_SUPERVISE_BTN_STYLE = """
+    QToolButton {
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 2px 6px;
+        background-color: transparent;
+    }
+    QToolButton:hover {
+        border: 1px solid #6a6a6a;
+        background-color: rgba(255, 255, 255, 25);
+    }
+    QToolButton:checked {
+        border: 1px solid transparent;
+        background-color: transparent;
+    }
+"""
+
 
 class _DraggableTaskList(QListWidget):
     """QListWidget with InternalMove drag-and-drop; emits the new order on drop.
@@ -96,6 +116,7 @@ class _GridTaskRow(QWidget):
             checked_tooltip="Supervised (click to automate)",
             checkable=True, checked=task.supervise, size=_BTN_SIZE,
         )
+        self.btn_supervise.setStyleSheet(_SUPERVISE_BTN_STYLE)  # no checked-state bg
         self.btn_supervise.toggled.connect(self._on_supervise)
         layout.addWidget(self.btn_supervise)
 
