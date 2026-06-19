@@ -3,7 +3,7 @@
 Each grid task type gets a tailored editor (rather than a generic
 parameter form), so rich/nested configs (e.g. the overview acquisition
 settings) and unit-aware fields are presented properly. The task_type ->
-widget mapping lives here in the UI layer so the configs in ``grid_tasks.py``
+widget mapping lives here in the UI layer so the configs in ``tasks/grid/``
 stay Qt-free. Tasks without a custom editor yet get a placeholder.
 """
 
@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+from fibsem.applications.autolamella.workflows.tasks.grid import (
     AcquireImageGridTaskConfig,
     AcquireOverviewImageGridTaskConfig,
     GridTaskConfig,

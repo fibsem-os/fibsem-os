@@ -44,7 +44,7 @@ from fibsem.utils import configure_logging, format_duration
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.applications.autolamella.workflows.tasks.grid_tasks import GridTaskConfig
+    from fibsem.applications.autolamella.workflows.tasks.grid import GridTaskConfig
 
 
 
@@ -1004,8 +1004,8 @@ class GridTaskProtocol:
 
     @classmethod
     def from_dict(cls, ddict: dict) -> 'GridTaskProtocol':
-        # lazy import to avoid a structures <-> grid_tasks import cycle
-        from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+        # lazy import to avoid a structures <-> grid tasks import cycle
+        from fibsem.applications.autolamella.workflows.tasks.grid import (
             load_grid_task_config,
         )
         protocol = cls(

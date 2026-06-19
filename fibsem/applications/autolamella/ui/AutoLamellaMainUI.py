@@ -61,9 +61,7 @@ from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
 from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
-from fibsem.ui.widgets.grid_card_widget import GridCardContainer
-from fibsem.ui.widgets.grid_protocol_editor_widget import GridProtocolEditorWidget
-from fibsem.ui.widgets.grid_results_widget import GridResultsWidget
+from fibsem.applications.autolamella.ui.grid_tab import GridTabWidget
 from fibsem.ui.widgets.grid_workflow_widget import GridWorkflowWidget
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
@@ -688,7 +686,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         if self._grid_workflow_active():
-            self._run_grid_workflow()
+            self.grid_tab.run_workflow()
             return
 
         if ui.experiment.task_protocol is None:
@@ -985,9 +983,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
         self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
-        self.autolamella_ui.sample_state_changed_signal.connect(self._refresh_grid_list)
+        # lambdas defer the grid_tab lookup to fire-time (it's built later in
+        # create_tabs, after this main tab)
+        self.autolamella_ui.sample_state_changed_signal.connect(
+            lambda: self.grid_tab.refresh()
+        )
         self.autolamella_ui.grid_workflow_update_signal.connect(
-            self._on_grid_workflow_update
+            lambda info: self.grid_tab.on_workflow_update(info)
         )
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
@@ -1048,8 +1050,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.minimap_widget.set_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
-        self._refresh_grid_list()
-        self.grid_protocol_editor.set_experiment(self.autolamella_ui.experiment)
+        self.grid_tab.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -1263,185 +1264,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._on_lamella_card_selected(None)
 
     def add_grids_tab(self):
-        """Grids tab: experiment grid records (left) + Protocol / Results
-        sub-tabs (right). Execution lives in the Workflow tab, not here.
-        """
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        # left: experiment grid records (cards)
-        self.grids_view = GridCardContainer()
-        self.grids_view.add_from_loader_requested.connect(
-            self._on_grids_add_from_loader
-        )
-        self.grids_view.remove_requested.connect(self._on_grids_remove)
-        self.grids_view.grid_selected.connect(self._on_grid_selected)
-        self.grids_view.load_requested.connect(self._on_grid_card_load)
-        self.grids_view.unload_requested.connect(self._on_grid_card_unload)
-        left = QWidget()
-        left.setMaximumWidth(340)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.addWidget(self.grids_view)
-        splitter.addWidget(left)
-
-        # right: Protocol (experiment-wide grid task config) | Results (per grid)
-        self.grids_right_tabs = QTabWidget()
-        self.grid_protocol_editor = GridProtocolEditorWidget()
-        self.grids_right_tabs.addTab(self.grid_protocol_editor, "Protocol")
-
-        self.grids_results_widget = GridResultsWidget()
-        self.grids_right_tabs.addTab(self.grids_results_widget, "Results")
-
-        splitter.addWidget(self.grids_right_tabs)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([340, 99999])
-
-        layout.addWidget(splitter)
-        self.tab_widget.addTab(
-            container, QIconifyIcon("mdi:grid", color=GRAY_ICON_COLOR), "Grids"
-        )
-        self._grids_tab_container = container
-
-    def _grid_slot_labels(self) -> dict:
-        """Map grid name → loader magazine slot label (e.g. '01') for display."""
-        ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
-        loader = getattr(stage, "loader", None)
-        labels = {}
-        if loader is not None:
-            for slot in loader.loaded_magazine_slots:
-                if slot.loaded_grid is not None:
-                    labels[slot.loaded_grid.name] = f"{slot.index + 1:02d}"
-        return labels
-
-    def _grid_beam_names(self) -> set:
-        """Names of grids currently in a holder working slot (in the beam)."""
-        stage = getattr(getattr(self.autolamella_ui, "microscope", None), "_stage", None)
-        holder = getattr(stage, "holder", None)
-        if holder is None:
-            return set()
-        return {
-            s.loaded_grid.name
-            for s in holder.slots.values()
-            if s.loaded_grid is not None
-        }
-
-    def _grid_thumbnails(self) -> dict:
-        """Map grid name → overview thumbnail PNG path (from results), if it exists."""
-        out = {}
-        for g in self.autolamella_ui.experiment.grids:
-            for art in g.results.values():
-                thumb = art.get("thumbnail") if isinstance(art, dict) else None
-                if thumb and os.path.exists(thumb):
-                    out[g.name] = thumb
-                    break
-        return out
-
-    def _refresh_grid_list(self):
-        ui = self.autolamella_ui
-        if ui is None or ui.experiment is None:
-            return
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
-        loader_present = getattr(stage, "loader", None) is not None
-        self.grids_view.set_grids(
-            ui.experiment.grids,
-            self._grid_slot_labels(),
-            self._grid_beam_names(),
-            loader_present,
-            self._grid_thumbnails(),
-        )
-        # keep the Workflow-tab grid checklist + task instances in sync
-        if hasattr(self, "grid_workflow_widget"):
-            self.grid_workflow_widget.set_grids(ui.experiment.grids)
-            self.grid_workflow_widget.set_protocol(ui.experiment.grid_protocol)
-
-    def _on_grids_add_from_loader(self):
-        """Import grids loaded in the magazine / working slot into the experiment."""
-        ui = self.autolamella_ui
-        if ui is None or ui.experiment is None or ui.microscope is None:
-            notification_service.show_toast(
-                "Connect to a microscope and load an experiment first.", "warning"
-            )
-            return
-        before = len(ui.experiment.grids)
-        ui.experiment.sync_grids_from_holder(ui.microscope)  # add-only; saves
-        self._refresh_grid_list()
-        added = len(ui.experiment.grids) - before
-        notification_service.show_toast(
-            f"Added {added} grid(s) from the loader." if added
-            else "No new grids to add.", "info"
-        )
-
-    def _on_grids_remove(self, record):
-        ui = self.autolamella_ui
-        if ui is None or ui.experiment is None:
-            return
-        ui.experiment.remove_grid(record.name)
-        ui.experiment.save()
-        self._refresh_grid_list()
-
-    def _on_grid_card_load(self, record):
-        """Load a grid into the working slot from the Grids tab (delegates to the
-        Sample tab's threaded exchange; the spinner + refresh follow from there)."""
-        if self.autolamella_ui is not None:
-            notification_service.show_toast(
-                f"Loading '{record.name}' into the microscope…", "info"
-            )
-            self.autolamella_ui.request_grid_load(record.name)
-
-    def _on_grid_card_unload(self, record):
-        if self.autolamella_ui is not None:
-            notification_service.show_toast(
-                f"Unloading '{record.name}' from the microscope…", "info"
-            )
-            self.autolamella_ui.request_grid_unload()
-
-    def _run_grid_workflow(self):
-        """Start a grid workflow from the Grids workflow sub-tab selections."""
-        ui = self.autolamella_ui
-        grids = self.grid_workflow_widget.get_selected_grids()
-        tasks = self.grid_workflow_widget.get_selected_tasks()
-        if not grids or not tasks:
-            return
-        grid_names = [g.name for g in grids]
-        if not confirm_run_workflow_dialog(grid_names, tasks, parent=self, unit="grid"):
-            return
-        self._workflow_timeline_initialized = False
-        self._set_border_state("automated")
-        self.set_workflow_running(
-            f"Running grid workflow: {len(grid_names)} grid(s), {len(tasks)} task(s)"
-        )
-        ui._start_grid_workflow_thread(list(tasks), grid_names)
-
-    def _on_grid_workflow_update(self, info: dict):
-        """Reflect live grid workflow progress: drive the shared timeline + cards."""
-        status_msg = info.get("status")
-        if status_msg is not None:
-            if not self._workflow_timeline_initialized:
-                queue_items = status_msg.get("queue_items", [])
-                if queue_items:
-                    self.workflow_timeline.set_workflow(queue_items)
-                    self._workflow_timeline_initialized = True
-            self.workflow_timeline.update_from_status(status_msg)
-            self.set_workflow_running(info.get("msg") or "Running grid workflow")
-        self._refresh_grid_list()
-        # refresh the Results view for the running grid as artifacts appear
-        running = status_msg.get("item_name") if status_msg else None
-        if running and self.grids_view.selected_grid is not None \
-                and self.grids_view.selected_grid.name == running:
-            self._on_grid_selected(self.grids_view.selected_grid)
-
-    def _on_grid_selected(self, record):
-        """Show the selected grid's results in the Results sub-tab."""
-        exp = self.autolamella_ui.experiment if self.autolamella_ui else None
-        slot = self._grid_slot_labels().get(record.name, "") if record else ""
-        in_beam = record.name in self._grid_beam_names() if record else False
-        self.grids_results_widget.set_grid(record, exp, slot, in_beam)
+        """Grids tab: extracted into GridTabWidget (execution lives in the
+        Workflow tab, not here)."""
+        self.grid_tab = GridTabWidget(self)
+        self.tab_widget.addTab(self.grid_tab, GridTabWidget.tab_icon(), "Grids")
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""

@@ -12,7 +12,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (  # noqa: E402
+from fibsem.applications.autolamella.workflows.tasks.grid import (  # noqa: E402
     AcquireImageGridTaskConfig,
     AcquireOverviewImageGridTaskConfig,
     CryoCleaningGridTaskConfig,
@@ -66,7 +66,7 @@ def test_acquire_image_widget_roundtrip_and_signal(qapp):
 
 
 def test_acquire_image_config_serialization_roundtrip(qapp):
-    from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
         load_grid_task_config,
     )
 

@@ -15,7 +15,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     GridRecord,
     GridTaskProtocol,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (  # noqa: E402
+from fibsem.applications.autolamella.workflows.tasks.grid import (  # noqa: E402
     AcquireImageGridTaskConfig,
 )
 

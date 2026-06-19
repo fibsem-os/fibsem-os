@@ -18,7 +18,7 @@ import time
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, GridRecord
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import run_grid_task
+from fibsem.applications.autolamella.workflows.tasks.grid import run_grid_task
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import GridSlot, SampleGrid

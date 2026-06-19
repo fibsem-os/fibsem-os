@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+from fibsem.applications.autolamella.workflows.tasks.grid import (
     GRID_TASK_REGISTRY,
 )
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget

@@ -114,7 +114,7 @@ class _HeroImage(ClickableLabel):
 def _task_display_name(ts) -> str:
     """Friendly task name (e.g. 'Acquire Overview Image') from the registry,
     falling back to the stored task name."""
-    from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
         GRID_TASK_REGISTRY,
     )
 
@@ -475,7 +475,7 @@ class GridResultsWidget(QWidget):
         return None
 
     def _gallery_items(self, task_filter: Optional[str] = None) -> List[Tuple[str, str]]:
-        from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+        from fibsem.applications.autolamella.workflows.tasks.grid import (
             GRID_TASK_REGISTRY,
         )
 

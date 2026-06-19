@@ -14,7 +14,7 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     GridTaskProtocol,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid_tasks import (
+from fibsem.applications.autolamella.workflows.tasks.grid import (
     GRID_TASK_REGISTRY,
     AcquireOverviewImageGridTaskConfig,
     CryoCleaningGridTaskConfig,
@@ -190,6 +190,21 @@ def test_grid_task_records_result(demo_microscope, experiment):
 
     assert record.results["NOOP_GRID"]["overview"] == "/tmp/overview.tif"
     assert record.results["NOOP_GRID"]["pixel_size"] == 1.2e-8
+
+
+def test_grid_task_dirs_under_grids_subdir(demo_microscope, experiment):
+    # outputs are separated from the top-level (per-lamella) layout under grids/
+    import os
+
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="NOOP_GRID"),
+                         record, experiment)
+
+    assert task.grid_dir() == os.path.join(experiment.path, "grids", "grid-aspen")
+    tdir = task.task_dir()
+    assert tdir == os.path.join(experiment.path, "grids", "grid-aspen", "NOOP_GRID")
+    assert os.path.isdir(tdir)  # task_dir() creates it
 
 
 def test_protocol_config_not_mutated_across_grids(demo_microscope, experiment):
