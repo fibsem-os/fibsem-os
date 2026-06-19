@@ -1,8 +1,8 @@
 """Grid-level workflow tasks.
 
 Public API for grid tasks: the base classes, the concrete task/config types,
-the registry, and the runners. Import from this package (the previous
-``grid_tasks`` module is a thin backward-compat shim).
+the registry, and the runners. Import from this package (it replaces the old
+``grid_tasks`` module).
 """
 
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
