@@ -290,6 +290,29 @@ def test_grid_task_lifecycle_success(demo_microscope, experiment):
     assert record.task_state.duration >= 0
 
 
+def test_grid_task_history_dataframe(demo_microscope, experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="NOOP_GRID"),
+                  record, experiment).run()
+
+    df = experiment.grid_task_history_dataframe()
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["grid_name"] == "grid-aspen"
+    assert row["grid_id"] == record._id
+    assert row["task_name"] == "NOOP_GRID"
+    assert row["task_status"] == "Completed"
+    assert row["duration"] >= 0
+    assert {"grid_name", "grid_id", "task_name", "task_id", "task_type",
+            "task_status", "duration"} <= set(df.columns)
+
+
+def test_grid_task_history_dataframe_empty(experiment):
+    # no grids / history → empty frame, no error
+    assert experiment.grid_task_history_dataframe().empty
+
+
 def test_grid_task_records_result(demo_microscope, experiment):
     record = GridRecord(name="grid-aspen")
     experiment.add_grid(record)

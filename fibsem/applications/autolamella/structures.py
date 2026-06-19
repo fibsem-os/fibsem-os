@@ -1602,3 +1602,29 @@ class Experiment:
             wlist.append(deepcopy(ddict))
 
         return pd.DataFrame(wlist)
+
+    def grid_task_history_dataframe(self) -> pd.DataFrame:
+        """Create a dataframe with the history of all grid tasks.
+
+        The grid analogue of ``task_history_dataframe`` — one row per completed
+        grid task, keyed by grid (rather than lamella).
+        """
+        history: List[dict[Any, Any]] = []
+        for grid in self.grids:
+            for task in grid.task_history:
+                ddict = {
+                    "grid_name": grid.name,
+                    "grid_id": grid._id,
+                    "task_name": task.name,
+                    "task_id": task.task_id,
+                    "task_type": task.task_type,
+                    "task_status": task.status.name,
+                    "task_status_message": task.status_message,
+                    "start_timestamp": task.start_timestamp,
+                    "end_timestamp": task.end_timestamp,
+                    "completed_at": task.completed_at,
+                    "duration": task.duration,
+                }
+                history.append(deepcopy(ddict))
+
+        return pd.DataFrame(history)

@@ -146,6 +146,7 @@ class GridTaskManager:
 
         logging.info("Grid workflow complete.\n%s", self.queue.items)
         self._emit_status("", "", "Completed", msg="Grid workflow complete.")
+        print(self.experiment.grid_task_history_dataframe())
 
     def _emit_status(self, grid_name: str, task_name: str, status: str, *,
                      msg: Optional[str] = None, error_message: Optional[str] = None,
