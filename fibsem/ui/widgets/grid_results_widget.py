@@ -34,7 +34,7 @@ from fibsem.ui.widgets.grid_card_widget import _GridThumbnail
 from fibsem.ui.widgets.lamella_task_image_widget import (
     ClickableLabel,
     ExpandedImageDialog,
-    _ImageLoaderWorker,
+    _ImageLoader,
     _arr_to_pixmap,
 )
 
@@ -135,7 +135,8 @@ class GridResultsWidget(QWidget):
         self._experiment: Optional["Experiment"] = None
         self._slot_label: str = ""
         self._in_beam: bool = False
-        self._worker: Optional[_ImageLoaderWorker] = None
+        self._loader = _ImageLoader(_HERO_WIDTH, parent=self)
+        self._loader.image_loaded.connect(self._on_image_loaded)
         # filepath -> [(label, display_width), ...] to fill when the image loads
         self._targets: Dict[str, List[Tuple[QLabel, int]]] = {}
         # path -> (mtime, array) so the overview isn't re-read on every refresh
@@ -449,9 +450,7 @@ class GridResultsWidget(QWidget):
             else:
                 to_load.append(path)
         if to_load:
-            self._worker = _ImageLoaderWorker(to_load, _HERO_WIDTH, parent=self)
-            self._worker.image_loaded.connect(self._on_image_loaded)
-            self._worker.start()
+            self._loader.load(to_load)
 
     def _apply_array(self, path: str, arr: np.ndarray) -> None:
         if self._hero is not None and path == self._hero_path:
@@ -501,17 +500,12 @@ class GridResultsWidget(QWidget):
         ExpandedImageDialog(filepath, parent=self).exec_()
 
     def _cancel_worker(self) -> None:
-        if self._worker is not None:
-            try:
-                self._worker.image_loaded.disconnect(self._on_image_loaded)
-            except Exception:
-                pass
-            self._worker.cancel()
-            self._worker.wait()  # block until the thread stops (avoids teardown races)
-            self._worker = None
+        # non-blocking: drop queued loads; in-flight ones finish but are harmless
+        # (their arrays only update labels still present after the rebuild).
+        self._loader.cancel()
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        self._cancel_worker()
+        self._loader.wait(2000)  # drain in-flight loads before teardown
         super().closeEvent(event)
 
     def _clear(self) -> None:
