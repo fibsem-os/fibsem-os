@@ -373,6 +373,19 @@ record = experiment.get_grid_by_name(current.name) if current else None
 experiment.add_new_lamella(state, task_config, grid_id=record._id if record else None)
 ```
 
+### GUI + workflow wiring (implemented)
+
+The link is wired end-to-end:
+- **Manual creation** stamps `grid_id` from the new lamella's *own* position — `Stage.grid_at_position(pos)` ([`_stage.py`](../../fibsem/microscopes/_stage.py)) resolves position → holder slot → mounted grid → `GridRecord`; all click-to-place sites funnel through `AutoLamellaUI.add_new_lamella`, so they inherit it.
+- **Workflow creation** uses `GridTask.create_lamella(stage_position, name)` ([`grid/base.py`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py)), which stamps the task's own `grid._id` — the integration point for the Phase 5 targeting task.
+- **Display** — grid cards show a lamella count; the Results tab shows a per-grid lamella table (left of the overview, click → focus in the Lamella tab) via `get_lamellae_for_grid`.
+
+### Reachability: the loaded grid is the active scope (implemented)
+
+A lamella's `stage_position` is only physically valid when *its* grid is loaded — on an autoloader every grid occupies the **same** working-slot coordinates, so a lamella shown/milled against the wrong grid points at the wrong surface. `Experiment.get_loaded_grids(microscope)` (grids in `holder.occupied_slots`), `is_lamella_reachable`, and `unreachable_lamellae` model this. Two consumers:
+- **Overview** (`FibsemMinimapWidget`) filters markers to lamellae on the loaded grid(s) (`grid_id is None` always shown), since the single-grid overview can't meaningfully place off-grid positions.
+- **Lamella run** (`AutoLamellaMainUI._on_run_workflow_clicked`) **blocks** when the selection includes lamellae whose grid isn't loaded — a pre-flight guard; the lamella `TaskManager` itself is unchanged. Multi-grid execution (grid-outer load-and-mill) is deferred; the intended shape is **B** — the grid workflow drives loading and runs the lamella manager scoped to each grid's lamellae (see [Decisions](#8-decisions)).
+
 ---
 
 ## 8. Decisions

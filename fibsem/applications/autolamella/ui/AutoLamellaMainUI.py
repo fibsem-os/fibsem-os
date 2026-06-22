@@ -703,6 +703,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
+        # guard: a lamella's position is only valid when its grid is loaded.
+        # block runs that span grids not currently in the beam (no exchange yet).
+        unreachable = ui.experiment.unreachable_lamellae(selected_lamella, ui.microscope)
+        if unreachable:
+            details = "\n".join(
+                f"  • {lam.name} → {g.name if (g := ui.experiment.get_grid_for_lamella(lam)) else '?'}"
+                for lam in unreachable
+            )
+            QMessageBox.warning(
+                self, "Lamellae on unloaded grids",
+                "These selected lamellae are on grids not currently loaded, so "
+                "their positions can't be reached:\n\n"
+                f"{details}\n\n"
+                "Load the grid (Grids tab) or deselect them, then run again.",
+            )
+            return
+
         if not confirm_run_workflow_dialog(lamella_names, task_names, parent=self):
             return
 

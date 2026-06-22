@@ -528,6 +528,14 @@ class FibsemMinimapWidget(QWidget):
             stage_positions.append(sp)
         return stage_positions
 
+    def _loaded_grid_ids(self) -> set:
+        """_ids of the grids currently loaded in the beam (reachable on this
+        overview). Empty when no experiment/microscope is available."""
+        exp = self.parent_widget.experiment if self.parent_widget is not None else None
+        if exp is None or self.microscope is None:
+            return set()
+        return {g._id for g in exp.get_loaded_grids(self.microscope)}
+
     def _lamella_color(self, lamella: Lamella, selected: bool) -> str:
         """Return a display color for a lamella based on its defect state and selection."""
         if selected:
@@ -1150,7 +1158,12 @@ class FibsemMinimapWidget(QWidget):
             width = 80e-6 / pixelsize # TODO: make this match the milling fov
             height = 1024/1536 * width
             selected_index = self.lamella_list.selected_index
+            # only the loaded grid's lamellae sit on this (single-grid) overview;
+            # off-grid positions reproject to meaningless locations, so skip them
+            loaded_grid_ids = self._loaded_grid_ids()
             for i, (lam, point) in enumerate(zip(self.lamellas, points)):
+                if lam.grid_id is not None and lam.grid_id not in loaded_grid_ids:
+                    continue
                 overlays.append(NapariShapeOverlay(
                     shape=create_rectangle_shape(point, width=width, height=height),
                     color=self._lamella_color(lam, selected=i == selected_index),
@@ -1282,12 +1295,16 @@ class FibsemMinimapWidget(QWidget):
                 shape_type="line"
             ))
 
-        # saved positions
+        # saved positions — only those on a loaded grid (their position is only
+        # valid when their grid is in the beam; off-grid ones reproject wrongly)
         selected_index = self.lamella_list.selected_index
         lamellas = self.lamellas
         positions = self.positions
+        loaded_grid_ids = self._loaded_grid_ids()
         pts = tiled.reproject_stage_positions_onto_image2(self.image, positions)
         for i, (lam, saved_point) in enumerate(zip(lamellas, pts)):
+            if lam.grid_id is not None and lam.grid_id not in loaded_grid_ids:
+                continue
             saved_lines = create_crosshair_shape(saved_point, crosshair_size, layer_scale)
             color = self._lamella_color(lam, selected=i == selected_index)
 

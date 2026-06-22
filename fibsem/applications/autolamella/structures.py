@@ -1261,6 +1261,41 @@ class Experiment:
         """Return the GridRecord a lamella belongs to, or None if unlinked."""
         return self.get_grid_by_id(lamella.grid_id)
 
+    def get_loaded_grids(self, microscope: 'FibsemMicroscope') -> List['GridRecord']:
+        """The GridRecords whose grid currently sits in a holder working slot.
+
+        Working-slot occupancy means the grid is in the beam and reachable now
+        (magazine grids are not). Spans both hardware models: an autoloader has
+        a single working slot; a static multi-slot holder may have several.
+        """
+        holder = getattr(getattr(microscope, "_stage", None), "holder", None)
+        if holder is None:
+            return []
+        records = []
+        for slot in holder.occupied_slots:
+            record = self.get_grid_by_name(slot.loaded_grid.name)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def is_lamella_reachable(self, lamella: 'Lamella',
+                             microscope: 'FibsemMicroscope') -> bool:
+        """Whether a lamella's grid is currently loaded (so its position is valid).
+
+        Unlinked lamellae (``grid_id is None`` — legacy / single-grid) are always
+        treated as reachable on whatever grid is loaded.
+        """
+        if lamella.grid_id is None:
+            return True
+        return lamella.grid_id in {g._id for g in self.get_loaded_grids(microscope)}
+
+    def unreachable_lamellae(self, lamellae: List['Lamella'],
+                             microscope: 'FibsemMicroscope') -> List['Lamella']:
+        """Subset of ``lamellae`` whose grid is not currently loaded."""
+        loaded = {g._id for g in self.get_loaded_grids(microscope)}
+        return [lam for lam in lamellae
+                if lam.grid_id is not None and lam.grid_id not in loaded]
+
     def add_grid(self, grid: 'GridRecord') -> None:
         """Add a grid record to the experiment (rejects duplicate names)."""
         if not isinstance(grid, GridRecord):

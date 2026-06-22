@@ -1117,3 +1117,46 @@ def test_grid_task_create_lamella_stamps_grid_id(demo_microscope, experiment):
     assert lam.grid_id == record._id
     assert experiment.get_lamellae_for_grid(record) == [lam]
     assert lam.name == "target-01"
+
+
+# --- reachability (which grids are loaded) ---------------------------------
+
+def _load_into_working_slot(microscope, grid_name):
+    slot = next(iter(microscope._stage.holder.slots.values()))
+    slot.loaded_grid = SampleGrid(name=grid_name)
+
+
+def test_get_loaded_grids(demo_microscope, experiment):
+    rec = GridRecord(name="grid-aspen")
+    experiment.add_grid(rec)
+    assert experiment.get_loaded_grids(demo_microscope) == []  # nothing loaded
+
+    _load_into_working_slot(demo_microscope, "grid-aspen")
+    assert [g._id for g in experiment.get_loaded_grids(demo_microscope)] == [rec._id]
+
+
+def test_is_lamella_reachable(demo_microscope, experiment):
+    rec = GridRecord(name="grid-aspen")
+    experiment.add_grid(rec)
+    on = _make_lamella(experiment, "on", grid_id=rec._id)
+    legacy = _make_lamella(experiment, "legacy")  # grid_id None
+
+    # nothing loaded → only the unlinked (legacy) lamella is reachable
+    assert experiment.is_lamella_reachable(legacy, demo_microscope)
+    assert not experiment.is_lamella_reachable(on, demo_microscope)
+
+    _load_into_working_slot(demo_microscope, "grid-aspen")
+    assert experiment.is_lamella_reachable(on, demo_microscope)
+    assert experiment.is_lamella_reachable(legacy, demo_microscope)  # still reachable
+
+
+def test_unreachable_lamellae(demo_microscope, experiment):
+    rec = GridRecord(name="grid-aspen")
+    experiment.add_grid(rec)
+    on = _make_lamella(experiment, "on", grid_id=rec._id)
+    off = _make_lamella(experiment, "off", grid_id="other-grid")
+    legacy = _make_lamella(experiment, "legacy")
+    _load_into_working_slot(demo_microscope, "grid-aspen")
+
+    result = experiment.unreachable_lamellae([on, off, legacy], demo_microscope)
+    assert [lam.name for lam in result] == ["off"]  # on/legacy reachable
