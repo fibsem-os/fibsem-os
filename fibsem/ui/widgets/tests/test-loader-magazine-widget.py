@@ -118,8 +118,9 @@ class TestWindow(QWidget):
 
     def _on_unload_requested(self) -> None:
         loader = self.microscope._stage.loader
-        unloaded = [s.loaded_grid.name for s in loader.loaded_slots]
-        for slot in list(loader.loaded_slots):
+        occupied = self.microscope._stage.holder.occupied_slots
+        unloaded = [s.loaded_grid.name for s in occupied]
+        for slot in list(occupied):
             loader.unload_grid(slot.name)
         self.holder.refresh()
         self.magazine.refresh_rows()  # update status dots (white = available)

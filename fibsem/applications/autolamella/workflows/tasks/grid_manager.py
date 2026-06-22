@@ -100,7 +100,7 @@ class GridTaskManager:
         magazine_slot = loader.find_grid(record.name)
         grid = magazine_slot.loaded_grid if magazine_slot is not None else SampleGrid(name=record.name)
         try:
-            for loaded in loader.loaded_slots:
+            for loaded in holder.occupied_slots:
                 loader.unload_grid(loaded.name)
             target = next(iter(holder.slots))
             loader.load_grid(target, grid)

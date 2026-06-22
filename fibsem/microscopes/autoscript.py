@@ -10,7 +10,13 @@ import sys
 import time
 from typing import TYPE_CHECKING, Callable, Optional, Union
 
-from fibsem.microscopes._stage import SampleGridLoader, SampleHolder, Stage
+from fibsem.microscopes._stage import (
+    GridSlot,
+    SampleGrid,
+    SampleGridLoader,
+    SampleHolder,
+    Stage,
+)
 from fibsem.structures import FibsemStagePosition
 
 if TYPE_CHECKING:
@@ -469,3 +475,92 @@ class AutoscriptArctisSputterCoater(AutoscriptSputterCoater):
         if current is not None:
             self.set_current(current)
         self._coater.run(time_seconds)
+
+class AutoscriptSampleLoader(SampleGridLoader):
+    """``SampleGridLoader`` backed by the AutoScript autoloader (Arctis / xT 28.x).
+
+    Wraps ``microscope.specimen.autoloader``. The magazine slots mirror
+    ``get_slots()`` and grids are addressed by the integer slot id
+    (``AutoloaderSlot.id``); ``load(id)`` blocks until the exchange completes.
+    See ``docs/design/autoscript-sample-loader.md``.
+
+    Confirmed API (operator code): ``get_slots(run_inventory: bool)`` returns
+    ``AutoloaderSlot{id: int, state: str in {Unknown, Occupied, Empty},
+    sample_description}``; ``load(id)`` / ``unload()``; ``autoloader.stage``
+    reports the grid currently on the microscope stage.
+
+    The magazine is not queried on construction — call ``run_inventory()`` to
+    sync it from the hardware.
+    """
+
+    @property
+    def _autoloader(self):
+        return self.parent.connection.specimen.autoloader
+
+    @property
+    def is_installed(self) -> bool:
+        try:
+            return bool(self._autoloader.is_installed)
+        except Exception:  # noqa: BLE001 - device absent / not ready
+            return False
+
+    # --- magazine inventory ---
+
+    def run_inventory(self) -> list:
+        """Scan the magazine via the autoloader and sync our slots.
+
+        ``get_slots(False)`` returns the last-known states (a slot may read
+        ``'Unknown'`` if no scan has run); if every slot is unknown, force a
+        physical scan with ``get_slots(True)``.
+        """
+        slots = self._autoloader.get_slots(False)
+        if slots and all(getattr(s, "state", "Unknown") == "Unknown" for s in slots):
+            slots = self._autoloader.get_slots(True)
+        self._sync_slots(slots)
+        return self.loaded_magazine_slots
+
+    def _sync_slots(self, autoloader_slots) -> None:
+        """Mirror the AutoloaderSlot list into our GridSlot magazine (keyed by id).
+
+        ``sample_description`` maps to the grid name when present; it may be empty,
+        in which case the slot id is used as the name.
+        """
+        self.slots = {}
+        for s in autoloader_slots:
+            sid = int(s.id)
+            name = f"Slot-{sid:02d}"
+            grid = None
+            if getattr(s, "state", None) == "Occupied":
+                desc = getattr(s, "sample_description", None)
+                grid = SampleGrid(name=desc or name)
+            self.slots[name] = GridSlot(name=name, index=sid, loaded_grid=grid)
+
+    # --- load / unload (autoloader <-> stage) ---
+
+    def load_grid(self, slot_name: str, grid: SampleGrid) -> None:
+        """Load ``grid`` (by its magazine slot id) onto the stage. Blocks until done.
+
+        Mirrors the result into the holder working slot so the model's occupancy
+        (``SampleHolder.occupied_slots``) reflects the hardware.
+        """
+        mag = self.find_grid(grid.name)
+        if mag is None:
+            raise ValueError(
+                f"Grid '{grid.name}' not found in the autoloader magazine."
+            )
+        self._autoloader.load(mag.index)  # AutoloaderSlot.id; blocks until finished
+        holder_slot = self.parent._stage.holder.slots.get(slot_name)
+        if holder_slot is not None:
+            holder_slot.loaded_grid = grid
+
+    def unload_grid(self, slot_name: Optional[str] = None) -> None:
+        """Unload the grid currently on the stage. Blocks until done."""
+        self._autoloader.unload()
+        holder = self.parent._stage.holder
+        if slot_name is not None:
+            holder_slot = holder.slots.get(slot_name)
+            if holder_slot is not None:
+                holder_slot.loaded_grid = None
+        else:  # no slot given → clear whichever working slot held a grid
+            for s in holder.occupied_slots:
+                s.loaded_grid = None

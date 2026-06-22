@@ -52,11 +52,16 @@ class SampleGrid:
 
 @dataclass
 class GridSlot:
-    """A fixed physical slot on a SampleHolder. May have a SampleGrid loaded into it."""
+    """A numbered slot that may hold a SampleGrid.
+
+    Holder slots carry a stage ``position`` (the beam location, used by
+    ``move_to_slot`` / grid tasks). Loader *magazine* slots are storage only and
+    leave ``position`` as ``None``.
+    """
 
     name: str
     index: int
-    position: FibsemStagePosition
+    position: Optional[FibsemStagePosition] = None
     loaded_grid: Optional[SampleGrid] = None
 
     def to_dict(self, include_grids: bool = True) -> dict:
@@ -68,7 +73,7 @@ class GridSlot:
         return {
             "name": self.name,
             "index": self.index,
-            "position": self.position.to_dict(),
+            "position": self.position.to_dict() if self.position is not None else None,
             "loaded_grid": loaded_grid,
         }
 
@@ -80,13 +85,18 @@ class GridSlot:
             if loaded_grid_data is not None
             else None
         )
+        position_data = data.get("position")
+        position = (
+            FibsemStagePosition(**position_data) if position_data else None
+        )
         slot = GridSlot(
             name=data.get("name", ""),
             index=data.get("index", 0),
-            position=FibsemStagePosition(**data.get("position", {})),
+            position=position,
             loaded_grid=loaded_grid,
         )
-        slot.position.name = slot.name
+        if slot.position is not None:
+            slot.position.name = slot.name
         return slot
 
 
@@ -136,6 +146,11 @@ class SampleHolder:
             if slot.loaded_grid is not None and slot.loaded_grid.name == grid_name:
                 return slot
         return None
+
+    @property
+    def occupied_slots(self) -> List["GridSlot"]:
+        """The working slots that currently have a grid loaded."""
+        return [s for s in self.slots.values() if s.loaded_grid is not None]
 
     def _ensure_slots(self) -> None:
         """Ensure exactly `capacity` slots exist; add empty ones for missing indices."""
@@ -213,17 +228,17 @@ class SampleGridLoader:
       operator). The inventory of grids available to load. ``run_inventory``
       scans it; ``assign_grid`` records/names a grid in a magazine slot.
     - the holder's working slot(s) — the beam position. ``load_grid`` /
-      ``unload_grid`` insert/retract a grid there; ``loaded_slots`` reports it.
+      ``unload_grid`` insert/retract a grid there (which the holder reports via
+      ``SampleHolder.occupied_slots``).
     """
 
     def __init__(self, parent: "FibsemMicroscope",
                  capacity: int = LOADER_CAPACITY,
-                 slots: Optional[dict[str, GridSlot]] = None,
                  name: str = "Autoloader Magazine") -> None:
         self.parent = parent
         self.name = name
         self.capacity = capacity
-        self.slots: dict[str, GridSlot] = slots if slots is not None else {}
+        self.slots: dict[str, GridSlot] = {}
         # simulated timings (seconds); 0 = instant. Set by the simulator setup so
         # demo load/unload + inventory feel like real autoloader hardware.
         self.move_delay_s: float = 0.0
@@ -235,13 +250,14 @@ class SampleGridLoader:
             time.sleep(self.move_delay_s)
 
     def _ensure_slots(self) -> None:
-        """Materialise exactly ``capacity`` magazine slots (Magazine-01, …)."""
+        """Materialise exactly ``capacity`` magazine slots (Magazine-01, …).
+
+        Magazine slots are storage only — no stage ``position``.
+        """
         for i in range(self.capacity):
             name = f"Magazine-{i + 1:02d}"
             if name not in self.slots:
-                self.slots[name] = GridSlot(
-                    name=name, index=i, position=FibsemStagePosition(name=name)
-                )
+                self.slots[name] = GridSlot(name=name, index=i)
 
     # --- magazine (inventory) ---
 
@@ -287,17 +303,6 @@ class SampleGridLoader:
         if slot is not None:
             self._simulate_move()
             slot.loaded_grid = None
-
-    @property
-    def loaded_slots(self) -> List[GridSlot]:
-        """Return the holder working slots that currently have a grid loaded."""
-        if self.parent._stage.holder is None:
-            return []
-        return [
-            s
-            for s in self.parent._stage.holder.slots.values()
-            if s.loaded_grid is not None
-        ]
 
 
 class Stage:

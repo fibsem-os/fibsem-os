@@ -923,7 +923,7 @@ class AutoLamellaUI(QMainWindow):
                 manager.ensure_loaded(GridRecord(name=grid_name))
             else:  # unload the working slot(s)
                 loader = self.microscope._stage.loader
-                for slot in list(loader.loaded_slots):
+                for slot in list(self.microscope._stage.holder.occupied_slots):
                     loader.unload_grid(slot.name)
         except GridExchangeError as e:
             error = str(e)

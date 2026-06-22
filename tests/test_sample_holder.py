@@ -268,6 +268,12 @@ class TestSlotLookup:
         h = _make_holder(capacity=2)
         assert h.find_slot_by_grid_name("Grid-A") is None
 
+    def test_occupied_slots(self):
+        h = _make_holder(capacity=3)
+        assert h.occupied_slots == []  # all empty
+        h.slots["Slot-02"].loaded_grid = SampleGrid(name="Grid-B")
+        assert h.occupied_slots == [h.slots["Slot-02"]]  # only occupied ones
+
 
 # ---------------------------------------------------------------------------
 # _create_sample_stage
