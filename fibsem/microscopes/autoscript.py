@@ -345,8 +345,9 @@ class AutoscriptSputterCoater:
 
 
 
-from typing import TYPE_CHECKING
-import time 
+import logging
+import time
+from typing import Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from fibsem.microscope import ThermoMicroscope
 from fibsem.structures import FibsemStagePosition
@@ -398,22 +399,35 @@ class AutoscriptGISPort:
     def turn_heater_off(self):
         self._port.turn_heater_off()
 
-    def run_deposition(self, duration: int) -> None:
+    def run_deposition(self, duration: int,
+                       stop_event: Optional['threading.Event'] = None,
+                       on_progress: Optional[Callable[[float], None]] = None) -> None:
+        """Insert the GIS, open the port for ``duration`` seconds, then close + retract.
 
+        Self-contained: the insert/open/wait/close/retract sequence lives here so
+        callers (tasks, notebooks) get the full deposition cycle in one call.
+        ``stop_event`` (when set) ends the wait early; ``on_progress`` is invoked
+        each second with the remaining time. Close + retract always run, even on
+        early stop or error.
+        """
         self.insert()
 
         # QUERY: acquire diagnostic sem image?
 
-        self.open()
-
-        remaining_time = duration
-        while True:
-            print(f"Depositing: {self.port_name} - {remaining_time}s")
-            time.sleep(1)
-            remaining_time -= 1
-
-            if remaining_time <= 0:
-                break
-
-        self.close()
-        self.retract()
+        # once inserted, always close + retract — even if open/wait raises or stops
+        try:
+            self.open()
+            start_time = time.time()
+            while (time.time() - start_time) < duration:
+                if stop_event is not None and stop_event.is_set():
+                    logging.info(f"Deposition stopped: {self.port_name}")
+                    break
+                time.sleep(1)
+                remaining_time = duration - (time.time() - start_time)
+                if on_progress is not None:
+                    on_progress(remaining_time)
+                else:
+                    print(f"Depositing: {self.port_name} - {remaining_time:.0f}s")
+        finally:
+            self.close()
+            self.retract()

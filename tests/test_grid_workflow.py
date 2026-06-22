@@ -351,7 +351,6 @@ def test_acquire_overview_skips_cleanly_when_declined(
 # --- stub tasks (logging-only _run, registered + runnable) -----------------
 
 @pytest.mark.parametrize("task_type", [
-    "CRYO_DEPOSITION_GRID",
     "CRYO_SPUTTER_GRID",
     "PARALLEL_TRENCH_MILLING_GRID",
 ])
@@ -368,6 +367,88 @@ def test_stub_task_registered_and_runs_cleanly(
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
     assert record.has_completed_task(task_type)
     assert task_type not in record.results  # stub records nothing
+
+
+# --- GIS deposition task ---------------------------------------------------
+
+class _FakeGISPort:
+    """Records the GIS deposition call sequence in place of AutoscriptGISPort."""
+    instances = []
+
+    def __init__(self, parent):
+        self.calls = []
+        self.deposition = None
+        _FakeGISPort.instances.append(self)
+
+    def _move_to_safe_gis_position(self): self.calls.append("safe")
+    def _run_safety_check(self): self.calls.append("check")
+
+    def run_deposition(self, duration, stop_event=None, on_progress=None):
+        # the real port owns insert/open/wait/close/retract internally
+        self.calls.append("run_deposition")
+        self.deposition = {"duration": duration, "stop_event": stop_event,
+                          "on_progress": on_progress}
+
+
+def _gis_task(demo_microscope, experiment, monkeypatch, deposition_time=0.0):
+    import fibsem.microscopes.autoscript as autoscript
+    import fibsem.applications.autolamella.workflows.ui as wfui
+
+    _FakeGISPort.instances = []
+    monkeypatch.setattr(autoscript, "AutoscriptGISPort", _FakeGISPort)
+    monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    monkeypatch.setattr(demo_microscope, "get_microscope_state", lambda *a, **k: "STATE")
+    restored = []
+    monkeypatch.setattr(demo_microscope, "set_microscope_state",
+                        lambda s, *a, **k: restored.append(s))
+
+    _load_one_grid(demo_microscope)
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
+        CryoDepositionGridTask, CryoDepositionGridTaskConfig,
+    )
+    task = CryoDepositionGridTask(
+        demo_microscope,
+        CryoDepositionGridTaskConfig(task_name="GIS", deposition_time=deposition_time),
+        record, experiment, parent_ui=object())
+    monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+    return task, record, restored
+
+
+def test_gis_deposition_runs_insert_deposit_retract(
+    demo_microscope, experiment, monkeypatch
+):
+    task, record, restored = _gis_task(demo_microscope, experiment, monkeypatch)
+    task.run()
+
+    port = _FakeGISPort.instances[-1]
+    # safe height + safety check precede the deposition; the port owns the cycle
+    assert port.calls == ["safe", "check", "run_deposition"]
+    # the stop event is threaded through so deposition stays abort-aware
+    assert port.deposition["duration"] == 0.0
+    assert port.deposition["stop_event"] is task._stop_event
+    assert restored == ["STATE"]  # initial state restored after retraction
+    assert record.results["GIS"]["deposition_time"] == 0.0
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+def test_gis_deposition_skips_cleanly_when_declined(
+    demo_microscope, experiment, monkeypatch
+):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+
+    task, record, restored = _gis_task(demo_microscope, experiment, monkeypatch)
+    _supervise(experiment, "GIS")
+    monkeypatch.setattr(wfui, "ask_user", lambda **kw: False)  # decline at checkpoint
+
+    task.run()
+
+    assert _FakeGISPort.instances == []  # GIS never created/inserted
+    assert restored == []
+    assert "GIS" not in record.results
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
 
 
 # --- GridTask lifecycle ----------------------------------------------------

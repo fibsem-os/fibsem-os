@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -254,6 +255,24 @@ class GridTask(ABC):
             return True
         from fibsem.applications.autolamella.workflows.ui import ask_user
         return ask_user(parent_ui=self.parent_ui, msg=msg, pos=pos, neg=neg)
+
+    def wait_with_progress(self, duration: float, message: str = "Working") -> bool:
+        """Wait ``duration`` seconds, emitting a per-second countdown to the
+        status bar and honouring the stop event.
+
+        The generic "wait while hardware does its thing" loop shared by timed
+        grid tasks (FIB cleaning, GIS deposition). Returns True if it ran to
+        completion, or False if interrupted by the stop event.
+        """
+        start = time.time()
+        while (time.time() - start) < duration:
+            if self._stop_event is not None and self._stop_event.is_set():
+                logging.info(f"{self.task_name}: wait interrupted by stop event.")
+                return False
+            time.sleep(1)
+            remaining = duration - (time.time() - start)
+            self.update_status_ui(f"{message}... {remaining:.0f}s remaining")
+        return True
 
     def _get_stage_position_for_orientation(
         self,
