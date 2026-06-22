@@ -348,6 +348,28 @@ def test_acquire_overview_skips_cleanly_when_declined(
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
 
 
+# --- stub tasks (logging-only _run, registered + runnable) -----------------
+
+@pytest.mark.parametrize("task_type", [
+    "CRYO_DEPOSITION_GRID",
+    "CRYO_SPUTTER_GRID",
+    "PARALLEL_TRENCH_MILLING_GRID",
+])
+def test_stub_task_registered_and_runs_cleanly(
+    demo_microscope, experiment, task_type
+):
+    # the stub tasks log only — running one completes without touching hardware
+    assert task_type in GRID_TASK_REGISTRY
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+
+    run_grid_task(demo_microscope, task_type, experiment, record)
+
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
+    assert record.has_completed_task(task_type)
+    assert task_type not in record.results  # stub records nothing
+
+
 # --- GridTask lifecycle ----------------------------------------------------
 
 def test_grid_task_lifecycle_success(demo_microscope, experiment):

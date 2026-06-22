@@ -33,6 +33,35 @@ class CryoSputterGridTaskConfig(GridTaskConfig):
     sputter_current: float = 0.1  # nA
 
 
+class CryoDepositionGridTask(GridTask):
+    """Task to deposit a protective layer on the grid (stub: logs only)."""
+    config_cls: ClassVar[Type[GridTaskConfig]] = CryoDepositionGridTaskConfig
+    config: CryoDepositionGridTaskConfig
+
+    def _run(self):
+        # TODO: implement GIS deposition (move to grid, insert GIS, deposit)
+        logging.info(
+            f"Cryo deposition on grid {self.grid.name} "
+            f"({self.config.deposition_time:.0f}s) — not yet implemented."
+        )
+        self.update_status_ui("Cryo deposition (not implemented)")
+
+
+class CryoSputterGridTask(GridTask):
+    """Task to sputter-coat the grid (stub: logs only)."""
+    config_cls: ClassVar[Type[GridTaskConfig]] = CryoSputterGridTaskConfig
+    config: CryoSputterGridTaskConfig
+
+    def _run(self):
+        # TODO: implement sputter coating (move to grid, run sputter source)
+        logging.info(
+            f"Cryo sputter on grid {self.grid.name} "
+            f"({self.config.sputter_time:.0f}s at {self.config.sputter_voltage:.1f} kV) "
+            f"— not yet implemented."
+        )
+        self.update_status_ui("Cryo sputter (not implemented)")
+
+
 @dataclass
 class CryoCleaningGridTaskConfig(GridTaskConfig):
     """Configuration for cryo cleaning milling task."""
