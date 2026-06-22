@@ -79,8 +79,10 @@ class _ClickableRow(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        self.clicked.emit(self._key)
+        # super() first, emit last — the click can rebuild + delete this widget
+        # (selection refresh / modal exec_), so don't touch self after emitting.
         super().mousePressEvent(event)
+        self.clicked.emit(self._key)
 
 
 class _HeroImage(ClickableLabel):

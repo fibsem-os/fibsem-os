@@ -228,8 +228,10 @@ class GridCardWidget(QWidget):
         self._card.setStyleSheet(_CARD_SELECTED_STYLE if selected else _CARD_STYLE)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        self.clicked.emit(self.record)
+        # super() first, emit last — selecting a card can refresh + delete it,
+        # so don't call into self after emitting clicked.
         super().mousePressEvent(event)
+        self.clicked.emit(self.record)
 
     # --- actions ---
 

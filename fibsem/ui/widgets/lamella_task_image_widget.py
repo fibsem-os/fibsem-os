@@ -77,9 +77,13 @@ class ClickableLabel(QLabel):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mousePressEvent(self, event) -> None:
+        # call super() first (while this widget is alive), then emit last: the
+        # clicked handler opens a modal (exec_) whose nested event loop can
+        # rebuild + deleteLater this label, so touching self afterwards would
+        # hit a deleted C/C++ object.
+        super().mousePressEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._filepath)
-        super().mousePressEvent(event)
 
 
 class ZoomableImageView(QGraphicsView):
