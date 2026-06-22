@@ -422,6 +422,8 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope,
         microscope: FibsemMicroscope instance
     """
     try:
+        if microscope is None:
+            return  # No microscope connected, skip updating overlay
 
         if isinstance(microscope, TescanMicroscope):
             return  # Tescan systems do not support stage position display yet
