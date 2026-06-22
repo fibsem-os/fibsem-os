@@ -28,18 +28,21 @@ def qapp():
 
 def test_deposition_widget_loads_and_roundtrips(qapp):
     cfg = CryoDepositionGridTaskConfig(task_name="gis", orientation="FIB",
-                                       deposition_time=45.0)
+                                       deposition_time=45.0, acquire_reference=False)
     w = get_grid_config_widget(cfg)
     assert isinstance(w, CryoDepositionGridConfigWidget)  # registered, not placeholder
     # loads from config
     assert w.orientation_combo.currentText() == "FIB"
     assert w.time_spin.value() == 45.0
+    assert w.reference_checkbox.isChecked() is False
     # edits write back
     w.orientation_combo.setCurrentText("SEM")
     w.time_spin.setValue(20.0)
+    w.reference_checkbox.setChecked(True)
     out = w.get_config()
     assert out.orientation == "SEM"
     assert out.deposition_time == 20.0
+    assert out.acquire_reference is True
 
 
 def test_sputter_widget_loads_and_roundtrips(qapp):

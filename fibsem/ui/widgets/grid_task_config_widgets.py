@@ -13,6 +13,7 @@ from typing import Dict, Optional, Type
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QLabel,
@@ -193,18 +194,23 @@ class CryoDepositionGridConfigWidget(GridTaskConfigWidget):
         self.orientation_combo = self._orientation_combo()
         self.time_spin = ValueSpinBox(suffix="s", maximum=36_000.0, step=5.0, decimals=0)
         self.time_spin.valueChanged.connect(self._on_changed)
+        self.reference_checkbox = QCheckBox("Acquire SEM reference image")
+        self.reference_checkbox.toggled.connect(self._on_changed)
         form.addRow("Orientation", self.orientation_combo)
         form.addRow("Deposition Time", self.time_spin)
+        form.addRow("", self.reference_checkbox)
         v.addLayout(form)
         v.addStretch(1)
 
     def _load(self, config) -> None:
         self.orientation_combo.setCurrentText(config.orientation or "SEM")
         self.time_spin.setValue(config.deposition_time)
+        self.reference_checkbox.setChecked(config.acquire_reference)
 
     def _apply(self, config) -> None:
         config.orientation = self.orientation_combo.currentText()
         config.deposition_time = self.time_spin.value()
+        config.acquire_reference = self.reference_checkbox.isChecked()
 
 
 class CryoSputterGridConfigWidget(GridTaskConfigWidget):
@@ -221,9 +227,12 @@ class CryoSputterGridConfigWidget(GridTaskConfigWidget):
         self.current_combo = ValueComboBox(items=_SPUTTER_CURRENTS, unit="A", decimals=1)
         self.current_combo.setToolTip("Sputter coater current")
         self.current_combo.currentIndexChanged.connect(self._on_changed)
+        self.reference_checkbox = QCheckBox("Acquire SEM reference image")
+        self.reference_checkbox.toggled.connect(self._on_changed)
         form.addRow("Orientation", self.orientation_combo)
         form.addRow("Sputter Time", self.time_spin)
         form.addRow("Sputter Current", self.current_combo)
+        form.addRow("", self.reference_checkbox)
         v.addLayout(form)
         v.addStretch(1)
 
@@ -231,11 +240,13 @@ class CryoSputterGridConfigWidget(GridTaskConfigWidget):
         self.orientation_combo.setCurrentText(config.orientation or "SEM")
         self.time_spin.setValue(config.sputter_time)
         self.current_combo.set_value(config.sputter_current)
+        self.reference_checkbox.setChecked(config.acquire_reference)
 
     def _apply(self, config) -> None:
         config.orientation = self.orientation_combo.currentText()
         config.sputter_time = self.time_spin.value()
         config.sputter_current = self.current_combo.value()
+        config.acquire_reference = self.reference_checkbox.isChecked()
 
 
 class _PlaceholderConfigWidget(GridTaskConfigWidget):

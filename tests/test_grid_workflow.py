@@ -391,7 +391,8 @@ def test_stub_task_registered_and_runs_cleanly(
 
 # --- GIS deposition task ---------------------------------------------------
 
-def _gis_task(demo_microscope, experiment, monkeypatch, deposition_time=0.0):
+def _gis_task(demo_microscope, experiment, monkeypatch, deposition_time=0.0,
+              acquire_reference=False):
     import fibsem.applications.autolamella.workflows.ui as wfui
 
     monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
@@ -413,9 +414,12 @@ def _gis_task(demo_microscope, experiment, monkeypatch, deposition_time=0.0):
     )
     task = CryoDepositionGridTask(
         demo_microscope,
-        CryoDepositionGridTaskConfig(task_name="GIS", deposition_time=deposition_time),
+        CryoDepositionGridTaskConfig(task_name="GIS", deposition_time=deposition_time,
+                                     acquire_reference=acquire_reference),
         record, experiment, parent_ui=object())
     monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+    monkeypatch.setattr(task, "acquire_grid_reference_image",
+                        lambda *a, **k: ("/ref.tif", "/thumb.png"))
     return task, record, calls
 
 
@@ -431,7 +435,20 @@ def test_gis_deposition_delegates_to_microscope(
     assert calls[0]["stop_event"] is task._stop_event
     assert callable(calls[0]["on_progress"])
     assert record.results["GIS"]["deposition_time"] == 0.0
+    assert "reference" not in record.results["GIS"]  # off by default in this fixture
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+def test_gis_deposition_records_reference_when_enabled(
+    demo_microscope, experiment, monkeypatch
+):
+    task, record, calls = _gis_task(demo_microscope, experiment, monkeypatch,
+                                    acquire_reference=True)
+    task.run()
+    # the SEM reference is acquired and recorded alongside the deposition metadata
+    assert record.results["GIS"]["deposition_time"] == 0.0
+    assert record.results["GIS"]["reference"] == "/ref.tif"
+    assert record.results["GIS"]["thumbnail"] == "/thumb.png"
 
 
 def test_gis_deposition_skips_cleanly_when_declined(
@@ -452,7 +469,7 @@ def test_gis_deposition_skips_cleanly_when_declined(
 
 # --- sputter coating task --------------------------------------------------
 
-def _sputter_task(demo_microscope, experiment, monkeypatch):
+def _sputter_task(demo_microscope, experiment, monkeypatch, acquire_reference=False):
     import fibsem.applications.autolamella.workflows.ui as wfui
 
     monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
@@ -471,9 +488,12 @@ def _sputter_task(demo_microscope, experiment, monkeypatch):
     task = CryoSputterGridTask(
         demo_microscope,
         CryoSputterGridTaskConfig(task_name="SPUTTER", sputter_time=12.0,
-                                  sputter_current=0.01),
+                                  sputter_current=0.01,
+                                  acquire_reference=acquire_reference),
         record, experiment, parent_ui=object())
     monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+    monkeypatch.setattr(task, "acquire_grid_reference_image",
+                        lambda *a, **k: ("/ref.tif", "/thumb.png"))
     return task, record, calls
 
 
@@ -487,7 +507,19 @@ def test_sputter_runs_coater_with_int_time_and_current(
     assert calls == [(12, 0.01)]
     assert record.results["SPUTTER"]["sputter_time"] == 12.0
     assert record.results["SPUTTER"]["sputter_current"] == 0.01
+    assert "reference" not in record.results["SPUTTER"]  # off by default in this fixture
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+def test_sputter_records_reference_when_enabled(
+    demo_microscope, experiment, monkeypatch
+):
+    task, record, calls = _sputter_task(demo_microscope, experiment, monkeypatch,
+                                        acquire_reference=True)
+    task.run()
+    assert record.results["SPUTTER"]["sputter_time"] == 12.0
+    assert record.results["SPUTTER"]["reference"] == "/ref.tif"
+    assert record.results["SPUTTER"]["thumbnail"] == "/thumb.png"
 
 
 def test_sputter_skips_cleanly_when_declined(
@@ -504,6 +536,27 @@ def test_sputter_skips_cleanly_when_declined(
     assert calls == []  # coater never run
     assert "SPUTTER" not in record.results
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+def test_acquire_grid_reference_image_saves_and_returns(
+    demo_microscope, experiment, monkeypatch
+):
+    import os as _os
+    import fibsem.applications.autolamella.workflows.ui as wfui
+
+    monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    _load_one_grid(demo_microscope)
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"),
+                         record, experiment)
+    monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+
+    img_path, thumb_path = task.acquire_grid_reference_image()
+
+    # electron beam (default) → _eb suffix, matching the repo convention
+    assert img_path.endswith("reference_eb.tif") and _os.path.exists(img_path)
+    assert thumb_path.endswith("thumbnail.png") and _os.path.exists(thumb_path)
 
 
 # --- GridTask lifecycle ----------------------------------------------------

@@ -24,7 +24,7 @@ from typing import (
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, GridRecord
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import GridSlot
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -307,3 +307,50 @@ class GridTask(ABC):
         """Move to the grid slot position in the target orientation"""
         target_position = self._get_stage_position_for_orientation(self.slot.position, orientation=orientation)
         self.microscope._stage.move_absolute(target_position)
+
+    # --- reference imaging ---
+
+    def _save_grid_thumbnail(self, image, width: int = 400) -> str:
+        """Save a small resized PNG thumbnail of an image for the grid cards."""
+        import numpy as np
+        from PIL import Image as PILImage
+
+        data = image.data
+        if data.ndim == 3:
+            data = data[..., :3]
+        else:
+            data = np.stack([data, data, data], axis=2)
+        thumb = PILImage.fromarray(data.astype(np.uint8))
+        thumb.thumbnail((width, width))  # preserves aspect ratio
+        thumb_path = os.path.join(self.grid_dir(), "thumbnail.png")
+        thumb.save(thumb_path)
+        return thumb_path
+
+    def acquire_grid_reference_image(
+        self,
+        orientation: str = "SEM",
+        hfw: float = 2000e-6,
+        beam_type: BeamType = BeamType.ELECTRON,
+        filename: str = "reference",
+    ) -> Tuple[str, str]:
+        """Acquire + save a low-mag reference image of the grid (e.g. after a
+        treatment step), plus a thumbnail. Re-asserts the grid orientation first,
+        since the preceding step may have moved the stage. Returns
+        ``(image_path, thumbnail_path)``; the caller records the result.
+
+        The file is suffixed with the beam abbreviation (``_eb``/``_ib``) to
+        match the repo convention and stay correct across beam types.
+        """
+        self.update_status_ui("Acquiring reference image...")
+        self._move_to_grid_slot_position(orientation)
+
+        image_settings = ImageSettings(
+            resolution=(1536, 1024), hfw=hfw, dwell_time=1e-6,
+            beam_type=beam_type, save=False,
+        )
+        image = self.microscope.acquire_image(image_settings=image_settings)
+        suffix = "ib" if beam_type is BeamType.ION else "eb"
+        image_path = os.path.join(self.task_dir(), f"{filename}_{suffix}.tif")
+        image.save(image_path)
+        thumb_path = self._save_grid_thumbnail(image)
+        return image_path, thumb_path

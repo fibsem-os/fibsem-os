@@ -21,6 +21,7 @@ class CryoDepositionGridTaskConfig(GridTaskConfig):
     display_name: ClassVar[str] = "Cryo GIS Deposition"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
     deposition_time: float = 30.0  # seconds
+    acquire_reference: bool = True  # SEM reference image of the grid after deposition
 
 
 @dataclass
@@ -35,6 +36,7 @@ class CryoSputterGridTaskConfig(GridTaskConfig):
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
     sputter_time: float = 60.0  # seconds
     sputter_current: float = 0.01  # A (10 mA)
+    acquire_reference: bool = True  # SEM reference image of the grid after coating
 
 
 class CryoDepositionGridTask(GridTask):
@@ -82,7 +84,11 @@ class CryoDepositionGridTask(GridTask):
         self.progress_done()
 
         logging.info(f"Completed GIS deposition for grid {self.grid.name}")
-        self.record_result(deposition_time=self.config.deposition_time)
+        result = {"deposition_time": self.config.deposition_time}
+        if self.config.acquire_reference:
+            ref, thumb = self.acquire_grid_reference_image()
+            result.update(reference=ref, thumbnail=thumb)
+        self.record_result(**result)
 
 
 class CryoSputterGridTask(GridTask):
@@ -129,8 +135,12 @@ class CryoSputterGridTask(GridTask):
         self.progress_done()
 
         logging.info(f"Completed sputter coating for grid {self.grid.name}")
-        self.record_result(sputter_time=self.config.sputter_time,
-                           sputter_current=self.config.sputter_current)
+        result = {"sputter_time": self.config.sputter_time,
+                  "sputter_current": self.config.sputter_current}
+        if self.config.acquire_reference:
+            ref, thumb = self.acquire_grid_reference_image()
+            result.update(reference=ref, thumbnail=thumb)
+        self.record_result(**result)
 
 
 @dataclass

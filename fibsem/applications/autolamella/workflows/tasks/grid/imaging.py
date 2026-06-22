@@ -76,26 +76,10 @@ class AcquireOverviewImageGridTask(GridTask):
         # save the stitched overview (full) + a small thumbnail (for grid cards)
         overview_path = os.path.join(test_path, "overview.tif")
         image.save(overview_path)
-        thumb_path = self._save_thumbnail(image)
+        thumb_path = self._save_grid_thumbnail(image)
         self.record_result(overview=overview_path, thumbnail=thumb_path)
 
         logging.info(f"Acquired overview image for grid {self.grid.name}")
-
-    def _save_thumbnail(self, image, width: int = 400) -> str:
-        """Save a small resized PNG thumbnail of the overview for grid cards."""
-        import numpy as np
-        from PIL import Image as PILImage
-
-        data = image.data
-        if data.ndim == 3:
-            data = data[..., :3]
-        else:
-            data = np.stack([data, data, data], axis=2)
-        thumb = PILImage.fromarray(data.astype(np.uint8))
-        thumb.thumbnail((width, width))  # preserves aspect ratio
-        thumb_path = os.path.join(self.grid_dir(), "thumbnail.png")
-        thumb.save(thumb_path)
-        return thumb_path
 
 
 def _default_acquire_image_settings() -> ImageSettings:
