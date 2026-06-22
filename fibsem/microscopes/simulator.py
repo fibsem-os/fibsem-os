@@ -1272,3 +1272,17 @@ class DemoMicroscope(FibsemMicroscope):
         )
         time.sleep(time_seconds)
         logging.info("Sputter coating complete.")
+
+    def run_gis_deposition(self, duration: float, *,
+                           stop_event: Optional[threading.Event] = None,
+                           on_progress: Optional[Callable[[float], None]] = None) -> None:
+        """Simulate a GIS deposition for a given duration (abort-aware)."""
+        logging.info(f"Running GIS deposition for {duration} seconds...")
+        start = time.time()
+        while (time.time() - start) < duration:
+            if stop_event is not None and stop_event.is_set():
+                break
+            time.sleep(1)
+            if on_progress is not None:
+                on_progress(duration - (time.time() - start))
+        logging.info("GIS deposition complete.")

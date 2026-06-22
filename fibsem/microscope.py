@@ -529,6 +529,11 @@ class FibsemMicroscope(ABC):
     def run_sputter_coater(self, time_seconds: int, current: Optional[float] = None) -> None:
         raise NotImplementedError("Sputter coater not implemented for this microscope.")
 
+    def run_gis_deposition(self, duration: float, *,
+                           stop_event: Optional['threading.Event'] = None,
+                           on_progress: Optional[Callable[[float], None]] = None) -> None:
+        raise NotImplementedError("GIS deposition not implemented for this microscope.")
+
     @abstractmethod
     def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float, int]]:
         pass
@@ -1549,6 +1554,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # hardware wrappers, built lazily on first use (need a live connection +
         # model). _UNSET distinguishes "not built yet" from "built, none fitted".
         self._sputter_coater = _UNSET
+        self._gis_port = _UNSET
 
         # logging
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
@@ -1655,8 +1661,9 @@ class ThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
 
-        # the sputter coater wrapper is built lazily on first use (see property)
+        # sputter coater / GIS port are built lazily on first use (see properties)
         self._sputter_coater = _UNSET
+        self._gis_port = _UNSET
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -4063,6 +4070,13 @@ class ThermoMicroscope(FibsemMicroscope):
             self._sputter_coater = self._create_sputter_coater()
         return self._sputter_coater
 
+    @property
+    def gis_port(self):
+        """The GIS port wrapper (or None if unavailable), built on first use."""
+        if self._gis_port is _UNSET:
+            self._gis_port = self._create_gis_port()
+        return self._gis_port
+
     def _create_sputter_coater(self):
         """Build the platform-specific sputter coater wrapper, or None.
 
@@ -4087,6 +4101,15 @@ class ThermoMicroscope(FibsemMicroscope):
         )
         return coater_cls(self)
 
+    def _create_gis_port(self):
+        """Build the GIS port wrapper, or None if no port is available."""
+        from fibsem.microscopes.autoscript import AutoscriptGISPort
+        try:
+            return AutoscriptGISPort(self)
+        except Exception as e:  # no GIS port fitted / available
+            logging.warning(f"Could not create GIS port: {e}")
+            return None
+
     def run_sputter_coater(self, time_seconds: int, current: Optional[float] = None) -> None:
         """Run the sputter coater for a given time in seconds.
 
@@ -4102,3 +4125,26 @@ class ThermoMicroscope(FibsemMicroscope):
         if self.sputter_coater is None:
             raise NotImplementedError("Sputter coater not available on this microscope.")
         self.sputter_coater.run(time_seconds, current=current)
+
+    def run_gis_deposition(self, duration: float, *,
+                           stop_event: Optional['threading.Event'] = None,
+                           on_progress: Optional[Callable[[float], None]] = None) -> None:
+        """Run a GIS deposition for ``duration`` seconds.
+
+        The GIS port owns the insert/open/wait/close/retract cycle; here we drop
+        the stage to a safe insertion height, run the safety check, deposit, and
+        restore the microscope state afterwards (always, even on stop/error).
+        ``stop_event`` ends the deposition early; ``on_progress`` reports the
+        remaining time each second.
+        """
+        gis = self.gis_port
+        if gis is None:
+            raise NotImplementedError("No GIS port available on this microscope.")
+
+        initial_state = self.get_microscope_state()
+        try:
+            gis._move_to_safe_gis_position()
+            gis._run_safety_check()
+            gis.run_deposition(duration, stop_event=stop_event, on_progress=on_progress)
+        finally:
+            self.set_microscope_state(initial_state)

@@ -65,3 +65,52 @@ def test_run_deposition_retracts_on_error():
     # open() raises after insertion, but close + retract still run (finally),
     # so the GIS is never left inserted on error
     assert port.calls == ["insert", "open", "close", "retract"]
+
+
+# --- ThermoMicroscope.run_gis_deposition facade ----------------------------
+
+class _FakeGISWrapper:
+    """Stands in for the lazily-built gis_port wrapper."""
+    def __init__(self):
+        self.calls = []
+
+    def _move_to_safe_gis_position(self): self.calls.append("safe")
+    def _run_safety_check(self): self.calls.append("check")
+    def run_deposition(self, duration, stop_event=None, on_progress=None):
+        self.calls.append(("deposit", duration, stop_event))
+
+
+def _thermo_with_gis(gis):
+    import types
+    from fibsem.microscope import ThermoMicroscope
+    m = object.__new__(ThermoMicroscope)
+    m._gis_port = gis
+    m._state = []
+    m.get_microscope_state = lambda *a, **k: "STATE"
+    m.set_microscope_state = lambda s, *a, **k: m._state.append(s)
+    return m
+
+
+def test_facade_runs_safe_check_deposit_then_restores_state():
+    gis = _FakeGISWrapper()
+    m = _thermo_with_gis(gis)
+    stop = threading.Event()
+    m.run_gis_deposition(5, stop_event=stop)
+    # safe height + safety check precede the deposit; stop event is threaded through
+    assert gis.calls == ["safe", "check", ("deposit", 5, stop)]
+    assert m._state == ["STATE"]  # initial state restored afterwards
+
+
+def test_facade_restores_state_on_error():
+    gis = _FakeGISWrapper()
+    gis.run_deposition = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    m = _thermo_with_gis(gis)
+    with pytest.raises(RuntimeError):
+        m.run_gis_deposition(5)
+    assert m._state == ["STATE"]  # restored even when deposition raises (finally)
+
+
+def test_facade_raises_when_no_gis_port():
+    m = _thermo_with_gis(None)
+    with pytest.raises(NotImplementedError):
+        m.run_gis_deposition(5)

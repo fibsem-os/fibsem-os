@@ -45,12 +45,11 @@ class CryoDepositionGridTask(GridTask):
     def _run(self):
         """Deposit a protective layer on the grid using the GIS.
 
-        Move to the grid, drop the stage to a safe GIS insertion height, insert
-        and open the GIS port for the configured time, then retract and restore
-        the initial microscope state. Honours the stop event during deposition.
+        Move to the grid, then run the GIS deposition. The microscope owns the
+        GIS mechanics (safe insertion height, insert/open/wait/close/retract and
+        state restore); we pass the stop event + a progress callback so it stays
+        abort-aware and on-screen.
         """
-        from fibsem.microscopes.autoscript import AutoscriptGISPort
-
         slot = self.slot
         if slot is None:
             raise RuntimeError(f"Grid '{self.grid.name}' is not loaded in any slot.")
@@ -71,19 +70,8 @@ class CryoDepositionGridTask(GridTask):
             logging.info(f"GIS deposition skipped for grid {self.grid.name}")
             return
 
-        # capture state to restore once the GIS is retracted
-        initial_state = self.microscope.get_microscope_state()
-
-        gis_port = AutoscriptGISPort(self.microscope)
-
-        # drop the stage to a safe insertion height and verify before inserting
-        self.update_status_ui("Moving to safe GIS position...")
-        gis_port._move_to_safe_gis_position()
-        gis_port._run_safety_check()
-
-        # the port owns the insert/open/wait/close/retract cycle; we pass the
-        # stop event + a progress callback so it stays abort-aware and on-screen
-        gis_port.run_deposition(
+        self.update_status_ui("Depositing...")
+        self.microscope.run_gis_deposition(
             self.config.deposition_time,
             stop_event=self._stop_event,
             on_progress=lambda remaining: self.update_status_ui(
@@ -91,7 +79,6 @@ class CryoDepositionGridTask(GridTask):
             ),
         )
 
-        self.microscope.set_microscope_state(initial_state)
         logging.info(f"Completed GIS deposition for grid {self.grid.name}")
         self.record_result(deposition_time=self.config.deposition_time)
 
