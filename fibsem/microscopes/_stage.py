@@ -343,18 +343,31 @@ class Stage:
     def milling_angle(self) -> float:
         return self.parent.get_current_milling_angle()
 
-    @property
-    def current_slot(self) -> Optional[GridSlot]:
-        """Get the slot the stage is currently positioned at, if any."""
+    def slot_at_position(self, position: FibsemStagePosition) -> Optional[GridSlot]:
+        """Get the holder slot a given stage position falls within, if any.
+
+        Generalises ``current_slot`` to an arbitrary position (e.g. a lamella
+        placed away from where the stage currently sits). Slots without a
+        calibrated position are skipped.
+        """
         if self.holder is None:
             return None
-        stage_position = self.parent._stage_position
         for slot in self.holder.slots.values():
-            if stage_position.is_close2(
+            if slot.position is not None and position.is_close2(
                 slot.position, tol=GRID_RADIUS, axes=["x", "y"]
             ):
                 return slot
         return None
+
+    def grid_at_position(self, position: FibsemStagePosition) -> Optional[SampleGrid]:
+        """Get the loaded SampleGrid at the slot a position falls within, if any."""
+        slot = self.slot_at_position(position)
+        return slot.loaded_grid if slot is not None else None
+
+    @property
+    def current_slot(self) -> Optional[GridSlot]:
+        """Get the slot the stage is currently positioned at, if any."""
+        return self.slot_at_position(self.parent._stage_position)
 
     @property
     def current_grid(self) -> Optional[SampleGrid]:

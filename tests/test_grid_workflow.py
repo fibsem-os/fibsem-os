@@ -1098,3 +1098,22 @@ def test_remove_grid_orphans_lamellae(experiment):
     assert linked in experiment.positions  # lamella survives
     assert linked.grid_id is None          # link cleared
     assert other.grid_id == "other"        # untouched
+
+
+def test_grid_task_create_lamella_stamps_grid_id(demo_microscope, experiment):
+    """A grid task creating a lamella stamps it with the task's grid_id."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+    from fibsem.structures import FibsemStagePosition
+
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"),
+                         record, experiment)
+
+    lam = task.create_lamella(FibsemStagePosition(x=1e-3, y=2e-3, z=0),
+                              name="target-01")
+
+    assert lam.grid_id == record._id
+    assert experiment.get_lamellae_for_grid(record) == [lam]
+    assert lam.name == "target-01"

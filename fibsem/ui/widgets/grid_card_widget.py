@@ -57,18 +57,24 @@ _BTN_STYLE = (
 )
 
 
-def _status(record: "GridRecord"):
-    """(text, color) status summary for a grid record."""
+def _status(record: "GridRecord", lamella_count: int = 0):
+    """(text, color) status summary for a grid record.
+
+    ``lamella_count`` (linked lamellae) is appended when non-zero.
+    """
+    suffix = ""
+    if lamella_count:
+        suffix = f" · {lamella_count} lamella{'e' if lamella_count != 1 else ''}"
     if record.task_state.status.name == "InProgress":
         task = record.task_state.name
-        return (f"Running — {task}" if task else "Running…"), _AMBER
+        return (f"Running — {task}" if task else "Running…") + suffix, _AMBER
     if record.is_failure:
         task = record.task_state.name
-        return (f"Failed — {task}" if task else "Failed"), _RED
+        return (f"Failed — {task}" if task else "Failed") + suffix, _RED
     n = len(record.completed_tasks)
     if n:
-        return f"{n} task{'s' if n != 1 else ''} complete", _GREEN
-    return "Not started", _GRAY
+        return f"{n} task{'s' if n != 1 else ''} complete{suffix}", _GREEN
+    return ("Not started" + suffix), _GRAY
 
 
 class _GridThumbnail(QWidget):
@@ -155,11 +161,13 @@ class GridCardWidget(QWidget):
     def __init__(self, record: "GridRecord", slot_label: str = "",
                  in_beam: bool = False, loader_present: bool = True,
                  thumbnail_path: Optional[str] = None,
+                 lamella_count: int = 0,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.record = record
         self._in_beam = in_beam
         self._loader_present = loader_present
+        self._lamella_count = lamella_count
         self.setFixedWidth(_CARD_WIDTH)
 
         outer = QVBoxLayout(self)
@@ -215,7 +223,7 @@ class GridCardWidget(QWidget):
 
         card_layout.addLayout(name_row)
 
-        text, color = _status(record)
+        text, color = _status(record, lamella_count)
         self._status_label = QLabel(text)
         self._status_label.setStyleSheet(f"font-size: 11px; background: transparent; color: {color};")
         card_layout.addWidget(self._status_label)
@@ -341,11 +349,13 @@ class GridCardContainer(QWidget):
 
     def set_grids(self, grids: List["GridRecord"], slot_labels: Optional[dict] = None,
                   beam_names: Optional[set] = None, loader_present: bool = True,
-                  thumbnails: Optional[dict] = None) -> None:
+                  thumbnails: Optional[dict] = None,
+                  lamella_counts: Optional[dict] = None) -> None:
         """Rebuild the cards, preserving selection by name."""
         slot_labels = slot_labels or {}
         beam_names = beam_names or set()
         thumbnails = thumbnails or {}
+        lamella_counts = lamella_counts or {}
         prev = self._selected_name
 
         for card in self._cards:
@@ -359,6 +369,7 @@ class GridCardContainer(QWidget):
                 in_beam=record.name in beam_names,
                 loader_present=loader_present,
                 thumbnail_path=thumbnails.get(record.name),
+                lamella_count=lamella_counts.get(record.name, 0),
             )
             card.clicked.connect(self._on_card_clicked)
             card.remove_requested.connect(self.remove_requested)

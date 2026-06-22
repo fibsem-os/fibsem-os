@@ -61,6 +61,19 @@ def test_failed_status(container):
     assert _cards(container)[0]._status_label.text() == "Failed — Cryo Cleaning"
 
 
+def test_lamella_count_in_status(container):
+    records = _records()
+    container.set_grids(records, lamella_counts={"grid-aspen": 3, "grid-birch": 1})
+    # appended to the existing status, pluralised
+    assert _cards(container)[0]._status_label.text() == "2 tasks complete · 3 lamellae"
+    assert _cards(container)[1]._status_label.text() == "Not started · 1 lamella"
+
+
+def test_no_lamella_count_when_zero(container):
+    container.set_grids(_records())  # no counts → no suffix
+    assert _cards(container)[0]._status_label.text() == "2 tasks complete"
+
+
 def test_slot_badge_and_in_beam(container):
     records = _records()
     container.set_grids(

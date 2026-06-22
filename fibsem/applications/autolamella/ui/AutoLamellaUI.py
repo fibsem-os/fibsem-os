@@ -1603,11 +1603,22 @@ class AutoLamellaUI(QMainWindow):
         if stage_position is not None:
             microscope_state.stage_position = deepcopy(stage_position)
 
+        # link the lamella to the grid it physically sits on (resolved from its
+        # own position against the holder); None if uncalibrated / not tracked
+        grid_id = None
+        sample_grid = self.microscope._stage.grid_at_position(
+            microscope_state.stage_position
+        )
+        if sample_grid is not None:
+            record = self.experiment.get_grid_by_name(sample_grid.name)
+            grid_id = record._id if record is not None else None
+
         # create the lamella
         self.experiment.add_new_lamella(
             microscope_state=microscope_state,
             task_config=self.experiment.task_protocol.task_config,
             name=name,
+            grid_id=grid_id,
         )
         lamella = self.experiment.positions[-1]
 

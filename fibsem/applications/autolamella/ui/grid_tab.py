@@ -68,6 +68,7 @@ class GridTabWidget(QWidget):
         self.grid_protocol_editor = GridProtocolEditorWidget()
         self.grids_right_tabs.addTab(self.grid_protocol_editor, "Protocol")
         self.grids_results_widget = GridResultsWidget()
+        self.grids_results_widget.lamella_selected.connect(self._on_lamella_selected)
         self.grids_right_tabs.addTab(self.grids_results_widget, "Results")
 
         splitter.addWidget(self.grids_right_tabs)
@@ -96,6 +97,7 @@ class GridTabWidget(QWidget):
             self._grid_beam_names(),
             loader_present,
             self._grid_thumbnails(),
+            self._grid_lamella_counts(),
         )
         # keep the Workflow-tab grid checklist + task instances in sync
         gw = getattr(self.main, "grid_workflow_widget", None)
@@ -189,6 +191,11 @@ class GridTabWidget(QWidget):
                     break
         return out
 
+    def _grid_lamella_counts(self) -> dict:
+        """Map grid name → number of lamellae linked to it."""
+        exp = self.autolamella_ui.experiment
+        return {g.name: len(exp.get_lamellae_for_grid(g)) for g in exp.grids}
+
     # --- card handlers ---
 
     def _on_grids_add_from_loader(self) -> None:
@@ -238,3 +245,8 @@ class GridTabWidget(QWidget):
         slot = self._grid_slot_labels().get(record.name, "") if record else ""
         in_beam = record.name in self._grid_beam_names() if record else False
         self.grids_results_widget.set_grid(record, exp, slot, in_beam)
+
+    def _on_lamella_selected(self, lamella) -> None:
+        """Focus a grid's lamella (from the Results table) in the Lamella tab."""
+        if lamella is not None:
+            self.main._on_lamella_edit(lamella)

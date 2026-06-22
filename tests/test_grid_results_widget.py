@@ -159,3 +159,42 @@ def test_set_grid_none_after_record_clears(widget):
     widget.set_grid(None)
     assert widget._targets == {}
     assert widget._record is None
+
+
+def _experiment_with_lamellae(tmp_path):
+    from fibsem.applications.autolamella.structures import Experiment, Lamella
+
+    exp = Experiment.create(path=str(tmp_path), name="exp")
+    rec = GridRecord(name="grid-aspen")
+    exp.add_grid(rec)
+    exp.add_lamella(Lamella(petname="lam-a", path=str(tmp_path / "a"), number=1, grid_id=rec._id))
+    exp.add_lamella(Lamella(petname="lam-b", path=str(tmp_path / "b"), number=2, grid_id=rec._id))
+    exp.add_lamella(Lamella(petname="lam-c", path=str(tmp_path / "c"), number=3))  # unlinked
+    return exp, rec
+
+
+def test_lamella_table_lists_linked_and_emits(widget, tmp_path):
+    from fibsem.ui.widgets.grid_results_widget import _ClickableRow
+
+    exp, rec = _experiment_with_lamellae(tmp_path)
+    widget.set_grid(rec, exp)
+
+    section = widget._build_lamella_section()
+    rows = section.findChildren(_ClickableRow)
+    assert {r._key for r in rows} == {"lam-a", "lam-b"}  # unlinked lam-c excluded
+
+    got = []
+    widget.lamella_selected.connect(lambda lam: got.append(lam))
+    rows[0].clicked.emit(rows[0]._key)
+    assert len(got) == 1 and got[0].grid_id == rec._id
+
+
+def test_lamella_table_empty_when_none(widget, tmp_path):
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.ui.widgets.grid_results_widget import _ClickableRow
+
+    exp = Experiment.create(path=str(tmp_path), name="exp")
+    rec = GridRecord(name="grid-lonely")
+    exp.add_grid(rec)
+    widget.set_grid(rec, exp)
+    assert widget._build_lamella_section().findChildren(_ClickableRow) == []

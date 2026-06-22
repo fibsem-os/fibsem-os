@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 _HERO_WIDTH = 520
 _THUMB_WIDTH = 150
+_SIDE_COL_WIDTH = 440  # left column width — shared by the lamella + history tables
 _GALLERY_COLS = max(1, _HERO_WIDTH // (_THUMB_WIDTH + 12))
 _IMAGE_EXTS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 
@@ -129,6 +130,8 @@ def _task_display_name(ts) -> str:
 class GridResultsWidget(QWidget):
     """Summary + overview + task history + artifacts for one GridRecord."""
 
+    lamella_selected = pyqtSignal(object)  # Lamella (row clicked in the table)
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._record: Optional["GridRecord"] = None
@@ -202,7 +205,16 @@ class GridResultsWidget(QWidget):
         self._empty.setVisible(False)
 
         self._content_layout.addWidget(self._build_header())
-        self._content_layout.addWidget(self._build_overview_section())
+
+        # lamella table (left, natural width) + overview hero (right, fills)
+        ov_row = QWidget()
+        ovh = QHBoxLayout(ov_row)
+        ovh.setContentsMargins(0, 0, 0, 0)
+        ovh.setSpacing(14)
+        ovh.setAlignment(Qt.AlignmentFlag.AlignTop)
+        ovh.addWidget(self._build_lamella_section(), 0)
+        ovh.addWidget(self._build_overview_section(), 1)
+        self._content_layout.addWidget(ov_row)
 
         # task history (left, natural width) + artifacts (right, fills) on one row
         row = QWidget()
@@ -270,6 +282,57 @@ class GridResultsWidget(QWidget):
             parts.append("last run " + datetime.fromtimestamp(last.end_timestamp).strftime("%H:%M:%S"))
         return " · ".join(parts)
 
+    # --- lamellae (linked to this grid) ---
+
+    def _build_lamella_section(self) -> QWidget:
+        col = QWidget()
+        col.setFixedWidth(_SIDE_COL_WIDTH)
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+
+        lamellae = []
+        if self._experiment is not None and self._record is not None:
+            lamellae = self._experiment.get_lamellae_for_grid(self._record)
+        v.addWidget(_section_label(f"Lamellae ({len(lamellae)})"))
+
+        if not lamellae:
+            empty = QLabel("No lamellae on this grid.")
+            empty.setStyleSheet(f"color: {_HINT}; padding: 8px 2px; background: transparent;")
+            v.addWidget(empty)
+        else:
+            for lam in lamellae:
+                v.addWidget(self._lamella_row(lam))
+        v.addStretch(1)
+        return col
+
+    def _lamella_row(self, lamella) -> QWidget:
+        status = lamella.task_state.status.name if lamella.task_state else "NotStarted"
+        color = _STATUS_COLORS.get(status, _HINT)
+        row = _ClickableRow(lamella.name)
+        row.setStyleSheet(
+            "_ClickableRow:hover { background: rgba(255,255,255,18); border-radius: 3px; }"
+        )
+        row.clicked.connect(lambda *_a, lam=lamella: self.lamella_selected.emit(lam))
+        h = QHBoxLayout(row)
+        h.setContentsMargins(8, 4, 8, 4)
+        h.setSpacing(8)
+        dot = QLabel("●")
+        dot.setAttribute(Qt.WA_TransparentForMouseEvents)
+        dot.setStyleSheet(f"color: {color}; background: transparent;")
+        h.addWidget(dot)
+        name = QLabel(lamella.name)
+        name.setFixedWidth(180)
+        name.setAttribute(Qt.WA_TransparentForMouseEvents)
+        name.setStyleSheet("background: transparent;")
+        h.addWidget(name)
+        st = QLabel(status)
+        st.setAttribute(Qt.WA_TransparentForMouseEvents)
+        st.setStyleSheet(f"color: {color}; background: transparent;")
+        h.addWidget(st)
+        h.addStretch(1)
+        return row
+
     # --- overview ---
 
     def _build_overview_section(self) -> QWidget:
@@ -302,6 +365,7 @@ class GridResultsWidget(QWidget):
 
     def _build_history_section(self) -> QWidget:
         col = QWidget()
+        col.setFixedWidth(_SIDE_COL_WIDTH)
         v = QVBoxLayout(col)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)

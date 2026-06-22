@@ -354,3 +354,41 @@ class TestCreateSampleStage:
         stage = _create_sample_stage(microscope)
         assert stage.holder.name == "UserHolder"
         assert stage.holder.capacity == 3
+
+
+# ---------------------------------------------------------------------------
+# Stage.slot_at_position / grid_at_position (resolve a grid from a position)
+# ---------------------------------------------------------------------------
+
+class TestSlotAtPosition:
+    def _stage(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        return _create_sample_stage(microscope)
+
+    def test_resolves_slot_and_grid_at_its_position(self):
+        stage = self._stage()
+        slot = next(iter(stage.holder.slots.values()))
+        slot.loaded_grid = SampleGrid(name="grid-aspen")
+
+        assert stage.slot_at_position(slot.position) is slot
+        assert stage.grid_at_position(slot.position).name == "grid-aspen"
+
+    def test_no_match_far_from_any_slot(self):
+        stage = self._stage()
+        far = FibsemStagePosition(x=5.0, y=5.0, z=0)  # well outside GRID_RADIUS
+        assert stage.slot_at_position(far) is None
+        assert stage.grid_at_position(far) is None
+
+    def test_empty_slot_resolves_but_no_grid(self):
+        stage = self._stage()
+        slot = next(iter(stage.holder.slots.values()))  # no loaded_grid
+        assert stage.slot_at_position(slot.position) is slot
+        assert stage.grid_at_position(slot.position) is None
+
+    def test_slot_without_position_is_skipped(self):
+        stage = self._stage()
+        for slot in stage.holder.slots.values():
+            slot.position = None
+        probe = FibsemStagePosition(x=0, y=0, z=0)
+        assert stage.slot_at_position(probe) is None

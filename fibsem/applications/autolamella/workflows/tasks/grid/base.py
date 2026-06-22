@@ -27,7 +27,7 @@ from fibsem.microscopes._stage import GridSlot
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.applications.autolamella.structures import Experiment, Lamella
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
@@ -203,6 +203,26 @@ class GridTask(ABC):
         """Record this task's output artifacts/metadata on the grid record, keyed
         by task_name, for the Results UI (e.g. record_result(overview=path))."""
         self.grid.results[self.task_name] = dict(artifacts)
+
+    def create_lamella(self,
+                       stage_position: FibsemStagePosition,
+                       name: Optional[str] = None) -> 'Lamella':
+        """Create a lamella on this grid and add it to the experiment.
+
+        The single integration point for grid tasks that emit lamellae (e.g.
+        screening/targeting): the new lamella is stamped with this grid's
+        ``grid_id`` so the grid->lamella link is unambiguous. Returns the
+        created :class:`Lamella`.
+        """
+        microscope_state = self.microscope.get_microscope_state()
+        microscope_state.stage_position = deepcopy(stage_position)
+        self.experiment.add_new_lamella(
+            microscope_state=microscope_state,
+            task_config=self.experiment.task_protocol.task_config,
+            name=name,
+            grid_id=self.grid._id,
+        )
+        return self.experiment.positions[-1]
 
     def grid_dir(self) -> str:
         """Per-grid output directory: ``<experiment>/grids/<grid>``.
