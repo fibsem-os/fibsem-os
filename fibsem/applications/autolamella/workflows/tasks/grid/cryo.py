@@ -71,13 +71,15 @@ class CryoDepositionGridTask(GridTask):
             return
 
         self.update_status_ui("Depositing...")
+        total = self.config.deposition_time
         self.microscope.run_gis_deposition(
-            self.config.deposition_time,
+            total,
             stop_event=self._stop_event,
-            on_progress=lambda remaining: self.update_status_ui(
-                f"Depositing... {remaining:.0f}s remaining"
+            on_progress=lambda remaining: self.progress_countdown(
+                remaining, total, "Depositing"
             ),
         )
+        self.progress_done()
 
         logging.info(f"Completed GIS deposition for grid {self.grid.name}")
         self.record_result(deposition_time=self.config.deposition_time)
@@ -116,11 +118,15 @@ class CryoSputterGridTask(GridTask):
             logging.info(f"Sputter coating skipped for grid {self.grid.name}")
             return
 
-        # single blocking hardware call (prepare/run/recover live in the driver)
+        # single blocking hardware call (prepare/run/recover live in the driver).
+        # there's no progress callback from the coater, so show an indeterminate
+        # bar for the (blocking) duration rather than a fake countdown.
         self.update_status_ui(f"Sputter coating... ({self.config.sputter_time:.0f}s)")
+        self.progress_indeterminate(f"Sputter coating ({self.config.sputter_time:.0f}s)")
         self.microscope.run_sputter_coater(
             int(self.config.sputter_time), current=self.config.sputter_current
         )
+        self.progress_done()
 
         logging.info(f"Completed sputter coating for grid {self.grid.name}")
         self.record_result(sputter_time=self.config.sputter_time,

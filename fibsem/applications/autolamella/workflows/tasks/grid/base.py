@@ -256,6 +256,25 @@ class GridTask(ABC):
         from fibsem.applications.autolamella.workflows.ui import ask_user
         return ask_user(parent_ui=self.parent_ui, msg=msg, pos=pos, neg=neg)
 
+    # --- progress (drives the shared status-bar progress widget) ---
+
+    def progress_countdown(self, remaining: float, total: float, message: str = "") -> None:
+        """Show a countdown progress bar (remaining/total seconds)."""
+        from fibsem.applications.autolamella.workflows.ui import update_progress_ui
+        update_progress_ui(self.parent_ui, remaining=remaining, total=total,
+                           message=f"{self.grid.name} [{self.task_name}] {message}")
+
+    def progress_indeterminate(self, message: str = "") -> None:
+        """Show an indeterminate progress bar (unknown duration / blocking op)."""
+        from fibsem.applications.autolamella.workflows.ui import update_progress_ui
+        update_progress_ui(self.parent_ui, indeterminate=True,
+                           message=f"{self.grid.name} [{self.task_name}] {message}")
+
+    def progress_done(self) -> None:
+        """Clear / complete the progress bar."""
+        from fibsem.applications.autolamella.workflows.ui import update_progress_ui
+        update_progress_ui(self.parent_ui, done=True)
+
     def wait_with_progress(self, duration: float, message: str = "Working") -> bool:
         """Wait ``duration`` seconds, emitting a per-second countdown to the
         status bar and honouring the stop event.

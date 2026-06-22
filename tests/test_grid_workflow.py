@@ -279,6 +279,25 @@ def test_grid_task_update_status_ui_prefixes(demo_microscope, experiment, monkey
     assert seen == ["grid-aspen [T] Working..."]
 
 
+def test_grid_task_progress_helpers(demo_microscope, experiment, monkeypatch):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+    calls = []
+    monkeypatch.setattr(wfui, "update_progress_ui",
+                        lambda parent_ui, **kw: calls.append(kw))
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"), record, experiment)
+
+    task.progress_countdown(5, 10, "Working")
+    task.progress_indeterminate("Busy")
+    task.progress_done()
+
+    assert calls[0] == {"remaining": 5, "total": 10,
+                        "message": "grid-aspen [T] Working"}
+    assert calls[1] == {"indeterminate": True, "message": "grid-aspen [T] Busy"}
+    assert calls[2] == {"done": True}
+
+
 # --- imaging-task supervise checkpoints (decline → skip cleanly) -----------
 
 def _load_one_grid(microscope, name="grid-aspen"):
@@ -304,6 +323,7 @@ def test_acquire_image_skips_cleanly_when_declined(
 
     monkeypatch.setattr(wfui, "ask_user", lambda **kw: False)  # decline at checkpoint
     monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    monkeypatch.setattr(wfui, "update_progress_ui", lambda *a, **k: None)
     acquired = []
     monkeypatch.setattr(demo_microscope, "acquire_image",
                         lambda *a, **k: acquired.append(True))
@@ -333,6 +353,7 @@ def test_acquire_overview_skips_cleanly_when_declined(
 
     monkeypatch.setattr(wfui, "ask_user", lambda **kw: False)  # decline at checkpoint
     monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    monkeypatch.setattr(wfui, "update_progress_ui", lambda *a, **k: None)
     stitched = []
     monkeypatch.setattr(imaging, "tiled_image_acquisition_and_stitch",
                         lambda **k: stitched.append(True))
@@ -374,6 +395,7 @@ def _gis_task(demo_microscope, experiment, monkeypatch, deposition_time=0.0):
     import fibsem.applications.autolamella.workflows.ui as wfui
 
     monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    monkeypatch.setattr(wfui, "update_progress_ui", lambda *a, **k: None)
     # the task now reaches GIS via the microscope facade (backend-agnostic)
     calls = []
     monkeypatch.setattr(
@@ -434,6 +456,7 @@ def _sputter_task(demo_microscope, experiment, monkeypatch):
     import fibsem.applications.autolamella.workflows.ui as wfui
 
     monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    monkeypatch.setattr(wfui, "update_progress_ui", lambda *a, **k: None)
     calls = []
     monkeypatch.setattr(demo_microscope, "run_sputter_coater",
                         lambda t, current=None: calls.append((t, current)))

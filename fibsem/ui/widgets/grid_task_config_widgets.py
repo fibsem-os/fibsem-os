@@ -23,9 +23,11 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     AcquireImageGridTaskConfig,
     AcquireOverviewImageGridTaskConfig,
+    CryoDepositionGridTaskConfig,
+    CryoSputterGridTaskConfig,
     GridTaskConfig,
 )
-from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
+from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
@@ -39,6 +41,12 @@ _BEAM_CURRENTS = [
 ]
 # preset imaging voltages (volts); SI-formatted (V/kV)
 _BEAM_VOLTAGES = [500, 1_000, 2_000, 3_000, 5_000, 10_000, 15_000, 20_000, 30_000]
+# preset sputter coater currents (amps); SI-formatted (mA)
+# TODO: confirm the real range + unit against sputter_coater.current.limits /
+# available_values on hardware. The Autoscript run() example sets current.value
+# = 0.01 ("10 mA") and a sputter coater is a separate device from the ion column
+# (so mA is plausible), but the setpoint range needs verifying on the microscope.
+_SPUTTER_CURRENTS = [5e-3, 10e-3, 20e-3, 30e-3, 40e-3]
 
 
 class GridTaskConfigWidget(QWidget):
@@ -174,6 +182,62 @@ class AcquireImageGridConfigWidget(GridTaskConfigWidget):
         config.image_settings = self.image_settings_widget.get_settings()
 
 
+class CryoDepositionGridConfigWidget(GridTaskConfigWidget):
+    """Editor for CryoDepositionGridTaskConfig: orientation + deposition time."""
+
+    def _setup_ui(self) -> None:
+        v = QVBoxLayout(self)
+        v.setContentsMargins(4, 4, 4, 4)
+        v.setSpacing(6)
+        form = QFormLayout()
+        self.orientation_combo = self._orientation_combo()
+        self.time_spin = ValueSpinBox(suffix="s", maximum=36_000.0, step=5.0, decimals=0)
+        self.time_spin.valueChanged.connect(self._on_changed)
+        form.addRow("Orientation", self.orientation_combo)
+        form.addRow("Deposition Time", self.time_spin)
+        v.addLayout(form)
+        v.addStretch(1)
+
+    def _load(self, config) -> None:
+        self.orientation_combo.setCurrentText(config.orientation or "SEM")
+        self.time_spin.setValue(config.deposition_time)
+
+    def _apply(self, config) -> None:
+        config.orientation = self.orientation_combo.currentText()
+        config.deposition_time = self.time_spin.value()
+
+
+class CryoSputterGridConfigWidget(GridTaskConfigWidget):
+    """Editor for CryoSputterGridTaskConfig: orientation + sputter time + current."""
+
+    def _setup_ui(self) -> None:
+        v = QVBoxLayout(self)
+        v.setContentsMargins(4, 4, 4, 4)
+        v.setSpacing(6)
+        form = QFormLayout()
+        self.orientation_combo = self._orientation_combo()
+        self.time_spin = ValueSpinBox(suffix="s", maximum=36_000.0, step=5.0, decimals=0)
+        self.time_spin.valueChanged.connect(self._on_changed)
+        self.current_combo = ValueComboBox(items=_SPUTTER_CURRENTS, unit="A", decimals=1)
+        self.current_combo.setToolTip("Sputter coater current")
+        self.current_combo.currentIndexChanged.connect(self._on_changed)
+        form.addRow("Orientation", self.orientation_combo)
+        form.addRow("Sputter Time", self.time_spin)
+        form.addRow("Sputter Current", self.current_combo)
+        v.addLayout(form)
+        v.addStretch(1)
+
+    def _load(self, config) -> None:
+        self.orientation_combo.setCurrentText(config.orientation or "SEM")
+        self.time_spin.setValue(config.sputter_time)
+        self.current_combo.set_value(config.sputter_current)
+
+    def _apply(self, config) -> None:
+        config.orientation = self.orientation_combo.currentText()
+        config.sputter_time = self.time_spin.value()
+        config.sputter_current = self.current_combo.value()
+
+
 class _PlaceholderConfigWidget(GridTaskConfigWidget):
     """Shown for task types without a custom editor yet."""
 
@@ -195,6 +259,8 @@ class _PlaceholderConfigWidget(GridTaskConfigWidget):
 GRID_TASK_CONFIG_WIDGETS: Dict[str, Type[GridTaskConfigWidget]] = {
     AcquireOverviewImageGridTaskConfig.task_type: OverviewGridConfigWidget,
     AcquireImageGridTaskConfig.task_type: AcquireImageGridConfigWidget,
+    CryoDepositionGridTaskConfig.task_type: CryoDepositionGridConfigWidget,
+    CryoSputterGridTaskConfig.task_type: CryoSputterGridConfigWidget,
 }
 
 

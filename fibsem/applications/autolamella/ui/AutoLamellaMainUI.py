@@ -1481,6 +1481,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle workflow update signal and update the workflow status bar."""
         t0 = t1 = time.time()
         timings = {}
+
+        # structured progress payload (timed grid tasks: GIS countdown, sputter)
+        progress = info.get("progress", None)
+        if progress is not None:
+            if progress.get("done"):
+                self.progress_widget.reset()
+            elif progress.get("indeterminate"):
+                self.progress_widget.update_progress(
+                    ProgressUpdate.indeterminate(progress.get("message", ""))
+                )
+            else:
+                self.progress_widget.update_progress(ProgressUpdate.countdown(
+                    remaining_seconds=progress.get("remaining", 0.0),
+                    total_seconds=progress.get("total", 0.0),
+                    message=progress.get("message", ""),
+                ))
+
         status_msg = info.get("status", None)
         if status_msg is not None:
             _is_start = not self._workflow_timeline_initialized

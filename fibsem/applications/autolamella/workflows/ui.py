@@ -122,6 +122,33 @@ def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str, workflow_in
     parent_ui.workflow_update_signal.emit(INFO)
 
 
+def update_progress_ui(parent_ui: Optional['AutoLamellaUI'], *,
+                       remaining: float = 0.0, total: float = 0.0,
+                       message: str = "", indeterminate: bool = False,
+                       done: bool = False) -> None:
+    """Drive the shared status-bar progress widget from a workflow task.
+
+    Emits a structured ``progress`` payload on ``workflow_update_signal``; the UI
+    maps it to a ``ProgressUpdate`` (countdown / indeterminate / done). No-op
+    (logs nothing) in headless mode.
+    """
+    if parent_ui is None:
+        return
+
+    _check_for_abort(parent_ui)
+
+    parent_ui.workflow_update_signal.emit({
+        "msg": message,
+        "progress": {
+            "remaining": remaining,
+            "total": total,
+            "indeterminate": indeterminate,
+            "done": done,
+            "message": message,
+        },
+    })
+
+
 def ask_user(
     parent_ui: Optional['AutoLamellaUI'],
     msg: str,
