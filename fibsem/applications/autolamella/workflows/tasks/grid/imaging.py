@@ -56,10 +56,16 @@ class AcquireOverviewImageGridTask(GridTask):
 
         logging.info(f"Path: {test_path}")
         self.update_status_ui(f"Moving to grid {self.grid.name}...")
-
-        self.ask_user(f"Confirm grid is loaded in slot {slot} and ready for overview acquisition.")
-
         self._move_to_grid_slot_position(self.config.orientation)
+
+        # supervised checkpoint: confirm position/framing before acquiring
+        if not self.ask_user(
+            f"Acquire overview on '{self.grid.name}' (slot {slot})?",
+            pos="Continue", neg="Skip",
+        ):
+            self.update_status_ui("Overview acquisition skipped by user.")
+            logging.info(f"Overview acquisition skipped for grid {self.grid.name}")
+            return
 
         self.update_status_ui("Acquiring overview image...")
         image = tiled_image_acquisition_and_stitch(
@@ -129,15 +135,26 @@ class AcquireImageTask(GridTask):
 
         logging.info(f"Path: {test_path}")
         self.update_status_ui(f"Moving to grid {self.grid.name}...")
-
         self._move_to_grid_slot_position(self.config.orientation)
 
-        self.update_status_ui("Acquiring image...")
         image_settings = self.config.image_settings  # per-run copy (run_grid_task deepcopies)
         image_settings.save = False
+        beam_type = image_settings.beam_type
+
+        # supervised checkpoint: confirm beam settings/framing before acquiring
+        if not self.ask_user(
+            f"Acquire image on '{self.grid.name}' — "
+            f"{self.config.voltage / 1000:.1f} kV, "
+            f"{self.config.beam_current * 1e9:.2f} nA on {beam_type.name}?",
+            pos="Continue", neg="Skip",
+        ):
+            self.update_status_ui("Image acquisition skipped by user.")
+            logging.info(f"Image acquisition skipped for grid {self.grid.name}")
+            return
+
+        self.update_status_ui("Acquiring image...")
 
         # apply voltage/current to the beam the image is acquired on (not always ELECTRON)
-        beam_type = image_settings.beam_type
         inital_state = self.microscope.get_microscope_state()
         self.microscope.set_beam_voltage(self.config.voltage, beam_type=beam_type)
         self.microscope.set_beam_current(self.config.beam_current, beam_type=beam_type)

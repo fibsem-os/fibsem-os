@@ -18,6 +18,9 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     GRID_TASK_REGISTRY,
+    AcquireImageGridTaskConfig,
+    AcquireImageTask,
+    AcquireOverviewImageGridTask,
     AcquireOverviewImageGridTaskConfig,
     CryoCleaningGridTaskConfig,
     GridTask,
@@ -274,6 +277,75 @@ def test_grid_task_update_status_ui_prefixes(demo_microscope, experiment, monkey
     task = _NoOpGridTask(demo_microscope, _NoOpGridConfig(task_name="T"), record, experiment)
     task.update_status_ui("Working...")
     assert seen == ["grid-aspen [T] Working..."]
+
+
+# --- imaging-task supervise checkpoints (decline → skip cleanly) -----------
+
+def _load_one_grid(microscope, name="grid-aspen"):
+    slot_name = list(microscope._stage.holder.slots.keys())[0]
+    microscope._stage.holder.slots[slot_name].loaded_grid = SampleGrid(name=name)
+
+
+def _supervise(experiment, task_name):
+    experiment.grid_protocol.workflow_config.tasks = [
+        GridTaskDescription(name=task_name, supervise=True)
+    ]
+
+
+def test_acquire_image_skips_cleanly_when_declined(
+    demo_microscope, experiment, monkeypatch
+):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+
+    _load_one_grid(demo_microscope)
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    _supervise(experiment, "ACQUIRE")
+
+    monkeypatch.setattr(wfui, "ask_user", lambda **kw: False)  # decline at checkpoint
+    monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    acquired = []
+    monkeypatch.setattr(demo_microscope, "acquire_image",
+                        lambda *a, **k: acquired.append(True))
+
+    task = AcquireImageTask(demo_microscope,
+                            AcquireImageGridTaskConfig(task_name="ACQUIRE"),
+                            record, experiment, parent_ui=object())
+    monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+    task.run()
+
+    assert acquired == []  # declined before acquisition
+    assert "ACQUIRE" not in record.results  # nothing recorded
+    # skip is clean: the task itself still completes, workflow continues
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+def test_acquire_overview_skips_cleanly_when_declined(
+    demo_microscope, experiment, monkeypatch
+):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+    import fibsem.applications.autolamella.workflows.tasks.grid.imaging as imaging
+
+    _load_one_grid(demo_microscope)
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    _supervise(experiment, "OVERVIEW")
+
+    monkeypatch.setattr(wfui, "ask_user", lambda **kw: False)  # decline at checkpoint
+    monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    stitched = []
+    monkeypatch.setattr(imaging, "tiled_image_acquisition_and_stitch",
+                        lambda **k: stitched.append(True))
+
+    task = AcquireOverviewImageGridTask(
+        demo_microscope, AcquireOverviewImageGridTaskConfig(task_name="OVERVIEW"),
+        record, experiment, parent_ui=object())
+    monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+    task.run()
+
+    assert stitched == []  # declined before acquisition
+    assert "OVERVIEW" not in record.results
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
 
 
 # --- GridTask lifecycle ----------------------------------------------------
