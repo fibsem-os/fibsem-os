@@ -281,7 +281,7 @@ Hosting: one **"Grids" tab** with sub-sections **Magazine + Holder | Protocol | 
 
 ## 7. Data Model
 
-### Grid ↔ Lamella relationship
+### Grid ↔ Lamella relationship ✅ *implemented*
 
 Every lamella is physically located on a grid, so this containment is part of the **data model**, not something inferred from stage coordinates at runtime — a lamella belongs to its grid whether or not that grid is currently mounted.
 
@@ -292,9 +292,10 @@ Lamella.grid_id: Optional[str]   →  GridRecord._id     (stable, experiment-sco
 GridRecord.name                  →  SampleGrid.name    (hardware link, by name)
 ```
 
-- **Back-reference up, not a stored child list.** `Lamella.grid_id` is the single source of truth; `GridRecord.lamellae` is a derived view (`[l for l in experiment.positions if l.grid_id == self._id]`). A separately stored child list would drift out of sync with `positions`.
+- **Back-reference up, not a stored child list.** `Lamella.grid_id` ([`structures.py:703`](../../fibsem/applications/autolamella/structures.py#L703)) is the single source of truth; the grid→lamella direction is a derived view via `Experiment.get_lamellae_for_grid(grid)` (`[l for l in positions if l.grid_id == grid._id]`). A separately stored child list would drift out of sync with `positions`. The reverse convenience is `Experiment.get_grid_for_lamella(lamella)` (resolves `grid_id` via `get_grid_by_id`).
 - **Reference the workflow `GridRecord`, not the hardware `SampleGrid`.** The lamella belongs to a *grid in this experiment* — the entity with state, history and a lifecycle, living in the same `experiment.yaml`. Linking by stable `_id` (mirroring `Lamella._id`) survives display-name renames; the hardware-grid link (`GridRecord.name → SampleGrid.name`) is a separate, lower hop.
-- **Set at creation time.** Stamp `grid_id` when the lamella is born: from the detected grid in the screening path (Phase 5), or from `stage.current_grid` ([`_stage.py:272`](../../fibsem/microscopes/_stage.py#L272)) → matching `GridRecord` when added manually.
+- **Set at creation time.** Stamp `grid_id` when the lamella is born via the `add_new_lamella(..., grid_id=...)` parameter ([`structures.py:1521`](../../fibsem/applications/autolamella/structures.py#L1521)): from the detected grid in the screening path (Phase 5), or from `stage.current_grid` ([`_stage.py:272`](../../fibsem/microscopes/_stage.py#L272)) → matching `GridRecord` when added manually. Defaults to `None` (unlinked) — legacy/single-grid lamellae load with no grid, preserving back-compat.
+- **Orphan on grid removal.** `Experiment.remove_grid(name)` clears `grid_id` on any linked lamellae (orphaning, not deleting them) so removal stays non-destructive; the lamellae remain in `positions`, unlinked.
 
 **On-disk layout is unchanged.** Lamella keep their flat `experiment.path / petname` directories — the relationship lives in data, not in paths. This keeps lamella paths invariant under grid reassignment (only `grid_id` changes, no directories move, no stamped `acquisition.imaging.path` values break) and avoids migrating existing experiments. Grid-task outputs continue to nest under `experiment.path / <grid name> / …` because they are grid-scoped artifacts; a lamella is its own first-class entity and need not share that layout.
 
@@ -364,19 +365,19 @@ for grid_dict in ddict.get("grids", []):
     experiment.grids.append(GridRecord.from_dict(grid_dict))
 ```
 
-**Lamella attachment.** When a lamella is created from a target on the current grid, `add_new_lamella` ([`structures.py:1271`](../../fibsem/applications/autolamella/structures.py#L1271)) stamps `grid_id` from the grid the stage is on:
+**Lamella attachment.** `add_new_lamella(..., grid_id=None)` ([`structures.py:1521`](../../fibsem/applications/autolamella/structures.py#L1521)) takes the originating grid's `_id` and stamps it onto the new lamella. A caller creating a lamella from a target on the current grid resolves the grid the stage is on first:
 
 ```python
 current = microscope._stage.current_grid                     # SampleGrid or None
-record = next((g for g in self.grids if g.name == current.name), None)
-lamella.grid_id = record._id if record else None
+record = experiment.get_grid_by_name(current.name) if current else None
+experiment.add_new_lamella(state, task_config, grid_id=record._id if record else None)
 ```
 
 ---
 
 ## 8. Decisions
 
-- **Grid workflow record placement (resolved).** Grids become a first-class workflow entity, `GridRecord`, held under `Experiment` (e.g. `grids: EventedList[GridRecord]`) and kept distinct from the hardware `SampleGrid` (geometry, owned by the holder config). Workflow state — identity, `task_state`, `task_history`, screening results — lives on `GridRecord`; it links to hardware by name (`GridRecord.name → SampleGrid.name`) and resolves its current slot live via the holder rather than freezing slot occupancy into the experiment. The grid↔lamella containment is modelled by a `Lamella.grid_id → GridRecord._id` back-reference; see [Grid ↔ Lamella relationship](#grid--lamella-relationship). To avoid disrupting the mature lamella pipeline, `Experiment.positions` stays the canonical flat list of lamella initially, with per-grid lamella derived by filtering on `grid_id`.
+- **Grid workflow record placement (resolved).** Grids become a first-class workflow entity, `GridRecord`, held under `Experiment` (e.g. `grids: EventedList[GridRecord]`) and kept distinct from the hardware `SampleGrid` (geometry, owned by the holder config). Workflow state — identity, `task_state`, `task_history`, screening results — lives on `GridRecord`; it links to hardware by name (`GridRecord.name → SampleGrid.name`) and resolves its current slot live via the holder rather than freezing slot occupancy into the experiment. The grid↔lamella containment is modelled by a `Lamella.grid_id → GridRecord._id` back-reference (**implemented**: field + `get_lamellae_for_grid` / `get_grid_for_lamella` / `get_grid_by_id` helpers + orphan-on-`remove_grid`); see [Grid ↔ Lamella relationship](#grid--lamella-relationship--implemented). To avoid disrupting the mature lamella pipeline, `Experiment.positions` stays the canonical flat list of lamella initially, with per-grid lamella derived by filtering on `grid_id`.
 - **Holder & loader semantics (resolved).** One orchestration path covers both the static multi-slot shuttle and the CompuStage autoloader:
   - **Two-level model: magazine → working slot.** The loader owns a **magazine** — its own set of storage slots at a fixed capacity (existing loaders hold 12), filled by a human operator — *distinct* from the holder's working slot(s) in the beam. This extends `SampleGridLoader` with its own `capacity` + `slots` (today it only mutates `holder.slots`). The magazine is the inventory of grids available to load; the working slot is where exactly one of them sits at a time.
   - **Inventory & naming.** Presence is detected, not assumed. `SampleGridLoader` gains a `run_inventory()` method that scans which magazine slots hold a grid. The user assigns a name/description to a grid only for a *loaded* slot — a magazine slot on an autoloader, or a holder slot on a static shuttle; empty slots cannot be named. `GridRecord`s are the workflow inventory, created from these named grids — from the loader's magazine on an autoloader, or via `sync_grids_from_holder` on a static shuttle (no loader).

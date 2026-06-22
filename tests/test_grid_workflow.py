@@ -1005,3 +1005,96 @@ def test_ensure_loaded_exchanges_between_magazine_grids(autoloader_microscope, e
     holder = autoloader_microscope._stage.holder
     assert holder.find_slot_by_grid_name("B") is not None
     assert holder.find_slot_by_grid_name("A") is None  # A retracted on exchange
+
+
+# --- Lamella <-> Grid link -------------------------------------------------
+
+def _make_lamella(experiment, name, grid_id=None):
+    """A minimal Lamella under the experiment dir (avoids the empty task config
+    path-stamping in add_new_lamella)."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    n = max((p.number for p in experiment.positions), default=0) + 1
+    lam = Lamella(petname=name, path=f"{experiment.path}/{name}", number=n,
+                  grid_id=grid_id)
+    experiment.add_lamella(lam)
+    return experiment.positions[-1]  # add_lamella deepcopies; return the stored copy
+
+
+def test_lamella_grid_id_round_trip():
+    from fibsem.applications.autolamella.structures import Lamella
+
+    lam = Lamella(petname="lam-01", path="/tmp/lam-01", number=1, grid_id="grid-uuid")
+    lam2 = Lamella.from_dict(lam.to_dict())
+    assert lam2.grid_id == "grid-uuid"
+
+
+def test_lamella_grid_id_back_compat():
+    """A pre-grids lamella dict (no grid_id key) loads as unlinked."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    data = Lamella(petname="lam-01", path="/tmp/lam-01", number=1).to_dict()
+    data.pop("grid_id", None)
+    assert Lamella.from_dict(data).grid_id is None
+
+
+def test_get_grid_by_id(experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    assert experiment.get_grid_by_id(record._id) is record
+    assert experiment.get_grid_by_id("missing") is None
+    assert experiment.get_grid_by_id(None) is None
+
+
+def test_get_lamellae_for_grid(experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    a = _make_lamella(experiment, "lam-a", grid_id=record._id)
+    b = _make_lamella(experiment, "lam-b", grid_id=record._id)
+    _make_lamella(experiment, "lam-c", grid_id="other")  # different grid
+    _make_lamella(experiment, "lam-d")  # unlinked
+
+    linked = experiment.get_lamellae_for_grid(record)
+    assert {lam.name for lam in linked} == {"lam-a", "lam-b"}
+    # accepts an id directly too
+    assert experiment.get_lamellae_for_grid(record._id) == linked
+    assert experiment.get_lamellae_for_grid(GridRecord(name="empty")) == []
+
+
+def test_get_grid_for_lamella(experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    linked = _make_lamella(experiment, "lam-a", grid_id=record._id)
+    unlinked = _make_lamella(experiment, "lam-b")
+
+    assert experiment.get_grid_for_lamella(linked) is record
+    assert experiment.get_grid_for_lamella(unlinked) is None
+
+
+def test_add_new_lamella_stamps_grid_id(experiment, demo_microscope):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+    experiment.task_protocol = AutoLamellaTaskProtocol()  # add_new_lamella reads defaults
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    state = demo_microscope.get_microscope_state()
+
+    experiment.add_new_lamella(state, task_config={}, name="lam-01",
+                               grid_id=record._id)
+
+    assert experiment.positions[-1].grid_id == record._id
+    assert experiment.get_lamellae_for_grid(record)[0].name == "lam-01"
+
+
+def test_remove_grid_orphans_lamellae(experiment):
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+    linked = _make_lamella(experiment, "lam-a", grid_id=record._id)
+    other = _make_lamella(experiment, "lam-b", grid_id="other")
+
+    experiment.remove_grid("grid-aspen")
+
+    assert experiment.get_grid_by_name("grid-aspen") is None
+    assert linked in experiment.positions  # lamella survives
+    assert linked.grid_id is None          # link cleared
+    assert other.grid_id == "other"        # untouched

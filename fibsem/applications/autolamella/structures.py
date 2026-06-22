@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import pandas as pd
 import petname
@@ -700,6 +700,7 @@ class Lamella:
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(default_factory=lambda: Point(0,0))  # point of interest within lamella area (milling coordinate system)
+    grid_id: Optional[str] = None  # _id of the originating GridRecord (None = unlinked); grid->lamella is derived
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -807,6 +808,7 @@ class Lamella:
             "defect": self.defect.to_dict(),
             "milling_angle": self.milling_angle,
             "poi": self.poi.to_dict(),
+            "grid_id": self.grid_id,
         }
 
     @property
@@ -852,6 +854,7 @@ class Lamella:
             defect=DefectState.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x":0,"y":0})),
+            grid_id=data.get("grid_id"),  # back-compat: absent in pre-grids experiments
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -1239,6 +1242,25 @@ class Experiment:
         """Return the GridRecord with the given name, or None if not found."""
         return next((g for g in self.grids if g.name == name), None)
 
+    def get_grid_by_id(self, grid_id: Optional[str]) -> Optional['GridRecord']:
+        """Return the GridRecord with the given _id, or None if not found."""
+        if grid_id is None:
+            return None
+        return next((g for g in self.grids if g._id == grid_id), None)
+
+    def get_lamellae_for_grid(self, grid: Union['GridRecord', str]) -> List['Lamella']:
+        """Return the lamellae linked to a grid (grid->lamella, derived).
+
+        Accepts a GridRecord or a grid _id. Lamellae store ``grid_id``; the
+        reverse direction is computed by filtering ``positions``.
+        """
+        grid_id = grid._id if isinstance(grid, GridRecord) else grid
+        return [lam for lam in self.positions if lam.grid_id == grid_id]
+
+    def get_grid_for_lamella(self, lamella: 'Lamella') -> Optional['GridRecord']:
+        """Return the GridRecord a lamella belongs to, or None if unlinked."""
+        return self.get_grid_by_id(lamella.grid_id)
+
     def add_grid(self, grid: 'GridRecord') -> None:
         """Add a grid record to the experiment (rejects duplicate names)."""
         if not isinstance(grid, GridRecord):
@@ -1249,11 +1271,20 @@ class Experiment:
         logging.info(f"Added grid {grid.name} to experiment {self.name}")
 
     def remove_grid(self, name: str) -> None:
-        """Remove the grid record with the given name from the experiment."""
+        """Remove the grid record with the given name from the experiment.
+
+        Lamellae linked to the grid are orphaned (``grid_id`` cleared), not
+        deleted — removal stays non-destructive.
+        """
         record = self.get_grid_by_name(name)
         if record is None:
             return
+        orphaned = self.get_lamellae_for_grid(record)
+        for lam in orphaned:
+            lam.grid_id = None
         self.grids.remove(record)
+        if orphaned:
+            logging.info(f"Orphaned {len(orphaned)} lamella(e) from removed grid {name}")
         logging.info(f"Removed grid {name} from experiment {self.name}")
 
     def sync_grids_from_holder(self, microscope: 'FibsemMicroscope') -> None:
@@ -1510,8 +1541,13 @@ class Experiment:
     def add_new_lamella(self,
                         microscope_state: MicroscopeState,
                         task_config: EventedDict[str, AutoLamellaTaskConfig],
-                        name: Optional[str] = None) -> None:
-        """Create a new lamella and add it to the experiment."""
+                        name: Optional[str] = None,
+                        grid_id: Optional[str] = None) -> None:
+        """Create a new lamella and add it to the experiment.
+
+        ``grid_id`` links the lamella to the originating GridRecord (None =
+        unlinked); used by grid-screening/targeting to stamp the source grid.
+        """
         template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
@@ -1526,7 +1562,8 @@ class Experiment:
         lamella = Lamella(petname=name,
                           path=path,
                           number=number,
-                          task_config=deepcopy(task_config))
+                          task_config=deepcopy(task_config),
+                          grid_id=grid_id)
         if template.alignment_area is not None:
             lamella.alignment_area = deepcopy(template.alignment_area)
         if template.poi is not None:
