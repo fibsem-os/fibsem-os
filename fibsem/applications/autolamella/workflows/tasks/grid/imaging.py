@@ -152,3 +152,24 @@ class AcquireImageTask(GridTask):
         self.microscope.set_microscope_state(inital_state)
 
         logging.info(f"Acquired image for grid {self.grid.name}")
+
+
+@dataclass
+class AcquireFluorescenceOverviewImageTaskConfig(GridTaskConfig):
+    """Configuration for acquiring a fluorescence (FM) overview of the grid."""
+    task_type: ClassVar[str] = "ACQUIRE_FLUORESCENCE_OVERVIEW_IMAGE_GRID"
+    display_name: ClassVar[str] = "Acquire Fluorescence Overview"
+
+
+class AcquireFluorescenceOverviewImageTask(GridTask):
+    """Acquire a fluorescence overview of the grid (stub: logs only)."""
+    config_cls: ClassVar[Type[GridTaskConfig]] = AcquireFluorescenceOverviewImageTaskConfig
+    config: AcquireFluorescenceOverviewImageTaskConfig
+
+    def _run(self):
+        # TODO: implement FM overview acquisition (move to grid, acquire via FM)
+        logging.info(
+            f"Acquiring fluorescence overview for grid {self.grid.name} "
+            f"— not yet implemented."
+        )
+        self.update_status_ui("Fluorescence overview (not implemented)")

@@ -24,6 +24,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.cryo import (
     CryoSputterGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    AcquireFluorescenceOverviewImageTask,
+    AcquireFluorescenceOverviewImageTaskConfig,
     AcquireImageGridTaskConfig,
     AcquireImageTask,
     AcquireOverviewImageGridTask,
@@ -32,6 +34,10 @@ from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
 from fibsem.applications.autolamella.workflows.tasks.grid.milling import (
     ParallelTrenchMillingGridTask,
     ParallelTrenchMillingGridTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.targeting import (
+    AutoLamellaTargetingGridTask,
+    AutoLamellaTargetingGridTaskConfig,
 )
 from fibsem.microscope import FibsemMicroscope
 
@@ -43,11 +49,13 @@ if TYPE_CHECKING:
 
 GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     AcquireOverviewImageGridTaskConfig.task_type: AcquireOverviewImageGridTask,
+    AcquireFluorescenceOverviewImageTaskConfig.task_type: AcquireFluorescenceOverviewImageTask,
     AcquireImageGridTaskConfig.task_type: AcquireImageTask,
     CryoCleaningGridTaskConfig.task_type: CryoCleaningGridTask,
     CryoDepositionGridTaskConfig.task_type: CryoDepositionGridTask,
     CryoSputterGridTaskConfig.task_type: CryoSputterGridTask,
     ParallelTrenchMillingGridTaskConfig.task_type: ParallelTrenchMillingGridTask,
+    AutoLamellaTargetingGridTaskConfig.task_type: AutoLamellaTargetingGridTask,
 }
 
 

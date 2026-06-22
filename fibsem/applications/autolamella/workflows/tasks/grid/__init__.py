@@ -18,6 +18,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.cryo import (
     CryoSputterGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    AcquireFluorescenceOverviewImageTask,
+    AcquireFluorescenceOverviewImageTaskConfig,
     AcquireImageGridTaskConfig,
     AcquireImageTask,
     AcquireOverviewImageGridTask,
@@ -26,6 +28,10 @@ from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
 from fibsem.applications.autolamella.workflows.tasks.grid.milling import (
     ParallelTrenchMillingGridTask,
     ParallelTrenchMillingGridTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.targeting import (
+    AutoLamellaTargetingGridTask,
+    AutoLamellaTargetingGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     GRID_TASK_REGISTRY,
@@ -40,6 +46,8 @@ __all__ = [
     "GridTaskConfig",
     "AcquireOverviewImageGridTaskConfig",
     "AcquireOverviewImageGridTask",
+    "AcquireFluorescenceOverviewImageTaskConfig",
+    "AcquireFluorescenceOverviewImageTask",
     "AcquireImageGridTaskConfig",
     "AcquireImageTask",
     "CryoDepositionGridTaskConfig",
@@ -50,6 +58,8 @@ __all__ = [
     "CryoCleaningGridTask",
     "ParallelTrenchMillingGridTaskConfig",
     "ParallelTrenchMillingGridTask",
+    "AutoLamellaTargetingGridTaskConfig",
+    "AutoLamellaTargetingGridTask",
     "GRID_TASK_REGISTRY",
     "get_grid_task_config_cls",
     "load_grid_task_config",

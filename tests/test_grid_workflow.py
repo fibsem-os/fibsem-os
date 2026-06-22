@@ -373,11 +373,17 @@ def test_acquire_overview_skips_cleanly_when_declined(
 
 @pytest.mark.parametrize("task_type", [
     "PARALLEL_TRENCH_MILLING_GRID",
+    "AUTOLAMELLA_TARGETING_GRID",
+    "ACQUIRE_FLUORESCENCE_OVERVIEW_IMAGE_GRID",
 ])
 def test_stub_task_registered_and_runs_cleanly(
-    demo_microscope, experiment, task_type
+    demo_microscope, experiment, task_type, monkeypatch
 ):
     # the stub tasks log only — running one completes without touching hardware
+    # (targeting sleeps between log lines; neutralise it so the test is fast)
+    import fibsem.applications.autolamella.workflows.tasks.grid.targeting as targeting
+    monkeypatch.setattr(targeting.time, "sleep", lambda *a, **k: None)
+
     assert task_type in GRID_TASK_REGISTRY
     record = GridRecord(name="grid-aspen")
     experiment.add_grid(record)
