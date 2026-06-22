@@ -351,7 +351,6 @@ def test_acquire_overview_skips_cleanly_when_declined(
 # --- stub tasks (logging-only _run, registered + runnable) -----------------
 
 @pytest.mark.parametrize("task_type", [
-    "CRYO_SPUTTER_GRID",
     "PARALLEL_TRENCH_MILLING_GRID",
 ])
 def test_stub_task_registered_and_runs_cleanly(
@@ -448,6 +447,61 @@ def test_gis_deposition_skips_cleanly_when_declined(
     assert _FakeGISPort.instances == []  # GIS never created/inserted
     assert restored == []
     assert "GIS" not in record.results
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+# --- sputter coating task --------------------------------------------------
+
+def _sputter_task(demo_microscope, experiment, monkeypatch):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+
+    monkeypatch.setattr(wfui, "update_status_ui", lambda **kw: None)
+    calls = []
+    monkeypatch.setattr(demo_microscope, "run_sputter_coater",
+                        lambda t, current=None: calls.append((t, current)))
+
+    _load_one_grid(demo_microscope)
+    record = GridRecord(name="grid-aspen")
+    experiment.add_grid(record)
+
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
+        CryoSputterGridTask, CryoSputterGridTaskConfig,
+    )
+    task = CryoSputterGridTask(
+        demo_microscope,
+        CryoSputterGridTaskConfig(task_name="SPUTTER", sputter_time=12.0,
+                                  sputter_current=0.01),
+        record, experiment, parent_ui=object())
+    monkeypatch.setattr(task, "_move_to_grid_slot_position", lambda *a, **k: None)
+    return task, record, calls
+
+
+def test_sputter_runs_coater_with_int_time_and_current(
+    demo_microscope, experiment, monkeypatch
+):
+    task, record, calls = _sputter_task(demo_microscope, experiment, monkeypatch)
+    task.run()
+
+    # time is passed as an int; current is threaded through
+    assert calls == [(12, 0.01)]
+    assert record.results["SPUTTER"]["sputter_time"] == 12.0
+    assert record.results["SPUTTER"]["sputter_current"] == 0.01
+    assert record.task_state.status is AutoLamellaTaskStatus.Completed
+
+
+def test_sputter_skips_cleanly_when_declined(
+    demo_microscope, experiment, monkeypatch
+):
+    import fibsem.applications.autolamella.workflows.ui as wfui
+
+    task, record, calls = _sputter_task(demo_microscope, experiment, monkeypatch)
+    _supervise(experiment, "SPUTTER")
+    monkeypatch.setattr(wfui, "ask_user", lambda **kw: False)  # decline
+
+    task.run()
+
+    assert calls == []  # coater never run
+    assert "SPUTTER" not in record.results
     assert record.task_state.status is AutoLamellaTaskStatus.Completed
 
 

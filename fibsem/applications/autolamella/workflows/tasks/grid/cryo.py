@@ -25,12 +25,16 @@ class CryoDepositionGridTaskConfig(GridTaskConfig):
 
 @dataclass
 class CryoSputterGridTaskConfig(GridTaskConfig):
-    """Configuration for cryo sputter task."""
+    """Configuration for cryo sputter-coating task.
+
+    The Autoscript sputter coater exposes a run *time* and a *current* (Amps) —
+    there is no voltage control, so it isn't configured here.
+    """
     task_type: ClassVar[str] = "CRYO_SPUTTER_GRID"
     display_name: ClassVar[str] = "Cryo Sputter"
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
     sputter_time: float = 60.0  # seconds
-    sputter_voltage: float = 5.0  # kV
-    sputter_current: float = 0.1  # nA
+    sputter_current: float = 0.01  # A (10 mA)
 
 
 class CryoDepositionGridTask(GridTask):
@@ -93,18 +97,47 @@ class CryoDepositionGridTask(GridTask):
 
 
 class CryoSputterGridTask(GridTask):
-    """Task to sputter-coat the grid (stub: logs only)."""
+    """Task to sputter-coat the grid via the sputter coater."""
     config_cls: ClassVar[Type[GridTaskConfig]] = CryoSputterGridTaskConfig
     config: CryoSputterGridTaskConfig
 
     def _run(self):
-        # TODO: implement sputter coating (move to grid, run sputter source)
-        logging.info(
-            f"Cryo sputter on grid {self.grid.name} "
-            f"({self.config.sputter_time:.0f}s at {self.config.sputter_voltage:.1f} kV) "
-            f"— not yet implemented."
+        """Sputter-coat the grid.
+
+        Move to the grid, then run the sputter coater for the configured time
+        and current. ``run_sputter_coater`` is a single blocking hardware call
+        (it owns its own prepare/run/recover), so there is no interruptible
+        countdown here.
+        """
+        slot = self.slot
+        if slot is None:
+            raise RuntimeError(f"Grid '{self.grid.name}' is not loaded in any slot.")
+
+        logging.info(f"Starting sputter coating for grid {self.grid.name}")
+
+        # move to grid position
+        self.update_status_ui(f"Moving to grid {self.grid.name}...")
+        self._move_to_grid_slot_position(self.config.orientation)
+
+        # supervised checkpoint before sputtering
+        if not self.ask_user(
+            f"Start sputter coating on '{self.grid.name}' "
+            f"({self.config.sputter_time:.0f}s at {self.config.sputter_current * 1e3:.1f} mA)?",
+            pos="Start", neg="Skip",
+        ):
+            self.update_status_ui("Sputter coating skipped by user.")
+            logging.info(f"Sputter coating skipped for grid {self.grid.name}")
+            return
+
+        # single blocking hardware call (prepare/run/recover live in the driver)
+        self.update_status_ui(f"Sputter coating... ({self.config.sputter_time:.0f}s)")
+        self.microscope.run_sputter_coater(
+            int(self.config.sputter_time), current=self.config.sputter_current
         )
-        self.update_status_ui("Cryo sputter (not implemented)")
+
+        logging.info(f"Completed sputter coating for grid {self.grid.name}")
+        self.record_result(sputter_time=self.config.sputter_time,
+                           sputter_current=self.config.sputter_current)
 
 
 @dataclass

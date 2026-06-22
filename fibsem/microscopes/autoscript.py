@@ -5,9 +5,13 @@ isolated from the general fibsem data structures.
 """
 from __future__ import annotations
 
+import logging
 import sys
-from typing import TYPE_CHECKING, Optional, Union
+import time
+from typing import TYPE_CHECKING, Callable, Optional, Union
+
 from fibsem.microscopes._stage import SampleGridLoader, SampleHolder, Stage
+from fibsem.structures import FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscope import ThermoMicroscope
@@ -340,17 +344,7 @@ class AutoscriptCompustage(Stage):
         super().__init__(parent, holder, loader)
 
 
-class AutoscriptSputterCoater:
-    pass
 
-
-
-import logging
-import time
-from typing import Callable, TYPE_CHECKING
-if TYPE_CHECKING:
-    from fibsem.microscope import ThermoMicroscope
-from fibsem.structures import FibsemStagePosition
 
 class AutoscriptGISPort:
     port_name: str = "Pt dep"
@@ -431,3 +425,47 @@ class AutoscriptGISPort:
         finally:
             self.close()
             self.retract()
+
+
+class AutoscriptSputterCoater:
+    """Wrapper around ``specimen.sputter_coater`` (standard system).
+
+    On a standard system ``run`` must be wrapped in ``prepare`` / ``recover``:
+    ``prepare`` moves the stage to the sputtering position, sets the gas + sputter
+    vacuum mode and saves state; ``recover`` restores it afterwards. The Arctis
+    variant overrides ``run`` (see :class:`AutoscriptArctisSputterCoater`).
+    Mirrors :class:`AutoscriptGISPort`.
+    """
+
+    def __init__(self, parent: 'ThermoMicroscope'):
+        self.parent = parent
+        self._coater = parent.connection.specimen.sputter_coater
+
+    def set_current(self, current: float) -> None:
+        """Set the sputter coater current, in Amps (e.g. 0.01 = 10 mA)."""
+        self._coater.current.value = current
+
+    def run(self, time_seconds: int, current: Optional[float] = None) -> None:
+        self._coater.prepare()
+        try:
+            if current is not None:
+                self.set_current(current)
+            self._coater.run(time_seconds)
+        finally:
+            # always restore vacuum / gas / beam state, even on error
+            self._coater.recover()
+
+
+class AutoscriptArctisSputterCoater(AutoscriptSputterCoater):
+    """Arctis (platform 28.x): ``run`` is self-contained.
+
+    On Arctis ``run`` itself homes the fluorescence light microscope, moves the
+    compustage to the sputtering position and reverts it afterwards;
+    ``prepare`` / ``recover`` are not supported, so this overrides ``run`` to
+    skip them.
+    """
+
+    def run(self, time_seconds: int, current: Optional[float] = None) -> None:
+        if current is not None:
+            self.set_current(current)
+        self._coater.run(time_seconds)

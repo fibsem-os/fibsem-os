@@ -137,6 +137,11 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     from fibsem.structures import TFibsemPatternSettings
 
+# sentinel: a lazily-built hardware wrapper that hasn't been constructed yet
+# (distinct from None, which means "built, but no such device is fitted").
+_UNSET = object()
+
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
     milling_progress_signal = Signal(dict)
@@ -521,7 +526,7 @@ class FibsemMicroscope(ABC):
     def finish_sputter(self):
         pass
 
-    def run_sputter_coater(self, time_seconds: int) -> None:
+    def run_sputter_coater(self, time_seconds: int, current: Optional[float] = None) -> None:
         raise NotImplementedError("Sputter coater not implemented for this microscope.")
 
     @abstractmethod
@@ -1541,6 +1546,10 @@ class ThermoMicroscope(FibsemMicroscope):
         self._default_application_file = "Si"
         self._current_application_file = self._default_application_file
 
+        # hardware wrappers, built lazily on first use (need a live connection +
+        # model). _UNSET distinguishes "not built yet" from "built, none fitted".
+        self._sputter_coater = _UNSET
+
         # logging
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
 
@@ -1645,6 +1654,9 @@ class ThermoMicroscope(FibsemMicroscope):
             self._create_sample_stage()
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
+
+        # the sputter coater wrapper is built lazily on first use (see property)
+        self._sputter_coater = _UNSET
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -4044,32 +4056,49 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return offset
     
-    def run_sputter_coater(self, time_seconds: int) -> None:
+    @property
+    def sputter_coater(self):
+        """The sputter coater wrapper (or None if not fitted), built on first use."""
+        if self._sputter_coater is _UNSET:
+            self._sputter_coater = self._create_sputter_coater()
+        return self._sputter_coater
+
+    def _create_sputter_coater(self):
+        """Build the platform-specific sputter coater wrapper, or None.
+
+        Selects the Arctis wrapper (self-contained ``run``) vs the standard one
+        (``run`` wrapped in ``prepare`` / ``recover``). The specimen may expose
+        the attribute without a coater being fitted, so gate on ``is_installed``
+        (present + supported on all platforms).
+        """
+        from fibsem.microscopes.autoscript import (
+            AutoscriptArctisSputterCoater,
+            AutoscriptSputterCoater,
+        )
+
+        coater = getattr(self.connection.specimen, "sputter_coater", None)
+        if coater is None or not coater.is_installed:
+            return None
+
+        coater_cls = (
+            AutoscriptArctisSputterCoater
+            if "Arctis" in self.system.info.model
+            else AutoscriptSputterCoater
+        )
+        return coater_cls(self)
+
+    def run_sputter_coater(self, time_seconds: int, current: Optional[float] = None) -> None:
         """Run the sputter coater for a given time in seconds.
+
+        Delegates to the (lazily built) coater wrapper.
+
         Args:
             time_seconds (int): The time to run the sputter coater in seconds.
-        Returns:
-            None
+            current (Optional[float]): The sputter coater current in Amps (e.g.
+                0.01 = 10 mA). If None, the current is left at its present value.
         Raises:
-            NotImplementedError: If the system is not an Arctis system.
+            NotImplementedError: If no sputter coater is installed on the system.
         """
-
-        if not hasattr(self.connection.specimen, "sputter_coater"):
+        if self.sputter_coater is None:
             raise NotImplementedError("Sputter coater not available on this microscope.")
-
-        # check if system is Arctis
-        if "Arctis" not in self.system.info.model:
-            self.connection.specimen.sputter_coater.run(time_seconds)
-            return
-
-        # Prepare for sputtering
-        self.connection.specimen.sputter_coater.prepare()
-
-        # Change chamber pressure to 20 Pa and sputter current to 10 mA
-        # self.connection.vacuum.pump(VacuumSettings(pressure=20))
-        # self.connection.specimen.sputter_coater.current.value = 0.01
-        # Perform sputtering procedure with 10 second run time
-        self.connection.specimen.sputter_coater.run(time_seconds)
-
-        # Recover from sputtering
-        self.connection.specimen.sputter_coater.recover()
+        self.sputter_coater.run(time_seconds, current=current)
