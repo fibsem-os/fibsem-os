@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Optional, Type
 
@@ -198,11 +197,9 @@ class CryoCleaningGridTask(GridTask):
         # restore previous settings if needed
         self.microscope.set_beam_current(self.microscope.system.ion.beam.beam_current, beam_type=BeamType.ION)
 
-        # Implement the cryo cleaning logic here
         logging.info(f"Completed cryo cleaning for grid {self.grid.name}")
-        # acquire image
-        image = self.microscope.acquire_image(beam_type=BeamType.ION)
-        path = self.task_dir()
-        fib_path = os.path.join(path, "post-grid-cleaining_ib.tif")
-        image.save(fib_path)
-        self.record_result(fib=fib_path)
+        # post-clean reference (FIB) image of the grid
+        ref, thumb = self.acquire_grid_reference_image(
+            orientation=self.config.orientation, beam_type=BeamType.ION
+        )
+        self.record_result(reference=ref, thumbnail=thumb)

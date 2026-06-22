@@ -93,16 +93,22 @@ def test_image_cache_avoids_reload(widget, tmp_path):
     rec = GridRecord(name="grid-aspen")
     rec.results = {"OVERVIEW": {"overview": str(img)}}
 
-    # first load populates the cache via the worker
+    # spy on what the loader is asked to load
+    queued: list = []
+    widget._loader.load = lambda paths: queued.append(list(paths))
+
+    # first load queues the (uncached) overview
     widget.set_grid(rec)
-    if widget._worker is not None:
-        widget._worker.wait()
+    assert queued and str(img) in queued[-1]
+
+    # simulate the load completing → cache populated
     widget._on_image_loaded(str(img), np.zeros((40, 60, 3), dtype=np.uint8), 1e-8)
     assert str(img) in widget._img_cache
 
-    # second set_grid fills from cache → no new worker queued
+    # second set_grid fills from cache → nothing new queued
+    queued.clear()
     widget.set_grid(rec)
-    assert widget._worker is None  # nothing left to load
+    assert queued == []  # nothing left to load
 
 
 def test_header_shows_slot_and_beam(widget):
