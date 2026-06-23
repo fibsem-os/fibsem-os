@@ -392,3 +392,57 @@ class TestSlotAtPosition:
             slot.position = None
         probe = FibsemStagePosition(x=0, y=0, z=0)
         assert stage.slot_at_position(probe) is None
+
+
+class TestEnsureLoaded:
+    """Stage.ensure_loaded — the grid-exchange operation (no manager needed)."""
+
+    def _compustage(self):
+        m, _ = utils.setup_session(manufacturer="Demo")
+        m.stage_is_compustage = True
+        m._stage = _create_sample_stage(m)  # loader + 1 working slot
+        return m
+
+    def test_static_shuttle_noop_when_already_loaded(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        stage = _create_sample_stage(microscope)  # no loader
+        slot = next(iter(stage.holder.slots.values()))
+        slot.loaded_grid = SampleGrid(name="grid-aspen")
+        assert stage.ensure_loaded("grid-aspen") is slot  # no-op, returns the slot
+
+    def test_no_loader_and_not_loaded_raises(self):
+        from fibsem.microscopes._stage import GridExchangeError
+
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        stage = _create_sample_stage(microscope)  # no loader, nothing loaded
+        with pytest.raises(GridExchangeError):
+            stage.ensure_loaded("grid-aspen")
+
+    def test_autoloader_loads_from_magazine_into_working_slot(self):
+        microscope = self._compustage()
+        stage = microscope._stage
+        stage.loader.assign_grid("Magazine-01", SampleGrid(name="grid-aspen"))
+
+        slot = stage.ensure_loaded("grid-aspen")
+
+        assert slot.loaded_grid is not None
+        assert slot.loaded_grid.name == "grid-aspen"
+        assert stage.holder.find_slot_by_grid_name("grid-aspen") is slot
+
+    def test_unload_retracts_working_slot(self):
+        microscope = self._compustage()
+        stage = microscope._stage
+        stage.loader.assign_grid("Magazine-01", SampleGrid(name="grid-aspen"))
+        stage.ensure_loaded("grid-aspen")
+        assert stage.holder.occupied_slots  # loaded
+
+        stage.unload()
+        assert stage.holder.occupied_slots == []  # working slot cleared
+
+    def test_unload_without_loader_is_noop(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        stage = _create_sample_stage(microscope)  # no loader
+        stage.unload()  # must not raise

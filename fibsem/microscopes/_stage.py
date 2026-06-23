@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 GRID_RADIUS = 1e-3  # 1mm
 
 
+class GridExchangeError(RuntimeError):
+    """Raised when a grid cannot be exchanged into the holder working slot."""
+
+
 @dataclass
 class SampleGrid:
     """A physical TEM grid or sample that can be loaded into a GridSlot."""
@@ -425,6 +429,48 @@ class Stage:
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Alias for move_to_slot for backward compatibility."""
         return self.move_to_slot(grid_name)
+
+    def ensure_loaded(self, grid_name: str) -> "GridSlot":
+        """Ensure the named grid sits in the holder working slot.
+
+        No-op (returns the slot) when the grid is already loaded — the static
+        shuttle case. On an autoloader, unloads whatever occupies the working
+        slot and loads the requested grid from the magazine. Raises
+        ``GridExchangeError`` on failure.
+        """
+        slot = self.holder.find_slot_by_grid_name(grid_name)
+        if slot is not None:
+            return slot
+
+        if self.loader is None:
+            raise GridExchangeError(
+                f"Grid '{grid_name}' is not loaded and there is no loader to load it."
+            )
+        # source the real grid (with geometry) from the magazine; fall back to a
+        # bare grid only if there is no magazine entry
+        magazine_slot = self.loader.find_grid(grid_name)
+        grid = magazine_slot.loaded_grid if magazine_slot is not None else SampleGrid(name=grid_name)
+        try:
+            for loaded in self.holder.occupied_slots:
+                self.loader.unload_grid(loaded.name)
+            target = next(iter(self.holder.slots))
+            self.loader.load_grid(target, grid)
+        except Exception as e:  # noqa: BLE001 - re-raised as a halt
+            raise GridExchangeError(
+                f"Failed to exchange grid '{grid_name}' into the working slot: {e}"
+            ) from e
+        return self.holder.slots[target]
+
+    def unload(self) -> None:
+        """Retract every grid currently in a holder working slot back to storage.
+
+        No-op without a loader (a static shuttle can't retract) or when nothing
+        is loaded. The inverse of :meth:`ensure_loaded`.
+        """
+        if self.loader is None:
+            return
+        for slot in list(self.holder.occupied_slots):
+            self.loader.unload_grid(slot.name)
 
 
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":

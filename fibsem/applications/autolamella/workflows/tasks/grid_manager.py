@@ -21,16 +21,16 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Gr
 from fibsem.applications.autolamella.workflows.tasks.grid import run_grid_task
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes._stage import GridSlot, SampleGrid
+# GridExchangeError now lives with the exchange logic on Stage; re-exported here
+# for back-compat with existing importers.
+from fibsem.microscopes._stage import GridExchangeError, GridSlot
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.hooks import HookManager
 
-
-class GridExchangeError(RuntimeError):
-    """Raised when a grid cannot be brought into the working slot."""
+__all__ = ["GridExchangeError", "GridTaskManager", "run_grid_workflow"]
 
 
 class GridTaskManager:
@@ -78,37 +78,13 @@ class GridTaskManager:
     # --- hardware: bring a grid into the working slot ---
 
     def ensure_loaded(self, record: GridRecord) -> GridSlot:
-        """Ensure ``record``'s grid sits in the holder working slot.
+        """Bring ``record``'s grid into the holder working slot before its tasks.
 
-        No-op (returns the slot) when the grid is already loaded — the static
-        shuttle case. On an autoloader, unloads whatever occupies the working
-        slot and loads the requested grid. Raises ``GridExchangeError`` on
-        failure, which halts the workflow.
+        Thin convenience over the stage operation (:meth:`Stage.ensure_loaded`);
+        a no-op on a static shuttle, a loader exchange on an autoloader. Raises
+        ``GridExchangeError`` on failure, which halts the workflow.
         """
-        holder = self.microscope._stage.holder
-        slot = holder.find_slot_by_grid_name(record.name)
-        if slot is not None:
-            return slot
-
-        loader = self.microscope._stage.loader
-        if loader is None:
-            raise GridExchangeError(
-                f"Grid '{record.name}' is not loaded and there is no loader to load it."
-            )
-        # source the real grid (with geometry) from the magazine; fall back to a
-        # bare grid only if the record has no magazine entry
-        magazine_slot = loader.find_grid(record.name)
-        grid = magazine_slot.loaded_grid if magazine_slot is not None else SampleGrid(name=record.name)
-        try:
-            for loaded in holder.occupied_slots:
-                loader.unload_grid(loaded.name)
-            target = next(iter(holder.slots))
-            loader.load_grid(target, grid)
-        except Exception as e:  # noqa: BLE001 - re-raised as a halt
-            raise GridExchangeError(
-                f"Failed to exchange grid '{record.name}' into the working slot: {e}"
-            ) from e
-        return holder.slots[target]
+        return self.microscope._stage.ensure_loaded(record.name)
 
     # --- internals ---
 

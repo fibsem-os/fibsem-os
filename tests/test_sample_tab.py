@@ -1,16 +1,14 @@
-"""Offscreen tests for the Sample tab assembly contract (Phase 4 grid UI).
+"""Offscreen tests for SampleWidget (holder + optional loader magazine).
 
-The Sample tab in AutoLamellaUI hosts a LoaderMagazineWidget (storage, top,
-compustage only) above a SampleHolderWidget (working slot, always). Building
-the full AutoLamellaUI requires a napari viewer, so these tests exercise the
-same wiring contract the tab relies on at the widget level:
+SampleWidget hosts a LoaderMagazineWidget (storage, top, autoloader only) above
+a SampleHolderWidget (working slot, always), and drives grid load/unload on the
+stage with no Experiment coupling. These tests exercise:
 
-- the magazine is present only when the stage has a loader;
-- the holder is always present;
-- a magazine grid and the holder working slot share the same SampleGrid
-  object once loaded, so refreshing the holder reflects magazine edits
-  (the tab's magazine_changed -> holder.refresh view-sync);
-- loading a grid into the working slot is reflected in the holder.
+- the magazine is present only when the stage has a loader; the holder always is;
+- a magazine grid and the holder working slot share the same SampleGrid object
+  once loaded (so refreshing the holder reflects magazine edits);
+- loading a grid into the working slot (Stage.ensure_loaded) is reflected;
+- finishing an exchange emits state_changed and clears the busy state.
 """
 
 import os
@@ -43,56 +41,45 @@ def _compustage_microscope():
     return microscope
 
 
-def _build_widgets(microscope):
-    """Replicate how _create_sample_tab assembles the two widgets."""
-    from fibsem.ui.widgets.loader_magazine_widget import LoaderMagazineWidget
-    from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
+def _sample_widget(microscope):
+    from fibsem.ui.widgets.sample_widget import SampleWidget
 
-    magazine = None
-    if microscope._stage.loader is not None:
-        magazine = LoaderMagazineWidget(microscope=microscope)
-        magazine.set_microscope(microscope)
+    w = SampleWidget(microscope)
+    if w.holder_widget is not None:
+        w.holder_widget._auto_save = lambda *a, **k: None  # don't touch shared config
+    return w
 
-    holder = SampleHolderWidget(microscope=microscope)
-    holder._auto_save = lambda *a, **k: None  # don't touch the shared config
-    holder.set_holder(microscope._stage.holder)
-    return magazine, holder
+
+def _name_magazine_grid(widget, name="grid-aspen"):
+    row = widget.magazine_widget._list.itemWidget(widget.magazine_widget._list.item(0))
+    row.name_edit.setText(name)
+    row._on_name_edited()
+    return row
 
 
 def test_magazine_present_only_with_loader(qapp):
-    # compustage -> loader -> magazine built
-    magazine, holder = _build_widgets(_compustage_microscope())
-    assert magazine is not None
-    assert holder is not None
+    # autoloader -> magazine built, holder present
+    w = _sample_widget(_compustage_microscope())
+    assert w.magazine_widget is not None
+    assert w.holder_widget is not None
 
-    # non-compustage -> no loader -> no magazine, holder still present
+    # no loader -> no magazine, holder still present
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)  # no loader
     assert microscope._stage.loader is None
-    magazine2, holder2 = _build_widgets(microscope)
-    assert magazine2 is None
-    assert holder2 is not None
+    w2 = _sample_widget(microscope)
+    assert w2.magazine_widget is None
+    assert w2.holder_widget is not None
 
 
 def test_load_reflected_in_holder(qapp):
     microscope = _compustage_microscope()
-    magazine, holder = _build_widgets(microscope)
+    w = _sample_widget(microscope)
+    _name_magazine_grid(w, "grid-aspen")
 
-    # name a magazine grid, then exchange it into the working slot
-    row = magazine._list.itemWidget(magazine._list.item(0))
-    row.name_edit.setText("grid-aspen")
-    row._on_name_edited()
-
-    from fibsem.applications.autolamella.structures import GridRecord
-    from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
-        GridTaskManager,
-    )
-
-    GridTaskManager(microscope, experiment=None).ensure_loaded(
-        GridRecord(name="grid-aspen")
-    )
-    holder.refresh()  # the tab does this after the exchange worker finishes
+    microscope._stage.ensure_loaded("grid-aspen")  # the stage operation the widget runs
+    w.holder_widget.refresh()
 
     slot = next(iter(microscope._stage.holder.slots.values()))
     assert slot.loaded_grid is not None
@@ -101,19 +88,9 @@ def test_load_reflected_in_holder(qapp):
 
 def test_view_sync_shared_grid_object(qapp):
     microscope = _compustage_microscope()
-    magazine, holder = _build_widgets(microscope)
-
-    # load a grid into the working slot
-    row = magazine._list.itemWidget(magazine._list.item(0))
-    row.name_edit.setText("grid-aspen")
-    row._on_name_edited()
-    from fibsem.applications.autolamella.structures import GridRecord
-    from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
-        GridTaskManager,
-    )
-    GridTaskManager(microscope, experiment=None).ensure_loaded(
-        GridRecord(name="grid-aspen")
-    )
+    w = _sample_widget(microscope)
+    row = _name_magazine_grid(w, "grid-aspen")
+    microscope._stage.ensure_loaded("grid-aspen")
 
     # the magazine slot grid and the working-slot grid are the same object
     mag_slot = microscope._stage.loader.find_grid("grid-aspen")
@@ -121,8 +98,19 @@ def test_view_sync_shared_grid_object(qapp):
     assert mag_slot.loaded_grid is work_slot.loaded_grid
 
     # editing the description via the magazine row mutates the shared object;
-    # holder.refresh() (the view-sync the tab wires to magazine_changed) shows it
+    # holder.refresh() (the view-sync wired to magazine_changed) shows it
     row.desc_edit.setText("lamella candidate")
     row._on_desc_edited()
-    holder.refresh()
+    w.holder_widget.refresh()
     assert work_slot.loaded_grid.description == "lamella candidate"
+
+
+def test_exchange_finish_emits_state_changed(qapp):
+    microscope = _compustage_microscope()
+    w = _sample_widget(microscope)
+
+    fired = []
+    w.state_changed.connect(lambda: fired.append(True))
+    w._on_exchange_finished("load", "grid-aspen", None)  # GUI-thread completion
+
+    assert fired == [True]  # host seam fires → refresh lamella list + grids tab
