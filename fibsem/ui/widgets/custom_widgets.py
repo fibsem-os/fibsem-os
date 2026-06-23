@@ -797,7 +797,8 @@ class _LamellaRow(QWidget):
     remove_clicked = pyqtSignal(object)
     defect_changed = pyqtSignal(object)
 
-    def __init__(self, lamella, parent: QWidget | None = None) -> None:
+    def __init__(self, lamella, parent: QWidget | None = None,
+                 grid_label: Optional[str] = None, reachable: bool = True) -> None:
         super().__init__(parent)
         self.lamella = lamella
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -810,6 +811,12 @@ class _LamellaRow(QWidget):
         self.name_label.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
         self.name_label.setStyleSheet("background: transparent;")
         layout.addWidget(self.name_label)
+
+        # grid chip: which grid this lamella sits on + whether it's loaded
+        self.grid_badge = QLabel()
+        self.grid_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout.addWidget(self.grid_badge)
+        self._set_grid_badge(grid_label, reachable)
 
         self.status_label = QLabel()
         layout.addWidget(self.status_label, stretch=1)
@@ -861,7 +868,23 @@ class _LamellaRow(QWidget):
         self.btn_remove.setVisible(False)
         layout.addWidget(self.btn_remove)
 
+        # the stage-dependent actions are only valid when the grid is loaded
+        self._set_reachable(reachable)
+
         self.refresh()
+
+    def _set_reachable(self, reachable: bool) -> None:
+        """Disable the stage-dependent actions (move-to, update position) when
+        the lamella's grid is not loaded — its stored position points at the
+        wrong surface until then. Edit/remove/defect stay available."""
+        self.btn_move_to.setEnabled(reachable)
+        self.btn_update.setEnabled(reachable)
+        self.btn_move_to.setToolTip(
+            "Move to Position" if reachable
+            else "Grid not loaded — load it to move to this lamella")
+        self.btn_update.setToolTip(
+            "Update Position" if reachable
+            else "Grid not loaded — load it to update this position")
 
     def _on_defect_clicked(self) -> None:
         try:
@@ -897,6 +920,31 @@ class _LamellaRow(QWidget):
         )
         if reply == QMessageBox.Yes:
             self.remove_clicked.emit(self.lamella)
+
+    def _set_grid_badge(self, grid_label: Optional[str], reachable: bool) -> None:
+        """Show which grid the lamella is on; dim chip + tooltip if not loaded.
+
+        Hidden entirely for unlinked lamellae (``grid_label`` is None), so
+        single-grid / legacy experiments stay uncluttered.
+        """
+        if not grid_label:
+            self.grid_badge.setVisible(False)
+            self.grid_badge.setToolTip("")
+            return
+        self.grid_badge.setVisible(True)
+        self.grid_badge.setText(grid_label)
+        if reachable:
+            self.grid_badge.setToolTip("On the loaded grid")
+            self.grid_badge.setStyleSheet(
+                "background: #2d3f5c; color: #cfe0f5; font-size: 11px;"
+                " padding: 1px 7px; border-radius: 4px;"
+            )
+        else:
+            self.grid_badge.setToolTip("Grid not loaded — load it to mill this lamella")
+            self.grid_badge.setStyleSheet(
+                "background: #34373d; color: #82868d; font-size: 11px;"
+                " padding: 1px 7px; border-radius: 4px;"
+            )
 
     def refresh(self) -> None:
         self.name_label.setText(self.lamella.name)
@@ -992,17 +1040,27 @@ class LamellaNameListWidget(QWidget):
         """Return the current row index, or -1 if nothing is selected."""
         return self._list.currentRow()
 
-    def set_lamella(self, positions, preferred_name: str = "") -> None:
+    def set_lamella(self, positions, preferred_name: str = "",
+                    experiment=None, microscope=None) -> None:
         """Populate the list from *positions*, restoring selection by name.
 
         Priority: current selection → *preferred_name* → first row.
         Signals are suppressed during population.
+
+        When *experiment* (and *microscope*) are given, each row shows a chip
+        for the grid the lamella sits on, dimmed when that grid is not loaded.
         """
         current = self.selected_name or preferred_name
         self._list.blockSignals(True)
         self._list.clear()
         for pos in positions:
-            row = _LamellaRow(pos)
+            grid_label, reachable = None, True
+            if experiment is not None and getattr(pos, "grid_id", None) is not None:
+                grid = experiment.get_grid_for_lamella(pos)
+                grid_label = grid.name if grid is not None else None
+                if microscope is not None:
+                    reachable = experiment.is_lamella_reachable(pos, microscope)
+            row = _LamellaRow(pos, grid_label=grid_label, reachable=reachable)
             row.move_to_clicked.connect(self.move_to_requested)
             row.edit_clicked.connect(self.edit_requested)
             row.update_clicked.connect(self.update_requested)

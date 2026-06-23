@@ -944,6 +944,8 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(f"Grid exchange failed: {error}", "error")
         elif action == "load":
             notification_service.show_toast(f"Loaded '{grid_name}' into the beam.", "info")
+        # the loaded grid changed → lamella chips + reachability-gated controls
+        self._refresh_lamella_list_reachability()
         # notify hosts (Grids tab) so the "in microscope" state stays in sync
         self.sample_state_changed_signal.emit()
 
@@ -954,6 +956,20 @@ class AutoLamellaUI(QMainWindow):
             self.holder_widget.refresh()
         if self.magazine_widget is not None:
             self.magazine_widget.refresh_rows()
+        self._refresh_lamella_list_reachability()
+
+    def _refresh_lamella_list_reachability(self) -> None:
+        """Rebuild the lamella list so each row's grid chip + reachability-gated
+        controls track the currently loaded grid. Loading/unloading a grid is a
+        sample-state change, not a lamella-data change, so the normal
+        ``update_lamella_combobox`` path doesn't fire — call this from the
+        grid-exchange paths. Selection is preserved by name."""
+        if self.experiment is None:
+            return
+        self.lamella_list.set_lamella(
+            self.experiment.positions,
+            experiment=self.experiment, microscope=self.microscope,
+        )
 
     def _set_sample_busy(self, busy: bool) -> None:
         """Show the magazine spinner + block its controls during a hardware exchange."""
@@ -1444,7 +1460,8 @@ class AutoLamellaUI(QMainWindow):
             else ""
         )
         self.lamella_list.set_lamella(
-            self.experiment.positions, preferred_name=preferred
+            self.experiment.positions, preferred_name=preferred,
+            experiment=self.experiment, microscope=self.microscope,
         )
 
     def update_lamella_ui(self, _lamella=None):

@@ -211,6 +211,13 @@ class FibsemMinimapWidget(QWidget):
         self.show_tem_stage_limits: bool = False
 
         self.parent_widget.system_widget.connected_signal.connect(self._on_microscope_connected)
+        # a grid load/unload changes which lamellae are reachable → refresh the
+        # overview markers + list chips/controls (sample-state, not lamella-data)
+        if hasattr(self.parent_widget, "sample_state_changed_signal"):
+            self.parent_widget.sample_state_changed_signal.connect(self._update_position_display)
+        # a grid workflow exchanges grids on its worker thread → settle once at the end
+        if hasattr(self.parent_widget, "_workflow_finished_signal"):
+            self.parent_widget._workflow_finished_signal.connect(self._update_position_display)
 
         self.setup_connections()
         self.draw_blank_image()
@@ -1003,7 +1010,10 @@ class FibsemMinimapWidget(QWidget):
         else:
             self.positions_panel.setToolTip("")
 
-        self.lamella_list.set_lamella(lamellas)
+        experiment = self.parent_widget.experiment if self.parent_widget is not None else None
+        self.lamella_list.set_lamella(
+            lamellas, experiment=experiment, microscope=self.microscope
+        )
 
     def _on_move_to_requested(self, lamella):
         """Handle move-to request from the list row's actions menu."""
@@ -1022,8 +1032,9 @@ class FibsemMinimapWidget(QWidget):
         self.parent_widget.experiment.save()
         self._update_position_display()
 
-    def _update_position_display(self):
-        """refresh the position display."""
+    def _update_position_display(self, *args):
+        """refresh the position display. (``*args`` lets it bind directly to
+        signals that pass payloads, e.g. ``_workflow_finished_signal(bool)``.)"""
         self.update_positions_combobox()
         self.update_viewer()
 
