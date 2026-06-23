@@ -32,7 +32,7 @@ This document describes both layers as they exist today and proposes how to grow
 
 ---
 
-## 3. Stage Components (current state)
+## 3. Stage Components
 
 All stage hardware abstractions live in [`fibsem/microscopes/_stage.py`](../../fibsem/microscopes/_stage.py) and are exercised by [`tests/test_sample_holder.py`](../../tests/test_sample_holder.py).
 
@@ -50,7 +50,7 @@ FibsemMicroscope
 
 The holder defines *geometry* (where slots are); the loader defines *exchange* (which grid is in which slot). The `Stage` ties them together and is the only object that actually moves.
 
-### SampleGrid — [`_stage.py:24`](../../fibsem/microscopes/_stage.py#L24)
+### SampleGrid — [`_stage.py:31`](../../fibsem/microscopes/_stage.py#L31)
 
 A physical TEM grid or specimen. It is intentionally minimal — identity plus geometry:
 
@@ -64,20 +64,22 @@ class SampleGrid:
 
 `radius` is currently descriptive geometry only — it is *not* read during slot matching. `Stage.current_slot` matches against the fixed module constant `GRID_RADIUS` (the value `SampleGrid.radius` happens to default to), not the per-grid field. `to_dict`/`from_dict` provide YAML serialization.
 
-### GridSlot — [`_stage.py:51`](../../fibsem/microscopes/_stage.py#L51)
+### GridSlot — [`_stage.py:58`](../../fibsem/microscopes/_stage.py#L58)
 
-A *fixed* mechanical slot on a holder. A slot is a location with a known stage position; it may hold one grid or none:
+A *fixed* mechanical slot on a holder. A slot is a location that may hold one grid or none:
 
 ```python
 @dataclass
 class GridSlot:
     name: str
     index: int
-    position: FibsemStagePosition       # where the stage moves to reach this slot
+    position: Optional[FibsemStagePosition] = None  # None for magazine slots
     loaded_grid: Optional[SampleGrid] = None
 ```
 
-### SampleHolder — [`_stage.py:88`](../../fibsem/microscopes/_stage.py#L88)
+`position` is optional: a holder *working* slot has a calibrated stage position, but a loader *magazine* slot is just storage and carries none.
+
+### SampleHolder — [`_stage.py:108`](../../fibsem/microscopes/_stage.py#L108)
 
 The static structure bolted to the stage that physically holds grids:
 
@@ -96,32 +98,37 @@ Key behaviours:
   - `pre_tilt` → `microscope.system.stage.shuttle_pre_tilt`
   - `reference_rotation` → `microscope.system.stage.rotation_reference`
   This keeps the holder a pure *static transform* layered on top of the system stage geometry.
-- **Lookup helpers**: `find_slot_for_grid(grid)` and `find_slot_by_grid_name(name)` resolve which slot a grid occupies.
+- **Lookup helpers**: `find_slot_for_grid(grid)` / `find_slot_by_grid_name(name)` resolve which slot a grid occupies; **`occupied_slots`** ([`_stage.py:155`](../../fibsem/microscopes/_stage.py#L155)) returns the working slots that currently hold a grid (i.e. what's *in the beam* — the canonical "loaded" set, used by the reachability checks below).
 - **`_ensure_slots()`** materialises exactly `capacity` slots (`Slot-01`, `Slot-02`, …), adding missing ones and trimming extras.
 - **Persistence**: `to_dict`/`from_dict`, plus `save(path)` / `load(path)` to YAML. Holder configuration files: [`fibsem/config/sample-holder.yaml`](../../fibsem/config/sample-holder.yaml) (user) and `default-sample-holder.yaml` (fallback).
 
-### SampleGridLoader — [`_stage.py:189`](../../fibsem/microscopes/_stage.py#L189)
+### SampleGridLoader — [`_stage.py:226`](../../fibsem/microscopes/_stage.py#L226)
 
-The robotic actuator that exchanges grids in and out of slots:
+The robotic actuator that exchanges grids in and out of slots. It models an autoloader **magazine** (its own `capacity` + `slots` of storage) and moves grids between the magazine and the holder's working slot:
 
 ```python
 class SampleGridLoader:
     def load_grid(self, slot_name: str, grid: SampleGrid) -> None: ...
     def unload_grid(self, slot_name: str) -> None: ...
+    def run_inventory(self) -> List[GridSlot]: ...        # scan the magazine
+    def assign_grid(self, slot_name, grid) / find_grid(name) -> ...
     @property
-    def loaded_slots(self) -> List[GridSlot]: ...
+    def loaded_magazine_slots(self) -> List[GridSlot]: ...
 ```
 
-The loader's job is to mutate `slot.loaded_grid` — i.e. to change *which* grid occupies a slot. It is only instantiated for **CompuStage** systems (which model an autoloader); on other backends the loader is `None` and grids are placed into slots manually (via the UI or config).
+The loader's job is to mutate `slot.loaded_grid` — to change *which* grid occupies a slot. It is only instantiated for systems that model an autoloader (CompuStage / real ThermoFisher autoloaders); on other backends the loader is `None` and grids are placed into slots manually (via the UI or config). Working-slot occupancy ("what's loaded") is read from `SampleHolder.occupied_slots`, not the loader.
 
-### Stage — [`_stage.py:220`](../../fibsem/microscopes/_stage.py#L220)
+**Real hardware**: `AutoscriptSampleLoader` ([`fibsem/microscopes/autoscript.py`](../../fibsem/microscopes/autoscript.py)) maps a ThermoFisher autoloader (`specimen.autoloader`) onto this interface — see the companion design doc [`autoscript-sample-loader.md`](autoscript-sample-loader.md).
 
-The high-level stage interface. It owns a `holder` and optional `loader`, performs all motion, and tracks slot/grid context:
+### Stage — [`_stage.py:312`](../../fibsem/microscopes/_stage.py#L312)
+
+The high-level stage interface. It owns a `holder` and optional `loader`, performs all motion, exchanges grids, and tracks slot/grid context:
 
 - **Motion**: `move_absolute`, `move_relative`, `stable_move`, `vertical_move`, `move_to_milling_angle`, `move_to_orientation`, `home`, and the slot-aware `move_to_slot(slot_name)` / `move_to_grid(grid_name)`.
-- **Slot awareness**: `current_slot` returns the slot whose `position` matches the live stage position within `GRID_RADIUS` tolerance on the x/y axes (`is_close2`); `current_grid` returns the grid loaded in that slot, if any.
+- **Grid exchange**: `ensure_loaded(grid_name)` ([`_stage.py:433`](../../fibsem/microscopes/_stage.py#L433)) brings a grid into the working slot — a no-op on a static shuttle (it's already there), a loader exchange on an autoloader — raising `GridExchangeError` ([`_stage.py:26`](../../fibsem/microscopes/_stage.py#L26)) on failure; `unload()` retracts the working slot(s). These are the stage primitives the grid workflow and the Sample UI drive (the grid manager's `ensure_loaded` is a thin delegate).
+- **Slot awareness**: `current_slot` / `current_grid` resolve against the *live* stage position within `GRID_RADIUS` (`is_close2`); the generalised `slot_at_position(pos)` / `grid_at_position(pos)` ([`_stage.py:350`](../../fibsem/microscopes/_stage.py#L350)) resolve a slot/grid for *any* position — used to stamp a manually-placed lamella with the grid it physically sits on.
 
-### Backend construction — [`_stage.py:329`](../../fibsem/microscopes/_stage.py#L329)
+### Backend construction — [`_stage.py:476`](../../fibsem/microscopes/_stage.py#L476)
 
 `_create_sample_stage(microscope)` decides the holder/loader configuration per backend:
 
@@ -130,69 +137,41 @@ The high-level stage interface. It owns a `holder` and optional `loader`, perfor
 
 ### UI
 
-[`fibsem/ui/widgets/sample_holder_widget.py`](../../fibsem/ui/widgets/sample_holder_widget.py) provides `SampleHolderWidget` (and slot-row / grid-edit sub-widgets) for editing the holder, capturing slot positions from the live stage, loading/clearing grids, and auto-saving to YAML.
+- [`SampleHolderWidget`](../../fibsem/ui/widgets/sample_holder_widget.py) — edit the holder, capture slot positions from the live stage, load/clear grids, auto-save to YAML; and `LoaderMagazineWidget` for the autoloader magazine.
+- [`SampleWidget`](../../fibsem/ui/widgets/sample_widget.py) composes the two (magazine above holder) and owns the threaded load/unload, driving `Stage.ensure_loaded` / `Stage.unload`. It is pure hardware staging — **no `Experiment` coupling** — and is hosted in the Sample tab; hosts react to a changed working slot via its `state_changed` signal.
 
 ---
 
-## 4. Grid Workflows (current state)
+## 4. Grid Workflows
 
-The grid task prototype lives in [`fibsem/applications/autolamella/workflows/tasks/grid_tasks.py`](../../fibsem/applications/autolamella/workflows/tasks/grid_tasks.py). It deliberately mirrors the *shape* of the lamella task system, but is an early implementation.
+> **Status:** the prototype `grid_tasks.py` described in earlier revisions of this doc has been replaced by a mature, lifecycle-driven system that mirrors the lamella task system. It lives in the package [`fibsem/applications/autolamella/workflows/tasks/grid/`](../../fibsem/applications/autolamella/workflows/tasks/grid/) (`base.py`, `imaging.py`, `cryo.py`, `milling.py`, `targeting.py`, `registry.py`). Phases 1–4 of the [proposed design](#6-proposed-design-path-to-parity) are implemented.
 
-### GridTaskConfig — [`grid_tasks.py:23`](../../fibsem/applications/autolamella/workflows/tasks/grid_tasks.py#L23)
+### GridTaskConfig — [`grid/base.py:36`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py#L36)
 
-```python
-@dataclass
-class GridTaskConfig(ABC):
-    task_type: ClassVar[str]
-    display_name: ClassVar[str]
-    task_name: str = ""
-```
+A lean per-task config: `task_type`/`display_name` ClassVars + `task_name`, with **flat `to_dict`/`from_dict`** (each task-specific field at the top level) and a `parameters` property for generic UI form generation. Configs are stored in a `GridTaskProtocol` on `Experiment.grid_protocol` and read back at run time.
 
-Compared with the lamella `AutoLamellaTaskConfig`, this base has no shared imaging/milling fields and **no `to_dict`/`from_dict`** — configs cannot yet be serialized as part of a protocol.
+### GridTask — [`grid/base.py:93`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py#L93)
 
-### GridTask — [`grid_tasks.py:31`](../../fibsem/applications/autolamella/workflows/tasks/grid_tasks.py#L31)
-
-```python
-class GridTask(ABC):
-    def __init__(self, microscope, config, grid, experiment, parent_ui=None, task_manager=None): ...
-
-    @property
-    def slot(self) -> Optional[GridSlot]:
-        return self.microscope._stage.holder.find_slot_for_grid(self.grid)
-
-    def run(self):
-        self._run()                         # no pre/post lifecycle
-
-    def _move_to_grid_slot_position(self, orientation: str): ...
-```
-
-A `GridTask` is bound to a `SampleGrid` (not a `Lamella`), resolves its slot via the holder, and can move to that slot in a target orientation. Crucially, `run()` calls `_run()` directly — there is **no `pre_task`/`post_task` lifecycle, no `task_state`, and no `task_history`** (contrast with `AutoLamellaTask`, below).
+A `GridTask` is bound to a `GridRecord` (the workflow unit), resolves its hardware slot live via the holder, and runs a full **`pre_task → _run → post_task`** lifecycle (with `on_failure`) that writes progress into the record's `task_state` / `task_history` — matching `AutoLamellaTask`. Shared helpers include `record_result(...)`, `acquire_grid_reference_image(...)`, `wait_with_progress(...)`, the supervise primitives `validate` / `ask_user` / `update_status_ui`, and `create_lamella(stage_position, name)` ([`grid/base.py:207`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py#L207)) — the integration point for grid tasks that emit lamellae (stamps the grid's id; see §7).
 
 ### Implemented tasks
 
-| Task | Config | What it does |
-|---|---|---|
-| `AcquireOverviewImageGridTask` | `AcquireOverviewImageGridTaskConfig` | Moves to the grid slot and acquires a tiled (default 3×3) overview via `tiled_image_acquisition_and_stitch`. |
-| `AcquireImageTask` | `AcquireImageGridTaskConfig` | Single high-resolution image at a configurable voltage, saving and restoring microscope state. |
-| `CryoCleaningGridTask` | `CryoCleaningGridTaskConfig` | FIB cryo-cleaning for a fixed duration; honours the `_stop_event`. |
+| Task | What it does |
+|---|---|
+| `AcquireOverviewImageGridTask` | Tiled overview of the grid (`tiled_image_acquisition_and_stitch`); saves the stitched image + a thumbnail. The image carries the acquisition `MicroscopeState` (used by the overview-as-canvas placement, §7). |
+| `AcquireImageTask` | Single hi-res image at a configurable beam voltage/current. |
+| `CryoCleaningGridTask` | FIB cryo-cleaning for a fixed duration (`_stop_event`-aware); records an ION reference image. |
+| `CryoDepositionGridTask` | GIS deposition via the `run_gis_deposition` microscope facade (countdown progress); records an SEM reference image. |
+| `CryoSputterGridTask` | Sputter coating via `run_sputter_coater` (indeterminate progress); records an SEM reference image. |
 
-Stub configs with no task implementation yet: `CryoDepositionGridTaskConfig`, `CryoSputterGridTaskConfig`, `ParallelTrenchMillingGridTaskConfig`.
+Still stub `_run` (log-only): `AutoLamellaTargetingGridTask` (blocked on `fibsem/targeting`), `AcquireFluorescenceOverviewImageTask`, `ParallelTrenchMillingGridTask`.
 
-### Registry & runners
+### Registry & orchestration
 
-- `GRID_TASK_REGISTRY` ([`grid_tasks.py:266`](../../fibsem/applications/autolamella/workflows/tasks/grid_tasks.py#L266)) — a string→class map (currently 3 entries).
-- `run_grid_task` / `run_grid_tasks` ([`grid_tasks.py:273`](../../fibsem/applications/autolamella/workflows/tasks/grid_tasks.py#L273)) — minimal nested loops over grids and tasks.
+- `GRID_TASK_REGISTRY` ([`grid/registry.py:50`](../../fibsem/applications/autolamella/workflows/tasks/grid/registry.py#L50)) — string→class map; `run_grid_task` reads the **saved** config (deep-copied per run) from the protocol.
+- **`GridTaskManager`** ([`grid_manager.py`](../../fibsem/applications/autolamella/workflows/tasks/grid_manager.py)) drives a grid-outer `(grid × task)` queue (reusing the shared `TaskQueue`), loading each grid once via `Stage.ensure_loaded` before its task group, with skip/stop, hooks, supervise, and UI status signals — the grid analogue of the lamella `TaskManager`.
 
-The runner instantiates each config with **defaults** (`task_cls.config_cls()`) rather than reading a saved configuration, and carries the explicit TODO *"add task config to experiment, integrate into runner."* The commented-out lines show the intended direction (pull config from `experiment.task_protocol`).
-
-### Current limitations (the design surface)
-
-1. **No task lifecycle / state.** `GridTask` lacks `pre_task`/`post_task`; there is no per-grid `task_state` or `task_history`, so grid-task progress is neither observable nor resumable.
-2. **No config persistence.** `GridTaskConfig` has no `to_dict`/`from_dict`, and grid task configs are not stored on `Experiment` or in YAML. The runner ignores any saved config.
-3. **No orchestration.** Grid runs are ad-hoc loops with no skip/dependency/scheduling logic and no UI status signals — unlike the lamella `TaskManager`/`TaskQueue`.
-4. **Grid is not a first-class workflow entity.** `SampleGrid` is a *hardware* descriptor; there is no workflow-level grid record under `Experiment` carrying state, history, and results the way `Lamella` does.
-5. **No grid-workflow UI** analogous to the lamella task-config and workflow-order editors.
-6. **(Adjacent) Screening pipeline.** `fibsem/targeting/` (grid screening / automated lamella targeting, currently on branch `feat-automated-ml-grid-targeting`) is the likely first real consumer of grid workflows — overview acquisition feeding segmentation and target selection.
+See §6 for the phase-by-phase history and §7 for the data model.
 
 ---
 
@@ -207,17 +186,19 @@ The grid task system is intentionally a sibling of the AutoLamella task system. 
 
 ### Mapping table
 
-| Concern | Lamella system (mature) | Grid system (today) | Grid system (proposed) |
-|---|---|---|---|
-| Unit of work | `Lamella` | `SampleGrid` (hardware only) | `GridRecord` (first-class workflow entity under `Experiment`) |
-| Task base | `AutoLamellaTask` (`base.py:95`) | `GridTask` (`grid_tasks.py:31`) | + `pre_task`/`post_task` lifecycle |
-| Task config | `AutoLamellaTaskConfig` (`structures.py:173`) | `GridTaskConfig` (`grid_tasks.py:23`) | + `to_dict`/`from_dict`, shared imaging/milling bases |
-| Registry | `BUILTIN_TASKS` + `get_tasks()` | `GRID_TASK_REGISTRY` | unified discovery + plugins |
-| State / history | `task_state`, `task_history` | — | per-grid state + history |
-| Protocol | `AutoLamellaTaskProtocol` | — | grid protocol (configs + ordered workflow) |
-| Orchestration | `TaskManager` + `TaskQueue` | `run_grid_task(s)` ad-hoc loops | shared/extended `TaskManager` |
-| Persistence | `experiment.yaml` per-lamella config | none | grid configs + results on `Experiment` |
-| UI | task config editor, workflow widget | — | grid task config + workflow editor |
+The grid system was built to mirror the lamella one; the two are now at parity (the "proposed" column of earlier revisions is implemented):
+
+| Concern | Lamella system | Grid system |
+|---|---|---|
+| Unit of work | `Lamella` | `GridRecord` (workflow entity under `Experiment`; distinct from the hardware `SampleGrid`) |
+| Task base | `AutoLamellaTask` | `GridTask` ([`grid/base.py:93`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py#L93)) — same `pre_task`/`post_task` lifecycle |
+| Task config | `AutoLamellaTaskConfig` | `GridTaskConfig` ([`grid/base.py:36`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py#L36)) — flat `to_dict`/`from_dict` |
+| Registry | `BUILTIN_TASKS` + `get_tasks()` | `GRID_TASK_REGISTRY` |
+| State / history | `task_state`, `task_history` | per-grid `task_state` / `task_history` on `GridRecord` |
+| Protocol | `AutoLamellaTaskProtocol` | `GridTaskProtocol` on `Experiment.grid_protocol` |
+| Orchestration | `TaskManager` + `TaskQueue` | `GridTaskManager` + shared `TaskQueue` (grid-outer) |
+| Persistence | `experiment.yaml` per-lamella config | grid configs + results on `Experiment` |
+| UI | task config editor, workflow widget | Grids tab (cards + Protocol + Results) + grid workflow widget |
 
 ---
 
@@ -236,11 +217,11 @@ Route grid tasks through orchestration that reuses the shared `TaskQueue` so gri
 - **3a — `GridTaskManager`** ([`grid_manager.py`](../../fibsem/applications/autolamella/workflows/tasks/grid_manager.py)) drives a grid-outer queue (new additive `unit_outer` flag on `TaskQueue.build_from_matrix` — no rename of the mature lamella path; the `WorkItem.lamella_name → unit_name` rename is folded into the later base extraction). Skip on not-required / grid-failure; stop event threaded into tasks; `ensure_loaded(record)` brings a grid into the working slot (no-op on a static shuttle, loader exchange otherwise), raising `GridExchangeError` to halt on exchange failure.
 - **3b — Magazine model.** `SampleGridLoader` now owns its own `capacity` + `slots` (the magazine, human-loaded) distinct from the holder working slot, with `run_inventory()` / `assign_grid()` / `find_grid()`. `ensure_loaded` sources the real `SampleGrid` (with geometry) from the magazine; `sync_grids_from_holder` also enumerates the magazine inventory on autoloader systems.
 
-### Phase 4 — Results & UI
-Flesh out `GridRecord` (introduced in Phase 1) with screening `results`, and add the grid-workflow UI. Hosted as a single new **"Grids" tab** in `AutoLamellaMainUI` with four sub-sections: **Magazine + Holder | Protocol | Run | Results**. The lamella UI is parameter-driven, so much is reused rather than rebuilt. See [Phase 4 UI design](#phase-4-ui-design) for the widget breakdown.
+### Phase 4 — Results & UI ✅ *implemented*
+`GridRecord` carries screening `results`, and the grid-workflow UI is built. Hardware staging (holder + magazine) lives in a **Sample tab** (`SampleWidget`, §3); the experiment-side grid work lives in a **"Grids" tab** (`GridTabWidget`) with **cards + Protocol + Results** sub-tabs, and grid runs in a **Grids sub-tab of the Workflow tab** (`GridWorkflowWidget`). Per-task config editors, run-order + supervise, hooks, the shared progress timeline, and the per-grid Results view (overview hero + task history + a per-grid lamella table) are all in place. See [Phase 4 UI design](#phase-4-ui-design) for the original breakdown.
 
-### Phase 5 — Screening integration
-Wire the `fibsem/targeting` grid-screening pipeline (overview acquisition → segmentation → target scoring/selection) in as grid tasks that emit `Lamella` targets — closing the loop from grid-level screening to lamella-level milling. This is the headline workflow the whole effort enables: load a grid → screen it → produce lamella targets → mill them.
+### Phase 5 — Screening integration *(in progress / blocked)*
+Wire the `fibsem/targeting` grid-screening pipeline (overview acquisition → segmentation → target scoring/selection) in as grid tasks that emit `Lamella` targets — closing the loop from grid-level screening to lamella-level milling. The **manual** half is shipped: the overview-as-canvas placement (§7, §9 Q2) lets a user place lamella targets on a grid's overview by hand. The **automated** half (`AutoLamellaTargetingGridTask`) is still a stub, blocked on `fibsem/targeting` landing on this branch; `GridTask.create_lamella` is the ready integration point.
 
 ---
 
@@ -349,7 +330,7 @@ def sync_grids_from_holder(self, microscope: FibsemMicroscope) -> None:
 
 Call site is just `exp.sync_grids_from_holder(microscope)`. It is safe to call after every load/unload, on experiment load, or before a grid workflow run — matching by `name` means already-tracked grids are skipped. On an autoloader where one slot cycles many grids, each newly loaded grid name adds a record on the next sync; unloading a grid leaves its record (and history) intact.
 
-**Step 4 — resolve the live slot (not stored).** Exactly what `GridTask.slot` already does ([`grid_tasks.py:53`](../../fibsem/applications/autolamella/workflows/tasks/grid_tasks.py#L53)):
+**Step 4 — resolve the live slot (not stored).** Exactly what `GridTask.slot` already does ([`grid/base.py`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py)):
 
 ```python
 slot = microscope._stage.holder.find_slot_by_grid_name(grid_record.name)
@@ -365,7 +346,7 @@ for grid_dict in ddict.get("grids", []):
     experiment.grids.append(GridRecord.from_dict(grid_dict))
 ```
 
-**Lamella attachment.** `add_new_lamella(..., grid_id=None)` ([`structures.py:1521`](../../fibsem/applications/autolamella/structures.py#L1521)) takes the originating grid's `_id` and stamps it onto the new lamella. A caller creating a lamella from a target on the current grid resolves the grid the stage is on first:
+**Lamella attachment.** `add_new_lamella(..., grid_id=None)` ([`structures.py:1589`](../../fibsem/applications/autolamella/structures.py#L1589)) takes the originating grid's `_id` and stamps it onto the new lamella. A caller creating a lamella from a target on the current grid resolves the grid the stage is on first:
 
 ```python
 current = microscope._stage.current_grid                     # SampleGrid or None
@@ -378,7 +359,8 @@ experiment.add_new_lamella(state, task_config, grid_id=record._id if record else
 The link is wired end-to-end:
 - **Manual creation** stamps `grid_id` from the new lamella's *own* position — `Stage.grid_at_position(pos)` ([`_stage.py`](../../fibsem/microscopes/_stage.py)) resolves position → holder slot → mounted grid → `GridRecord`; all click-to-place sites funnel through `AutoLamellaUI.add_new_lamella`, so they inherit it.
 - **Workflow creation** uses `GridTask.create_lamella(stage_position, name)` ([`grid/base.py`](../../fibsem/applications/autolamella/workflows/tasks/grid/base.py)), which stamps the task's own `grid._id` — the integration point for the Phase 5 targeting task.
-- **Display** — grid cards show a lamella count; the Results tab shows a per-grid lamella table (left of the overview, click → focus in the Lamella tab) via `get_lamellae_for_grid`.
+- **Display** — grid cards show a lamella count; the Results tab shows a per-grid lamella table (left of the overview, click → focus in the Lamella tab) via `get_lamellae_for_grid`; and the lamella list rows carry a **grid chip** (which grid, dimmed when not loaded) with the stage-dependent controls (move-to / update) disabled when that grid isn't in the beam.
+- **Placement** — clicking a grid's overview opens the overview-as-canvas dialog to place/move/delete lamella positions by hand (see §9 Q2).
 
 ### Reachability: the loaded grid is the active scope (implemented)
 
@@ -408,5 +390,5 @@ A lamella's `stage_position` is only physically valid when *its* grid is loaded 
 
 1. **Per-grid protocols vs one shared protocol (deferred — global for now).** Today `Experiment.grid_protocol` is a *single shared* `GridTaskProtocol`: every grid runs the same task configs. The lamella side is different — each `Lamella` carries its **own** `task_config` (per-unit, editable), seeded from the shared `Experiment.task_protocol` template. **Decision (2026-06):** keep the grid protocol **global** for now — the initial screening workflow is expected to be uniform across grids, and a global protocol is simpler. So the Grids-tab right panel's **Protocol** sub-tab edits the shared `grid_protocol` (it does *not* follow card selection), while **Results** is per-grid.
    - **Future option (the hybrid, mirroring lamella):** give `GridRecord` its own `task_config` seeded from `grid_protocol` (the template) when a grid is added; `run_grid_task` would read `grid.task_config` instead of the shared protocol. This is worth doing if grids need per-grid tuning (ice thickness, sample quality, milling current). It also makes the UI more coherent — both Protocol and Results in the Grids tab would be per-grid (selection-following) — and *eases* the deferred `BaseTaskManager`/`TaskConfigBase` unification (grid would then mirror lamella's per-unit-config shape). The uniform case stays easy via the template-seed default. Revisit when a real per-grid need appears; until then the global protocol stands. (Per-grid *workflow* — different grids running different task *sets* — is already covered at run time by the Workflow tab's grid×task selection, so it doesn't need per-grid workflow definitions.)
-2. **Overview-as-canvas: select lamella on the grid overview + per-grid lamella table (future).** The Results tab's overview image should become an *interactive canvas* for placing lamella positions (the manual counterpart to the ML `fibsem/targeting` pipeline), with the lamella belonging to that grid shown in a table beside it — mirroring the current "task history beside overview" layout. This closes the grid-screening → lamella-milling loop. It's well-grounded: the grid↔lamella relationship already exists (`Lamella.grid_id → GridRecord._id`), so the per-grid lamella table is just `experiment.positions` filtered by `grid_id`; the overview is the stitched image we already record (`GridRecord.results[...]['overview']`); and `FibsemMinimapWidget` already does click-to-place positions on a tiled overview, so there's reusable machinery. This overlaps Phase 5 (it's the manual half of the screening→targeting hand-off into `add_new_lamella` with `grid_id` stamped). Build toward it once the Results tab + targeting integration settle.
+2. **Overview-as-canvas: place lamella positions on the grid overview ✅ *implemented*.** Clicking a grid's overview in the Results tab opens a non-modal [`LamellaSelectionDialog`](../../fibsem/ui/widgets/lamella_selection_dialog.py): a matplotlib `OverviewCanvas` (minimap-styled markers + milling-FOV boxes, zoom/pan, fit, crosshair, scalebar, contrast/gamma via the reusable [`ContrastGammaControl`](../../fibsem/ui/widgets/contrast_gamma_control.py)) beside the grid's lamella list. Right-click adds / moves the selected position; the per-row trash deletes; edits are a working set committed on Accept. Each new lamella uses the **overview image's recorded `MicroscopeState`** (so it's placed in the frame the overview was acquired in) and is stamped with the grid's id via `add_new_lamella(microscope_state=…, grid_id=…)`. This is the manual half of the screening→targeting loop; the per-grid lamella table also appears in the Results tab. The remaining open piece here is whether a *move* should rewrite the whole pose or only the position (see the follow-up notes).
 3. **Targeting coupling (deferred).** Where does the `fibsem/targeting` screening pipeline sit relative to grid tasks — is screening *one* grid task that produces targets, or a multi-task sub-workflow (acquire → segment → score → select)? Deferred until `fibsem/targeting` lands on this branch (currently on `feat-automated-ml-grid-targeting`). Pointers for when we pick it up: the pipeline entry point is `run_detection_pipeline(model, image, ...) -> SegmentationTargetResult`, with `generate_screened_positions(model, run, ...)` looping it over a `GridScreeningRun`'s images. `SegmentationTargetResult.targets` yields enabled `LamellaTarget`s (each already carrying `stage_position` + `poi`), which is the natural hand-off into `Experiment.add_new_lamella` with `grid_id` stamped (the Phase 5 loop).
