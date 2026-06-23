@@ -167,6 +167,9 @@ class AutoLamellaUI(QMainWindow):
     # emitted after a load/unload changes which grid is in the working slot, so
     # hosts (e.g. the Grids tab) can refresh their "in microscope" state
     sample_state_changed_signal = pyqtSignal()
+    # emitted after a lamella is added, so the Grids tab can refresh its per-grid
+    # lamella counts (a lightweight refresh, not the heavy experiment_update)
+    lamella_added_signal = pyqtSignal()
     # per-grid/task progress from GridTaskManager (thread → GUI), payload shape
     # mirrors workflow_update_signal: {"msg": str, "status": {...}}
     grid_workflow_update_signal = pyqtSignal(dict)
@@ -1544,6 +1547,8 @@ class AutoLamellaUI(QMainWindow):
         self.experiment.save()
         self.update_lamella_combobox(latest=True)
         self.update_ui()
+        # let the Grids tab recount this grid's lamellae (cheap card refresh)
+        self.lamella_added_signal.emit()
 
         return lamella
 

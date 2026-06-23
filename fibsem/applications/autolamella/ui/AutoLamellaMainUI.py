@@ -1036,6 +1036,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.sample_state_changed_signal.connect(
             lambda: self.grid_tab.refresh()
         )
+        # a new lamella → recount it on its grid's card (lambda defers the
+        # grid_tab attr lookup; it's created later in add_grids_tab)
+        self.autolamella_ui.lamella_added_signal.connect(
+            lambda: self.grid_tab.refresh()
+        )
         self.autolamella_ui.grid_workflow_update_signal.connect(
             lambda info: self.grid_tab.on_workflow_update(info)
         )
