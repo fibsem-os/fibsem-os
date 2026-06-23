@@ -1573,6 +1573,19 @@ class Experiment:
 
 ###### TASK REFACTORING ##########
 
+    def generate_lamella_name(self, offset: int = 0) -> str:
+        """The next lamella name (petname-based), matching manual adds.
+
+        ``offset`` bumps the number for positions placed but not yet added (e.g.
+        several drafts created before a single commit), so they number in order.
+        """
+        template = self.task_protocol.lamella_defaults
+        number = max((pos.number for pos in self.positions), default=0) + 1 + offset
+        sep = "-" if template.name_prefix else ""
+        if template.use_petname:
+            return f"{template.name_prefix}{sep}{number:02d}-{petname.generate(2)}"
+        return f"{template.name_prefix}{sep}Lamella-{number:02d}"
+
     def add_new_lamella(self,
                         microscope_state: MicroscopeState,
                         task_config: EventedDict[str, AutoLamellaTaskConfig],
@@ -1586,11 +1599,7 @@ class Experiment:
         template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
-            sep = "-" if template.name_prefix else ""
-            if template.use_petname:
-                name = f"{template.name_prefix}{sep}{number:02d}-{petname.generate(2)}"
-            else:
-                name = f"{template.name_prefix}{sep}Lamella-{number:02d}"
+            name = self.generate_lamella_name()
         path = Path(os.path.join(self.path, name))
 
         # create the lamella

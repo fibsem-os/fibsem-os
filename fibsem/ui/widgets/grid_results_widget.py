@@ -131,6 +131,7 @@ class GridResultsWidget(QWidget):
     """Summary + overview + task history + artifacts for one GridRecord."""
 
     lamella_selected = pyqtSignal(object)  # Lamella (row clicked in the table)
+    edit_positions_requested = pyqtSignal(object)  # GridRecord (overview clicked)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -345,8 +346,9 @@ class GridResultsWidget(QWidget):
         if overview:
             self._hero = _HeroImage(overview)
             self._hero.setMaximumHeight(380)
-            self._hero.setToolTip("Click to zoom")
-            self._hero.clicked.connect(self._open_image)
+            self._hero.setToolTip("Click to select lamella positions")
+            self._hero.clicked.connect(
+                lambda *_a: self.edit_positions_requested.emit(self._record))
             self._hero_path = overview
             v.addWidget(self._hero)
         else:

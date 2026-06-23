@@ -69,7 +69,9 @@ class GridTabWidget(QWidget):
         self.grids_right_tabs.addTab(self.grid_protocol_editor, "Protocol")
         self.grids_results_widget = GridResultsWidget()
         self.grids_results_widget.lamella_selected.connect(self._on_lamella_selected)
+        self.grids_results_widget.edit_positions_requested.connect(self._on_edit_positions)
         self.grids_right_tabs.addTab(self.grids_results_widget, "Results")
+        self._position_dialog = None  # keep a ref so the non-modal dialog isn't GC'd
 
         splitter.addWidget(self.grids_right_tabs)
         splitter.setStretchFactor(1, 1)
@@ -250,3 +252,31 @@ class GridTabWidget(QWidget):
         """Focus a grid's lamella (from the Results table) in the Lamella tab."""
         if lamella is not None:
             self.main._on_lamella_edit(lamella)
+
+    def _on_edit_positions(self, record) -> None:
+        """Open the overview to place/move lamella positions for this grid."""
+        from fibsem.structures import FibsemImage
+        from fibsem.ui.widgets.lamella_selection_dialog import LamellaSelectionDialog
+        from fibsem.ui import notification_service
+
+        ui = self.autolamella_ui
+        if record is None or ui is None or ui.experiment is None:
+            return
+        overview = self.grids_results_widget._overview_path()
+        if not overview:
+            return
+        try:
+            image = FibsemImage.load(overview)
+        except Exception as e:  # noqa: BLE001
+            notification_service.show_toast(f"Could not load overview: {e}", "error")
+            return
+        if image.metadata is None:
+            notification_service.show_toast(
+                "Overview image has no metadata; can't place positions.", "warning")
+            return
+
+        self._position_dialog = LamellaSelectionDialog(
+            experiment=ui.experiment, grid_record=record, image=image,
+            microscope=ui.microscope, host=ui, parent=self.main)
+        self._position_dialog.accepted_positions.connect(self.refresh)
+        self._position_dialog.show()

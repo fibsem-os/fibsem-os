@@ -27,6 +27,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeSettings,
+    MicroscopeState,
     Point,
 )
 from fibsem.ui import (
@@ -1488,12 +1489,19 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
+        microscope_state: Optional["MicroscopeState"] = None,
+        grid_id: Optional[str] = None,
+        notify: bool = True,
     ) -> Lamella:
         """Add a lamella to the experiment.
         Args:
             stage_position: The stage position of the lamella. If None, the current stage position is used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
+            microscope_state: The microscope state to record. If None, the current (live) state is captured.
+                Used to place lamellae from a previously-acquired image (e.g. the grid overview).
+            grid_id: The originating grid's _id. If None, the grid is resolved from the lamella's position.
+            notify: When False, defer the UI refresh + lamella_added_signal so a batch can refresh once.
         Returns:
             lamella: The created lamella.
         """
@@ -1506,20 +1514,24 @@ class AutoLamellaUI(QMainWindow):
                 "No microscope connected. Please connect a microscope first."
             )
 
-        # get microscope state
-        microscope_state = self.microscope.get_microscope_state()
+        # use the supplied state (e.g. from an overview image) or the live state
+        if microscope_state is None:
+            microscope_state = self.microscope.get_microscope_state()
+        else:
+            microscope_state = deepcopy(microscope_state)
         if stage_position is not None:
             microscope_state.stage_position = deepcopy(stage_position)
 
-        # link the lamella to the grid it physically sits on (resolved from its
-        # own position against the holder); None if uncalibrated / not tracked
-        grid_id = None
-        sample_grid = self.microscope._stage.grid_at_position(
-            microscope_state.stage_position
-        )
-        if sample_grid is not None:
-            record = self.experiment.get_grid_by_name(sample_grid.name)
-            grid_id = record._id if record is not None else None
+        # link the lamella to its grid: an explicit grid_id wins (e.g. placed on
+        # a known grid's overview); else resolve from the position against the
+        # holder (None if uncalibrated / not tracked)
+        if grid_id is None:
+            sample_grid = self.microscope._stage.grid_at_position(
+                microscope_state.stage_position
+            )
+            if sample_grid is not None:
+                record = self.experiment.get_grid_by_name(sample_grid.name)
+                grid_id = record._id if record is not None else None
 
         # create the lamella
         self.experiment.add_new_lamella(
@@ -1545,10 +1557,11 @@ class AutoLamellaUI(QMainWindow):
             lamella.fluorescence_pose = fluorescence_pose
 
         self.experiment.save()
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
-        # let the Grids tab recount this grid's lamellae (cheap card refresh)
-        self.lamella_added_signal.emit()
+        if notify:
+            self.update_lamella_combobox(latest=True)
+            self.update_ui()
+            # let the Grids tab recount this grid's lamellae (cheap card refresh)
+            self.lamella_added_signal.emit()
 
         return lamella
 
