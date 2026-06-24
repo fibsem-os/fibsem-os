@@ -2189,7 +2189,6 @@ class FMAcquisitionWidget(QWidget):
             result = run_autofocus(
                 microscope=self.fm,
                 channel_settings=channel_settings,
-                # z_parameters=z_parameters,
                 method="laplacian",
                 stop_event=self._acquisition_stop_event,
             )

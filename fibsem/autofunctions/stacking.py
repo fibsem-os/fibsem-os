@@ -90,16 +90,8 @@ def create_focus_stack_from_selection(
     if z_selection.shape != (ny, nx):
         raise ValueError("z_selection shape must match image_stack spatial dimensions")
 
-    # Create output image
-    stacked_image = np.zeros((ny, nx), dtype=image_stack.dtype)
-
-    # Select pixels from appropriate z-planes
-    for y in range(ny):
-        for x in range(nx):
-            selected_z = z_selection[y, x]
-            stacked_image[y, x] = image_stack[selected_z, y, x]
-
-    return stacked_image
+    y_idx, x_idx = np.indices((ny, nx))
+    return image_stack[z_selection, y_idx, x_idx]
 
 
 def pixel_based_focus_selection(

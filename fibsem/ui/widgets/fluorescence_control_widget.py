@@ -904,40 +904,20 @@ class FMControlWidget(QWidget):
     ):
         """Worker thread for auto-focus."""
         try:
-            z_parameters = ZParameters(
-                zmin=-autofocus_settings.fine_range / 2,
-                zmax=autofocus_settings.fine_range / 2,
-                zstep=autofocus_settings.fine_step,
-            )
             logging.info(
-                f"Running auto-focus: range={autofocus_settings.fine_range*1e6:.1f} µm, "
-                f"step={autofocus_settings.fine_step*1e6:.1f} µm, method={autofocus_settings.method.value}"
+                f"Running auto-focus: coarse={autofocus_settings.coarse_range*1e6:.1f} µm / "
+                f"fine={autofocus_settings.fine_range*1e6:.1f} µm, method={autofocus_settings.method.value}"
             )
 
             from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
 
-            af_settings = AutoFocusSettings(
-                coarse_range=autofocus_settings.fine_range,
-                coarse_step=autofocus_settings.fine_step,
-                fine_step=1e-6,
-                fine_range=10e-6,
-                method=autofocus_settings.method
+            result = run_coarse_fine_autofocus(
+                self.fm,
+                autofocus_settings=autofocus_settings,
+                channel_settings=channel_settings,
+                stop_event=self._acquisition_stop_event,
             )
 
-            result= run_coarse_fine_autofocus(
-                self.fm, 
-                autofocus_settings=af_settings, 
-                # roi=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
-                stop_event=self._acquisition_stop_event
-            )
-
-            # result = run_autofocus(
-            #     microscope=self.fm,
-            #     channel_settings=channel_settings,
-            #     z_parameters=z_parameters,
-            #     method=autofocus_settings.method.value,
-            #     stop_event=self._acquisition_stop_event,
-            # )
             if result is not None:
                 plot_autofocus(result)
 

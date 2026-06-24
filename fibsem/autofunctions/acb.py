@@ -205,40 +205,48 @@ def run_auto_contrast_brightness(
         reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5)
     )
 
-    brightness = microscope.get_detector_brightness(beam_type)
-    contrast = microscope.get_detector_contrast(beam_type)
+    initial_brightness = microscope.get_detector_brightness(beam_type)
+    initial_contrast = microscope.get_detector_contrast(beam_type)
+    brightness = initial_brightness
+    contrast = initial_contrast
     iterations: list[AutoContrastBrightnessIteration] = []
 
-    probe = microscope.acquire_image(image_settings=probe_settings)
-    stats = probe.compute_stats()
-    iterations.append(AutoContrastBrightnessIteration(brightness=brightness, contrast=contrast, stats=stats, image=probe))
-    logger.debug("ACB iter 0: brightness=%.3f contrast=%.3f stats=[%s]", brightness, contrast, stats)
-
-    for i in range(settings.n_iterations):
-        if stats.converged(settings.mean_target, settings.mean_tolerance, settings.saturation_limit):
-            logger.debug("ACB converged at iteration %d", i)
-            break
-
-        mean_error = stats.mean - settings.mean_target
-        brightness -= np.sign(mean_error) * settings.brightness_step
-        brightness = float(np.clip(brightness, 0.0, 1.0))
-
-        if stats.saturation_hi > settings.saturation_limit:
-            contrast -= settings.contrast_step
-        elif stats.range_utilisation < settings.min_range_utilisation:
-            contrast += settings.contrast_step
-        contrast = float(np.clip(contrast, 0.0, 1.0))
-
-        microscope.set_detector_brightness(brightness, beam_type)
-        microscope.set_detector_contrast(contrast, beam_type)
-
+    try:
         probe = microscope.acquire_image(image_settings=probe_settings)
         stats = probe.compute_stats()
         iterations.append(AutoContrastBrightnessIteration(brightness=brightness, contrast=contrast, stats=stats, image=probe))
-        logger.debug(
-            "ACB iter %d: brightness=%.3f contrast=%.3f stats=[%s]",
-            i + 1, brightness, contrast, stats,
-        )
+        logger.debug("ACB iter 0: brightness=%.3f contrast=%.3f stats=[%s]", brightness, contrast, stats)
+
+        for i in range(settings.n_iterations):
+            if stats.converged(settings.mean_target, settings.mean_tolerance, settings.saturation_limit):
+                logger.debug("ACB converged at iteration %d", i)
+                break
+
+            mean_error = stats.mean - settings.mean_target
+            brightness -= np.sign(mean_error) * settings.brightness_step
+            brightness = float(np.clip(brightness, 0.0, 1.0))
+
+            if stats.saturation_hi > settings.saturation_limit:
+                contrast -= settings.contrast_step
+            elif stats.range_utilisation < settings.min_range_utilisation:
+                contrast += settings.contrast_step
+            contrast = float(np.clip(contrast, 0.0, 1.0))
+
+            microscope.set_detector_brightness(brightness, beam_type)
+            microscope.set_detector_contrast(contrast, beam_type)
+
+            probe = microscope.acquire_image(image_settings=probe_settings)
+            stats = probe.compute_stats()
+            iterations.append(AutoContrastBrightnessIteration(brightness=brightness, contrast=contrast, stats=stats, image=probe))
+            logger.debug(
+                "ACB iter %d: brightness=%.3f contrast=%.3f stats=[%s]",
+                i + 1, brightness, contrast, stats,
+            )
+    except Exception:
+        logger.exception("ACB failed — restoring initial brightness=%.3f contrast=%.3f", initial_brightness, initial_contrast)
+        microscope.set_detector_brightness(initial_brightness, beam_type)
+        microscope.set_detector_contrast(initial_contrast, beam_type)
+        raise
 
     return AutoContrastBrightnessResult(
         image=probe,

@@ -190,48 +190,67 @@ def run_coarse_fine_autofocus(
     autofocus_settings: AutoFocusSettings,
     channel_settings: Optional["ChannelSettings"] = None,
     roi: Optional[FibsemRectangle] = None,
-    stop_event = None
+    stop_event=None,
 ) -> Optional[AutoFocusResult]:
     """Run two-stage autofocus: coarse search followed by fine adjustment.
 
     Performs an initial coarse search over a large range, then a fine search
-    around the coarse optimum. This approach is faster and more reliable for
-    large focus adjustments.
+    around the coarse optimum.
 
     Args:
-        microscope: The fluorescence microscope instance
-        autofocus_settings: AutoFocusSettings object containing all autofocus parameters
-        channel_settings: Channel settings to use for autofocus (overrides autofocus_settings.channel_name if provided)
+        microscope: The fluorescence microscope instance.
+        autofocus_settings: Parameters for both stages.
+        channel_settings: Channel to use; overrides autofocus_settings.channel_name.
+        roi: Optional crop region (0-1 relative) for focus scoring.
+        stop_event: Threading event checked for cancellation.
 
     Returns:
-        AutoFocusResult from the final stage used, or None if cancelled
-
-    Example:
-        >>> # Two-stage autofocus for precise focusing
-        >>> af_settings = AutoFocusSettings(
-        ...     coarse_range=50e-6, coarse_step=10e-6,
-        ...     fine_range=20e-6, fine_step=2e-6,
-        ...     method=FocusMethod.LAPLACIAN,
-        ...     channel_name="DAPI"
-        ... )
-        >>> best_z = run_coarse_fine_autofocus(microscope, af_settings)
+        AutoFocusResult from the fine stage, or the coarse result if fine is
+        cancelled, or None if coarse is cancelled.
     """
+    initial_position = microscope.objective.position
 
-    from fibsem.fm.strategy.coarse_fine import CoarseFineAutoFocusConfig, CoarseFineAutoFocusStrategy
-
-    config = CoarseFineAutoFocusConfig(
-        coarse_range=autofocus_settings.coarse_range,
-        coarse_step=autofocus_settings.coarse_step,
-        fine_range=autofocus_settings.fine_range,
-        fine_step=autofocus_settings.fine_step,
-        method=autofocus_settings.method,
-    )
-    return CoarseFineAutoFocusStrategy(config=config).run(
+    coarse_result = run_autofocus(
         microscope=microscope,
         channel_settings=channel_settings,
+        z_parameters=ZParameters(
+            zmin=-autofocus_settings.coarse_range / 2,
+            zmax=autofocus_settings.coarse_range / 2,
+            zstep=autofocus_settings.coarse_step,
+        ),
+        method=autofocus_settings.method.value,
         roi=roi,
-        stop_event =stop_event
+        stop_event=stop_event,
     )
+    if coarse_result is None:
+        logging.warning("Coarse autofocus cancelled")
+        return None
+
+    microscope.objective.move_absolute(coarse_result.best_z)
+
+    fine_result = run_autofocus(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        z_parameters=ZParameters(
+            zmin=-autofocus_settings.fine_range / 2,
+            zmax=autofocus_settings.fine_range / 2,
+            zstep=autofocus_settings.fine_step,
+        ),
+        method=autofocus_settings.method.value,
+        roi=roi,
+        stop_event=stop_event,
+    )
+    if fine_result is None:
+        logging.warning("Fine autofocus cancelled — keeping coarse result")
+        return coarse_result
+
+    logging.info(
+        "Coarse/fine autofocus complete: WD=%.3f mm (adjustment %.1f µm from initial)",
+        fine_result.best_z * 1e3,
+        (fine_result.best_z - initial_position) * 1e6,
+    )
+    fine_result.iterations = [coarse_result, fine_result]
+    return fine_result
 
 
 def run_multi_position_autofocus(

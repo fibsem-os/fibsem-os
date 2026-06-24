@@ -39,13 +39,9 @@ def new_image(
 
     # run autocontrast
     if settings.autocontrast:
-        method = getattr(settings, "autocontrast_method", "vendor")
-        if method == "hardware":
-            hfw = settings.hfw if settings.hfw is not None else 150e-6
-            _ = run_auto_contrast_brightness(microscope, beam_type=settings.beam_type, hfw=hfw)
-        else:  # "vendor" (default)
-            microscope.autocontrast(
-                beam_type=settings.beam_type, reduced_area=settings.reduced_area
+        microscope.autocontrast(
+                beam_type=settings.beam_type,
+                reduced_area=settings.reduced_area
             )
 
     # acquire the image

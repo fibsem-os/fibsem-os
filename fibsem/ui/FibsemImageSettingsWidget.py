@@ -439,23 +439,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     @thread_worker
     def _autocontrast_worker(self, beam_type: BeamType):
-        # from fibsem.autofunctions.acb import run_auto_contrast_brightness, AutoContrastBrightnessSettings
-        # # from fibsem.autofunctions.plotting import plot_acb_result
-
-        # # beam_type = BeamType.ELECTRON
-        # # microscope.set_detector_brightness(0.77, beam_type)
-        # # microscope.set_detector_contrast(0.66, beam_type)
-
-        # settings = AutoContrastBrightnessSettings(
-        #     n_iterations=15,
-        # )
-
-        # result = run_auto_contrast_brightness(
-        #     microscope=self.microscope,
-        #     beam_type=beam_type,
-        #     hfw=self.microscope.get_field_of_view(beam_type),
-        #     settings=settings,
-        # )
         self.microscope.autocontrast(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
 
     @thread_worker
@@ -475,7 +458,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             hfw=self.microscope.get_field_of_view(beam_type),
             settings=settings,
         )
-        # self.microscope.auto_focus(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
 
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
         self._toggle_interactions(enable=True)

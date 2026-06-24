@@ -179,25 +179,20 @@ def adaptive_frame_integration(
             outlier_mask[pixel_idx] = True
             outlier_mask[pixel_idx, closest_indices] = False
 
-    # Apply integration method with outlier masking
-    integrated_pixels = np.zeros(pixels_flat.shape[0], dtype=np.float32)
+    # Apply integration method with outlier masking (vectorized via NaN sentinels)
+    masked = np.where(~outlier_mask, pixels_flat.astype(np.float32), np.nan)
 
-    for pixel_idx in range(pixels_flat.shape[0]):
-        pixel_values = pixels_flat[pixel_idx]
-        valid_mask = ~outlier_mask[pixel_idx]
-        valid_values = pixel_values[valid_mask]
-
-        if method == "mean":
-            integrated_pixels[pixel_idx] = np.mean(valid_values)
-        elif method == "sum":
-            integrated_pixels[pixel_idx] = np.sum(valid_values)
-        elif method == "median":
-            integrated_pixels[pixel_idx] = np.median(valid_values)
-        else:
-            supported_methods = ["mean", "sum", "median"]
-            raise ValueError(
-                f"Method '{method}' not supported. Available methods: {supported_methods}"
-            )
+    if method == "mean":
+        integrated_pixels = np.nanmean(masked, axis=1)
+    elif method == "sum":
+        integrated_pixels = np.nansum(masked, axis=1)
+    elif method == "median":
+        integrated_pixels = np.nanmedian(masked, axis=1)
+    else:
+        supported_methods = ["mean", "sum", "median"]
+        raise ValueError(
+            f"Method '{method}' not supported. Available methods: {supported_methods}"
+        )
 
     # Reshape back to original spatial dimensions
     result_shape = original_shape[:-1]  # Remove frame dimension

@@ -537,7 +537,6 @@ class ImageSettings:
     dwell_time: float = 1e-6
     hfw: float = 150e-6
     autocontrast: bool = False
-    autocontrast_method: str = "vendor"  # "vendor" | "hardware"
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
@@ -598,7 +597,6 @@ class ImageSettings:
             dwell_time=settings.get("dwell_time", 1.0e-6),
             hfw=settings.get("hfw", 150e-6),
             autocontrast=settings.get("autocontrast", False),
-            autocontrast_method=settings.get("autocontrast_method", "vendor"),
             beam_type=BeamType[beam_name.upper()],
             autogamma=settings.get("autogamma", False),
             save=settings.get("save", False),
@@ -622,7 +620,6 @@ class ImageSettings:
             "autocontrast": self.autocontrast
             if self.autocontrast is not None
             else None,
-            "autocontrast_method": self.autocontrast_method,
             "autogamma": self.autogamma
             if self.autogamma is not None
             else None,

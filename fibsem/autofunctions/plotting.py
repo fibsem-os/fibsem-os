@@ -104,7 +104,6 @@ def plot_acb_result(
     status = "converged" if result.converged else "not converged"
     fig.suptitle(f"Auto Contrast/Brightness — {n} iterations, {status}", fontsize=9)
     _save_figure(fig, save_path)
-    # fig.clf()
     return fig
 
 
@@ -207,7 +206,6 @@ def plot_autofocus_result(
             fig.add_subplot(gs[row, 1 + col]).set_visible(False)
 
     _save_figure(fig, save_path)
-    # fig.clf()
     return fig
 
 

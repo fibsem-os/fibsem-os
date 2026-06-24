@@ -15,8 +15,9 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
-from fibsem.fm.acquisition import acquire_image, run_autofocus
+from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
+from fibsem.fm.calibration import run_coarse_fine_autofocus
 
 
 @dataclass
@@ -120,13 +121,6 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             logging.warning(f"Autofocus channel '{self.config.autofocus_settings.channel_name}' not found, using first channel")
             autofocus_channel = self.config.channel_settings[0]
 
-        # Set up Z parameters for autofocus
-        autofocus_method = self.config.autofocus_settings.method.value
-        autofocus_zparams = ZParameters(
-            zmin=-self.config.autofocus_settings.fine_range/2,
-            zmax=self.config.autofocus_settings.fine_range/2, 
-            zstep=self.config.autofocus_settings.fine_step
-        )
 
         logging.info(f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' with method '{autofocus_method}' and zparams: {autofocus_zparams}")
         if self.validate:
@@ -137,34 +131,22 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         self.log_status_message("AUTOFOCUS", "Running Autofocus...")
         self.microscope.fm.acquisition_progress_signal.emit({"state": "autofocusing", "task": f"{self.task_name}"}) # type: ignore
-        # result = run_autofocus(microscope=self.microscope.fm,                                                       # type: ignore
-        #                         channel_settings=autofocus_channel,
-        #                         z_parameters=autofocus_zparams, 
-        #                         method=autofocus_method,
-        #                         stop_event=self._stop_event)
-        # af_settings = AutoFocusSettings(
-        #         coarse_range=self.config.autofocus_settings.coarse_range,
-        #         coarse_step=self.config.autofocus_settings.coarse_step,
-        #         fine_range=10e-6,
-        #         fine_step=1e-6,
-        #         method=autofocus_settings.method
-        #     )
-        from fibsem.fm.calibration import run_coarse_fine_autofocus
-        result= run_coarse_fine_autofocus(
-                self.microscope.fm, 
-                autofocus_settings=self.config.autofocus_settings, 
-                # roi=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+        # Query: pass in channel settings so we are certain the channel is correct
+        result = run_coarse_fine_autofocus(
+                self.microscope.fm,
+                autofocus_settings=self.config.autofocus_settings,
+                channel_settings=autofocus_channel,
                 stop_event=self._stop_event
             )
         if result is None:
             logging.info("Autofocus cancelled")
             raise InterruptedError(f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus.")
         try:
-            timestamp = utils.current_timestamp_v3(timeonly=True)
-            save_path = os.path.join(self.lamella.path, f"{self.task_name}-autofocus-{timestamp}.png")
-            result.plot(save_path)
+            result_dir = os.path.join(self.lamella.path, "autofunctions", f"{self.task_name}_autofocus")
+            os.makedirs(result_dir, exist_ok=True)
+            result.plot(save_path=os.path.join(result_dir, "plot.png"))
         except Exception as e:
-            logging.warning(f"Failed to plot autofocus result: {e}")
+            logging.warning(f"Failed to save autofocus result: {e}")
 
     def _move_to_stage_position(self):
         """Move the stage to the fluorescence pose stage position, or the lamella stage position if fluorescence pose is not set."""
