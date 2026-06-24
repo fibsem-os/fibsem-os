@@ -265,6 +265,12 @@ class ZParameters:
         ddict["order"] = ZStackOrder(ddict.get("order", "channel"))
         return cls(**ddict)
 
+    @classmethod
+    def from_focus_pass(cls, sweep_pass: "FocusSweepPass") -> "ZParameters":
+        """Build a relative sweep centred on zero, spanning ±search_range/2 at step_size."""
+        half = sweep_pass.search_range / 2
+        return cls(zmin=-half, zmax=half, zstep=sweep_pass.step_size)
+
     def generate_positions(self, z_init: float) -> List[float]:
         """Generate a list of z positions based on the current z init and relative z parameters.
         Args:

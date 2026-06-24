@@ -212,11 +212,7 @@ def run_coarse_fine_autofocus(
         result = run_autofocus(
             microscope=microscope,
             channel_settings=channel_settings,
-            z_parameters=ZParameters(
-                zmin=-sweep_pass.search_range / 2,
-                zmax=sweep_pass.search_range / 2,
-                zstep=sweep_pass.step_size,
-            ),
+            z_parameters=ZParameters.from_focus_pass(sweep_pass),
             method=autofocus_settings.method.value,
             roi=roi,
             stop_event=stop_event,

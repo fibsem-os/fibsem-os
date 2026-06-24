@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
-from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
+from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult, FocusSweepPass
 from fibsem.fm.structures import AutoFocusSettings, FocusMethod, ZParameters
 
 
@@ -54,6 +54,22 @@ def _score_fn(arr):
 
 
 DEFAULT_Z_PARAMS = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=2e-6)
+
+
+# ── ZParameters.from_focus_pass ────────────────────────────────────────────────
+
+def test_zparameters_from_focus_pass():
+    zp = ZParameters.from_focus_pass(FocusSweepPass(search_range=10e-6, step_size=2e-6))
+    assert zp.zmin == pytest.approx(-5e-6)
+    assert zp.zmax == pytest.approx(5e-6)
+    assert zp.zstep == pytest.approx(2e-6)
+
+
+def test_zparameters_from_focus_pass_positions_centred():
+    zp = ZParameters.from_focus_pass(FocusSweepPass(search_range=8e-6, step_size=2e-6))
+    positions = zp.generate_positions(z_init=3e-6)  # relative sweep centred on z_init
+    assert min(positions) == pytest.approx(3e-6 - 4e-6)
+    assert max(positions) == pytest.approx(3e-6 + 4e-6)
 
 
 # ── run_autofocus ─────────────────────────────────────────────────────────────

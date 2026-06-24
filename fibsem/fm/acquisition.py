@@ -476,12 +476,7 @@ def acquire_tileset(
         autofocus_method = autofocus_settings.method.value
         # Per-tile / per-row autofocus uses the final (narrowest) enabled pass.
         # NOTE: a wider initial pass should only be used once, before acquisition.
-        fine_pass = enabled_passes[-1]
-        autofocus_zparams = ZParameters(
-            zmin=-fine_pass.search_range / 2,
-            zmax=fine_pass.search_range / 2,
-            zstep=fine_pass.step_size,
-        )
+        autofocus_zparams = ZParameters.from_focus_pass(enabled_passes[-1])
 
     # Perform initial auto-focus if mode is ONCE (before moving to starting position)
     if autofocus_mode == AutoFocusMode.ONCE:
