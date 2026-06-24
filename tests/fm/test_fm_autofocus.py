@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
-from fibsem.fm.structures import AutoFocusResult, AutoFocusSettings, FocusMethod, ZParameters
+from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
+from fibsem.fm.structures import AutoFocusSettings, FocusMethod, ZParameters
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -70,16 +71,18 @@ def test_run_autofocus_finds_best_z():
     with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
     assert result is not None
-    assert abs(result.best_z - best_z) <= DEFAULT_Z_PARAMS.zstep
+    assert abs(result.working_distance - best_z) <= DEFAULT_Z_PARAMS.zstep
 
 
 def test_run_autofocus_result_fields_populated():
     m = _mock_fm(best_z=0.0)
     with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS, method="laplacian")
-    assert len(result.z_positions) == len(result.scores) == len(result.images)
-    assert result.best_idx == int(np.argmax(result.scores))
-    assert result.best_score == result.scores[result.best_idx]
+    scores = [it.focus_score for it in result.iterations]
+    best_idx = int(np.argmax(scores))
+    assert len(result.iterations) > 0
+    assert all(isinstance(it, AutoFocusIteration) for it in result.iterations)
+    assert result.focus_score == pytest.approx(scores[best_idx])
     assert result.method == "laplacian"
 
 
@@ -88,8 +91,7 @@ def test_run_autofocus_moves_to_best_z():
     m = _mock_fm(best_z=best_z, initial_z=5e-6)
     with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
-    # After run, objective should be at the best z found
-    assert abs(m.objective.position - result.best_z) < 1e-12
+    assert abs(m.objective.position - result.working_distance) < 1e-12
 
 
 def test_run_autofocus_sets_channel_when_provided():
@@ -126,6 +128,15 @@ def test_run_autofocus_cancellation_restores_position():
     assert abs(m.objective.position - initial_z) < 1e-12
 
 
+def test_run_autofocus_iterations_are_autofocus_iterations():
+    m = _mock_fm(best_z=0.0)
+    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+        result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
+    assert all(isinstance(it, AutoFocusIteration) for it in result.iterations)
+    assert all(it.pass_index == 0 for it in result.iterations)
+    assert all(isinstance(it.image, np.ndarray) for it in result.iterations)
+
+
 def test_run_autofocus_invalid_orientation_raises():
     m = _mock_fm()
     m.has_valid_orientation.return_value = False
@@ -145,13 +156,13 @@ def test_run_autofocus_default_z_parameters():
     with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
         result = run_autofocus(m)
     assert result is not None
-    assert len(result.z_positions) > 0
+    assert len(result.iterations) > 0
 
 
 # ── run_coarse_fine_autofocus ─────────────────────────────────────────────────
 
 def _af_settings(coarse_range=20e-6, coarse_step=5e-6, fine_range=4e-6, fine_step=1e-6):
-    return AutoFocusSettings(
+    return AutoFocusSettings.from_coarse_fine(
         coarse_range=coarse_range,
         coarse_step=coarse_step,
         fine_range=fine_range,
@@ -181,18 +192,18 @@ def test_run_coarse_fine_improves_over_single_pass():
         r_single = run_autofocus(m_single, z_parameters=single_params)
         r_two = run_coarse_fine_autofocus(m_two, settings)
 
-    assert abs(r_two.best_z - best_z) <= abs(r_single.best_z - best_z) + settings.fine_step
+    fine_step = settings.passes[-1].step_size
+    assert abs(r_two.working_distance - best_z) <= abs(r_single.working_distance - best_z) + fine_step
 
 
 def test_run_coarse_fine_iterations_contains_both_stages():
     m = _mock_fm(best_z=0.0, initial_z=8e-6)
     with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
         result = run_coarse_fine_autofocus(m, _af_settings())
-    # fine_result.iterations is set to [coarse_result, fine_result]
-    assert len(result.iterations) == 2
-    coarse, fine = result.iterations
-    assert isinstance(coarse, AutoFocusResult)
-    assert isinstance(fine, AutoFocusResult)
+    # iterations are flat AutoFocusIteration objects tagged with pass_index
+    assert any(it.pass_index == 0 for it in result.iterations)
+    assert any(it.pass_index == 1 for it in result.iterations)
+    assert all(isinstance(it, AutoFocusIteration) for it in result.iterations)
 
 
 def test_run_coarse_fine_moves_to_coarse_best_before_fine():
@@ -201,7 +212,8 @@ def test_run_coarse_fine_moves_to_coarse_best_before_fine():
     with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
         result = run_coarse_fine_autofocus(m, _af_settings())
 
-    coarse_best_z = result.iterations[0].best_z
+    coarse_iters = [it for it in result.iterations if it.pass_index == 0]
+    coarse_best_z = max(coarse_iters, key=lambda it: it.focus_score).working_distance
     move_calls = [c.args[0] for c in m.objective.move_absolute.call_args_list]
     assert coarse_best_z in move_calls, (
         f"Expected move_absolute({coarse_best_z}) between coarse and fine; calls were {move_calls}"

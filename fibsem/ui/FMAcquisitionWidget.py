@@ -2198,7 +2198,7 @@ class FMAcquisitionWidget(QWidget):
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {result.best_z * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result.working_distance * 1e6:.1f} μm"
             )
 
         except Exception as e:

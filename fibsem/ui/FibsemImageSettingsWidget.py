@@ -447,8 +447,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         settings = AutoFocusSettings(
             method="tenengrad",
             passes=[
-                FocusSweepPass(n_steps=10, step_size=100e-6),
-                FocusSweepPass(n_steps=10, step_size=10e-6),
+                FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                FocusSweepPass(search_range=100e-6, step_size=10e-6),
             ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True)

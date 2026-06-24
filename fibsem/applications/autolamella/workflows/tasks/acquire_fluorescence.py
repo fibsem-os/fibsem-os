@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import (
     ClassVar,
@@ -84,7 +85,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
 
         # Run autofocus if requested
-        if self.config.autofocus_settings.fine_enabled:
+        if self.config.autofocus_settings.enabled:
             self._run_autofocus()
 
         # Generate timestamp-based filename
@@ -122,7 +123,11 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             autofocus_channel = self.config.channel_settings[0]
 
 
-        logging.info(f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' with method '{autofocus_method}' and zparams: {autofocus_zparams}")
+        af_settings = self.config.autofocus_settings
+        logging.info(
+            f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' "
+            f"with method '{af_settings.method.value}' and {len(af_settings.passes)} pass(es)"
+        )
         if self.validate:
             ask_user(self.parent_ui,
                 msg=f"Run autofocus for {self.lamella.name} using channel '{autofocus_channel.name}'. Press continue when ready.",
@@ -142,9 +147,8 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             logging.info("Autofocus cancelled")
             raise InterruptedError(f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus.")
         try:
-            result_dir = os.path.join(self.lamella.path, "autofunctions", f"{self.task_name}_autofocus")
-            os.makedirs(result_dir, exist_ok=True)
-            result.plot(save_path=os.path.join(result_dir, "plot.png"))
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
         except Exception as e:
             logging.warning(f"Failed to save autofocus result: {e}")
 

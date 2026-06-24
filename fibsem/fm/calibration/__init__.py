@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 import numpy as np
 
-from fibsem.fm.structures import AutoFocusResult, AutoFocusSettings, ZParameters
+from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
+from fibsem.fm.structures import AutoFocusSettings, ZParameters
 from fibsem.structures import FibsemRectangle
 from fibsem.autofunctions.metrics import (
     get_focus_measure_function,
@@ -31,7 +32,7 @@ from fibsem.autofunctions.stacking import (
     create_block_based_focus_stack,
 )
 from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
-from fibsem.fm.calibration.plotting import plot_autofocus
+from fibsem.autofunctions.plotting import plot_autofocus_result as plot_autofocus
 
 __all__ = [
     "get_focus_measure_function",
@@ -65,7 +66,7 @@ def run_autofocus(
     microscope: "FluorescenceMicroscope",
     channel_settings: Optional["ChannelSettings"] = None,
     z_parameters: Optional["ZParameters"] = None,
-    method: str = "laplacian",
+    method: str = "tenengrad",
     stop_event: Optional[threading.Event] = None,
     roi: Optional[FibsemRectangle] = None,
     save_plot: bool = False,
@@ -125,58 +126,42 @@ def run_autofocus(
     microscope.acquisition_progress_signal.emit({"state": "autofocus"})
     logging.info(f"Starting autofocus: {len(z_positions)} positions, method='{method}'")
 
-    # Evaluate focus at each z position
-    scores = []
-    images = []
-    initial_z = (
-        microscope.objective.position
-    )  # Store initial position for restoration if cancelled
+    initial_z = microscope.objective.position
+    iterations: list[AutoFocusIteration] = []
 
     for i, z_pos in enumerate(z_positions):
-        # Check for cancellation before each z position
         if stop_event and stop_event.is_set():
             logging.info("Autofocus cancelled")
-            microscope.objective.move_absolute(initial_z)  # Restore initial position
+            microscope.objective.move_absolute(initial_z)
             return None
 
-        # Move objective to test position
         microscope.objective.move_absolute(z_pos)
-
-        # Acquire image
         image = microscope.acquire_image()
-
-        # Crop to ROI if provided, otherwise use full frame
         image_data = image.crop(roi) if roi is not None else image.data
-        images.append(image_data)
-
-        # Calculate focus score
         focus_score = calculate_focus_quality(image_data, method=method)
-        scores.append(focus_score)
-
+        iterations.append(AutoFocusIteration(
+            working_distance=float(z_pos),
+            focus_score=float(focus_score),
+            pass_index=0,
+            image=image_data,
+        ))
         logging.debug(
             f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
         )
 
-    # Find best focus position
-    best_idx = int(np.argmax(scores))
-    best_z_position = z_positions[best_idx]
-    best_score = scores[best_idx]
+    best_idx = int(np.argmax([it.focus_score for it in iterations]))
+    best = iterations[best_idx]
 
-    # Move to best focus position
-    microscope.objective.move_absolute(best_z_position)
-
-    logging.info(f"Autofocus complete: Best position {best_z_position * 1e6:.1f} μm (score: {best_score:.4f})")
+    microscope.objective.move_absolute(best.working_distance)
+    logging.info(f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})")
 
     result = AutoFocusResult(
-        best_z=best_z_position,
-        best_idx=best_idx,
-        best_score=best_score,
-        z_positions=z_positions,
-        scores=scores,
-        images=images,
+        image=best.image,
+        working_distance=best.working_distance,
+        initial_working_distance=initial_z,
+        focus_score=best.focus_score,
+        iterations=iterations,
         method=method,
-        roi=roi,
-        channel_settings=channel_settings,
     )
 
     if save_plot:
@@ -192,65 +177,77 @@ def run_coarse_fine_autofocus(
     roi: Optional[FibsemRectangle] = None,
     stop_event=None,
 ) -> Optional[AutoFocusResult]:
-    """Run two-stage autofocus: coarse search followed by fine adjustment.
+    """Run a multi-pass autofocus sweep over the objective z-axis.
 
-    Performs an initial coarse search over a large range, then a fine search
-    around the coarse optimum.
+    Each enabled pass in ``autofocus_settings.passes`` is one sweep centred on
+    the best position found by the previous pass (e.g. a coarse pass followed by
+    a narrower fine pass). Iterations from all passes are combined into a single
+    flat result, tagged by ``pass_index``.
 
     Args:
         microscope: The fluorescence microscope instance.
-        autofocus_settings: Parameters for both stages.
+        autofocus_settings: Sweep passes + method.
         channel_settings: Channel to use; overrides autofocus_settings.channel_name.
         roi: Optional crop region (0-1 relative) for focus scoring.
+            Falls back to ``autofocus_settings.reduced_area``.
         stop_event: Threading event checked for cancellation.
 
     Returns:
-        AutoFocusResult from the fine stage, or the coarse result if fine is
-        cancelled, or None if coarse is cancelled.
+        Combined AutoFocusResult, the partial result if a later pass is
+        cancelled, or None if the first pass is cancelled / no passes enabled.
     """
     initial_position = microscope.objective.position
+    roi = roi if roi is not None else autofocus_settings.reduced_area
+    active_passes = [p for p in autofocus_settings.passes if p.enabled]
 
-    coarse_result = run_autofocus(
-        microscope=microscope,
-        channel_settings=channel_settings,
-        z_parameters=ZParameters(
-            zmin=-autofocus_settings.coarse_range / 2,
-            zmax=autofocus_settings.coarse_range / 2,
-            zstep=autofocus_settings.coarse_step,
-        ),
-        method=autofocus_settings.method.value,
-        roi=roi,
-        stop_event=stop_event,
-    )
-    if coarse_result is None:
-        logging.warning("Coarse autofocus cancelled")
+    if not active_passes:
+        logging.warning("No enabled autofocus passes — skipping")
         return None
 
-    microscope.objective.move_absolute(coarse_result.best_z)
+    all_iterations: list = []
+    last_result: Optional[AutoFocusResult] = None
 
-    fine_result = run_autofocus(
-        microscope=microscope,
-        channel_settings=channel_settings,
-        z_parameters=ZParameters(
-            zmin=-autofocus_settings.fine_range / 2,
-            zmax=autofocus_settings.fine_range / 2,
-            zstep=autofocus_settings.fine_step,
-        ),
-        method=autofocus_settings.method.value,
-        roi=roi,
-        stop_event=stop_event,
-    )
-    if fine_result is None:
-        logging.warning("Fine autofocus cancelled — keeping coarse result")
-        return coarse_result
+    for pass_index, sweep_pass in enumerate(active_passes):
+        # run_autofocus centres on the current objective position and moves to best
+        result = run_autofocus(
+            microscope=microscope,
+            channel_settings=channel_settings,
+            z_parameters=ZParameters(
+                zmin=-sweep_pass.search_range / 2,
+                zmax=sweep_pass.search_range / 2,
+                zstep=sweep_pass.step_size,
+            ),
+            method=autofocus_settings.method.value,
+            roi=roi,
+            stop_event=stop_event,
+        )
+        if result is None:
+            if last_result is None:
+                logging.warning("Autofocus cancelled during first pass")
+                return None
+            logging.warning("Autofocus cancelled at pass %d — keeping previous result", pass_index)
+            break
+
+        for it in result.iterations:
+            it.pass_index = pass_index
+        all_iterations.extend(result.iterations)
+        last_result = result
 
     logging.info(
         "Coarse/fine autofocus complete: WD=%.3f mm (adjustment %.1f µm from initial)",
-        fine_result.best_z * 1e3,
-        (fine_result.best_z - initial_position) * 1e6,
+        last_result.working_distance * 1e3,
+        (last_result.working_distance - initial_position) * 1e6,
     )
-    fine_result.iterations = [coarse_result, fine_result]
-    return fine_result
+
+    return AutoFocusResult(
+        image=last_result.image,
+        working_distance=last_result.working_distance,
+        initial_working_distance=initial_position,
+        focus_score=last_result.focus_score,
+        iterations=all_iterations,
+        settings=autofocus_settings,
+        method=last_result.method,
+    )
 
 
 def run_multi_position_autofocus(
@@ -258,7 +255,7 @@ def run_multi_position_autofocus(
     positions: List["FibsemStagePosition"],
     channel_settings: Optional["ChannelSettings"] = None,
     z_parameters: Optional["ZParameters"] = None,
-    method: str = "laplacian",
+    method: str = "tenengrad",
     return_to_start: bool = True,
 ) -> Dict[str, float]:
     """Run autofocus at multiple stage positions and return focus map.
@@ -327,7 +324,7 @@ def run_multi_position_autofocus(
             actual_position = fibsem_microscope.get_stage_position()
 
             focus_map[position.name] = {
-                "focus_z": result.best_z if result is not None else None,
+                "focus_z": result.working_distance if result is not None else None,
                 "stage_position": actual_position,
             }
 

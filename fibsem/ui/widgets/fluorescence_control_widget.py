@@ -140,7 +140,6 @@ class FMControlWidget(QWidget):
         self.autofocusWidget = AutofocusWidget(
             channel_settings=self.channelSettingsWidget.channel_settings, parent=self
         )
-        self.autofocusWidget.single_fine_search_mode()
         self.autofocusPanel = TitledPanel(
             "Autofocus Settings", content=self.autofocusWidget, collapsible=True
         )
@@ -904,9 +903,13 @@ class FMControlWidget(QWidget):
     ):
         """Worker thread for auto-focus."""
         try:
+            ranges = ", ".join(
+                f"{p.search_range*1e6:.1f}µm/{p.step_size*1e6:.1f}µm"
+                for p in autofocus_settings.passes if p.enabled
+            )
             logging.info(
-                f"Running auto-focus: coarse={autofocus_settings.coarse_range*1e6:.1f} µm / "
-                f"fine={autofocus_settings.fine_range*1e6:.1f} µm, method={autofocus_settings.method.value}"
+                f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
+                f"method={autofocus_settings.method.value}"
             )
 
             from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
@@ -926,7 +929,7 @@ class FMControlWidget(QWidget):
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {result.best_z * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result.working_distance * 1e6:.1f} μm"
             )
 
         except Exception as e:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from fibsem.autofunctions.acb import AutoContrastBrightnessResult
@@ -111,16 +111,22 @@ def plot_acb_result(
 
 def plot_autofocus_result(
     result: "AutoFocusResult",
-    save_path: str,
+    save_path: Optional[str] = None,
 ) -> None:
-    """Diagnostic plot: one row per pass, curve on left, thumbnails on right."""
+    """Diagnostic plot: one row per pass, curve on left, thumbnails on right.
+
+    If ``save_path`` is None, a timestamped file under ``autofocus/`` is used.
+    """
     import numpy as np
     import matplotlib.gridspec as gridspec
     from matplotlib.figure import Figure
 
     iters = result.iterations
     n = len(iters)
-    method = result.settings.method if result.settings else "?"
+    # method may live on settings (FocusMethod enum) or directly on the result
+    # (str); fall back gracefully and always render the string form.
+    _method = result.settings.method if result.settings else result.method
+    method = getattr(_method, "value", _method) or "?"
 
     best_idx = int(max(range(n), key=lambda i: iters[i].focus_score))
     best_wd = iters[best_idx].working_distance
@@ -189,7 +195,7 @@ def plot_autofocus_result(
         thumb_indices = per_pass_thumbs[row]
         for col, tidx in enumerate(thumb_indices):
             ax_img = fig.add_subplot(gs[row, 1 + col])
-            img = iters[tidx].image.filtered_data
+            img = iters[tidx].image
             ds = max(1, img.shape[0] // 96)
             ax_img.imshow(img[::ds, ::ds], cmap="gray", interpolation="nearest")
             z_off = z_um[tidx]
@@ -211,6 +217,11 @@ def plot_autofocus_result(
 
 # ── shared ────────────────────────────────────────────────────────────────────
 
-def _save_figure(fig, save_path: str) -> None:
+def _save_figure(fig, save_path: Optional[str] = None) -> None:
+    if save_path is None:
+        import os
+        from datetime import datetime
+        os.makedirs("autofocus", exist_ok=True)
+        save_path = os.path.join("autofocus", f"autofocus_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
     fig.savefig(save_path, dpi=120, bbox_inches="tight")
     logger.info("Plot saved to %s", save_path)

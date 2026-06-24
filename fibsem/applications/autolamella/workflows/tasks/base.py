@@ -376,8 +376,8 @@ class AutoLamellaTask(ABC):
             settings = AutoFocusSettings(
                 method="tenengrad",
                 passes=[
-                    FocusSweepPass(n_steps=10, step_size=100e-6),
-                    FocusSweepPass(n_steps=10, step_size=10e-6),
+                    FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                    FocusSweepPass(search_range=100e-6, step_size=10e-6),
                 ],
                 reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
                 use_autocontrast=True)
@@ -387,8 +387,8 @@ class AutoLamellaTask(ABC):
                 hfw=hfw or self.image_settings.hfw,
                 settings=settings,
             )
-            result_dir = result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus")
-            result.plot(save_path=str(result_dir / "plot.png"))
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
             self.log_status_message(
                 "AUTOFOCUS",
                 f"Autofocus (image-based): WD={result.working_distance*1e3:.3f}mm score={result.focus_score:.2f}",

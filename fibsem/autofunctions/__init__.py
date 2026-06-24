@@ -27,6 +27,8 @@ from fibsem.autofunctions.autofocus import (
     AutoFocusSettings,
     AutoFocusIteration,
     AutoFocusResult,
+    FocusMethod,
+    FocusSweepPass,
     run_auto_focus,
 )
 
@@ -50,6 +52,8 @@ __all__ = [
     "AutoFocusSettings",
     "AutoFocusIteration",
     "AutoFocusResult",
+    "FocusMethod",
+    "FocusSweepPass",
     "run_auto_focus",
     "auto_gamma",
     "apply_gamma",

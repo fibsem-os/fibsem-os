@@ -5,69 +5,159 @@ import dataclasses
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 
 from fibsem.structures import BeamType
 
 import numpy as np
 if TYPE_CHECKING:
-    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
     from fibsem.microscope import FibsemMicroscope
 
 logger = logging.getLogger(__name__)
 
 
+class FocusMethod(str, Enum):
+    """Focus measurement methods for autofocus algorithms."""
+    LAPLACIAN = "laplacian"
+    SOBEL = "sobel"
+    VARIANCE = "variance"
+    TENENGRAD = "tenengrad"
+
+
 @dataclass
 class FocusSweepPass:
-    """A single pass in a multi-pass focus sweep."""
-    n_steps: int = 10
-    step_size: float = 0.5e-3   # metres
+    """A single pass in a multi-pass focus sweep.
+
+    A pass sweeps ``search_range`` metres (±range/2) about its centre, sampling
+    one image every ``step_size`` metres.
+    """
+    search_range: float = 5e-3      # metres (total span; positions cover ±range/2)
+    step_size: float = 0.5e-3       # metres
+    enabled: bool = True
+
+    @property
+    def n_steps(self) -> int:
+        """Number of steps spanning the range (derived from range / step)."""
+        if self.step_size <= 0:
+            return 1
+        return max(1, round(self.search_range / self.step_size))
+
+
+# default coarse/fine passes (FM scale); FIB-SEM callers pass explicit passes
+def _default_passes() -> "list[FocusSweepPass]":
+    return [
+        FocusSweepPass(search_range=50e-6, step_size=5e-6),   # coarse
+        FocusSweepPass(search_range=10e-6, step_size=1e-6),   # fine
+    ]
+
+
+def _sweep_pass_from_dict(p: dict) -> FocusSweepPass:
+    """Build a FocusSweepPass from a serialized dict, tolerating the legacy
+    ``n_steps`` field (converted to ``search_range = n_steps * step_size``)
+    and ignoring unknown keys."""
+    p = dict(p)
+    step_size = p.get("step_size", 0.5e-3)
+    if "search_range" in p:
+        search_range = p["search_range"]
+    elif "n_steps" in p:
+        search_range = p["n_steps"] * step_size
+    else:
+        search_range = 5e-3
+    return FocusSweepPass(
+        search_range=search_range,
+        step_size=step_size,
+        enabled=p.get("enabled", True),
+    )
 
 
 @dataclass
 class AutoFocusSettings:
-    """Parameters controlling the image-based auto-focus sweep.
+    """Parameters controlling an image-based auto-focus sweep.
 
-    Each entry in *passes* is one sweep centred on the best WD from the
-    previous pass (or the current WD for pass 0).  A single-pass sweep is
-    expressed as one FocusSweepPass in the list.
+    The sweep is expressed as a list of *passes*; each pass is one sweep centred
+    on the best position found by the previous pass (or the starting position
+    for pass 0). A single-pass sweep is just one ``FocusSweepPass``. Use the
+    ``from_coarse_fine`` factory to build a two-pass (coarse + fine) config.
 
-    Example — coarse/fine two-pass:
-        passes = [FocusSweepPass(10, 2e-3), FocusSweepPass(10, 0.2e-3)]
-
-    Example — three-pass:
-        passes = [FocusSweepPass(10, 4e-3), FocusSweepPass(10, 0.5e-3), FocusSweepPass(10, 0.05e-3)]
+    Domain-specific fields are ignored by the domain that does not use them:
+    FM uses ``channel_name``; FIB-SEM uses ``probe_resolution`` /
+    ``probe_dwell_time`` / ``use_autocontrast``.
     """
-    method: str = "laplacian"       # "laplacian" | "sobel" | "variance" | "tenengrad"
-    passes: list = None             # list[FocusSweepPass]; None → single default pass
+    method: "FocusMethod" = FocusMethod.TENENGRAD
+    passes: list = None             # list[FocusSweepPass]; None → default coarse/fine
     probe_resolution: tuple = (768, 512)
     probe_dwell_time: float = 0.5e-6
     reduced_area: 'FibsemRectangle' = None
     use_autocontrast: bool = True
+    channel_name: Optional[str] = None
 
     def __post_init__(self):
         if self.passes is None:
-            self.passes = [FocusSweepPass()]
+            self.passes = _default_passes()
+        if not isinstance(self.method, FocusMethod):
+            self.method = FocusMethod(self.method)
+
+    @property
+    def enabled(self) -> bool:
+        """True if any pass is enabled (i.e. autofocus should run)."""
+        return any(p.enabled for p in self.passes)
+
+    @classmethod
+    def from_coarse_fine(
+        cls,
+        coarse_range: float = 50e-6,
+        coarse_step: float = 5e-6,
+        coarse_enabled: bool = True,
+        fine_range: float = 10e-6,
+        fine_step: float = 1e-6,
+        fine_enabled: bool = True,
+        method: "FocusMethod" = FocusMethod.TENENGRAD,
+        channel_name: Optional[str] = None,
+        **kwargs,
+    ) -> "AutoFocusSettings":
+        """Build a two-pass (coarse + fine) AutoFocusSettings."""
+        passes = [
+            FocusSweepPass(search_range=coarse_range, step_size=coarse_step, enabled=coarse_enabled),
+            FocusSweepPass(search_range=fine_range, step_size=fine_step, enabled=fine_enabled),
+        ]
+        return cls(method=method, passes=passes, channel_name=channel_name, **kwargs)
 
     def to_dict(self) -> dict:
-        d = {
-            "method": self.method,
+        return {
+            "method": self.method.value,
             "passes": [dataclasses.asdict(p) for p in self.passes],
             "probe_resolution": list(self.probe_resolution),
             "probe_dwell_time": self.probe_dwell_time,
             "reduced_area": dataclasses.asdict(self.reduced_area) if self.reduced_area is not None else None,
+            "use_autocontrast": self.use_autocontrast,
+            "channel_name": self.channel_name,
         }
-        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "AutoFocusSettings":
         from fibsem.structures import FibsemRectangle
         d = dict(d)
-        passes = [FocusSweepPass(**p) for p in d.pop("passes", [])] or [FocusSweepPass()]
+
+        # Legacy coarse/fine schema → passes
+        if "passes" not in d and ("coarse_range" in d or "fine_range" in d):
+            return cls.from_coarse_fine(
+                coarse_range=d.get("coarse_range", 50e-6),
+                coarse_step=d.get("coarse_step", 5e-6),
+                coarse_enabled=d.get("coarse_enabled", True),
+                fine_range=d.get("fine_range", 10e-6),
+                fine_step=d.get("fine_step", 1e-6),
+                fine_enabled=d.get("fine_enabled", True),
+                method=FocusMethod(d.get("method", FocusMethod.TENENGRAD.value)),
+                channel_name=d.get("channel_name"),
+            )
+
+        passes = [_sweep_pass_from_dict(p) for p in d.pop("passes", [])] or _default_passes()
         ra = d.pop("reduced_area", None)
-        obj = cls(passes=passes, **d)
+        method = d.pop("method", FocusMethod.TENENGRAD.value)
+        obj = cls(method=FocusMethod(method), passes=passes, **d)
         if ra is not None:
             obj.reduced_area = FibsemRectangle(**ra)
         return obj
@@ -79,7 +169,7 @@ class AutoFocusIteration:
     working_distance: float
     focus_score: float
     pass_index: int
-    image: 'FibsemImage'
+    image: np.ndarray
 
     def to_dict(self, index: int) -> dict:
         return {
@@ -92,24 +182,25 @@ class AutoFocusIteration:
 
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoFocusIteration":
-        from fibsem.structures import FibsemImage
+        from fibsem.structures import load_tiff
         return cls(
             pass_index=d.get("pass_index", 0),
             working_distance=d["working_distance"],
             focus_score=d["focus_score"],
-            image=FibsemImage.load(str(result_dir / d["image"])),
+            image=load_tiff(result_dir / d["image"]),
         )
 
 
 @dataclass
 class AutoFocusResult:
     """Result of an image-based auto-focus run."""
-    image: FibsemImage
+    image: np.ndarray
     working_distance: float
     initial_working_distance: float
     focus_score: float
     iterations: list[AutoFocusIteration]
     settings: AutoFocusSettings = None
+    method: Optional[str] = None
 
     @property
     def n_iterations(self) -> int:
@@ -119,16 +210,16 @@ class AutoFocusResult:
         from fibsem.autofunctions.plotting import plot_autofocus_result
         plot_autofocus_result(self, save_path=save_path)
 
-    def save(self, path: str = ".", name: str = "autofocus") -> Path:
-        """Save the result to a timestamped directory.
+    def save(self, path: str = ".", name: str = "autofocus", save_plot: bool = True) -> Path:
+        """Save the result to ``<path>/<name>/``.
 
-        Creates ``<path>/<name>-<timestamp>/`` containing:
+        The directory contains:
           - ``data.json``  — settings and per-iteration working distance + score
           - ``iter_00.tif``, … — probe image per iteration
           - ``best.tif`` — the sharpest probe image
+          - ``plot.png`` — diagnostic plot (when ``save_plot`` is True)
         """
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result_dir = Path(path) / f"{name}-{ts}"
+        result_dir = Path(path) / name
         result_dir.mkdir(parents=True, exist_ok=True)
 
         data = {
@@ -136,6 +227,7 @@ class AutoFocusResult:
             "initial_working_distance": self.initial_working_distance,
             "focus_score": self.focus_score,
             "n_iterations": self.n_iterations,
+            "method": self.method,
             "settings": self.settings.to_dict() if self.settings is not None else None,
             "iterations": [it.to_dict(i) for i, it in enumerate(self.iterations)],
         }
@@ -143,10 +235,14 @@ class AutoFocusResult:
         with open(result_dir / "data.json", "w") as f:
             json.dump(data, f, indent=2)
 
+        from fibsem.structures import save_tiff
         for i, it in enumerate(self.iterations):
-            it.image.save(path=str(result_dir / f"iter_{i:02d}"))
+            save_tiff(it.image, result_dir / f"iter_{i:02d}.tif")
 
-        self.image.save(path=str(result_dir / "best"))
+        save_tiff(self.image, result_dir / "best.tif")
+
+        if save_plot:
+            self.plot(save_path=str(result_dir / "plot.png"))
 
         logger.info("AutoFocus result saved to %s", result_dir)
         return result_dir
@@ -154,6 +250,7 @@ class AutoFocusResult:
     @classmethod
     def load(cls, result_dir: str) -> "AutoFocusResult":
         """Load a result previously saved with :meth:`save`."""
+        from fibsem.structures import load_tiff
         result_dir = Path(result_dir)
 
         with open(result_dir / "data.json") as f:
@@ -164,8 +261,7 @@ class AutoFocusResult:
             for it_data in data["iterations"]
         ]
 
-        from fibsem.structures import FibsemImage
-        best_image = FibsemImage.load(str(result_dir / "best.tif"))
+        best_image = load_tiff(result_dir / "best.tif")
         settings_data = data.get("settings")
         settings = AutoFocusSettings.from_dict(settings_data) if settings_data is not None else None
 
@@ -176,6 +272,7 @@ class AutoFocusResult:
             focus_score=data["focus_score"],
             iterations=iterations,
             settings=settings,
+            method=data.get("method"),
         )
 
 
@@ -189,7 +286,7 @@ def _run_sweep(
     beam_type: BeamType,
 ) -> "tuple[list[AutoFocusIteration], float]":
     """Acquire images across a WD range and return iterations + best WD."""
-    half_range = sweep_pass.n_steps / 2 * sweep_pass.step_size
+    half_range = sweep_pass.search_range / 2
     wds = np.linspace(centre_wd - half_range, centre_wd + half_range, sweep_pass.n_steps + 1)
 
     iterations = []
@@ -201,7 +298,7 @@ def _run_sweep(
             pass_index=pass_index,
             working_distance=float(wd),
             focus_score=score,
-            image=probe,
+            image=probe.data,
         ))
         logger.debug("AutoFocus pass %d step %d/%d: wd=%.4e score=%.4f",
                      pass_index, i, sweep_pass.n_steps, wd, score)
@@ -244,7 +341,7 @@ def run_auto_focus(
     if settings is None:
         settings = AutoFocusSettings()
 
-    focus_fn = get_focus_measure_function(settings.method)
+    focus_fn = get_focus_measure_function(settings.method.value)
 
     probe_settings = ImageSettings(
         resolution=settings.probe_resolution,
@@ -257,16 +354,19 @@ def run_auto_focus(
         reduced_area=settings.reduced_area,
     )
 
+    active_passes = [p for p in settings.passes if p.enabled]
+    if not active_passes:
+        raise ValueError("AutoFocusSettings has no enabled passes")
+
     # warn if any pass has a wider range than the one before it
-    for i in range(1, len(settings.passes)):
-        prev = settings.passes[i - 1]
-        curr = settings.passes[i]
-        if curr.n_steps * curr.step_size >= prev.n_steps * prev.step_size:
+    for i in range(1, len(active_passes)):
+        prev = active_passes[i - 1]
+        curr = active_passes[i]
+        if curr.search_range >= prev.search_range:
             logger.warning(
                 "Pass %d range (%.2e m) >= pass %d range (%.2e m) — "
                 "later passes should be narrower than earlier ones",
-                i, curr.n_steps * curr.step_size,
-                i - 1, prev.n_steps * prev.step_size,
+                i, curr.search_range, i - 1, prev.search_range,
             )
 
     initial_wd = microscope.get_working_distance(beam_type)
@@ -277,7 +377,7 @@ def run_auto_focus(
         microscope.autocontrast(beam_type, settings.reduced_area)
 
     try:
-        for pass_index, sweep_pass in enumerate(settings.passes):
+        for pass_index, sweep_pass in enumerate(active_passes):
             pass_iters, centre_wd = _run_sweep(
                 microscope, probe_settings, focus_fn,
                 centre_wd, sweep_pass, pass_index, beam_type,
@@ -304,4 +404,5 @@ def run_auto_focus(
         focus_score=best.focus_score,
         iterations=iterations,
         settings=settings,
+        method=settings.method.value,
     )

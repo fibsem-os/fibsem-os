@@ -102,7 +102,7 @@ def make_acb_result(n_iters: int = 3) -> AutoContrastBrightnessResult:
 def make_autofocus_result(n_passes: int = 1) -> AutoFocusResult:
     best_wd = 4.5e-3
     initial_wd = 7.0e-3
-    passes = [FocusSweepPass(n_steps=5, step_size=0.5e-3) for _ in range(n_passes)]
+    passes = [FocusSweepPass(search_range=2.5e-3, step_size=0.5e-3) for _ in range(n_passes)]
     settings = AutoFocusSettings(method="laplacian", passes=passes)
     iters = []
     centre_wd = initial_wd
@@ -113,7 +113,7 @@ def make_autofocus_result(n_passes: int = 1) -> AutoFocusResult:
         for wd, score in zip(wds, scores):
             iters.append(AutoFocusIteration(
                 pass_index=pi, working_distance=float(wd),
-                focus_score=score, image=make_image(),
+                focus_score=score, image=make_image().data,
             ))
         centre_wd = float(wds[int(np.argmax(scores))])
     best_idx = int(np.argmax([it.focus_score for it in iters]))
@@ -230,17 +230,29 @@ def test_acb_result_save_load(tmp_path):
 def test_autofocus_settings_round_trip():
     s = AutoFocusSettings(
         method="sobel",
-        passes=[FocusSweepPass(8, 1e-3), FocusSweepPass(10, 0.1e-3)],
+        passes=[FocusSweepPass(8e-3, 1e-3), FocusSweepPass(1e-3, 0.1e-3)],
     )
     assert AutoFocusSettings.from_dict(s.to_dict()).passes[0].step_size == pytest.approx(1e-3)
     assert AutoFocusSettings.from_dict(s.to_dict()).method == "sobel"
+
+
+def test_autofocus_settings_from_dict_legacy_passes_n_steps():
+    # passes serialized by the prior FocusSweepPass(n_steps, step_size) schema
+    s = AutoFocusSettings.from_dict({
+        "method": "laplacian",
+        "passes": [{"n_steps": 10, "step_size": 0.5e-3}],
+    })
+    assert s.passes[0].step_size == pytest.approx(0.5e-3)
+    assert s.passes[0].search_range == pytest.approx(10 * 0.5e-3)
+    assert s.passes[0].n_steps == 10
 
 
 def test_autofocus_settings_default_pass():
     s = AutoFocusSettings.from_dict({"method": "laplacian", "passes": [],
                                       "probe_resolution": [768, 512],
                                       "probe_dwell_time": 0.5e-6, "reduced_area": None})
-    assert len(s.passes) == 1
+    # empty passes falls back to the default coarse/fine pair
+    assert len(s.passes) == 2
 
 
 def test_autofocus_settings_reduced_area_round_trip():
@@ -262,7 +274,7 @@ def test_run_auto_focus_single_pass():
     m = mock_microscope(best_wd=best_wd, initial_wd=4.5e-3)
     settings = AutoFocusSettings(
         method="laplacian",
-        passes=[FocusSweepPass(n_steps=10, step_size=0.5e-3)],
+        passes=[FocusSweepPass(search_range=5e-3, step_size=0.5e-3)],
     )
     with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
         result = run_auto_focus(m, settings=settings)
@@ -275,11 +287,11 @@ def test_run_auto_focus_single_pass():
 
 def test_run_auto_focus_multi_pass_converges():
     best_wd = 4.5e-3
-    single = AutoFocusSettings(passes=[FocusSweepPass(10, 2e-3)])
+    single = AutoFocusSettings(passes=[FocusSweepPass(20e-3, 2e-3)])
     multi = AutoFocusSettings(passes=[
-        FocusSweepPass(10, 2e-3),
-        FocusSweepPass(10, 0.2e-3),
-        FocusSweepPass(10, 0.02e-3),
+        FocusSweepPass(20e-3, 2e-3),
+        FocusSweepPass(2e-3, 0.2e-3),
+        FocusSweepPass(0.2e-3, 0.02e-3),
     ])
 
     m_single = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
@@ -294,7 +306,7 @@ def test_run_auto_focus_multi_pass_converges():
 
 def test_run_auto_focus_iteration_count():
     m = mock_microscope()
-    passes = [FocusSweepPass(5, 1e-3), FocusSweepPass(4, 0.1e-3)]
+    passes = [FocusSweepPass(5e-3, 1e-3), FocusSweepPass(0.4e-3, 0.1e-3)]
     settings = AutoFocusSettings(passes=passes)
     with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
         result = run_auto_focus(m, settings=settings)
@@ -307,7 +319,7 @@ def test_run_auto_focus_restores_wd_on_error():
     m = mock_microscope(initial_wd=initial_wd)
     m.acquire_image.side_effect = RuntimeError("hardware error")
 
-    settings = AutoFocusSettings(passes=[FocusSweepPass(5, 0.5e-3)])
+    settings = AutoFocusSettings(passes=[FocusSweepPass(2.5e-3, 0.5e-3)])
     with pytest.raises(RuntimeError):
         run_auto_focus(m, settings=settings)
 
@@ -350,6 +362,14 @@ def test_plot_autofocus_single_pass(tmp_path):
     out = str(tmp_path / "af.png")
     plot_autofocus_result(result, save_path=out)
     assert Path(out).exists() and Path(out).stat().st_size > 0
+
+
+def test_plot_autofocus_no_save_path(tmp_path, monkeypatch):
+    # plot_autofocus_result(result) with no save_path must not crash
+    monkeypatch.chdir(tmp_path)
+    result = make_autofocus_result(n_passes=1)
+    plot_autofocus_result(result)
+    assert list((tmp_path / "autofocus").glob("autofocus_*.png"))
 
 
 def test_plot_autofocus_multi_pass(tmp_path):

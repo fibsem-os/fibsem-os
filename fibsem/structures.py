@@ -2390,6 +2390,28 @@ def check_data_format(data: np.ndarray) -> bool:
         data = data[:, :, 0]
     return data.ndim == 2 and data.dtype in [np.uint8, np.uint16]
 
+
+def save_tiff(data: np.ndarray, path: Union[str, Path]) -> str:
+    """Write a raw image array to a TIFF file.
+
+    Args:
+        data: Image data to write.
+        path: Destination path (``.tif`` appended if no suffix given).
+
+    Returns:
+        The path written to, as a string.
+    """
+    path = str(path)
+    if not path.lower().endswith((".tif", ".tiff")):
+        path += ".tif"
+    tff.imwrite(path, data)
+    return path
+
+
+def load_tiff(path: Union[str, Path]) -> np.ndarray:
+    """Read a raw image array from a TIFF file."""
+    return tff.imread(str(path))
+
 @dataclass
 class FibsemGasInjectionSettings:
     port: str
