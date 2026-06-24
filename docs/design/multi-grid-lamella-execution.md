@@ -1,0 +1,381 @@
+# Multi-Grid Lamella Execution
+
+**Status:** Design agreed (2026-06-24) — settled for now, not yet implemented; revisit when implementation or hardware data warrants.
+**Scope:** Running lamella task workflows across lamellae that live on *different* grids, including grids that are not currently loaded — on both autoloader and static-holder systems.
+**Related:** [grid-workflow-system.md](grid-workflow-system.md) (the grid task layer and stage abstractions this builds on).
+
+---
+
+## 1. Intention
+
+Today the lamella `TaskManager` runs a matrix of *(task × lamella)* work items, but it implicitly assumes **every selected lamella is already reachable** — i.e. its grid is sitting in the working slot. The UI enforces this with a guard that *blocks* any run whose selected lamellae span an unloaded grid ([`AutoLamellaMainUI._on_run_workflow_clicked`](../../fibsem/applications/autolamella/ui/AutoLamellaMainUI.py)).
+
+The intention of this work is to remove that limitation and make the contract simply:
+
+> **Run these tasks on these lamellae, regardless of which grid they are on.**
+
+The user selects a flat list of lamellae — which may span any number of grids, loaded or not — and a set of tasks. The system is responsible for loading the right grid at the right time, minimising physical grid exchanges, and persisting results as it goes. This is what enables **unattended multi-grid, multi-day runs**: queue up a whole session's worth of lamellae across many grids and let it work through them.
+
+### What this is *not*
+
+- It is **not** a special "run-lamella-workflow" grid task wrapped inside the grid campaign. An earlier draft proposed exactly that, but it bakes in a rigid *one grid-outer pass* and a false hierarchy (grid workflow "owns" lamella workflow). We explicitly reject it: lamella execution should be independently multi-grid, and we cannot assume a single sweep through the grids is always sufficient.
+- It is **not** a second orchestrator sitting above the lamella manager. There is one manager; grid loading becomes a behaviour *inside* it.
+
+### Why this is now the natural design
+
+We previously rejected "teach the lamella manager about grids" on the grounds that it would **duplicate loading logic**. That objection is now obsolete: grid loading was extracted onto `Stage.ensure_loaded(grid_name)` as the single loading authority (no-op when already loaded, a loader exchange otherwise). The manager does not reimplement anything — it *delegates* to that one authority. The duplication risk is gone, so the clean design is unlocked.
+
+---
+
+## 2. Core idea: load-aware scheduling
+
+Grid loading becomes a **side effect of reaching a work item whose grid isn't loaded**, not a control-flow layer above the queue.
+
+Two pieces:
+
+### 2a. One authority call in the run loop
+
+Before executing a `(task, lamella)` item, ensure its grid is present:
+
+```python
+grid = experiment.get_grid_for_lamella(lamella)
+if grid is not None and grid._id not in loaded_ids:
+    stage.ensure_loaded(grid.name)   # no-op if already loaded; loader exchange otherwise
+    realign_after_load(grid)         # fires only on a real exchange (stubbed for now)
+run_task(task, lamella)
+```
+
+`ensure_loaded` is the existing single authority. Lamellae with `grid_id is None` (legacy / single-grid experiments) are treated as reachable on whatever is loaded, so nothing changes for them.
+
+### 2b. Load-aware queue selection
+
+This is the heart of the design and the reason it is **not** a rigid single loop. The work matrix still has a canonical order (task-outer, lamella-inner — see §5). But the selector is told which grids are currently loaded and prefers items it can run *without an exchange*:
+
+`TaskQueue.next(loaded_ids)`:
+1. Return the next pending item whose grid is in `loaded_ids` (runnable now, zero cost).
+2. Only when the loaded grid(s) are drained of pending items, fall to the next item in canonical order — selecting it *causes* an exchange to its grid.
+
+Properties that fall out of this:
+
+- **Minimal exchanges (grid-greedy).** The loaded grid is fully drained before any swap. In the common case that is ~1 exchange per grid — *without hard-coding* "one pass".
+- **Multi-pass capable.** If task ordering or dependencies ever require revisiting a grid, the same mechanism simply exchanges back. Nothing in the design assumes a single sweep.
+- **Multi-slot aware.** `loaded_ids` may contain more than one grid (a static multi-slot holder), so all of those items are reachable with no exchange at all.
+- **Back-compatible.** Unlinked lamellae and single-grid experiments behave exactly as today.
+
+### Worked example: a 3-grid, 3-task schedule
+
+Three grids (A: 3 lamellae, B: 2, C: 3), three tasks (mill trench → rough mill → polish). Grid-greedy drains each loaded grid completely before paying for an exchange, so the whole run costs **only two exchanges** — one fewer than the number of grids, the minimum for a single pass. The teal *realign* step fires once per real load (see §6); it is a no-op on a static holder or the simulator.
+
+```mermaid
+flowchart TB
+  A0([Load grid A · working slot]):::load --> AR[Realign A]:::realign
+  AR --> AW["Run all tasks × A1,A2,A3<br/>items 1–9, task-outer"]:::work
+  AW --> EX1{{Grid exchange · unload A, load B}}:::swap
+  EX1 --> B0([Load grid B · working slot]):::load
+  B0 --> BR[Realign B]:::realign
+  BR --> BW["Run all tasks × B1,B2<br/>items 10–15"]:::work
+  BW --> EX2{{Grid exchange · unload B, load C}}:::swap
+  EX2 --> C0([Load grid C · working slot]):::load
+  C0 --> CR[Realign C]:::realign
+  CR --> CW["Run all tasks × C1,C2,C3<br/>items 16–24"]:::work
+
+  classDef load fill:#E6F1FB,stroke:#185FA5,color:#042C53;
+  classDef realign fill:#E1F5EE,stroke:#0F6E56,color:#04342C;
+  classDef swap fill:#FAEEDA,stroke:#854F0B,color:#412402;
+  classDef work fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A;
+```
+
+Within each loaded grid the order is **task-outer**: every lamella gets `mill trench`, *then* every lamella gets `rough mill`, *then* `polish`. The execution order for grid A (read left-to-right, then down) is:
+
+| loaded: grid A | A1 | A2 | A3 |
+|---|---|---|---|
+| mill trench | 1 | 2 | 3 |
+| rough mill | 4 | 5 | 6 |
+| polish | 7 | 8 | 9 |
+
+Grids B and C repeat the same shape, continuing the global item counter (10–15, then 16–24). Task-greedy ordering (§5) would run the *same* 24 items but cost `2 exchanges × 3 task phases = 6` exchanges — which is why grid-greedy is the default.
+
+### How it composes with grid screening
+
+This work is one link in a longer chain, not the whole pipeline. Grid-*level* tasks stay in `GridTaskManager`: acquire overview → clean → screen/target, and the targeting task **emits lamellae** (`GridTask.create_lamella` stamps each with its `grid_id`). Once lamellae exist across one or more grids, multi-grid lamella execution is what mills them. The two layers compose at the UI/run level — screening produces the work, this consumes it — rather than one wrapping the other. A reader should picture: *screen grids → lamellae appear (linked to grids) → select lamellae across grids + tasks → load-aware run mills them.*
+
+---
+
+## 3. What needs to be implemented
+
+Ordered roughly by dependency. Phases 1–2 deliver working multi-grid execution on the simulator; 3–4 harden it.
+
+### Phase 1 — Load-aware manager (the functional core)
+
+- **`TaskQueue.next(loaded_ids)`** — extend selection to prefer items whose grid is loaded, falling back to canonical order. Keep the no-arg behaviour for callers that don't care (or have it default to "no grids loaded" → pure canonical order). The work-item model already carries `item_name`; the grid is resolved per item via `experiment.get_grid_for_lamella`.
+- **`TaskManager._run_queue`** — before running each item, resolve its grid and call `stage.ensure_loaded(grid.name)` when it isn't in the loaded set; update the loaded set; invoke the realign hook (§3, Phase 3) on a real exchange.
+- **Relax / replace the UI guard** — the current hard block on unreachable lamellae becomes unnecessary. Replace it with a non-blocking confirmation that summarises the cost (e.g. *"This run spans 3 grids and will perform up to 2 grid exchanges. Continue?"*).
+
+The shape of the modified run loop and selection (illustrative, not final):
+
+```python
+def _run_queue(self):
+    loaded = {g._id for g in self.experiment.get_loaded_grids(self.microscope)}  # seed from reality
+    while not self.is_stopped:
+        item = self.queue.next(loaded_ids=loaded)   # prefers items on a loaded grid
+        if item is None:
+            break
+        lamella = self.experiment.get_lamella_by_name(item.item_name)
+        grid = self.experiment.get_grid_for_lamella(lamella)   # None for legacy/unlinked
+        if grid is not None and grid._id not in loaded:
+            try:
+                self.microscope._stage.ensure_loaded(grid.name)   # the single load authority
+            except GridExchangeError:
+                self._fail_grid(grid)            # mark grid + its pending items Failed
+                continue                          # ...and keep going (other grids)
+            loaded = {g._id for g in self.experiment.get_loaded_grids(self.microscope)}
+            self._realign_after_load(grid)        # Phase 3 hook; no-op until built
+        self._run_single_task(item.task_name, lamella)
+        self.queue.mark_done(item, lamella.task_state.status)
+
+def next(self, loaded_ids):
+    # 1) anything runnable on an already-loaded grid (zero exchange cost)
+    for it in self._items:
+        if it.status == NotStarted and grid_of(it) in loaded_ids:
+            return self._claim(it)
+    # 2) otherwise the next item in canonical order — selecting it triggers an exchange
+    for it in self._items:
+        if it.status == NotStarted:
+            return self._claim(it)
+    return None
+```
+
+Re-deriving `loaded` from `get_loaded_grids` after every exchange (rather than mutating a local set) keeps the scheduler honest if an operator loads a grid by hand mid-run.
+
+### Phase 2 — Multi-day robustness
+
+- **Per-grid failure isolation** — if `ensure_loaded` raises `GridExchangeError` (or a grid's tasks fail hard), mark that grid's still-pending items Skipped/Failed and **continue with the other grids**. Surface a per-grid summary at the end. (Chosen policy: isolate and continue, not halt-all.)
+- **Checkpointing** — the manager already saves the experiment after every task. Add an explicit save at each grid boundary (last item on a grid before an exchange) so a crashed multi-day run resumes from a clean point.
+- **Resume** — re-launching the same selection fast-forwards via the existing skip logic (`_should_skip` / completed-task checks). Verify with a test that re-running a half-finished multi-grid run skips already-completed `(grid, lamella, task)` work.
+
+### Phase 3 — Realignment seam (stubbed)
+
+- **`realign_after_load(grid)` hook** — called only when `ensure_loaded` performs a real exchange. On a static holder and on the simulator (perfect repeatability) it is a no-op, so nothing regresses.
+- Decision on *where the correction lives* (transform on `GridRecord` vs. rewrite-on-load) is **deferred** until we have real autoloader repeatability data. The seam is built now; the body is filled later.
+- Coarse realignment (overview re-acquire → register against the stored reference overview → rigid `(dx, dy, dθ)`) plus the existing per-lamella fiducial/beam-shift alignment is the intended two-layer approach.
+
+### Phase 4 — Run-composition UI
+
+- Let the user select lamellae across grids plus tasks, and show **two-level progress**: which grid is loaded / how many exchanges remain, and the per-task progress within the current grid.
+- Surface the exchange-cost confirmation from Phase 1.
+- (Optional, later) expose the ordering policy (§5) to the user rather than always defaulting to grid-greedy.
+
+### Data-model changes
+
+Consolidated so the persisted surface is unambiguous. All must round-trip through `to_dict`/`from_dict` and be **back-compatible** (absent → sensible default, so existing experiments load unchanged).
+
+| Field / type | Where | Purpose | Default when absent |
+|---|---|---|---|
+| `reference_image: Optional[str]` | `GridRecord` | path to the realign reference frame captured at screening (promote out of the `results` dict for a stable contract) | `None` → realign skipped |
+| `stage_correction: Optional[FibsemStagePosition]` *(or a small `(dx, dy, dθ)` transform)* | `GridRecord` | the last applied coarse correction; storage model (apply-at-move vs. rewrite-on-load) is the deferred decision | `None` → identity |
+| `OrderingPolicy` enum (`grid_greedy` \| `task_greedy`) | run config / protocol | selects the §5 scheduling policy | `grid_greedy` |
+
+No change to `Lamella` (it already carries `grid_id`) or to the `WorkItem` model (it already carries `item_name`; the grid is resolved live via `get_grid_for_lamella`). Loaded-grid state is **not** persisted — it is always re-derived from holder occupancy via `Experiment.get_loaded_grids`.
+
+### Failure modes
+
+One place mapping each failure to its behaviour, so handling isn't scattered:
+
+| Failure | Detected by | Behaviour |
+|---|---|---|
+| Grid exchange fails | `GridExchangeError` from `ensure_loaded` | Mark the `GridRecord` + its still-pending items `Failed`; continue to the next grid |
+| Realign low-confidence | correlation `response` below threshold (§6) | Treat as a grid failure — **do not** run destructive tasks on it (§7); mark `Failed`, continue |
+| Single lamella task fails | task raises | Existing per-lamella behaviour (mark that lamella/task `Failed`, skip its dependents); other lamellae on the grid proceed |
+| User abort | shared stop event | Halt at the next item boundary; a physical exchange in flight is allowed to finish (can't be interrupted safely) |
+
+### Schedule simulation (dry run)
+
+Given a set of lamellae (each with its `grid_id`), the selected tasks, an ordering policy, and which grids start loaded, produce the **projected schedule** — the ordered events and the exchange/realign counts — with **no microscope**. This powers the Phase-1 cost confirmation, a UI preview, the tests in §8, and regenerating the worked-example diagram from real data.
+
+The architectural rule that makes it trustworthy: the live runner and the simulator must share **one** selection primitive, so the preview matches what actually runs.
+
+```python
+def select_next(items, loaded_ids, policy):   # the single source of truth for ordering
+    ...   # the §3 next(loaded_ids) logic; used by both the runner and the planner
+
+@dataclass
+class ScheduleEvent:
+    kind: str            # "load" | "realign" | "work" | "exchange" | "skip"
+    grid: Optional[str]
+    lamella: Optional[str] = None
+    task: Optional[str] = None
+
+def simulate_schedule(experiment, task_names, lamella_names, *,
+                      loaded_ids=frozenset(), capacity=1, policy="grid_greedy"):
+    # replay the same selection over a VIRTUAL loaded-set:
+    #   pick item → if its grid not virtually loaded: emit exchange (unless first load),
+    #   evict per capacity, emit load + realign → emit work → mark done.
+    # returns (events, summary{n_exchanges, n_realigns, grid_order, items_per_grid})
+```
+
+- The runner is *select → execute*; the simulator is *select → record + virtually update the loaded-set*. Same `select_next`, so the plan is faithful.
+- Optional ETA: multiply projected items by historical per-task durations (`Lamella.task_history`) for a rough multi-day estimate.
+- It is a **projection**, not a guarantee — it assumes no failures and that runtime skips match the plan; the actual exchange count can only drop (a completed task is skipped). Consistent with the "exchange-cost is approximate" limitation (§9).
+
+Build this alongside Phase 1: extracting `select_next` is what both the runner and the dry run depend on.
+
+---
+
+## 4. Reasoning
+
+### Why load-aware scheduling rather than a grid-outer loop
+
+A grid-outer loop (`for grid: load; run all its lamella tasks`) is just *one fixed scheduling policy* — and the most rigid one. By making the queue selection load-aware instead, the *same* mechanism expresses grid-greedy ordering as its default behaviour while remaining able to revisit grids when ordering demands. We get the cheap case for free and keep the general case possible, with no separate code path.
+
+### Why it lives inside the lamella manager
+
+There is exactly one place that executes lamella work and one place that knows task ordering and skip logic — the lamella `TaskManager`. Loading is one extra concern layered into that loop via a single delegated call. Putting it anywhere else (a wrapper grid task, a second orchestrator) means duplicating the queue/stop/persist/skip machinery the manager already owns, and forces an artificial grid→lamella hierarchy.
+
+### Why exchanges must be minimised, not just counted
+
+A grid exchange on an autoloader costs minutes *and* introduces mechanical misalignment on reload (the motivation for the realignment seam). Both costs scale with the number of exchanges, so the scheduler's default job is to make exchanges as rare as the selected work allows — hence grid-greedy.
+
+### Why one manager / one stop event
+
+A single manager means a single stop event and a single persistence path. An Abort halts cleanly at the next item boundary regardless of which grid is loaded; there is no nested-manager handoff to get wrong.
+
+---
+
+## 5. The one real policy tension
+
+The canonical order is task-outer (*do task₁ on all lamellae, then task₂*). Once lamellae span N grids, you **cannot** have both of these at once:
+
+- **Global task batching** — *every* grid completes task₁ before *any* grid starts task₂.
+- **Minimal exchanges** — each grid loaded as few times as possible.
+
+They are in direct conflict: global batching forces `N_grids × N_task_phases` exchanges. So there are two ordering policies:
+
+| Policy | Behaviour | Exchanges | When it's right |
+|---|---|---|---|
+| **Grid-greedy** *(default)* | Drain a loaded grid's whole task set before swapping | ~1 per grid | Task batching only needs to be per-grid |
+| **Task-greedy** | Follow strict global task order, swapping per phase | `N_grids × N_phases` | A step must complete across *all* grids before the next begins |
+
+**Decision:** ship **grid-greedy** as the default; leave task-greedy as a later policy knob rather than building both now.
+
+---
+
+## 6. Realignment in practice
+
+This section expands the Phase 3 seam into a concrete mechanism. The realign step fires only when `ensure_loaded` performs a real exchange (no-op on a static holder or the simulator). Its job is **coarse**: get each lamella's position close enough that the existing per-lamella fiducial alignment can do the fine correction.
+
+### The reference (captured once, at screening time)
+
+When a grid is first screened/targeted, an image of the grid is acquired and stored. Two facts make it a usable reference:
+
+- The reference image's `metadata.microscope_state.stage_position` *is* the reference frame.
+- Every lamella on that grid had its `stage_position` recorded against that same frame, so all positions are implicitly relative to it.
+
+Store the reference image path on the `GridRecord` (today via `GridRecord.results`; a dedicated field is cleaner — see open questions).
+
+### When and which grid task captures it
+
+The reference **must exist from the screening/targeting session** — it cannot be acquired lazily at first-milling-load, because that first load may itself already be a fresh exchange relative to screening, leaving nothing to register against. So capture belongs in the grid workflow, in the **same physical load** that (a) acquires the overview the lamella positions are placed on, and (b) precedes any destructive task that would change the grid's appearance.
+
+Concretely:
+
+- **Capture it at the *start* of overview acquisition, at grid centre.** `AcquireOverviewImageGridTask` already moves to the grid centre before it begins tiling — that is the one moment the stage is parked at a known, repeatable pose with no extra movement and before any imaging damage or milling. Grab the reference there, then let tiling proceed. This also guarantees the reference shares the overview's load, so it shares the frame the lamella positions are placed on (overview-as-canvas).
+- **A dedicated wide frame, not the first raster tile.** Overview tiles are at the overview magnification — usually too narrow for good rotation/capture-range. Acquire one *moderately-wide* HFW frame at centre as the reference; the tiling continues unchanged.
+- **Idempotent per load, refreshed on re-screen.** Capture only if a reference for *this overview run / load* doesn't already exist — not a permanent "skip if ever acquired". Re-running the overview implies a new load/frame and must refresh the reference, otherwise the lamella positions move to the new frame while the reference lags on the old one (desync). Reference and positions must always share a load.
+- **Store the pose, not just the image** — `reference_image` path plus its `microscope_state` (stage position, HFW, beam type, orientation) so reload can return to the *exact* pose before re-acquiring.
+- **One load → one correction.** Because the reference frame and the lamella positions are captured in the same load, a single rigid correction measured on the reference frame applies to all of that grid's lamellae.
+- **Featureless-centre fallback.** Some grid types have a bare hole at the geometric centre with nothing to register against. The wide FOV mitigates it (it catches the surrounding grid bars), but leave a configurable reference offset for grids where centre is bare.
+- **No-reference edge.** An autoloader grid that was exchanged but has no stored reference cannot be verified → fail closed (skip destructive tasks, §7) unless the operator explicitly overrides. Static-holder / no-exchange grids need no reference.
+
+### On reload — the realign step
+
+1. **Move to the grid's reference pose** — `Stage.move_to_grid` / `move_to_orientation`, matching the orientation the reference was taken at.
+2. **Re-acquire** a frame with the same settings (same HFW / pixel size / shape — phase correlation requires matched scale).
+3. **Register** reference vs. new → a rigid correction `(dx, dy[, dθ])`.
+4. **Confidence-gate** on the correlation response. A low score means wrong grid / contamination / grid not found → mark the grid `Failed` and continue to the next (this is the safety interlock that prevents milling at a bogus position; it composes with the continue-on-grid-failure policy).
+5. **Apply** the correction via the chosen storage model (open question below), turning the metre offset into a stage move through `project_stable_move` / `stable_move` (already eucentric-correct for tilt + pre-tilt).
+6. **Per-lamella fiducial alignment** (`beam_shift_alignment_v2`, already run at the start of each lamella task) does the fine pass from there.
+
+### What to reuse vs. build
+
+Almost all of this already exists:
+
+- **Translation** — `shift_from_crosscorrelation_v2(ref, new)` (`fibsem/alignment.py`) returns `(dx, dy, response)` in metres via `cv2.phaseCorrelate` + Hanning window, sub-pixel and response-scored.
+- A translation-only grid realign is *mechanically identical* to the per-lamella fiducial routine — `beam_shift_alignment_v2(microscope, grid_reference_image)`: move, acquire, cross-correlate, apply. So the translation case is essentially **free** — reuse the fiducial helper against a grid-level reference image.
+- **Rotation** is the one genuine gap — no rotation-aware registration exists in the repo today and must be added.
+
+### Field of view sets what the correction can see
+
+The realign reference is a single axis of choice — **how much feature radius you give the registration** — because rotation displaces a feature tangentially by `≈ r·Δθ`:
+
+| Reference frame | Acquisition | Method | Recovers rotation? |
+|---|---|---|---|
+| Small frame near centre | 1 fast frame | `phaseCorrelate` | No — features at `r ≈ 0` carry no rotational signal |
+| **Moderately wide frame** *(recommended)* | 1 wide frame | **ECC / log-polar** | **Yes** — single pair is enough once `r` is appreciable |
+| Several spread small frames | N frames | `phaseCorrelate` ×N + rigid fit | Yes — synthesises a baseline from translation-only measurements |
+| Full tiled overview | N tiles (slow) | ECC / log-polar | Yes — maximum radius and capture range |
+
+Key points behind the table:
+
+- A **small central frame is translation-only** not because "one image can't see rotation", but because its features sit at near-zero radius. Widen the FOV and the rotation becomes plainly present in the displacement field — a *single* image pair then suffices.
+- **Plain `phaseCorrelate` cannot extract rotation** even from a wide frame; it solves for one global translation, so a rotated pair just smears its peak. Reading out rotation needs a rotation-aware method:
+  - `cv2.findTransformECC` (`MOTION_EUCLIDEAN`) — solves `(dx, dy, dθ)` directly on the pair; the pragmatic first choice (one acquisition, modest code).
+  - Log-polar / Fourier–Mellin — FFT magnitude is shift-invariant, so rotation becomes an angular-axis shift that phase correlation can then measure.
+  - Feature match (ORB/AKAZE) → `estimateAffinePartial2D`.
+- The **multi-patch** approach only synthesises large radius so it can stay on translation-only `phaseCorrelate`; a single moderately-wide frame + ECC is simpler and faster. The full overview is just the maximum-radius / maximum-capture-range end of the same spectrum — worth it only on a badly-repeating loader.
+
+### Why rotation matters at all
+
+Translation-only correction leaves a residual that grows with distance from the registration point:
+
+> residual `≈ r · sin(Δθ)` — at a ~1 mm grid radius and `Δθ = 1°`, that is **~17 µm** at the grid edge.
+
+That exceeds a fiducial FOV, so lamellae far from where you registered would miss their fine-alignment lock. Hence: register with enough feature radius to catch rotation, *or* accept the limit and keep lamellae clustered near the registration point.
+
+### Recommended Phase 3 shape
+
+**One moderately-wide reference frame + ECC for `(dx, dy, dθ)`, gated on correlation confidence**, with per-lamella fiducial alignment doing the fine pass. Ship translation-only first (reusing `beam_shift_alignment_v2`) if needed, and add the ECC rotation term when real autoloader repeatability data shows the residual matters. The storage model for the correction (transform on `GridRecord` vs. rewrite-on-load) remains the deferred decision.
+
+---
+
+## 7. Safety: realign gates destructive tasks
+
+Milling, deposition and other destructive tasks act at *stored stage coordinates*. After a real exchange the grid is mis-registered, so those coordinates are wrong until realign corrects them. Acting before correction can mill into a grid bar, the wrong region, or destroy the sample. This is the highest-consequence failure in the whole design, so it is a **hard precondition**, not a quality nicety:
+
+- **On any grid that was just exchanged, a successful, confidence-passed realign is a blocking precondition for the first destructive task.** No realign (or low confidence) → the grid is marked `Failed` and skipped (§ failure modes); the run never mills on an unverified position.
+- **No exchange → no gate.** A grid already in the working slot (static holder, or it never moved) needs no realign and is not blocked — this preserves today's single-grid behaviour exactly.
+- **Non-destructive tasks** (imaging, reference acquisition) may run pre-realign if useful, but the realign frame itself is the first thing acquired after a load.
+- **Fail closed.** Any ambiguity about whether the loaded grid is the intended one, or whether realign succeeded, resolves to *skip*, never *mill*. The confidence threshold is deliberately conservative.
+- **Simulator caveat.** Because realign is a no-op on the Demo backend, the simulator cannot exercise this interlock end-to-end; it must be validated with a mock loader (§8) and, ultimately, on the instrument.
+
+This is why realignment, though stubbed for now, is on the critical path to any *real* autoloader run — not an optional polish.
+
+---
+
+## 8. Testing & validation
+
+Multi-grid behaviour must be provable without an autoloader, because the Demo backend has no loader and perfect repeatability. The strategy is a **mock loader** plus assertions on the *schedule*, not just the outcome:
+
+- **Scheduling (unit, no hardware).** Drive `TaskQueue.next(loaded_ids)` directly: assert grid-greedy drains a loaded grid before any swap, that the exchange *count* equals `grids − 1` for a single pass, and that a multi-slot `loaded_ids` runs all reachable items with zero exchanges. Pure logic, fast.
+- **Exchange ordering (integration, mock loader).** A fake `SampleGridLoader` records `load_grid`/`unload_grid` calls. Run a multi-grid selection and assert the *sequence* of exchanges and that `ensure_loaded` is called exactly once per grid boundary. This is the core thing the simulator can't show.
+- **Failure isolation.** Make the mock loader raise `GridExchangeError` for one grid; assert that grid + its items are `Failed`, the others still complete, and the end-of-run summary reports it.
+- **Resume / skip.** Run a multi-grid selection halfway, stop, re-launch the same selection; assert completed `(grid, lamella, task)` triples are skipped and only the remainder runs.
+- **Safety interlock (mock realign).** Stub `realign_after_load` to report low confidence; assert no destructive task runs on that grid and it is marked `Failed`.
+- **Realign math (unit).** When the rotation/translation estimator lands, test it against synthetically shifted/rotated image pairs with known `(dx, dy, dθ)` and assert recovery within tolerance — independent of any microscope.
+- **On-instrument (manual, deferred).** The only thing left for real hardware: end-to-end exchange + realign repeatability, and confirming the coarse correction lands fiducials within per-lamella alignment range.
+
+---
+
+## 9. Limitations & open questions
+
+- **Realignment is stubbed.** Until the realignment body and its storage model are built, multi-grid runs are only correct where reload repeatability is good enough on its own — i.e. the simulator and static holders. Real autoloader runs need Phase 3 before they are trustworthy. This is the main thing standing between "works in sim" and "works on the instrument".
+- **Grid-greedy can starve global ordering.** If a real workflow genuinely needs all grids through one step before the next (e.g. a batch process with a shared cooldown), grid-greedy is wrong and the task-greedy knob (§5) must exist first.
+- **Supervised steps hold a grid loaded.** A supervised/manual task pauses with its grid in the working slot, blocking other grids for the duration. Acceptable for one-at-a-time multi-day runs, but worth noting for throughput.
+- **No cross-grid dependency model.** The skip/dependency logic is per-lamella. There is currently no notion of "grid B's task depends on grid A's result". Out of scope here; flag if it ever becomes real.
+- **Loaded-set source of truth.** The manager must track loaded grids consistently with `Experiment.get_loaded_grids(microscope)` / holder occupancy so a manual exchange (operator loads a grid by hand mid-run) doesn't desync the scheduler. Needs a deliberate refresh point.
+- **Exchange-cost estimate is approximate.** The "up to N exchanges" shown to the user is an upper bound from the selection order; the actual count depends on runtime skips. Fine as a heads-up, not a guarantee.
+
+---
+
+## 10. Summary
+
+Make the lamella `TaskManager` load-aware by (a) delegating grid loading to the single `Stage.ensure_loaded` authority inside the run loop and (b) teaching `TaskQueue.next` to prefer items on already-loaded grids. This yields *"run these tasks on these lamellae regardless of grid"* with minimal exchanges by default, isolates per-grid failures for unattended runs, and leaves a clean seam for reload realignment — without a special grid-task wrapper or a second orchestrator.
