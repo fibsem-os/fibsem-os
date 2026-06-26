@@ -699,6 +699,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
         self._set_border_state(initial_state)
         ui._start_run_workflow_thread(task_names, lamella_names)
+        # Show the Stop button immediately so the run is cancellable even while
+        # waiting for a scheduled first task (before any task status arrives).
+        self.set_workflow_running()
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list._on_select_all(False)
         self.lamella_workflow_widget.workflow._on_select_all(False)
@@ -1272,9 +1275,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_added.connect(self._save_workflow_config)
-        self.lamella_workflow_widget.task_schedule_changed.connect(
-            self._save_workflow_config
-        )
 
         # Workflow info signals — name/description/options changes also persist
         self.lamella_workflow_widget.workflow_name_changed.connect(
@@ -1388,6 +1388,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle workflow update signal and update the workflow status bar."""
         t0 = t1 = time.time()
         timings = {}
+
+        # transient status-bar messages (e.g. scheduled-start countdown)
+        status_bar_msg = info.get("status_bar", None)
+        if status_bar_msg is not None and self.status_bar is not None:
+            self.status_bar.showMessage(status_bar_msg)
+
         status_msg = info.get("status", None)
         if status_msg is not None:
             _is_start = not self._workflow_timeline_initialized

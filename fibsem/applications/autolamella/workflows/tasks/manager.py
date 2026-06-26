@@ -3,13 +3,16 @@
 import logging
 import threading
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
+from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext, HookEvent, HookManager
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.microscope import FibsemMicroscope
+from fibsem.utils import format_time_remaining
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -101,6 +104,13 @@ class TaskManager:
                 )
                 continue
 
+            # Wait until the task's scheduled start time, if set and in the future
+            scheduled_at = self.experiment.task_protocol.workflow_config.get_scheduled_at(item.task_name)
+            if scheduled_at is not None:
+                self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
+                if self.is_stopped:
+                    break
+
             # Emit InProgress status
             self._emit_status(
                 task_name=item.task_name,
@@ -154,6 +164,29 @@ class TaskManager:
         self.hook_manager.fire(HookContext(event=event))
 
     # --- Internal helpers ---
+
+    def _wait_until_scheduled(self, scheduled_at: datetime, task_name: str,
+                              lamella: 'Lamella') -> None:
+        """Block until ``scheduled_at`` is reached, emitting a periodic countdown.
+
+        The wait is interruptible: if ``stop()`` is called the loop exits early
+        and the caller skips running the task.
+        """
+        target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
+        next_update = 0.0  # force an immediate first message
+        while not self.is_stopped:
+            remaining = (scheduled_at - datetime.now()).total_seconds()
+            if remaining <= 0:
+                break
+
+            now = time.monotonic()
+            if now >= next_update:
+                msg = (f"Waiting until {target_str} to start {task_name} on "
+                       f"{lamella.name} ({format_time_remaining(remaining)} remaining).")
+                update_status_ui(self.parent_ui, "", status_bar=msg)
+                next_update = now + 15.0
+
+            time.sleep(min(1.0, remaining))
 
     def _should_skip(self, lamella: 'Lamella', task_name: str,
                      required_lamella: List[str]) -> Optional[str]:

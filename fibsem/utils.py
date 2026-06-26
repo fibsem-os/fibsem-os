@@ -65,6 +65,18 @@ def format_duration(seconds: float) -> str:
     else:
         return f"{seconds:.2f}s"
 
+
+def format_time_remaining(seconds: float) -> str:
+    """Format a remaining-time value (seconds) as a compact whole-unit string (e.g. '1h 1m', '4m 12s', '5s')."""
+    total = int(seconds)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
 SI_PREFIXES = {
     -12: "p",
     -9: "n",
