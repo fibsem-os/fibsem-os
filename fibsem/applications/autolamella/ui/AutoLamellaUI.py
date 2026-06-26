@@ -213,6 +213,7 @@ class AutoLamellaUI(QMainWindow):
         self.WAITING_FOR_UI_UPDATE: bool = False
         self.SELECTED_POI: Optional[Point] = None
         self._poi_layer = None
+        self._poi_overlay = None  # quad-view POI PointOverlay (move-only)
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[threading.Thread] = None
         self._task_manager: Optional[TaskManager] = None
@@ -1957,6 +1958,10 @@ class AutoLamellaUI(QMainWindow):
 
         Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
         """
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is not None:
+            self._show_poi_overlay(controller, initial_poi)
+            return
         ib_translate = self.image_widget.ib_layer.translate
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:
@@ -1986,8 +1991,44 @@ class AutoLamellaUI(QMainWindow):
         self._poi_layer.mode = "select"
         self.viewer.layers.selection.active = self._poi_layer
 
+    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
+        """Quad-view POI: a magenta '+' PointOverlay on the FIB canvas (move-only)."""
+        from fibsem.ui.widgets.image_canvas import PointOverlay
+
+        fib_canvas = controller.fib_canvas
+        ib_image = self.image_widget.ib_image
+        if initial_poi is not None:
+            px = conversions.microscope_image_to_image_coordinates(
+                initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
+            )
+            col, row = px.x, px.y
+        else:
+            row = ib_image.data.shape[0] / 2
+            col = ib_image.data.shape[1] / 2
+        if self._poi_overlay is None:
+            self._poi_overlay = PointOverlay(
+                color="magenta", selected_color="magenta", marker="+",
+                size=18, add_on_right_click=False, removable=False,
+            )
+            fib_canvas.add_overlay(self._poi_overlay)
+        self._poi_overlay.set_points([(col, row)])
+        fib_canvas.set_hint("drag to move")
+
     def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from current layer position, remove the layer, store in SELECTED_POI."""
+        """Compute POI from current marker position, hide it, store in SELECTED_POI."""
+        if self._poi_overlay is not None:
+            pts = self._poi_overlay.get_points()
+            if pts:
+                col, row = pts[0]
+                ib_image = self.image_widget.ib_image
+                self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
+                    Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
+                )
+            self._poi_overlay.clear_points()
+            controller = getattr(self.parent_widget, "view_controller", None)
+            if controller is not None:
+                controller.fib_canvas.set_hint(None)
+            return
         if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
             pos = self._poi_layer.data[0]  # [row, col] napari coords
             ib_translate = self.image_widget.ib_layer.translate

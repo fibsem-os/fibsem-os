@@ -171,6 +171,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._scalebar_visible: bool = True
         self._crosshair_visible: bool = True
         self._crosshair_artists: list = []
+        self._hint_artist = None  # transient top-left instruction hint
+        self._hint_text: Optional[str] = None  # remembered so it survives set_image
 
         # Contrast / gamma (display-only; applied to the downsampled grayscale frame)
         self._display_base: Optional[np.ndarray] = None
@@ -263,6 +265,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             pass
         self._refresh_scalebar()
         self._refresh_crosshair()
+        self._refresh_hint()  # axes was cleared above; restore the remembered hint
 
         for overlay in self._overlays:
             try:
@@ -296,6 +299,34 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_crosshair()
         self.draw_idle()
 
+    def set_hint(self, text: Optional[str]) -> None:
+        """Show a small instruction hint in the top-left corner, or hide with None.
+
+        Drawn in axes-fraction coords so it stays fixed through zoom/pan.  The text
+        is remembered and re-applied after each image change (``set_image`` clears
+        the axes), so the hint is not silently dropped by a new acquisition.
+        """
+        self._hint_text = text or None
+        self._refresh_hint()
+        self.draw_idle()
+
+    def _refresh_hint(self) -> None:
+        """(Re)create the hint artist from the cached text, or remove it."""
+        if self._hint_artist is not None:
+            try:
+                self._hint_artist.remove()
+            except Exception:
+                pass
+            self._hint_artist = None
+        if self._hint_text:
+            self._hint_artist = self._ax.text(
+                0.012, 0.985, self._hint_text,
+                transform=self._ax.transAxes, ha="left", va="top",
+                fontsize=8, color="#1a1a1a", zorder=11,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
+                          edgecolor="none", alpha=0.85),
+            )
+
     def clear(self) -> None:
         """Clear the image and show placeholder text."""
         self._img_w = self._img_h = None
@@ -304,6 +335,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._ax.cla()
         self._scalebar_artist = None
         self._crosshair_artists = []
+        self._hint_artist = None  # removed by cla(); drop the cached text too
+        self._hint_text = None
         self._plot_empty()
         for overlay in self._overlays:
             try:
@@ -1015,9 +1048,10 @@ _PICK_RADIUS_PX = 12  # screen-space hit radius for point picking
 class PointOverlay(QObject):
     """Interactive points overlay.
 
-    * Click on empty image area → adds a new point (when ``add_on_click=True``)
-    * Click on a point → selects it (highlighted colour + larger marker)
+    * Left-click a point → selects it (highlighted colour + larger marker)
+    * Left-click empty area → deselects
     * Drag a selected point → moves it, clamped to image bounds (blitted)
+    * Right-click empty area → adds a new point (when ``add_on_right_click=True``)
     * Delete / Backspace → removes the selected point
 
     Parameters
@@ -1032,13 +1066,16 @@ class PointOverlay(QObject):
         Marker size in points (selected markers are drawn at ``size * 1.4``).
     label_prefix : str
         If non-empty, each point gets an annotation ``label_prefix + (index+1)``.
-    add_on_click : bool
-        If True (default), clicking on empty canvas adds a new point.
+    add_on_right_click : bool
+        If True (default), right-clicking adds a new point.
+    removable : bool
+        If True (default), Delete/Backspace removes the selected point.
     """
 
     point_added = pyqtSignal(int, float, float)  # index, x, y
     point_selected = pyqtSignal(int, float, float)  # index, x, y
-    point_moved = pyqtSignal(int, float, float)  # index, x, y
+    point_dragging = pyqtSignal(int, float, float)  # index, x, y  (each motion step)
+    point_moved = pyqtSignal(int, float, float)  # index, x, y  (on release)
     point_removed = pyqtSignal(int)  # index (before removal)
 
     def __init__(
@@ -1048,7 +1085,8 @@ class PointOverlay(QObject):
         marker: str = "o",
         size: float = 10.0,
         label_prefix: str = "",
-        add_on_click: bool = True,
+        add_on_right_click: bool = True,
+        removable: bool = True,
         parent=None,
     ):
         super().__init__(parent)
@@ -1057,7 +1095,8 @@ class PointOverlay(QObject):
         self._marker = marker
         self._size = size
         self._label_prefix = label_prefix
-        self._add_on_click = add_on_click
+        self._add_on_right_click = add_on_right_click
+        self._removable = removable
 
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
@@ -1175,6 +1214,15 @@ class PointOverlay(QObject):
         for idx in range(len(self._points)):
             self._append_artist(idx)
 
+    def _marker_edge(self, color: str, selected: bool):
+        """Edge colour/width for the marker. Unfilled markers (+, x, ...) are drawn
+        in their edge colour, so they take the point colour and a thicker line;
+        filled markers (o, s, ...) keep a thin white outline for contrast."""
+        from matplotlib.lines import Line2D
+        if self._marker in Line2D.filled_markers:
+            return "white", (2.0 if selected else 0.8)
+        return color, (2.8 if selected else 2.0)
+
     def _append_artist(self, idx: int):
         if self._ax is None:
             return
@@ -1182,14 +1230,14 @@ class PointOverlay(QObject):
         selected = idx == self._selected
         color = self._selected_color if selected else self._color
         ms = self._size * 1.4 if selected else self._size
-        mew = 2.0 if selected else 0.8
+        edge_color, mew = self._marker_edge(color, selected)
         (line,) = self._ax.plot(
             x,
             y,
             marker=self._marker,
             markersize=ms,
             color=color,
-            markeredgecolor="white",
+            markeredgecolor=edge_color,
             markeredgewidth=mew,
             linestyle="none",
             zorder=8,
@@ -1216,10 +1264,11 @@ class PointOverlay(QObject):
         selected = idx == self._selected
         color = self._selected_color if selected else self._color
         ms = self._size * 1.4 if selected else self._size
-        mew = 2.0 if selected else 0.8
+        edge_color, mew = self._marker_edge(color, selected)
         line = self._artists[idx]
         line.set_color(color)
         line.set_markersize(ms)
+        line.set_markeredgecolor(edge_color)
         line.set_markeredgewidth(mew)
         ann = self._anns[idx] if idx < len(self._anns) else None
         if ann is not None:
@@ -1288,11 +1337,27 @@ class PointOverlay(QObject):
     def _on_press(self, event):
         if self._canvas is None or self._ax is None:
             return
-        if event.inaxes is not self._ax or event.button != 1:
-            return
-        if event.xdata is None or event.dblclick:
+        if event.inaxes is not self._ax or event.xdata is None or event.dblclick:
             return
         if self._canvas._overlay_consuming_event:
+            return
+
+        if event.button == 3:  # right-click → add a new point
+            if not self._add_on_right_click:
+                return
+            x = max(0.0, min(event.xdata, (self._img_w or 1) - 1))
+            y = max(0.0, min(event.ydata, (self._img_h or 1) - 1))
+            idx = self.add_point(x, y)
+            old_sel = self._selected
+            self._selected = idx
+            if old_sel is not None:
+                self._update_artist_appearance(old_sel)
+            self._update_artist_appearance(idx)
+            self.point_added.emit(idx, x, y)
+            self._canvas.draw_idle()
+            return
+
+        if event.button != 1:
             return
 
         hit = self._hit_point(event)
@@ -1304,17 +1369,11 @@ class PointOverlay(QObject):
             self._update_artist_appearance(hit)
             self.point_selected.emit(hit, self._points[hit][0], self._points[hit][1])
             self._start_drag(hit, event)
-        elif self._add_on_click:
-            x = max(0.0, min(event.xdata, (self._img_w or 1) - 1))
-            y = max(0.0, min(event.ydata, (self._img_h or 1) - 1))
-            idx = self.add_point(x, y)
-            self._canvas._overlay_consuming_event = True
+        elif self._selected is not None:
+            # left-click empty → deselect
             old_sel = self._selected
-            self._selected = idx
-            if old_sel is not None:
-                self._update_artist_appearance(old_sel)
-            self._update_artist_appearance(idx)
-            self.point_added.emit(idx, x, y)
+            self._selected = None
+            self._update_artist_appearance(old_sel)
             self._canvas.draw_idle()
 
     def _on_motion(self, event):
@@ -1328,6 +1387,7 @@ class PointOverlay(QObject):
         y = max(0.0, min(event.ydata - self._drag_offset[1], H - 1))
         self._points[self._drag_idx] = [x, y]
         self._update_artist_position(self._drag_idx)
+        self.point_dragging.emit(self._drag_idx, x, y)
         self._blit()
 
     def _on_release(self, event):
@@ -1346,6 +1406,8 @@ class PointOverlay(QObject):
             self._canvas.draw_idle()
 
     def _on_key(self, event):
+        if not self._removable:
+            return
         if event.key in ("delete", "backspace") and self._selected is not None:
             self.remove_point(self._selected)
 
