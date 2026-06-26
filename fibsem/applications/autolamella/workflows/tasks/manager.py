@@ -5,6 +5,8 @@ import threading
 import time
 from typing import TYPE_CHECKING, List, Optional
 
+import pandas as pd
+
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext, HookEvent, HookManager
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
@@ -139,6 +141,35 @@ class TaskManager:
         self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
         update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
         print(self.experiment.task_history_dataframe())
+
+    def build_run_summary_dataframe(self) -> pd.DataFrame:
+        """Build a per-run summary of attempted tasks from the queue snapshot.
+
+        One row per (lamella, task) attempted in this run, including skipped
+        tasks (which are absent from the experiment task history). The
+        completed_at and duration values are pulled from the lamella's task
+        history where available, and left blank for skipped tasks.
+        """
+        rows: List[dict] = []
+        for item in self.queue.items:
+            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            completed_at = ""
+            duration = None
+            if lamella is not None:
+                # most recent matching history entry for this task
+                for task in reversed(lamella.task_history):
+                    if task.name == item.task_name:
+                        completed_at = task.completed_at
+                        duration = task.duration
+                        break
+            rows.append({
+                "lamella_name": item.lamella_name,
+                "task_name": item.task_name,
+                "task_status": item.status.name,
+                "completed_at": completed_at,
+                "duration": duration,
+            })
+        return pd.DataFrame(rows)
 
     def stop(self) -> None:
         """Signal the manager to stop after current task completes."""
