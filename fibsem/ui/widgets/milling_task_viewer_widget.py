@@ -28,6 +28,7 @@ from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui import FibsemImageSettingsWidget
@@ -82,6 +83,7 @@ class MillingTaskViewerWidget(QWidget):
         self._pattern_layer_names: List[str] = []
         # Quad-view path (set in _init_canvas_overlay when a controller exists)
         self._canvas_overlay: Optional[MillingPatternOverlay] = None
+        self._canvas_alignment: Optional[AlignmentAreaOverlay] = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
         self._pattern_update_inflight = False
@@ -164,6 +166,7 @@ class MillingTaskViewerWidget(QWidget):
         existing napari pattern path.
         """
         self._canvas_overlay = None
+        self._canvas_alignment = None
         self._fib_canvas = None
         controller = self._view_controller()
         if controller is None:
@@ -171,6 +174,9 @@ class MillingTaskViewerWidget(QWidget):
         self._fib_canvas = controller.fib_canvas
         self._canvas_overlay = MillingPatternOverlay()
         self._fib_canvas.add_overlay(self._canvas_overlay)
+        self._canvas_alignment = AlignmentAreaOverlay(editable=False)  # read-only display
+        self._fib_canvas.add_overlay(self._canvas_alignment)
+        self._canvas_alignment.set_visible(False)
 
     def _view_controller(self):
         """Return the quad-view controller via the injected image widget, or None."""
@@ -190,6 +196,11 @@ class MillingTaskViewerWidget(QWidget):
                 pass
             try:
                 self._fib_canvas.remove_overlay(self._canvas_overlay)
+            except Exception:
+                pass
+        if self._canvas_alignment is not None and self._fib_canvas is not None:
+            try:
+                self._fib_canvas.remove_overlay(self._canvas_alignment)
             except Exception:
                 pass
         if self.viewer is not None and self._right_click_callback is not None:
@@ -450,10 +461,13 @@ class MillingTaskViewerWidget(QWidget):
         """Render the current enabled stages on the FIB canvas overlay (quad-view)."""
         if self._fib_image is None or self._fib_image.metadata is None:
             return
-        stages = self.config_widget.get_settings().enabled_stages
+        config = self.config_widget.get_settings()
+        stages = config.enabled_stages
         if not stages:
             self._canvas_overlay.clear()
+            self._update_canvas_alignment(None)  # no patterns → no alignment (match napari)
             return
+        self._update_canvas_alignment(config)
         selected = self.config_widget.milling_stages_widget._list._selected_stage
         selected_index = next((i for i, s in enumerate(stages) if s is selected), None)
         self._canvas_overlay.set_stages(
@@ -462,6 +476,25 @@ class MillingTaskViewerWidget(QWidget):
             background_stages=self._background_milling_stages,
             selected_index=selected_index,
         )
+
+    def _update_canvas_alignment(self, config) -> None:
+        """Show/hide the read-only alignment area on the FIB canvas (quad-view).
+
+        Mirrors napari: only shown alongside patterns (i.e. when stages exist);
+        pass ``config=None`` to hide.
+        """
+        if self._canvas_alignment is None:
+            return
+        show = (
+            config is not None
+            and config.alignment.enabled
+            and self._show_alignment_area
+        )
+        if show:
+            self._canvas_alignment.set_area(config.alignment.rect)
+            self._canvas_alignment.set_visible(True)
+        else:
+            self._canvas_alignment.set_visible(False)
 
     def _clear_pattern_display(self) -> None:
         """Remove milling pattern layers from the viewer."""

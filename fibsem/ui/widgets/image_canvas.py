@@ -743,6 +743,7 @@ class RectOverlay(QObject):
         self._drag_start_rect: Optional[Tuple[float, float, float, float]] = None
         self._blit_bg = None  # background region captured at drag start
 
+        self._interactive: bool = True
         self._cids: List[int] = []
 
     # ── overlay protocol ──────────────────────────────────────────────────
@@ -786,6 +787,23 @@ class RectOverlay(QObject):
         self._x1, self._y1 = x0 + width, y0 + height
         self._saved = (x0, y0, width, height)
         self._update_artists()
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def set_interactive(self, enabled: bool) -> None:
+        """Enable/disable drag + resize (handles hidden when disabled)."""
+        self._interactive = enabled
+        for line in self._handles.values():
+            line.set_visible(enabled)
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def set_visible(self, visible: bool) -> None:
+        """Show or hide the rectangle and its handles."""
+        if self._patch is not None:
+            self._patch.set_visible(visible)
+        for h in self._handles.values():
+            h.set_visible(visible)
         if self._canvas is not None:
             self._canvas.draw_idle()
 
@@ -843,6 +861,7 @@ class RectOverlay(QObject):
                     markeredgecolor="white",
                     markeredgewidth=0.8,
                     zorder=6,
+                    visible=self._interactive,
                 )
                 self._handles[name] = line
 
@@ -877,6 +896,8 @@ class RectOverlay(QObject):
     # ── mouse events ──────────────────────────────────────────────────────
 
     def _on_press(self, event):
+        if not self._interactive:
+            return
         if event.inaxes is not self._ax or event.button != 1:
             return
         if self._patch is None or event.xdata is None:

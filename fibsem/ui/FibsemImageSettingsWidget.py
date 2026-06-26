@@ -42,6 +42,7 @@ from fibsem.ui.napari.utilities import (
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
@@ -77,6 +78,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # overlay layers
         self.ruler_layer: Optional[NapariPointLayer] = None
         self.alignment_layer: Optional[NapariShapesLayer] = None
+        self._alignment_overlay = None  # quad-view editable alignment overlay
 
         self.is_acquiring: bool = False
         self._ruler_enabled: bool = False
@@ -753,8 +755,31 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         if self.eb_layer in self.viewer.layers:
             self.viewer.layers.selection.active = self.eb_layer
 
+    def _get_alignment_overlay(self):
+        """Lazily create the quad-view alignment overlay on the FIB canvas, or None.
+
+        Returns None for the napari path (no controller — e.g. flag off, or the
+        widget isn't tied to a quad-view controller).
+        """
+        if self._alignment_overlay is not None:
+            return self._alignment_overlay
+        controller = self._view_controller()
+        if controller is None:
+            return None
+        self._alignment_overlay = AlignmentAreaOverlay(editable=True)
+        controller.fib_canvas.add_overlay(self._alignment_overlay)
+        self._alignment_overlay.set_visible(False)
+        # user edits → re-emit the existing signal so validation/workflow are unchanged
+        self._alignment_overlay.alignment_area_changed.connect(self.alignment_area_updated)
+        self.alignment_area_updated.connect(self._on_alignment_area_updated)
+        return self._alignment_overlay
+
     def clear_alignment_area(self):
         """Hide the alignment area layer"""
+        if self._alignment_overlay is not None:
+            self._alignment_overlay.set_editable(False)
+            self._alignment_overlay.set_visible(False)
+            return
         if self.alignment_layer is not None:
             self.alignment_layer.mode = "pan_zoom"
             self.alignment_layer.visible = False
@@ -769,7 +794,14 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         reduced_area: FibsemRectangle = FibsemRectangle(0.25, 0.25, 0.5, 0.5),
         editable: bool = True,
     ):
-        """Set the alignment area layer in napari."""
+        """Set the alignment area layer (napari) or overlay (quad-view)."""
+
+        ov = self._get_alignment_overlay()
+        if ov is not None:
+            ov.set_area(reduced_area)
+            ov.set_editable(editable)
+            ov.set_visible(True)
+            return
 
         # add alignment area to napari
         data = convert_reduced_area_to_napari_shape(
@@ -826,7 +858,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             logging.info(f"Error updating alignment area: {e}")
 
     def get_alignment_area(self) -> Optional[FibsemRectangle]:
-        """Get the alignment area from the alignment layer."""
+        """Get the alignment area from the overlay (quad-view) or layer (napari)."""
+        if self._alignment_overlay is not None:
+            return self._alignment_overlay.get_area()
         data = self.alignment_layer.data
         if data is None or len(data) == 0:
             return None
