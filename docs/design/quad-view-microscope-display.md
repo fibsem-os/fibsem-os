@@ -260,3 +260,57 @@ Extend `fibsem/ui/widgets/tests/test_image_canvas.py`:
 - Does the placeholder panel need to participate in pan/zoom sync with the other
   canvases later, or stay fully inert? (v1: inert.)
 - Per-beam vs shared toolbar for the contrast/gamma popup.
+
+---
+
+## Volume-milling branch (`feat-proj-volume-milling`) — reuse & reconciliation
+
+That branch forked `image_canvas.py` from an **older base** (2-arg signals, no
+modifiers / contrast) and added volume-milling overlays. Decisions:
+
+- **Phase 4 milling overlays live in a separate module**
+  (`fibsem/ui/widgets/milling_overlay.py`), **not** `image_canvas.py`, to minimise
+  the merge-conflict surface with that branch.
+- That branch has **no multi-stage pattern renderer** — `MillingPatternOverlay`
+  (port of `draw_milling_patterns_in_napari`) is still ours to build.
+
+**To reuse / port later (not now):**
+- Editable alignment area: `RectOverlay(resizable=True)` + normalized
+  `FibsemRectangle` + an `alignment_area_changed` signal (their
+  `VolumeMillingImageCanvas`).
+- `PointOverlay.point_dragging` (continuous drag signal) — port into our `PointOverlay`.
+- Overlay toggle-button UX (show/hide pattern / scan arrow / alignment).
+- `ScanDirectionArrowOverlay` (already common to both files).
+- `_ResizableMillingPatternOverlay` for single-rect interactive needs.
+- Canvas-subclass architecture (`VolumeMillingImageCanvas` /
+  `VolumeSEMAcquisitionCanvas`): a use-case canvas that owns its overlays +
+  metre↔pixel conversion + high-level signals (metres / normalized rects).
+
+**Reconciliation:** our modifier + contrast base is the superset (3-arg signals
+are backward-compatible via PyQt arg-truncation). Direction: land our base, rebase
+their 4 additive classes + `point_dragging` on top. Coordinate with the
+volume-branch owner before both files diverge further.
+
+---
+
+## Phase 4 — MillingPatternOverlay scope (locked, parity-first)
+
+`MillingPatternOverlay` — a **display-only** `CanvasOverlay` in
+`fibsem/ui/widgets/milling_overlay.py`. Captures no mouse events (coexists with
+Phase 3 double-click-to-move + right-click menu on the FIB canvas).
+
+In scope now:
+- Render **patterns only**: rectangle (rotated), circle, line, polygon —
+  **per-stage colours** (reuse `COLOURS`) + per-stage crosshair at `stage.pattern.point`.
+- Input = milling stages + FIB image; convert internally by reusing
+  `convert_pattern_to_napari_*` (already emit rotated, y-flipped pixel geometry).
+- Cache inputs, redraw on `on_image_changed`; refresh via `draw_idle()` (no debounce
+  unless slider-drag feels laggy).
+- Movement via the widget: `fib_canvas.canvas_right_clicked` → `ContextMenu` →
+  existing `_move_patterns` (unchanged).
+
+Deferred (note for later):
+- Direct drag-to-move patterns (interactive overlay) — wanted eventually.
+- FOV rect, alignment area (editable; reuse volume branch `RectOverlay` approach).
+- Selected-stage highlight, background milling stages.
+- Annulus / bitmap shapes (disabled even in napari).

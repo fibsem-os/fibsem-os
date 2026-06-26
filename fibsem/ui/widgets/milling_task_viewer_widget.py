@@ -27,6 +27,7 @@ from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui import FibsemImageSettingsWidget
@@ -79,6 +80,9 @@ class MillingTaskViewerWidget(QWidget):
         self._fib_image: Optional[FibsemImage] = None
         self._fib_image_layer: Optional[NapariImageLayer] = None
         self._pattern_layer_names: List[str] = []
+        # Quad-view path (set in _init_canvas_overlay when a controller exists)
+        self._canvas_overlay: Optional[MillingPatternOverlay] = None
+        self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
         self._pattern_update_inflight = False
         self._pattern_update_pending = False
@@ -147,9 +151,47 @@ class MillingTaskViewerWidget(QWidget):
                 iw.viewer_update_signal.connect(self._on_viewer_image_updated)
             except Exception:
                 pass
+        self._init_canvas_overlay()
         self._register_right_click_callback()
 
+    def _init_canvas_overlay(self) -> None:
+        """Attach a MillingPatternOverlay to the FIB canvas when a quad-view
+        controller is available.
+
+        Only the main microscope tab injects an image_widget tied to the
+        controller, so only it takes this path. Every other caller — including the
+        napari-based Lamella Editor — leaves ``_canvas_overlay`` None and keeps the
+        existing napari pattern path.
+        """
+        self._canvas_overlay = None
+        self._fib_canvas = None
+        controller = self._view_controller()
+        if controller is None:
+            return
+        self._fib_canvas = controller.fib_canvas
+        self._canvas_overlay = MillingPatternOverlay()
+        self._fib_canvas.add_overlay(self._canvas_overlay)
+
+    def _view_controller(self):
+        """Return the quad-view controller via the injected image widget, or None."""
+        iw = self._image_widget
+        if iw is None:
+            return None
+        try:
+            return iw._view_controller()
+        except Exception:
+            return None
+
     def closeEvent(self, event) -> None:
+        if self._canvas_overlay is not None and self._fib_canvas is not None:
+            try:
+                self._fib_canvas.canvas_right_clicked.disconnect(self._on_canvas_right_click)
+            except Exception:
+                pass
+            try:
+                self._fib_canvas.remove_overlay(self._canvas_overlay)
+            except Exception:
+                pass
         if self.viewer is not None and self._right_click_callback is not None:
             try:
                 self.viewer.mouse_drag_callbacks.remove(self._right_click_callback)
@@ -173,6 +215,10 @@ class MillingTaskViewerWidget(QWidget):
         self._right_click_menu_action_provider = action_provider
 
     def _register_right_click_callback(self) -> None:
+        if self._canvas_overlay is not None:
+            # quad-view: reposition via the FIB canvas right-click signal
+            self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
+            return
         if self.viewer is None:
             return
         if self._right_click_callback is not None:
@@ -218,6 +264,53 @@ class MillingTaskViewerWidget(QWidget):
             except Exception:
                 logging.exception("Failed to add custom context-menu actions.")
                 notification_service.show_toast("Failed to add point-of-interest menu action; pattern movement options will still be shown.", "warning")
+        if len(stages) > 1:
+            cfg.add_action(
+                "Move All Patterns Here",
+                callback=lambda: self._move_patterns(point_clicked, move_all=True),
+            )
+        cfg.add_action(
+            f"Move '{selected_name}' Here",
+            callback=lambda: self._move_patterns(point_clicked, move_all=False),
+        )
+        ContextMenu(cfg, parent=self).show_at_cursor()
+
+    def _on_canvas_right_click(self, x: float, y: float, modifiers) -> None:
+        """Quad-view FIB canvas right-click → pattern reposition menu.
+
+        Mirrors ``_on_right_click`` but takes pixel coords straight from the canvas
+        signal (no napari ``world_to_data`` / layer hit-test). Reuses ``_move_patterns``.
+        """
+        if self._fib_image is None or self._fib_image.metadata is None:
+            return
+        stages = self.config_widget.milling_stages_widget.get_enabled_stages()
+        if not stages:
+            return
+        h, w = self._fib_image.data.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            return
+
+        point_clicked = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=x, y=y),
+            image=self._fib_image.data,
+            pixelsize=self._fib_image.metadata.pixel_size.x,
+        )
+
+        selected = self.config_widget.milling_stages_widget._list._selected_stage
+        if selected is None or not selected.enabled:
+            selected = stages[0]
+        selected_name = selected.name
+
+        cfg = ContextMenuConfig()
+        if self._right_click_menu_action_provider is not None:
+            try:
+                self._right_click_menu_action_provider(cfg, point_clicked)
+            except Exception:
+                logging.exception("Failed to add custom context-menu actions.")
+                notification_service.show_toast(
+                    "Failed to add point-of-interest menu action; pattern movement options will still be shown.",
+                    "warning",
+                )
         if len(stages) > 1:
             cfg.add_action(
                 "Move All Patterns Here",
@@ -302,6 +395,12 @@ class MillingTaskViewerWidget(QWidget):
         if self._pattern_update_inflight:
             return
         self._pattern_update_pending = False
+
+        # quad-view canvas path: render on the FIB canvas overlay, skip napari
+        if self._canvas_overlay is not None:
+            self._update_canvas_patterns()
+            return
+
         if self.viewer is None or self._fib_image_layer is None:
             return
         if self._fib_image is None or self._fib_image.metadata is None:
@@ -346,6 +445,23 @@ class MillingTaskViewerWidget(QWidget):
 
         if self._image_widget is not None:
             self._image_widget.restore_active_layer_for_movement()
+
+    def _update_canvas_patterns(self) -> None:
+        """Render the current enabled stages on the FIB canvas overlay (quad-view)."""
+        if self._fib_image is None or self._fib_image.metadata is None:
+            return
+        stages = self.config_widget.get_settings().enabled_stages
+        if not stages:
+            self._canvas_overlay.clear()
+            return
+        selected = self.config_widget.milling_stages_widget._list._selected_stage
+        selected_index = next((i for i, s in enumerate(stages) if s is selected), None)
+        self._canvas_overlay.set_stages(
+            stages,
+            self._fib_image,
+            background_stages=self._background_milling_stages,
+            selected_index=selected_index,
+        )
 
     def _clear_pattern_display(self) -> None:
         """Remove milling pattern layers from the viewer."""
