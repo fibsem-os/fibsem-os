@@ -252,6 +252,7 @@ class FeatureFlags:
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
+    quad_view_enabled: bool = True  # DEV: quad-view on by default (revert before merge)
 
 @dataclass
 class MovementPreferences:
@@ -343,11 +344,13 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_VIEWER_MOVEMENT_EVENTS
     global FEATURE_COINCIDENCE_MILLING_ENABLED
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
+    global FEATURE_QUAD_VIEW_ENABLED
     f = prefs.features
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
+    FEATURE_QUAD_VIEW_ENABLED = f.quad_view_enabled
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -373,3 +376,4 @@ FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
+FEATURE_QUAD_VIEW_ENABLED = True  # DEV: quad-view on by default (revert before merge)

@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import QIconifyIcon, ensure_main_thread
 
-from fibsem import acquire, constants, utils
+from fibsem import acquire, config, constants, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
@@ -285,6 +285,11 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                     self.eb_image = image
                 elif image.metadata.beam_type is BeamType.ION:
                     self.ib_image = image
+            # Mirror to the quad-view canvas, when enabled (napari path above is unchanged)
+            if config.FEATURE_QUAD_VIEW_ENABLED:
+                controller = self._view_controller()
+                if controller is not None:
+                    controller.set_image(image.metadata.beam_type, image)
         except Exception as e:
             logging.error(f"Error updating image layer: {e}")
 
@@ -292,6 +297,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._update_layer_positions()
         self.restore_active_layer_for_movement()
         self.viewer_update_signal.emit()
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None when inactive.
+
+        In quad-view mode the main window holds the controller as
+        ``view_controller``; on the napari path that attribute is ``None``.
+        """
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
 
     def toggle_live_acquisition(self, event=None):
         if self.microscope.is_acquiring:

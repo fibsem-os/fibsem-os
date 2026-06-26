@@ -167,7 +167,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
-        if cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
+        controller = getattr(
+            getattr(self.parent, "parent_widget", None), "view_controller", None
+        )
+        if cfg.FEATURE_QUAD_VIEW_ENABLED and controller is not None:
+            # quad-view: one canvas per beam → connect per-canvas double-click signals
+            controller.sem_canvas.canvas_double_clicked.connect(
+                lambda x, y, m: self._on_canvas_double_click(BeamType.ELECTRON, x, y, m)
+            )
+            controller.fib_canvas.canvas_double_clicked.connect(
+                lambda x, y, m: self._on_canvas_double_click(BeamType.ION, x, y, m)
+            )
+        elif cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
             self.viewer.mouse_double_click_callbacks.append(self._viewer_double_click)
         else:
             self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
@@ -436,34 +447,77 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             pixelsize=image.metadata.pixel_size.x,
         )
 
-        # move
-        vertical_move = True if "Alt" in event.modifiers else False
+        # move (vertical = eucentric/coincident; default = stable)
+        vertical_move = "Alt" in event.modifiers
+        self._execute_stage_move(beam_type, point, vertical_move)
+
+    def _execute_stage_move(self, beam_type, point, vertical_move: bool) -> None:
+        """Dispatch a stage move from a microscope-space delta (worker thread).
+
+        Shared by the napari and quad-view double-click paths.
+        """
+        logging.info(
+            f"_execute_stage_move: beam_type={beam_type.name}, "
+            f"point={point.to_dict()}, vertical_move={vertical_move}"
+        )
         movement_mode = "Vertical" if vertical_move else "Stable"
-
         logging.debug({
-            "msg": "stage_movement",                    # message type
-            "movement_mode": movement_mode,             # movement mode
-            "beam_type": beam_type.name,                # beam type
-            "dm": point.to_dict(),                      # shift in microscope coordinates
-            "coords": {"x": coords[1], "y": coords[0]}, # coords in image coordinates
+            "msg": "stage_movement",
+            "movement_mode": movement_mode,
+            "beam_type": beam_type.name,
+            "dm": point.to_dict(),
         })
-
         self.movement_progress_signal.emit({"msg": "Moving stage..."})
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
             self.microscope.vertical_move(dx=point.x, dy=point.y)
         elif beam_type is BeamType.ELECTRON and vertical_move and hasattr(self.microscope, "move_coincident_from_sem"):
             # move coincident from SEM
-            self.microscope.move_coincident_from_sem(dx=0, dy=point.y) # TMP: disable dx for now
+            self.microscope.move_coincident_from_sem(dx=0, dy=point.y)  # TMP: disable dx for now
         else:
             # corrected stage movement
-            self.microscope.stable_move(
-                dx=point.x,
-                dy=point.y,
-                beam_type=beam_type,
-            )
+            self.microscope.stable_move(dx=point.x, dy=point.y, beam_type=beam_type)
         self.movement_progress_signal.emit({"msg": "Move finished, updating UI"})
         self.update_ui_after_movement()
+
+    def _on_canvas_double_click(self, beam_type, x: float, y: float, modifiers) -> None:
+        """Quad-view canvas double-click → move stage (mirrors ``_double_click``)."""
+        self._toggle_interactions(enable=False)
+        worker = self._canvas_double_click_worker(beam_type, x, y, modifiers)
+        worker.finished.connect(self.move_stage_finished)
+        worker.start()
+
+    @thread_worker
+    def _canvas_double_click_worker(self, beam_type, x: float, y: float, modifiers):
+        """Thread worker for quad-view double-clicks (one image per canvas).
+
+        ``x, y`` are already beam-local, full-resolution image pixels (the canvas
+        emits data coords), so no napari ``world_to_data`` / side-by-side offset
+        handling is needed — unlike ``_double_click_worker``.
+        """
+        if "Shift" in modifiers:
+            return
+        if hasattr(self.parent, "milling_widget") and self.parent.milling_widget.is_milling:
+            notification_service.show_toast("Cannot move stage while milling is in progress.")
+            return
+        image = (
+            self.image_widget.eb_image
+            if beam_type is BeamType.ELECTRON
+            else self.image_widget.ib_image
+        )
+        if image is None or image.metadata is None:
+            notification_service.show_toast("No image available to move from.")
+            return
+        h, w = image.data.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            return  # click landed outside the image area
+        self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
+        point = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=x, y=y),
+            image=image.data,
+            pixelsize=image.metadata.pixel_size.x,
+        )
+        self._execute_stage_move(beam_type, point, "Alt" in modifiers)
 
     def move_to_orientation(self, orientation: str)-> None:
         """Move to the specifed orientation"""

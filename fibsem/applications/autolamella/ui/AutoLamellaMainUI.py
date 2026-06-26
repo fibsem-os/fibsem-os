@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, La
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.widgets.quad_view import MicroscopeViewController
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
     NAPARI_STYLE,
@@ -982,11 +983,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.menuBar().setVisible(False)
         self.autolamella_ui.setMinimumWidth(550)
 
-        # Layout: napari viewer (left) | autolamella controls (right) via splitter
+        # Layout: viewer (left) | autolamella controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        splitter.addWidget(self.main_viewer.window._qt_window)
+        if fibsem_cfg.FEATURE_QUAD_VIEW_ENABLED:
+            # Quad-view display (SEM/FIB/FM + placeholder). The napari viewer is
+            # still created and still drives the control widgets; only the left
+            # pane swaps here. Widgets migrate onto the controller in later phases.
+            self.view_controller = MicroscopeViewController(parent=self)
+            left_widget = self.view_controller.widget
+        else:
+            self.view_controller = None
+            left_widget = self.main_viewer.window._qt_window
+        splitter.addWidget(left_widget)
         splitter.addWidget(self.autolamella_ui)
 
         splitter.setSizes([700, 550])

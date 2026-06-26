@@ -34,10 +34,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle as MplRectangle
 from PyQt5.QtCore import QObject, QSize, QTimer, Qt, pyqtSignal
-from PyQt5.QtWidgets import QPushButton, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QPushButton, QSizePolicy
 from superqt import QIconifyIcon
 
 from fibsem.structures import FibsemImage
+from fibsem.ui.widgets.contrast_gamma_control import ContrastGammaControl
 
 _logger = logging.getLogger(__name__)
 
@@ -82,6 +83,29 @@ def _default_extents(H: int, W: int) -> Tuple[float, float, float, float]:
     return x0, x0 + rw, y0, y0 + rh
 
 
+# Keyboard modifiers mapped to napari-style strings, so handler bodies that
+# branch on ``"Alt" in modifiers`` port across from the napari callbacks verbatim.
+_QT_MODIFIER_MAP = (
+    (Qt.AltModifier, "Alt"),
+    (Qt.ShiftModifier, "Shift"),
+    (Qt.ControlModifier, "Control"),
+    (Qt.MetaModifier, "Meta"),
+)
+
+
+def _modifiers_from_event(event) -> Tuple[str, ...]:
+    """Active keyboard modifiers as napari-style strings, e.g. ``("Alt",)``.
+
+    Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
+    the reliable source in an embedded canvas, whereas matplotlib's
+    ``MouseEvent.key`` depends on canvas keyboard focus.  Falls back to the
+    application-wide modifier state when no Qt event is attached.
+    """
+    gui = getattr(event, "guiEvent", None)
+    mods = gui.modifiers() if gui is not None else QApplication.keyboardModifiers()
+    return tuple(name for flag, name in _QT_MODIFIER_MAP if mods & flag)
+
+
 # ---------------------------------------------------------------------------
 # Overlay base
 # ---------------------------------------------------------------------------
@@ -114,10 +138,11 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     * Optional scalebar (auto-populated from FibsemImage.metadata.pixel_size)
     """
 
-    canvas_clicked = pyqtSignal(float, float)  # left single-click (x, y) px
-    canvas_double_clicked = pyqtSignal(float, float)  # left double-click (x, y) px
-    canvas_right_clicked = pyqtSignal(float, float)  # right single-click (x, y) px
-    canvas_scrolled = pyqtSignal(float, float, int)  # (x, y) px, direction +1/-1
+    # Trailing ``object`` is a tuple of napari-style modifier strings, e.g. ("Alt",).
+    canvas_clicked = pyqtSignal(float, float, object)  # left single-click (x, y) px, mods
+    canvas_double_clicked = pyqtSignal(float, float, object)  # left double-click (x, y) px, mods
+    canvas_right_clicked = pyqtSignal(float, float, object)  # right single-click (x, y) px, mods
+    canvas_scrolled = pyqtSignal(float, float, int, object)  # (x, y) px, dir +1/-1, mods
 
     def __init__(self, parent=None):
         self._fig = Figure(facecolor=_BG)
@@ -135,6 +160,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._img_h: Optional[int] = None
         self._overlays: List[CanvasOverlay] = []
         self._pan_start: Optional[Tuple] = None
+        # Modifiers captured at left-press, emitted with canvas_clicked on release
+        self._press_modifiers: Tuple[str, ...] = ()
 
         # Overlays set this True on press to suppress canvas pan
         self._overlay_consuming_event: bool = False
@@ -144,6 +171,11 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._scalebar_visible: bool = True
         self._crosshair_visible: bool = True
         self._crosshair_artists: list = []
+
+        # Contrast / gamma (display-only; applied to the downsampled grayscale frame)
+        self._display_base: Optional[np.ndarray] = None
+        self._norm: Optional[np.ndarray] = None  # normalized base, computed lazily
+        self._is_gray: bool = True
 
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setSingleShot(True)
@@ -169,6 +201,13 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             "mdi:crosshairs", "Hide crosshair", self.toggle_crosshair, checkable=True
         )
         self.btn_toggle_crosshair.setChecked(True)
+        self.btn_contrast = self._add_overlay_button(
+            "mdi:contrast-box", "Contrast / Gamma", self.toggle_contrast, checkable=True
+        )
+
+        # Floating contrast / gamma popover, anchored under btn_contrast
+        self._contrast = ContrastGammaControl(self)
+        self._contrast.changed.connect(self._apply_contrast)
 
         self._plot_empty()
 
@@ -195,14 +234,20 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
         display = _downsample(image.filtered_data, _MAX_DISPLAY_PX)
+        self._display_base = display
+        self._is_gray = image.data.ndim == 2
+        self._norm = None  # recomputed lazily when contrast is engaged
         extent = (-0.5, w - 0.5, h - 0.5, -0.5)
         kw = dict(
             origin="upper", aspect="equal", interpolation="nearest", extent=extent
         )
-        if image.data.ndim == 2:
-            self._ax.imshow(display, cmap=cmap, **kw)
+        to_show, clim = self._contrast_display()
+        if self._is_gray:
+            im = self._ax.imshow(to_show, cmap=cmap, **kw)
+            if clim is not None:
+                im.set_clim(*clim)
         else:
-            self._ax.imshow(display, **kw)
+            self._ax.imshow(to_show, **kw)
 
         self._ax.set_xlim(-0.5, w - 0.5)
         self._ax.set_ylim(h - 0.5, -0.5)
@@ -236,7 +281,13 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         imgs = self._ax.get_images()
         if not imgs:
             return
-        imgs[0].set_data(_downsample(arr, _MAX_DISPLAY_PX))
+        self._display_base = _downsample(arr, _MAX_DISPLAY_PX)
+        self._is_gray = arr.ndim == 2
+        self._norm = None
+        to_show, clim = self._contrast_display()
+        imgs[0].set_data(to_show)
+        if clim is not None:
+            imgs[0].set_clim(*clim)
         self.draw_idle()
 
     def set_crosshair_visible(self, visible: bool) -> None:
@@ -248,6 +299,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def clear(self) -> None:
         """Clear the image and show placeholder text."""
         self._img_w = self._img_h = None
+        self._display_base = None
+        self._norm = None
         self._ax.cla()
         self._scalebar_artist = None
         self._crosshair_artists = []
@@ -297,6 +350,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reposition_overlay_buttons()
+        contrast = getattr(self, "_contrast", None)
+        if contrast is not None and contrast.isVisible():
+            contrast.reposition()
 
     def reset_view(self) -> None:
         """Fit the view to the full image extent."""
@@ -365,6 +421,44 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             "Hide crosshair" if self._crosshair_visible else "Show crosshair"
         )
 
+    # ── contrast / gamma ──────────────────────────────────────────────────
+
+    def toggle_contrast(self) -> None:
+        """Show or hide the floating contrast / gamma popover."""
+        self._contrast.set_open(self.btn_contrast.isChecked(), self.btn_contrast)
+
+    def _contrast_display(self) -> Tuple[Optional[np.ndarray], Optional[Tuple[float, float]]]:
+        """Return (array_to_show, clim) for the current contrast state.
+
+        When the control is at its defaults (or the image is RGB) the raw
+        downsampled frame is returned with ``clim=None`` — i.e. no change.
+        """
+        base = self._display_base
+        if base is None:
+            return None, None
+        if self._is_gray and not self._contrast.is_default():
+            if self._norm is None:
+                self._norm = ContrastGammaControl.normalize(base)
+            return self._contrast.apply(self._norm), (0.0, 1.0)
+        return base, None
+
+    def _apply_contrast(self) -> None:
+        """Re-apply contrast/gamma to the live image without a full redraw."""
+        imgs = self._ax.get_images()
+        if not imgs:
+            return
+        to_show, clim = self._contrast_display()
+        if to_show is None:
+            return
+        im = imgs[0]
+        im.set_data(to_show)
+        if clim is not None:
+            im.set_clim(*clim)
+        elif self._is_gray and self._display_base is not None:
+            # back to default → restore the raw intensity range
+            im.set_clim(float(self._display_base.min()), float(self._display_base.max()))
+        self.draw_idle()
+
     def _refresh_scalebar(self):
         if self._scalebar_artist is not None:
             try:
@@ -397,11 +491,12 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         if not self._crosshair_visible or self._img_w is None:
             return
         cx, cy = self._img_w / 2.0, self._img_h / 2.0
-        half_w = self._img_w * 0.05 / 2
-        half_h = self._img_h * 0.05 / 2
+        # Size both arms from the longest dimension so the crosshair stays square
+        # (axes use aspect="equal", so equal data-unit arms are equal on screen).
+        half = max(self._img_w, self._img_h) * 0.05 / 2
         kw = dict(color="yellow", linewidth=1, alpha=0.8, zorder=7)
-        (h_line,) = self._ax.plot([cx - half_w, cx + half_w], [cy, cy], **kw)
-        (v_line,) = self._ax.plot([cx, cx], [cy - half_h, cy + half_h], **kw)
+        (h_line,) = self._ax.plot([cx - half, cx + half], [cy, cy], **kw)
+        (v_line,) = self._ax.plot([cx, cx], [cy - half, cy + half], **kw)
         self._crosshair_artists = [h_line, v_line]
 
     def _schedule_redraw(self):
@@ -413,15 +508,18 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def _on_press(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
             return
+        mods = _modifiers_from_event(event)
         if event.dblclick:
             if event.button == 1:
-                self.canvas_double_clicked.emit(event.xdata, event.ydata)
+                self.canvas_double_clicked.emit(event.xdata, event.ydata, mods)
             return  # don't start a pan on double-click
         if event.button == 3:
-            self.canvas_right_clicked.emit(event.xdata, event.ydata)
+            self.canvas_right_clicked.emit(event.xdata, event.ydata, mods)
             return
         if event.button != 1:
             return
+        # Capture now; canvas_clicked fires on release (after the drag-distance test)
+        self._press_modifiers = mods
         inv = self._ax.transData.inverted()
         self._pan_start = (
             event.x,
@@ -460,14 +558,16 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
                 and event.xdata is not None
                 and event.ydata is not None
             ):
-                self.canvas_clicked.emit(event.xdata, event.ydata)
+                self.canvas_clicked.emit(event.xdata, event.ydata, self._press_modifiers)
         self._pan_start = None
 
     def _on_scroll(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
             return
         direction = 1 if event.button == "up" else -1
-        self.canvas_scrolled.emit(event.xdata, event.ydata, direction)
+        self.canvas_scrolled.emit(
+            event.xdata, event.ydata, direction, _modifiers_from_event(event)
+        )
         factor = 1.0 / _ZOOM_FACTOR if direction == 1 else _ZOOM_FACTOR
         cx, cy = event.xdata, event.ydata
         xlim = self._ax.get_xlim()
