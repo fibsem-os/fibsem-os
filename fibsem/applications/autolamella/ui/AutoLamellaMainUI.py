@@ -38,6 +38,7 @@ import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
+from fibsem.applications.autolamella.workflows.run_preflight import build_run_preflight
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
 from fibsem.ui.stylesheets import (
@@ -84,52 +85,62 @@ def play_notification_sound():
     QApplication.beep()
 
 
+def _detail_column(heading: str, items: list, height: int) -> "QVBoxLayout":
+    """A titled, read-only bullet list of names (one column of the run dialog)."""
+    col = QVBoxLayout()
+    col.setSpacing(4)
+    col.addWidget(QLabel(f"<b>{heading}</b>"))
+    box = QTextEdit()
+    box.setPlainText("\n".join(f"• {n}" for n in items))
+    box.setReadOnly(True)
+    box.setFixedHeight(height)
+    col.addWidget(box)
+    return col
+
+
 def confirm_run_workflow_dialog(
     lamella_names: list,
     task_names: list,
     parent=None,
     unit: str = "lamella",
+    note: str = None,
 ) -> bool:
-    """Show a confirmation dialog before starting the workflow. Returns True if confirmed."""
+    """Confirm before starting a workflow. Returns True if confirmed.
+
+    ``note``: optional caption (e.g. the grid-exchange cost / skipped items).
+    """
     dlg = QDialog(parent)
     dlg.setWindowTitle("Run Workflow")
     dlg.setMinimumWidth(600)
 
     layout = QVBoxLayout(dlg)
     layout.setSpacing(8)
+    layout.addWidget(QLabel(
+        f"Run workflow for {len(lamella_names)} {unit} with {len(task_names)} task(s)?"))
 
-    msg_label = QLabel(
-        f"Run workflow for {len(lamella_names)} {unit} with {len(task_names)} task(s)?"
-    )
-    layout.addWidget(msg_label)
+    if note:
+        caption = QLabel(note)
+        caption.setWordWrap(True)
+        caption.setStyleSheet("color: #b8860b;")  # amber: a cost/caution heads-up
+        layout.addWidget(caption)
 
-    col_row = QHBoxLayout()
-    col_row.setSpacing(8)
+    height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
+    cols = QHBoxLayout()
+    cols.setSpacing(8)
+    cols.addLayout(_detail_column(unit.capitalize(), lamella_names, height))
+    cols.addLayout(_detail_column("Tasks", task_names, height))
+    layout.addLayout(cols)
 
-    detail_height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
-
-    for heading, items in [(unit.capitalize(), lamella_names), ("Tasks", task_names)]:
-        col = QVBoxLayout()
-        col.setSpacing(4)
-        col.addWidget(QLabel(f"<b>{heading}</b>"))
-        te = QTextEdit()
-        te.setPlainText("\n".join(f"• {n}" for n in items))
-        te.setReadOnly(True)
-        te.setFixedHeight(detail_height)
-        col.addWidget(te)
-        col_row.addLayout(col)
-
-    layout.addLayout(col_row)
+    no_btn = QPushButton("No")
+    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+    no_btn.setDefault(True)
+    no_btn.clicked.connect(dlg.reject)
+    yes_btn = QPushButton("Yes")
+    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+    yes_btn.clicked.connect(dlg.accept)
 
     btn_row = QHBoxLayout()
     btn_row.addStretch()
-    yes_btn = QPushButton("Yes")
-    no_btn = QPushButton("No")
-    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-    yes_btn.clicked.connect(dlg.accept)
-    no_btn.clicked.connect(dlg.reject)
-    no_btn.setDefault(True)
     btn_row.addWidget(no_btn)
     btn_row.addWidget(yes_btn)
     layout.addLayout(btn_row)
@@ -482,6 +493,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
+        # Toggle grid-workflow tabs (Grids tab, Sample tab, Workflow→Grids sub-tab)
+        self._apply_grid_workflow_visibility()
+
+    def _apply_grid_workflow_visibility(self) -> None:
+        """Show/hide all grid-workflow tabs per the ``grid_workflow`` feature flag."""
+        enabled = self._preferences.features.grid_workflow
+
+        def _set_visible(tabs, widget):
+            if widget is None or tabs is None:
+                return
+            index = tabs.indexOf(widget)
+            if index != -1:
+                tabs.setTabVisible(index, enabled)
+
+        _set_visible(self.tab_widget, getattr(self, "grid_tab", None))            # top-level Grids tab
+        _set_visible(self.workflow_subtabs, getattr(self, "grid_workflow_widget", None))  # Workflow→Grids
+        if getattr(self, "autolamella_ui", None) is not None:                     # Microscope→Sample
+            self.autolamella_ui.set_grid_workflow_visible(enabled)
 
     def show_toast(
         self,
@@ -703,24 +732,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
-        # guard: a lamella's position is only valid when its grid is loaded.
-        # block runs that span grids not currently in the beam (no exchange yet).
-        unreachable = ui.experiment.unreachable_lamellae(selected_lamella, ui.microscope)
-        if unreachable:
-            details = "\n".join(
-                f"  • {lam.name} → {g.name if (g := ui.experiment.get_grid_for_lamella(lam)) else '?'}"
-                for lam in unreachable
-            )
-            QMessageBox.warning(
-                self, "Lamellae on unloaded grids",
-                "These selected lamellae are on grids not currently loaded, so "
-                "their positions can't be reached:\n\n"
-                f"{details}\n\n"
-                "Load the grid (Grids tab) or deselect them, then run again.",
-            )
+        # preflight: a run may span grids not currently loaded — on an autoloader
+        # they load on demand (preview the exchange cost); on a static holder they
+        # can't, so the run is blocked until they're placed manually.
+        preflight = build_run_preflight(
+            ui.experiment, ui.microscope, task_names, lamella_names)
+        if preflight.blocked:
+            QMessageBox.warning(self, "Grids not loaded", preflight.blocked)
             return
-
-        if not confirm_run_workflow_dialog(lamella_names, task_names, parent=self):
+        if not confirm_run_workflow_dialog(lamella_names, task_names,
+                                           parent=self, note=preflight.note):
             return
 
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"

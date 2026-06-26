@@ -1,6 +1,6 @@
 # Multi-Grid Lamella Execution
 
-**Status:** Design agreed (2026-06-24) — settled for now, not yet implemented; revisit when implementation or hardware data warrants.
+**Status:** Phase 1 implemented (2026-06-26) — **plan-object model** below landed and tested: `build_plan` bakes the order, `TaskQueue.build_from_plan` stores it, `TaskManager._run_queue` walks it and skips in place, with the shared `should_skip`. `plan_for_run` is the shared entry point used by both the runner and the UI preview; the UI guard is replaced by a loader-aware preflight (`workflows/run_preflight.py`) that blocks a static holder with unloaded grids and otherwise confirms the exchange cost + any skipped work. Phases 2–4 outstanding.
 **Scope:** Running lamella task workflows across lamellae that live on *different* grids, including grids that are not currently loaded — on both autoloader and static-holder systems.
 **Related:** [grid-workflow-system.md](grid-workflow-system.md) (the grid task layer and stage abstractions this builds on).
 
@@ -27,15 +27,27 @@ We previously rejected "teach the lamella manager about grids" on the grounds th
 
 ---
 
-## 2. Core idea: load-aware scheduling
+## 2. Core idea: a plan built once, executed and previewed
 
-Grid loading becomes a **side effect of reaching a work item whose grid isn't loaded**, not a control-flow layer above the queue.
+The schedule is a **first-class plan** — the ordered sequence of work — produced up front, *not* behaviour that emerges from the run loop. The same plan is what the runner executes and what the UI previews, so there is exactly one ordering authority.
 
-Two pieces:
+Two pieces: building the plan, then executing it.
 
-### 2a. One authority call in the run loop
+### 2a. The plan (built at build time)
 
-Before executing a `(task, lamella)` item, ensure its grid is present:
+A **planner** walks the `(task × lamella)` matrix in canonical order (task-outer, lamella-inner — see §5) and reorders it for the chosen policy by **forward-simulating the loaded-set**. The per-step rule is `select_next`: prefer the next item whose grid is already (virtually) loaded, and only fall to the next canonical item — which forces an exchange — once the loaded grid is drained. Because the forward-sim is deterministic given the initial loaded-set + policy, the entire grid-greedy order is fixed when the plan is built.
+
+The plan is materialised, not implicit:
+
+- the queue stores the **pre-ordered** work items (`build_from_matrix(order=…)` / `build_from_plan`), so **the queue *is* the plan** and `next()` is plain sequential — no per-call grid logic;
+- grid exchanges and realigns are **derived** from the order (whenever the next item's grid isn't loaded), not stored as work items — `WorkItem` stays `(task, lamella)`;
+- the planner also emits the explicit event stream (`load` / `exchange` / `realign` / `work`) used for preview and exchange-cost estimation.
+
+`select_next` is the per-step ordering rule; the **planner owns it and is the single ordering authority**, invoked when the plan is built. The runner never decides order — it only consumes the plan (§2b). Grid/Experiment knowledge (which lamella is on which grid) lives in the planner, never in the low-level queue.
+
+### 2b. Execution (walk the plan, skip in place)
+
+The runner walks the ordered queue. Before each item it ensures the item's grid is present:
 
 ```python
 grid = experiment.get_grid_for_lamella(lamella)
@@ -45,21 +57,18 @@ if grid is not None and grid._id not in loaded_ids:
 run_task(task, lamella)
 ```
 
-`ensure_loaded` is the existing single authority. Lamellae with `grid_id is None` (legacy / single-grid experiments) are treated as reachable on whatever is loaded, so nothing changes for them.
+`ensure_loaded` is the existing single loading authority; unlinked lamellae (`grid_id is None`, legacy / single-grid) are reachable on whatever is loaded, so nothing changes for them.
 
-### 2b. Load-aware queue selection
+The runner walks the baked plan and **skips in place** — it never re-orders. Two per-step guards do the real work: `should_skip` is re-evaluated live against current history (so a task failure skips its dependents, a failed grid skips its items), and `ensure_loaded` runs before each item (so you never act on the wrong grid). Because grid-greedy makes each grid's items *contiguous*, removing items — even a whole grid's block — leaves the remaining order still grid-greedy, so skipping yields the **same schedule, with the same exchange count, that a re-plan would** — there is nothing to re-plan. Exchanges are derived, not baked steps, so a skipped grid never strands a useless load.
 
-This is the heart of the design and the reason it is **not** a rigid single loop. The work matrix still has a canonical order (task-outer, lamella-inner — see §5). But the selector is told which grids are currently loaded and prefers items it can run *without an exchange*:
-
-`TaskQueue.next(loaded_ids)`:
-1. Return the next pending item whose grid is in `loaded_ids` (runnable now, zero cost).
-2. Only when the loaded grid(s) are drained of pending items, fall to the next item in canonical order — selecting it *causes* an exchange to its grid.
+The only deviations a re-plan would change are an **external loaded-state change** (an operator hand-loads a grid mid-run → maybe one avoidable exchange) and **mid-run additions** to the work set — both out of scope here, and trivial to add later since re-plan is just calling `build_plan` again (see §9).
 
 Properties that fall out of this:
 
 - **Minimal exchanges (grid-greedy).** The loaded grid is fully drained before any swap. In the common case that is ~1 exchange per grid — *without hard-coding* "one pass".
-- **Multi-pass capable.** If task ordering or dependencies ever require revisiting a grid, the same mechanism simply exchanges back. Nothing in the design assumes a single sweep.
-- **Multi-slot aware.** `loaded_ids` may contain more than one grid (a static multi-slot holder), so all of those items are reachable with no exchange at all.
+- **Multi-pass capable.** If task ordering or dependencies require revisiting a grid, the plan simply orders an exchange back. Nothing assumes a single sweep.
+- **Multi-slot aware.** The loaded-set may contain more than one grid (a static multi-slot holder), so all of those items are reachable with no exchange at all.
+- **Previewable & editable.** Because the plan is a concrete artifact, the UI can show the whole multi-day sequence, estimate exchanges/duration, and (later) let the user reorder or trim it before committing.
 - **Back-compatible.** Unlinked lamellae and single-grid experiments behave exactly as today.
 
 ### Worked example: a 3-grid, 3-task schedule
@@ -93,7 +102,7 @@ Within each loaded grid the order is **task-outer**: every lamella gets `mill tr
 | rough mill | 4 | 5 | 6 |
 | polish | 7 | 8 | 9 |
 
-Grids B and C repeat the same shape, continuing the global item counter (10–15, then 16–24). Task-greedy ordering (§5) would run the *same* 24 items but cost `2 exchanges × 3 task phases = 6` exchanges — which is why grid-greedy is the default.
+Grids B and C repeat the same shape, continuing the global item counter (10–15, then 16–24). Task-greedy ordering (§5) would run the *same* 24 items but reload each grid once per task phase — `3 grids × 3 phases = 9` loads (1 initial load + **8 exchanges**) versus grid-greedy's 3 loads / 2 exchanges. That 4× blow-up is why grid-greedy is the default. (Both counts are produced by `simulate_schedule` — see §8.)
 
 ### How it composes with grid screening
 
@@ -105,53 +114,69 @@ This work is one link in a longer chain, not the whole pipeline. Grid-*level* ta
 
 Ordered roughly by dependency. Phases 1–2 deliver working multi-grid execution on the simulator; 3–4 harden it.
 
-### Phase 1 — Load-aware manager (the functional core)
+### Phase 1 — Plan-object scheduling (the functional core) ✅ *implemented*
 
-- **`TaskQueue.next(loaded_ids)`** — extend selection to prefer items whose grid is loaded, falling back to canonical order. Keep the no-arg behaviour for callers that don't care (or have it default to "no grids loaded" → pure canonical order). The work-item model already carries `item_name`; the grid is resolved per item via `experiment.get_grid_for_lamella`.
-- **`TaskManager._run_queue`** — before running each item, resolve its grid and call `stage.ensure_loaded(grid.name)` when it isn't in the loaded set; update the loaded set; invoke the realign hook (§3, Phase 3) on a real exchange.
-- **Relax / replace the UI guard** — the current hard block on unreachable lamellae becomes unnecessary. Replace it with a non-blocking confirmation that summarises the cost (e.g. *"This run spans 3 grids and will perform up to 2 grid exchanges. Continue?"*).
+*Landed: `scheduling.py` (`select_next`, `should_skip`, `build_plan` → `Plan` with `plan.skipped`, plus `plan_for_run` reading holder state), `queue.py` (`build_from_plan`, plain sequential `next()`), `manager.py` (`run` bakes the plan via `_build_plan`; `_run_queue` walks it, skips in place, isolates failed grids, re-derives `loaded` each item; `_ensure_grid_loaded` / `_realign_after_load` stubs), `workflows/run_preflight.py` (`build_run_preflight` → `RunPreflight(plan, blocked, note)`), and the UI run handler now thin. Demo/visualise with `scripts/simulate_grid_schedule.py`; tested in `tests/test_grid_scheduling.py` + `tests/test_run_preflight.py` (incl. prereq fidelity, plan==execution, re-run, skip reasons, loader-aware block).*
 
-The shape of the modified run loop and selection (illustrative, not final):
+- **Planner (`scheduling.py`)** — `build_plan(experiment, task_names, lamella_names, loaded_ids, policy)` forward-simulates the loaded-set with `select_next` and returns the **ordered work items + event stream**. This is the single ordering authority, used both to build the plan the runner executes and to produce the preview.
+- **Shared skip predicate** — extract `should_skip(experiment, lamella, task_name, …)` from `TaskManager._should_skip` (it is already pure: no microscope). The planner and the runner both call it, so the plan agrees with execution on what is pending — including `requires` prerequisites and completions accrued *during* the run.
+- **`TaskQueue`** — store the pre-ordered plan via `build_from_matrix(order=<strategy>)` (generalise the existing `unit_outer` flag into a pluggable ordering strategy) or a thin `build_from_plan(ordered_items)`. `next()` reverts to **plain sequential** — the order is already baked. Grid/Experiment knowledge stays out of the queue.
+- **`TaskManager._run_queue`** — walk the ordered queue; per item, re-validate the shared `should_skip`, then ensure its grid is loaded (deriving the exchange + realign) and run. **Skip in place** — never re-order. Grid-greedy contiguity means skipping preserves optimality, so no re-plan is needed.
+- **Replace the UI guard with a loader-aware preflight** ✅ — `build_run_preflight` (`workflows/run_preflight.py`, Qt-free) returns `RunPreflight(plan, blocked, note)`. On an **autoloader** the run proceeds with a confirmation note summarising the exchange cost and any plan-time skips; on a **static holder** a grid that isn't placed can't be loaded, so the run is **blocked** with a "load them manually" message (the old guard, but loader-aware). The handler is now a thin block-or-confirm-then-start.
+
+The planner builds the plan once (illustrative):
+
+```python
+def build_plan(experiment, task_names, lamella_names, *, loaded_ids, policy):
+    grid_of = lambda it: grid_id_of_lamella(experiment, it.lamella)   # None = unlinked
+    pending = [Item(task, lam)                                        # canonical task-outer
+               for task in task_names for lam in lamella_names
+               if not should_skip(experiment, lam, task, lamella_names)]
+    order, events, loaded = [], [], list(loaded_ids)
+    while pending:
+        it = select_next(pending, loaded, grid_of) if policy == GRID_GREEDY else pending[0]
+        pending.remove(it)
+        gid = grid_of(it)
+        if gid is not None and gid not in loaded:
+            events.append(exchange_or_load(gid))     # "load" if a slot is free, else "exchange"
+            events.append(realign(gid))              # derived, not a work item
+            loaded = place(loaded, gid, capacity)
+        order.append(it); events.append(work(it))
+    return Plan(items=order, events=events)
+```
+
+The runner walks the baked order and skips in place — no re-ordering:
 
 ```python
 def _run_queue(self):
-    loaded = {g._id for g in self.experiment.get_loaded_grids(self.microscope)}  # seed from reality
+    self.queue.build_from_plan(self._build_plan().items)   # order baked once, up front
+    loaded = self._loaded_grid_ids()                       # seed from reality
+    failed_grids = set()
     while not self.is_stopped:
-        item = self.queue.next(loaded_ids=loaded)   # prefers items on a loaded grid
+        item = self.queue.next()                           # plain sequential
         if item is None:
             break
         lamella = self.experiment.get_lamella_by_name(item.item_name)
-        grid = self.experiment.get_grid_for_lamella(lamella)   # None for legacy/unlinked
+        if should_skip(self.experiment, lamella, item.task_name, self.queue.item_names):
+            self.queue.mark_done(item, Skipped); continue
+        grid = self.experiment.get_grid_for_lamella(lamella)
         if grid is not None and grid._id not in loaded:
-            try:
-                self.microscope._stage.ensure_loaded(grid.name)   # the single load authority
-            except GridExchangeError:
-                self._fail_grid(grid)            # mark grid + its pending items Failed
-                continue                          # ...and keep going (other grids)
-            loaded = {g._id for g in self.experiment.get_loaded_grids(self.microscope)}
-            self._realign_after_load(grid)        # Phase 3 hook; no-op until built
+            if grid._id in failed_grids or not self._ensure_grid_loaded(grid):
+                failed_grids.add(grid._id)                 # GridExchangeError → isolate the grid
+                self.queue.mark_done(item, Skipped); continue   # ...skip its items, keep going
+            loaded = self._loaded_grid_ids()
+            self._realign_after_load(grid)                 # Phase 3 hook; no-op until built
         self._run_single_task(item.task_name, lamella)
         self.queue.mark_done(item, lamella.task_state.status)
-
-def next(self, loaded_ids):
-    # 1) anything runnable on an already-loaded grid (zero exchange cost)
-    for it in self._items:
-        if it.status == NotStarted and grid_of(it) in loaded_ids:
-            return self._claim(it)
-    # 2) otherwise the next item in canonical order — selecting it triggers an exchange
-    for it in self._items:
-        if it.status == NotStarted:
-            return self._claim(it)
-    return None
 ```
 
-Re-deriving `loaded` from `get_loaded_grids` after every exchange (rather than mutating a local set) keeps the scheduler honest if an operator loads a grid by hand mid-run.
+The invariant that keeps this honest: `loaded` is always **re-derived from `get_loaded_grids`** (never a mutated cache), so a manual exchange can't desync it. Correctness rests on the two per-step guards, not on the plan being fresh: `should_skip` catches every dynamic skip, and `ensure_loaded` guarantees the right grid is in the slot before any work.
 
 ### Phase 2 — Multi-day robustness
 
 - **Per-grid failure isolation** — if `ensure_loaded` raises `GridExchangeError` (or a grid's tasks fail hard), mark that grid's still-pending items Skipped/Failed and **continue with the other grids**. Surface a per-grid summary at the end. (Chosen policy: isolate and continue, not halt-all.)
 - **Checkpointing** — the manager already saves the experiment after every task. Add an explicit save at each grid boundary (last item on a grid before an exchange) so a crashed multi-day run resumes from a clean point.
-- **Resume** — re-launching the same selection fast-forwards via the existing skip logic (`_should_skip` / completed-task checks). Verify with a test that re-running a half-finished multi-grid run skips already-completed `(grid, lamella, task)` work.
+- **Resume** — needs an explicit *skip-completed* option, because by default re-running a completed task **re-does it** (the lamella system's long-standing behaviour — `should_skip` does not skip on completion, so a user can re-run polishing, etc.). Add an opt-in flag (threaded through `build_plan` → `should_skip`'s completion check) so a crashed multi-day run can fast-forward past finished `(grid, lamella, task)` work; grids already in the holder seed `loaded_ids` so nothing present is reloaded. Must not change default re-run behaviour.
 
 ### Phase 3 — Realignment seam (stubbed)
 
@@ -162,7 +187,7 @@ Re-deriving `loaded` from `get_loaded_grids` after every exchange (rather than m
 ### Phase 4 — Run-composition UI
 
 - Let the user select lamellae across grids plus tasks, and show **two-level progress**: which grid is loaded / how many exchanges remain, and the per-task progress within the current grid.
-- Surface the exchange-cost confirmation from Phase 1.
+- The exchange-cost + skipped-work confirmation already lands in Phase 1 (`build_run_preflight`); the remaining UI work is the richer run-composition view and progress, not the confirmation itself.
 - (Optional, later) expose the ordering policy (§5) to the user rather than always defaulting to grid-greedy.
 
 ### Data-model changes
@@ -188,36 +213,32 @@ One place mapping each failure to its behaviour, so handling isn't scattered:
 | Single lamella task fails | task raises | Existing per-lamella behaviour (mark that lamella/task `Failed`, skip its dependents); other lamellae on the grid proceed |
 | User abort | shared stop event | Halt at the next item boundary; a physical exchange in flight is allowed to finish (can't be interrupted safely) |
 
-### Schedule simulation (dry run)
+### Schedule preview (dry run)
 
-Given a set of lamellae (each with its `grid_id`), the selected tasks, an ordering policy, and which grids start loaded, produce the **projected schedule** — the ordered events and the exchange/realign counts — with **no microscope**. This powers the Phase-1 cost confirmation, a UI preview, the tests in §8, and regenerating the worked-example diagram from real data.
-
-The architectural rule that makes it trustworthy: the live runner and the simulator must share **one** selection primitive, so the preview matches what actually runs.
+The preview is **the plan itself** — no parallel simulator. `build_plan(...)` (§Phase 1) is a pure function of `experiment + task_names + lamella_names + loaded_ids + policy`; calling it without executing yields the ordered work + event stream and the exchange/realign tallies, with **no microscope**. The runner builds the same plan and executes it, so preview and execution share not just a primitive but the *entire* ordering construction:
 
 ```python
-def select_next(items, loaded_ids, policy):   # the single source of truth for ordering
-    ...   # the §3 next(loaded_ids) logic; used by both the runner and the planner
-
 @dataclass
 class ScheduleEvent:
-    kind: str            # "load" | "realign" | "work" | "exchange" | "skip"
+    kind: str            # "load" | "exchange" | "realign" | "work"
     grid: Optional[str]
     lamella: Optional[str] = None
     task: Optional[str] = None
 
-def simulate_schedule(experiment, task_names, lamella_names, *,
-                      loaded_ids=frozenset(), capacity=1, policy="grid_greedy"):
-    # replay the same selection over a VIRTUAL loaded-set:
-    #   pick item → if its grid not virtually loaded: emit exchange (unless first load),
-    #   evict per capacity, emit load + realign → emit work → mark done.
-    # returns (events, summary{n_exchanges, n_realigns, grid_order, items_per_grid})
+@dataclass
+class Plan:
+    items: List[WorkItem]        # the baked order the queue executes
+    events: List[ScheduleEvent]  # load/exchange/realign/work, for preview + cost
+
+plan = build_plan(experiment, task_names, lamella_names,
+                  loaded_ids=frozenset(), policy="grid_greedy")   # preview = build, don't run
 ```
 
-- The runner is *select → execute*; the simulator is *select → record + virtually update the loaded-set*. Same `select_next`, so the plan is faithful.
-- Optional ETA: multiply projected items by historical per-task durations (`Lamella.task_history`) for a rough multi-day estimate.
-- It is a **projection**, not a guarantee — it assumes no failures and that runtime skips match the plan; the actual exchange count can only drop (a completed task is skipped). Consistent with the "exchange-cost is approximate" limitation (§9).
+This powers the Phase-1 cost confirmation, the UI preview, the tests (§8), and regenerating the worked-example diagram from real data.
 
-Build this alongside Phase 1: extracting `select_next` is what both the runner and the dry run depend on.
+- **Plan-time skips are surfaced, not silenced.** `build_plan` records every dropped item as `plan.skipped = [(lamella, task, reason)]` (`failure`, `missing_prereqs`, `no_lamella`). The preflight folds these into the confirmation note, so e.g. a forgotten prerequisite (`polish` selected but not `rough_mill`) is caught **up front** rather than discovered mid-run — and `n_work` stays accurate because the skips are out of the executed order. Runtime/dynamic skips (a prereq that *fails* mid-run) still emit a `Skipped` status from the runner as before.
+- Optional ETA: multiply the plan's work items by historical per-task durations (`Lamella.task_history`) for a rough multi-day estimate.
+- The preview's **order is exact** — the runner executes the baked plan and only skips in place, so previewed and executed order match item-for-item. What a runtime deviation changes is *which* items run versus skip, so the realised exchange count can only **drop** below the preview. The preview is therefore an upper bound on cost, not a different schedule (§9).
 
 ---
 
@@ -225,7 +246,11 @@ Build this alongside Phase 1: extracting `select_next` is what both the runner a
 
 ### Why load-aware scheduling rather than a grid-outer loop
 
-A grid-outer loop (`for grid: load; run all its lamella tasks`) is just *one fixed scheduling policy* — and the most rigid one. By making the queue selection load-aware instead, the *same* mechanism expresses grid-greedy ordering as its default behaviour while remaining able to revisit grids when ordering demands. We get the cheap case for free and keep the general case possible, with no separate code path.
+A grid-outer loop (`for grid: load; run all its lamella tasks`) is just *one fixed scheduling policy* — and the most rigid one. Expressing ordering as a policy (`select_next`) instead lets grid-greedy be the default while remaining able to revisit grids when ordering demands. We get the cheap case for free and keep the general case possible, with no separate code path.
+
+### Why a materialised plan rather than emergent ordering
+
+Baking the order into a plan object at build time (instead of deciding it per-call inside the run loop) buys three things at essentially no cost. It makes the schedule **previewable and editable** — the UI can show and cost a whole multi-day run, and later let the user reorder it — which an order that only exists as the loop unfolds cannot. It puts ordering in **one place** (`build_plan`), used identically by the preview and the runner, so they cannot drift. And it keeps the low-level queue **grid-agnostic** (it stores a list; it doesn't know what a grid is). Deviations don't force a re-order: because grid-greedy keeps each grid contiguous, the runner simply *skips in place* and the result stays optimal — so the baked plan is the runner's only ordering decision, made once.
 
 ### Why it lives inside the lamella manager
 
@@ -253,7 +278,7 @@ They are in direct conflict: global batching forces `N_grids × N_task_phases` e
 | Policy | Behaviour | Exchanges | When it's right |
 |---|---|---|---|
 | **Grid-greedy** *(default)* | Drain a loaded grid's whole task set before swapping | ~1 per grid | Task batching only needs to be per-grid |
-| **Task-greedy** | Follow strict global task order, swapping per phase | `N_grids × N_phases` | A step must complete across *all* grids before the next begins |
+| **Task-greedy** | Follow strict global task order, swapping per phase | `N_grids × N_phases` loads (one fewer exchange) | A step must complete across *all* grids before the next begins |
 
 **Decision:** ship **grid-greedy** as the default; leave task-greedy as a later policy knob rather than building both now.
 
@@ -355,10 +380,10 @@ This is why realignment, though stubbed for now, is on the critical path to any 
 
 Multi-grid behaviour must be provable without an autoloader, because the Demo backend has no loader and perfect repeatability. The strategy is a **mock loader** plus assertions on the *schedule*, not just the outcome:
 
-- **Scheduling (unit, no hardware).** Drive `TaskQueue.next(loaded_ids)` directly: assert grid-greedy drains a loaded grid before any swap, that the exchange *count* equals `grids − 1` for a single pass, and that a multi-slot `loaded_ids` runs all reachable items with zero exchanges. Pure logic, fast.
-- **Exchange ordering (integration, mock loader).** A fake `SampleGridLoader` records `load_grid`/`unload_grid` calls. Run a multi-grid selection and assert the *sequence* of exchanges and that `ensure_loaded` is called exactly once per grid boundary. This is the core thing the simulator can't show.
+- **Planning (unit, no hardware).** Call `build_plan(...)` directly: assert grid-greedy drains a loaded grid before any swap, the exchange *count* equals `grids − 1` for a single pass, a multi-slot `loaded_ids` runs all reachable items with zero exchanges, a seeded loaded grid emits no load for itself, prerequisite-blocked work is dropped, failed lamellae are skipped, and **already-completed tasks are retained (re-runnable)**. Pure logic, fast.
+- **Plan == execution (integration, mock loader).** A fake `SampleGridLoader` records `load_grid`/`unload_grid`. Run the real `_run_queue` over a multi-grid selection and assert the executed order matches `build_plan`'s order on the happy path, and that `ensure_loaded` is called exactly once per grid boundary. This proves preview and runner don't diverge — the core guarantee of the plan-object model.
 - **Failure isolation.** Make the mock loader raise `GridExchangeError` for one grid; assert that grid + its items are `Failed`, the others still complete, and the end-of-run summary reports it.
-- **Resume / skip.** Run a multi-grid selection halfway, stop, re-launch the same selection; assert completed `(grid, lamella, task)` triples are skipped and only the remainder runs.
+- **Resume / skip (Phase 2).** With the opt-in skip-completed flag set, run a multi-grid selection halfway, stop, re-launch; assert completed `(grid, lamella, task)` triples are skipped and only the remainder runs. Without the flag, assert the same re-launch re-runs everything (default behaviour preserved).
 - **Safety interlock (mock realign).** Stub `realign_after_load` to report low confidence; assert no destructive task runs on that grid and it is marked `Failed`.
 - **Realign math (unit).** When the rotation/translation estimator lands, test it against synthetically shifted/rotated image pairs with known `(dx, dy, dθ)` and assert recovery within tolerance — independent of any microscope.
 - **On-instrument (manual, deferred).** The only thing left for real hardware: end-to-end exchange + realign repeatability, and confirming the coarse correction lands fiducials within per-lamella alignment range.
@@ -371,11 +396,13 @@ Multi-grid behaviour must be provable without an autoloader, because the Demo ba
 - **Grid-greedy can starve global ordering.** If a real workflow genuinely needs all grids through one step before the next (e.g. a batch process with a shared cooldown), grid-greedy is wrong and the task-greedy knob (§5) must exist first.
 - **Supervised steps hold a grid loaded.** A supervised/manual task pauses with its grid in the working slot, blocking other grids for the duration. Acceptable for one-at-a-time multi-day runs, but worth noting for throughput.
 - **No cross-grid dependency model.** The skip/dependency logic is per-lamella. There is currently no notion of "grid B's task depends on grid A's result". Out of scope here; flag if it ever becomes real.
-- **Loaded-set source of truth.** The manager must track loaded grids consistently with `Experiment.get_loaded_grids(microscope)` / holder occupancy so a manual exchange (operator loads a grid by hand mid-run) doesn't desync the scheduler. Needs a deliberate refresh point.
-- **Exchange-cost estimate is approximate.** The "up to N exchanges" shown to the user is an upper bound from the selection order; the actual count depends on runtime skips. Fine as a heads-up, not a guarantee.
+- **Loaded-set source of truth.** Handled: the runner re-derives the loaded set from `Experiment.get_loaded_grids(microscope)` *every item* (never a cached set), so a manual mid-run exchange can't desync it — `ensure_loaded` is idempotent, so re-checking is cheap.
+- **Slot capacity assumes a single-slot autoloader.** `plan_for_run` takes `capacity = len(holder.slots)`, correct because an autoloader currently exposes one working slot (and `ensure_loaded` clears the holder on each exchange) and a static holder co-loads across its slots. If a multi-slot autoloader ever appears, capacity must become loader-aware (it would still exchange one grid at a time), or the preview will under-count exchanges.
+- **Exchange-cost estimate is approximate.** The "up to N exchanges" shown to the user is an upper bound from the plan order; the actual count depends on runtime skips. Fine as a heads-up, not a guarantee.
+- **Re-plan is deliberately not implemented.** The runner skips in place rather than re-ordering, which stays optimal for failures and skips (grid-greedy contiguity is preserved under removal). Two cases it does *not* optimise: an external mid-run loaded-state change (operator hand-loads a grid → possibly one avoidable exchange) and mid-run additions to the work set. Both are out of scope; adding re-plan later is just re-invoking `build_plan`.
 
 ---
 
 ## 10. Summary
 
-Make the lamella `TaskManager` load-aware by (a) delegating grid loading to the single `Stage.ensure_loaded` authority inside the run loop and (b) teaching `TaskQueue.next` to prefer items on already-loaded grids. This yields *"run these tasks on these lamellae regardless of grid"* with minimal exchanges by default, isolates per-grid failures for unattended runs, and leaves a clean seam for reload realignment — without a special grid-task wrapper or a second orchestrator.
+Make the schedule a **first-class plan**: a planner (`build_plan`) bakes the grid-greedy order at build time via `select_next` over a virtual loaded-set; the `TaskQueue` stores that pre-ordered plan (so `next()` is plain sequential); and `TaskManager._run_queue` walks it, derives each grid exchange + realign through the single `Stage.ensure_loaded` authority, re-validates the shared `should_skip`, and skips in place (no re-ordering — grid-greedy contiguity keeps that optimal). The *same* `build_plan` is the preview. This yields *"run these tasks on these lamellae regardless of grid"* with minimal exchanges by default, a schedule the user can see and edit before committing, per-grid failure isolation for unattended runs, and a clean seam for reload realignment — without a special grid-task wrapper or a second orchestrator.

@@ -3,7 +3,7 @@
 import copy
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -69,6 +69,24 @@ class TaskQueue:
             self._active = None
             return list(self._items)
 
+    def build_from_plan(self,
+                        ordered: Iterable[Tuple[str, str]]) -> List[WorkItem]:
+        """Populate the queue from a pre-ordered ``(item_name, task_name)`` plan.
+
+        The order is already decided by the planner (see
+        :func:`fibsem.applications.autolamella.workflows.tasks.scheduling.build_plan`),
+        so the queue just stores it and ``next()`` walks it sequentially. Keeping
+        the queue grid-agnostic: it never resolves grids itself.
+        """
+        with self._lock:
+            ordered = list(ordered)
+            self._items = [WorkItem(item_name=i, task_name=t) for i, t in ordered]
+            # unique names, first-appearance order — for the status-dict compat
+            self._task_names = list(dict.fromkeys(t for _, t in ordered))
+            self._item_names = list(dict.fromkeys(i for i, _ in ordered))
+            self._active = None
+            return list(self._items)
+
     # --- Mutation (all thread-safe) ---
 
     def add(self, item_name: str, task_name: str,
@@ -114,7 +132,11 @@ class TaskQueue:
     # --- Iteration (called by worker thread) ---
 
     def next(self) -> Optional[WorkItem]:
-        """Return the next pending item, mark it InProgress, or None if queue is empty."""
+        """Return the next pending item in order, mark it InProgress, or None.
+
+        Plain sequential: the order is already baked into the queue (by
+        ``build_from_matrix`` or ``build_from_plan``), so no per-call selection.
+        """
         with self._lock:
             for item in self._items:
                 if item.status == AutoLamellaTaskStatus.NotStarted:

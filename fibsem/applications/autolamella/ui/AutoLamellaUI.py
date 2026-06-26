@@ -740,9 +740,12 @@ class AutoLamellaUI(QMainWindow):
             self.tabWidget.addTab(self.movement_widget, "Movement")
 
             # sample tab: holder (always) + loader magazine (autoloader only)
+            # gated behind the grid-workflow feature flag
             self.sample_widget = SampleWidget(self.microscope)
             self.sample_widget.state_changed.connect(self._on_sample_state_changed)
             self.tabWidget.addTab(self.sample_widget, "Sample")
+            import fibsem.config as _fibsem_cfg
+            self.set_grid_workflow_visible(_fibsem_cfg.FEATURE_GRID_WORKFLOW_ENABLED)
             self.milling_task_config_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
                 viewer=self.viewer,
@@ -842,6 +845,15 @@ class AutoLamellaUI(QMainWindow):
         """Retract the working-slot grid (e.g. from the Grids tab)."""
         if self.sample_widget is not None:
             self.sample_widget.request_unload()
+
+    def set_grid_workflow_visible(self, visible: bool) -> None:
+        """Show/hide the grid-workflow UI owned by this widget (the Sample tab)."""
+        sample_widget = getattr(self, "sample_widget", None)
+        if sample_widget is None:
+            return
+        index = self.tabWidget.indexOf(sample_widget)
+        if index != -1:
+            self.tabWidget.setTabVisible(index, visible)
 
     def _on_sample_state_changed(self) -> None:
         """The loaded grid changed (via SampleWidget) → update the experiment
