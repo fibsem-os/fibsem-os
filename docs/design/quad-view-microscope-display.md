@@ -387,6 +387,14 @@ primitive:
     (`_input_allowed()` → `active is self`), so in Move mode it is display-only. POI stays
     non-modal (move-only, harmless in Move). `PointOverlay.set_visible()` hides/shows markers
     without discarding points (survives image rebuilds) for active/inactive parity.
+- Detection (Phase 5b, DONE) — `FibsemEmbeddedDetectionWidget` hosts on the canvas for
+  `det.fibsem_image.metadata.beam_type` (fallback FIB): a display-only `MaskOverlay`
+  (`set_mask(det.mask)`) + a modal, move-only features `PointOverlay` with per-feature
+  colours + name labels; `enter_overlay_mode(features, "Detection")` so drag-to-correct can't
+  move the stage. `point_moved` → `feature.px`; Continue reads it back unchanged. Mask is
+  **display-only** (no painting): `confirm` keeps `det.mask` as the model output and still
+  saves the corrected features. Overlays re-host if the detection beam changes. Crosshairs
+  dropped (markers + labels suffice).
 
 **Scope boundary (deliberate).** Per-canvas, not global: during FIB POI selection
 the SEM canvas has no active overlay, so SEM double-click-move stays live. Strictly

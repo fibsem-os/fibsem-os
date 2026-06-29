@@ -52,7 +52,88 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self.features_layer: NapariPointsLayer = None
         self.cross_hair_layer: NapariShapesLayer = None
 
+        # quad-view: MaskOverlay + a modal features PointOverlay on a beam canvas
+        # (created lazily when a controller is present; napari path used otherwise)
+        self._mask_overlay = None
+        self._features_overlay = None
+        self._host_canvas = None
+
         self.setup_connections()
+
+    # ------------------------------------------------------------------
+    # Quad-view overlays (gated; napari path preserved when no controller)
+    # ------------------------------------------------------------------
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None (napari path)."""
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
+
+    def _host_canvas_for(self, det):
+        """Pick the canvas to host detection — the beam of ``det.fibsem_image``
+        (fallback FIB), or None on the napari path."""
+        controller = self._view_controller()
+        if controller is None:
+            return None
+        fib = getattr(det, "fibsem_image", None)
+        beam = fib.metadata.beam_type if fib is not None and fib.metadata is not None else None
+        canvas = controller.get_canvas(beam) if beam is not None else None
+        return canvas or controller.fib_canvas
+
+    def _detach_canvas_overlays(self):
+        """Remove the detection overlays from the current host canvas (e.g. when the
+        host beam changes between detections)."""
+        c = self._host_canvas
+        if c is not None:
+            if self._features_overlay is not None:
+                c.exit_overlay_mode(self._features_overlay)
+                c.remove_overlay(self._features_overlay)
+            if self._mask_overlay is not None:
+                c.remove_overlay(self._mask_overlay)
+        self._features_overlay = None
+        self._mask_overlay = None
+
+    def _update_features_canvas(self, canvas):
+        """Show the detection image + read-only mask + draggable feature points on
+        *canvas* (quad-view equivalent of the napari ``update_features_ui``)."""
+        from fibsem.ui.widgets.image_canvas import PointOverlay
+        from fibsem.ui.widgets.mask_overlay import MaskOverlay
+
+        if self._host_canvas is not None and self._host_canvas is not canvas:
+            self._detach_canvas_overlays()  # host beam changed
+        self._host_canvas = canvas
+
+        # the detection image: its pixel space matches det.mask + feature.px
+        if self.det.fibsem_image is not None:
+            canvas.set_image(self.det.fibsem_image)
+
+        if self._mask_overlay is None:
+            self._mask_overlay = MaskOverlay()
+            canvas.add_overlay(self._mask_overlay)
+        self._mask_overlay.set_mask(self.det.mask)  # display-only
+
+        if self._features_overlay is None:
+            self._features_overlay = PointOverlay(
+                marker="+", size=16, removable=False, add_on_right_click=False, modal=True,
+            )
+            canvas.add_overlay(self._features_overlay)
+            self._features_overlay.point_moved.connect(self._on_canvas_feature_moved)
+        self._features_overlay.set_points(
+            [(f.px.x, f.px.y) for f in self.det.features],
+            colors=[f.color for f in self.det.features],
+            labels=[f.name for f in self.det.features],
+        )
+        self._features_overlay.set_visible(True)
+        canvas.enter_overlay_mode(self._features_overlay, "Detection", icon="mdi:vector-point")
+        canvas.set_hint("drag features to correct  ·  Continue when done")
+        self.update_info()
+
+    def _on_canvas_feature_moved(self, idx: int, x: float, y: float):
+        """A feature point was dragged → update ``feature.px`` (mirrors update_point)."""
+        if 0 <= idx < len(self.det.features):
+            self.det.features[idx].px = Point(x=x, y=y)
+            self.has_user_corrected = True
+            self.update_info()
 
     def _setup_ui(self):
         self.gridLayout = QGridLayout(self)
@@ -94,6 +175,19 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def clear_layers(self):
         """Remove the layers added by the detection widget and reshow all other layers."""
+        if self._features_overlay is not None or self._mask_overlay is not None:  # quad-view
+            c = self._host_canvas
+            if c is not None:
+                if self._features_overlay is not None:
+                    c.exit_overlay_mode(self._features_overlay)  # restore Move
+                c.set_hint(None)
+            if self._features_overlay is not None:
+                self._features_overlay.set_visible(False)
+                self._features_overlay.clear_points()
+            if self._mask_overlay is not None:
+                self._mask_overlay.clear()
+            return
+
         # remove feature detection layers
         if self.image_layer is not None:
             if self.image_layer in self.viewer.layers:
@@ -114,6 +208,17 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def confirm_button_clicked(self):
         """Confirm the detected features, save the data and and remove the layers from the viewer."""
+
+        if self._features_overlay is not None:  # quad-view: mask is display-only
+            # No painting, so det.mask stays the model output — but normalise its dtype
+            # to uint8 (save_feature_data_to_csv -> PIL.Image.fromarray needs it; the
+            # napari path got this for free via mask_layer.data.astype(np.uint8)).
+            if self.det.mask is not None:
+                self.det.mask = np.asarray(self.det.mask).astype(np.uint8)
+            det_utils.save_ml_feature_data(det=self.det,
+                                           initial_features=self._intial_det.features)
+            self.clear_layers()
+            return
 
         # update the mask as the user may edit it
         self.det.mask = self.mask_layer.data.astype(np.uint8) # type: ignore
@@ -137,6 +242,11 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def update_features_ui(self):
         """Update the UI with the detected features"""
+        canvas = self._host_canvas_for(self.det)
+        if canvas is not None:
+            self._update_features_canvas(canvas)
+            return
+
         # hide all other layers?
         for layer in self.viewer.layers:
             layer.visible = False
