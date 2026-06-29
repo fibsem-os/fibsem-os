@@ -16,7 +16,6 @@ from .line_plot_widget import LinePlotWidget
 from .minimap_plot_widget import MinimapPlotWidget
 from .fluorescence_plot_widget import FluorescencePlotWidget
 from .stage_position_control_widget import StagePositionControlWidget
-from .experiment_creation_dialog import ExperimentCreationDialog
 from .sem_acquisition_widget import SEMAcquisitionWidget
 from .autofocus_widget import AutofocusWidget
 from .overview_confirmation_dialog import OverviewConfirmationDialog
@@ -39,7 +38,6 @@ __all__ = [
     'MinimapPlotWidget',
     'FluorescencePlotWidget',
     'StagePositionControlWidget',
-    'ExperimentCreationDialog',
     'SEMAcquisitionWidget',
     'AutofocusWidget',
     'OverviewConfirmationDialog',
