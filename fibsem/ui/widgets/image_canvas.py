@@ -361,6 +361,13 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     # ── overlay buttons ───────────────────────────────────────────────────
 
+    def add_toolbar_button(
+        self, icon_name: str, tooltip: str, callback, checkable: bool = False
+    ) -> QPushButton:
+        """Public: add a custom button to the canvas's top-right toolbar (e.g. an
+        FM-layers control owned by a wrapper). Returns the QPushButton."""
+        return self._add_overlay_button(icon_name, tooltip, callback, checkable)
+
     def _add_overlay_button(
         self,
         icon_name: str,
