@@ -1,4 +1,4 @@
-"""Standalone test script for plot_multi_step_alignment_v2.
+"""Standalone test script for plot_multi_step_alignment.
 
 Run directly:
     python fibsem/ui/widgets/tests/test_alignment_plot_v2.py
@@ -10,7 +10,7 @@ from fibsem import acquire, utils
 from fibsem.alignment import (
     AlignmentIteration,
     crosscorrelation_cv2,
-    plot_multi_step_alignment_v2,
+    plot_multi_step_alignment,
     shift_from_crosscorrelation_v2,
 )
 from fibsem.structures import Point
@@ -46,7 +46,6 @@ def main():
         dx, dy, _ = shift_from_crosscorrelation_v2(ref, new)
         r = AlignmentIteration(
             shift=Point(dx, dy),
-            shift_px=Point(shift_x, shift_y),
             score=score,
             image=new,
         )
@@ -57,7 +56,7 @@ def main():
             f"dx={r.shift.x * 1e9:.1f}nm dy={r.shift.y * 1e9:.1f}nm  score={score:.3f}"
         )
 
-    fig = plot_multi_step_alignment_v2(
+    fig = plot_multi_step_alignment(
         ref, results, title="Test Alignment v2", save=False
     )
     fig.savefig("/tmp/test_alignment_plot_v2.png", dpi=100)

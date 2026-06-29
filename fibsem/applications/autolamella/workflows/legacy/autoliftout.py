@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import numpy as np
 from fibsem import acquire, alignment, calibration
+from fibsem.alignment import AlignmentSubsystem
 from fibsem import utils as fibsem_utils
 from fibsem import validation
 from fibsem.detection import detection
@@ -411,14 +412,12 @@ def land_lamella(
     reference_images = lamella.get_reference_images("ref_landing")
     set_images_ui(parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
 
-    # align to ref
-    alignment.correct_stage_drift(
-        microscope,
-        settings,
-        reference_images=reference_images,
-        alignment=(BeamType.ION, BeamType.ION),
-        rotate=False,
-        xcorr_limit=(512, 100),
+    # align to ref (ion beam, stage movement)
+    alignment.multi_step_alignment_v2(
+        microscope=microscope,
+        ref_image=reference_images.high_res_ib,
+        steps=3,
+        subsystem=AlignmentSubsystem.STAGE,
     )
 
     # confirm eucentricity
