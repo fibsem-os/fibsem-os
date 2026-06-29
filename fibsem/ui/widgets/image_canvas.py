@@ -1203,6 +1203,7 @@ class PointOverlay(QObject):
         self._selected: Optional[int] = None
         self._drag_idx: Optional[int] = None
         self._drag_offset: Tuple[float, float] = (0.0, 0.0)
+        self._drag_start_xy: Tuple[float, float] = (0.0, 0.0)
         self._blit_bg = None
 
         self._cids: List[int] = []
@@ -1404,6 +1405,7 @@ class PointOverlay(QObject):
         self._drag_idx = idx
         px, py = self._points[idx]
         self._drag_offset = (event.xdata - px, event.ydata - py)
+        self._drag_start_xy = (px, py)  # so a no-move select-click skips point_moved
         self._canvas._overlay_consuming_event = True
         self._artists[idx].set_animated(True)
         ann = self._anns[idx] if idx < len(self._anns) else None
@@ -1497,7 +1499,10 @@ class PointOverlay(QObject):
             ann = self._anns[idx] if idx < len(self._anns) else None
             if ann is not None:
                 ann.set_animated(False)
-            self.point_moved.emit(idx, self._points[idx][0], self._points[idx][1])
+            # Only a real move emits point_moved (a select-click without a drag
+            # leaves the position unchanged; point_selected already covered it).
+            if tuple(self._points[idx]) != self._drag_start_xy:
+                self.point_moved.emit(idx, self._points[idx][0], self._points[idx][1])
             self._canvas.draw_idle()
 
     def _on_key(self, event):
