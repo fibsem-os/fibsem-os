@@ -3,7 +3,7 @@
 ``FMCanvasWidget`` wraps a generic :class:`FibsemImageCanvas` and adds the
 FM-specific bits the bare canvas should not carry: a per-channel layer model, the
 additive colour composite (:mod:`fm_composite`), and a toolbar **layers** popover
-(:class:`FMLayersPanel`) for per-channel visibility / colormap / opacity /
+(:class:`FMLayersPanel`) for per-channel visibility / colormap / opacity / gamma /
 contrast — the napari layer-controls equivalent, on matplotlib.
 
 Display only (Phase 6a); FM canvas interactions (position select, relative move)
@@ -14,13 +14,13 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt, QPoint, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, QSize, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QPushButton, QSlider, QVBoxLayout, QWidget,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QToolButton,
+    QVBoxLayout, QWidget,
 )
-from superqt import QRangeSlider
+from superqt import QIconifyIcon, QRangeSlider
 
 from fibsem.structures import FibsemImage
 from fibsem.ui.widgets.fm_composite import (
@@ -28,7 +28,44 @@ from fibsem.ui.widgets.fm_composite import (
 )
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
 
-_PANEL_BG = "#2b2f33"
+_PANEL_BG = "#2c3036"
+_ACCENT = "#5b9bd5"
+
+# napari-style dark theme for the floating layers panel
+_PANEL_QSS = """
+QFrame#fmPanel { background: #2c3036; border: 1px solid #3f444b; border-radius: 10px; }
+QLabel { color: #e4e6e9; }
+#panelTitle { color: #9aa0a6; font-size: 12px; font-weight: 500; letter-spacing: 1px; }
+QFrame#divider { background: #3a3f46; border: none; }
+#selName { color: #e4e6e9; font-size: 13px; font-weight: 500; }
+#selTag { color: #80858b; font-size: 11px; }
+#ctrlLbl { color: #9aa0a6; font-size: 12px; }
+#valLbl { color: #d2d5d9; font-size: 12px; }
+#valSm { color: #70757b; font-size: 11px; }
+QFrame#channelRow { border-radius: 7px; background: transparent; }
+QFrame#channelRow:hover { background: #32373e; }
+QFrame#channelRow[selected="true"] { background: #363d46; }
+QToolButton#eyeBtn { border: none; background: transparent; padding: 0; }
+#chName { color: #e4e6e9; font-size: 13px; }
+QComboBox { background: #23262b; color: #e4e6e9; border: 1px solid #3f444b;
+            border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+QComboBox::drop-down { border: none; width: 18px; }
+QComboBox QAbstractItemView { background: #23262b; color: #e4e6e9;
+            border: 1px solid #3f444b; selection-background-color: #363d46; outline: none; }
+QPushButton#autoPill { color: #9bcdf6; background: #243140; border: 1px solid #2e4a61;
+            border-radius: 11px; padding: 3px 11px; font-size: 11px; }
+QPushButton#autoPill:!checked { color: #9aa0a6; background: transparent; border: 1px solid #3f444b; }
+QPushButton#resetBtn { background: transparent; color: #cdd0d4; border: 1px solid #3f444b;
+            border-radius: 6px; padding: 8px; font-size: 12px; }
+QPushButton#resetBtn:hover { background: #363d46; }
+QSlider::groove:horizontal { height: 4px; background: #3a3f46; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #5b9bd5; border-radius: 2px; }
+QSlider::add-page:horizontal { background: #3a3f46; border-radius: 2px; }
+QSlider::handle:horizontal { width: 13px; height: 13px; margin: -5px 0; border-radius: 7px;
+            background: #eceef0; border: 1px solid #5b9bd5; }
+QSlider::handle:horizontal:disabled { background: #5a6068; border-color: #5a6068; }
+QSlider::sub-page:horizontal:disabled { background: #4a5058; }
+"""
 
 
 def _color_icon(color: str, size: int = 14) -> QIcon:
@@ -37,30 +74,95 @@ def _color_icon(color: str, size: int = 14) -> QIcon:
     return QIcon(px)
 
 
-_HANDLE_COLOR = QColor("#c7c9cc")
+def _chip_css(color: str) -> str:
+    return "background: %s; border-radius: 3px;" % ("white" if color == "gray" else color)
 
 
 class _ContrastSlider(QRangeSlider):
     """Dual-handle range slider for per-channel contrast limits (min + max on one
     track). Paints its own handles so they stay visible (mirrors the correlation
-    widget's ``_ClipSlider``)."""
+    widget's ``_ClipSlider``), and dims when disabled (auto contrast)."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._style.brush_active = "#4a5168"
-        self._style.brush_inactive = "#4a5168"
+        self._style.brush_active = _ACCENT
+        self._style.brush_inactive = "#3a3f46"
 
     def _draw_handle(self, painter, opt) -> None:
+        on = self.isEnabled()
+        self._style.brush_active = _ACCENT if on else "#46505d"
         if self._should_draw_bar:
             self._drawBar(painter, opt)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(_HANDLE_COLOR)
+        painter.setBrush(QColor("#eceef0" if on else "#8a8f95"))
         for i in range(len(self.value())):
             rect = self._handleRect(i).adjusted(1, 1, -1, -1)
             painter.drawEllipse(rect)
         painter.restore()
+
+
+class _ChannelRow(QFrame):
+    """One channel: eye visibility toggle + colour chip + name, click to select."""
+
+    selected = pyqtSignal(int)
+    visibility_changed = pyqtSignal(int, bool)
+
+    def __init__(self, index: int, layer: FMLayer, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._index = index
+        self.setObjectName("channelRow")
+        self.setProperty("selected", False)
+        self.setCursor(Qt.PointingHandCursor)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 7, 10, 7)
+        lay.setSpacing(11)
+
+        self.eye = QToolButton()
+        self.eye.setObjectName("eyeBtn")
+        self.eye.setCheckable(True)
+        self.eye.setChecked(layer.visible)
+        self.eye.setCursor(Qt.PointingHandCursor)
+        self.eye.setIconSize(QSize(16, 16))
+        self._refresh_eye(layer.visible)
+        self.eye.toggled.connect(self._on_eye)
+
+        self.chip = QLabel()
+        self.chip.setFixedSize(13, 13)
+        self.chip.setStyleSheet(_chip_css(layer.color))
+
+        self.name = QLabel(layer.name)
+        self.name.setObjectName("chName")
+
+        lay.addWidget(self.eye)
+        lay.addWidget(self.chip)
+        lay.addWidget(self.name, 1)
+        self._dim(not layer.visible)
+
+    def _refresh_eye(self, visible: bool) -> None:
+        icon = "mdi:eye" if visible else "mdi:eye-off-outline"
+        self.eye.setIcon(QIconifyIcon(icon, color="#d2d5d9" if visible else "#70757b"))
+
+    def _dim(self, dim: bool) -> None:
+        self.name.setStyleSheet("color: #70757b;" if dim else "color: #e4e6e9;")
+
+    def _on_eye(self, checked: bool) -> None:
+        self._refresh_eye(checked)
+        self._dim(not checked)
+        self.visibility_changed.emit(self._index, checked)
+
+    def set_color(self, color: str) -> None:
+        self.chip.setStyleSheet(_chip_css(color))
+
+    def set_selected(self, sel: bool) -> None:
+        self.setProperty("selected", sel)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mousePressEvent(self, event) -> None:
+        self.selected.emit(self._index)
+        super().mousePressEvent(event)
 
 
 class FMCanvasWidget(QWidget):
@@ -175,9 +277,9 @@ class FMCanvasWidget(QWidget):
 
 
 class FMLayersPanel(QFrame):
-    """Floating per-channel controls: a channel list (visibility) + a detail panel
-    (colormap / opacity / contrast) for the selected channel. Emits :attr:`changed`
-    whenever an edit should trigger a re-composite."""
+    """Floating per-channel controls — a dark channel list (eye toggle + colour chip
+    + name) over a detail panel (colormap / opacity / gamma / contrast) for the
+    selected channel. Emits :attr:`changed` whenever an edit needs a re-composite."""
 
     changed = pyqtSignal()
 
@@ -188,95 +290,157 @@ class FMLayersPanel(QFrame):
         # to repaint (and flicker) on every canvas redraw during a slider drag.
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("fmPanel")
+        self.setStyleSheet(_PANEL_QSS)
+        self.setFixedWidth(268)
+
         self._layers: List[FMLayer] = []
-        self.setStyleSheet(
-            "FMLayersPanel { background: %s; border: 1px solid #555; "
-            "border-radius: 6px; } QLabel { color: #d1d2d4; }" % _PANEL_BG
-        )
-        self.setFixedWidth(248)
+        self._rows: List[_ChannelRow] = []
+        self._selected: int = 0
+        self._updating = False  # guard so programmatic updates don't emit changed
+        self._data_lo: float = 0.0
+        self._data_span: float = 1.0
+
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
-        root.addWidget(QLabel("FM Channels"))
+        root.setContentsMargins(14, 14, 14, 16)
+        root.setSpacing(0)
 
-        self.list = QListWidget()
-        self.list.setMaximumHeight(110)
-        self.list.currentRowChanged.connect(self._on_row_changed)
-        self.list.itemChanged.connect(self._on_item_changed)
-        root.addWidget(self.list)
+        # header
+        header = QHBoxLayout(); header.setSpacing(8)
+        hicon = QLabel()
+        hicon.setPixmap(QIconifyIcon("mdi:layers-triple-outline", color="#9aa0a6").pixmap(QSize(16, 16)))
+        title = QLabel("FM CHANNELS"); title.setObjectName("panelTitle")
+        header.addWidget(hicon); header.addWidget(title); header.addStretch()
+        root.addLayout(header)
+        root.addSpacing(12)
 
-        # detail controls for the selected channel
-        self.colormap = QComboBox()
+        # channel list
+        self._list_box = QVBoxLayout(); self._list_box.setSpacing(2)
+        root.addLayout(self._list_box)
+        root.addSpacing(12)
+
+        div = QFrame(); div.setObjectName("divider"); div.setFixedHeight(1)
+        root.addWidget(div)
+        root.addSpacing(12)
+
+        # detail header (selected channel)
+        dh = QHBoxLayout(); dh.setSpacing(8)
+        self.sel_chip = QLabel(); self.sel_chip.setFixedSize(11, 11)
+        self.sel_name = QLabel("—"); self.sel_name.setObjectName("selName")
+        sel_tag = QLabel("selected"); sel_tag.setObjectName("selTag")
+        dh.addWidget(self.sel_chip); dh.addWidget(self.sel_name); dh.addStretch(); dh.addWidget(sel_tag)
+        root.addLayout(dh)
+        root.addSpacing(14)
+
+        # colormap
+        cm_row = QHBoxLayout()
+        cm_lbl = QLabel("Colormap"); cm_lbl.setObjectName("ctrlLbl")
+        self.colormap = QComboBox(); self.colormap.setFixedWidth(132)
         for c in AVAILABLE_COLORS:
             self.colormap.addItem(_color_icon(c), c)
         self.colormap.currentTextChanged.connect(self._on_colormap)
-        cm_row = QHBoxLayout(); cm_row.addWidget(QLabel("Colormap")); cm_row.addWidget(self.colormap, 1)
+        cm_row.addWidget(cm_lbl); cm_row.addStretch(); cm_row.addWidget(self.colormap)
         root.addLayout(cm_row)
+        root.addSpacing(13)
 
-        self.opacity = QSlider(Qt.Horizontal)
-        self.opacity.setRange(0, 100); self.opacity.setValue(100)
+        # opacity + gamma sliders (label + value, then track)
+        self.opacity, self.opacity_val = self._slider_row(root, "Opacity", 0, 100, 100)
         self.opacity.valueChanged.connect(self._on_opacity)
-        op_row = QHBoxLayout(); op_row.addWidget(QLabel("Opacity")); op_row.addWidget(self.opacity, 1)
-        root.addLayout(op_row)
-
-        self.gamma = QSlider(Qt.Horizontal)
-        self.gamma.setRange(10, 300); self.gamma.setValue(100)  # gamma = value / 100 (0.1–3.0)
+        self.gamma, self.gamma_val = self._slider_row(root, "Gamma", 10, 300, 100)
         self.gamma.valueChanged.connect(self._on_gamma)
-        gm_row = QHBoxLayout(); gm_row.addWidget(QLabel("Gamma")); gm_row.addWidget(self.gamma, 1)
-        root.addLayout(gm_row)
 
-        ct_row = QHBoxLayout()
-        ct_row.addWidget(QLabel("Contrast (min / max)"))
-        ct_row.addStretch()
-        self.autocontrast_cb = QCheckBox("Auto")
-        self.autocontrast_cb.setChecked(True)
+        # contrast header (label + Auto pill)
+        ch = QHBoxLayout()
+        ct_lbl = QLabel("Contrast"); ct_lbl.setObjectName("ctrlLbl")
+        self.autocontrast_cb = QPushButton("Auto"); self.autocontrast_cb.setObjectName("autoPill")
+        self.autocontrast_cb.setCheckable(True); self.autocontrast_cb.setChecked(True)
+        self.autocontrast_cb.setCursor(Qt.PointingHandCursor)
         self.autocontrast_cb.toggled.connect(self._on_autocontrast)
-        ct_row.addWidget(self.autocontrast_cb)
-        root.addLayout(ct_row)
-        # NOTE: per-channel histogram shelved for now (sizing + doesn't track clim) — revisit.
-        self.contrast = _ContrastSlider(Qt.Horizontal)  # one track, two handles
-        self.contrast.setRange(0, 1000)
-        self.contrast.setValue((0, 1000))
+        ch.addWidget(ct_lbl); ch.addStretch(); ch.addWidget(self.autocontrast_cb)
+        root.addLayout(ch)
+        root.addSpacing(8)
+
+        self.contrast = _ContrastSlider(Qt.Horizontal)
+        self.contrast.setRange(0, 1000); self.contrast.setValue((0, 1000))
         self.contrast.valueChanged.connect(self._on_contrast)
         root.addWidget(self.contrast)
+        root.addSpacing(8)
 
-        self.btn_reset = QPushButton("Reset")
-        self.btn_reset.setToolTip("Reset this channel's opacity / gamma / contrast")
+        cv = QHBoxLayout()
+        self.cmin_val = QLabel("0"); self.cmin_val.setObjectName("valSm")
+        self.cmax_val = QLabel("0"); self.cmax_val.setObjectName("valSm")
+        cv.addWidget(self.cmin_val); cv.addStretch(); cv.addWidget(self.cmax_val)
+        root.addLayout(cv)
+        root.addSpacing(14)
+
+        self.btn_reset = QPushButton("Reset adjustments"); self.btn_reset.setObjectName("resetBtn")
+        self.btn_reset.setCursor(Qt.PointingHandCursor)
         self.btn_reset.clicked.connect(self._on_reset)
         root.addWidget(self.btn_reset)
 
-        self._updating = False  # guard so programmatic updates don't emit changed
+    def _slider_row(self, root, label: str, lo: int, hi: int, val: int):
+        head = QHBoxLayout()
+        lbl = QLabel(label); lbl.setObjectName("ctrlLbl")
+        valw = QLabel(); valw.setObjectName("valLbl")
+        head.addWidget(lbl); head.addStretch(); head.addWidget(valw)
+        root.addLayout(head)
+        root.addSpacing(7)
+        s = QSlider(Qt.Horizontal); s.setRange(lo, hi); s.setValue(val)
+        root.addWidget(s)
+        root.addSpacing(13)
+        return s, valw
 
     # ── populate / select ─────────────────────────────────────────────────
 
     def set_layers(self, layers: List[FMLayer]) -> None:
         self._layers = layers
         self._updating = True
-        prev = self.list.currentRow()  # preserve the selected channel across rebuilds
-        self.list.clear()
-        for layer in layers:
-            item = QListWidgetItem(layer.name)
-            item.setIcon(_color_icon(layer.color))
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if layer.visible else Qt.Unchecked)
-            self.list.addItem(item)
-        if layers:
-            self.list.setCurrentRow(prev if 0 <= prev < len(layers) else 0)
+        prev = self._selected
+        for row in self._rows:
+            self._list_box.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
+        self._rows = []
+        for i, layer in enumerate(layers):
+            row = _ChannelRow(i, layer)
+            row.selected.connect(self._select_row)
+            row.visibility_changed.connect(self._on_visibility)
+            self._list_box.addWidget(row)
+            self._rows.append(row)
+        self._selected = prev if 0 <= prev < len(layers) else 0
         self._updating = False
+        self._refresh_selection()
         self._sync_detail()
 
+    def _select_row(self, index: int) -> None:
+        if index == self._selected or not (0 <= index < len(self._layers)):
+            return
+        self._selected = index
+        self._refresh_selection()
+        self._sync_detail()
+
+    def _refresh_selection(self) -> None:
+        for i, row in enumerate(self._rows):
+            row.set_selected(i == self._selected)
+
     def _current(self) -> Optional[FMLayer]:
-        i = self.list.currentRow()
-        return self._layers[i] if 0 <= i < len(self._layers) else None
+        return self._layers[self._selected] if 0 <= self._selected < len(self._layers) else None
 
     def _sync_detail(self) -> None:
         layer = self._current()
         prev_updating = self._updating  # save/restore so a caller's guard survives
         self._updating = True
-        if layer is not None:
+        if layer is None:
+            self.sel_name.setText("—")
+            self.sel_chip.setStyleSheet("background: transparent;")
+        else:
+            self.sel_chip.setStyleSheet(_chip_css(layer.color))
+            self.sel_name.setText(layer.name)
             self.colormap.setCurrentText(layer.color)
             self.opacity.setValue(int(layer.opacity * 100))
+            self.opacity_val.setText("%d%%" % int(layer.opacity * 100))
             self.gamma.setValue(int(layer.gamma * 100))
+            self.gamma_val.setText("%.2f" % layer.gamma)
             self.autocontrast_cb.setChecked(layer.autocontrast)
             self.contrast.setEnabled(not layer.autocontrast)  # manual edits only when off
             if layer.data is not None:
@@ -292,34 +456,30 @@ class FMLayersPanel(QFrame):
                     int((clo - lo_d) / span * 1000),
                     int((chi - lo_d) / span * 1000),
                 ))
+                self.cmin_val.setText("%d" % round(clo))
+                self.cmax_val.setText("%d" % round(chi))
         self._updating = prev_updating
 
     # ── edits ─────────────────────────────────────────────────────────────
 
-    def _on_row_changed(self, _row: int) -> None:
-        if self._updating:  # ignore selection churn during a list rebuild
+    def _on_visibility(self, index: int, visible: bool) -> None:
+        if self._updating or not (0 <= index < len(self._layers)):
             return
-        self._sync_detail()
-
-    def _on_item_changed(self, item: QListWidgetItem) -> None:
-        if self._updating:
-            return
-        i = self.list.row(item)
-        if 0 <= i < len(self._layers):
-            self._layers[i].visible = item.checkState() == Qt.Checked
-            self.changed.emit()
+        self._layers[index].visible = visible
+        self.changed.emit()
 
     def _on_colormap(self, color: str) -> None:
         layer = self._current()
         if self._updating or layer is None or not color:
             return
         layer.color = color
-        item = self.list.currentItem()
-        if item is not None:
-            item.setIcon(_color_icon(color))
+        self.sel_chip.setStyleSheet(_chip_css(color))
+        if 0 <= self._selected < len(self._rows):
+            self._rows[self._selected].set_color(color)
         self.changed.emit()
 
     def _on_opacity(self, value: int) -> None:
+        self.opacity_val.setText("%d%%" % value)
         layer = self._current()
         if self._updating or layer is None:
             return
@@ -327,6 +487,7 @@ class FMLayersPanel(QFrame):
         self.changed.emit()
 
     def _on_gamma(self, value: int) -> None:
+        self.gamma_val.setText("%.2f" % (value / 100.0))
         layer = self._current()
         if self._updating or layer is None:
             return
@@ -359,11 +520,13 @@ class FMLayersPanel(QFrame):
 
     def _on_contrast(self) -> None:
         layer = self._current()
-        if self._updating or layer is None or not hasattr(self, "_data_lo"):
-            return
         lo_n, hi_n = self.contrast.value()
         lo = self._data_lo + lo_n / 1000.0 * self._data_span
         hi = self._data_lo + hi_n / 1000.0 * self._data_span
+        self.cmin_val.setText("%d" % round(lo))
+        self.cmax_val.setText("%d" % round(hi))
+        if self._updating or layer is None:
+            return
         if hi > lo:
             layer.clim = (lo, hi)
             self.changed.emit()
