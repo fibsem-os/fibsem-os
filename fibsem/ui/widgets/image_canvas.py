@@ -711,9 +711,12 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         if event.inaxes is not self._ax or event.xdata is None:
             return
         direction = 1 if event.button == "up" else -1
-        self.canvas_scrolled.emit(
-            event.xdata, event.ydata, direction, _modifiers_from_event(event)
-        )
+        mods = _modifiers_from_event(event)
+        self.canvas_scrolled.emit(event.xdata, event.ydata, direction, mods)
+        if mods:
+            # modified scroll (e.g. Shift+scroll → objective) is claimed by a
+            # consumer via canvas_scrolled; don't also zoom
+            return
         factor = 1.0 / _ZOOM_FACTOR if direction == 1 else _ZOOM_FACTOR
         cx, cy = event.xdata, event.ydata
         xlim = self._ax.get_xlim()
