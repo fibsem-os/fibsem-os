@@ -779,6 +779,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         if self._alignment_overlay is not None:
             self._alignment_overlay.set_editable(False)
             self._alignment_overlay.set_visible(False)
+            controller = self._view_controller()
+            if controller is not None:
+                controller.fib_canvas.exit_overlay_mode(self._alignment_overlay)
             return
         if self.alignment_layer is not None:
             self.alignment_layer.mode = "pan_zoom"
@@ -801,6 +804,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             ov.set_area(reduced_area)
             ov.set_editable(editable)
             ov.set_visible(True)
+            controller = self._view_controller()
+            if controller is not None:
+                if editable:
+                    # editing owns FIB input (stage-move + milling menu stand down)
+                    controller.fib_canvas.enter_overlay_mode(
+                        ov, "Alignment", icon="mdi:vector-rectangle"
+                    )
+                else:
+                    controller.fib_canvas.exit_overlay_mode(ov)
             return
 
         # add alignment area to napari

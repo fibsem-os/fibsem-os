@@ -314,3 +314,77 @@ Deferred (note for later):
 - FOV rect, alignment area (editable; reuse volume branch `RectOverlay` approach).
 - Selected-stage highlight, background milling stages.
 - Annulus / bitmap shapes (disabled even in napari).
+
+---
+
+## Active-overlay input model (input gating)
+
+Replaces napari's *active-layer* gating, which the quad-view canvas dropped.
+
+**Problem.** In napari the active layer (e.g. the POI / spot-burn points layer,
+set via `viewer.layers.selection.active`) is the only thing that handles clicks,
+so the milling layer and stage-movement don't also react. Without that, on the
+**shared FIB canvas** a single right-click both adds a point *and* opens the
+milling reposition menu, and a double-click moves the stage mid-selection — both
+`canvas_right_clicked` and the overlay's own handler fire, because matplotlib
+callbacks have no propagation-stop and the canvas (connected first, in
+`__init__`) emits *before* any overlay handler runs. So the canvas must **consult
+its overlays before emitting**, not the other way round.
+
+**Model.** At most one overlay per canvas is **active**. Invariant:
+- the active overlay owns mouse/key input on that canvas;
+- every *other* interactive overlay stands down;
+- the canvas suppresses its **semantic click signals** (`canvas_clicked` /
+  `canvas_double_clicked` / `canvas_right_clicked` — i.e. select / stage-move /
+  milling menu);
+- **navigation (pan / zoom / scroll) always stays live**, even with an active overlay.
+
+Default `_active_overlay = None` ⇒ the canvas behaves exactly as today. Opt-in,
+per canvas — every other surface (coincidence viewer, correlation, lamella
+editor) never calls it and is untouched.
+
+**Event availability** (answers "can we still move?" — yes, when nothing is active):
+
+| Gesture | No active overlay (default / "Move") | An overlay is active |
+|---|---|---|
+| left-drag empty | pan | pan |
+| scroll | zoom | zoom |
+| double-click | **stage move** (`canvas_double_clicked`) | suppressed |
+| right-click | **milling menu** (`canvas_right_clicked`) | suppressed (active overlay handles, e.g. add spot) |
+| left-click | `canvas_clicked` (e.g. coincidence select) | suppressed |
+| overlay gesture | all attached interactive overlays respond | only the active overlay |
+
+**Canvas API** (`FibsemImageCanvas`):
+- `set_active_overlay(overlay_or_None)` — primitive gating, no UI; `active_overlay` getter.
+- `_overlay_input_allowed(overlay)` = `_active_overlay is None or _active_overlay is overlay`.
+- Gate the 3 semantic emits behind `_active_overlay is None` (`_on_press` dbl/right, `_on_release` click).
+- `remove_overlay` auto-clears `_active_overlay` if it removes the active one (no dangling ref).
+
+**Interactive overlays** (`PointOverlay`, `RectOverlay`): one guard at the top of
+each input handler — `if self._canvas and not self._canvas._overlay_input_allowed(self): return`.
+Display overlays (milling, scalebar) need no change.
+
+**Toolbar mode toggle (discoverability + escape hatch).** Layered on top of the
+primitive:
+- `enter_overlay_mode(overlay, label, icon="mdi:cursor-default-click")` — sets active **and**
+  shows a checkable toolbar button (checked).
+- The button: **checked = active (overlay owns input); uncheck = Move (active→None, stage
+  movement back); re-check = re-activate** — toggles without destroying the button.
+- `exit_overlay_mode()` — active→None and removes the button (called when the step ends).
+
+**Callers:**
+- POI selection — `enter_overlay_mode(poi_overlay, "POI")` on show; `exit_overlay_mode()` on compute/clear.
+- Alignment-area editing — entered while `editable=True` (`set_alignment_layer`), exited in
+  `clear_alignment_area`; also retires the "editable + read-only alignment both visible" follow-up.
+- Spot burn (Phase 5) — `enter_overlay_mode(spot_overlay, "Spot burn")`; the spot overlay's
+  `add_on_right_click=True` drops a spot on right-click with the milling menu suppressed.
+  - **Phase 5 note:** `_overlay_input_allowed` lets an overlay respond whenever *nothing*
+    is active (required for backward-compat: today's always-on overlays). So toggling a
+    spot-burn overlay to **Move** would still add a spot on right-click. POI is unaffected
+    (move-only, `add_on_right_click=False`). If spot-burn needs to be fully inert in Move,
+    add a per-overlay "modal" gate (respond only when `active is self`) — decide in Phase 5.
+
+**Scope boundary (deliberate).** Per-canvas, not global: during FIB POI selection
+the SEM canvas has no active overlay, so SEM double-click-move stays live. Strictly
+≥ today (today nothing is gated). A controller-level movement freeze across all
+canvases is an easy follow-on if it's ever wanted.

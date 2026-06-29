@@ -166,6 +166,14 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         # Overlays set this True on press to suppress canvas pan
         self._overlay_consuming_event: bool = False
 
+        # Active-overlay input gating. None = default "Move" (full navigation +
+        # stage movement + milling menu). When set, that overlay owns input and
+        # the canvas suppresses its semantic click signals; see the design doc's
+        # active-overlay model. _mode_overlay/_mode_label back the toolbar toggle.
+        self._active_overlay = None
+        self._mode_overlay = None
+        self._mode_label: str = ""
+
         self._pixel_size: Optional[float] = None
         self._scalebar_artist = None
         self._scalebar_visible: bool = True
@@ -206,6 +214,12 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self.btn_contrast = self._add_overlay_button(
             "mdi:contrast-box", "Contrast / Gamma", self.toggle_contrast, checkable=True
         )
+        # Contextual mode toggle — shown only while an overlay owns input
+        # (enter_overlay_mode). Checked = active; unchecking returns to Move.
+        self.btn_mode = self._add_overlay_button(
+            "mdi:cursor-default-click", "", self._on_mode_button_clicked, checkable=True
+        )
+        self.btn_mode.hide()
 
         # Floating contrast / gamma popover, anchored under btn_contrast
         self._contrast = ContrastGammaControl(self)
@@ -376,6 +390,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         """Place overlay buttons right-to-left in the top-right corner."""
         x = self.width() - _OVERLAY_MARGIN
         for btn in self._overlay_buttons:
+            if btn.isHidden():  # contextual buttons (e.g. mode toggle) reserve no slot
+                continue
             x -= btn.width()
             btn.move(x, _OVERLAY_MARGIN)
             x -= _OVERLAY_GAP
@@ -409,6 +425,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     def remove_overlay(self, overlay: CanvasOverlay) -> None:
         if overlay in self._overlays:
+            self.exit_overlay_mode(overlay)  # no-op unless it owns the mode
+            if overlay is self._active_overlay:  # active without a toolbar mode
+                self._active_overlay = None
             try:
                 overlay.detach()
             except Exception:
@@ -419,6 +438,73 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def clear_overlays(self) -> None:
         for o in list(self._overlays):
             self.remove_overlay(o)
+
+    # ── active-overlay input gating ───────────────────────────────────────
+
+    @property
+    def active_overlay(self):
+        """The overlay currently owning input, or None (default 'Move' mode)."""
+        return self._active_overlay
+
+    def set_active_overlay(self, overlay) -> None:
+        """Make *overlay* the sole input handler on this canvas (None = Move).
+
+        While set, the canvas suppresses its semantic click signals
+        (``canvas_clicked`` / ``canvas_double_clicked`` / ``canvas_right_clicked``),
+        so stage movement and the milling menu stand down and other interactive
+        overlays stand down; pan / zoom / scroll stay live. This is the low-level
+        primitive — :meth:`enter_overlay_mode` wraps it with the toolbar toggle.
+        """
+        self._active_overlay = overlay
+        self.draw_idle()
+
+    def _overlay_input_allowed(self, overlay) -> bool:
+        """True if *overlay* may handle input now (nothing active, or it's active)."""
+        return self._active_overlay is None or self._active_overlay is overlay
+
+    def enter_overlay_mode(
+        self, overlay, label: str, icon: str = "mdi:cursor-default-click"
+    ) -> None:
+        """Activate *overlay* and show the contextual toolbar toggle (checked).
+
+        Checked = the overlay owns input; unchecking returns to Move (re-enables
+        stage movement); re-checking re-activates. Call :meth:`exit_overlay_mode`
+        when the workflow step ends.
+        """
+        self._mode_overlay = overlay
+        self._mode_label = label
+        self.btn_mode.setIcon(QIconifyIcon(icon, color="#aaaaaa"))
+        self.btn_mode.setToolTip(f"{label} active — click to enable Move")
+        self.btn_mode.setChecked(True)
+        self.btn_mode.show()
+        self._reposition_overlay_buttons()
+        self.set_active_overlay(overlay)
+
+    def exit_overlay_mode(self, overlay=None) -> None:
+        """Deactivate the overlay mode and hide the toolbar toggle (idempotent).
+
+        Pass *overlay* to scope the exit — it's a no-op unless that overlay owns
+        the current mode, so one caller can't tear down another's mode (POI and
+        alignment editing share the FIB canvas). ``None`` forces an exit.
+        """
+        if overlay is not None and overlay is not self._mode_overlay:
+            return
+        self._mode_overlay = None
+        self.btn_mode.setChecked(False)
+        self.btn_mode.hide()
+        self._reposition_overlay_buttons()
+        self.set_active_overlay(None)
+
+    def _on_mode_button_clicked(self) -> None:
+        """Toolbar toggle: flip between the bound overlay and Move (no teardown)."""
+        if self._mode_overlay is None:
+            return
+        if self.btn_mode.isChecked():
+            self.btn_mode.setToolTip(f"{self._mode_label} active — click to enable Move")
+            self.set_active_overlay(self._mode_overlay)
+        else:
+            self.btn_mode.setToolTip(f"Click to resume {self._mode_label}")
+            self.set_active_overlay(None)
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -543,11 +629,14 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             return
         mods = _modifiers_from_event(event)
         if event.dblclick:
-            if event.button == 1:
+            # active overlay owns input → suppress stage-move double-click
+            if event.button == 1 and self._active_overlay is None:
                 self.canvas_double_clicked.emit(event.xdata, event.ydata, mods)
             return  # don't start a pan on double-click
         if event.button == 3:
-            self.canvas_right_clicked.emit(event.xdata, event.ydata, mods)
+            # active overlay owns input → suppress the right-click (milling) menu
+            if self._active_overlay is None:
+                self.canvas_right_clicked.emit(event.xdata, event.ydata, mods)
             return
         if event.button != 1:
             return
@@ -588,6 +677,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             if (
                 dist < 3
                 and not was_consuming
+                and self._active_overlay is None  # active overlay owns the click
                 and event.xdata is not None
                 and event.ydata is not None
             ):
@@ -930,6 +1020,9 @@ class RectOverlay(QObject):
 
     def _on_press(self, event):
         if not self._interactive:
+            return
+        # Another overlay owns input on this canvas
+        if self._canvas is not None and not self._canvas._overlay_input_allowed(self):
             return
         if event.inaxes is not self._ax or event.button != 1:
             return
@@ -1337,6 +1430,8 @@ class PointOverlay(QObject):
     def _on_press(self, event):
         if self._canvas is None or self._ax is None:
             return
+        if not self._canvas._overlay_input_allowed(self):  # another overlay owns input
+            return
         if event.inaxes is not self._ax or event.xdata is None or event.dblclick:
             return
         if self._canvas._overlay_consuming_event:
@@ -1406,6 +1501,8 @@ class PointOverlay(QObject):
             self._canvas.draw_idle()
 
     def _on_key(self, event):
+        if self._canvas is not None and not self._canvas._overlay_input_allowed(self):
+            return  # another overlay owns input
         if not self._removable:
             return
         if event.key in ("delete", "backspace") and self._selected is not None:

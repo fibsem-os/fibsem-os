@@ -2013,6 +2013,9 @@ class AutoLamellaUI(QMainWindow):
             fib_canvas.add_overlay(self._poi_overlay)
         self._poi_overlay.set_points([(col, row)])
         fib_canvas.set_hint("drag to move")
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The
+        # toolbar toggle lets the user drop to Move and back. (See active-overlay model.)
+        fib_canvas.enter_overlay_mode(self._poi_overlay, "POI", icon="mdi:map-marker")
 
     def _compute_and_clear_poi_layer(self) -> None:
         """Compute POI from current marker position, hide it, store in SELECTED_POI."""
@@ -2028,6 +2031,7 @@ class AutoLamellaUI(QMainWindow):
             controller = getattr(self.parent_widget, "view_controller", None)
             if controller is not None:
                 controller.fib_canvas.set_hint(None)
+                controller.fib_canvas.exit_overlay_mode(self._poi_overlay)  # restore Move
             return
         if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
             pos = self._poi_layer.data[0]  # [row, col] napari coords
