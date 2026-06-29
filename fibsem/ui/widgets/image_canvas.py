@@ -241,7 +241,29 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     def set_image(self, image: FibsemImage, cmap: str = "gray") -> None:
         """Display a FibsemImage.  Notifies all registered overlays."""
-        h, w = image.data.shape[:2]
+        pixel_size = None
+        try:
+            if image.metadata and image.metadata.pixel_size:
+                pixel_size = image.metadata.pixel_size.x
+        except Exception:
+            pass
+        self.set_array(image.filtered_data, pixel_size=pixel_size, cmap=cmap)
+
+    def set_array(
+        self,
+        arr: np.ndarray,
+        pixel_size: Optional[float] = None,
+        cmap: str = "gray",
+    ) -> None:
+        """Display a raw 2-D (grayscale) or HxWx3 (RGB) array.
+
+        The lower-level entry point behind :meth:`set_image`, for composites/RGB
+        that have no backing ``FibsemImage`` (e.g. the multi-channel FM canvas).
+        *pixel_size* (metres/px) drives the scalebar; ``None`` leaves the current
+        value unchanged.  Notifies all registered overlays.
+        """
+        arr = np.asarray(arr)
+        h, w = arr.shape[:2]
         self._img_w, self._img_h = w, h
 
         self._ax.cla()
@@ -249,9 +271,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        display = _downsample(image.filtered_data, _MAX_DISPLAY_PX)
-        self._display_base = display
-        self._is_gray = image.data.ndim == 2
+        self._display_base = _downsample(arr, _MAX_DISPLAY_PX)
+        self._is_gray = arr.ndim == 2
         self._norm = None  # recomputed lazily when contrast is engaged
         extent = (-0.5, w - 0.5, h - 0.5, -0.5)
         kw = dict(
@@ -270,13 +291,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
         # Scalebar
         self._scalebar_artist = None
-        try:
-            if image.metadata and image.metadata.pixel_size:
-                px = image.metadata.pixel_size.x
-                if px and px > 0:
-                    self._pixel_size = px
-        except Exception:
-            pass
+        if pixel_size and pixel_size > 0:
+            self._pixel_size = pixel_size
         self._refresh_scalebar()
         self._refresh_crosshair()
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
