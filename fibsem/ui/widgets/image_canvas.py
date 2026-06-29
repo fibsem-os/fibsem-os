@@ -1163,6 +1163,10 @@ class PointOverlay(QObject):
         If True (default), right-clicking adds a new point.
     removable : bool
         If True (default), Delete/Backspace removes the selected point.
+    modal : bool
+        If True, the overlay handles input *only* while it is the canvas's active
+        overlay (e.g. spot burn — inert in Move mode). If False (default), it also
+        responds when no overlay is active (always-on, backward-compatible).
     """
 
     point_added = pyqtSignal(int, float, float)  # index, x, y
@@ -1180,6 +1184,7 @@ class PointOverlay(QObject):
         label_prefix: str = "",
         add_on_right_click: bool = True,
         removable: bool = True,
+        modal: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -1190,6 +1195,8 @@ class PointOverlay(QObject):
         self._label_prefix = label_prefix
         self._add_on_right_click = add_on_right_click
         self._removable = removable
+        self._modal = modal
+        self._visible = True  # toggled by set_visible (points kept, artists hidden)
 
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
@@ -1292,7 +1299,32 @@ class PointOverlay(QObject):
     def get_points(self) -> List[Tuple[float, float]]:
         return [(p[0], p[1]) for p in self._points]
 
+    def set_visible(self, visible: bool) -> None:
+        """Show or hide all markers/labels without discarding the points.
+
+        State is remembered and re-applied across image rebuilds (a hidden
+        overlay stays hidden when a new image arrives).
+        """
+        self._visible = visible
+        for a in self._artists + self._anns:
+            if a is not None:
+                a.set_visible(visible)
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
     # ── private: artists ──────────────────────────────────────────────────
+
+    def _input_allowed(self) -> bool:
+        """Whether this overlay may handle input now (modal-aware).
+
+        Modal overlays respond only while they are the canvas's active overlay;
+        non-modal overlays also respond when nothing is active (default).
+        """
+        if self._canvas is None:
+            return True
+        if self._modal:
+            return self._canvas._active_overlay is self
+        return self._canvas._overlay_input_allowed(self)
 
     def _remove_all_artists(self):
         for lst in (self._artists, self._anns):
@@ -1336,6 +1368,7 @@ class PointOverlay(QObject):
             linestyle="none",
             zorder=8,
             animated=False,
+            visible=self._visible,
         )
         self._artists.append(line)
         ann = None
@@ -1349,6 +1382,7 @@ class PointOverlay(QObject):
                 fontsize=8,
                 zorder=9,
                 animated=False,
+                visible=self._visible,
             )
         self._anns.append(ann)
 
@@ -1432,7 +1466,7 @@ class PointOverlay(QObject):
     def _on_press(self, event):
         if self._canvas is None or self._ax is None:
             return
-        if not self._canvas._overlay_input_allowed(self):  # another overlay owns input
+        if not self._input_allowed():  # another overlay owns input (modal-aware)
             return
         if event.inaxes is not self._ax or event.xdata is None or event.dblclick:
             return
@@ -1506,8 +1540,8 @@ class PointOverlay(QObject):
             self._canvas.draw_idle()
 
     def _on_key(self, event):
-        if self._canvas is not None and not self._canvas._overlay_input_allowed(self):
-            return  # another overlay owns input
+        if not self._input_allowed():  # another overlay owns input (modal-aware)
+            return
         if not self._removable:
             return
         if event.key in ("delete", "backspace") and self._selected is not None:

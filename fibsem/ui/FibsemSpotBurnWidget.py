@@ -37,8 +37,50 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         # napari layers
         self.pts_layer: Optional[NapariPointsLayer] = None
         self.image_layer: Optional[NapariImageLayer] = None
+        # quad-view: a modal PointOverlay on the FIB canvas (created lazily when a
+        # MicroscopeViewController is present; otherwise the napari path is used).
+        self._spot_overlay = None
 
         self.setup_connections()
+
+    # ------------------------------------------------------------------
+    # Quad-view overlay (gated; napari path preserved when no controller)
+    # ------------------------------------------------------------------
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None (napari path)."""
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
+
+    def _fib_image(self):
+        """Current FIB image (for normalized<->pixel conversion), or None."""
+        iw = getattr(self.parent, "image_widget", None)
+        return getattr(iw, "ib_image", None) if iw is not None else None
+
+    def _get_spot_overlay(self):
+        """Lazily create the spot PointOverlay on the FIB canvas, or None.
+
+        Modal (responds only while it owns input) + right-click to add + Delete to
+        remove. Returns None on the napari path (no controller).
+        """
+        if self._spot_overlay is not None:
+            return self._spot_overlay
+        controller = self._view_controller()
+        if controller is None:
+            return None
+        from fibsem.ui.widgets.image_canvas import PointOverlay
+
+        self._spot_overlay = PointOverlay(
+            color="cyan", selected_color="yellow", marker="o", size=10,
+            add_on_right_click=True, removable=True, modal=True,
+        )
+        controller.fib_canvas.add_overlay(self._spot_overlay)
+        self._spot_overlay.set_visible(False)
+        for sig in (self._spot_overlay.point_added,
+                    self._spot_overlay.point_removed,
+                    self._spot_overlay.point_moved):
+            sig.connect(lambda *a: self._on_data_changed())
+        return self._spot_overlay
 
     def setup_connections(self):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
@@ -83,6 +125,15 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
     def set_active(self):
         """Called when the widget is activated."""
 
+        overlay = self._get_spot_overlay()
+        if overlay is not None:
+            overlay.set_visible(True)
+            fib_canvas = self._view_controller().fib_canvas
+            fib_canvas.enter_overlay_mode(overlay, "Spot burn", icon="mdi:target")
+            fib_canvas.set_hint("drag to move  ·  right-click to add  ·  Delete to remove")
+            self._on_data_changed()
+            return
+
         # add the points layer if it doesn't exist
         self._add_points_layer()
         if self.pts_layer is None:
@@ -94,6 +145,14 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
     def set_inactive(self):
         """Called when the widget is deactivated."""
+
+        if self._spot_overlay is not None:
+            controller = self._view_controller()
+            if controller is not None:
+                controller.fib_canvas.exit_overlay_mode(self._spot_overlay)
+                controller.fib_canvas.set_hint(None)
+            self._spot_overlay.set_visible(False)
+            return
 
         # hide the points layer
         if SPOT_BURN_POINTS_LAYER_NAME in self.viewer.layers:
@@ -107,9 +166,11 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         exposure_time = parameters.get("exposure_time", None)
         coordinates = parameters.get("coordinates", None)
 
-        if self.pts_layer is None:
-            self._add_points_layer() # ensure points layer exists
-    
+        if self._view_controller() is not None:
+            self._get_spot_overlay()  # ensure the overlay exists (quad-view)
+        elif self.pts_layer is None:
+            self._add_points_layer()  # ensure points layer exists (napari)
+
         if milling_current is not None:
             index = self.comboBox_beam_current.findData(milling_current)
             if index != -1:
@@ -118,11 +179,21 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         if exposure_time is not None:
             self.doubleSpinBox_exposure_time.setValue(exposure_time)
 
-        if coordinates and self.pts_layer is not None:
+        if coordinates:
             self._set_coordinates(coordinates)
 
     def _set_coordinates(self, coordinates: list):
-        """Pre-populate the points layer from normalised image coordinates (0-1)."""
+        """Pre-populate the spots from normalised image coordinates (0-1)."""
+
+        overlay = self._get_spot_overlay()
+        if overlay is not None:
+            img = self._fib_image()
+            if img is None:
+                return
+            h, w = img.data.shape[:2]
+            overlay.set_points([(pt.x * w, pt.y * h) for pt in coordinates])
+            self._on_data_changed()
+            return
 
         self.image_layer = self.parent.image_widget.ib_layer
         if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
@@ -140,6 +211,15 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
     def get_coordinates(self) -> list:
         """Get the current spot burn positions as normalised image coordinates (0-1)."""
+        if self._spot_overlay is not None:
+            img = self._fib_image()
+            if img is None:
+                return []
+            h, w = img.data.shape[:2]
+            coords = [Point(float(col / w), float(row / h))
+                      for col, row in self._spot_overlay.get_points()]
+            return [pt for pt in coords if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
+
         if self.pts_layer is None or len(self.pts_layer.data) == 0:
             return []
 
@@ -157,31 +237,40 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         return coordinates
 
     def clear_points_layer(self):
-        """Clear the points layer."""
+        """Clear the spots."""
+        if self._spot_overlay is not None:
+            self._spot_overlay.clear_points()
+            self._on_data_changed()
+            return
         if SPOT_BURN_POINTS_LAYER_NAME in self.viewer.layers:
             self.viewer.layers.remove(SPOT_BURN_POINTS_LAYER_NAME)
             self.pts_layer = None
 
     def _on_data_changed(self, event = None):
-        """Called when the data in the points layer changes."""
-        if self.pts_layer is None:
+        """Called when the spots change (overlay signals or napari layer events)."""
+        if self._spot_overlay is not None:
+            n = len(self._spot_overlay.get_points())
+        elif self.pts_layer is not None:
+            n = len(self.pts_layer.data)
+        else:
             return
-        coordinates = self.pts_layer.data
-        
-        enabled = bool(len(coordinates) > 0)
-        self.pushButton_run_spot_burn.setEnabled(enabled)
-        if enabled:
-            self.label_information.setText(f"Selected {len(coordinates)} points. Estimated time: {len(coordinates) * self.doubleSpinBox_exposure_time.value()} seconds")
+
+        self.pushButton_run_spot_burn.setEnabled(n > 0)
+        if n > 0:
+            self.label_information.setText(f"Selected {n} points. Estimated time: {n * self.doubleSpinBox_exposure_time.value()} seconds")
             self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         else:
-            self.label_information.setText("No points selected. Please add points to the layer.")
+            add_hint = ("Right-click the FIB image to add points."
+                        if self._spot_overlay is not None
+                        else "Please add points to the layer.")
+            self.label_information.setText(f"No points selected. {add_hint}")
             self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
 
     def run_spot_burn_worker(self):
         """Run the spot burn worker."""
 
-        # get the points layer
-        if SPOT_BURN_POINTS_LAYER_NAME not in self.viewer.layers:
+        # get the points layer (napari path only; the overlay path has no layer)
+        if self._spot_overlay is None and SPOT_BURN_POINTS_LAYER_NAME not in self.viewer.layers:
             napari.utils.notifications.show_warning("No points layer found. Requires 'spot-burn-points' layer.")
             return
 

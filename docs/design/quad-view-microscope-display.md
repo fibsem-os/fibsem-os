@@ -376,13 +376,17 @@ primitive:
 - POI selection — `enter_overlay_mode(poi_overlay, "POI")` on show; `exit_overlay_mode()` on compute/clear.
 - Alignment-area editing — entered while `editable=True` (`set_alignment_layer`), exited in
   `clear_alignment_area`; also retires the "editable + read-only alignment both visible" follow-up.
-- Spot burn (Phase 5) — `enter_overlay_mode(spot_overlay, "Spot burn")`; the spot overlay's
-  `add_on_right_click=True` drops a spot on right-click with the milling menu suppressed.
-  - **Phase 5 note:** `_overlay_input_allowed` lets an overlay respond whenever *nothing*
-    is active (required for backward-compat: today's always-on overlays). So toggling a
-    spot-burn overlay to **Move** would still add a spot on right-click. POI is unaffected
-    (move-only, `add_on_right_click=False`). If spot-burn needs to be fully inert in Move,
-    add a per-overlay "modal" gate (respond only when `active is self`) — decide in Phase 5.
+- Spot burn (Phase 5a, DONE) — `enter_overlay_mode(spot_overlay, "Spot burn")`; the spot
+  overlay is `PointOverlay(add_on_right_click=True, removable=True, modal=True)`, so
+  right-click drops a spot with the milling menu suppressed, and toggling to **Move** makes
+  it fully **inert** (see the modal gate below). `set_active`/`set_inactive` enter/exit the
+  mode + `set_visible`; coords convert normalized(0–1)↔full-res pixel (no napari translate).
+  - **Modal gate (implemented).** `_overlay_input_allowed` lets an overlay respond whenever
+    *nothing* is active (required for backward-compat: always-on overlays). A `PointOverlay`
+    constructed with `modal=True` instead responds **only while it is the active overlay**
+    (`_input_allowed()` → `active is self`), so in Move mode it is display-only. POI stays
+    non-modal (move-only, harmless in Move). `PointOverlay.set_visible()` hides/shows markers
+    without discarding points (survives image rebuilds) for active/inactive parity.
 
 **Scope boundary (deliberate).** Per-canvas, not global: during FIB POI selection
 the SEM canvas has no active overlay, so SEM double-click-move stays live. Strictly
