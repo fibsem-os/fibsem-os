@@ -86,6 +86,9 @@ def save_ml_feature_data(det: DetectedFeatures, initial_features: Optional[List[
         fname = f"ml-{utils.current_timestamp_v2()}"
         beam_type = "NULL"
 
+    # beam_type is a BeamType enum when metadata is present, else the "NULL" string fallback
+    beam_type_name = beam_type.name if hasattr(beam_type, "name") else str(beam_type)
+
     fd = [] # feature detections
     for f0, f1 in zip(det.features, initial_features):
         px_diff = f1.px - f0.px
@@ -96,7 +99,7 @@ def save_ml_feature_data(det: DetectedFeatures, initial_features: Optional[List[
                 "dpx": px_diff.to_dict(),                                   # pixel difference
                 "dm": px_diff._to_metres(det.pixelsize).to_dict(),          # metre difference
                 "is_correct": not np.any(px_diff.to_list()),                # is the feature correct
-                "beam_type": beam_type.name,                                # beam type         
+                "beam_type": beam_type_name,                                # beam type
                 "pixelsize": det.pixelsize,                                 # pixelsize
                 "checkpoint": det.checkpoint,                               # checkpoint
         }
