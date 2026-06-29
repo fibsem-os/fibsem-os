@@ -774,6 +774,9 @@ class AutoLamellaUI(QMainWindow):
 
             # remove tabs
             if self.fm_control_widget is not None:
+                # deleteLater fires neither closeEvent nor close_widget, so tear
+                # down the FM widget's external signal connections explicitly
+                self.fm_control_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
                 self.fm_control_widget.deleteLater()
                 self.fm_control_widget = None

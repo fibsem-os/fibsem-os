@@ -475,3 +475,13 @@ class ObjectiveControlWidget(QWidget):
         logging.info(f"Executing debounced wheel move to: {position_um:.1f} µm")
         self.fm.objective.move_absolute(position_m)
         self.update_objective_position_labels(objective_position=position_m)
+
+    def cleanup(self):
+        """Remove the napari mouse-wheel callback. Call on widget teardown so the
+        callback (and the dead widget it binds) doesn't leak on the persistent
+        napari viewer across microscope reconnects."""
+        if self.parent_widget is not None and hasattr(self.parent_widget, "viewer"):
+            try:
+                self.parent_widget.viewer.mouse_wheel_callbacks.remove(self._on_mouse_wheel)
+            except (ValueError, RuntimeError):
+                pass

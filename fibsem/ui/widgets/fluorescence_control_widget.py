@@ -46,6 +46,7 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
     ZParametersWidget,
 )
+from fibsem.ui import notification_service
 from fibsem.ui.napari.utilities import is_position_inside_layer, update_text_overlay
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -96,6 +97,8 @@ class FMControlWidget(QWidget):
         # double-click can convert pixel → stage without napari layer metadata
         self._fm_pixelsize: Optional[float] = None
         self._fm_image_shape: Optional[tuple] = None
+        self._fm_canvas = None  # quad-view FM canvas we connect to (for teardown)
+        self._fm_move_lock = threading.Lock()  # serialize canvas-driven stage moves
 
         self.initUI()
         self.connect_signals()
@@ -298,10 +301,12 @@ class FMControlWidget(QWidget):
         # (→ objective) to the matplotlib canvas; else the napari callbacks
         controller = self._view_controller()
         if fcfg.FEATURE_QUAD_VIEW_ENABLED and controller is not None:
-            controller.fm_canvas.canvas_double_clicked.connect(
-                lambda x, y, m: self._on_canvas_fm_double_click(x, y, m)
-            )
-            controller.fm_canvas.canvas_scrolled.connect(
+            # bound methods (not lambdas) so they can be disconnected on teardown;
+            # the canvas outlives this widget, so a leaked connection would fire a
+            # stale stage move after the widget is destroyed
+            self._fm_canvas = controller.fm_canvas
+            self._fm_canvas.canvas_double_clicked.connect(self._on_canvas_fm_double_click)
+            self._fm_canvas.canvas_scrolled.connect(
                 self.objectiveControlWidget._on_canvas_scroll
             )
         else:
@@ -318,17 +323,36 @@ class FMControlWidget(QWidget):
         # Initialize checkbox text
         self._update_checkbox_text()
 
-    def close_widget(self):
-        """Close the widget."""
+    def _teardown_connections(self):
+        """Disconnect every external signal/callback wired in connect_signals.
 
-        # disconnect signals
-        self.fm.acquisition_signal.disconnect(self.update_image)
+        Idempotent and fully guarded so it can be called both from closeEvent and
+        from the parent's teardown (the ``deleteLater`` path, where closeEvent
+        never fires). The quad-view ``fm_canvas`` outlives this widget, so its
+        connections MUST be torn down or a stale double-click/scroll would drive
+        the stage/objective through a destroyed widget.
+        """
+        try:
+            self.fm.acquisition_signal.disconnect(self.update_image)
+        except (TypeError, RuntimeError):
+            pass
         try:
             self.viewer.mouse_double_click_callbacks.remove(self.on_mouse_double_click)
         except ValueError:
             pass  # not registered on the quad-view path
 
-        # Disconnect lamella list signal if connected
+        if self._fm_canvas is not None:
+            for signal, slot in (
+                (self._fm_canvas.canvas_double_clicked, self._on_canvas_fm_double_click),
+                (self._fm_canvas.canvas_scrolled, self.objectiveControlWidget._on_canvas_scroll),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+            self._fm_canvas = None
+        self.objectiveControlWidget.cleanup()
+
         if self.parent_widget is not None and hasattr(
             self.parent_widget, "lamella_list"
         ):
@@ -336,9 +360,12 @@ class FMControlWidget(QWidget):
                 self.parent_widget.lamella_list.lamella_selected.disconnect(
                     self._update_checkbox_text
                 )
-            except Exception:
+            except (TypeError, RuntimeError):
                 pass
 
+    def close_widget(self):
+        """Disconnect external signals and close the widget."""
+        self._teardown_connections()
         self.close()
 
     def on_mouse_double_click(self, viewer, event):
@@ -439,12 +466,9 @@ class FMControlWidget(QWidget):
 
     def _on_canvas_fm_double_click(self, x, y, modifiers):
         """Quad-view FM canvas double-click → relative stage move that recenters
-        the clicked point. Runs the move off the UI thread; modifiers ignored."""
-        threading.Thread(
-            target=self._canvas_fm_move_worker, args=(x, y), daemon=True
-        ).start()
-
-    def _canvas_fm_move_worker(self, x, y):
+        the clicked point. Guards run here on the UI thread (so a rejected click
+        never starts a thread); the move itself runs off-thread. Modifiers ignored.
+        """
         if self.is_acquisition_active:
             logging.info("Stage movement disabled during acquisition")
             return
@@ -460,7 +484,26 @@ class FMControlWidget(QWidget):
             return
         if not (0 <= x < shape[1] and 0 <= y < shape[0]):
             return  # click landed outside the image area
-        self._fm_relative_move_from_pixel(x, y, shape, pixelsize)
+        # serialize: drop the click if a stage move is already running
+        if not self._fm_move_lock.acquire(blocking=False):
+            logging.info("FM stage move already in progress; ignoring click")
+            return
+        threading.Thread(
+            target=self._canvas_fm_move_worker,
+            args=(x, y, shape, pixelsize),
+            daemon=True,
+        ).start()
+
+    def _canvas_fm_move_worker(self, x, y, shape, pixelsize):
+        try:
+            self._fm_relative_move_from_pixel(x, y, shape, pixelsize)
+        except Exception as exc:
+            logging.exception("FM stage move failed")
+            notification_service.show_toast(
+                f"FM stage move failed: {exc}", notification_type="error"
+            )
+        finally:
+            self._fm_move_lock.release()
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single microscope parameter during live acquisition."""
@@ -1026,8 +1069,8 @@ class FMControlWidget(QWidget):
             event.accept()
             return
 
-        # Stop live acquisition
-        self.microscope.fm.acquisition_signal.disconnect(self.update_image)
+        # Disconnect all external signals/callbacks (idempotent)
+        self._teardown_connections()
         if self.microscope.fm.is_acquiring:
             try:
                 self.microscope.fm.stop_acquisition()
