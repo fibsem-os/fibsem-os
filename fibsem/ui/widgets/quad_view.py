@@ -12,13 +12,17 @@ per-beam click signals).
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from PyQt5.QtCore import QObject, Qt
 from PyQt5.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout, QWidget
 
 from fibsem.structures import BeamType, FibsemImage
+from fibsem.ui.widgets.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+
+if TYPE_CHECKING:
+    from fibsem.fm.structures import FluorescenceImage
 
 _BG = "#1e2124"
 _TITLE_STYLE = (
@@ -65,20 +69,23 @@ class PlaceholderPanel(QFrame):
 class QuadViewWidget(QWidget):
     """2x2 grid: SEM | FIB over FM | placeholder, each a titled panel.
 
-    The three image cells are :class:`FibsemImageCanvas` instances (so they
-    inherit the reset / scalebar / crosshair / contrast toolbar); the 4th is an
-    inert placeholder.
+    The SEM/FIB cells are :class:`FibsemImageCanvas` instances (so they inherit
+    the reset / scalebar / crosshair / contrast toolbar); the FM cell is an
+    :class:`FMCanvasWidget` (multi-channel composite + per-channel controls), and
+    the 4th is an inert placeholder. ``fm_canvas`` aliases the FM widget's inner
+    canvas so overlays attach the same way they do on SEM/FIB.
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.sem_canvas = FibsemImageCanvas()
         self.fib_canvas = FibsemImageCanvas()
-        self.fm_canvas = FibsemImageCanvas()
+        self.fm_widget = FMCanvasWidget()
+        self.fm_canvas = self.fm_widget.canvas
         self.placeholder = PlaceholderPanel("No Data")
 
         left = _splitter(
-            Qt.Vertical, _titled("SEM", self.sem_canvas), _titled("FM", self.fm_canvas)
+            Qt.Vertical, _titled("SEM", self.sem_canvas), _titled("FM", self.fm_widget)
         )
         right = _splitter(
             Qt.Vertical,
@@ -121,7 +128,13 @@ class MicroscopeViewController(QObject):
         return self._widget.fib_canvas
 
     @property
+    def fm_widget(self) -> FMCanvasWidget:
+        """The multi-channel FM widget (composite + per-channel controls)."""
+        return self._widget.fm_widget
+
+    @property
     def fm_canvas(self) -> FibsemImageCanvas:
+        """The FM widget's inner canvas — for overlays / scalebar, like SEM/FIB."""
         return self._widget.fm_canvas
 
     def get_canvas(self, beam: BeamType) -> Optional[FibsemImageCanvas]:
@@ -134,11 +147,21 @@ class MicroscopeViewController(QObject):
         if canvas is not None:
             canvas.set_image(image)
 
-    def set_fm_image(self, image: FibsemImage) -> None:
-        """Display a fluorescence image on the FM canvas."""
-        self._widget.fm_canvas.set_image(image)
+    def set_fm_channel(self, name: str, data, color: Optional[str] = None) -> None:
+        """Upsert one fluorescence channel into the FM composite (by *name*)."""
+        self._widget.fm_widget.set_channel(name, data, color)
+
+    def set_fm_pixel_size(self, pixel_size: Optional[float]) -> None:
+        """Set the FM canvas pixel size (metres/px) for the scalebar."""
+        self._widget.fm_widget.set_pixel_size(pixel_size)
+
+    def set_fm_image(self, image: "FluorescenceImage") -> None:
+        """Composite an acquired ``FluorescenceImage`` (all channels) onto the FM
+        canvas. See :meth:`FMCanvasWidget.set_fm_image`."""
+        self._widget.fm_widget.set_fm_image(image)
 
     def clear(self) -> None:
         """Clear all image canvases back to their placeholder text."""
-        for canvas in (self.sem_canvas, self.fib_canvas, self.fm_canvas):
-            canvas.clear()
+        self.sem_canvas.clear()
+        self.fib_canvas.clear()
+        self._widget.fm_widget.clear()

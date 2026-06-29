@@ -11,7 +11,7 @@ are Phase 6b.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import Qt, QPoint, QSize, pyqtSignal
@@ -22,11 +22,13 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QIconifyIcon, QRangeSlider
 
-from fibsem.structures import FibsemImage
 from fibsem.ui.widgets.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
 )
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+
+if TYPE_CHECKING:
+    from fibsem.fm.structures import FluorescenceImage
 
 _PANEL_BG = "#2c3036"
 _ACCENT = "#5b9bd5"
@@ -210,6 +212,25 @@ class FMCanvasWidget(QWidget):
             self._panel.set_layers(self._layers)
         self._recomposite()
 
+    def set_fm_image(self, image: "FluorescenceImage") -> None:
+        """Composite every channel of an acquired ``FluorescenceImage`` (CZYX).
+
+        Pixel size and per-channel name/colour come from the image metadata;
+        channels upsert by name, so live frames update in place and multiple
+        channels blend additively (parity with the napari main tab).
+        """
+        md = image.metadata
+        self.set_pixel_size(getattr(md, "pixel_size_x", None))
+        data = np.asarray(image.data)
+        for ci, channel in enumerate(md.channels):
+            if data.ndim >= 4:  # CZYX → 2-D via the structure's own z-projection
+                plane = image.max_intensity_projection(channel=ci, return_2d=True)
+            elif data.ndim == 2:
+                plane = data
+            else:  # 3-D (Z, Y, X) single channel — collapse the leading axis
+                plane = data[0] if data.shape[0] == 1 else data.max(axis=0)
+            self.set_channel(channel.name, plane, channel.color)
+
     def set_layers(self, layers: List[FMLayer]) -> None:
         self._layers = list(layers)
         for l in self._layers:
@@ -244,14 +265,12 @@ class FMCanvasWidget(QWidget):
             return
         h, w = rgb.shape[:2]
         if self._canvas_shape != (h, w):
-            # set up axes + scalebar at this shape with a 2D placeholder, then swap
-            # in the RGB (a colour composite isn't a valid single-channel FibsemImage)
+            # (re)build axes + scalebar at this shape and show the composite
+            # directly — no fake single-channel FibsemImage needed
             self._canvas_shape = (h, w)
-            self.canvas.set_image(FibsemImage(data=np.zeros((h, w), dtype=np.uint8)))
-            if self._pixel_size:
-                self.canvas._pixel_size = self._pixel_size
-                self.canvas._refresh_scalebar()
-        self.canvas.update_display(rgb)
+            self.canvas.set_array(rgb, pixel_size=self._pixel_size)
+        else:
+            self.canvas.update_display(rgb)  # steady state: swap pixels only
 
     # ── layers popover ────────────────────────────────────────────────────
 

@@ -517,6 +517,15 @@ class FMControlWidget(QWidget):
             self.progressBar_acquisition_task.setValue(percentage)
             self.progressBar_acquisition_task.setFormat(msg)
 
+    def _view_controller(self):
+        """The quad-view ``MicroscopeViewController`` on the main microscope tab,
+        or ``None`` on the napari path. Chain: this widget's ``parent_widget`` is
+        the ``AutoLamellaUI``, whose ``parent_widget`` is the main UI that owns the
+        ``view_controller`` (set only when ``FEATURE_QUAD_VIEW_ENABLED``)."""
+        autolamella_ui = self.parent_widget
+        main_ui = getattr(autolamella_ui, "parent_widget", None)
+        return getattr(main_ui, "view_controller", None)
+
     @ensure_main_thread
     def update_image(self, image: FluorescenceImage):
 
@@ -556,6 +565,15 @@ class FMControlWidget(QWidget):
                 blending="additive",
             )
             self.viewer.reset_view()
+
+        # Quad-view mirror: composite the acquired image onto the FM canvas
+        # (gated; the napari path above is untouched). FMCanvasWidget.set_fm_image
+        # unpacks the channels + metadata; channels upsert by name and blend
+        # additively, like napari.
+        if fcfg.FEATURE_QUAD_VIEW_ENABLED:
+            controller = self._view_controller()
+            if controller is not None:
+                controller.set_fm_image(image)
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""

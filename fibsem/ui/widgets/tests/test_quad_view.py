@@ -28,8 +28,8 @@ def main() -> None:
     controller.set_image(
         BeamType.ION, FibsemImage.generate_blank_image(hfw=80e-6, random=True)
     )
-    controller.set_fm_image(
-        FibsemImage.generate_blank_image(hfw=150e-6, random=True)
+    controller.set_fm_channel(
+        "FM", FibsemImage.generate_blank_image(hfw=150e-6, random=True).data, "gray"
     )
 
     win = controller.widget
