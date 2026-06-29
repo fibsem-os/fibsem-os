@@ -438,6 +438,36 @@ class ObjectiveControlWidget(QWidget):
 
         event.handled = True
 
+    def _on_canvas_scroll(self, x, y, direction, modifiers):
+        """Quad-view equivalent of :meth:`_on_mouse_wheel`: Shift + scroll on the
+        FM canvas steps the objective by the step size. Plain scroll is left to the
+        canvas (zoom). ``direction`` is +1/-1 per notch; ``modifiers`` is a tuple
+        like ``("Shift",)``. The hardware move is debounced via _execute_wheel_move
+        so rapid scroll events coalesce into a single move.
+        """
+        if "Shift" not in modifiers:
+            return  # plain scroll → canvas zoom
+
+        if self.parent_widget is None or self.parent_widget.is_acquisition_active:
+            return
+
+        step_um = float(
+            np.clip(
+                self.doubleSpinBox_objective_step_size.value() * direction,
+                -MAX_OBJECTIVE_STEP_SIZE_UM,
+                MAX_OBJECTIVE_STEP_SIZE_UM,
+            )
+        )
+        new_pos_um = self.doubleSpinBox_objective_position.value() + step_um
+
+        # update spinbox immediately for visual feedback (no hardware call)
+        self.doubleSpinBox_objective_position.blockSignals(True)
+        self.doubleSpinBox_objective_position.setValue(new_pos_um)
+        self.doubleSpinBox_objective_position.blockSignals(False)
+
+        self._wheel_target_um = new_pos_um
+        self._execute_wheel_move()
+
     def _execute_wheel_move_impl(self):
         """Execute the actual hardware move after scrolling settles."""
         position_um = self._wheel_target_um
