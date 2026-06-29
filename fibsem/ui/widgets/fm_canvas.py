@@ -36,7 +36,7 @@ _ACCENT = "#5b9bd5"
 # napari-style dark theme for the floating layers panel
 _PANEL_QSS = """
 QFrame#fmPanel { background: #2c3036; border: 1px solid #3f444b; border-radius: 10px; }
-QLabel { color: #e4e6e9; }
+QLabel { color: #e4e6e9; background: transparent; }
 #panelTitle { color: #9aa0a6; font-size: 12px; font-weight: 500; letter-spacing: 1px; }
 QFrame#divider { background: #3a3f46; border: none; }
 #selName { color: #e4e6e9; font-size: 13px; font-weight: 500; }
@@ -60,6 +60,7 @@ QPushButton#autoPill:!checked { color: #9aa0a6; background: transparent; border:
 QPushButton#resetBtn { background: transparent; color: #cdd0d4; border: 1px solid #3f444b;
             border-radius: 6px; padding: 8px; font-size: 12px; }
 QPushButton#resetBtn:hover { background: #363d46; }
+QSlider { background: transparent; }
 QSlider::groove:horizontal { height: 4px; background: #3a3f46; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: #5b9bd5; border-radius: 2px; }
 QSlider::add-page:horizontal { background: #3a3f46; border-radius: 2px; }
