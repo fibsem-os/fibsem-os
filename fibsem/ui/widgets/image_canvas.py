@@ -1206,6 +1206,9 @@ class PointOverlay(QObject):
         self._points: List[List[float]] = []  # [[x, y], ...]  mutable for drag
         self._artists: List = []  # Line2D per point (index-aligned)
         self._anns: List = []  # Annotation per point (or None)
+        # Optional per-point overrides (index-aligned), else the global style is used
+        self._point_colors: Optional[List[str]] = None
+        self._point_labels: Optional[List[str]] = None
 
         self._selected: Optional[int] = None
         self._drag_idx: Optional[int] = None
@@ -1247,9 +1250,21 @@ class PointOverlay(QObject):
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def set_points(self, points: List[Tuple[float, float]]) -> None:
-        """Replace all points."""
+    def set_points(
+        self,
+        points: List[Tuple[float, float]],
+        colors: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> None:
+        """Replace all points.
+
+        ``colors`` / ``labels``, when given, are index-aligned per-point overrides
+        (e.g. one colour + name per detection feature); otherwise the global
+        ``color`` / ``label_prefix`` style is used.
+        """
         self._points = [[float(x), float(y)] for x, y in points]
+        self._point_colors = list(colors) if colors is not None else None
+        self._point_labels = list(labels) if labels is not None else None
         self._selected = None
         self._remove_all_artists()
         if self._ax is not None and self._img_w:
@@ -1349,12 +1364,28 @@ class PointOverlay(QObject):
             return "white", (2.0 if selected else 0.8)
         return color, (2.8 if selected else 2.0)
 
+    def _point_color(self, idx: int, selected: bool) -> str:
+        """Per-point colour override if set, else the global selected/normal colour.
+        (Per-point points keep their own colour even when selected — size + edge
+        convey the selection instead.)"""
+        if self._point_colors is not None and idx < len(self._point_colors):
+            return self._point_colors[idx]
+        return self._selected_color if selected else self._color
+
+    def _point_label(self, idx: int) -> Optional[str]:
+        """Per-point label override if set, else ``label_prefix + (idx+1)`` or None."""
+        if self._point_labels is not None and idx < len(self._point_labels):
+            return self._point_labels[idx]
+        if self._label_prefix:
+            return f"{self._label_prefix}{idx + 1}"
+        return None
+
     def _append_artist(self, idx: int):
         if self._ax is None:
             return
         x, y = self._points[idx]
         selected = idx == self._selected
-        color = self._selected_color if selected else self._color
+        color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
         edge_color, mew = self._marker_edge(color, selected)
         (line,) = self._ax.plot(
@@ -1372,9 +1403,10 @@ class PointOverlay(QObject):
         )
         self._artists.append(line)
         ann = None
-        if self._label_prefix:
+        label = self._point_label(idx)
+        if label is not None:
             ann = self._ax.annotate(
-                f"{self._label_prefix}{idx + 1}",
+                label,
                 xy=(x, y),
                 xytext=(6, 4),
                 textcoords="offset points",
@@ -1390,7 +1422,7 @@ class PointOverlay(QObject):
         if idx >= len(self._artists):
             return
         selected = idx == self._selected
-        color = self._selected_color if selected else self._color
+        color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
         edge_color, mew = self._marker_edge(color, selected)
         line = self._artists[idx]
@@ -1415,7 +1447,9 @@ class PointOverlay(QObject):
     def _refresh_ann_text(self):
         for idx, ann in enumerate(self._anns):
             if ann is not None:
-                ann.set_text(f"{self._label_prefix}{idx + 1}")
+                label = self._point_label(idx)
+                if label is not None:
+                    ann.set_text(label)
 
     # ── hit testing ───────────────────────────────────────────────────────
 
