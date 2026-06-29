@@ -9,7 +9,7 @@ grayscale) could converge onto this later.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -34,21 +34,50 @@ class FMLayer:
     visible: bool = True
     autocontrast: bool = True                 # recompute clim from data each composite
     gamma: float = 1.0                        # display = norm ** gamma (1 = linear)
+    # cached auto clim, keyed on the data array identity so it's recomputed only
+    # when the channel's data actually changes (not on every unrelated recomposite,
+    # e.g. an opacity-slider drag). Not part of the layer's value.
+    _clim_cache: Optional[Tuple] = field(default=None, repr=False, compare=False)
+
+
+# Canonical channel-colour tints = napari's colormap endpoints (the colour each
+# colormap ramps to at full intensity), so the composite matches the napari main
+# tab. These mostly agree with matplotlib's named colours; the notable difference
+# is "green" (mpl (0, 0.5, 0) vs napari (0, 1, 0)). "gray" ramps to white.
+_CANONICAL_TINTS = {
+    "violet": (0.933, 0.510, 0.933),
+    "blue": (0.0, 0.0, 1.0),
+    "cyan": (0.0, 1.0, 1.0),
+    "green": (0.0, 1.0, 0.0),
+    "yellow": (1.0, 1.0, 0.0),
+    "red": (1.0, 0.0, 0.0),
+    "magenta": (1.0, 0.0, 1.0),
+    "gray": _WHITE,
+}
 
 
 def tint_rgb(color: str) -> Tuple[float, float, float]:
-    """RGB tint for a channel colour. ``gray`` maps to white (black→white ramp,
-    like napari's gray colormap); other names go through matplotlib."""
-    if color == "gray":
-        return _WHITE
+    """RGB tint for a channel colour. Canonical channel colours use napari's
+    colormap endpoint (so the composite matches the napari main tab); unknown
+    names fall back to matplotlib, and anything unrecognised to white."""
+    if color in _CANONICAL_TINTS:
+        return _CANONICAL_TINTS[color]
     try:
         return to_rgb(color)
     except (ValueError, TypeError):
         return _WHITE
 
 
-def auto_clim(data: np.ndarray) -> Tuple[float, float]:
-    """Robust auto contrast limits (1st/99th percentile, min/max fallback)."""
+def auto_clim(data: np.ndarray, max_samples: int = 250_000) -> Tuple[float, float]:
+    """Robust auto contrast limits (1st/99th percentile, min/max fallback).
+
+    The full-resolution percentile is the dominant per-frame cost on live FM, so
+    for large frames the data is strided down to ~*max_samples* points first — the
+    1st/99th percentiles are visually identical on the subsample.
+    """
+    if data.ndim == 2 and data.size > max_samples:
+        step = int(np.ceil(np.sqrt(data.size / max_samples)))
+        data = data[::step, ::step]
     lo = float(np.percentile(data, 1.0))
     hi = float(np.percentile(data, 99.0))
     if hi <= lo:
@@ -77,7 +106,12 @@ def composite_fm_layers(
         if d.shape[:2] != (H, W):
             continue  # ignore mismatched-shape channels
         if layer.autocontrast or layer.clim is None:
-            lo, hi = auto_clim(d)
+            cache = layer._clim_cache
+            if cache is not None and cache[0] is layer.data:
+                lo, hi = cache[1]  # data unchanged → reuse (skip the percentile)
+            else:
+                lo, hi = auto_clim(d)
+                layer._clim_cache = (layer.data, (lo, hi))
         else:
             lo, hi = layer.clim
         norm = np.clip((d - lo) / (hi - lo), 0.0, 1.0) if hi > lo else np.zeros_like(d)
