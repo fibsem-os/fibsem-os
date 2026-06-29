@@ -614,9 +614,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
                 self._scalebar_artist = ScaleBar(
                     dx=self._pixel_size,
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
+                    color="white",
+                    box_color=_BG,
+                    box_alpha=0.6,
                     location="lower right",
                 )
                 self._ax.add_artist(self._scalebar_artist)
