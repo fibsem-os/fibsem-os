@@ -181,6 +181,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._crosshair_artists: list = []
         self._hint_artist = None  # transient top-left instruction hint
         self._hint_text: Optional[str] = None  # remembered so it survives set_image
+        self._info_artist = None  # bottom-left microscope-state info bar
+        self._info_text: Optional[str] = None  # remembered so it survives set_image
 
         # Contrast / gamma (display-only; applied to the downsampled grayscale frame)
         self._display_base: Optional[np.ndarray] = None
@@ -296,6 +298,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_scalebar()
         self._refresh_crosshair()
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
+        self._refresh_info_bar()  # ditto: restore the remembered info bar
 
         for overlay in self._overlays:
             try:
@@ -357,6 +360,32 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
                           edgecolor="none", alpha=0.85),
             )
 
+    def set_info_text(self, text: Optional[str]) -> None:
+        """Show a small, muted info bar in the bottom-left, or hide with None/''.
+
+        Remembered + re-applied after each image change (like the hint). Driven by
+        the controller from the canvas-state model — microscope state, not image."""
+        self._info_text = text or None
+        self._refresh_info_bar()
+        self.draw_idle()
+
+    def _refresh_info_bar(self) -> None:
+        """(Re)create the info artist from the cached text, or remove it."""
+        if self._info_artist is not None:
+            try:
+                self._info_artist.remove()
+            except Exception:
+                pass
+            self._info_artist = None
+        if self._info_text:
+            self._info_artist = self._ax.text(
+                0.012, 0.015, self._info_text,
+                transform=self._ax.transAxes, ha="left", va="bottom",
+                fontsize=6.5, color="#e8e8e8", zorder=11,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor=_BG,
+                          edgecolor="none", alpha=0.55),
+            )
+
     def clear(self) -> None:
         """Clear the image and show placeholder text."""
         self._img_w = self._img_h = None
@@ -367,6 +396,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._crosshair_artists = []
         self._hint_artist = None  # removed by cla(); drop the cached text too
         self._hint_text = None
+        self._info_artist = None
+        self._info_text = None
         self._plot_empty()
         for overlay in self._overlays:
             try:

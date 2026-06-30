@@ -279,6 +279,15 @@ class ObjectiveControlWidget(QWidget):
             update_text_overlay(self.parent_widget.viewer,
                                 self.parent_widget.microscope,
                                 objective_position=objective_position)  # TODO: migrate to objective_position_changed signal
+            # quad-view info bar (OBJECTIVE on the FM canvas), via the controller
+            controller = None
+            try:
+                controller = self.parent_widget._view_controller()
+            except Exception:
+                controller = None
+            if controller is not None:
+                controller.update_info(self.parent_widget.microscope,
+                                       objective_position=objective_position)
 
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):

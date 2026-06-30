@@ -319,6 +319,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # update the current position label
         update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
+        # quad-view info bar: model + debounced render, so it's safe to call here
+        controller = getattr(getattr(self.parent, "parent_widget", None), "view_controller", None)
+        if controller is not None:
+            controller.update_info(self.microscope, stage_position=stage_position)
 
     @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
@@ -350,6 +354,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         milling = self.microscope.get_orientation("MILLING")
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
         update_text_overlay(self.viewer, self.microscope)
+        controller = getattr(getattr(self.parent, "parent_widget", None), "view_controller", None)
+        if controller is not None:
+            controller.update_info(self.microscope)
 
 #### MOVEMENT
 

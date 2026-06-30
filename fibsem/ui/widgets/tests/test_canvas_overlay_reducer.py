@@ -382,6 +382,46 @@ def test_detection_features_colors_labels_and_move():
     print("ok: detection features (colors/labels) + move round-trip")
 
 
+# ── info bar ─────────────────────────────────────────────────────────────────
+
+def test_info_bar_renders_ordered_fields_per_canvas():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_info(BeamType.ION, "stage", "STAGE: x")
+    ctl.set_info(BeamType.ION, "milling", "MILLING ANGLE: 30.0°")
+    ctl.set_info(BeamType.ELECTRON, "stage", "STAGE: x")  # SEM gets stage only
+    _flush(app)
+    assert fib._info_text == "STAGE: x\nMILLING ANGLE: 30.0°"
+    assert fib._info_artist is not None
+    assert ctl.sem_canvas._info_text == "STAGE: x"
+    print("ok: info bar renders ordered fields per canvas (milling FIB-only)")
+
+
+def test_set_fm_info_targets_fm_canvas():
+    app = _app()
+    ctl = MicroscopeViewController()
+    ctl.set_fm_info("objective", "OBJECTIVE: 12.3 µm")
+    _flush(app)
+    assert ctl.fm_canvas._info_text == "OBJECTIVE: 12.3 µm"
+    print("ok: set_fm_info targets the FM canvas")
+
+
+def test_info_bar_survives_image_change():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_info(BeamType.ION, "stage", "STAGE: x")
+    _flush(app)
+    assert fib._info_text == "STAGE: x"
+    ctl.set_image(BeamType.ION, _image())  # a new image clears the axes
+    _flush(app)
+    assert fib._info_text == "STAGE: x", "info must survive an image change"
+    assert fib._info_artist is not None
+    print("ok: info bar survives an image change (microscope state, not image)")
+
+
 def _run_all():
     tests = [
         test_set_overlay_creates_attaches_and_renders,
@@ -402,6 +442,9 @@ def _run_all():
         test_set_points_partial_keeps_config,
         test_mask_overlay_displays_and_removes,
         test_detection_features_colors_labels_and_move,
+        test_info_bar_renders_ordered_fields_per_canvas,
+        test_set_fm_info_targets_fm_canvas,
+        test_info_bar_survives_image_change,
     ]
     for t in tests:
         t()

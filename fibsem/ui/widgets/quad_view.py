@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Set
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout, QWidget
 
+from fibsem import constants
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.widgets.canvas_state import (
     AlignmentSpec,
@@ -342,6 +343,60 @@ class MicroscopeViewController(QObject):
         pts = getattr(spec, "points", None)
         return list(pts) if pts else []
 
+    # ── info bar ──────────────────────────────────────────────────────────
+    def set_info(self, beam: BeamType, key: str, text: Optional[str]) -> None:
+        """Upsert an info-bar field on the canvas for *beam* (drop when text empty)."""
+        canvas = self._canvases.get(beam)
+        if canvas is not None:
+            self._set_info_on(canvas, key, text)
+
+    def set_fm_info(self, key: str, text: Optional[str]) -> None:
+        """Upsert an info-bar field on the FM canvas (FM isn't a BeamType)."""
+        self._set_info_on(self._widget.fm_canvas, key, text)
+
+    def _set_info_on(self, canvas: FibsemImageCanvas, key: str, text: Optional[str]) -> None:
+        info = self._states[canvas].info
+        for i, (k, _) in enumerate(info):
+            if k == key:
+                if text:
+                    info[i] = (key, text)
+                else:
+                    del info[i]
+                self._mark_dirty(canvas)
+                return
+        if text:
+            info.append((key, text))
+            self._mark_dirty(canvas)
+
+    def update_info(self, microscope, stage_position=None, objective_position=None) -> None:
+        """Refresh the info bar from microscope state (mirrors napari
+        ``update_text_overlay``): STAGE on SEM+FIB, MILLING ANGLE on FIB, OBJECTIVE on
+        FM. It goes through the model + debounced render, so it is safe to call from an
+        ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
+        (which is what froze the original info bar)."""
+        try:
+            if type(microscope).__name__ == "TescanMicroscope":
+                return  # no stage-position display yet
+            if stage_position is None:
+                stage_position = microscope._stage_position
+            orientation = microscope.get_stage_orientation(stage_position=stage_position)
+            grid = microscope.current_grid
+            milling_angle = microscope.get_current_milling_angle(stage_position=stage_position)
+            stage_txt = f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
+            self.set_info(BeamType.ELECTRON, "stage", stage_txt)
+            self.set_info(BeamType.ION, "stage", stage_txt)
+            self.set_fm_info("stage", stage_txt)  # universal context (before objective)
+            self.set_info(BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°")
+            if microscope.fm is not None:
+                if objective_position is None:
+                    objective_position = microscope.fm.objective.position
+                self.set_fm_info(
+                    "objective",
+                    f"OBJECTIVE: {objective_position * constants.METRE_TO_MICRON:.1f} µm",
+                )
+        except Exception:
+            _logger.warning("MicroscopeViewController.update_info failed", exc_info=True)
+
     # ── render loop ───────────────────────────────────────────────────────
     def _mark_dirty(self, canvas: FibsemImageCanvas) -> None:
         self._dirty.add(canvas)
@@ -380,6 +435,9 @@ class MicroscopeViewController(QObject):
                 canvas.add_overlay(obj)
             self._drive_overlay(obj, spec, image)
         self._apply_arming(canvas, state, objs)
+        info_text = "\n".join(text for _, text in state.info if text)
+        if (canvas._info_text or "") != info_text:
+            canvas.set_info_text(info_text)
 
     def _create_overlay(self, canvas: FibsemImageCanvas, overlay_id: str, spec: OverlaySpec):
         """Construct the overlay object for *spec* and wire its edit signal (if any)

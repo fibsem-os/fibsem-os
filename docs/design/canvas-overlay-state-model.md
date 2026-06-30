@@ -184,32 +184,54 @@ the overlay (controller owns it); napari path byte-for-byte unchanged with the f
 off. Cover the reducer + reconcile in the standalone `test_image_canvas`-style
 harness (no hardware).
 
-## Migration order (after slice 1)
+## Migration order — COMPLETE
 
-| Slice | Overlay(s) | Proves |
+Every producer migrated, each behind `FEATURE_QUAD_VIEW_ENABLED`, behaviour-preserving,
+verified headless (`tests/test_canvas_overlay_reducer.py`, 21/21) + live:
+
+| Slice | Producer → spec | Commit |
 |---|---|---|
-| 1 | milling patterns | reducer + debounced render (display-only) |
-| 2 | alignment area (read-only + editable, unified) | view→model round-trip + `arm_overlay`; retires the two-overlay bug |
-| 3 | spot burn | modal `PointOverlay` via `arm_overlay` |
-| 4 | detection (mask + features) | multi-overlay per canvas + beam re-host |
-| 5 | POI | window-owned producer onto the reducer |
-| 6 | FM points + **info bar** | FM canvas parity; `set_info` on the same loop |
+| 1 | milling patterns → `MillingSpec` | `97bebe74` |
+| 2a | editable alignment → `AlignmentSpec` (edit round-trip + `arm_overlay`) | `b38c6bb0` |
+| 2b | unify the alignment (one overlay, edit > display) | `9ceae352` |
+| 3 | POI → `PointsSpec` (+ the reusable points machinery) | `6b3e6e45` |
+| 4 | spot burn → `PointsSpec` (modal; show/hide preserving points) | `bcd3770b` |
+| 5 | detection → `MaskSpec` + `PointsSpec` (mask + features; beam re-host) | `ee52c640` |
+| 6 | info bar (below) | *this commit* |
 
-The **info bar** rides the render loop as `set_info` → one text artist; the path
-the recursion exploited can't recur because the render is deferred and single.
+> "FM points" turned out to be a phantom — the FM canvas has no overlay, only the
+> input handlers (double-click move, Shift+scroll objective) already migrated in
+> phase 6b. The only direct-attach overlays left anywhere are in the coincidence
+> viewer (out of scope — the self-contained reference).
 
-## Open questions
+## Info bar
 
-- **Toolbar mode UX (slice 2).** `enter_overlay_mode` shows a checkable "Move"
-  toggle button — the user-facing escape hatch back to stage movement. Open: does
-  `arm_overlay` fully own that button, or only decide *which* overlay is armed and
-  leave the button on the canvas? Default: reducer owns the full mode incl. the
-  button. Does **not** affect slice 1 (milling is display-only, never armed).
-- **Input routing (later).** Overlay *rendering* moves behind the controller;
-  *input* (right-click→menu reposition, double-click-to-move) stays widget-owned for
-  now. Open: do we eventually pull input routing behind the controller too, alongside
-  `armed_overlay`? Default: leave input as-is, revisit as its own thread. Does **not**
-  affect slice 1.
+The feature that triggered this rethink (it froze the app by pushing a canvas redraw
+through `update_ui` / `@ensure_main_thread`). It's now trivial *and* structurally safe.
 
-**Resolved:** image is injected by the reducer (specs carry none); reducer built
-beam-generic.
+- **Canvas:** `set_info_text(text)` — one small, muted text artist bottom-left
+  (6.5pt, `#e8e8e8` on a low-alpha dark chip), re-applied after each image change.
+- **Model + reducer:** `CanvasState.info` (ordered `(key, text)`); `set_info(beam, key,
+  text)` / `set_fm_info(key, text)` upsert a field; `update_info(microscope, …)` formats
+  it from microscope state (mirrors napari `update_text_overlay`). Reconcile joins the
+  fields → `set_info_text` (gated so an unchanged bar doesn't redraw).
+- **Layout:** STAGE on SEM + FIB + FM; MILLING ANGLE on FIB; OBJECTIVE on FM.
+- **Producers** (`FibsemMovementWidget`, `ObjectiveControlWidget`) call
+  `controller.update_info(...)` alongside the untouched napari `update_text_overlay`.
+- **Why it can't recur:** producers only *mutate the model*; the render is deferred +
+  coalesced; there is no synchronous draw inside `update_ui` to re-enter. The same
+  `@ensure_main_thread update_ui` that recursed before is safe because it renders nothing.
+
+## Open questions / future
+
+- **Input routing.** Overlay *rendering* + *edit round-trips* now go through the
+  controller, but raw *input* (right-click → reposition menu, double-click-to-move) is
+  still widget-owned. Pulling input routing behind the controller (alongside
+  `armed_overlay`) is a possible follow-on — deferred, not needed for the migration.
+- **Phase 7 cutover.** Flip `FEATURE_QUAD_VIEW_ENABLED` to default `True`, soak, then
+  delete the napari branches from the main tab (see `quad-view-microscope-display.md`).
+
+**Resolved during the migration:** image injected by the reducer (specs carry none);
+reducer beam-generic; `arm_overlay` owns the full toolbar mode (incl. the Move button);
+alignment two-producer arbitration (edit > display); points show/hide via
+`set_overlay_visible` + `set_points` partials.
