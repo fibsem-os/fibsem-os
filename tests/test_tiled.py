@@ -264,3 +264,30 @@ def test_validate_positions_all_out_of_bounds():
 
 def test_validate_positions_empty():
     assert validate_tile_stage_positions([], [], _make_limits()) == []
+
+
+# ---------------------------------------------------------------------------
+# stitch does not mutate the caller's input settings (regression)
+# ---------------------------------------------------------------------------
+
+def test_stitch_does_not_mutate_input_hfw(tmp_path):
+    from fibsem import utils
+    from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
+    from fibsem.structures import BeamType
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    settings = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(
+            resolution=(256, 256), hfw=100e-6, beam_type=BeamType.ELECTRON,
+            path=str(tmp_path), filename="overview",
+        ),
+        nrows=1, ncols=2, overlap=0.0,
+    )
+    hfw_before = settings.image_settings.hfw
+
+    image = tiled_image_acquisition_and_stitch(microscope=microscope, settings=settings)
+
+    # the stitched image carries the total FOV; the caller's settings are untouched
+    assert settings.image_settings.hfw == hfw_before
+    assert image.metadata.image_settings.hfw == pytest.approx(2 * hfw_before)
+    assert image.metadata.image_settings is not settings.image_settings

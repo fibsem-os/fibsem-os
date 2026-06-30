@@ -5,9 +5,19 @@ isolated from the general fibsem data structures.
 """
 from __future__ import annotations
 
+import logging
 import sys
-from typing import TYPE_CHECKING, Optional, Union
-from fibsem.microscopes._stage import SampleGridLoader, SampleHolder, Stage
+import time
+from typing import TYPE_CHECKING, Callable, Optional, Union
+
+from fibsem.microscopes._stage import (
+    GridSlot,
+    SampleGrid,
+    SampleGridLoader,
+    SampleHolder,
+    Stage,
+)
+from fibsem.structures import FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscope import ThermoMicroscope
@@ -340,16 +350,7 @@ class AutoscriptCompustage(Stage):
         super().__init__(parent, holder, loader)
 
 
-class AutoscriptSputterCoater:
-    pass
 
-
-
-from typing import TYPE_CHECKING
-import time 
-if TYPE_CHECKING:
-    from fibsem.microscope import ThermoMicroscope
-from fibsem.structures import FibsemStagePosition
 
 class AutoscriptGISPort:
     port_name: str = "Pt dep"
@@ -398,22 +399,168 @@ class AutoscriptGISPort:
     def turn_heater_off(self):
         self._port.turn_heater_off()
 
-    def run_deposition(self, duration: int) -> None:
+    def run_deposition(self, duration: int,
+                       stop_event: Optional['threading.Event'] = None,
+                       on_progress: Optional[Callable[[float], None]] = None) -> None:
+        """Insert the GIS, open the port for ``duration`` seconds, then close + retract.
 
+        Self-contained: the insert/open/wait/close/retract sequence lives here so
+        callers (tasks, notebooks) get the full deposition cycle in one call.
+        ``stop_event`` (when set) ends the wait early; ``on_progress`` is invoked
+        each second with the remaining time. Close + retract always run, even on
+        early stop or error.
+        """
         self.insert()
 
         # QUERY: acquire diagnostic sem image?
 
-        self.open()
+        # once inserted, always close + retract — even if open/wait raises or stops
+        try:
+            self.open()
+            start_time = time.time()
+            while (time.time() - start_time) < duration:
+                if stop_event is not None and stop_event.is_set():
+                    logging.info(f"Deposition stopped: {self.port_name}")
+                    break
+                time.sleep(1)
+                remaining_time = duration - (time.time() - start_time)
+                if on_progress is not None:
+                    on_progress(remaining_time)
+                else:
+                    print(f"Depositing: {self.port_name} - {remaining_time:.0f}s")
+        finally:
+            self.close()
+            self.retract()
 
-        remaining_time = duration
-        while True:
-            print(f"Depositing: {self.port_name} - {remaining_time}s")
-            time.sleep(1)
-            remaining_time -= 1
 
-            if remaining_time <= 0:
-                break
+class AutoscriptSputterCoater:
+    """Wrapper around ``specimen.sputter_coater`` (standard system).
 
-        self.close()
-        self.retract()
+    On a standard system ``run`` must be wrapped in ``prepare`` / ``recover``:
+    ``prepare`` moves the stage to the sputtering position, sets the gas + sputter
+    vacuum mode and saves state; ``recover`` restores it afterwards. The Arctis
+    variant overrides ``run`` (see :class:`AutoscriptArctisSputterCoater`).
+    Mirrors :class:`AutoscriptGISPort`.
+    """
+
+    def __init__(self, parent: 'ThermoMicroscope'):
+        self.parent = parent
+        self._coater = parent.connection.specimen.sputter_coater
+
+    def set_current(self, current: float) -> None:
+        """Set the sputter coater current, in Amps (e.g. 0.01 = 10 mA)."""
+        self._coater.current.value = current
+
+    def run(self, time_seconds: int, current: Optional[float] = None) -> None:
+        self._coater.prepare()
+        try:
+            if current is not None:
+                self.set_current(current)
+            self._coater.run(time_seconds)
+        finally:
+            # always restore vacuum / gas / beam state, even on error
+            self._coater.recover()
+
+
+class AutoscriptArctisSputterCoater(AutoscriptSputterCoater):
+    """Arctis (platform 28.x): ``run`` is self-contained.
+
+    On Arctis ``run`` itself homes the fluorescence light microscope, moves the
+    compustage to the sputtering position and reverts it afterwards;
+    ``prepare`` / ``recover`` are not supported, so this overrides ``run`` to
+    skip them.
+    """
+
+    def run(self, time_seconds: int, current: Optional[float] = None) -> None:
+        if current is not None:
+            self.set_current(current)
+        self._coater.run(time_seconds)
+
+class AutoscriptSampleLoader(SampleGridLoader):
+    """``SampleGridLoader`` backed by the AutoScript autoloader (Arctis / xT 28.x).
+
+    Wraps ``microscope.specimen.autoloader``. The magazine slots mirror
+    ``get_slots()`` and grids are addressed by the integer slot id
+    (``AutoloaderSlot.id``); ``load(id)`` blocks until the exchange completes.
+    See ``docs/design/autoscript-sample-loader.md``.
+
+    Confirmed API (operator code): ``get_slots(run_inventory: bool)`` returns
+    ``AutoloaderSlot{id: int, state: str in {Unknown, Occupied, Empty},
+    sample_description}``; ``load(id)`` / ``unload()``; ``autoloader.stage``
+    reports the grid currently on the microscope stage.
+
+    The magazine is not queried on construction — call ``run_inventory()`` to
+    sync it from the hardware.
+    """
+
+    @property
+    def _autoloader(self):
+        return self.parent.connection.specimen.autoloader
+
+    @property
+    def is_installed(self) -> bool:
+        try:
+            return bool(self._autoloader.is_installed)
+        except Exception:  # noqa: BLE001 - device absent / not ready
+            return False
+
+    # --- magazine inventory ---
+
+    def run_inventory(self) -> list:
+        """Scan the magazine via the autoloader and sync our slots.
+
+        ``get_slots(False)`` returns the last-known states (a slot may read
+        ``'Unknown'`` if no scan has run); if every slot is unknown, force a
+        physical scan with ``get_slots(True)``.
+        """
+        slots = self._autoloader.get_slots(False)
+        if slots and all(getattr(s, "state", "Unknown") == "Unknown" for s in slots):
+            slots = self._autoloader.get_slots(True)
+        self._sync_slots(slots)
+        return self.loaded_magazine_slots
+
+    def _sync_slots(self, autoloader_slots) -> None:
+        """Mirror the AutoloaderSlot list into our GridSlot magazine (keyed by id).
+
+        ``sample_description`` maps to the grid name when present; it may be empty,
+        in which case the slot id is used as the name.
+        """
+        self.slots = {}
+        for s in autoloader_slots:
+            sid = int(s.id)
+            name = f"Slot-{sid:02d}"
+            grid = None
+            if getattr(s, "state", None) == "Occupied":
+                desc = getattr(s, "sample_description", None)
+                grid = SampleGrid(name=desc or name)
+            self.slots[name] = GridSlot(name=name, index=sid, loaded_grid=grid)
+
+    # --- load / unload (autoloader <-> stage) ---
+
+    def load_grid(self, slot_name: str, grid: SampleGrid) -> None:
+        """Load ``grid`` (by its magazine slot id) onto the stage. Blocks until done.
+
+        Mirrors the result into the holder working slot so the model's occupancy
+        (``SampleHolder.occupied_slots``) reflects the hardware.
+        """
+        mag = self.find_grid(grid.name)
+        if mag is None:
+            raise ValueError(
+                f"Grid '{grid.name}' not found in the autoloader magazine."
+            )
+        self._autoloader.load(mag.index)  # AutoloaderSlot.id; blocks until finished
+        holder_slot = self.parent._stage.holder.slots.get(slot_name)
+        if holder_slot is not None:
+            holder_slot.loaded_grid = grid
+
+    def unload_grid(self, slot_name: Optional[str] = None) -> None:
+        """Unload the grid currently on the stage. Blocks until done."""
+        self._autoloader.unload()
+        holder = self.parent._stage.holder
+        if slot_name is not None:
+            holder_slot = holder.slots.get(slot_name)
+            if holder_slot is not None:
+                holder_slot.loaded_grid = None
+        else:  # no slot given → clear whichever working slot held a grid
+            for s in holder.occupied_slots:
+                s.loaded_grid = None

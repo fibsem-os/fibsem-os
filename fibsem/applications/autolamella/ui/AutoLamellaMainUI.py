@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 
@@ -37,6 +38,7 @@ import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
+from fibsem.applications.autolamella.workflows.run_preflight import build_run_preflight
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
 from fibsem.ui.stylesheets import (
@@ -60,6 +62,8 @@ from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
 from fibsem.ui.widgets.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
+from fibsem.applications.autolamella.ui.grid_tab import GridTabWidget
+from fibsem.ui.widgets.grid_workflow_widget import GridWorkflowWidget
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
 from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
@@ -81,51 +85,62 @@ def play_notification_sound():
     QApplication.beep()
 
 
+def _detail_column(heading: str, items: list, height: int) -> "QVBoxLayout":
+    """A titled, read-only bullet list of names (one column of the run dialog)."""
+    col = QVBoxLayout()
+    col.setSpacing(4)
+    col.addWidget(QLabel(f"<b>{heading}</b>"))
+    box = QTextEdit()
+    box.setPlainText("\n".join(f"• {n}" for n in items))
+    box.setReadOnly(True)
+    box.setFixedHeight(height)
+    col.addWidget(box)
+    return col
+
+
 def confirm_run_workflow_dialog(
     lamella_names: list,
     task_names: list,
     parent=None,
+    unit: str = "lamella",
+    note: str = None,
 ) -> bool:
-    """Show a confirmation dialog before starting the workflow. Returns True if confirmed."""
+    """Confirm before starting a workflow. Returns True if confirmed.
+
+    ``note``: optional caption (e.g. the grid-exchange cost / skipped items).
+    """
     dlg = QDialog(parent)
     dlg.setWindowTitle("Run Workflow")
     dlg.setMinimumWidth(600)
 
     layout = QVBoxLayout(dlg)
     layout.setSpacing(8)
+    layout.addWidget(QLabel(
+        f"Run workflow for {len(lamella_names)} {unit} with {len(task_names)} task(s)?"))
 
-    msg_label = QLabel(
-        f"Run workflow for {len(lamella_names)} lamella with {len(task_names)} task(s)?"
-    )
-    layout.addWidget(msg_label)
+    if note:
+        caption = QLabel(note)
+        caption.setWordWrap(True)
+        caption.setStyleSheet("color: #b8860b;")  # amber: a cost/caution heads-up
+        layout.addWidget(caption)
 
-    col_row = QHBoxLayout()
-    col_row.setSpacing(8)
+    height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
+    cols = QHBoxLayout()
+    cols.setSpacing(8)
+    cols.addLayout(_detail_column(unit.capitalize(), lamella_names, height))
+    cols.addLayout(_detail_column("Tasks", task_names, height))
+    layout.addLayout(cols)
 
-    detail_height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
-
-    for heading, items in [("Lamella", lamella_names), ("Tasks", task_names)]:
-        col = QVBoxLayout()
-        col.setSpacing(4)
-        col.addWidget(QLabel(f"<b>{heading}</b>"))
-        te = QTextEdit()
-        te.setPlainText("\n".join(f"• {n}" for n in items))
-        te.setReadOnly(True)
-        te.setFixedHeight(detail_height)
-        col.addWidget(te)
-        col_row.addLayout(col)
-
-    layout.addLayout(col_row)
+    no_btn = QPushButton("No")
+    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+    no_btn.setDefault(True)
+    no_btn.clicked.connect(dlg.reject)
+    yes_btn = QPushButton("Yes")
+    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+    yes_btn.clicked.connect(dlg.accept)
 
     btn_row = QHBoxLayout()
     btn_row.addStretch()
-    yes_btn = QPushButton("Yes")
-    no_btn = QPushButton("No")
-    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-    yes_btn.clicked.connect(dlg.accept)
-    no_btn.clicked.connect(dlg.reject)
-    no_btn.setDefault(True)
     btn_row.addWidget(no_btn)
     btn_row.addWidget(yes_btn)
     layout.addLayout(btn_row)
@@ -478,6 +493,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
+        # Toggle grid-workflow tabs (Grids tab, Sample tab, Workflow→Grids sub-tab)
+        self._apply_grid_workflow_visibility()
+
+    def _apply_grid_workflow_visibility(self) -> None:
+        """Show/hide all grid-workflow tabs per the ``grid_workflow`` feature flag."""
+        enabled = self._preferences.features.grid_workflow
+
+        def _set_visible(tabs, widget):
+            if widget is None or tabs is None:
+                return
+            index = tabs.indexOf(widget)
+            if index != -1:
+                tabs.setTabVisible(index, enabled)
+
+        _set_visible(self.tab_widget, getattr(self, "grid_tab", None))            # top-level Grids tab
+        _set_visible(self.workflow_subtabs, getattr(self, "grid_workflow_widget", None))  # Workflow→Grids
+        if getattr(self, "autolamella_ui", None) is not None:                     # Microscope→Sample
+            self.autolamella_ui.set_grid_workflow_visible(enabled)
 
     def show_toast(
         self,
@@ -622,6 +655,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add supervised status chip (shown during workflow to indicate supervision mode)
         self._current_task_name = None  # Track current task for supervision toggle
+        self._active_grid_workflow = False  # current task is a grid task (vs lamella)
         self.supervised_status_btn = QPushButton("Supervised")
         self.supervised_status_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         self.supervised_status_btn.setToolTip("Click to toggle supervision")
@@ -671,19 +705,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
 
     def _on_run_workflow_clicked(self):
-        """Run the workflow using the lamella and task selections from the workflow widget."""
+        """Run the workflow for whichever sub-tab (lamella/grids) is active."""
         ui = self.autolamella_ui
         if ui is None:
             return
-        if ui.is_workflow_running:
+        if ui.is_workflow_running:  # shared guard → mutually exclusive
+            notification_service.show_toast("A workflow is already running.", "warning")
             return
-        if (
-            ui.microscope is None
-            or ui.experiment is None
-            or ui.experiment.task_protocol is None
-        ):
+        if ui.microscope is None or ui.experiment is None:
             return
 
+        if self._grid_workflow_active():
+            self._active_grid_workflow = True
+            self.grid_tab.run_workflow()
+            return
+        self._active_grid_workflow = False
+
+        if ui.experiment.task_protocol is None:
+            return
         selected_tasks = self.lamella_workflow_widget.get_selected_tasks()
         selected_lamella = self.lamella_workflow_widget.get_selected_lamella()
 
@@ -693,7 +732,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
-        if not confirm_run_workflow_dialog(lamella_names, task_names, parent=self):
+        # preflight: a run may span grids not currently loaded — on an autoloader
+        # they load on demand (preview the exchange cost); on a static holder they
+        # can't, so the run is blocked until they're placed manually.
+        preflight = build_run_preflight(
+            ui.experiment, ui.microscope, task_names, lamella_names)
+        if preflight.blocked:
+            QMessageBox.warning(self, "Grids not loaded", preflight.blocked)
+            return
+        if not confirm_run_workflow_dialog(lamella_names, task_names,
+                                           parent=self, note=preflight.note):
             return
 
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
@@ -703,20 +751,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_workflow_widget.lamella_list._on_select_all(False)
         self.lamella_workflow_widget.workflow._on_select_all(False)
 
+    def _grid_workflow_active(self) -> bool:
+        """True when the Grids sub-tab of the Workflow tab is the active one."""
+        subtabs = getattr(self, "workflow_subtabs", None)
+        if subtabs is None:
+            return False
+        return subtabs.currentWidget() is self.grid_workflow_widget
+
     def _on_workflow_selection_changed(self, _=None) -> None:
-        """Enable the run button only when at least one lamella and one task are selected."""
-        n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
-        n_task = len(self.lamella_workflow_widget.get_selected_tasks())
-        valid = n_lam > 0 and n_task > 0
+        """Enable the run button only when ≥1 unit and ≥1 task are selected (for
+        the active sub-tab: lamella or grids)."""
+        if self._grid_workflow_active():
+            unit, n_units = "grid", len(self.grid_workflow_widget.get_selected_grids())
+            n_task = len(self.grid_workflow_widget.get_selected_tasks())
+        else:
+            unit, n_units = "lamella", len(self.lamella_workflow_widget.get_selected_lamella())
+            n_task = len(self.lamella_workflow_widget.get_selected_tasks())
+
+        valid = n_units > 0 and n_task > 0
         self.run_workflow_btn.setEnabled(valid)
         if valid:
             self.run_workflow_btn.setToolTip(
-                f"Run workflow: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}"
+                f"Run workflow: {n_units} {unit}, {n_task} task{'s' if n_task != 1 else ''}"
             )
         else:
             missing = []
-            if n_lam == 0:
-                missing.append("a lamella")
+            if n_units == 0:
+                missing.append(f"a {unit}")
             if n_task == 0:
                 missing.append("a task")
             self.run_workflow_btn.setToolTip(
@@ -766,7 +827,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_name = self._current_task_name
         if task_name is None or self.autolamella_ui is None:
             return False
-        supervised = get_task_supervision(task_name, self.autolamella_ui)
+        if self._active_grid_workflow:
+            supervised = self._grid_task_supervised(task_name)
+        else:
+            supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised:
             self.supervised_status_btn.setIcon(
                 QIconifyIcon("mdi:account-hard-hat", color="white")
@@ -793,23 +857,48 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         return supervised
 
+    def _grid_task_supervised(self, task_name: str) -> bool:
+        """Supervision flag for a grid task, from the grid workflow config."""
+        exp = self.autolamella_ui.experiment if self.autolamella_ui else None
+        wf = getattr(getattr(exp, "grid_protocol", None), "workflow_config", None)
+        if wf is None:
+            return False
+        desc = wf.get(task_name)
+        return bool(desc.supervise) if desc is not None else False
+
     def _on_supervised_status_clicked(self):
         """Toggle supervision for the current task in the protocol."""
         if self._current_task_name is None or self.autolamella_ui is None:
             return
-        protocol = self.autolamella_ui.protocol
-        if protocol is None:
-            return
-        for task in protocol.workflow_config.tasks:
-            if task.name == self._current_task_name:
-                task.supervise = not task.supervise
-                break
+
+        if self._active_grid_workflow:
+            # grid workflow: toggle the grid task's supervise flag + persist
+            desc = None
+            exp = self.autolamella_ui.experiment
+            wf = getattr(getattr(exp, "grid_protocol", None), "workflow_config", None)
+            if wf is not None:
+                desc = wf.get(self._current_task_name)
+            if desc is None:
+                return
+            desc.supervise = not desc.supervise
+            exp.save()
+            if hasattr(self, "grid_workflow_widget"):
+                self.grid_workflow_widget.set_protocol(exp.grid_protocol)
+        else:
+            protocol = self.autolamella_ui.protocol
+            if protocol is None:
+                return
+            for task in protocol.workflow_config.tasks:
+                if task.name == self._current_task_name:
+                    task.supervise = not task.supervise
+                    break
+            # Refresh the workflow widget to reflect the toggled supervise state
+            if hasattr(self, "lamella_workflow_widget"):
+                self.lamella_workflow_widget.workflow.refresh_all()
+
         supervised = self._update_supervised_status()
         if self.autolamella_ui.is_workflow_running:
             self._set_border_state("supervised" if supervised else "automated")
-        # Refresh the workflow widget to reflect the toggled supervise state
-        if hasattr(self, "lamella_workflow_widget"):
-            self.lamella_workflow_widget.workflow.refresh_all()
 
     def _update_instructions(self):
         """Update the status bar with the current instruction based on application state."""
@@ -963,6 +1052,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
         self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
+        # lambdas defer the grid_tab lookup to fire-time (it's built later in
+        # create_tabs, after this main tab)
+        self.autolamella_ui.sample_state_changed_signal.connect(
+            lambda: self.grid_tab.refresh()
+        )
+        # a new lamella → recount it on its grid's card (lambda defers the
+        # grid_tab attr lookup; it's created later in add_grids_tab)
+        self.autolamella_ui.lamella_added_signal.connect(
+            lambda: self.grid_tab.refresh()
+        )
+        self.autolamella_ui.grid_workflow_update_signal.connect(
+            lambda info: self.grid_tab.on_workflow_update(info)
+        )
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
@@ -1005,6 +1107,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_minimap_tab()
         self.add_protocol_editor_tab()
         self.add_lamella_editor_tab()
+        self.add_grids_tab()
         self.add_workflow_tab()
 
         # add notification button to tab bar
@@ -1021,6 +1124,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.minimap_widget.set_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
+        self.grid_tab.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -1233,6 +1337,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self._on_lamella_card_selected(None)
 
+    def add_grids_tab(self):
+        """Grids tab: extracted into GridTabWidget (execution lives in the
+        Workflow tab, not here)."""
+        self.grid_tab = GridTabWidget(self)
+        self.tab_widget.addTab(self.grid_tab, GridTabWidget.tab_icon(), "Grids")
+
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
         container = QWidget()
@@ -1304,7 +1414,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_timeline = WorkflowProgressWidget()
         _rp_layout.addWidget(self.workflow_timeline)
 
-        splitter.addWidget(self.lamella_workflow_widget)
+        # left side: Lamella | Grids selection sub-tabs (execution shares the
+        # status-bar Run/Stop + the timeline → mutually exclusive runs)
+        self.workflow_subtabs = QTabWidget()
+        self.workflow_subtabs.addTab(self.lamella_workflow_widget, "Lamella")
+        self.grid_workflow_widget = GridWorkflowWidget()
+        self.grid_workflow_widget.grid_selection_changed.connect(
+            self._on_workflow_selection_changed
+        )
+        self.grid_workflow_widget.task_selection_changed.connect(
+            self._on_workflow_selection_changed
+        )
+        # persist run-order / supervise edits (the grid_protocol is the live
+        # experiment object, so a save is all that's needed)
+        self.grid_workflow_widget.workflow_changed.connect(self._save_grid_workflow)
+        self.workflow_subtabs.addTab(self.grid_workflow_widget, "Grids")
+        self.workflow_subtabs.currentChanged.connect(
+            self._on_workflow_selection_changed
+        )
+
+        splitter.addWidget(self.workflow_subtabs)
         splitter.addWidget(self.workflow_right_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -1384,10 +1513,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self.autolamella_ui._on_workflow_config_changed(protocol.workflow_config)
 
+    def _save_grid_workflow(self, *_args):
+        """Persist grid run-order / supervise edits. The widget edits the live
+        experiment.grid_protocol in place, so a save is sufficient."""
+        ui = self.autolamella_ui
+        if ui is not None and ui.experiment is not None:
+            ui.experiment.save()
+
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
         t0 = t1 = time.time()
         timings = {}
+
+        # structured progress payload (timed grid tasks: GIS countdown, sputter)
+        progress = info.get("progress", None)
+        if progress is not None:
+            if progress.get("done"):
+                self.progress_widget.reset()
+            elif progress.get("indeterminate"):
+                self.progress_widget.update_progress(
+                    ProgressUpdate.indeterminate(progress.get("message", ""))
+                )
+            else:
+                self.progress_widget.update_progress(ProgressUpdate.countdown(
+                    remaining_seconds=progress.get("remaining", 0.0),
+                    total_seconds=progress.get("total", 0.0),
+                    message=progress.get("message", ""),
+                ))
+
         status_msg = info.get("status", None)
         if status_msg is not None:
             _is_start = not self._workflow_timeline_initialized
@@ -1579,6 +1732,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Resolve any outer row left in ACTIVE state (e.g. if workflow was cancelled)
         self.workflow_timeline.finish_current_step(failed=cancelled)
         self.workflow_timeline.clear_steps()
+        self.progress_widget.reset()  # hide any lingering tiled-acquisition bar
         self.hide_workflow_running()
         self.lamella_widget.set_active_lamella_name(None)
         self.user_attention_btn.hide()

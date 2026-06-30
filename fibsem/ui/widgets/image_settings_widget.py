@@ -17,7 +17,7 @@ from typing import Optional
 
 from fibsem.config import STANDARD_RESOLUTIONS_ZIP
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
-from fibsem.structures import ImageSettings
+from fibsem.structures import BeamType, ImageSettings
 from fibsem.ui.widgets.custom_widgets import IconToolButton, QDirectoryLineEdit, WheelBlocker
 from fibsem.ui import stylesheets
 
@@ -50,7 +50,8 @@ class ImageSettingsWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None,
                  show_advanced: bool = False,
                  show_save: bool = False,
-                 always_save: bool = False):
+                 always_save: bool = False,
+                 show_beam_type: bool = False):
         """Initialize the ImageSettings widget.
 
         Args:
@@ -61,12 +62,15 @@ class ImageSettingsWidget(QWidget):
             always_save: Hide the save checkbox and always return save=True.
                          Path/filename controls remain visible and enabled.
                          Implies show_save=True.
+            show_beam_type: Whether to show the beam type (Electron/Ion) selector.
+                            Hidden by default (most callers fix the beam type).
         """
         super().__init__(parent)
         self._settings = ImageSettings()
         self._show_advanced = show_advanced
         self._always_save = always_save
         self._show_save = show_save or always_save
+        self._show_beam_type = show_beam_type
         self._setup_ui()
         self._connect_signals()
         self.update_from_settings(self._settings)
@@ -74,6 +78,7 @@ class ImageSettingsWidget(QWidget):
         self._update_drift_correction_visibility()
         self._update_advanced_visibility()
         self._update_save_controls_visibility()
+        self._update_beam_type_visibility()
 
     def _setup_ui(self):
         """Create and configure all UI elements."""
@@ -105,6 +110,15 @@ class ImageSettingsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(grid_widget)
 
+        # Beam Type (Electron / Ion) — hidden by default
+        self.beam_type_label = QLabel("Beam Type")
+        self.beam_type_combo = QComboBox()
+        for bt in (BeamType.ELECTRON, BeamType.ION):
+            self.beam_type_combo.addItem(bt.name.title(), bt)
+        self.beam_type_combo.installEventFilter(WheelBlocker(parent=self.beam_type_combo))
+        layout.addWidget(self.beam_type_label, 0, 0)
+        layout.addWidget(self.beam_type_combo, 0, 1)
+
         # Resolution
         self.resolution_label = QLabel("Resolution")
         self.resolution_combo = QComboBox()
@@ -116,8 +130,8 @@ class ImageSettingsWidget(QWidget):
         if default_index >= 0:
             self.resolution_combo.setCurrentIndex(default_index)
         self.resolution_combo.installEventFilter(WheelBlocker(parent=self.resolution_combo))
-        layout.addWidget(self.resolution_label, 0, 0)
-        layout.addWidget(self.resolution_combo, 0, 1)
+        layout.addWidget(self.resolution_label, 1, 0)
+        layout.addWidget(self.resolution_combo, 1, 1)
 
         # Dwell time
         self.dwell_label = QLabel("Dwell Time")
@@ -129,8 +143,8 @@ class ImageSettingsWidget(QWidget):
         self.dwell_time_spinbox.setSingleStep(dwell_config["step"])
         self.dwell_time_spinbox.setValue(dwell_config["default"])
         self.dwell_time_spinbox.setSuffix(dwell_config["suffix"])
-        layout.addWidget(self.dwell_label, 1, 0)
-        layout.addWidget(self.dwell_time_spinbox, 1, 1)
+        layout.addWidget(self.dwell_label, 2, 0)
+        layout.addWidget(self.dwell_time_spinbox, 2, 1)
 
         # Field of View
         self.hfw_label = QLabel("Field of View")
@@ -142,8 +156,8 @@ class ImageSettingsWidget(QWidget):
         self.hfw_spinbox.setSingleStep(hfw_config["step"])
         self.hfw_spinbox.setValue(hfw_config["default"])
         self.hfw_spinbox.setSuffix(hfw_config["suffix"])
-        layout.addWidget(self.hfw_label, 2, 0)
-        layout.addWidget(self.hfw_spinbox, 2, 1)
+        layout.addWidget(self.hfw_label, 3, 0)
+        layout.addWidget(self.hfw_spinbox, 3, 1)
 
         # Line Integration
         self.line_integration_label = QLabel("Line Integration")
@@ -152,8 +166,8 @@ class ImageSettingsWidget(QWidget):
         line_config = WIDGET_CONFIG["line_integration"]
         self.line_integration_spinbox.setRange(*line_config["range"])
         self.line_integration_spinbox.setValue(line_config["default"])
-        layout.addWidget(self.line_integration_label, 3, 0)
-        layout.addWidget(self.line_integration_spinbox, 3, 1)
+        layout.addWidget(self.line_integration_label, 4, 0)
+        layout.addWidget(self.line_integration_spinbox, 4, 1)
 
         # Scan Interlacing
         self.scan_interlacing_label = QLabel("Scan Interlacing")
@@ -162,8 +176,8 @@ class ImageSettingsWidget(QWidget):
         scan_config = WIDGET_CONFIG["scan_interlacing"]
         self.scan_interlacing_spinbox.setRange(*scan_config["range"])
         self.scan_interlacing_spinbox.setValue(scan_config["default"])
-        layout.addWidget(self.scan_interlacing_label, 4, 0)
-        layout.addWidget(self.scan_interlacing_spinbox, 4, 1)
+        layout.addWidget(self.scan_interlacing_label, 5, 0)
+        layout.addWidget(self.scan_interlacing_spinbox, 5, 1)
 
         # Frame Integration
         self.frame_integration_label = QLabel("Frame Integration")
@@ -172,39 +186,39 @@ class ImageSettingsWidget(QWidget):
         frame_config = WIDGET_CONFIG["frame_integration"]
         self.frame_integration_spinbox.setRange(*frame_config["range"])
         self.frame_integration_spinbox.setValue(frame_config["default"])
-        layout.addWidget(self.frame_integration_label, 5, 0)
-        layout.addWidget(self.frame_integration_spinbox, 5, 1)
+        layout.addWidget(self.frame_integration_label, 6, 0)
+        layout.addWidget(self.frame_integration_spinbox, 6, 1)
 
         # Drift Correction
         self.drift_correction_label = QLabel("Drift Correction")
         self.drift_correction_check = QCheckBox()
-        layout.addWidget(self.drift_correction_label, 6, 0)
-        layout.addWidget(self.drift_correction_check, 6, 1)
+        layout.addWidget(self.drift_correction_label, 7, 0)
+        layout.addWidget(self.drift_correction_check, 7, 1)
 
         # Auto Contrast
         self.autocontrast_label = QLabel("Auto Contrast")
         self.autocontrast_check = QCheckBox()
-        layout.addWidget(self.autocontrast_label, 7, 0)
-        layout.addWidget(self.autocontrast_check, 7, 1)
+        layout.addWidget(self.autocontrast_label, 8, 0)
+        layout.addWidget(self.autocontrast_check, 8, 1)
 
         # Save Image
         self.save_image_label = QLabel("Save Image")
         self.save_image_check = QCheckBox()
-        layout.addWidget(self.save_image_label, 8, 0)
-        layout.addWidget(self.save_image_check, 8, 1)
+        layout.addWidget(self.save_image_label, 9, 0)
+        layout.addWidget(self.save_image_check, 9, 1)
 
         # Path
         self.path_label = QLabel("Path")
         self.path_edit = QDirectoryLineEdit()
         self.path_edit.button_browse.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        layout.addWidget(self.path_label, 9, 0)
-        layout.addWidget(self.path_edit, 9, 1)
+        layout.addWidget(self.path_label, 10, 0)
+        layout.addWidget(self.path_edit, 10, 1)
 
         # Filename
         self.filename_label = QLabel("Filename")
         self.filename_edit = QLineEdit()
-        layout.addWidget(self.filename_label, 10, 0)
-        layout.addWidget(self.filename_edit, 10, 1)
+        layout.addWidget(self.filename_label, 11, 0)
+        layout.addWidget(self.filename_edit, 11, 1)
 
         self._save_widgets: list[QWidget] = [
             self.save_image_label, self.save_image_check,
@@ -214,6 +228,7 @@ class ImageSettingsWidget(QWidget):
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers."""
+        self.beam_type_combo.currentIndexChanged.connect(self._emit_settings_changed)
         self.resolution_combo.currentIndexChanged.connect(self._emit_settings_changed)
         self.dwell_time_spinbox.valueChanged.connect(self._emit_settings_changed)
         self.hfw_spinbox.valueChanged.connect(self._emit_settings_changed)
@@ -283,6 +298,16 @@ class ImageSettingsWidget(QWidget):
         else:
             for w in self._save_widgets:
                 w.setVisible(self._show_save)
+
+    def _update_beam_type_visibility(self):
+        """Show/hide the beam type selector based on the show_beam_type flag."""
+        self.beam_type_label.setVisible(self._show_beam_type)
+        self.beam_type_combo.setVisible(self._show_beam_type)
+
+    def set_show_beam_type(self, show: bool):
+        """Show or hide the beam type (Electron/Ion) selector."""
+        self._show_beam_type = show
+        self._update_beam_type_visibility()
 
     def set_show_advanced_button(self, show: bool):
         """Show or hide the advanced settings toggle button."""
@@ -389,7 +414,11 @@ class ImageSettingsWidget(QWidget):
             else self.frame_integration_spinbox.value()
         )
 
-        # Update only the fields controlled by this widget
+        # Update only the fields controlled by this widget. beam_type is only
+        # written when its selector is shown — otherwise the stored value is
+        # preserved (most callers own the beam type themselves).
+        if self._show_beam_type:
+            self._settings.beam_type = self.beam_type_combo.currentData()
         self._settings.resolution = tuple(resolution) if resolution else (1536, 1024)
         self._settings.dwell_time = self.dwell_time_spinbox.value() * MICRO_TO_SI  # Convert μs to s
         self._settings.hfw = self.hfw_spinbox.value() * MICRO_TO_SI  # Convert μm to m
@@ -415,6 +444,7 @@ class ImageSettingsWidget(QWidget):
         self._settings = settings
 
         # Block signals on individual widgets to prevent recursive updates
+        self.beam_type_combo.blockSignals(True)
         self.resolution_combo.blockSignals(True)
         self.dwell_time_spinbox.blockSignals(True)
         self.hfw_spinbox.blockSignals(True)
@@ -424,6 +454,11 @@ class ImageSettingsWidget(QWidget):
         self.autocontrast_check.blockSignals(True)
         self.drift_correction_check.blockSignals(True)
         self.save_image_check.blockSignals(True)
+
+        # Set beam type
+        bt_index = self.beam_type_combo.findData(settings.beam_type)
+        if bt_index >= 0:
+            self.beam_type_combo.setCurrentIndex(bt_index)
 
         # Set resolution
         resolution_list = list(settings.resolution)
@@ -458,6 +493,7 @@ class ImageSettingsWidget(QWidget):
         self.filename_edit.blockSignals(False)
 
         # Unblock signals
+        self.beam_type_combo.blockSignals(False)
         self.resolution_combo.blockSignals(False)
         self.dwell_time_spinbox.blockSignals(False)
         self.hfw_spinbox.blockSignals(False)

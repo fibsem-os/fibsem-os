@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import pandas as pd
 import petname
@@ -41,6 +41,10 @@ from fibsem.structures import (
     ReferenceImageParameters,
 )
 from fibsem.utils import configure_logging, format_duration
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+    from fibsem.applications.autolamella.workflows.tasks.grid import GridTaskConfig
 
 
 
@@ -696,6 +700,7 @@ class Lamella:
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(default_factory=lambda: Point(0,0))  # point of interest within lamella area (milling coordinate system)
+    grid_id: Optional[str] = None  # _id of the originating GridRecord (None = unlinked); grid->lamella is derived
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -803,6 +808,7 @@ class Lamella:
             "defect": self.defect.to_dict(),
             "milling_angle": self.milling_angle,
             "poi": self.poi.to_dict(),
+            "grid_id": self.grid_id,
         }
 
     @property
@@ -848,6 +854,7 @@ class Lamella:
             defect=DefectState.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x":0,"y":0})),
+            grid_id=data.get("grid_id"),  # back-compat: absent in pre-grids experiments
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -925,14 +932,194 @@ class Lamella:
 
 @evented
 @dataclass
+class GridRecord:
+    """A workflow-level record for a physical grid processed within an Experiment.
+
+    Distinct from the hardware ``SampleGrid`` (geometry, owned by the holder
+    config): ``GridRecord`` carries the workflow identity, task state and
+    history for a grid. It links to hardware by name
+    (``GridRecord.name -> SampleGrid.name``) and resolves its slot live via the
+    holder rather than storing slot/position, which are transient.
+    """
+    name: str
+    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
+    task_history: List['AutoLamellaTaskState'] = field(default_factory=list)
+    # per-task artifacts/metadata (task_name -> {image paths, pixel_size, ...}),
+    # written by tasks via GridTask.record_result; read by the Results UI
+    results: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def completed_tasks(self) -> List[str]:
+        """Return the names of completed tasks (from history)."""
+        return [task.name for task in self.task_history]
+
+    def has_completed_task(self, task_name: str) -> bool:
+        """Check whether this grid has completed a specific task."""
+        return task_name in self.completed_tasks
+
+    @property
+    def is_failure(self) -> bool:
+        """Whether the grid's most recent task ended in failure."""
+        return self.task_state.status is AutoLamellaTaskStatus.Failed
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "_id": self._id,
+            "task_state": self.task_state.to_dict(),
+            "task_history": [ts.to_dict() for ts in self.task_history],
+            "results": deepcopy(self.results),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'GridRecord':
+        record = cls(name=data.get("name", ""))
+        if data.get("_id") is not None:
+            record._id = data["_id"]
+        record.task_state = AutoLamellaTaskState.from_dict(data.get("task_state"))
+        record.task_history = [
+            AutoLamellaTaskState.from_dict(ts) for ts in data.get("task_history", [])
+        ]
+        record.results = dict(data.get("results", {}))
+        return record
+
+
+@evented
+@dataclass
+class GridTaskDescription:
+    """A task's run-order entry + supervision flag in a grid workflow.
+
+    The grid analogue of :class:`AutoLamellaTaskDescription` (minimal for now:
+    name + supervise). ``name`` is the task_name key into
+    ``GridTaskProtocol.task_config``.
+    """
+    name: str
+    supervise: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "supervise": self.supervise}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GridTaskDescription':
+        return cls(name=data.get("name", ""), supervise=bool(data.get("supervise", False)))
+
+
+@evented
+@dataclass
+class GridWorkflowConfig:
+    """Ordered run config for grid tasks: run order + per-task supervise flags.
+
+    Auto-mirrors ``GridTaskProtocol.task_config`` — every configured instance
+    appears here. ``sync_to`` reconciles to the current instance names: drops
+    missing, appends new (supervise=False), preserves existing order + flags.
+    """
+    name: str = "Grid Workflow"
+    description: str = ""
+    tasks: List[GridTaskDescription] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GridWorkflowConfig':
+        return cls(
+            name=data.get("name", "Grid Workflow"),
+            description=data.get("description", ""),
+            tasks=[GridTaskDescription.from_dict(t) for t in data.get("tasks", [])],
+        )
+
+    @property
+    def order(self) -> List[str]:
+        """Task names in run order."""
+        return [t.name for t in self.tasks]
+
+    def get(self, name: str) -> Optional['GridTaskDescription']:
+        for t in self.tasks:
+            if t.name == name:
+                return t
+        return None
+
+    def sync_to(self, names) -> None:
+        """Reconcile descriptions to ``names``: drop missing, append new
+        (supervise=False), preserve the order + flags of existing entries."""
+        names = list(names)
+        keep = [t for t in self.tasks if t.name in names]
+        have = {t.name for t in keep}
+        for n in names:
+            if n not in have:
+                keep.append(GridTaskDescription(name=n))
+        self.tasks = keep
+
+
+@evented
+@dataclass
+class GridTaskProtocol:
+    """Stores grid task configurations + run order for an Experiment.
+
+    The grid-side analogue of ``AutoLamellaTaskProtocol``: ``task_config`` is
+    the config store (keyed by task_name), ``workflow_config`` is the run order
+    + per-task supervise flags. The workflow auto-mirrors the configured
+    instances (see ``reconcile_workflow``). Configs serialize flat via
+    ``GridTaskConfig.to_dict``.
+    """
+    name: str = "Grid Protocol"
+    description: str = ""
+    task_config: EventedDict[str, 'GridTaskConfig'] = field(default_factory=EventedDict)
+    workflow_config: 'GridWorkflowConfig' = field(default_factory=lambda: GridWorkflowConfig())
+
+    def reconcile_workflow(self) -> None:
+        """Align the workflow run order to the current task_config instances."""
+        self.workflow_config.sync_to(self.task_config.keys())
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
+            "workflow_config": self.workflow_config.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> 'GridTaskProtocol':
+        # lazy import to avoid a structures <-> grid tasks import cycle
+        from fibsem.applications.autolamella.workflows.tasks.grid import (
+            load_grid_task_config,
+        )
+        protocol = cls(
+            name=ddict.get("name", "Grid Protocol"),
+            description=ddict.get("description", ""),
+        )
+        for name, value in ddict.get("task_config", {}).items():
+            config = load_grid_task_config(value)
+            if config is not None:
+                config.task_name = name
+                protocol.task_config[name] = config
+        wf = ddict.get("workflow_config")
+        if wf is not None:
+            protocol.workflow_config = GridWorkflowConfig.from_dict(wf)
+        # back-compat: derive order from task_config when absent, and keep the
+        # workflow aligned to the loaded instances
+        protocol.reconcile_workflow()
+        return protocol
+
+
+@evented
+@dataclass
 class Experiment:
     name: str
     _id: str
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
+    grids: EventedList[GridRecord] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
     created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
     task_protocol: 'AutoLamellaTaskProtocol' = field(default_factory=lambda: AutoLamellaTaskProtocol())
+    grid_protocol: 'GridTaskProtocol' = field(default_factory=lambda: GridTaskProtocol())
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __init__(self, path: Path,
@@ -951,9 +1138,11 @@ class Experiment:
         self.created_at: float = datetime.timestamp(datetime.now())
 
         self.positions: EventedList[Lamella] = EventedList()
+        self.grids: EventedList[GridRecord] = EventedList()
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None # must be set externally
+        self.grid_protocol: GridTaskProtocol = GridTaskProtocol()
         self.metadata: Dict[str, Any] = metadata if metadata is not None else {}
 
     def to_dict(self, include_protocol: bool = False) -> dict:
@@ -963,6 +1152,8 @@ class Experiment:
             "_id": self._id,
             "path": self.path,
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
+            "grids": [deepcopy(grid.to_dict()) for grid in self.grids],
+            "grid_protocol": self.grid_protocol.to_dict(),
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -988,6 +1179,13 @@ class Experiment:
         for lamella_dict in ddict["positions"]:
             lamella = Lamella.from_dict(data=lamella_dict)
             experiment.positions.append(lamella)
+
+        # load grid records from dict (.get for back-compat with pre-grids experiments)
+        for grid_dict in ddict.get("grids", []):
+            experiment.grids.append(GridRecord.from_dict(grid_dict))
+
+        # load grid protocol (.get for back-compat)
+        experiment.grid_protocol = GridTaskProtocol.from_dict(ddict.get("grid_protocol", {}))
 
         # load landing positions
         for landing_dict in ddict.get("landing_positions", []):
@@ -1039,6 +1237,113 @@ class Experiment:
     def get_lamella_by_name(self, name: str) -> Optional['Lamella']:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)
+
+    def get_grid_by_name(self, name: str) -> Optional['GridRecord']:
+        """Return the GridRecord with the given name, or None if not found."""
+        return next((g for g in self.grids if g.name == name), None)
+
+    def get_grid_by_id(self, grid_id: Optional[str]) -> Optional['GridRecord']:
+        """Return the GridRecord with the given _id, or None if not found."""
+        if grid_id is None:
+            return None
+        return next((g for g in self.grids if g._id == grid_id), None)
+
+    def get_lamellae_for_grid(self, grid: Union['GridRecord', str]) -> List['Lamella']:
+        """Return the lamellae linked to a grid (grid->lamella, derived).
+
+        Accepts a GridRecord or a grid _id. Lamellae store ``grid_id``; the
+        reverse direction is computed by filtering ``positions``.
+        """
+        grid_id = grid._id if isinstance(grid, GridRecord) else grid
+        return [lam for lam in self.positions if lam.grid_id == grid_id]
+
+    def get_grid_for_lamella(self, lamella: 'Lamella') -> Optional['GridRecord']:
+        """Return the GridRecord a lamella belongs to, or None if unlinked."""
+        return self.get_grid_by_id(lamella.grid_id)
+
+    def get_loaded_grids(self, microscope: 'FibsemMicroscope') -> List['GridRecord']:
+        """The GridRecords whose grid currently sits in a holder working slot.
+
+        Working-slot occupancy means the grid is in the beam and reachable now
+        (magazine grids are not). Spans both hardware models: an autoloader has
+        a single working slot; a static multi-slot holder may have several.
+        """
+        holder = getattr(getattr(microscope, "_stage", None), "holder", None)
+        if holder is None:
+            return []
+        records = []
+        for slot in holder.occupied_slots:
+            record = self.get_grid_by_name(slot.loaded_grid.name)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def is_lamella_reachable(self, lamella: 'Lamella',
+                             microscope: 'FibsemMicroscope') -> bool:
+        """Whether a lamella's grid is currently loaded (so its position is valid).
+
+        Unlinked lamellae (``grid_id is None`` — legacy / single-grid) are always
+        treated as reachable on whatever grid is loaded.
+        """
+        if lamella.grid_id is None:
+            return True
+        return lamella.grid_id in {g._id for g in self.get_loaded_grids(microscope)}
+
+    def unreachable_lamellae(self, lamellae: List['Lamella'],
+                             microscope: 'FibsemMicroscope') -> List['Lamella']:
+        """Subset of ``lamellae`` whose grid is not currently loaded."""
+        loaded = {g._id for g in self.get_loaded_grids(microscope)}
+        return [lam for lam in lamellae
+                if lam.grid_id is not None and lam.grid_id not in loaded]
+
+    def add_grid(self, grid: 'GridRecord') -> None:
+        """Add a grid record to the experiment (rejects duplicate names)."""
+        if not isinstance(grid, GridRecord):
+            raise TypeError("grid must be an instance of GridRecord")
+        if self.get_grid_by_name(grid.name) is not None:
+            raise ValueError(f"Grid {grid.name} already exists in the experiment.")
+        self.grids.append(grid)
+        logging.info(f"Added grid {grid.name} to experiment {self.name}")
+
+    def remove_grid(self, name: str) -> None:
+        """Remove the grid record with the given name from the experiment.
+
+        Lamellae linked to the grid are orphaned (``grid_id`` cleared), not
+        deleted — removal stays non-destructive.
+        """
+        record = self.get_grid_by_name(name)
+        if record is None:
+            return
+        orphaned = self.get_lamellae_for_grid(record)
+        for lam in orphaned:
+            lam.grid_id = None
+        self.grids.remove(record)
+        if orphaned:
+            logging.info(f"Orphaned {len(orphaned)} lamella(e) from removed grid {name}")
+        logging.info(f"Removed grid {name} from experiment {self.name}")
+
+    def sync_grids_from_holder(self, microscope: 'FibsemMicroscope') -> None:
+        """Create GridRecords for any loaded grid not yet tracked. Idempotent.
+
+        Sources both the holder working slots (static shuttle: grids live there)
+        and, when present, the loader magazine (autoloader inventory).
+        """
+        tracked = {g.name for g in self.grids}
+
+        def _track(slots) -> None:
+            for slot in slots:
+                grid = slot.loaded_grid
+                if grid is not None and grid.name not in tracked:
+                    self.add_grid(GridRecord(name=grid.name))
+                    tracked.add(grid.name)
+
+        _track(microscope._stage.holder.slots.values())
+        loader = microscope._stage.loader
+        if loader is not None:
+            # read the already-known magazine state directly; run_inventory()
+            # simulates a slow hardware scan and would block the caller.
+            _track(loader.loaded_magazine_slots)
+        self.save()
 
     def save(self, save_protocol: bool = False) -> None:
         """Save the sample data to yaml file"""
@@ -1268,26 +1573,41 @@ class Experiment:
 
 ###### TASK REFACTORING ##########
 
+    def generate_lamella_name(self, offset: int = 0) -> str:
+        """The next lamella name (petname-based), matching manual adds.
+
+        ``offset`` bumps the number for positions placed but not yet added (e.g.
+        several drafts created before a single commit), so they number in order.
+        """
+        template = self.task_protocol.lamella_defaults
+        number = max((pos.number for pos in self.positions), default=0) + 1 + offset
+        sep = "-" if template.name_prefix else ""
+        if template.use_petname:
+            return f"{template.name_prefix}{sep}{number:02d}-{petname.generate(2)}"
+        return f"{template.name_prefix}{sep}Lamella-{number:02d}"
+
     def add_new_lamella(self,
                         microscope_state: MicroscopeState,
                         task_config: EventedDict[str, AutoLamellaTaskConfig],
-                        name: Optional[str] = None) -> None:
-        """Create a new lamella and add it to the experiment."""
+                        name: Optional[str] = None,
+                        grid_id: Optional[str] = None) -> None:
+        """Create a new lamella and add it to the experiment.
+
+        ``grid_id`` links the lamella to the originating GridRecord (None =
+        unlinked); used by grid-screening/targeting to stamp the source grid.
+        """
         template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
-            sep = "-" if template.name_prefix else ""
-            if template.use_petname:
-                name = f"{template.name_prefix}{sep}{number:02d}-{petname.generate(2)}"
-            else:
-                name = f"{template.name_prefix}{sep}Lamella-{number:02d}"
+            name = self.generate_lamella_name()
         path = Path(os.path.join(self.path, name))
 
         # create the lamella
         lamella = Lamella(petname=name,
                           path=path,
                           number=number,
-                          task_config=deepcopy(task_config))
+                          task_config=deepcopy(task_config),
+                          grid_id=grid_id)
         if template.alignment_area is not None:
             lamella.alignment_area = deepcopy(template.alignment_area)
         if template.poi is not None:
@@ -1363,3 +1683,29 @@ class Experiment:
             wlist.append(deepcopy(ddict))
 
         return pd.DataFrame(wlist)
+
+    def grid_task_history_dataframe(self) -> pd.DataFrame:
+        """Create a dataframe with the history of all grid tasks.
+
+        The grid analogue of ``task_history_dataframe`` — one row per completed
+        grid task, keyed by grid (rather than lamella).
+        """
+        history: List[dict[Any, Any]] = []
+        for grid in self.grids:
+            for task in grid.task_history:
+                ddict = {
+                    "grid_name": grid.name,
+                    "grid_id": grid._id,
+                    "task_name": task.name,
+                    "task_id": task.task_id,
+                    "task_type": task.task_type,
+                    "task_status": task.status.name,
+                    "task_status_message": task.status_message,
+                    "start_timestamp": task.start_timestamp,
+                    "end_timestamp": task.end_timestamp,
+                    "completed_at": task.completed_at,
+                    "duration": task.duration,
+                }
+                history.append(deepcopy(ddict))
+
+        return pd.DataFrame(history)

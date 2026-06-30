@@ -42,6 +42,11 @@ _TIP_COINCIDENCE   = (
 )
 _LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
 _TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
+_LBL_GRID_WORKFLOW = "Enable Grid Workflow"
+_TIP_GRID_WORKFLOW = (
+    "Show the grid workflow tabs (Grids tab, the Sample tab in the Microscope tab, "
+    "and the Grids sub-tab in the Workflow tab) for multi-grid screening and execution."
+)
 
 # Experiment defaults
 _LBL_EXP_DIR       = "Default Experiment Directory"
@@ -118,9 +123,12 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
         self._chk_sample_holder = QCheckBox()
         self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
+        self._chk_grid_workflow = QCheckBox()
+        self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
         features_form.addRow(_LBL_LAMELLA_LIVE, self._chk_lamella_live)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
+        features_form.addRow(_LBL_GRID_WORKFLOW, self._chk_grid_workflow)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -180,6 +188,7 @@ class PreferencesDialog(QDialog):
         self._chk_lamella_live.setChecked(f.lamella_position_on_live_view)
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
+        self._chk_grid_workflow.setChecked(f.grid_workflow)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -234,6 +243,7 @@ class PreferencesDialog(QDialog):
                 lamella_position_on_live_view=self._chk_lamella_live.isChecked(),
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
+                grid_workflow=self._chk_grid_workflow.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

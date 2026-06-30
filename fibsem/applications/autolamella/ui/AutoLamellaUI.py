@@ -27,6 +27,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeSettings,
+    MicroscopeState,
     Point,
 )
 from fibsem.ui import (
@@ -43,7 +44,7 @@ from fibsem.ui import (
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -59,6 +60,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QWidget,
 )
+from fibsem.ui.widgets.sample_widget import SampleWidget
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     LamellaNameListWidget,
@@ -163,6 +165,15 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
+    # emitted after a load/unload changes which grid is in the working slot, so
+    # hosts (e.g. the Grids tab) can refresh their "in microscope" state
+    sample_state_changed_signal = pyqtSignal()
+    # emitted after a lamella is added, so the Grids tab can refresh its per-grid
+    # lamella counts (a lightweight refresh, not the heavy experiment_update)
+    lamella_added_signal = pyqtSignal()
+    # per-grid/task progress from GridTaskManager (thread → GUI), payload shape
+    # mirrors workflow_update_signal: {"msg": str, "status": {...}}
+    grid_workflow_update_signal = pyqtSignal(dict)
 
     def __init__(
         self,
@@ -193,6 +204,9 @@ class AutoLamellaUI(QMainWindow):
         self.fm_control_widget: Optional[FMControlWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
+
+        # sample (holder + optional loader magazine) tab
+        self.sample_widget: Optional[SampleWidget] = None
 
         # minimap plot widget
         self.minimap_plot_widget = MinimapPlotWidget(self)
@@ -367,6 +381,10 @@ class AutoLamellaUI(QMainWindow):
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
+        # a grid workflow exchanges grids (ensure_loaded) as it runs — keep the
+        # Sample tab's holder + magazine views in sync with the working slot
+        self.grid_workflow_update_signal.connect(self._refresh_sample_views)
+        self._workflow_finished_signal.connect(lambda *_: self._refresh_sample_views())
 
         # labels and placeholders
         self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
@@ -720,6 +738,14 @@ class AutoLamellaUI(QMainWindow):
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
+
+            # sample tab: holder (always) + loader magazine (autoloader only)
+            # gated behind the grid-workflow feature flag
+            self.sample_widget = SampleWidget(self.microscope)
+            self.sample_widget.state_changed.connect(self._on_sample_state_changed)
+            self.tabWidget.addTab(self.sample_widget, "Sample")
+            import fibsem.config as _fibsem_cfg
+            self.set_grid_workflow_visible(_fibsem_cfg.FEATURE_GRID_WORKFLOW_ENABLED)
             self.milling_task_config_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
                 viewer=self.viewer,
@@ -790,6 +816,10 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.milling_task_config_widget.deleteLater()
                 self.milling_task_config_widget = None
+            if self.sample_widget is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
+                self.sample_widget.deleteLater()
+                self.sample_widget = None
             if self.movement_widget is not None:
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
                 self.movement_widget.deleteLater()
@@ -802,6 +832,54 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+
+    # -------------------------------------------------------------------------
+    # Sample tab (SampleWidget owns the holder + magazine + hardware exchange)
+    # -------------------------------------------------------------------------
+    def request_grid_load(self, grid_name: str) -> None:
+        """Load a grid into the working slot (e.g. from the Grids tab)."""
+        if self.sample_widget is not None:
+            self.sample_widget.request_load(grid_name)
+
+    def request_grid_unload(self) -> None:
+        """Retract the working-slot grid (e.g. from the Grids tab)."""
+        if self.sample_widget is not None:
+            self.sample_widget.request_unload()
+
+    def set_grid_workflow_visible(self, visible: bool) -> None:
+        """Show/hide the grid-workflow UI owned by this widget (the Sample tab)."""
+        sample_widget = getattr(self, "sample_widget", None)
+        if sample_widget is None:
+            return
+        index = self.tabWidget.indexOf(sample_widget)
+        if index != -1:
+            self.tabWidget.setTabVisible(index, visible)
+
+    def _on_sample_state_changed(self) -> None:
+        """The loaded grid changed (via SampleWidget) → update the experiment
+        views that depend on it: lamella chips/controls + the Grids tab."""
+        self._refresh_lamella_list_reachability()
+        self.sample_state_changed_signal.emit()
+
+    def _refresh_sample_views(self, *args) -> None:
+        """Refresh the sample views + lamella reachability to match the working
+        slot (e.g. after a grid workflow exchanges grids on its worker thread)."""
+        if self.sample_widget is not None:
+            self.sample_widget.refresh()
+        self._refresh_lamella_list_reachability()
+
+    def _refresh_lamella_list_reachability(self) -> None:
+        """Rebuild the lamella list so each row's grid chip + reachability-gated
+        controls track the currently loaded grid. Loading/unloading a grid is a
+        sample-state change, not a lamella-data change, so the normal
+        ``update_lamella_combobox`` path doesn't fire — call this from the
+        grid-exchange paths. Selection is preserved by name."""
+        if self.experiment is None:
+            return
+        self.lamella_list.set_lamella(
+            self.experiment.positions,
+            experiment=self.experiment, microscope=self.microscope,
+        )
 
     def load_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
@@ -1068,10 +1146,89 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
+    def _start_grid_workflow_thread(
+        self, task_names: List[str], grid_names: List[str]
+    ) -> None:
+        """Run a grid workflow on a worker thread (shares the workflow thread slot
+        + Run/Stop infra with the lamella workflow → mutually exclusive)."""
+        self._task_worker_thread = threading.Thread(
+            target=self._run_grid_tasks_worker,
+            args=(task_names, grid_names),
+            daemon=True,
+        )
+        self._task_worker_thread.start()
+
+    def _run_grid_tasks_worker(
+        self, task_names: List[str], grid_names: Optional[List[str]] = None
+    ) -> None:
+        """Worker thread for the grid workflow."""
+        from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
+            GridTaskManager,
+        )
+
+        try:
+            self._workflow_stop_event.clear()
+            if self.microscope is None or self.experiment is None:
+                logging.error("No microscope or experiment loaded.")
+                return
+
+            if not self.microscope.is_on(BeamType.ELECTRON):
+                self.microscope.turn_on(BeamType.ELECTRON)
+            if not self.microscope.is_on(BeamType.ION):
+                self.microscope.turn_on(BeamType.ION)
+
+            logging.info(f"Starting grid tasks: {task_names}, for grids: {grid_names}")
+            self._task_manager = GridTaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_grid_hooks(),
+            )
+            self._task_manager.run(task_names=task_names, grid_names=grid_names)
+        except Exception as e:
+            logging.error(f"Error during running grid tasks: {e}")
+        finally:
+            cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            self._task_manager = None
+            self._task_worker_thread = None
+            self._workflow_finished_signal.emit(cancelled)  # type: ignore
+
     def stop_task_workflow(self):
         if not self.is_workflow_running:
             return
         self._stop_workflow_thread()
+
+    def setup_grid_hooks(self) -> HookManager:
+        """Build the HookManager for grid task lifecycle events (logging + toasts)."""
+        manager = HookManager()
+        manager.register(
+            LoggingHook(
+                name="grid_task_logger",
+                events=[
+                    HookEvent.TASK_STARTED,
+                    HookEvent.TASK_COMPLETED,
+                    HookEvent.TASK_FAILED,
+                ],
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="grid_completion_toast",
+                events=[HookEvent.TASK_COMPLETED],
+                notification_type="success",
+                message_template="Grid task {task_name} complete for {item_name}",
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="grid_failure_toast",
+                events=[HookEvent.TASK_FAILED],
+                notification_type="error",
+                message_template="Grid task {task_name} FAILED for {item_name}: {error}",
+            )
+        )
+        manager.wire(self)
+        return manager
 
     def setup_hooks(self) -> HookManager:
         """Build the default HookManager for task lifecycle events."""
@@ -1207,7 +1364,8 @@ class AutoLamellaUI(QMainWindow):
             else ""
         )
         self.lamella_list.set_lamella(
-            self.experiment.positions, preferred_name=preferred
+            self.experiment.positions, preferred_name=preferred,
+            experiment=self.experiment, microscope=self.microscope,
         )
 
     def update_lamella_ui(self, _lamella=None):
@@ -1343,12 +1501,19 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
+        microscope_state: Optional["MicroscopeState"] = None,
+        grid_id: Optional[str] = None,
+        notify: bool = True,
     ) -> Lamella:
         """Add a lamella to the experiment.
         Args:
             stage_position: The stage position of the lamella. If None, the current stage position is used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
+            microscope_state: The microscope state to record. If None, the current (live) state is captured.
+                Used to place lamellae from a previously-acquired image (e.g. the grid overview).
+            grid_id: The originating grid's _id. If None, the grid is resolved from the lamella's position.
+            notify: When False, defer the UI refresh + lamella_added_signal so a batch can refresh once.
         Returns:
             lamella: The created lamella.
         """
@@ -1361,16 +1526,31 @@ class AutoLamellaUI(QMainWindow):
                 "No microscope connected. Please connect a microscope first."
             )
 
-        # get microscope state
-        microscope_state = self.microscope.get_microscope_state()
+        # use the supplied state (e.g. from an overview image) or the live state
+        if microscope_state is None:
+            microscope_state = self.microscope.get_microscope_state()
+        else:
+            microscope_state = deepcopy(microscope_state)
         if stage_position is not None:
             microscope_state.stage_position = deepcopy(stage_position)
+
+        # link the lamella to its grid: an explicit grid_id wins (e.g. placed on
+        # a known grid's overview); else resolve from the position against the
+        # holder (None if uncalibrated / not tracked)
+        if grid_id is None:
+            sample_grid = self.microscope._stage.grid_at_position(
+                microscope_state.stage_position
+            )
+            if sample_grid is not None:
+                record = self.experiment.get_grid_by_name(sample_grid.name)
+                grid_id = record._id if record is not None else None
 
         # create the lamella
         self.experiment.add_new_lamella(
             microscope_state=microscope_state,
             task_config=self.experiment.task_protocol.task_config,
             name=name,
+            grid_id=grid_id,
         )
         lamella = self.experiment.positions[-1]
 
@@ -1389,8 +1569,11 @@ class AutoLamellaUI(QMainWindow):
             lamella.fluorescence_pose = fluorescence_pose
 
         self.experiment.save()
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
+        if notify:
+            self.update_lamella_combobox(latest=True)
+            self.update_ui()
+            # let the Grids tab recount this grid's lamellae (cheap card refresh)
+            self.lamella_added_signal.emit()
 
         return lamella
 

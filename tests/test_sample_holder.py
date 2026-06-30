@@ -217,6 +217,27 @@ class TestSaveLoad:
         with pytest.raises(FileNotFoundError):
             SampleHolder.load(tmp_path / "nonexistent.yaml")
 
+    def test_save_geometry_only_excludes_loaded_grids(self, tmp_path):
+        # include_grids=False persists holder geometry but treats which grid is
+        # loaded as transient hardware state (the Sample tab auto-save path).
+        path = tmp_path / "holder.yaml"
+        h = _make_holder(capacity=2, name="SavedHolder")
+        h.slots["Slot-01"].loaded_grid = SampleGrid(name="Grid-A")
+        h.save(path, include_grids=False)
+
+        h2 = SampleHolder.load(path)
+        assert h2.name == "SavedHolder"
+        assert len(h2.slots) == 2
+        # geometry round-trips, but the loaded grid is not persisted
+        assert h2.slots["Slot-01"].loaded_grid is None
+        assert h2.slots["Slot-02"].loaded_grid is None
+
+    def test_to_dict_include_grids_flag(self):
+        h = _make_holder(capacity=1, name="H")
+        h.slots["Slot-01"].loaded_grid = SampleGrid(name="Grid-A")
+        assert h.to_dict()["slots"]["Slot-01"]["loaded_grid"] is not None
+        assert h.to_dict(include_grids=False)["slots"]["Slot-01"]["loaded_grid"] is None
+
 
 # ---------------------------------------------------------------------------
 # Slot lookup helpers
@@ -246,6 +267,12 @@ class TestSlotLookup:
     def test_find_slot_by_grid_name_empty_slots(self):
         h = _make_holder(capacity=2)
         assert h.find_slot_by_grid_name("Grid-A") is None
+
+    def test_occupied_slots(self):
+        h = _make_holder(capacity=3)
+        assert h.occupied_slots == []  # all empty
+        h.slots["Slot-02"].loaded_grid = SampleGrid(name="Grid-B")
+        assert h.occupied_slots == [h.slots["Slot-02"]]  # only occupied ones
 
 
 # ---------------------------------------------------------------------------
@@ -327,3 +354,95 @@ class TestCreateSampleStage:
         stage = _create_sample_stage(microscope)
         assert stage.holder.name == "UserHolder"
         assert stage.holder.capacity == 3
+
+
+# ---------------------------------------------------------------------------
+# Stage.slot_at_position / grid_at_position (resolve a grid from a position)
+# ---------------------------------------------------------------------------
+
+class TestSlotAtPosition:
+    def _stage(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        return _create_sample_stage(microscope)
+
+    def test_resolves_slot_and_grid_at_its_position(self):
+        stage = self._stage()
+        slot = next(iter(stage.holder.slots.values()))
+        slot.loaded_grid = SampleGrid(name="grid-aspen")
+
+        assert stage.slot_at_position(slot.position) is slot
+        assert stage.grid_at_position(slot.position).name == "grid-aspen"
+
+    def test_no_match_far_from_any_slot(self):
+        stage = self._stage()
+        far = FibsemStagePosition(x=5.0, y=5.0, z=0)  # well outside GRID_RADIUS
+        assert stage.slot_at_position(far) is None
+        assert stage.grid_at_position(far) is None
+
+    def test_empty_slot_resolves_but_no_grid(self):
+        stage = self._stage()
+        slot = next(iter(stage.holder.slots.values()))  # no loaded_grid
+        assert stage.slot_at_position(slot.position) is slot
+        assert stage.grid_at_position(slot.position) is None
+
+    def test_slot_without_position_is_skipped(self):
+        stage = self._stage()
+        for slot in stage.holder.slots.values():
+            slot.position = None
+        probe = FibsemStagePosition(x=0, y=0, z=0)
+        assert stage.slot_at_position(probe) is None
+
+
+class TestEnsureLoaded:
+    """Stage.ensure_loaded — the grid-exchange operation (no manager needed)."""
+
+    def _compustage(self):
+        m, _ = utils.setup_session(manufacturer="Demo")
+        m.stage_is_compustage = True
+        m._stage = _create_sample_stage(m)  # loader + 1 working slot
+        return m
+
+    def test_static_shuttle_noop_when_already_loaded(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        stage = _create_sample_stage(microscope)  # no loader
+        slot = next(iter(stage.holder.slots.values()))
+        slot.loaded_grid = SampleGrid(name="grid-aspen")
+        assert stage.ensure_loaded("grid-aspen") is slot  # no-op, returns the slot
+
+    def test_no_loader_and_not_loaded_raises(self):
+        from fibsem.microscopes._stage import GridExchangeError
+
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        stage = _create_sample_stage(microscope)  # no loader, nothing loaded
+        with pytest.raises(GridExchangeError):
+            stage.ensure_loaded("grid-aspen")
+
+    def test_autoloader_loads_from_magazine_into_working_slot(self):
+        microscope = self._compustage()
+        stage = microscope._stage
+        stage.loader.assign_grid("Magazine-01", SampleGrid(name="grid-aspen"))
+
+        slot = stage.ensure_loaded("grid-aspen")
+
+        assert slot.loaded_grid is not None
+        assert slot.loaded_grid.name == "grid-aspen"
+        assert stage.holder.find_slot_by_grid_name("grid-aspen") is slot
+
+    def test_unload_retracts_working_slot(self):
+        microscope = self._compustage()
+        stage = microscope._stage
+        stage.loader.assign_grid("Magazine-01", SampleGrid(name="grid-aspen"))
+        stage.ensure_loaded("grid-aspen")
+        assert stage.holder.occupied_slots  # loaded
+
+        stage.unload()
+        assert stage.holder.occupied_slots == []  # working slot cleared
+
+    def test_unload_without_loader_is_noop(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        stage = _create_sample_stage(microscope)  # no loader
+        stage.unload()  # must not raise

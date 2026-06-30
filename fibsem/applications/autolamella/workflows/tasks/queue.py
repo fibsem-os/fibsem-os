@@ -3,7 +3,7 @@
 import copy
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -11,11 +11,17 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
 @dataclass
 class WorkItem:
-    """A single (lamella, task) work unit."""
-    lamella_name: str
+    """A single (unit, task) work item. The unit is a lamella or a grid; the
+    field is named neutrally (``item_name``) so the queue + timeline are shared."""
+    item_name: str
     task_name: str
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     id: str = field(default_factory=lambda: str(uuid4()))
+
+    @property
+    def lamella_name(self) -> str:
+        """Backward-compat alias for ``item_name`` (lamella-era callers)."""
+        return self.item_name
 
 
 class TaskQueue:
@@ -31,30 +37,62 @@ class TaskQueue:
         self._active: Optional[WorkItem] = None
         # Original matrix dimensions for status dict compat
         self._task_names: List[str] = []
-        self._lamella_names: List[str] = []
+        self._item_names: List[str] = []
 
     # --- Build ---
 
     def build_from_matrix(self, task_names: List[str],
-                          lamella_names: List[str]) -> List[WorkItem]:
-        """Populate queue from task x lamella matrix (task-outer, lamella-inner)."""
+                          item_names: List[str],
+                          unit_outer: bool = False) -> List[WorkItem]:
+        """Populate queue from a task x unit matrix.
+
+        Default is task-outer, unit-inner (lamella workflows: run a task across
+        all units, then the next task). Set ``unit_outer=True`` for unit-outer,
+        task-inner ordering (grid workflows: run all of a unit's tasks before
+        moving on, so a grid exchange is amortised across its task group).
+        """
         with self._lock:
             self._task_names = list(task_names)
-            self._lamella_names = list(lamella_names)
-            self._items = [
-                WorkItem(lamella_name=ln, task_name=tn)
-                for tn in task_names
-                for ln in lamella_names
-            ]
+            self._item_names = list(item_names)
+            if unit_outer:
+                self._items = [
+                    WorkItem(item_name=ln, task_name=tn)
+                    for ln in item_names
+                    for tn in task_names
+                ]
+            else:
+                self._items = [
+                    WorkItem(item_name=ln, task_name=tn)
+                    for tn in task_names
+                    for ln in item_names
+                ]
+            self._active = None
+            return list(self._items)
+
+    def build_from_plan(self,
+                        ordered: Iterable[Tuple[str, str]]) -> List[WorkItem]:
+        """Populate the queue from a pre-ordered ``(item_name, task_name)`` plan.
+
+        The order is already decided by the planner (see
+        :func:`fibsem.applications.autolamella.workflows.tasks.scheduling.build_plan`),
+        so the queue just stores it and ``next()`` walks it sequentially. Keeping
+        the queue grid-agnostic: it never resolves grids itself.
+        """
+        with self._lock:
+            ordered = list(ordered)
+            self._items = [WorkItem(item_name=i, task_name=t) for i, t in ordered]
+            # unique names, first-appearance order — for the status-dict compat
+            self._task_names = list(dict.fromkeys(t for _, t in ordered))
+            self._item_names = list(dict.fromkeys(i for i, _ in ordered))
             self._active = None
             return list(self._items)
 
     # --- Mutation (all thread-safe) ---
 
-    def add(self, lamella_name: str, task_name: str,
+    def add(self, item_name: str, task_name: str,
             index: Optional[int] = None) -> WorkItem:
         """Add a work item at position (default: end of pending items)."""
-        item = WorkItem(lamella_name=lamella_name, task_name=task_name)
+        item = WorkItem(item_name=item_name, task_name=task_name)
         with self._lock:
             pending = [i for i in self._items
                        if i.status == AutoLamellaTaskStatus.NotStarted]
@@ -94,7 +132,11 @@ class TaskQueue:
     # --- Iteration (called by worker thread) ---
 
     def next(self) -> Optional[WorkItem]:
-        """Return the next pending item, mark it InProgress, or None if queue is empty."""
+        """Return the next pending item in order, mark it InProgress, or None.
+
+        Plain sequential: the order is already baked into the queue (by
+        ``build_from_matrix`` or ``build_from_plan``), so no per-call selection.
+        """
         with self._lock:
             for item in self._items:
                 if item.status == AutoLamellaTaskStatus.NotStarted:
@@ -142,6 +184,11 @@ class TaskQueue:
         return list(self._task_names)
 
     @property
+    def item_names(self) -> List[str]:
+        """Original unit (lamella/grid) names list (for status dict compat)."""
+        return list(self._item_names)
+
+    @property
     def lamella_names(self) -> List[str]:
-        """Original lamella names list (for status dict compat)."""
-        return list(self._lamella_names)
+        """Backward-compat alias for ``item_names``."""
+        return list(self._item_names)
