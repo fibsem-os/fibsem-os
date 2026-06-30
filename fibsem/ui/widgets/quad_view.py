@@ -24,6 +24,7 @@ from fibsem.ui.widgets.canvas_state import (
     CanvasState,
     MillingSpec,
     OverlaySpec,
+    PointsSpec,
     SceneModel,
 )
 from fibsem.ui.widgets.fm_canvas import FMCanvasWidget
@@ -309,6 +310,16 @@ class MicroscopeViewController(QObject):
         spec = self._states[canvas].overlays.get("alignment")
         return getattr(spec, "rect", None)
 
+    def overlay_points(self, beam: BeamType, overlay_id: str) -> list:
+        """Current points (x, y) for a ``PointsSpec`` overlay — the model's
+        authoritative value (updated on every add / move / remove) — or ``[]``."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return []
+        spec = self._states[canvas].overlays.get(overlay_id)
+        pts = getattr(spec, "points", None)
+        return list(pts) if pts else []
+
     # ── render loop ───────────────────────────────────────────────────────
     def _mark_dirty(self, canvas: FibsemImageCanvas) -> None:
         self._dirty.add(canvas)
@@ -364,6 +375,27 @@ class MicroscopeViewController(QObject):
                 lambda value, b=beam, i=overlay_id: self._on_overlay_edited(b, i, value)
             )
             return obj
+        if isinstance(spec, PointsSpec):
+            from fibsem.ui.widgets.image_canvas import PointOverlay
+
+            obj = PointOverlay(
+                color=spec.color,
+                selected_color=spec.selected_color,
+                marker=spec.marker,
+                size=spec.size,
+                label_prefix=spec.label_prefix,
+                add_on_right_click=spec.add_on_right_click,
+                removable=spec.removable,
+                modal=spec.modal,
+            )
+            beam = self._beams.get(canvas)
+            for sig in (obj.point_added, obj.point_moved, obj.point_removed):
+                sig.connect(
+                    lambda *a, b=beam, i=overlay_id, o=obj: self._on_overlay_edited(
+                        b, i, o.get_points()
+                    )
+                )
+            return obj
         _logger.warning(
             "MicroscopeViewController: no renderer for spec %r", type(spec).__name__
         )
@@ -386,6 +418,8 @@ class MicroscopeViewController(QObject):
                 obj.set_area(spec.rect)
             obj.set_editable(spec.editing)
             obj.set_visible(spec.editing or spec.display)
+        elif isinstance(spec, PointsSpec):
+            obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
 
     def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
         """Make the model's armed overlay the canvas's active input mode (single
@@ -412,6 +446,8 @@ class MicroscopeViewController(QObject):
             spec = self._states[canvas].overlays.get(overlay_id)
             if isinstance(spec, AlignmentSpec):
                 spec.rect = value
+            elif isinstance(spec, PointsSpec):
+                spec.points = value
         self.overlay_edited.emit(beam, overlay_id, value)
 
     def clear(self) -> None:

@@ -18,7 +18,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
 from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
-from fibsem.ui.widgets.canvas_state import MillingSpec
+from fibsem.ui.widgets.canvas_state import MillingSpec, PointsSpec
 from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
 from fibsem.ui.widgets.quad_view import MicroscopeViewController
 
@@ -242,6 +242,65 @@ def test_true_clear_removes_alignment():
     print("ok: remove_overlay (true clear) drops the overlay + value + disarms")
 
 
+# ── points slice (POI / spot / detection share this) ─────────────────────────
+
+def test_points_create_arm_and_set():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(
+        BeamType.ION,
+        PointsSpec(id="poi", points=[(10.0, 12.0)], color="magenta", marker="+", size=18),
+    )
+    ctl.arm_overlay(BeamType.ION, "poi", label="POI")
+    _flush(app)
+
+    from fibsem.ui.widgets.image_canvas import PointOverlay
+    ov = ctl._overlay_objs[fib]["poi"]
+    assert isinstance(ov, PointOverlay)
+    assert ov in fib._overlays
+    assert fib.active_overlay is ov, "POI should own input"
+    assert ctl.overlay_points(BeamType.ION, "poi") == [(10.0, 12.0)]
+    print("ok: points overlay creates + arms + sets points")
+
+
+def test_points_move_roundtrips_to_model():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="poi", points=[(10.0, 10.0)]))
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["poi"]
+
+    # simulate a drag: the overlay geometry changes, point_moved fires on release
+    ov.set_points([(25.0, 30.0)])
+    ov.point_moved.emit(0, 25.0, 30.0)
+    assert ctl.overlay_points(BeamType.ION, "poi") == [(25.0, 30.0)], "model not updated from drag"
+    print("ok: point move round-trips into the model (read-back authoritative)")
+
+
+def test_points_remove_disarms():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="poi", points=[(10.0, 10.0)]))
+    ctl.arm_overlay(BeamType.ION, "poi")
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["poi"]
+
+    ctl.arm_overlay(BeamType.ION, None)
+    ctl.remove_overlay(BeamType.ION, "poi")
+    _flush(app)
+    assert "poi" not in ctl._overlay_objs[fib]
+    assert ov not in fib._overlays
+    assert ctl.overlay_points(BeamType.ION, "poi") == []
+    assert fib.active_overlay is None
+    print("ok: remove points overlay drops it + disarms")
+
+
 def _run_all():
     tests = [
         test_set_overlay_creates_attaches_and_renders,
@@ -255,6 +314,9 @@ def _run_all():
         test_alignment_value_survives_end_of_edit,
         test_alignment_edit_roundtrips_to_signal_and_model,
         test_true_clear_removes_alignment,
+        test_points_create_arm_and_set,
+        test_points_move_roundtrips_to_model,
+        test_points_remove_disarms,
     ]
     for t in tests:
         t()

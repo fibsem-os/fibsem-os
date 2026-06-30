@@ -213,7 +213,6 @@ class AutoLamellaUI(QMainWindow):
         self.WAITING_FOR_UI_UPDATE: bool = False
         self.SELECTED_POI: Optional[Point] = None
         self._poi_layer = None
-        self._poi_overlay = None  # quad-view POI PointOverlay (move-only)
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[threading.Thread] = None
         self._task_manager: Optional[TaskManager] = None
@@ -1997,10 +1996,9 @@ class AutoLamellaUI(QMainWindow):
         self.viewer.layers.selection.active = self._poi_layer
 
     def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
-        """Quad-view POI: a magenta '+' PointOverlay on the FIB canvas (move-only)."""
-        from fibsem.ui.widgets.image_canvas import PointOverlay
+        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
+        from fibsem.ui.widgets.canvas_state import PointsSpec
 
-        fib_canvas = controller.fib_canvas
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:
             px = conversions.microscope_image_to_image_coordinates(
@@ -2010,33 +2008,33 @@ class AutoLamellaUI(QMainWindow):
         else:
             row = ib_image.data.shape[0] / 2
             col = ib_image.data.shape[1] / 2
-        if self._poi_overlay is None:
-            self._poi_overlay = PointOverlay(
-                color="magenta", selected_color="magenta", marker="+",
-                size=18, add_on_right_click=False, removable=False,
-            )
-            fib_canvas.add_overlay(self._poi_overlay)
-        self._poi_overlay.set_points([(col, row)])
-        fib_canvas.set_hint("drag to move")
-        # POI owns FIB-canvas input: stage-move + milling menu stand down. The
-        # toolbar toggle lets the user drop to Move and back. (See active-overlay model.)
-        fib_canvas.enter_overlay_mode(self._poi_overlay, "POI", icon="mdi:map-marker")
+        controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="poi", points=[(col, row)],
+                color="magenta", selected_color="magenta", marker="+", size=18,
+                add_on_right_click=False, removable=False,
+            ),
+        )
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
+        # toggle lets the user drop to Move and back. (See active-overlay model.)
+        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
+        controller.fib_canvas.set_hint("drag to move")
 
     def _compute_and_clear_poi_layer(self) -> None:
         """Compute POI from current marker position, hide it, store in SELECTED_POI."""
-        if self._poi_overlay is not None:
-            pts = self._poi_overlay.get_points()
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is not None:
+            pts = controller.overlay_points(BeamType.ION, "poi")
             if pts:
                 col, row = pts[0]
                 ib_image = self.image_widget.ib_image
                 self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
                     Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
                 )
-            self._poi_overlay.clear_points()
-            controller = getattr(self.parent_widget, "view_controller", None)
-            if controller is not None:
-                controller.fib_canvas.set_hint(None)
-                controller.fib_canvas.exit_overlay_mode(self._poi_overlay)  # restore Move
+            controller.arm_overlay(BeamType.ION, None)  # restore Move
+            controller.remove_overlay(BeamType.ION, "poi")
+            controller.fib_canvas.set_hint(None)
             return
         if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
             pos = self._poi_layer.data[0]  # [row, col] napari coords

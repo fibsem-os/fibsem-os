@@ -57,6 +57,27 @@ class AlignmentSpec(OverlaySpec):
 
 
 @dataclass
+class PointsSpec(OverlaySpec):
+    """Interactive points (rendered by ``PointOverlay``) — POI / spot burn / detection
+    features. ``points`` are (x, y) pixel coords; the rest configure the overlay at
+    creation. ``colors`` / ``labels`` are optional index-aligned per-point overrides.
+    """
+
+    id: str = "points"
+    points: Sequence = ()
+    color: str = "cyan"
+    selected_color: str = "yellow"
+    marker: str = "o"
+    size: float = 10.0
+    label_prefix: str = ""
+    add_on_right_click: bool = False
+    removable: bool = False
+    modal: bool = False
+    colors: Optional[Sequence] = None
+    labels: Optional[Sequence] = None
+
+
+@dataclass
 class CanvasState:
     """Everything shown on one canvas; the reducer renders from this."""
 
