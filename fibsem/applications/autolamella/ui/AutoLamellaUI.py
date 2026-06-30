@@ -439,16 +439,6 @@ class AutoLamellaUI(QMainWindow):
             self.movement_widget.update_ui()
 
         self._update_minimap_data(stage_position=stage_position)
-        self._update_lamella_display()
-
-    def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view.
-
-        The napari implementation (reprojected lamella crosshairs, gated on
-        FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED) was removed in the quad-view
-        cutover; this feature awaits a controller-based reimplementation.
-        """
-        return
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -1163,7 +1153,6 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
 
         self._update_minimap_data(selected_name=lamella.name)
-        self._update_lamella_display(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
