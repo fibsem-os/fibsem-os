@@ -1,13 +1,12 @@
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
-import numpy as np
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import QIconifyIcon, ensure_main_thread
 
-from fibsem import acquire, constants, utils
+from fibsem import acquire, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,

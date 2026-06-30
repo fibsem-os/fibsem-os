@@ -1,7 +1,6 @@
 import logging
 import threading
-from typing import List, Optional
-import numpy as np
+from typing import List
 
 from napari.qt.threading import FunctionWorker, thread_worker
 from PyQt5.QtWidgets import QWidget

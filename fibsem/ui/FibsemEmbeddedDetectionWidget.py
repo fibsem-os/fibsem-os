@@ -1,7 +1,7 @@
 import logging
 import os
 from copy import deepcopy
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 from PyQt5 import QtWidgets
