@@ -147,7 +147,6 @@ class MillingTaskViewerWidget(QWidget):
         if iw is not None:
             try:
                 self._fib_image = iw.ib_image
-                self._fib_image_layer = iw.ib_layer
                 iw.viewer_update_signal.connect(self._on_viewer_image_updated)
             except Exception:
                 pass
@@ -390,7 +389,6 @@ class MillingTaskViewerWidget(QWidget):
                 return
         try:
             self._fib_image = iw.ib_image
-            self._fib_image_layer = iw.ib_layer
             self._schedule_pattern_update()
         except Exception as e:
             logging.error(f"MillingTaskViewerWidget: viewer image update error: {e}")
@@ -446,9 +444,6 @@ class MillingTaskViewerWidget(QWidget):
             self._pattern_update_inflight = False
             if self._pattern_update_pending:
                 self._schedule_pattern_update()
-
-        if self._image_widget is not None:
-            self._image_widget.restore_active_layer_for_movement()
 
     def _update_canvas_patterns(self) -> None:
         """Push the current enabled stages to the FIB canvas via the reducer (quad-view)."""
