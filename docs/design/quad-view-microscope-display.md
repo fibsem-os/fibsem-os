@@ -507,3 +507,17 @@ another napari consumer — see slice 7.4.
   branch; only the main-tab/`FibsemUI` call-sites take the controller path.
 - **Ordering:** 7.3 (delete napari path) must land *after* 7.2 (`FibsemUI` migrated), or `fibsem_ui`
   breaks. 7.4 (remove `main_viewer`) must land *after* 7.1 (ruler) or the main tab loses the ruler.
+
+### Follow-ups (post-cutover, deferred)
+
+- **`napari.qt.threading.thread_worker`** is still used in ~9 places (image ×3, movement ×3, spot
+  burn, segmentation, training, correlation) — it's the *last* napari import in the image/movement
+  widgets. It's a generic Qt threading helper (not display), and napari stays a hard dependency for
+  the other viewers, so replacing it changes no dependency or behaviour — purely architectural.
+  There's no drop-in (superqt has no worker), so it means hand-writing + testing a `@thread_worker`-
+  compatible helper over `QThread`/`QRunnable` (incl. the generator/`yielded` variant) across all 9
+  load-bearing sites. **Deferred** — only worth doing as part of an actual "drop napari entirely"
+  effort, which is gated on migrating the remaining napari viewers first. When done, do it once as a
+  shared `fibsem.ui` helper, not piecemeal.
+- **Lamella-position-on-live-view** (`_update_lamella_display`) was napari-only and removed in the
+  cutover (flag + pref checkbox gone too). Needs a controller-based reimplementation if wanted.
