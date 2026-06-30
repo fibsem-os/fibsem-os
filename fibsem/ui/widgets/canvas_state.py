@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from fibsem.structures import FibsemImage, FibsemRectangle
 
 
@@ -76,6 +78,16 @@ class PointsSpec(OverlaySpec):
     modal: bool = False
     colors: Optional[Sequence] = None
     labels: Optional[Sequence] = None
+
+
+@dataclass
+class MaskSpec(OverlaySpec):
+    """A segmentation mask (rendered by ``MaskOverlay``, display-only) — HxW integer
+    class indices; ``colors`` is an optional index→(r,g,b) override."""
+
+    id: str = "mask"
+    mask: Optional["np.ndarray"] = None
+    colors: Optional[Sequence] = None
 
 
 @dataclass

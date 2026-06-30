@@ -12,13 +12,14 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
 from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
-from fibsem.ui.widgets.canvas_state import MillingSpec, PointsSpec
+from fibsem.ui.widgets.canvas_state import MaskSpec, MillingSpec, PointsSpec
 from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
 from fibsem.ui.widgets.quad_view import MicroscopeViewController
 
@@ -338,6 +339,49 @@ def test_set_points_partial_keeps_config():
     print("ok: set_points updates points, keeps config/visibility")
 
 
+def test_mask_overlay_displays_and_removes():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    mask = np.zeros((64, 64), dtype=np.uint8)
+    mask[10:30, 10:30] = 1
+    ctl.set_overlay(BeamType.ION, MaskSpec(id="mask", mask=mask))
+    _flush(app)
+    from fibsem.ui.widgets.mask_overlay import MaskOverlay
+    ov = ctl._overlay_objs[fib]["mask"]
+    assert isinstance(ov, MaskOverlay)
+    assert ov in fib._overlays
+    ctl.remove_overlay(BeamType.ION, "mask")
+    _flush(app)
+    assert "mask" not in ctl._overlay_objs[fib]
+    print("ok: mask overlay displays + removes")
+
+
+def test_detection_features_colors_labels_and_move():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(
+        id="detection", points=[(10.0, 10.0), (20.0, 20.0)],
+        colors=["red", "lime"], labels=["A", "B"],
+        marker="+", removable=False, add_on_right_click=False, modal=True,
+    ))
+    ctl.arm_overlay(BeamType.ION, "detection", label="Detection")
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["detection"]
+    assert ov in fib._overlays
+    assert fib.active_overlay is ov
+    assert ctl.overlay_points(BeamType.ION, "detection") == [(10.0, 10.0), (20.0, 20.0)]
+
+    # dragging a feature round-trips into the model (features re-read from the points)
+    ov.set_points([(15.0, 15.0), (20.0, 20.0)])
+    ov.point_moved.emit(0, 15.0, 15.0)
+    assert ctl.overlay_points(BeamType.ION, "detection") == [(15.0, 15.0), (20.0, 20.0)]
+    print("ok: detection features (colors/labels) + move round-trip")
+
+
 def _run_all():
     tests = [
         test_set_overlay_creates_attaches_and_renders,
@@ -356,6 +400,8 @@ def _run_all():
         test_points_remove_disarms,
         test_points_visible_toggle_keeps_points,
         test_set_points_partial_keeps_config,
+        test_mask_overlay_displays_and_removes,
+        test_detection_features_colors_labels_and_move,
     ]
     for t in tests:
         t()

@@ -22,6 +22,7 @@ from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.widgets.canvas_state import (
     AlignmentSpec,
     CanvasState,
+    MaskSpec,
     MillingSpec,
     OverlaySpec,
     PointsSpec,
@@ -387,6 +388,10 @@ class MicroscopeViewController(QObject):
             from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
 
             return MillingPatternOverlay()
+        if isinstance(spec, MaskSpec):
+            from fibsem.ui.widgets.mask_overlay import MaskOverlay
+
+            return MaskOverlay()
         if isinstance(spec, AlignmentSpec):
             from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 
@@ -442,6 +447,8 @@ class MicroscopeViewController(QObject):
         elif isinstance(spec, PointsSpec):
             obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
             obj.set_visible(spec.visible)
+        elif isinstance(spec, MaskSpec):
+            obj.set_mask(spec.mask, colors=spec.colors)
 
     def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
         """Make the model's armed overlay the canvas's active input mode (single

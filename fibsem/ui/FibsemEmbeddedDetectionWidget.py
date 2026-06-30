@@ -22,6 +22,7 @@ from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.config import CLASS_COLORS
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
+    BeamType,
     FibsemImage,
     Point,
 )
@@ -52,11 +53,10 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self.features_layer: NapariPointsLayer = None
         self.cross_hair_layer: NapariShapesLayer = None
 
-        # quad-view: MaskOverlay + a modal features PointOverlay on a beam canvas
-        # (created lazily when a controller is present; napari path used otherwise)
-        self._mask_overlay = None
-        self._features_overlay = None
-        self._host_canvas = None
+        # quad-view: a "mask" MaskSpec + a modal "detection" PointsSpec on a beam
+        # canvas, owned by the controller (napari path used when no controller).
+        self._host_beam = None         # BeamType the detection overlays are hosted on
+        self._detection_wired = False  # subscribed to controller.overlay_edited
 
         self.setup_connections()
 
@@ -69,71 +69,82 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         parent_ui = getattr(self.parent, "parent_widget", None)
         return getattr(parent_ui, "view_controller", None)
 
-    def _host_canvas_for(self, det):
-        """Pick the canvas to host detection — the beam of ``det.fibsem_image``
-        (fallback FIB), or None on the napari path."""
-        controller = self._view_controller()
-        if controller is None:
+    def _host_beam_for(self, det):
+        """Pick the beam to host detection — the beam of ``det.fibsem_image``
+        (fallback ION), or None on the napari path."""
+        if self._view_controller() is None:
             return None
         fib = getattr(det, "fibsem_image", None)
         beam = fib.metadata.beam_type if fib is not None and fib.metadata is not None else None
-        canvas = controller.get_canvas(beam) if beam is not None else None
-        return canvas or controller.fib_canvas
+        return beam if beam in (BeamType.ELECTRON, BeamType.ION) else BeamType.ION
 
-    def _detach_canvas_overlays(self):
-        """Remove the detection overlays from the current host canvas (e.g. when the
-        host beam changes between detections)."""
-        c = self._host_canvas
-        if c is not None:
-            if self._features_overlay is not None:
-                c.exit_overlay_mode(self._features_overlay)
-                c.remove_overlay(self._features_overlay)
-            if self._mask_overlay is not None:
-                c.remove_overlay(self._mask_overlay)
-        self._features_overlay = None
-        self._mask_overlay = None
+    def _detach_detection(self, beam):
+        """Remove the detection overlays from *beam* (e.g. when the host beam changes)."""
+        controller = self._view_controller()
+        if controller is None or beam is None:
+            return
+        controller.arm_overlay(beam, None)
+        controller.remove_overlay(beam, "detection")
+        controller.remove_overlay(beam, "mask")
+        canvas = controller.get_canvas(beam)
+        if canvas is not None:
+            canvas.set_hint(None)
 
-    def _update_features_canvas(self, canvas):
-        """Show the detection image + read-only mask + draggable feature points on
-        *canvas* (quad-view equivalent of the napari ``update_features_ui``)."""
-        from fibsem.ui.widgets.image_canvas import PointOverlay
-        from fibsem.ui.widgets.mask_overlay import MaskOverlay
+    def _update_features(self, beam):
+        """Show the detection image + read-only mask + draggable feature points on the
+        *beam* canvas via the reducer (quad-view equivalent of update_features_ui)."""
+        from fibsem.ui.widgets.canvas_state import MaskSpec, PointsSpec
 
-        if self._host_canvas is not None and self._host_canvas is not canvas:
-            self._detach_canvas_overlays()  # host beam changed
-        self._host_canvas = canvas
+        controller = self._view_controller()
+        if controller is None:
+            return
+        if self._host_beam is not None and self._host_beam is not beam:
+            self._detach_detection(self._host_beam)  # host beam changed
+        self._host_beam = beam
+        if not self._detection_wired:
+            controller.overlay_edited.connect(self._on_detection_edited)
+            self._detection_wired = True
 
         # the detection image: its pixel space matches det.mask + feature.px
         if self.det.fibsem_image is not None:
-            canvas.set_image(self.det.fibsem_image)
-
-        if self._mask_overlay is None:
-            self._mask_overlay = MaskOverlay()
-            canvas.add_overlay(self._mask_overlay)
-        self._mask_overlay.set_mask(self.det.mask)  # display-only
-
-        if self._features_overlay is None:
-            self._features_overlay = PointOverlay(
+            controller.set_image(beam, self.det.fibsem_image)
+        controller.set_overlay(beam, MaskSpec(mask=self.det.mask))  # display-only
+        controller.set_overlay(
+            beam,
+            PointsSpec(
+                id="detection",
+                points=[(f.px.x, f.px.y) for f in self.det.features],
+                colors=[f.color for f in self.det.features],
+                labels=[f.name for f in self.det.features],
                 marker="+", size=16, removable=False, add_on_right_click=False, modal=True,
-            )
-            canvas.add_overlay(self._features_overlay)
-            self._features_overlay.point_moved.connect(self._on_canvas_feature_moved)
-        self._features_overlay.set_points(
-            [(f.px.x, f.px.y) for f in self.det.features],
-            colors=[f.color for f in self.det.features],
-            labels=[f.name for f in self.det.features],
+            ),
         )
-        self._features_overlay.set_visible(True)
-        canvas.enter_overlay_mode(self._features_overlay, "Detection", icon="mdi:vector-point")
-        canvas.set_hint("drag features to correct  ·  Continue when done")
+        controller.arm_overlay(beam, "detection", label="Detection", icon="mdi:vector-point")
+        canvas = controller.get_canvas(beam)
+        if canvas is not None:
+            canvas.set_hint("drag features to correct  ·  Continue when done")
         self.update_info()
 
-    def _on_canvas_feature_moved(self, idx: int, x: float, y: float):
+    def _on_detection_edited(self, beam, overlay_id, points):
         """A feature point was dragged → update ``feature.px`` (mirrors update_point)."""
-        if 0 <= idx < len(self.det.features):
-            self.det.features[idx].px = Point(x=x, y=y)
-            self.has_user_corrected = True
-            self.update_info()
+        if overlay_id != "detection":
+            return
+        for i, (x, y) in enumerate(points):
+            if i < len(self.det.features):
+                self.det.features[i].px = Point(x=x, y=y)
+        self.has_user_corrected = True
+        self.update_info()
+
+    def closeEvent(self, event) -> None:
+        if self._detection_wired:
+            controller = self._view_controller()
+            if controller is not None:
+                try:
+                    controller.overlay_edited.disconnect(self._on_detection_edited)
+                except (TypeError, RuntimeError):
+                    pass
+            self._detection_wired = False
+        super().closeEvent(event)
 
     def _setup_ui(self):
         self.gridLayout = QGridLayout(self)
@@ -175,17 +186,11 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def clear_layers(self):
         """Remove the layers added by the detection widget and reshow all other layers."""
-        if self._features_overlay is not None or self._mask_overlay is not None:  # quad-view
-            c = self._host_canvas
-            if c is not None:
-                if self._features_overlay is not None:
-                    c.exit_overlay_mode(self._features_overlay)  # restore Move
-                c.set_hint(None)
-            if self._features_overlay is not None:
-                self._features_overlay.set_visible(False)
-                self._features_overlay.clear_points()
-            if self._mask_overlay is not None:
-                self._mask_overlay.clear()
+        controller = self._view_controller()
+        if controller is not None:  # quad-view
+            if self._host_beam is not None:
+                self._detach_detection(self._host_beam)
+            self._host_beam = None
             return
 
         # remove feature detection layers
@@ -209,7 +214,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
     def confirm_button_clicked(self):
         """Confirm the detected features, save the data and and remove the layers from the viewer."""
 
-        if self._features_overlay is not None:  # quad-view: mask is display-only
+        if self._view_controller() is not None:  # quad-view: mask is display-only
             # No painting, so det.mask stays the model output — but normalise its dtype
             # to uint8 (save_feature_data_to_csv -> PIL.Image.fromarray needs it; the
             # napari path got this for free via mask_layer.data.astype(np.uint8)).
@@ -242,9 +247,9 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def update_features_ui(self):
         """Update the UI with the detected features"""
-        canvas = self._host_canvas_for(self.det)
-        if canvas is not None:
-            self._update_features_canvas(canvas)
+        beam = self._host_beam_for(self.det)
+        if beam is not None:
+            self._update_features(beam)
             return
 
         # hide all other layers?
