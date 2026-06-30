@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem import config as fcfg
 from fibsem.fm.acquisition import acquire_image
@@ -47,7 +46,6 @@ from fibsem.ui.fm.widgets import (
     ZParametersWidget,
 )
 from fibsem.ui import notification_service
-from fibsem.ui.napari.utilities import is_position_inside_layer, update_text_overlay
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -103,9 +101,6 @@ class FMControlWidget(QWidget):
         self.initUI()
         self.connect_signals()
         self._update_acquisition_button_states()
-
-        if self.viewer is not None:
-            update_text_overlay(self.viewer, self.microscope)
 
     def initUI(self):
         """Initialize the user interface."""
@@ -298,8 +293,8 @@ class FMControlWidget(QWidget):
             self._on_channel_field_changed
         )
 
-        # quad-view: route FM canvas double-click (→ relative move) and Shift+scroll
-        # (→ objective) to the matplotlib canvas; else the napari callbacks
+        # Route FM canvas double-click (→ relative move) and Shift+scroll
+        # (→ objective) to the matplotlib canvas.
         controller = self._view_controller()
         if controller is not None:
             # bound methods (not lambdas) so they can be disconnected on teardown;
@@ -310,8 +305,6 @@ class FMControlWidget(QWidget):
             self._fm_canvas.canvas_scrolled.connect(
                 self.objectiveControlWidget._on_canvas_scroll
             )
-        else:
-            self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
 
         # Update checkbox text when lamella selection changes
         if self.parent_widget is not None and hasattr(
@@ -337,11 +330,6 @@ class FMControlWidget(QWidget):
             self.fm.acquisition_signal.disconnect(self.update_image)
         except (TypeError, RuntimeError):
             pass
-        if self.viewer is not None:
-            try:
-                self.viewer.mouse_double_click_callbacks.remove(self.on_mouse_double_click)
-            except ValueError:
-                pass  # not registered on the quad-view path
 
         if self._fm_canvas is not None:
             for signal, slot in (
@@ -369,64 +357,6 @@ class FMControlWidget(QWidget):
         """Disconnect external signals and close the widget."""
         self._teardown_connections()
         self.close()
-
-    def on_mouse_double_click(self, viewer, event):
-        # only left clicks
-        if event.button != 1:
-            return
-
-        # Prevent stage movement during acquisitions
-        if self.is_acquisition_active:
-            logging.info("Stage movement disabled during acquisition")
-            event.handled = True
-            return
-
-        logging.info(f"-" * 50)
-
-        selected_layer: Optional[NapariImageLayer] = None
-        movement_type = None
-        ALT_MODIFIER = "Alt" in event.modifiers
-
-        fm_image_layers = []
-        for layer in self.viewer.layers:
-            if isinstance(layer, NapariImageLayer) and "FM Image" in layer.name:
-                fm_image_layers.append(layer.name)
-
-        for fm_layer in fm_image_layers:
-            if is_position_inside_layer(event.position, self.viewer.layers[fm_layer]):
-                selected_layer = self.viewer.layers[fm_layer]
-                pixelsize = selected_layer.metadata.get("pixel_size_x", None)
-                image_shape = selected_layer.data.shape[-2:]
-                movement_type = "FM"
-                break
-
-        if selected_layer is None:
-            logging.info(f"Position {event.position} is not in any valid layer")
-            return
-
-        if pixelsize is None:
-            logging.info("Pixelsize is None")
-            return
-
-        if not self.microscope.fm.has_valid_orientation():
-            logging.info(f"Stage must be in a valid FM orientation to move stage via FM (current: {self.microscope.get_stage_orientation()})")
-            event.handled = True
-            return
-
-        # convert from image coordinates to microscope coordinates
-        coords = selected_layer.world_to_data(event.position)
-        if len(coords) in [3, 4]:
-            coords = coords[-2:]
-
-        logging.info(
-            f"Coordinates: {coords} - Movement Type {movement_type} - Alt Modifier {ALT_MODIFIER}"
-        )
-        if movement_type == "FM":
-            # coords are (row, col) = (y, x); the helper takes pixel (x, y)
-            self._fm_relative_move_from_pixel(
-                coords[1], coords[0], image_shape, pixelsize
-            )
-        logging.info(f"-" * 50)
 
     def _fm_relative_move_from_pixel(self, x, y, image_shape, pixelsize):
         """Convert an FM-image pixel (x=col, y=row) into a relative stage move that
@@ -636,51 +566,15 @@ class FMControlWidget(QWidget):
         if not isinstance(image, FluorescenceImage):
             return
 
-        # Add to napari viewer
-        layer_name = f"FM Image {image.metadata.channels[0].name}"
-        colormap = (
-            image.metadata.channels[0].color if image.metadata.channels else "gray"
-        )
-        translation = (0, 0)
         data = image.data
         if data.ndim == 4 and data.shape[0] == 1 and data.shape[1] == 1:
-            data = data.squeeze(
-                axis=(0, 1)
-            )  # squish to 2D (required by napari for now)
+            data = data.squeeze(axis=(0, 1))  # squish to 2D
 
         # retain click context for the quad-view FM canvas double-click → move
         self._fm_pixelsize = getattr(image.metadata, "pixel_size_x", None)
         self._fm_image_shape = data.shape[-2:]
 
-        # napari layers (when a viewer backs this widget); the quad-view FM canvas
-        # is updated by the controller mirror below.
-        if self.viewer is not None:
-            # get translation from eb_image layer if it exists
-            if "ELECTRON" in self.viewer.layers:
-                eb_layer = self.viewer.layers["ELECTRON"]
-                translation = (eb_layer.data.shape[0], 0)  # move it below the SEM image...
-
-            if layer_name in self.viewer.layers:
-                self.viewer.layers[layer_name].data = data
-                self.viewer.layers[layer_name].metadata = image.metadata.to_dict()
-                self.viewer.layers[layer_name].translate = translation
-                self.viewer.layers[layer_name].colormap = colormap
-                self.viewer.layers[layer_name].blending = "additive"
-            else:
-                self.viewer.add_image(
-                    data,
-                    name=layer_name,
-                    metadata=image.metadata.to_dict(),
-                    colormap=colormap,
-                    translate=translation,
-                    blending="additive",
-                )
-                self.viewer.reset_view()
-
-        # Quad-view mirror: composite the acquired image onto the FM canvas
-        # (gated; the napari path above is untouched). FMCanvasWidget.set_fm_image
-        # unpacks the channels + metadata; channels upsert by name and blend
-        # additively, like napari.
+        # Composite the acquired image onto the FM canvas via the controller.
         controller = self._view_controller()
         if controller is not None:
             controller.set_fm_image(image)
