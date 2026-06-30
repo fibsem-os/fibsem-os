@@ -254,6 +254,27 @@ class MicroscopeViewController(QObject):
         state.armed_icon = icon
         self._mark_dirty(canvas)
 
+    def set_overlay_visible(self, beam: BeamType, overlay_id: str, visible: bool) -> None:
+        """Toggle an overlay's visibility without replacing its spec (keeps points /
+        value). Applies to specs with a ``visible`` field (e.g. PointsSpec)."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return
+        spec = self._states[canvas].overlays.get(overlay_id)
+        if spec is not None and hasattr(spec, "visible"):
+            spec.visible = visible
+            self._mark_dirty(canvas)
+
+    def set_points(self, beam: BeamType, overlay_id: str, points) -> None:
+        """Replace a PointsSpec overlay's points without touching its config / visibility."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return
+        spec = self._states[canvas].overlays.get(overlay_id)
+        if isinstance(spec, PointsSpec):
+            spec.points = list(points)
+            self._mark_dirty(canvas)
+
     def set_alignment_edit(
         self, beam: BeamType, rect: Optional["FibsemRectangle"], editing: bool
     ) -> None:
@@ -420,6 +441,7 @@ class MicroscopeViewController(QObject):
             obj.set_visible(spec.editing or spec.display)
         elif isinstance(spec, PointsSpec):
             obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
+            obj.set_visible(spec.visible)
 
     def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
         """Make the model's armed overlay the canvas's active input mode (single

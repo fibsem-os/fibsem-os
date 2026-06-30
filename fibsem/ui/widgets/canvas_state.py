@@ -65,6 +65,7 @@ class PointsSpec(OverlaySpec):
 
     id: str = "points"
     points: Sequence = ()
+    visible: bool = True
     color: str = "cyan"
     selected_color: str = "yellow"
     marker: str = "o"

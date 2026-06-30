@@ -301,6 +301,43 @@ def test_points_remove_disarms():
     print("ok: remove points overlay drops it + disarms")
 
 
+def test_points_visible_toggle_keeps_points():
+    """Spot burn show/hide: visibility toggles without losing the points."""
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)], visible=True))
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["spot"]
+    assert ov._visible is True
+
+    ctl.set_overlay_visible(BeamType.ION, "spot", False)  # hide, keep points
+    _flush(app)
+    assert ov._visible is False
+    assert ctl.overlay_points(BeamType.ION, "spot") == [(5.0, 5.0)], "points kept on hide"
+
+    ctl.set_overlay_visible(BeamType.ION, "spot", True)
+    _flush(app)
+    assert ov._visible is True
+    print("ok: set_overlay_visible toggles visibility, keeps points")
+
+
+def test_set_points_partial_keeps_config():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)], visible=False))
+    _flush(app)
+    ctl.set_points(BeamType.ION, "spot", [(1.0, 2.0), (3.0, 4.0)])  # points only
+    _flush(app)
+    assert ctl.overlay_points(BeamType.ION, "spot") == [(1.0, 2.0), (3.0, 4.0)]
+    ov = ctl._overlay_objs[fib]["spot"]
+    assert ov._visible is False, "visibility preserved by set_points"
+    print("ok: set_points updates points, keeps config/visibility")
+
+
 def _run_all():
     tests = [
         test_set_overlay_creates_attaches_and_renders,
@@ -317,6 +354,8 @@ def _run_all():
         test_points_create_arm_and_set,
         test_points_move_roundtrips_to_model,
         test_points_remove_disarms,
+        test_points_visible_toggle_keeps_points,
+        test_set_points_partial_keeps_config,
     ]
     for t in tests:
         t()
