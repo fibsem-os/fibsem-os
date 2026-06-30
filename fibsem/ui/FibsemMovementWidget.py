@@ -45,11 +45,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         if not hasattr(parent, 'image_widget') or not isinstance(parent.image_widget, FibsemImageSettingsWidget):
             raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
-        if not hasattr(parent, "viewer") or not isinstance(parent.viewer, napari.Viewer):
-            raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.microscope = microscope
-        self.viewer = parent.viewer
+        # Optional: quad-view hosts may run viewer-less (info bar via the controller).
+        self.viewer = getattr(parent, "viewer", None)
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
         self.setup_connections()
 
@@ -176,11 +175,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             controller.fib_canvas.canvas_double_clicked.connect(
                 lambda x, y, m: self._on_canvas_double_click(BeamType.ION, x, y, m)
             )
-        elif cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
-            self.viewer.mouse_double_click_callbacks.append(self._viewer_double_click)
-        else:
-            self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
-            self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
+        elif self.viewer is not None:
+            # napari path (no controller): wire viewer/layer double-click callbacks
+            if cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
+                self.viewer.mouse_double_click_callbacks.append(self._viewer_double_click)
+            else:
+                self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
+                self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
 
         # disable ui elements
         self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
@@ -294,7 +295,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             notification_service.show_toast(msg)
 
         is_finished = ddict.get("finished", False)
-        if is_finished:
+        if is_finished and self.viewer is not None:
             update_text_overlay(self.viewer, self.microscope)
 
     def handle_acquisition_update(self, ddict: dict):
@@ -315,8 +316,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation.setValue(np.degrees(stage_position.r))
         self.doubleSpinBox_movement_stage_tilt.setValue(np.degrees(stage_position.t))
 
-        # update the current position label
-        update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
+        # update the current position label (napari path)
+        if self.viewer is not None:
+            update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
         # quad-view info bar: model + debounced render, so it's safe to call here
         controller = self._view_controller()
         if controller is not None:
@@ -363,7 +365,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # refresh tooltip and overlay
         milling = self.microscope.get_orientation("MILLING")
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
-        update_text_overlay(self.viewer, self.microscope)
+        if self.viewer is not None:
+            update_text_overlay(self.viewer, self.microscope)
         controller = self._view_controller()
         if controller is not None:
             controller.update_info(self.microscope)

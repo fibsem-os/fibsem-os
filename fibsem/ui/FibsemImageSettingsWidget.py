@@ -56,12 +56,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
-        if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
-            raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.parent = parent
         self.microscope = microscope
-        self.viewer = parent.viewer
+        # Optional: quad-view hosts may run viewer-less (display via the controller).
+        # Every napari op below is guarded on ``self.viewer is not None``.
+        self.viewer = getattr(parent, "viewer", None)
         self.eb_layer: NapariImageLayer = None
         self.ib_layer: NapariImageLayer = None
 
@@ -91,9 +91,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.update_ui_saving_settings()
 
         # register initial images
-        self.eb_layer = self.viewer.add_image(self.eb_image.data, name=BeamType.ELECTRON.name, blending='additive')
-        self.ib_layer = self.viewer.add_image(self.ib_image.data, name=BeamType.ION.name, blending='additive')
-        self._on_acquire(self.eb_image)
+        if self.viewer is not None:
+            self.eb_layer = self.viewer.add_image(self.eb_image.data, name=BeamType.ELECTRON.name, blending='additive')
+            self.ib_layer = self.viewer.add_image(self.ib_image.data, name=BeamType.ION.name, blending='additive')
+        self._on_acquire(self.eb_image)  # also seeds the quad-view canvases
         self._on_acquire(self.ib_image)
 
     # ------------------------------------------------------------------
@@ -277,16 +278,17 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             if image.metadata is None:
                 raise ValueError("Image metadata is None, cannot update viewer layer without beam type information.")
 
-            # Update existing layer
-            layer = self.viewer.layers[image.metadata.beam_type.name]
-            layer.data = image.filtered_data
+            # Update existing napari layer (when a viewer backs this widget)
+            if self.viewer is not None:
+                layer = self.viewer.layers[image.metadata.beam_type.name]
+                layer.data = image.filtered_data
             # update images references
             if self.microscope.is_acquiring:
                 if image.metadata.beam_type is BeamType.ELECTRON:
                     self.eb_image = image
                 elif image.metadata.beam_type is BeamType.ION:
                     self.ib_image = image
-            # Mirror to the quad-view canvas, when enabled (napari path above is unchanged)
+            # Mirror to the quad-view canvas, when enabled
             if config.FEATURE_QUAD_VIEW_ENABLED:
                 controller = self._view_controller()
                 if controller is not None:
@@ -662,6 +664,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def update_ui_tools(self):
         """Redraw the ui tools (scalebar, crosshair)"""
+        if self.viewer is None:
+            return  # the quad-view canvas draws its own scalebar / crosshair
 
         # draw scalebar and crosshair
         if self.eb_image is not None and self.ib_image is not None:
@@ -692,6 +696,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def _update_layer_positions(self):
         """Update the positions of the image layers in the viewer. Ion beam to the right of electron beam."""
+        if self.viewer is None:
+            return  # single image per quad-view canvas; no side-by-side layout
         # translate ion beam layer to the right of electron beam, adjust the camera
         if self.eb_layer and self.ib_layer:
             self.ib_layer.translate = [0.0, self.eb_layer.data.shape[1]]
@@ -755,16 +761,20 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 except (TypeError, RuntimeError):
                     pass
             self._overlay_edited_wired = False
-        self.viewer.layers.clear()
+        if self.viewer is not None:
+            self.viewer.layers.clear()
         event.accept()
 
     def clear_viewer(self):
-        self.viewer.layers.clear()
+        if self.viewer is not None:
+            self.viewer.layers.clear()
         self.eb_layer = None
         self.ib_layer = None
 
     def restore_active_layer_for_movement(self):
         """Restore the active layer to the electron beam for movement"""
+        if self.viewer is None:
+            return
         if self.eb_layer in self.viewer.layers:
             self.viewer.layers.selection.active = self.eb_layer
 

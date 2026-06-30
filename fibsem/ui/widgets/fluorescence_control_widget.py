@@ -63,7 +63,7 @@ class FMControlWidget(QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope,
-        viewer: napari.Viewer,
+        viewer=None,  # optional: quad-view hosts may run viewer-less
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -104,7 +104,8 @@ class FMControlWidget(QWidget):
         self.connect_signals()
         self._update_acquisition_button_states()
 
-        update_text_overlay(self.viewer, self.microscope)
+        if self.viewer is not None:
+            update_text_overlay(self.viewer, self.microscope)
 
     def initUI(self):
         """Initialize the user interface."""
@@ -336,10 +337,11 @@ class FMControlWidget(QWidget):
             self.fm.acquisition_signal.disconnect(self.update_image)
         except (TypeError, RuntimeError):
             pass
-        try:
-            self.viewer.mouse_double_click_callbacks.remove(self.on_mouse_double_click)
-        except ValueError:
-            pass  # not registered on the quad-view path
+        if self.viewer is not None:
+            try:
+                self.viewer.mouse_double_click_callbacks.remove(self.on_mouse_double_click)
+            except ValueError:
+                pass  # not registered on the quad-view path
 
         if self._fm_canvas is not None:
             for signal, slot in (
@@ -650,27 +652,30 @@ class FMControlWidget(QWidget):
         self._fm_pixelsize = getattr(image.metadata, "pixel_size_x", None)
         self._fm_image_shape = data.shape[-2:]
 
-        # get translation from eb_image layer if it exists
-        if "ELECTRON" in self.viewer.layers:
-            eb_layer = self.viewer.layers["ELECTRON"]
-            translation = (eb_layer.data.shape[0], 0)  # move it below the SEM image...
+        # napari layers (when a viewer backs this widget); the quad-view FM canvas
+        # is updated by the controller mirror below.
+        if self.viewer is not None:
+            # get translation from eb_image layer if it exists
+            if "ELECTRON" in self.viewer.layers:
+                eb_layer = self.viewer.layers["ELECTRON"]
+                translation = (eb_layer.data.shape[0], 0)  # move it below the SEM image...
 
-        if layer_name in self.viewer.layers:
-            self.viewer.layers[layer_name].data = data
-            self.viewer.layers[layer_name].metadata = image.metadata.to_dict()
-            self.viewer.layers[layer_name].translate = translation
-            self.viewer.layers[layer_name].colormap = colormap
-            self.viewer.layers[layer_name].blending = "additive"
-        else:
-            self.viewer.add_image(
-                data,
-                name=layer_name,
-                metadata=image.metadata.to_dict(),
-                colormap=colormap,
-                translate=translation,
-                blending="additive",
-            )
-            self.viewer.reset_view()
+            if layer_name in self.viewer.layers:
+                self.viewer.layers[layer_name].data = data
+                self.viewer.layers[layer_name].metadata = image.metadata.to_dict()
+                self.viewer.layers[layer_name].translate = translation
+                self.viewer.layers[layer_name].colormap = colormap
+                self.viewer.layers[layer_name].blending = "additive"
+            else:
+                self.viewer.add_image(
+                    data,
+                    name=layer_name,
+                    metadata=image.metadata.to_dict(),
+                    colormap=colormap,
+                    translate=translation,
+                    blending="additive",
+                )
+                self.viewer.reset_view()
 
         # Quad-view mirror: composite the acquired image onto the FM canvas
         # (gated; the napari path above is untouched). FMCanvasWidget.set_fm_image
