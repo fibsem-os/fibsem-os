@@ -42,17 +42,17 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self.setup_connections()
 
     # ------------------------------------------------------------------
-    # Quad-view overlays (gated; napari path preserved when no controller)
+    # Quad-view overlays (controller-owned)
     # ------------------------------------------------------------------
 
     def _view_controller(self):
-        """Return the quad-view MicroscopeViewController, or None (napari path)."""
+        """Return the quad-view MicroscopeViewController, or None if unavailable."""
         parent_ui = getattr(self.parent, "parent_widget", None)
         return getattr(parent_ui, "view_controller", None)
 
     def _host_beam_for(self, det):
         """Pick the beam to host detection — the beam of ``det.fibsem_image``
-        (fallback ION), or None on the napari path."""
+        (fallback ION), or None if there's no controller."""
         if self._view_controller() is None:
             return None
         fib = getattr(det, "fibsem_image", None)

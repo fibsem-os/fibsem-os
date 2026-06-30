@@ -53,7 +53,7 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
         Creates a modal "spot" PointsSpec (right-click to add, Delete to remove) on
         first use and subscribes to the controller's edit signal so the point count
-        stays live. Returns the controller, or None on the napari path.
+        stays live. Returns the controller, or None if one isn't available.
         """
         controller = self._view_controller()
         if controller is None:

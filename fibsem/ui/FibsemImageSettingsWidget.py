@@ -243,7 +243,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         Two hosts expose it: standalone ``FibsemUI`` (the direct parent holds
         ``view_controller``) and AutoLamella (parent → ``AutoLamellaUI`` →
         ``parent_widget`` → the main window). Check the direct parent first, then
-        the AutoLamella chain. On the napari path neither holds one → ``None``.
+        the AutoLamella chain; ``None`` if neither holds one.
         """
         controller = getattr(self.parent, "view_controller", None)
         if controller is not None:
@@ -533,8 +533,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Hide the alignment area but keep its value.
 
         The workflow reads ``get_alignment_area()`` straight after sending its
-        "clear" (in ``update_alignment_area_ui``), so the rect must survive — this
-        mirrors the napari layer, which is hidden but keeps its data.
+        "clear" (in ``update_alignment_area_ui``), so the rect must survive — the
+        overlay is hidden but the model keeps its value.
         """
         controller = self._view_controller()
         if controller is not None:

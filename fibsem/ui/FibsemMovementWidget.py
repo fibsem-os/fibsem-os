@@ -308,7 +308,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             controller.update_info(self.microscope, stage_position=stage_position)
 
     def _view_controller(self):
-        """Return the quad-view MicroscopeViewController, or None on the napari path.
+        """Return the quad-view MicroscopeViewController, or None if unavailable.
 
         Resolved like the image widget: the direct parent (standalone ``FibsemUI``)
         or parent → ``parent_widget`` (AutoLamella) holds ``view_controller``.
