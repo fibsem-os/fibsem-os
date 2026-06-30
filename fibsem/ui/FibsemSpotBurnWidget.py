@@ -256,10 +256,13 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         return coordinates
 
     def clear_points_layer(self):
-        """Clear the spots."""
+        """Clear the spots and tear the overlay down (called when the task exits)."""
         controller = self._view_controller()
         if controller is not None:
-            controller.set_points(BeamType.ION, "spot", [])
+            controller.arm_overlay(BeamType.ION, None)        # restore Move (un-arm)
+            controller.remove_overlay(BeamType.ION, "spot")   # drop the overlay
+            controller.fib_canvas.set_hint(None)              # clear the hint
+            self._spot_created = False                        # recreate on next activate
             self._on_data_changed()
             return
         if SPOT_BURN_POINTS_LAYER_NAME in self.viewer.layers:
