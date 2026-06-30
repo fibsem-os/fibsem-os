@@ -529,12 +529,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.open_information_dialog()
 
     def _on_toggle_minimap_widget(self, checked: bool):
-        """Toggle the minimap plot dock widget visibility."""
+        """Toggle the minimap plot window visibility (a floating tool window)."""
         if self.autolamella_ui is not None and hasattr(
-            self.autolamella_ui, "minimap_plot_dock"
+            self.autolamella_ui, "minimap_plot_widget"
         ):
-            self.autolamella_ui.minimap_plot_dock.setVisible(checked)
-            self.autolamella_ui.minimap_plot_dock.activateWindow()
+            self.autolamella_ui.minimap_plot_widget.setVisible(checked)
+            if checked:
+                self.autolamella_ui.minimap_plot_widget.raise_()
+                self.autolamella_ui.minimap_plot_widget.activateWindow()
 
     def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
         """Toggle the layer list and layer controls for a specific viewer."""
@@ -951,14 +953,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create napari viewer for main UI
-        self.main_viewer = napari.Viewer(show=False, title="AutoLamella Main")
-        self.main_viewer.window._qt_window.menuBar().hide()
-        self.main_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.main_viewer)
+        # Main tab is viewer-less: the quad-view controller is the display, so no
+        # napari viewer is created here (minimap + lamella editor keep their own).
+        self.main_viewer = None
 
         # Create the AutoLamellaUI widget
-        self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer, parent_ui=self)
+        self.autolamella_ui = AutoLamellaUI(viewer=None, parent_ui=self)
 
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
@@ -987,16 +987,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        if fibsem_cfg.FEATURE_QUAD_VIEW_ENABLED:
-            # Quad-view display (SEM/FIB/FM + placeholder). The napari viewer is
-            # still created and still drives the control widgets; only the left
-            # pane swaps here. Widgets migrate onto the controller in later phases.
-            self.view_controller = MicroscopeViewController(parent=self)
-            left_widget = self.view_controller.widget
-        else:
-            self.view_controller = None
-            left_widget = self.main_viewer.window._qt_window
-        splitter.addWidget(left_widget)
+        # Quad-view display (SEM/FIB/FM + placeholder): the controller's canvases
+        # are the left pane and drive the control widgets (viewer-less).
+        self.view_controller = MicroscopeViewController(parent=self)
+        splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
 
         splitter.setSizes([700, 550])

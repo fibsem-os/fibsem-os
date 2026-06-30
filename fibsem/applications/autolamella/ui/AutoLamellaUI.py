@@ -43,7 +43,7 @@ from fibsem.ui import (
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -176,10 +176,11 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
+        # None when the main tab runs viewer-less (display via the controller);
+        # every napari op below is guarded / controller-gated.
         self.viewer = viewer
-
-        # add placeholder layer
-        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
+        if self.viewer is not None:
+            self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -194,16 +195,12 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
-        # minimap plot widget
+        # minimap plot widget — a floating tool window, shown on demand (was a
+        # napari dock; relocated here so it no longer needs a viewer).
         self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_dock = self.viewer.window.add_dock_widget(
-            self.minimap_plot_widget,
-            name="Minimap Plot",
-            area="left",
-            add_vertical_stretch=False,
-            tabify=True,
-        )
-        self.minimap_plot_dock.setVisible(False)
+        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
+        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
+        self.minimap_plot_widget.hide()
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
@@ -452,6 +449,8 @@ class AutoLamellaUI(QMainWindow):
 
         if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
             return
+        if self.viewer is None:
+            return  # napari-only feature; not yet migrated to the controller
 
         if self.experiment is None:
             return
