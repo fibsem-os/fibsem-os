@@ -15,7 +15,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui.napari.patterns import (
     draw_milling_patterns_in_napari,
     draw_milling_fov_rect,
@@ -27,7 +27,7 @@ from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
-from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.canvas_state import MillingSpec
 from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 
 if TYPE_CHECKING:
@@ -82,7 +82,7 @@ class MillingTaskViewerWidget(QWidget):
         self._fib_image_layer: Optional[NapariImageLayer] = None
         self._pattern_layer_names: List[str] = []
         # Quad-view path (set in _init_canvas_overlay when a controller exists)
-        self._canvas_overlay: Optional[MillingPatternOverlay] = None
+        self._controller = None
         self._canvas_alignment: Optional[AlignmentAreaOverlay] = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
@@ -157,23 +157,26 @@ class MillingTaskViewerWidget(QWidget):
         self._register_right_click_callback()
 
     def _init_canvas_overlay(self) -> None:
-        """Attach a MillingPatternOverlay to the FIB canvas when a quad-view
-        controller is available.
+        """Wire this widget to the quad-view controller when one is available.
 
-        Only the main microscope tab injects an image_widget tied to the
+        Milling patterns are reducer-owned (pushed via ``controller.set_overlay``);
+        this stores the controller + FIB canvas and attaches the read-only alignment
+        area. Only the main microscope tab injects an image_widget tied to the
         controller, so only it takes this path. Every other caller — including the
-        napari-based Lamella Editor — leaves ``_canvas_overlay`` None and keeps the
+        napari-based Lamella Editor — leaves ``_controller`` None and keeps the
         existing napari pattern path.
         """
-        self._canvas_overlay = None
+        self._controller = None
         self._canvas_alignment = None
         self._fib_canvas = None
         controller = self._view_controller()
         if controller is None:
             return
+        self._controller = controller
         self._fib_canvas = controller.fib_canvas
-        self._canvas_overlay = MillingPatternOverlay()
-        self._fib_canvas.add_overlay(self._canvas_overlay)
+        # Milling patterns are reducer-owned now (controller.set_overlay); this widget
+        # only pushes a MillingSpec. The read-only alignment area is still attached
+        # directly here (migrates with the editable alignment overlay in a later slice).
         self._canvas_alignment = AlignmentAreaOverlay(editable=False)  # read-only display
         self._fib_canvas.add_overlay(self._canvas_alignment)
         self._canvas_alignment.set_visible(False)
@@ -189,13 +192,13 @@ class MillingTaskViewerWidget(QWidget):
             return None
 
     def closeEvent(self, event) -> None:
-        if self._canvas_overlay is not None and self._fib_canvas is not None:
+        if self._controller is not None and self._fib_canvas is not None:
             try:
                 self._fib_canvas.canvas_right_clicked.disconnect(self._on_canvas_right_click)
             except Exception:
                 pass
             try:
-                self._fib_canvas.remove_overlay(self._canvas_overlay)
+                self._controller.remove_overlay(BeamType.ION, "milling")
             except Exception:
                 pass
         if self._canvas_alignment is not None and self._fib_canvas is not None:
@@ -226,7 +229,7 @@ class MillingTaskViewerWidget(QWidget):
         self._right_click_menu_action_provider = action_provider
 
     def _register_right_click_callback(self) -> None:
-        if self._canvas_overlay is not None:
+        if self._controller is not None:
             # quad-view: reposition via the FIB canvas right-click signal
             self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
             return
@@ -408,7 +411,7 @@ class MillingTaskViewerWidget(QWidget):
         self._pattern_update_pending = False
 
         # quad-view canvas path: render on the FIB canvas overlay, skip napari
-        if self._canvas_overlay is not None:
+        if self._controller is not None:
             self._update_canvas_patterns()
             return
 
@@ -458,23 +461,27 @@ class MillingTaskViewerWidget(QWidget):
             self._image_widget.restore_active_layer_for_movement()
 
     def _update_canvas_patterns(self) -> None:
-        """Render the current enabled stages on the FIB canvas overlay (quad-view)."""
+        """Push the current enabled stages to the FIB canvas via the reducer (quad-view)."""
+        if self._controller is None:
+            return
         if self._fib_image is None or self._fib_image.metadata is None:
             return
         config = self.config_widget.get_settings()
         stages = config.enabled_stages
         if not stages:
-            self._canvas_overlay.clear()
+            self._controller.remove_overlay(BeamType.ION, "milling")
             self._update_canvas_alignment(None)  # no patterns → no alignment (match napari)
             return
         self._update_canvas_alignment(config)
         selected = self.config_widget.milling_stages_widget._list._selected_stage
         selected_index = next((i for i, s in enumerate(stages) if s is selected), None)
-        self._canvas_overlay.set_stages(
-            stages,
-            self._fib_image,
-            background_stages=self._background_milling_stages,
-            selected_index=selected_index,
+        self._controller.set_overlay(
+            BeamType.ION,
+            MillingSpec(
+                stages=stages,
+                background_stages=self._background_milling_stages,
+                selected_index=selected_index,
+            ),
         )
 
     def _update_canvas_alignment(self, config) -> None:
