@@ -18,7 +18,7 @@ from fibsem.ui.stylesheets import NAPARI_STYLE
 
 class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
-    def __init__(self, viewer: napari.Viewer):
+    def __init__(self, viewer=None):
         super().__init__()
         self.setupUi(self)
 
@@ -31,13 +31,13 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         self.gridLayout.removeWidget(self.label_title)
         self.label_title.deleteLater()
 
+        # Viewer-less: the image/movement widgets display through the controller
+        # (None propagates to them via parent.viewer). The minimap still spins up
+        # its own napari viewer on demand (open_minimap_widget).
         self.viewer = viewer
-        self.viewer.title = f"fibsemOS v{fibsem.__version__}"
 
         # Quad-view display: the controller's SEM/FIB canvases are the left pane;
-        # the existing tab panel (title + tabs) becomes the right pane. The napari
-        # viewer is retained (hidden) only to back the still-napari image/movement
-        # widgets; it is removed once they drop their napari path (Phase 7.3+).
+        # the existing tab panel (title + tabs) becomes the right pane.
         self.view_controller = MicroscopeViewController(parent=self)
         splitter = QtWidgets.QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
@@ -175,12 +175,11 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
 def main():
 
-    # Hidden napari viewer backs the (still napari-based) image/movement widgets;
-    # the quad-view controller is the visible display (Phase 7.2).
-    viewer = napari.Viewer(show=False, ndisplay=2)
+    # Fully viewer-less: the quad-view controller is the display; no napari main
+    # viewer. (The minimap still opens its own napari viewer on demand.)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     app.setStyle("Fusion")
-    fibsem_ui = FibsemUI(viewer=viewer)
+    fibsem_ui = FibsemUI()
     fibsem_ui.show()
     app.exec_()
 
