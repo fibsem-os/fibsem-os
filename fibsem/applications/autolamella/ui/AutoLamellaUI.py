@@ -1913,7 +1913,9 @@ class AutoLamellaUI(QMainWindow):
         if isinstance(alignment_area, FibsemRectangle):
             self.image_widget.toggle_alignment_area(alignment_area)
         if alignment_area == "clear":
-            self.image_widget.clear_alignment_area()
+            # the workflow's "clear" is a hide-then-read-back: keep the value for the
+            # get_alignment_area() that follows in update_alignment_area_ui.
+            self.image_widget.hide_alignment_area()
 
         # POI selection
         poi_selection = info.get("poi_selection", None)

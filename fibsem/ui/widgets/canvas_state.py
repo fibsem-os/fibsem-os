@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
-    from fibsem.structures import FibsemImage
+    from fibsem.structures import FibsemImage, FibsemRectangle
 
 
 @dataclass
@@ -42,6 +42,20 @@ class MillingSpec(OverlaySpec):
 
 
 @dataclass
+class AlignmentSpec(OverlaySpec):
+    """Image-alignment reduced area (rendered by ``AlignmentAreaOverlay``).
+
+    ``rect`` is a normalized ``FibsemRectangle`` (None = nothing positioned yet);
+    ``editable`` enables drag/resize and is typically armed for input.
+    """
+
+    id: str = "alignment"
+    rect: Optional["FibsemRectangle"] = None
+    editable: bool = True
+    visible: bool = True
+
+
+@dataclass
 class CanvasState:
     """Everything shown on one canvas; the reducer renders from this."""
 
@@ -49,6 +63,8 @@ class CanvasState:
     overlays: Dict[str, OverlaySpec] = field(default_factory=dict)
     info: List[Tuple[str, str]] = field(default_factory=list)
     armed_overlay: Optional[str] = None  # id that owns edit input (None = view/move)
+    armed_label: str = ""                # toolbar-mode label for the armed overlay
+    armed_icon: str = ""                 # toolbar-mode icon for the armed overlay
 
 
 @dataclass

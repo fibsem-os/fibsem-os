@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout, QWidget
 
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.widgets.canvas_state import (
+    AlignmentSpec,
     CanvasState,
     MillingSpec,
     OverlaySpec,
@@ -30,6 +31,7 @@ from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
+    from fibsem.structures import FibsemRectangle
     from fibsem.ui.widgets.image_canvas import CanvasOverlay
 
 _logger = logging.getLogger(__name__)
@@ -125,6 +127,10 @@ class MicroscopeViewController(QObject):
     # from worker threads.
     _render_requested = pyqtSignal()
 
+    # Emitted when the user commits an edit on an interactive overlay:
+    # (beam, overlay_id, value). Producers subscribe and filter by overlay_id.
+    overlay_edited = pyqtSignal(object, str, object)
+
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._widget = QuadViewWidget()
@@ -144,6 +150,14 @@ class MicroscopeViewController(QObject):
         # matches the canvas, so producers never attach or tear them down.
         self._overlay_objs: Dict[FibsemImageCanvas, Dict[str, "CanvasOverlay"]] = {
             canvas: {} for canvas in self._states
+        }
+        # reverse map (canvas → beam) for tagging edit signals; armed-mode applied
+        # state (canvas → overlay object) so arming only toggles on change.
+        self._beams: Dict[FibsemImageCanvas, BeamType] = {
+            canvas: beam for beam, canvas in self._canvases.items()
+        }
+        self._armed_applied: Dict[FibsemImageCanvas, Optional["CanvasOverlay"]] = {
+            canvas: None for canvas in self._states
         }
         self._dirty: Set[FibsemImageCanvas] = set()
         self._render_scheduled = False
@@ -220,6 +234,45 @@ class MicroscopeViewController(QObject):
         if self._states[canvas].overlays.pop(overlay_id, None) is not None:
             self._mark_dirty(canvas)
 
+    def arm_overlay(
+        self,
+        beam: BeamType,
+        overlay_id: Optional[str],
+        label: str = "",
+        icon: str = "mdi:cursor-default-click",
+    ) -> None:
+        """Arm *overlay_id* for edit input on the canvas for *beam* (single arbiter;
+        ``None`` returns to Move). The reducer drives the canvas's
+        ``enter_overlay_mode`` / ``exit_overlay_mode`` (incl. the toolbar toggle)."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return
+        state = self._states[canvas]
+        state.armed_overlay = overlay_id
+        state.armed_label = label
+        state.armed_icon = icon
+        self._mark_dirty(canvas)
+
+    def hide_overlay(self, beam: BeamType, overlay_id: str) -> None:
+        """Hide an overlay without removing it — keeps its spec (and value) so it can
+        be re-shown or read back. Use :meth:`remove_overlay` to drop it entirely."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return
+        spec = self._states[canvas].overlays.get(overlay_id)
+        if spec is not None and hasattr(spec, "visible"):
+            spec.visible = False
+            self._mark_dirty(canvas)
+
+    def alignment_area(self, beam: BeamType) -> Optional["FibsemRectangle"]:
+        """The current alignment-area rect for *beam* — the model's authoritative
+        value (updated on every user edit) — or ``None``."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return None
+        spec = self._states[canvas].overlays.get("alignment")
+        return getattr(spec, "rect", None)
+
     # ── render loop ───────────────────────────────────────────────────────
     def _mark_dirty(self, canvas: FibsemImageCanvas) -> None:
         self._dirty.add(canvas)
@@ -251,19 +304,30 @@ class MicroscopeViewController(QObject):
         for oid, spec in list(state.overlays.items()):
             obj = objs.get(oid)
             if obj is None:
-                obj = self._make_overlay(spec)
+                obj = self._create_overlay(canvas, oid, spec)
                 if obj is None:
                     continue
                 objs[oid] = obj
                 canvas.add_overlay(obj)
             self._drive_overlay(obj, spec, image)
+        self._apply_arming(canvas, state, objs)
 
-    def _make_overlay(self, spec: OverlaySpec):
-        """Construct the overlay object for *spec* (one branch per migrated slice)."""
+    def _create_overlay(self, canvas: FibsemImageCanvas, overlay_id: str, spec: OverlaySpec):
+        """Construct the overlay object for *spec* and wire its edit signal (if any)
+        back to :attr:`overlay_edited` (one branch per migrated slice)."""
         if isinstance(spec, MillingSpec):
             from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
 
             return MillingPatternOverlay()
+        if isinstance(spec, AlignmentSpec):
+            from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
+
+            obj = AlignmentAreaOverlay(editable=spec.editable)
+            beam = self._beams.get(canvas)
+            obj.alignment_area_changed.connect(
+                lambda value, b=beam, i=overlay_id: self._on_overlay_edited(b, i, value)
+            )
+            return obj
         _logger.warning(
             "MicroscopeViewController: no renderer for spec %r", type(spec).__name__
         )
@@ -281,6 +345,38 @@ class MicroscopeViewController(QObject):
                 background_stages=spec.background_stages,
                 selected_index=spec.selected_index,
             )
+        elif isinstance(spec, AlignmentSpec):
+            if spec.rect is not None:
+                obj.set_area(spec.rect)
+            obj.set_editable(spec.editable)
+            obj.set_visible(spec.visible)
+
+    def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
+        """Make the model's armed overlay the canvas's active input mode (single
+        arbiter). Toggles only on change; the exit is scoped to the overlay we armed,
+        so it never tears down a mode another (still-direct) consumer owns."""
+        desired_id = state.armed_overlay if state.armed_overlay in objs else None
+        desired = objs.get(desired_id) if desired_id else None
+        prev = self._armed_applied.get(canvas)
+        if prev is desired:
+            return
+        if desired is not None:
+            canvas.enter_overlay_mode(
+                desired, state.armed_label, icon=state.armed_icon or "mdi:cursor-default-click"
+            )
+        elif prev is not None:
+            canvas.exit_overlay_mode(prev)  # scoped: no-op unless prev still owns the mode
+        self._armed_applied[canvas] = desired
+
+    def _on_overlay_edited(self, beam, overlay_id: str, value) -> None:
+        """Fold a committed overlay edit back into the model and re-emit it for
+        producers. No re-render — the overlay already shows the edited value."""
+        canvas = self._canvases.get(beam)
+        if canvas is not None:
+            spec = self._states[canvas].overlays.get(overlay_id)
+            if isinstance(spec, AlignmentSpec):
+                spec.rect = value
+        self.overlay_edited.emit(beam, overlay_id, value)
 
     def clear(self) -> None:
         """Clear all canvases (images + reducer-owned overlays) back to placeholders."""
@@ -288,10 +384,13 @@ class MicroscopeViewController(QObject):
             for obj in list(self._overlay_objs[canvas].values()):
                 canvas.remove_overlay(obj)
             self._overlay_objs[canvas].clear()
+            self._armed_applied[canvas] = None
             state.image = None
             state.overlays.clear()
             state.info.clear()
             state.armed_overlay = None
+            state.armed_label = ""
+            state.armed_icon = ""
         self.sem_canvas.clear()
         self.fib_canvas.clear()
         self._widget.fm_widget.clear()

@@ -42,7 +42,7 @@ from fibsem.ui.napari.utilities import (
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
-from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
+from fibsem.ui.widgets.canvas_state import AlignmentSpec
 
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
@@ -78,7 +78,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # overlay layers
         self.ruler_layer: Optional[NapariPointLayer] = None
         self.alignment_layer: Optional[NapariShapesLayer] = None
-        self._alignment_overlay = None  # quad-view editable alignment overlay
+        self._overlay_edited_wired = False  # quad-view: subscribed to controller.overlay_edited
 
         self.is_acquiring: bool = False
         self._ruler_enabled: bool = False
@@ -742,6 +742,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         return coords, beam_type, image
 
     def closeEvent(self, event: QEvent):
+        # drop the controller subscription so a recreated widget doesn't leak / double-fire
+        if self._overlay_edited_wired:
+            controller = self._view_controller()
+            if controller is not None:
+                try:
+                    controller.overlay_edited.disconnect(self._on_controller_overlay_edited)
+                except (TypeError, RuntimeError):
+                    pass
+            self._overlay_edited_wired = False
         self.viewer.layers.clear()
         event.accept()
 
@@ -755,37 +764,57 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         if self.eb_layer in self.viewer.layers:
             self.viewer.layers.selection.active = self.eb_layer
 
-    def _get_alignment_overlay(self):
-        """Lazily create the quad-view alignment overlay on the FIB canvas, or None.
-
-        Returns None for the napari path (no controller — e.g. flag off, or the
-        widget isn't tied to a quad-view controller).
-        """
-        if self._alignment_overlay is not None:
-            return self._alignment_overlay
-        controller = self._view_controller()
-        if controller is None:
-            return None
-        self._alignment_overlay = AlignmentAreaOverlay(editable=True)
-        controller.fib_canvas.add_overlay(self._alignment_overlay)
-        self._alignment_overlay.set_visible(False)
-        # user edits → re-emit the existing signal so validation/workflow are unchanged
-        self._alignment_overlay.alignment_area_changed.connect(self.alignment_area_updated)
+    def _ensure_overlay_edited_wiring(self, controller) -> None:
+        """Subscribe (once) to the controller's overlay-edit signal so a user drag of
+        the alignment area drives the existing validation/workflow path unchanged."""
+        if self._overlay_edited_wired:
+            return
+        controller.overlay_edited.connect(self._on_controller_overlay_edited)
         self.alignment_area_updated.connect(self._on_alignment_area_updated)
-        return self._alignment_overlay
+        self._overlay_edited_wired = True
 
-    def clear_alignment_area(self):
-        """Hide the alignment area layer"""
-        if self._alignment_overlay is not None:
-            self._alignment_overlay.set_editable(False)
-            self._alignment_overlay.set_visible(False)
-            controller = self._view_controller()
-            if controller is not None:
-                controller.fib_canvas.exit_overlay_mode(self._alignment_overlay)
+    def _on_controller_overlay_edited(self, beam, overlay_id, value) -> None:
+        """Route a committed alignment-area edit into the existing signal/workflow.
+
+        The authoritative value lives in the model (``controller.alignment_area``);
+        this just drives validation, so it forwards the edit without caching it."""
+        if overlay_id == "alignment":
+            self.alignment_area_updated.emit(value)
+
+    def hide_alignment_area(self):
+        """Hide the alignment area but keep its value.
+
+        The workflow reads ``get_alignment_area()`` straight after sending its
+        "clear" (in ``update_alignment_area_ui``), so the rect must survive — this
+        mirrors the napari layer, which is hidden but keeps its data.
+        """
+        controller = self._view_controller()
+        if controller is not None:
+            controller.arm_overlay(BeamType.ION, None)
+            controller.hide_overlay(BeamType.ION, "alignment")
             return
         if self.alignment_layer is not None:
             self.alignment_layer.mode = "pan_zoom"
             self.alignment_layer.visible = False
+        self.restore_active_layer_for_movement()
+
+    def clear_alignment_area(self):
+        """Remove the alignment area entirely (true teardown; no value retained).
+
+        No caller yet — defined for explicit teardown (e.g. lamella deselect). The
+        workflow's mid-flow "clear" uses :meth:`hide_alignment_area` instead.
+        """
+        controller = self._view_controller()
+        if controller is not None:
+            controller.arm_overlay(BeamType.ION, None)
+            controller.remove_overlay(BeamType.ION, "alignment")
+            return
+        if self.alignment_layer is not None:
+            try:
+                self.viewer.layers.remove(self.alignment_layer)
+            except (ValueError, KeyError):
+                pass
+            self.alignment_layer = None
         self.restore_active_layer_for_movement()
 
     def toggle_alignment_area(self, reduced_area: FibsemRectangle, editable: bool = True):
@@ -799,20 +828,20 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     ):
         """Set the alignment area layer (napari) or overlay (quad-view)."""
 
-        ov = self._get_alignment_overlay()
-        if ov is not None:
-            ov.set_area(reduced_area)
-            ov.set_editable(editable)
-            ov.set_visible(True)
-            controller = self._view_controller()
-            if controller is not None:
-                if editable:
-                    # editing owns FIB input (stage-move + milling menu stand down)
-                    controller.fib_canvas.enter_overlay_mode(
-                        ov, "Alignment", icon="mdi:vector-rectangle"
-                    )
-                else:
-                    controller.fib_canvas.exit_overlay_mode(ov)
+        controller = self._view_controller()
+        if controller is not None:
+            self._ensure_overlay_edited_wiring(controller)
+            controller.set_overlay(
+                BeamType.ION,
+                AlignmentSpec(rect=reduced_area, editable=editable, visible=True),
+            )
+            # editing owns FIB input (stage-move + milling menu stand down)
+            controller.arm_overlay(
+                BeamType.ION,
+                "alignment" if editable else None,
+                label="Alignment",
+                icon="mdi:vector-rectangle",
+            )
             return
 
         # add alignment area to napari
@@ -870,9 +899,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             logging.info(f"Error updating alignment area: {e}")
 
     def get_alignment_area(self) -> Optional[FibsemRectangle]:
-        """Get the alignment area from the overlay (quad-view) or layer (napari)."""
-        if self._alignment_overlay is not None:
-            return self._alignment_overlay.get_area()
+        """Get the alignment area from the model (quad-view) or layer (napari)."""
+        controller = self._view_controller()
+        if controller is not None:
+            return controller.alignment_area(BeamType.ION)
         data = self.alignment_layer.data
         if data is None or len(data) == 0:
             return None
