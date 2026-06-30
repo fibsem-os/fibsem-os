@@ -43,16 +43,17 @@ class MillingSpec(OverlaySpec):
 
 @dataclass
 class AlignmentSpec(OverlaySpec):
-    """Image-alignment reduced area (rendered by ``AlignmentAreaOverlay``).
+    """Image-alignment reduced area — one overlay, two producers.
 
-    ``rect`` is a normalized ``FibsemRectangle`` (None = nothing positioned yet);
-    ``editable`` enables drag/resize and is typically armed for input.
+    ``rect`` is a normalized ``FibsemRectangle``. ``display`` = the milling viewer
+    wants it shown read-only; ``editing`` = the image widget is editing it (wins).
+    The reducer resolves: editable = editing, visible = editing or display.
     """
 
     id: str = "alignment"
     rect: Optional["FibsemRectangle"] = None
-    editable: bool = True
-    visible: bool = True
+    display: bool = False
+    editing: bool = False
 
 
 @dataclass

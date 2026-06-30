@@ -42,7 +42,6 @@ from fibsem.ui.napari.utilities import (
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
-from fibsem.ui.widgets.canvas_state import AlignmentSpec
 
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
@@ -790,8 +789,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """
         controller = self._view_controller()
         if controller is not None:
-            controller.arm_overlay(BeamType.ION, None)
-            controller.hide_overlay(BeamType.ION, "alignment")
+            controller.set_alignment_edit(BeamType.ION, None, editing=False)
             return
         if self.alignment_layer is not None:
             self.alignment_layer.mode = "pan_zoom"
@@ -831,17 +829,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         controller = self._view_controller()
         if controller is not None:
             self._ensure_overlay_edited_wiring(controller)
-            controller.set_overlay(
-                BeamType.ION,
-                AlignmentSpec(rect=reduced_area, editable=editable, visible=True),
-            )
-            # editing owns FIB input (stage-move + milling menu stand down)
-            controller.arm_overlay(
-                BeamType.ION,
-                "alignment" if editable else None,
-                label="Alignment",
-                icon="mdi:vector-rectangle",
-            )
+            # editing wins over the milling read-only display + owns FIB input
+            controller.set_alignment_edit(BeamType.ION, reduced_area, editing=editable)
             return
 
         # add alignment area to napari

@@ -253,16 +253,52 @@ class MicroscopeViewController(QObject):
         state.armed_icon = icon
         self._mark_dirty(canvas)
 
-    def hide_overlay(self, beam: BeamType, overlay_id: str) -> None:
-        """Hide an overlay without removing it — keeps its spec (and value) so it can
-        be re-shown or read back. Use :meth:`remove_overlay` to drop it entirely."""
+    def set_alignment_edit(
+        self, beam: BeamType, rect: Optional["FibsemRectangle"], editing: bool
+    ) -> None:
+        """Image widget: start/stop editing the alignment area. Editing wins over the
+        milling read-only display and owns input (armed). The spec is kept when
+        editing stops (hidden if nothing else wants it) so the value survives the
+        workflow's clear-then-read."""
         canvas = self._canvases.get(beam)
         if canvas is None:
             return
-        spec = self._states[canvas].overlays.get(overlay_id)
-        if spec is not None and hasattr(spec, "visible"):
-            spec.visible = False
-            self._mark_dirty(canvas)
+        spec = self._alignment_spec(canvas)
+        spec.editing = editing
+        if rect is not None:
+            spec.rect = rect
+        self.arm_overlay(
+            beam,
+            "alignment" if editing else None,
+            label="Alignment",
+            icon="mdi:vector-rectangle",
+        )
+        self._mark_dirty(canvas)
+
+    def set_alignment_display(
+        self, beam: BeamType, rect: Optional["FibsemRectangle"], show: bool
+    ) -> None:
+        """Milling viewer: request the alignment area shown read-only. Yields to an
+        active edit and never clobbers an in-progress edit's rect."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return
+        spec = self._states[canvas].overlays.get("alignment")
+        if not isinstance(spec, AlignmentSpec):
+            if not show:
+                return
+            spec = self._alignment_spec(canvas)
+        spec.display = show
+        if rect is not None and not spec.editing:
+            spec.rect = rect
+        self._mark_dirty(canvas)
+
+    def _alignment_spec(self, canvas: FibsemImageCanvas) -> AlignmentSpec:
+        spec = self._states[canvas].overlays.get("alignment")
+        if not isinstance(spec, AlignmentSpec):
+            spec = AlignmentSpec()
+            self._states[canvas].overlays["alignment"] = spec
+        return spec
 
     def alignment_area(self, beam: BeamType) -> Optional["FibsemRectangle"]:
         """The current alignment-area rect for *beam* — the model's authoritative
@@ -322,7 +358,7 @@ class MicroscopeViewController(QObject):
         if isinstance(spec, AlignmentSpec):
             from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 
-            obj = AlignmentAreaOverlay(editable=spec.editable)
+            obj = AlignmentAreaOverlay(editable=spec.editing)
             beam = self._beams.get(canvas)
             obj.alignment_area_changed.connect(
                 lambda value, b=beam, i=overlay_id: self._on_overlay_edited(b, i, value)
@@ -348,8 +384,8 @@ class MicroscopeViewController(QObject):
         elif isinstance(spec, AlignmentSpec):
             if spec.rect is not None:
                 obj.set_area(spec.rect)
-            obj.set_editable(spec.editable)
-            obj.set_visible(spec.visible)
+            obj.set_editable(spec.editing)
+            obj.set_visible(spec.editing or spec.display)
 
     def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
         """Make the model's armed overlay the canvas's active input mode (single

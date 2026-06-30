@@ -28,7 +28,6 @@ from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 from fibsem.ui.widgets.canvas_state import MillingSpec
-from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui import FibsemImageSettingsWidget
@@ -83,7 +82,6 @@ class MillingTaskViewerWidget(QWidget):
         self._pattern_layer_names: List[str] = []
         # Quad-view path (set in _init_canvas_overlay when a controller exists)
         self._controller = None
-        self._canvas_alignment: Optional[AlignmentAreaOverlay] = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
         self._pattern_update_inflight = False
@@ -159,27 +157,20 @@ class MillingTaskViewerWidget(QWidget):
     def _init_canvas_overlay(self) -> None:
         """Wire this widget to the quad-view controller when one is available.
 
-        Milling patterns are reducer-owned (pushed via ``controller.set_overlay``);
-        this stores the controller + FIB canvas and attaches the read-only alignment
-        area. Only the main microscope tab injects an image_widget tied to the
-        controller, so only it takes this path. Every other caller — including the
-        napari-based Lamella Editor — leaves ``_controller`` None and keeps the
-        existing napari pattern path.
+        Milling patterns and the read-only alignment-area display are reducer-owned
+        (pushed via ``controller.set_overlay`` / ``set_alignment_display``); this just
+        stores the controller + FIB canvas. Only the main microscope tab injects an
+        image_widget tied to the controller, so only it takes this path. Every other
+        caller — including the napari-based Lamella Editor — leaves ``_controller``
+        None and keeps the existing napari pattern path.
         """
         self._controller = None
-        self._canvas_alignment = None
         self._fib_canvas = None
         controller = self._view_controller()
         if controller is None:
             return
         self._controller = controller
         self._fib_canvas = controller.fib_canvas
-        # Milling patterns are reducer-owned now (controller.set_overlay); this widget
-        # only pushes a MillingSpec. The read-only alignment area is still attached
-        # directly here (migrates with the editable alignment overlay in a later slice).
-        self._canvas_alignment = AlignmentAreaOverlay(editable=False)  # read-only display
-        self._fib_canvas.add_overlay(self._canvas_alignment)
-        self._canvas_alignment.set_visible(False)
 
     def _view_controller(self):
         """Return the quad-view controller via the injected image widget, or None."""
@@ -201,9 +192,8 @@ class MillingTaskViewerWidget(QWidget):
                 self._controller.remove_overlay(BeamType.ION, "milling")
             except Exception:
                 pass
-        if self._canvas_alignment is not None and self._fib_canvas is not None:
             try:
-                self._fib_canvas.remove_overlay(self._canvas_alignment)
+                self._controller.set_alignment_display(BeamType.ION, None, False)
             except Exception:
                 pass
         if self.viewer is not None and self._right_click_callback is not None:
@@ -485,23 +475,20 @@ class MillingTaskViewerWidget(QWidget):
         )
 
     def _update_canvas_alignment(self, config) -> None:
-        """Show/hide the read-only alignment area on the FIB canvas (quad-view).
+        """Push the read-only alignment-area display to the controller (quad-view).
 
         Mirrors napari: only shown alongside patterns (i.e. when stages exist);
-        pass ``config=None`` to hide.
+        pass ``config=None`` to hide. Yields to an active edit in the reducer.
         """
-        if self._canvas_alignment is None:
+        if self._controller is None:
             return
         show = (
             config is not None
             and config.alignment.enabled
             and self._show_alignment_area
         )
-        if show:
-            self._canvas_alignment.set_area(config.alignment.rect)
-            self._canvas_alignment.set_visible(True)
-        else:
-            self._canvas_alignment.set_visible(False)
+        rect = config.alignment.rect if show else None
+        self._controller.set_alignment_display(BeamType.ION, rect, show)
 
     def _clear_pattern_display(self) -> None:
         """Remove milling pattern layers from the viewer."""
