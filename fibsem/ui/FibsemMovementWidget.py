@@ -167,7 +167,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # register mouse callbacks
         controller = self._view_controller()
-        if cfg.FEATURE_QUAD_VIEW_ENABLED and controller is not None:
+        if controller is not None:
             # quad-view: one canvas per beam → connect per-canvas double-click signals
             controller.sem_canvas.canvas_double_clicked.connect(
                 lambda x, y, m: self._on_canvas_double_click(BeamType.ELECTRON, x, y, m)

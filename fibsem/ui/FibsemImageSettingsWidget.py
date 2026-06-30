@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import QIconifyIcon, ensure_main_thread
 
-from fibsem import acquire, config, constants, utils
+from fibsem import acquire, constants, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
@@ -288,11 +288,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                     self.eb_image = image
                 elif image.metadata.beam_type is BeamType.ION:
                     self.ib_image = image
-            # Mirror to the quad-view canvas, when enabled
-            if config.FEATURE_QUAD_VIEW_ENABLED:
-                controller = self._view_controller()
-                if controller is not None:
-                    controller.set_image(image.metadata.beam_type, image)
+            # Display on the quad-view canvas (the only display when viewer-less)
+            controller = self._view_controller()
+            if controller is not None:
+                controller.set_image(image.metadata.beam_type, image)
         except Exception as e:
             logging.error(f"Error updating image layer: {e}")
 

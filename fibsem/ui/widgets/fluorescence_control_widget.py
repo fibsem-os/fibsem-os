@@ -301,7 +301,7 @@ class FMControlWidget(QWidget):
         # quad-view: route FM canvas double-click (→ relative move) and Shift+scroll
         # (→ objective) to the matplotlib canvas; else the napari callbacks
         controller = self._view_controller()
-        if fcfg.FEATURE_QUAD_VIEW_ENABLED and controller is not None:
+        if controller is not None:
             # bound methods (not lambdas) so they can be disconnected on teardown;
             # the canvas outlives this widget, so a leaked connection would fire a
             # stale stage move after the widget is destroyed
@@ -623,9 +623,9 @@ class FMControlWidget(QWidget):
 
     def _view_controller(self):
         """The quad-view ``MicroscopeViewController`` on the main microscope tab,
-        or ``None`` on the napari path. Chain: this widget's ``parent_widget`` is
-        the ``AutoLamellaUI``, whose ``parent_widget`` is the main UI that owns the
-        ``view_controller`` (set only when ``FEATURE_QUAD_VIEW_ENABLED``)."""
+        or ``None`` otherwise. Chain: this widget's ``parent_widget`` is the
+        ``AutoLamellaUI``, whose ``parent_widget`` is the main UI that owns the
+        ``view_controller``."""
         autolamella_ui = self.parent_widget
         main_ui = getattr(autolamella_ui, "parent_widget", None)
         return getattr(main_ui, "view_controller", None)
@@ -681,10 +681,9 @@ class FMControlWidget(QWidget):
         # (gated; the napari path above is untouched). FMCanvasWidget.set_fm_image
         # unpacks the channels + metadata; channels upsert by name and blend
         # additively, like napari.
-        if fcfg.FEATURE_QUAD_VIEW_ENABLED:
-            controller = self._view_controller()
-            if controller is not None:
-                controller.set_fm_image(image)
+        controller = self._view_controller()
+        if controller is not None:
+            controller.set_fm_image(image)
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
