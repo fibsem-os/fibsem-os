@@ -130,10 +130,12 @@ All additive, all unit-testable in the standalone `test_*` harness (no hardware)
 | 4 — Milling patterns | `PatternOverlay` (µm→px from `napari/patterns.py`), FOV/alignment `RectOverlay`, right-click `QMenu` | milling display + interaction |
 | 5 — Points & masks | spot burn → `PointOverlay`; detection → `MaskOverlay` | spot burn + detection |
 | 6 — Fluorescence | FM add/update (Alt/Shift), relative move, camera transforms, FM crosshairs | full FM workflow |
-| 7 — Cutover & removal | flip default to `True`, soak, delete napari branches + `fibsem/ui/napari/*` draw utils for the main tab | quad view default |
+| 7 — Cutover & removal | flip default to `True`, soak, delete napari branches for the main tab **and** migrate standalone `FibsemUI` onto the canvases | quad view default; napari-free main tab + `fibsem_ui` |
 
-> Note: Phase 7 removes napari from the **main tab only**. The napari dependency
-> stays until the deferred surfaces (minimap, protocol editor, labelling) migrate.
+> Note: Phase 7 removes napari from the **main microscope tab** and the **standalone
+> `FibsemUI`** app only. The napari dependency stays for every other surface (minimap,
+> protocol/lamella editor, FM acquisition, correlation, labelling/training, coincidence
+> viewer). **Detailed plan: see "Phase 7 — Cutover & removal (detailed plan)" below.**
 
 ---
 
@@ -400,3 +402,108 @@ primitive:
 the SEM canvas has no active overlay, so SEM double-click-move stays live. Strictly
 ≥ today (today nothing is gated). A controller-level movement freeze across all
 canvases is an easy follow-on if it's ever wanted.
+
+---
+
+## Phase 7 — Cutover & removal (detailed plan)
+
+The overlay state-model migration (`canvas-overlay-state-model.md`) is **complete**: every
+producer mutates the reducer behind `FEATURE_QUAD_VIEW_ENABLED`. But the main tab is still
+**napari-first for image display** — each widget updates napari layers and *also* mirrors
+into the quad-view (`if FEATURE_QUAD_VIEW_ENABLED and controller: controller.set_image(...)`).
+The napari `main_viewer` is created on every launch and merely kept out of the splitter when
+the flag is on. Phase 7 makes the quad-view the **sole** main-tab display, stops creating
+`main_viewer`, **and** migrates the standalone `FibsemUI` app onto the canvases so the shared
+image/movement widgets lose their last napari host.
+
+### End state
+
+- AutoLamella **main microscope tab**: quad-view only; no `main_viewer`.
+- Standalone **`fibsem_ui`** console app: a `MicroscopeViewController` left pane + the existing
+  control tabs on the right; no napari viewer.
+- `FibsemImageSettingsWidget` / `FibsemMovementWidget`: **napari path deleted** (no host left).
+- `FEATURE_QUAD_VIEW_ENABLED` retired; the main tab is unconditional.
+
+### Stays on napari (do not touch)
+
+`minimap_viewer` (Minimap tab), `lamella_viewer` (Protocol / Lamella Editor),
+`FMAcquisitionWidget`, `fibsem/correlation/*`, labelling/training UIs, the coincidence viewer.
+`fibsem/ui/napari/*` draw utilities stay — the deferred surfaces above still use them; only the
+main-tab call-sites go.
+
+### The `main_viewer` entanglement surface (what Phase 7 must sever)
+
+`AutoLamellaMainUI.main_viewer` ([:955]) currently backs, via the control widgets:
+
+| Widget | napari coupling to remove from the main-tab path |
+|---|---|
+| `FibsemImageSettingsWidget` | SEM/FIB image layers, scalebar, crosshair, **ruler**, alignment shapes, text overlay, `_update_layer_positions`, `reset_view` (~29 `self.viewer` refs) |
+| `fluorescence_control_widget` | FM image layers (`update_image` → `viewer.add_image`) |
+| `FibsemMovementWidget` | text overlay, napari `mouse_double_click_callbacks` |
+| `FibsemSpotBurnWidget`, `FibsemEmbeddedDetectionWidget` | `self.viewer = parent.viewer` ref (overlays already migrated) |
+| `milling_task_viewer_widget` | FIB image layer + the napari right-click drag callback |
+
+Parity already exists on the canvas for: images, scalebar, crosshair (canvas draws its own from
+`FibsemImage` metadata), all overlays, the info bar, and **click-to-move** (`canvas_double_clicked`
+→ `_on_canvas_double_click`). The one true gap is the **ruler** (napari-only;
+`FibsemImageSettingsWidget.update_ruler`).
+
+### Shared-widget constraint → why `FibsemUI` is in scope
+
+`FibsemImageSettingsWidget` and `FibsemMovementWidget` are constructed in **two** places:
+AutoLamella's main tab and standalone `FibsemUI` ([FibsemUI.py:97,102]). `milling_task_viewer_widget`
+is shared with the **Lamella Editor** (napari). So:
+
+- The milling viewer **keeps both paths** (Lamella Editor still napari) — `_controller is None`
+  already selects the napari path there; no change needed.
+- The image/movement widgets would otherwise have to keep a guarded napari path forever — *unless*
+  `FibsemUI` also moves onto the canvases. **It does** (this phase), which lets us delete their
+  napari paths outright instead of guarding them.
+
+`FibsemUI` is a napari-docked `QMainWindow` (viewer = canvas, tabs docked right: Connection / Image
+/ Movement / Milling / Manipulator). Migrating it = give it its own `MicroscopeViewController` left
+pane (same seam as `AutoLamellaMainUI`), exposed as `view_controller` so the widgets' `_view_controller()`
+parent-walk resolves it. Caveat: `FibsemUI` also hosts **`FibsemManipulatorWidget`** (`viewer=self.viewer`),
+another napari consumer — see slice 7.4.
+
+### Slices (each flag-gated where it can be, reviewable, committed on approval)
+
+- **7.0 — Make quad-view the real default (the felt cutover).** Replace the two `# DEV`
+  force-`True` lines with a clean default: `FeatureFlags.quad_view_enabled = True` and the module
+  constant `True`, *as the intended default* (not a dev override). `main_viewer` stays
+  created-but-hidden as the rollback path (toggle the user pref → napari returns). Smallest diff,
+  instantly reversible. **Soak here** before going further.
+- **7.1 — Port the ruler to the canvas.** A matplotlib ruler on `FibsemImageCanvas` (line artist +
+  length label in image/µm units), reachable from the Image widget. Closes the last parity gap.
+  Until this lands, removing `main_viewer` would drop the measure tool.
+- **7.2 — `FibsemUI` onto the canvases.** Give `FibsemUI` a `MicroscopeViewController` left pane;
+  feed SEM/FIB through the controller; expose `view_controller`. Image + Movement + Milling tabs
+  now drive the canvas. Keep the napari path alive *in parallel* this slice (still flag-gated) so
+  `fibsem_ui` is verifiable side-by-side. **`FibsemUI` is the napari-free regression harness for 7.3.**
+- **7.3 — Delete the napari path from the shared widgets.** With no napari host left for them, drop
+  the `parent.viewer` requirement and every napari-layer call from `FibsemImageSettingsWidget` /
+  `FibsemMovementWidget` (and the FM `update_image` napari branch). The mirror becomes the only path.
+- **7.4 — Stop creating `main_viewer`; handle `FibsemUI` leftovers.** Remove `main_viewer` creation
+  for the main tab; decide the **Manipulator** widget (migrate its overlay to the canvas, or keep a
+  small dedicated napari viewer for `FibsemUI`'s manipulator only). Re-smoke minimap + lamella editor.
+- **7.5 — Retire the flag.** Make the main tab unconditional, delete the dead napari main-tab
+  branches and the now-unused `_view_controller() is None` fallbacks, drop the `quad_view_enabled`
+  pref field (`UserPreferences.from_dict` already ignores unknown keys, so old configs still load).
+
+### Verification harness
+
+- **`fibsem_ui` standalone** is the cheapest end-to-end check for the shared widgets after 7.2 —
+  run it napari-free and exercise Image / Movement / Milling without hardware where possible.
+- After **7.4**, smoke the surfaces that *keep* napari (Minimap, Lamella Editor) to prove the
+  removal didn't touch them.
+- Headless: extend `tests/test_canvas_overlay_reducer.py` as the image-feed path becomes
+  controller-only; add a ruler test in 7.1.
+
+### Risks / watch-items
+
+- **Manipulator widget** (`FibsemUI` only) is the one napari consumer with no canvas equivalent yet
+  — it can gate how clean 7.4 is (migrate vs keep a scoped napari viewer).
+- **`milling_task_viewer_widget` stays dual-path** (Lamella Editor) — do **not** delete its napari
+  branch; only the main-tab/`FibsemUI` call-sites take the controller path.
+- **Ordering:** 7.3 (delete napari path) must land *after* 7.2 (`FibsemUI` migrated), or `fibsem_ui`
+  breaks. 7.4 (remove `main_viewer`) must land *after* 7.1 (ruler) or the main tab loses the ruler.

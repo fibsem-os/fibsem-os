@@ -252,7 +252,7 @@ class FeatureFlags:
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
-    quad_view_enabled: bool = True  # DEV: quad-view on by default (revert before merge)
+    quad_view_enabled: bool = True  # quad-view is the default microscope display
 
 @dataclass
 class MovementPreferences:
@@ -376,4 +376,4 @@ FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
-FEATURE_QUAD_VIEW_ENABLED = True  # DEV: quad-view on by default (revert before merge)
+FEATURE_QUAD_VIEW_ENABLED = True  # quad-view is the default microscope display
