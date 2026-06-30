@@ -203,7 +203,8 @@ class ObjectiveControlWidget(QWidget):
         self._wheel_target_um: float = 0.0
         self._execute_wheel_move = qdebounced(self._execute_wheel_move_impl, timeout=150)
 
-        if self.parent_widget is not None and hasattr(self.parent_widget, "viewer"):
+        if (self.parent_widget is not None
+                and getattr(self.parent_widget, "viewer", None) is not None):
             self.parent_widget.viewer.mouse_wheel_callbacks.append(self._on_mouse_wheel)
 
     def insert_objective(self):
@@ -275,10 +276,11 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setValue(objective_position * METRE_TO_MICRON)  # Convert m to µm
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
 
-        if self.parent_widget is not None and hasattr(self.parent_widget, "viewer"):
-            update_text_overlay(self.parent_widget.viewer,
-                                self.parent_widget.microscope,
-                                objective_position=objective_position)  # TODO: migrate to objective_position_changed signal
+        if self.parent_widget is not None:
+            if getattr(self.parent_widget, "viewer", None) is not None:
+                update_text_overlay(self.parent_widget.viewer,
+                                    self.parent_widget.microscope,
+                                    objective_position=objective_position)  # TODO: migrate to objective_position_changed signal
             # quad-view info bar (OBJECTIVE on the FM canvas), via the controller
             controller = None
             try:
@@ -489,7 +491,8 @@ class ObjectiveControlWidget(QWidget):
         """Remove the napari mouse-wheel callback. Call on widget teardown so the
         callback (and the dead widget it binds) doesn't leak on the persistent
         napari viewer across microscope reconnects."""
-        if self.parent_widget is not None and hasattr(self.parent_widget, "viewer"):
+        if (self.parent_widget is not None
+                and getattr(self.parent_widget, "viewer", None) is not None):
             try:
                 self.parent_widget.viewer.mouse_wheel_callbacks.remove(self._on_mouse_wheel)
             except (ValueError, RuntimeError):
