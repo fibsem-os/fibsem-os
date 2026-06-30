@@ -1,6 +1,6 @@
 import napari
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 import napari.utils.notifications
 import fibsem
 from fibsem.microscope import FibsemMicroscope
@@ -8,10 +8,12 @@ from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+from fibsem.ui.widgets.quad_view import MicroscopeViewController
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.qtdesigner_files import FibsemUI as FibsemUIMainWindow
+from fibsem.ui.stylesheets import NAPARI_STYLE
 
 
 class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
@@ -20,10 +22,29 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         super().__init__()
         self.setupUi(self)
 
-        self.label_title.setText(f"fibsemOS v{fibsem.__version__}")
+        # napari-style dark theme, matching AutoLamellaMainUI (the napari window
+        # previously supplied this; a standalone window must set it itself).
+        self.setStyleSheet(NAPARI_STYLE)
+
+        # Title now lives in the window titlebar; drop the in-panel label.
+        self.setWindowTitle(f"fibsemOS v{fibsem.__version__}")
+        self.gridLayout.removeWidget(self.label_title)
+        self.label_title.deleteLater()
 
         self.viewer = viewer
         self.viewer.title = f"fibsemOS v{fibsem.__version__}"
+
+        # Quad-view display: the controller's SEM/FIB canvases are the left pane;
+        # the existing tab panel (title + tabs) becomes the right pane. The napari
+        # viewer is retained (hidden) only to back the still-napari image/movement
+        # widgets; it is removed once they drop their napari path (Phase 7.3+).
+        self.view_controller = MicroscopeViewController(parent=self)
+        splitter = QtWidgets.QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.view_controller.widget)
+        splitter.addWidget(self.centralwidget)
+        splitter.setSizes([720, 460])
+        self.setCentralWidget(splitter)
 
         self.microscope: FibsemMicroscope = None
         self.settings: MicroscopeSettings = None
@@ -107,6 +128,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
                 microscope=self.microscope,
                 parent=self,
                 viewer=self.viewer,
+                image_widget=self.image_widget,  # lets it resolve the quad controller
             )
             if self.microscope.system.manipulator.enabled:
                 self.manipulator_widget = FibsemManipulatorWidget(
@@ -142,6 +164,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.tabWidget.removeTab(2)
             self.tabWidget.removeTab(1)
             self.image_widget.clear_viewer()
+            self.view_controller.clear()  # reset the quad-view canvases on disconnect
             self.image_widget.deleteLater()
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()
@@ -152,13 +175,14 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
 def main():
 
-    viewer = napari.Viewer(ndisplay=2)
+    # Hidden napari viewer backs the (still napari-based) image/movement widgets;
+    # the quad-view controller is the visible display (Phase 7.2).
+    viewer = napari.Viewer(show=False, ndisplay=2)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    app.setStyle("Fusion")
     fibsem_ui = FibsemUI(viewer=viewer)
-    viewer.window.add_dock_widget(fibsem_ui, 
-                                  area="right", 
-                                  add_vertical_stretch=False, 
-                                  name=f"fibsemOS v{fibsem.__version__}")
-    napari.run()
+    fibsem_ui.show()
+    app.exec_()
 
 
 if __name__ == "__main__":

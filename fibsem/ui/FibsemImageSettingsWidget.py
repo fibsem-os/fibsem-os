@@ -302,9 +302,14 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     def _view_controller(self):
         """Return the quad-view MicroscopeViewController, or None when inactive.
 
-        In quad-view mode the main window holds the controller as
-        ``view_controller``; on the napari path that attribute is ``None``.
+        Two hosts expose it: standalone ``FibsemUI`` (the direct parent holds
+        ``view_controller``) and AutoLamella (parent → ``AutoLamellaUI`` →
+        ``parent_widget`` → the main window). Check the direct parent first, then
+        the AutoLamella chain. On the napari path neither holds one → ``None``.
         """
+        controller = getattr(self.parent, "view_controller", None)
+        if controller is not None:
+            return controller
         parent_ui = getattr(self.parent, "parent_widget", None)
         return getattr(parent_ui, "view_controller", None)
 

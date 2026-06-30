@@ -167,9 +167,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks
-        controller = getattr(
-            getattr(self.parent, "parent_widget", None), "view_controller", None
-        )
+        controller = self._view_controller()
         if cfg.FEATURE_QUAD_VIEW_ENABLED and controller is not None:
             # quad-view: one canvas per beam → connect per-canvas double-click signals
             controller.sem_canvas.canvas_double_clicked.connect(
@@ -320,9 +318,21 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # update the current position label
         update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
         # quad-view info bar: model + debounced render, so it's safe to call here
-        controller = getattr(getattr(self.parent, "parent_widget", None), "view_controller", None)
+        controller = self._view_controller()
         if controller is not None:
             controller.update_info(self.microscope, stage_position=stage_position)
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None on the napari path.
+
+        Resolved like the image widget: the direct parent (standalone ``FibsemUI``)
+        or parent → ``parent_widget`` (AutoLamella) holds ``view_controller``.
+        """
+        controller = getattr(self.parent, "view_controller", None)
+        if controller is not None:
+            return controller
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
 
     @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
@@ -354,7 +364,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         milling = self.microscope.get_orientation("MILLING")
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
         update_text_overlay(self.viewer, self.microscope)
-        controller = getattr(getattr(self.parent, "parent_widget", None), "view_controller", None)
+        controller = self._view_controller()
         if controller is not None:
             controller.update_info(self.microscope)
 
