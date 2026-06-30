@@ -176,11 +176,8 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
-        # None when the main tab runs viewer-less (display via the controller);
-        # every napari op below is guarded / controller-gated.
+        # The main tab runs viewer-less; display is via the controller.
         self.viewer = viewer
-        if self.viewer is not None:
-            self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -445,122 +442,13 @@ class AutoLamellaUI(QMainWindow):
         self._update_lamella_display()
 
     def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view."""
+        """Update the lamella display in the live fib view.
 
-        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
-            return
-        if self.viewer is None:
-            return  # napari-only feature; not yet migrated to the controller
-
-        if self.experiment is None:
-            return
-
-        if self.image_widget is None:
-            return
-
-        if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
-            return
-
-        from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-        from fibsem.ui.napari.utilities import (
-            NapariShapeOverlay,
-            create_crosshair_shape,
-        )
-        from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-
-        if selected_name is None:
-            selected_name = self.lamella_list.selected_name
-
-        try:
-            # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
-            points = reproject_stage_positions_onto_image2(
-                image=self.image_widget.ib_image,
-                positions=self.experiment.get_milling_positions(),
-                bound=True,
-            )
-
-            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
-            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
-            # should disable until we can fix this properly
-
-            layer_scale = None
-            overlays: List[NapariShapeOverlay] = []
-            for pt in points:
-                saved_lines = create_crosshair_shape(
-                    pt, CROSSHAIR_CONFIG["crosshair_size"], layer_scale
-                )
-
-                # Use lime for selected position, cyan for others
-                color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-                if pt.name == selected_name:
-                    color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
-
-                # Show position name on crosshair if saved position FOV is disabled
-                # label = saved_pos.name if not self.show_saved_positions_fov else ""
-
-                for line, txt in zip(saved_lines, [pt.name, ""]):
-                    overlays.append(
-                        NapariShapeOverlay(
-                            shape=line, color=color, label=txt, shape_type="line"
-                        )
-                    )
-
-            crosshair_overlays = overlays
-
-            # TODO: use a common function for this?
-            # QUERY: also do it for the SEM?
-            # Collect all crosshair overlays
-            layer_name = CROSSHAIR_CONFIG["layer_name"]
-
-            if len(crosshair_overlays) == 0:
-                logging.info("No crosshair overlays to display.")
-                # Remove existing layer if no overlays to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers.remove(layer_name)
-                return
-
-            # Extract data for napari
-            crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-            colors = [overlay.color for overlay in crosshair_overlays]
-            labels = [overlay.label for overlay in crosshair_overlays]
-
-            # Prepare text properties for labels
-            text_properties = {"string": labels, **CROSSHAIR_CONFIG["text_properties"]}
-            # text_properties["color"] = colors # displays the text the same color as the line
-
-            # Update or create the napari layer
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[layer_name]
-                layer.data = crosshair_lines
-                # Note: edge_color and text updates may not work with all napari versions
-                try:
-                    layer.edge_color = colors
-                    layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                    layer.face_color = CROSSHAIR_CONFIG["line_style"]["face_color"]
-                    layer.text = text_properties
-                    layer.visible = True
-                    layer.translate = self.image_widget.ib_layer.translate
-                except AttributeError:
-                    logging.warning("Could not update layer properties directly")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=crosshair_lines,
-                    name=layer_name,
-                    shape_type="line",
-                    edge_color=colors,
-                    edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                    face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                    scale=layer_scale,
-                    text=text_properties,
-                    translate=self.image_widget.ib_layer.translate,
-                )
-
-        except Exception as e:
-            logging.warning(f"Could not update lamella display: {e}")
-        finally:
-            self.image_widget.restore_active_layer_for_movement()
+        The napari implementation (reprojected lamella crosshairs, gated on
+        FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED) was removed in the quad-view
+        cutover; this feature awaits a controller-based reimplementation.
+        """
+        return
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -798,7 +686,6 @@ class AutoLamellaUI(QMainWindow):
                 self.movement_widget = None
             if self.image_widget is not None:
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.clear_viewer()
                 self.image_widget.acquisition_progress_signal.disconnect(
                     self.handle_acquisition_update
                 )
@@ -1852,9 +1739,6 @@ class AutoLamellaUI(QMainWindow):
             self.microscope.turn_off(BeamType.ELECTRON)
             self.microscope.turn_off(BeamType.ION)
 
-        # set electron image as active layer
-        self.image_widget.restore_active_layer_for_movement()
-
         self.set_current_workflow_message(msg=None, show=False)
 
     def handle_workflow_update(self, info: dict) -> None:
@@ -1957,42 +1841,10 @@ class AutoLamellaUI(QMainWindow):
     _POI_LAYER_NAME = "Point of Interest"
 
     def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Add a draggable point marker on the FIB image for POI selection.
-
-        Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
-        """
+        """Show a draggable POI marker on the FIB canvas (via the controller)."""
         controller = getattr(self.parent_widget, "view_controller", None)
         if controller is not None:
             self._show_poi_overlay(controller, initial_poi)
-            return
-        ib_translate = self.image_widget.ib_layer.translate
-        ib_image = self.image_widget.ib_image
-        if initial_poi is not None:
-            px = conversions.microscope_image_to_image_coordinates(
-                initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
-            )
-            row = ib_translate[0] + px.y
-            col = ib_translate[1] + px.x
-        else:
-            row = ib_translate[0] + ib_image.data.shape[0] / 2
-            col = ib_translate[1] + ib_image.data.shape[1] / 2
-        data = [[row, col]]
-        from fibsem.ui.napari.utilities import add_points_layer
-
-        self._poi_layer = add_points_layer(
-            viewer=self.viewer,
-            data=data,
-            name=self._POI_LAYER_NAME,
-            size=20,
-            face_color="magenta",
-            border_color="white",
-            symbol="cross",
-            blending="additive",
-            border_width=None,
-            border_width_is_relative=False,
-        )
-        self._poi_layer.mode = "select"
-        self.viewer.layers.selection.active = self._poi_layer
 
     def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
         """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
@@ -2021,30 +1873,17 @@ class AutoLamellaUI(QMainWindow):
         controller.fib_canvas.set_hint("drag to move")
 
     def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from current marker position, hide it, store in SELECTED_POI."""
+        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
         controller = getattr(self.parent_widget, "view_controller", None)
-        if controller is not None:
-            pts = controller.overlay_points(BeamType.ION, "poi")
-            if pts:
-                col, row = pts[0]
-                ib_image = self.image_widget.ib_image
-                self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                    Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
-                )
-            controller.arm_overlay(BeamType.ION, None)  # restore Move
-            controller.remove_overlay(BeamType.ION, "poi")
-            controller.fib_canvas.set_hint(None)
+        if controller is None:
             return
-        if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
-            pos = self._poi_layer.data[0]  # [row, col] napari coords
-            ib_translate = self.image_widget.ib_layer.translate
-            py = pos[0] - ib_translate[0]  # pixel y in IB image
-            px = pos[1] - ib_translate[1]  # pixel x in IB image
+        pts = controller.overlay_points(BeamType.ION, "poi")
+        if pts:
+            col, row = pts[0]
             ib_image = self.image_widget.ib_image
             self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=px, y=py),
-                ib_image.data,
-                ib_image.metadata.pixel_size.x,
+                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
             )
-            self.viewer.layers.remove(self._poi_layer)
-            self._poi_layer = None
+        controller.arm_overlay(BeamType.ION, None)  # restore Move
+        controller.remove_overlay(BeamType.ION, "poi")
+        controller.fib_canvas.set_hint(None)

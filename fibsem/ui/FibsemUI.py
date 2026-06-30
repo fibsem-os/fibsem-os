@@ -163,7 +163,6 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.tabWidget.removeTab(3)
             self.tabWidget.removeTab(2)
             self.tabWidget.removeTab(1)
-            self.image_widget.clear_viewer()
             self.view_controller.clear()  # reset the quad-view canvases on disconnect
             self.image_widget.deleteLater()
             self.movement_widget.deleteLater()
