@@ -237,6 +237,22 @@ class AutoLamellaTask(ABC):
         if self._stop_event is not None and self._stop_event.is_set():
             raise InterruptedError("Workflow aborted by user.")
 
+    def _update_fluorescence_pose(self) -> None:
+        """Refresh the lamella's recorded fluorescence pose from the current microscope state.
+
+        The configured objective (focus) position is preserved: get_microscope_state()
+        does not capture the objective position, so overwriting the pose here (and
+        re-reading the live objective position) previously wiped the user's configured
+        focus.
+        """
+        configured_objective_position = (
+            self.lamella.fluorescence_pose.objective_position
+            if self.lamella.fluorescence_pose is not None
+            else None
+        )
+        self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
+        self.lamella.fluorescence_pose.objective_position = configured_objective_position
+
     def update_milling_config_ui(self,
                                  milling_config: FibsemMillingTaskConfig,
                                  msg: str = "Run Milling",
