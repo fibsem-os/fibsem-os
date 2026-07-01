@@ -109,7 +109,10 @@ class MillCoincidentTask(AutoLamellaTask):
             raise ValueError(
                 "Microscope does not have a fluorescence microscope attached. Cannot run MillCoincidentTask."
             )
-        if self.lamella.objective_position is None:
+        if (
+            self.lamella.fluorescence_pose is None
+            or self.lamella.fluorescence_pose.objective_position is None
+        ):
             raise ValueError(
                 f"Lamella {self.lamella.name} does not have an objective position set. Cannot run MillCoincidentTask."
             )
@@ -164,7 +167,7 @@ class MillCoincidentTask(AutoLamellaTask):
             return
 
         # Move stage to the saved stage position and objective position
-        self.microscope.fm.objective.move_absolute(self.lamella.objective_position)
+        self.microscope.fm.objective.move_absolute(self.lamella.fluorescence_pose.objective_position)
 
         # mill coincident
         self.log_status_message("MILL_COINCIDENT", "Milling Coincident Lamella...")
