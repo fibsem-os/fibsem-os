@@ -111,18 +111,21 @@ class SelectedLamellaWidget(QWidget):
             self.pose_list.setVisible(False)
             return
 
-        # objective position (shown in µm); controls visible only when set
+        # objective position (shown in µm). The controls are shown whenever the
+        # lamella has a fluorescence pose, so the objective can still be set/restored
+        # (e.g. via "Use Current Objective Position") even when the position is unset.
+        # If it were gated on obj_pos being set, a wiped (None) objective would hide
+        # the only UI to recover it.
+        has_fluorescence_pose = lamella.fluorescence_pose is not None
         obj_pos = (
             lamella.fluorescence_pose.objective_position
-            if lamella.fluorescence_pose is not None
+            if has_fluorescence_pose
             else None
         )
-        obj_controls_enabled = obj_pos is not None
-        if obj_controls_enabled:
-            self.set_objective_value_um(obj_pos * METRE_TO_MICRON)
-        self.label_objective_position.setVisible(obj_controls_enabled)
-        self.spinbox_objective_position.setVisible(obj_controls_enabled)
-        self.btn_objective_actions.setVisible(obj_controls_enabled)
+        self.set_objective_value_um(obj_pos * METRE_TO_MICRON if obj_pos is not None else 0.0)
+        self.label_objective_position.setVisible(has_fluorescence_pose)
+        self.spinbox_objective_position.setVisible(has_fluorescence_pose)
+        self.btn_objective_actions.setVisible(has_fluorescence_pose)
 
         # poses
         self.pose_list.set_lamella(lamella)

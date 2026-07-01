@@ -72,7 +72,6 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
                 )
             self.microscope.fm.stop_acquisition()
 
-        # store the fluorescence pose
-        self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
-        self.lamella.fluorescence_pose.objective_position = self.microscope.fm.objective.position
+        # refresh the recorded fluorescence pose (preserving the configured objective position)
+        self._update_fluorescence_pose()
 

@@ -1421,6 +1421,13 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
+        # preserve the configured objective (focus) position of the existing pose:
+        # get_microscope_state() does not capture the objective position, so replacing
+        # the pose outright would wipe the fluorescence pose's focus setting.
+        existing_pose = lamella.poses.get(pose_name)
+        if existing_pose is not None and existing_pose.objective_position is not None:
+            state.objective_position = existing_pose.objective_position
+
         lamella.poses[pose_name] = state
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
