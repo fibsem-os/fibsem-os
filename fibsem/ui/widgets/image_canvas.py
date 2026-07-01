@@ -1000,23 +1000,6 @@ class RectOverlay(QObject):
         if self._canvas is not None:
             self._canvas.draw_idle()
 
-    def set_interactive(self, enabled: bool) -> None:
-        """Enable/disable drag + resize (handles hidden when disabled)."""
-        self._interactive = enabled
-        for line in self._handles.values():
-            line.set_visible(enabled)
-        if self._canvas is not None:
-            self._canvas.draw_idle()
-
-    def set_visible(self, visible: bool) -> None:
-        """Show or hide the rectangle and its handles."""
-        if self._patch is not None:
-            self._patch.set_visible(visible)
-        for h in self._handles.values():
-            h.set_visible(visible)
-        if self._canvas is not None:
-            self._canvas.draw_idle()
-
     # ── build / teardown ──────────────────────────────────────────────────
 
     def _remove_artists(self):

@@ -279,29 +279,7 @@ class MillingTaskViewerWidget(QWidget):
             pixelsize=self._fib_image.metadata.pixel_size.x,
         )
 
-        selected = self.config_widget.milling_stages_widget._list._selected_stage
-        # Fall back to first enabled stage if selected stage is disabled
-        if selected is None or not selected.enabled:
-            selected = stages[0]
-        selected_name = selected.name
-
-        cfg = ContextMenuConfig()
-        if self._right_click_menu_action_provider is not None:
-            try:
-                self._right_click_menu_action_provider(cfg, point_clicked)
-            except Exception:
-                logging.exception("Failed to add custom context-menu actions.")
-                notification_service.show_toast("Failed to add point-of-interest menu action; pattern movement options will still be shown.", "warning")
-        if len(stages) > 1:
-            cfg.add_action(
-                "Move All Patterns Here",
-                callback=lambda: self._move_patterns(point_clicked, move_all=True),
-            )
-        cfg.add_action(
-            f"Move '{selected_name}' Here",
-            callback=lambda: self._move_patterns(point_clicked, move_all=False),
-        )
-        ContextMenu(cfg, parent=self).show_at_cursor()
+        self._show_reposition_menu(point_clicked, stages)
 
     def _on_canvas_right_click(self, x: float, y: float, modifiers) -> None:
         """Quad-view FIB canvas right-click → pattern reposition menu.
@@ -324,7 +302,17 @@ class MillingTaskViewerWidget(QWidget):
             pixelsize=self._fib_image.metadata.pixel_size.x,
         )
 
+        self._show_reposition_menu(point_clicked, stages)
+
+    def _show_reposition_menu(self, point_clicked: Point, stages: list) -> None:
+        """Build + show the pattern-reposition context menu at the cursor.
+
+        Shared by the napari (:meth:`_on_right_click`) and canvas
+        (:meth:`_on_canvas_right_click`) entry points, which differ only in how
+        they derive ``point_clicked``.
+        """
         selected = self.config_widget.milling_stages_widget._list._selected_stage
+        # Fall back to first enabled stage if selected stage is disabled
         if selected is None or not selected.enabled:
             selected = stages[0]
         selected_name = selected.name

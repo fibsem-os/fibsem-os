@@ -176,7 +176,8 @@ class FMCanvasWidget(QWidget):
         self.canvas = FibsemImageCanvas()
         self._layers: List[FMLayer] = []
         self._pixel_size: Optional[float] = None
-        self._canvas_shape: Optional[Tuple[int, int]] = None
+        self._canvas_shape: Optional[Tuple[int, int]] = None  # drawn-axes shape
+        self._shape: Optional[Tuple[int, int]] = None  # composite target shape (last upserted layer)
         # z-stack scrubbing: keep the full ZYX stack per channel + display state
         self._stacks: Dict[str, np.ndarray] = {}   # channel name -> ZYX stack
         self._mip_clim: Dict[str, Tuple[float, float]] = {}  # fixed clim while scrubbing
@@ -310,7 +311,7 @@ class FMCanvasWidget(QWidget):
     # ── display ───────────────────────────────────────────────────────────
 
     def _recomposite(self) -> None:
-        shape = getattr(self, "_shape", None)
+        shape = self._shape
         rgb = composite_fm_layers(self._layers, shape)
         if rgb is None:
             return

@@ -20,7 +20,7 @@ selected-stage highlight, background stages, annulus / bitmap shapes.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches

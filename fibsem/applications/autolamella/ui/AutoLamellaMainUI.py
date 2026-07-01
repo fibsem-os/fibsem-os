@@ -249,13 +249,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         layer_controls_menu = view_menu.addMenu("Show Layer Controls")
 
-        self.action_layer_controls_microscope = QAction("Microscope", self)
-        self.action_layer_controls_microscope.setCheckable(True)
-        self.action_layer_controls_microscope.setChecked(True)
-        self.action_layer_controls_microscope.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "microscope")
-        )
-
         self.action_layer_controls_overview = QAction("Overview", self)
         self.action_layer_controls_overview.setCheckable(True)
         self.action_layer_controls_overview.setChecked(True)
@@ -263,7 +256,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
         )
 
-        layer_controls_menu.addAction(self.action_layer_controls_microscope)
         layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
@@ -533,7 +525,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
         """Toggle the layer list and layer controls for a specific viewer."""
         viewer_map = {
-            "microscope": self.main_viewer,
             "overview": self.minimap_viewer,
         }
         viewer = viewer_map.get(viewer_key)

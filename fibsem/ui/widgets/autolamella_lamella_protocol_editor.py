@@ -64,6 +64,7 @@ from fibsem.ui.widgets.spot_burn_coordinates_widget import (
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
     from fibsem.correlation.structures import CorrelationResult
+    from fibsem.imaging.spot import SpotBurnSettings
 
 # Reducer overlay ids on the FIB (ION) canvas
 POI_OVERLAY_ID = "poi"
@@ -779,7 +780,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Save the experiment
         self._save_experiment()
 
-    def _on_spot_burn_coordinates_changed(self, settings: "SpotBurnSettings"):
+    def _on_spot_burn_coordinates_changed(self, settings: SpotBurnSettings):
         """Callback when the spot burn coordinates are edited on the canvas.
 
         Only the coordinates are taken from the editor's settings — milling current and
