@@ -98,6 +98,19 @@ def test_live_spot_burn_widget_retrofit():
     assert sbw.get_settings().milling_current == off_grid
     assert sbw.get_settings().exposure_time == 3
 
+    # the worker body marshals completion back via a signal (no real burn)
+    import fibsem.imaging.spot as _spot
+    _orig_run = _spot.run_spot_burn
+    _spot.run_spot_burn = lambda **kw: None
+    try:
+        done = []
+        sbw._spot_burn_finished_signal.connect(lambda r: done.append(r))
+        sbw._run_spot_burn(sbw.get_settings())
+        _QAPP.processEvents()
+        assert done == [None]
+    finally:
+        _spot.run_spot_burn = _orig_run
+
     # clear -> empty overlay + disabled run
     sbw.clear_points_layer()
     _QAPP.processEvents()

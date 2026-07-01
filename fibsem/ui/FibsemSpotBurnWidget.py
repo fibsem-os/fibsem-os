@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import threading
 
-from napari.qt.threading import FunctionWorker, thread_worker
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
@@ -35,12 +34,15 @@ class FibsemSpotBurnWidget(QWidget):
     """
 
     spot_burn_progress_signal = pyqtSignal(dict)
+    # worker-thread completion, marshalled back onto the GUI thread
+    _spot_burn_finished_signal = pyqtSignal(object)
+    _spot_burn_errored_signal = pyqtSignal(object)
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
         self.parent = parent
         self.microscope: FibsemMicroscope = parent.microscope
-        self.worker: FunctionWorker = None
+        self.worker = None  # threading.Thread while a burn is running
         self.stop_event: threading.Event = threading.Event()
 
         self._build_ui()
@@ -100,6 +102,8 @@ class FibsemSpotBurnWidget(QWidget):
         # coordinate + progress signals
         self.coord_editor.settings_changed.connect(self._refresh_info)
         self.spot_burn_progress_signal.connect(self._update_progress_bar)
+        self._spot_burn_finished_signal.connect(self.spot_burn_finished)
+        self._spot_burn_errored_signal.connect(self.spot_burn_errored)
 
         # re-feed the FIB image shape to the editor on each acquisition
         iw = self._image_widget()
@@ -220,9 +224,9 @@ class FibsemSpotBurnWidget(QWidget):
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
 
-        self.worker = self._spot_burn_worker(settings)
-        self.worker.returned.connect(self.spot_burn_finished)
-        self.worker.errored.connect(self.spot_burn_errored)
+        self.worker = threading.Thread(
+            target=self._run_spot_burn, args=(settings,), daemon=True
+        )
         self.worker.start()
 
     def cancel_spot_burn(self) -> None:
@@ -230,15 +234,21 @@ class FibsemSpotBurnWidget(QWidget):
         logging.info("Cancelling spot burn...")
         self.stop_event.set()
 
-    @thread_worker
-    def _spot_burn_worker(self, settings: SpotBurnSettings):
-        """Worker: run the spot burn on the microscope."""
-        settings.run(
-            microscope=self.microscope,
-            beam_type=BeamType.ION,
-            parent_ui=self,
-            stop_event=self.stop_event,
-        )
+    def _run_spot_burn(self, settings: SpotBurnSettings) -> None:
+        """Worker body (off the GUI thread). Progress is emitted from within
+        ``run_spot_burn`` via ``spot_burn_progress_signal``; completion is marshalled
+        back onto the GUI thread through the finished / errored signals."""
+        try:
+            settings.run(
+                microscope=self.microscope,
+                beam_type=BeamType.ION,
+                parent_ui=self,
+                stop_event=self.stop_event,
+            )
+        except Exception as exc:
+            self._spot_burn_errored_signal.emit(exc)
+        else:
+            self._spot_burn_finished_signal.emit(None)
 
     def spot_burn_finished(self, result) -> None:
         """Called when the spot burn is finished."""
