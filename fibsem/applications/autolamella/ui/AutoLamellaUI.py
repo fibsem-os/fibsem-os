@@ -1502,7 +1502,8 @@ class AutoLamellaUI(QMainWindow):
             return
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
-        self.selected_lamella_widget.set_objective_value_um(value_m * METRE_TO_MICRON)
+        # full refresh so the objective value shows and "Apply to All" re-enables
+        self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
         )

@@ -5,6 +5,7 @@ position was lost (reset to None or overwritten with the live objective
 position), which made the Selected Lamella objective control disappear.
 """
 import os
+import types
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,29 @@ def test_update_fluorescence_pose_without_existing_pose_does_not_crash(
 
     assert lamella.fluorescence_pose is not None
     assert lamella.fluorescence_pose.objective_position is None
+
+
+def test_acquire_fluorescence_persists_autofocus_result(
+    fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch
+) -> None:
+    """When autofocus runs, its refined objective (best_z) is saved to the pose,
+    overriding the pre-run configured value (and surviving the pose refresh)."""
+    import fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence as af
+
+    refined = 0.0055  # differs from the configured value
+    assert refined != pytest.approx(CONFIGURED_OBJECTIVE)
+
+    lamella = _make_lamella(tmp_path, CONFIGURED_OBJECTIVE)
+    task = _acquire_task(fm_microscope, lamella)
+    assert task.config.autofocus_settings.fine_enabled  # default; drives the autofocus branch
+
+    # stub the heavy work: autofocus returns a known best_z, image acquisition is a no-op
+    monkeypatch.setattr(task, "_run_autofocus", lambda: types.SimpleNamespace(best_z=refined))
+    monkeypatch.setattr(af, "acquire_image", lambda **kwargs: None)
+
+    task._run()
+
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(refined)
 
 
 def test_mill_coincident_requires_objective_position(

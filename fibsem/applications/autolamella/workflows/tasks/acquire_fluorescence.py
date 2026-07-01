@@ -16,7 +16,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
 from fibsem.fm.acquisition import acquire_image, run_autofocus
-from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
+from fibsem.fm.structures import AutoFocusResult, AutoFocusSettings, ChannelSettings, ZParameters
 
 
 @dataclass
@@ -84,7 +84,10 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         # Run autofocus if requested
         if self.config.autofocus_settings.fine_enabled:
-            self._run_autofocus()
+            result = self._run_autofocus()
+            # autofocus found a better focus — make it the lamella's saved objective position
+            if result is not None and self.lamella.fluorescence_pose is not None:
+                self.lamella.fluorescence_pose.objective_position = result.best_z
 
         # Generate timestamp-based filename
         timestamp = utils.current_timestamp_v3(timeonly=True)
@@ -104,8 +107,8 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         self._update_fluorescence_pose()
 
 
-    def _run_autofocus(self,):
-        """Run autofocus with the specified settings."""
+    def _run_autofocus(self) -> Optional[AutoFocusResult]:
+        """Run autofocus with the specified settings, returning the result."""
         # Find autofocus channel by name if specified in autofocus_settings
         autofocus_channel = None
         if self.config.autofocus_settings.channel_name:
@@ -150,6 +153,8 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             result.plot(save_path)
         except Exception as e:
             logging.warning(f"Failed to plot autofocus result: {e}")
+
+        return result
 
     def _move_to_stage_position(self):
         """Move the stage to the fluorescence pose stage position, or the lamella stage position if fluorescence pose is not set."""

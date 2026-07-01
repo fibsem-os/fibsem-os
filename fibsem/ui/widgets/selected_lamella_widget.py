@@ -126,6 +126,10 @@ class SelectedLamellaWidget(QWidget):
         self.label_objective_position.setVisible(has_fluorescence_pose)
         self.spinbox_objective_position.setVisible(has_fluorescence_pose)
         self.btn_objective_actions.setVisible(has_fluorescence_pose)
+        # "Apply to All" copies the current value to every lamella; disable it when the
+        # objective is unset so the 0.0 placeholder cannot clobber other lamellae's focus.
+        # "Use Current Objective Position" stays enabled as the recovery path.
+        self._action_apply_obj_to_all.setEnabled(obj_pos is not None)
 
         # poses
         self.pose_list.set_lamella(lamella)
