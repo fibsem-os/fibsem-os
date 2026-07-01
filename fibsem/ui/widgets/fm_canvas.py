@@ -11,7 +11,7 @@ are Phase 6b.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import Qt, QPoint, QSize, pyqtSignal
@@ -177,14 +177,41 @@ class FMCanvasWidget(QWidget):
         self._layers: List[FMLayer] = []
         self._pixel_size: Optional[float] = None
         self._canvas_shape: Optional[Tuple[int, int]] = None
+        # z-stack scrubbing: keep the full ZYX stack per channel + display state
+        self._stacks: Dict[str, np.ndarray] = {}   # channel name -> ZYX stack
+        self._mip_clim: Dict[str, Tuple[float, float]] = {}  # fixed clim while scrubbing
+        self._z_index: int = 0
+        self._z_max: int = 0                        # nz - 1
+        self._max_projection: bool = True           # default: MIP (behaviour-preserving)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.canvas)
 
+        # z-slider (shown only for a multi-plane stack with max-projection off)
+        self._z_row = QWidget()
+        zrl = QHBoxLayout(self._z_row)
+        zrl.setContentsMargins(6, 2, 6, 4)
+        zrl.setSpacing(6)
+        zrl.addWidget(QLabel("z"))
+        self._z_slider = QSlider(Qt.Horizontal)
+        self._z_slider.setMinimum(0)
+        self._z_slider.valueChanged.connect(self._on_z_changed)
+        zrl.addWidget(self._z_slider, 1)
+        self._z_label = QLabel("1/1")
+        zrl.addWidget(self._z_label)
+        self._z_row.setVisible(False)
+        lay.addWidget(self._z_row)
+
         self._btn_layers = self.canvas.add_toolbar_button(
             "mdi:layers", "FM channels", self._toggle_layers_panel, checkable=True
         )
+        # max-projection toggle (checked = MIP; uncheck to scrub the z-slider)
+        self._btn_mip = self.canvas.add_toolbar_button(
+            "mdi:arrow-collapse-vertical", "Max projection", self._on_mip_button, checkable=True
+        )
+        self._btn_mip.setChecked(True)
+        self._btn_mip.setVisible(False)  # shown only once a multi-plane z-stack is loaded
         # FM contrast/gamma is per-channel (layers popover); the canvas's built-in
         # grayscale contrast button does nothing on the RGB composite — hide it.
         self.canvas.btn_contrast.hide()
@@ -196,8 +223,11 @@ class FMCanvasWidget(QWidget):
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def set_channel(self, name: str, data: np.ndarray, color: Optional[str] = None) -> None:
-        """Upsert a channel's image (and colour); display props are preserved."""
+    def _upsert_layer(self, name: str, data: np.ndarray, color: Optional[str]) -> FMLayer:
+        """Create or update a channel's layer (2-D data + colour); display props preserved.
+
+        Rebuilds the panel list only when a channel is added — a data-only update (live
+        acquisition / z-scrub) must NOT reset the per-channel controls."""
         layer = next((l for l in self._layers if l.name == name), None)
         is_new = layer is None
         if is_new:
@@ -208,29 +238,45 @@ class FMCanvasWidget(QWidget):
             layer.color = color
         self._shape = layer.data.shape[:2]
         if is_new:
-            # rebuild the panel list only when a channel is added — a data-only
-            # update (live acquisition) must NOT reset the per-channel controls.
             self._panel.set_layers(self._layers)
+        return layer
+
+    def set_channel(self, name: str, data: np.ndarray, color: Optional[str] = None) -> None:
+        """Upsert a channel's 2-D image (live path — no z-stack); display props preserved."""
+        had_stack = self._stacks.pop(name, None) is not None
+        self._mip_clim.pop(name, None)
+        layer = self._upsert_layer(name, data, color)
+        if had_stack:  # leaving z-scrub for a live 2-D frame → auto-contrast again
+            layer.autocontrast = True
+            layer.clim = None
+            self._refresh_z_controls()  # a stack went away → maybe hide the z-controls
         self._recomposite()
 
     def set_fm_image(self, image: "FluorescenceImage") -> None:
-        """Composite every channel of an acquired ``FluorescenceImage`` (CZYX).
+        """Composite every channel of an acquired ``FluorescenceImage`` (CZYX), keeping the
+        z-stacks so the z-slider / max-projection toggle can scrub them.
 
-        Pixel size and per-channel name/colour come from the image metadata;
-        channels upsert by name, so live frames update in place and multiple
-        channels blend additively (parity with the napari main tab).
+        Pixel size and per-channel name/colour come from the image metadata; channels
+        upsert by name and blend additively (parity with the napari main tab). Defaults to
+        the max-intensity projection.
         """
         md = image.metadata
         self.set_pixel_size(getattr(md, "pixel_size_x", None))
         data = np.asarray(image.data)
+        self._stacks = {}
+        self._mip_clim = {}
+        self._z_index = 0
         for ci, channel in enumerate(md.channels):
-            if data.ndim >= 4:  # CZYX → 2-D via the structure's own z-projection
-                plane = image.max_intensity_projection(channel=ci, return_2d=True)
-            elif data.ndim == 2:
-                plane = data
-            else:  # 3-D (Z, Y, X) single channel — collapse the leading axis
-                plane = data[0] if data.shape[0] == 1 else data.max(axis=0)
-            self.set_channel(channel.name, plane, channel.color)
+            if data.ndim >= 4:        # CZYX
+                stack = np.asarray(data[ci])
+            elif data.ndim == 3:      # ZYX (single channel)
+                stack = np.asarray(data)
+            else:                      # 2-D single plane
+                stack = np.asarray(data)[None]
+            self._stacks[channel.name] = stack
+            self._upsert_layer(channel.name, stack.max(axis=0), channel.color)
+        self._refresh_z_controls()
+        self._apply_z_mode()
 
     def set_layers(self, layers: List[FMLayer]) -> None:
         self._layers = list(layers)
@@ -250,6 +296,10 @@ class FMCanvasWidget(QWidget):
     def clear(self) -> None:
         self._layers = []
         self._canvas_shape = None
+        self._stacks = {}
+        self._mip_clim = {}
+        self._z_index = 0
+        self._refresh_z_controls()  # hides the z-controls (no stacks)
         self._panel.set_layers(self._layers)
         self.canvas.clear()
 
@@ -272,6 +322,74 @@ class FMCanvasWidget(QWidget):
             self.canvas.set_array(rgb, pixel_size=self._pixel_size)
         else:
             self.canvas.update_display(rgb)  # steady state: swap pixels only
+
+    # ── z-stack scrubbing ──────────────────────────────────────────────────
+
+    def _refresh_z_controls(self) -> None:
+        """Recompute the z-range from the current stacks and show/hide the z-controls.
+
+        The Max-projection toggle + z-slider appear only when a multi-plane stack is
+        present — so a single-frame (live microscope) FM canvas shows neither."""
+        nz = max((s.shape[0] for s in self._stacks.values()), default=1)
+        self._z_max = max(0, nz - 1)
+        self._z_index = min(self._z_index, self._z_max)
+        self._z_slider.blockSignals(True)
+        self._z_slider.setMaximum(self._z_max)
+        self._z_slider.setValue(self._z_index)
+        self._z_slider.blockSignals(False)
+        self._btn_mip.setVisible(self._z_max > 0)
+        self.canvas._reposition_overlay_buttons()
+        self._update_z_visibility()
+
+    def _update_z_visibility(self) -> None:
+        """The z-slider shows only for a multi-plane stack with max-projection off."""
+        show = self._z_max > 0 and not self._max_projection
+        self._z_row.setVisible(show)
+        if show:
+            self._z_label.setText(f"{self._z_index + 1}/{self._z_max + 1}")
+
+    def _plane_for(self, stack: np.ndarray) -> np.ndarray:
+        """The 2-D plane to display for a ZYX *stack* under the current mode."""
+        if self._max_projection or stack.shape[0] <= 1:
+            return stack.max(axis=0)
+        return stack[min(self._z_index, stack.shape[0] - 1)]
+
+    def _apply_z_mode(self) -> None:
+        """Set each stacked channel's plane + contrast for the current mode, then composite.
+
+        MIP → auto-contrast per the projection; scrub → a fixed clim (computed once off the
+        MIP) held across planes, so brightness doesn't jump. Live 2-D channels (no stack)
+        are left untouched."""
+        for layer in self._layers:
+            stack = self._stacks.get(layer.name)
+            if stack is None:
+                continue
+            if self._max_projection or stack.shape[0] <= 1:
+                layer.autocontrast = True
+                layer.clim = None
+            else:
+                clim = self._mip_clim.get(layer.name)
+                if clim is None:
+                    clim = auto_clim(stack.max(axis=0))
+                    self._mip_clim[layer.name] = clim
+                layer.autocontrast = False
+                layer.clim = clim
+            layer.data = self._plane_for(stack)
+        self._recomposite()
+
+    def _on_z_changed(self, value: int) -> None:
+        self._z_index = value
+        self._z_label.setText(f"{value + 1}/{self._z_max + 1}")
+        self._apply_z_mode()
+
+    def _on_max_projection_toggled(self, on: bool) -> None:
+        self._max_projection = bool(on)
+        self._update_z_visibility()
+        self._apply_z_mode()
+
+    def _on_mip_button(self) -> None:
+        """Toolbar toggle → max-projection on/off (checked = MIP)."""
+        self._on_max_projection_toggled(self._btn_mip.isChecked())
 
     # ── layers popover ────────────────────────────────────────────────────
 
