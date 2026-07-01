@@ -61,9 +61,9 @@ def test_live_spot_burn_widget_retrofit():
     sbw.set_active()
     _QAPP.processEvents()
     current = sbw.comboBox_beam_current.itemData(0)
-    sbw.update_parameters(
-        {"milling_current": current, "exposure_time": 5,
-         "coordinates": [Point(0.3, 0.4), Point(0.6, 0.7)]}
+    sbw.set_settings(
+        SpotBurnSettings(coordinates=[Point(0.3, 0.4), Point(0.6, 0.7)],
+                         milling_current=current, exposure_time=5)
     )
     _QAPP.processEvents()
 
@@ -84,10 +84,19 @@ def test_live_spot_burn_widget_retrofit():
     assert len(sbw.get_coordinates()) == 3
 
     # the run payload is a SpotBurnSettings (coords from editor, current/exposure from form)
-    s = sbw._current_settings()
+    s = sbw.get_settings()
     assert isinstance(s, SpotBurnSettings)
     assert len(s.coordinates) == 3
     assert s.milling_current == current and s.exposure_time == 5
+
+    # an off-grid current (not one the microscope offers) round-trips exactly, so an
+    # untouched value is never silently snapped/overwritten on readback
+    off_grid = 4.2e-13
+    sbw.set_settings(SpotBurnSettings(coordinates=[Point(0.5, 0.5)],
+                                      milling_current=off_grid, exposure_time=3))
+    _QAPP.processEvents()
+    assert sbw.get_settings().milling_current == off_grid
+    assert sbw.get_settings().exposure_time == 3
 
     # clear -> empty overlay + disabled run
     sbw.clear_points_layer()

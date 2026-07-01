@@ -1799,9 +1799,9 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
-        spot_burn_parameters = info.get("spot_burn_parameters", None)
-        if spot_burn_parameters is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.update_parameters(spot_burn_parameters)
+        spot_burn_settings = info.get("spot_burn_settings", None)
+        if spot_burn_settings is not None and self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_settings(spot_burn_settings)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
 

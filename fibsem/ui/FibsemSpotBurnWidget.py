@@ -6,8 +6,6 @@ import threading
 from napari.qt.threading import FunctionWorker, thread_worker
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QLabel,
     QProgressBar,
@@ -20,6 +18,7 @@ from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
 
@@ -61,9 +60,16 @@ class FibsemSpotBurnWidget(QWidget):
         layout.addWidget(self.coord_editor)
 
         # beam current + exposure
+        beam_currents = self.microscope.get_available_values("current", BeamType.ION)
+        closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
+        self.comboBox_beam_current = ValueComboBox(
+            items=beam_currents, value=closest, unit="A", decimals=1,
+        )
+        self.doubleSpinBox_exposure_time = ValueSpinBox(
+            suffix="s", minimum=0.1, maximum=60, decimals=3,
+        )
+        self.doubleSpinBox_exposure_time.setValue(10)
         form = QFormLayout()
-        self.comboBox_beam_current = QComboBox()
-        self.doubleSpinBox_exposure_time = QDoubleSpinBox()
         form.addRow("Beam Current", self.comboBox_beam_current)
         form.addRow("Exposure Time", self.doubleSpinBox_exposure_time)
         layout.addLayout(form)
@@ -83,20 +89,7 @@ class FibsemSpotBurnWidget(QWidget):
         layout.addStretch()
 
     def _setup_connections(self) -> None:
-        # beam currents
-        beam_currents = self.microscope.get_available_values("current", BeamType.ION)
-        for current in beam_currents:
-            self.comboBox_beam_current.addItem(
-                format_value(current, unit="A", precision=1), current
-            )
-        closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
-        self.comboBox_beam_current.setCurrentIndex(beam_currents.index(closest))
         self.comboBox_beam_current.currentIndexChanged.connect(self._refresh_info)
-
-        # exposure time
-        self.doubleSpinBox_exposure_time.setSuffix(" s")
-        self.doubleSpinBox_exposure_time.setRange(0.1, 60)
-        self.doubleSpinBox_exposure_time.setValue(10)
         self.doubleSpinBox_exposure_time.valueChanged.connect(self._refresh_info)
 
         # run button
@@ -157,43 +150,38 @@ class FibsemSpotBurnWidget(QWidget):
         self._refresh_info()
 
     # ------------------------------------------------------------------
-    # Workflow API (dict adapter — the workflow signal is unchanged)
+    # Workflow API (SpotBurnSettings in / out)
     # ------------------------------------------------------------------
 
-    def update_parameters(self, parameters: dict) -> None:
-        """Apply workflow-supplied parameters (current / exposure / coordinates)."""
-        milling_current = parameters.get("milling_current")
-        exposure_time = parameters.get("exposure_time")
-        coordinates = parameters.get("coordinates")
-
-        if milling_current is not None:
-            index = self.comboBox_beam_current.findData(milling_current)
-            if index != -1:
-                self.comboBox_beam_current.setCurrentIndex(index)
-        if exposure_time is not None:
-            self.doubleSpinBox_exposure_time.setValue(exposure_time)
+    def set_settings(self, settings: SpotBurnSettings) -> None:
+        """Apply a settings payload (current / exposure / coordinates)."""
+        # keep an off-grid (protocol) current exactly selectable so an untouched value
+        # round-trips losslessly — otherwise the closest-match snap would rewrite the config
+        if self.comboBox_beam_current.findData(settings.milling_current) == -1:
+            self.comboBox_beam_current.addItem(
+                format_value(settings.milling_current, unit="A", precision=1),
+                settings.milling_current,
+            )
+        self.comboBox_beam_current.set_value(settings.milling_current)
+        self.doubleSpinBox_exposure_time.setValue(settings.exposure_time)
 
         self._feed_image_shape()
-        self.coord_editor.set_settings(
-            SpotBurnSettings(
-                coordinates=list(coordinates) if coordinates else [],
-                milling_current=self.comboBox_beam_current.currentData(),
-                exposure_time=self.doubleSpinBox_exposure_time.value(),
-            )
-        )
+        # the editor only owns coordinates; current/exposure live on the form
+        self.coord_editor.set_settings(SpotBurnSettings(coordinates=list(settings.coordinates)))
         self._refresh_info()  # set_settings is programmatic (no settings_changed)
+
+    def get_settings(self) -> SpotBurnSettings:
+        """The run payload — coordinates from the editor, current/exposure from the form."""
+        return SpotBurnSettings(
+            coordinates=self.get_coordinates(),
+            milling_current=self.comboBox_beam_current.value(),
+            exposure_time=self.doubleSpinBox_exposure_time.value(),
+        )
 
     def get_coordinates(self) -> list:
         """Current spot positions (normalised 0-1), filtered to image bounds."""
         coords = self.coord_editor.get_settings().coordinates
         return [pt for pt in coords if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
-
-    def _current_settings(self) -> SpotBurnSettings:
-        return SpotBurnSettings(
-            coordinates=self.get_coordinates(),
-            milling_current=self.comboBox_beam_current.currentData(),
-            exposure_time=self.doubleSpinBox_exposure_time.value(),
-        )
 
     # ------------------------------------------------------------------
     # Info / run
@@ -214,7 +202,7 @@ class FibsemSpotBurnWidget(QWidget):
 
     def run_spot_burn_worker(self) -> None:
         """Run the spot burn worker."""
-        settings = self._current_settings()
+        settings = self.get_settings()
         if len(settings.coordinates) == 0:
             notification_service.show_toast(
                 "No points selected within FIB image bounds.", "warning"
