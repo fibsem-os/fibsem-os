@@ -74,6 +74,7 @@ from fibsem.ui.napari.utilities import (
     is_inside_image_bounds,
     update_text_overlay,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
@@ -200,7 +201,7 @@ class FibsemMinimapWidget(QWidget):
         self.correlation_mode_enabled: bool = False
 
         self._thread_stop_event = threading.Event()
-        self._acquisition_worker: Optional[threading.Thread] = None
+        self._acquisition_worker: Optional[FunctionWorker] = None
 
         # display options
         self.show_current_fov: bool = True
@@ -581,10 +582,8 @@ class FibsemMinimapWidget(QWidget):
         self._hide_overlay_layers()
 
         self._thread_stop_event.clear()
-        self._acquisition_worker = threading.Thread(
-            target=self._run_tile_collection,
-            args=(self.microscope, overview_settings),
-            daemon=True,
+        self._acquisition_worker = FunctionWorker(
+            self._run_tile_collection, self.microscope, overview_settings
         )
         self._acquisition_worker.start()
 

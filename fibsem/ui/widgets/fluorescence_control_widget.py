@@ -47,6 +47,7 @@ from fibsem.ui.fm.widgets import (
     ZParametersWidget,
 )
 from fibsem.ui.napari.utilities import is_position_inside_layer, update_text_overlay
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -88,7 +89,7 @@ class FMControlWidget(QWidget):
         self.channel_settings = ChannelSettings()
 
         # Consolidated acquisition threading
-        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
@@ -781,10 +782,8 @@ class FMControlWidget(QWidget):
             return
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._image_acquistion_worker,
-            args=(channel_settings, z_parameters, filename),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._image_acquistion_worker, channel_settings, z_parameters, filename
         )
         self._acquisition_thread.start()
 
@@ -892,10 +891,8 @@ class FMControlWidget(QWidget):
         autofocus_settings = settings["autofocus_settings"]
 
         # Start auto-focus thread
-        self._acquisition_thread = threading.Thread(
-            target=self._autofocus_worker,
-            args=(channel_settings, autofocus_settings),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._autofocus_worker, channel_settings, autofocus_settings
         )
         self._acquisition_thread.start()
 

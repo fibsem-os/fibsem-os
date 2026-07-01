@@ -85,6 +85,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 from fibsem.utils import format_duration
 
@@ -387,7 +388,7 @@ class FMAcquisitionWidget(QWidget):
         self.histogramWidget: HistogramWidget
 
         # Consolidated acquisition threading
-        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
@@ -889,10 +890,8 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
-        self._acquisition_thread = threading.Thread(
-            target=self._stage_movement_worker,
-            args=(stage_position, objective_position),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._stage_movement_worker, stage_position, objective_position
         )
         self._acquisition_thread.start()
 
@@ -1869,10 +1868,8 @@ class FMAcquisitionWidget(QWidget):
             z_parameters = settings["z_parameters"]
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._image_acquistion_worker,
-            args=(channel_settings, z_parameters),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._image_acquistion_worker, channel_settings, z_parameters
         )
         self._acquisition_thread.start()
 
@@ -2011,16 +2008,13 @@ class FMAcquisitionWidget(QWidget):
         positions = None  # self.experiment.positions
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._overview_worker,
-            args=(
-                channel_settings,
-                overview_parameters,
-                z_parameters,
-                autofocus_settings,
-                positions,
-            ),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._overview_worker,
+            channel_settings,
+            overview_parameters,
+            z_parameters,
+            autofocus_settings,
+            positions,
         )
         self._acquisition_thread.start()
 
@@ -2172,10 +2166,8 @@ class FMAcquisitionWidget(QWidget):
         z_parameters = settings["z_parameters"]
 
         # Start auto-focus thread
-        self._acquisition_thread = threading.Thread(
-            target=self._autofocus_worker,
-            args=(channel_settings, z_parameters),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._autofocus_worker, channel_settings, z_parameters
         )
         self._acquisition_thread.start()
 

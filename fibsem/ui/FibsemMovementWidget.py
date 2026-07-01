@@ -4,7 +4,6 @@ from typing import Optional
 
 import napari
 import numpy as np
-from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
@@ -19,6 +18,7 @@ from fibsem.structures import (
 )
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.napari.utilities import update_text_overlay
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.stylesheets import (
     DISABLED_PUSHBUTTON_STYLE,
     LABEL_INSTRUCTIONS_STYLE,
