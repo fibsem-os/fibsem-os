@@ -82,6 +82,22 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             coordinates=coordinates,
         )
 
+    def to_settings(self) -> SpotBurnSettings:
+        """The run payload (coordinates + current + exposure) for this task."""
+        from fibsem.imaging.spot import SpotBurnSettings
+        return SpotBurnSettings(
+            coordinates=list(self.coordinates),
+            milling_current=self.milling_current,
+            exposure_time=float(self.exposure_time),
+        )
+
+    def apply_settings(self, settings: SpotBurnSettings) -> None:
+        """Apply a run payload back onto this task config (coordinates + current + exposure)."""
+        self.coordinates = list(settings.coordinates)
+        self.milling_current = settings.milling_current
+        self.exposure_time = settings.exposure_time
+
+
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
     config: SpotBurnFiducialTaskConfig

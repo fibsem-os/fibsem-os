@@ -10,10 +10,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
 from fibsem.ui.widgets.canvas_state import PointsSpec
 from fibsem.ui.widgets.custom_widgets import IconToolButton
-from fibsem.applications.autolamella.workflows.tasks.tasks import SpotBurnFiducialTaskConfig
 
 
 _HEADER_BG = "#1e2124"
@@ -55,7 +55,7 @@ class _SpotBurnRow(QWidget):
         layout.addWidget(btn_remove)
 
 
-class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
+class SpotBurnCoordinatesWidget(QWidget):
     """Editor for spot-burn coordinates, backed by a canvas points overlay.
 
     A titled list of read-only coordinate rows (index + x, y in relative 0-1 image
@@ -65,23 +65,24 @@ class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
     overlay and its selection both ways, and the on-image markers are numbered to match
     the rows.
 
-    Reusable by any host that owns a ``MicroscopeViewController`` (the protocol editor
-    now; the live spot-burn widget in a later slice).
+    Works with a :class:`SpotBurnSettings` payload — it edits ``.coordinates`` and passes
+    current/exposure through untouched. Reusable by any host that owns a
+    ``MicroscopeViewController`` — the protocol editor and the live spot-burn widget.
     """
 
-    settings_changed = pyqtSignal(SpotBurnFiducialTaskConfig)
+    settings_changed = pyqtSignal(SpotBurnSettings)
     OVERLAY_ID = "spot_burn"
 
     def __init__(self,
                  controller,
                  beam: BeamType = BeamType.ION,
-                 config: Optional[SpotBurnFiducialTaskConfig] = None,
+                 settings: Optional[SpotBurnSettings] = None,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.controller = controller
         self.beam = beam
-        self.config = config
-        self._coordinates: List[Point] = list(config.coordinates) if config else []
+        self.settings = settings if settings is not None else SpotBurnSettings()
+        self._coordinates: List[Point] = list(self.settings.coordinates)
         self._image_shape: Optional[Tuple[int, int]] = None  # (h, w) for 0-1 <-> px
         self._updating = False  # guard against re-entrant list/overlay updates
         self._active = False    # overlay armed + shown while the widget is visible
@@ -149,19 +150,17 @@ class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
         self._image_shape = (int(shape[0]), int(shape[1])) if shape is not None else None
         self._sync_overlay()
 
-    def set_task_config(self, config: SpotBurnFiducialTaskConfig):
-        """Set the config and update the rows + overlay."""
-        self.config = config
-        self._coordinates = list(config.coordinates)
+    def set_settings(self, settings: SpotBurnSettings):
+        """Set the settings payload and update the rows + overlay."""
+        self.settings = settings
+        self._coordinates = list(settings.coordinates)
         self._sync_overlay()
         self._rebuild_rows()
 
-    def get_task_config(self) -> Optional[SpotBurnFiducialTaskConfig]:
-        """Read the current coordinates back into the config."""
-        if self.config is None:
-            return None
-        self.config.coordinates = list(self._coordinates)
-        return self.config
+    def get_settings(self) -> SpotBurnSettings:
+        """Read the current coordinates back into the settings payload."""
+        self.settings.coordinates = list(self._coordinates)
+        return self.settings
 
     # --- rows ---
 
@@ -249,9 +248,7 @@ class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
     # --- misc ---
 
     def _emit_settings_changed(self):
-        config = self.get_task_config()
-        if config is not None:
-            self.settings_changed.emit(config)
+        self.settings_changed.emit(self.get_settings())
 
     def _update_summary(self):
         n = len(self._coordinates)
@@ -265,6 +262,12 @@ class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
             )
 
     # --- activation (arming) driven by visibility ---
+
+    def set_active(self, active: bool) -> None:
+        """Explicitly arm/disarm the overlay — for hosts that drive activation directly
+        (e.g. the live spot-burn tab) rather than relying on show/hide. Idempotent with
+        the show/hide path."""
+        self._set_active(active)
 
     def _set_active(self, active: bool):
         if active == self._active:

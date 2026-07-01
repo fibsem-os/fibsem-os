@@ -57,8 +57,8 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.ui.widgets.autolamella_spot_burn_coordinates_widget import (
-    AutoLamellaSpotBurnCoordinatesWidget,
+from fibsem.ui.widgets.spot_burn_coordinates_widget import (
+    SpotBurnCoordinatesWidget,
 )
 
 if TYPE_CHECKING:
@@ -169,10 +169,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             )
         )
 
-        self.spot_burn_coordinates_widget = AutoLamellaSpotBurnCoordinatesWidget(
+        self.spot_burn_coordinates_widget = SpotBurnCoordinatesWidget(
             controller=self.view_controller,
             beam=BeamType.ION,
-            config=None,
             parent=self,
         )
 
@@ -674,7 +673,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         is_spot_burn_task = isinstance(task_config, SpotBurnFiducialTaskConfig)
         self.spot_burn_coordinates_widget.setVisible(is_spot_burn_task)
         if is_spot_burn_task:
-            self.spot_burn_coordinates_widget.set_task_config(task_config)
+            self.spot_burn_coordinates_widget.set_settings(task_config.to_settings())
 
         self._draw_point_of_interest(selected_lamella.poi)
         self._draw_alignment_area()
@@ -780,13 +779,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Save the experiment
         self._save_experiment()
 
-    def _on_spot_burn_coordinates_changed(self, config: "SpotBurnFiducialTaskConfig"):
-        """Callback when the spot burn coordinates are changed."""
+    def _on_spot_burn_coordinates_changed(self, settings: "SpotBurnSettings"):
+        """Callback when the spot burn coordinates are edited on the canvas.
+
+        Only the coordinates are taken from the editor's settings — milling current and
+        exposure stay owned by the generic task-parameters widget.
+        """
         selected_task_name = self.listWidget_selected_task.selected_task
         selected_lamella = self._selected_lamella
         if selected_lamella is None or selected_task_name is None:
             return
-        selected_lamella.task_config[selected_task_name] = config
+        task_config = selected_lamella.task_config.get(selected_task_name)
+        if isinstance(task_config, SpotBurnFiducialTaskConfig):
+            task_config.coordinates = list(settings.coordinates)
         logging.info(
             f"Updated {selected_lamella.name}, {selected_task_name} Spot Burn Coordinates"
         )
