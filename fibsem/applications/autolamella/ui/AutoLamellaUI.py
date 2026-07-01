@@ -657,6 +657,7 @@ class AutoLamellaUI(QMainWindow):
                 self.fm_control_widget.deleteLater()
                 self.fm_control_widget = None
             if self.det_widget is not None:
+                self.det_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
                 self.det_widget.deleteLater()
                 self.det_widget = None
@@ -675,6 +676,7 @@ class AutoLamellaUI(QMainWindow):
                 self.movement_widget.deleteLater()
                 self.movement_widget = None
             if self.image_widget is not None:
+                self.image_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
                 self.image_widget.acquisition_progress_signal.disconnect(
                     self.handle_acquisition_update

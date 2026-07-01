@@ -41,6 +41,7 @@ class MillingSpec(OverlaySpec):
     stages: Sequence = ()
     background_stages: Sequence = ()
     selected_index: Optional[int] = None
+    visible: bool = True
 
 
 @dataclass
@@ -81,6 +82,7 @@ class PointsSpec(OverlaySpec):
     numbered: bool = False
     colors: Optional[Sequence] = None
     labels: Optional[Sequence] = None
+    selected: Optional[int] = None  # selected point index (table-driven), preserved across re-renders
 
 
 @dataclass

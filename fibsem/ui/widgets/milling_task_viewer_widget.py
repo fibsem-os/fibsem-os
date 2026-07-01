@@ -84,6 +84,7 @@ class MillingTaskViewerWidget(QWidget):
         self._controller = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
+        self._patterns_visible = True  # eye-toggle state (mirrored onto MillingSpec.visible)
         self._pattern_update_inflight = False
         self._pattern_update_pending = False
         self._settings_emit_pending: bool = False
@@ -479,6 +480,7 @@ class MillingTaskViewerWidget(QWidget):
                 stages=stages,
                 background_stages=self._background_milling_stages,
                 selected_index=selected_index,
+                visible=self._patterns_visible,
             ),
         )
 
@@ -539,6 +541,11 @@ class MillingTaskViewerWidget(QWidget):
         QTimer.singleShot(0, self._update_pattern_display)
 
     def _on_eye_toggled(self, visible: bool) -> None:
+        self._patterns_visible = visible
+        if self._controller is not None:
+            # quad-view: toggle the milling overlay's visibility through the reducer
+            self._controller.set_overlay_visible(BeamType.ION, "milling", visible)
+            return
         if self.viewer is None:
             return
         if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:

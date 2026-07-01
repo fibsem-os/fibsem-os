@@ -285,6 +285,11 @@ class MicroscopeViewController(QObject):
         canvas. See :meth:`FMCanvasWidget.set_fm_image`."""
         self._widget.fm_widget.set_fm_image(image)
 
+    def clear_fm(self) -> None:
+        """Drop all composited FM channels. Used on a lamella/task swap so a prior
+        selection's channels (esp. differently-named ones) don't linger."""
+        self._widget.fm_widget.clear()
+
     # ── overlay reducer ───────────────────────────────────────────────────
     def set_overlay(self, beam: BeamType, spec: OverlaySpec) -> None:
         """Upsert an overlay *spec* (keyed by ``spec.id``) on the canvas for *beam*;
@@ -348,11 +353,15 @@ class MicroscopeViewController(QObject):
     ) -> None:
         """Select a point on a ``PointsSpec`` overlay (e.g. mirroring a table row).
 
-        Acts on the live overlay object (not the spec) and is silent, so producers can
-        drive it without an echo. No-op if the overlay isn't rendered yet."""
+        Persists the selection on the spec (so it survives the next reconcile / a live
+        frame re-render) and applies it to the live object if it exists. Silent — no
+        echo — so producers can drive it from a table without a feedback loop."""
         canvas = self._canvases.get(beam)
         if canvas is None:
             return
+        spec = self._states[canvas].overlays.get(overlay_id)
+        if isinstance(spec, PointsSpec):
+            spec.selected = index
         obj = self._overlay_objs.get(canvas, {}).get(overlay_id)
         if obj is not None and hasattr(obj, "set_selected"):
             obj.set_selected(index)
@@ -576,7 +585,7 @@ class MicroscopeViewController(QObject):
     def _drive_overlay(self, obj, spec: OverlaySpec, image: Optional[FibsemImage]) -> None:
         """Push *spec* data into its overlay object, injecting the canvas image."""
         if isinstance(spec, MillingSpec):
-            if image is None:
+            if image is None or not spec.visible:
                 obj.clear()
                 return
             obj.set_stages(
@@ -593,6 +602,7 @@ class MicroscopeViewController(QObject):
         elif isinstance(spec, PointsSpec):
             obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
             obj.set_visible(spec.visible)
+            obj.set_selected(spec.selected)  # re-apply: set_points nulls the selection
         elif isinstance(spec, MaskSpec):
             obj.set_mask(spec.mask, colors=spec.colors)
 

@@ -667,6 +667,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.fluorescence_acquisition_task_config_widget.set_task_config(
                 task_config
             )
+            # drop the previous lamella/task's FM channels before compositing this one
+            # (set_fm_image upserts by name and never removes stale channels)
+            self.view_controller.clear_fm()
             if self.fm_image is not None:
                 self.view_controller.set_fm_image(self.fm_image)
 

@@ -117,6 +117,13 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self.update_info()
 
     def closeEvent(self, event) -> None:
+        self._teardown_connections()
+        super().closeEvent(event)
+
+    def _teardown_connections(self) -> None:
+        """Drop the controller subscription (idempotent). Called from ``closeEvent`` AND
+        the AutoLamella teardown path (``deleteLater`` fires neither), so a recreated
+        widget doesn't leave a dead slot on the persistent controller."""
         if self._detection_wired:
             controller = self._view_controller()
             if controller is not None:
@@ -125,7 +132,6 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 except (TypeError, RuntimeError):
                     pass
             self._detection_wired = False
-        super().closeEvent(event)
 
     def _setup_ui(self):
         self.gridLayout = QGridLayout(self)

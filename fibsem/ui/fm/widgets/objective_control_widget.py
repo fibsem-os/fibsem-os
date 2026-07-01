@@ -491,6 +491,12 @@ class ObjectiveControlWidget(QWidget):
         """Remove the napari mouse-wheel callback. Call on widget teardown so the
         callback (and the dead widget it binds) doesn't leak on the persistent
         napari viewer across microscope reconnects."""
+        # cancel a pending debounced wheel-move so it can't drive a hardware move or
+        # touch spinboxes after the widget is torn down
+        try:
+            self._execute_wheel_move.cancel()
+        except Exception:
+            pass
         if (self.parent_widget is not None
                 and getattr(self.parent_widget, "viewer", None) is not None):
             try:

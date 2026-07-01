@@ -44,6 +44,7 @@ class FibsemSpotBurnWidget(QWidget):
         self.microscope: FibsemMicroscope = parent.microscope
         self.worker = None  # threading.Thread while a burn is running
         self.stop_event: threading.Event = threading.Event()
+        self._is_burning = False  # guards the Run/Cancel button while a burn runs
 
         self._build_ui()
         self._setup_connections()
@@ -194,7 +195,10 @@ class FibsemSpotBurnWidget(QWidget):
     def _refresh_info(self, *args) -> None:
         n = len(self.coord_editor.get_settings().coordinates)
         exposure = self.doubleSpinBox_exposure_time.value()
-        self.pushButton_run_spot_burn.setEnabled(n > 0)
+        # while a burn runs the button is "Cancel" and must stay enabled — don't let a
+        # mid-burn coordinate edit (n -> 0) disable it, or the burn can't be cancelled
+        if not self._is_burning:
+            self.pushButton_run_spot_burn.setEnabled(n > 0)
         if n > 0:
             self.label_information.setText(
                 f"Selected {n} points. Estimated time: {n * exposure:.0f} seconds"
@@ -219,6 +223,7 @@ class FibsemSpotBurnWidget(QWidget):
         )
 
         self.stop_event.clear()
+        self._is_burning = True
         self.pushButton_run_spot_burn.setText("Cancel")
         self.pushButton_run_spot_burn.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.pushButton_run_spot_burn.clicked.disconnect()
@@ -252,6 +257,7 @@ class FibsemSpotBurnWidget(QWidget):
 
     def spot_burn_finished(self, result) -> None:
         """Called when the spot burn is finished."""
+        self._is_burning = False
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)

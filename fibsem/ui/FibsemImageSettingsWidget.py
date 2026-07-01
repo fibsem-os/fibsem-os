@@ -501,7 +501,14 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         logging.debug({"msg": "acquisition_worker", "image_settings": self.image_settings.to_dict()})
 
     def closeEvent(self, event: QEvent):
-        # drop the controller subscription so a recreated widget doesn't leak / double-fire
+        self._teardown_connections()
+        event.accept()
+
+    def _teardown_connections(self) -> None:
+        """Drop the controller subscription (idempotent). Called from ``closeEvent`` AND
+        the AutoLamella teardown path — ``deleteLater`` fires neither ``closeEvent`` nor
+        ``close``, so without this an alignment edit after a reconnect would drive the
+        dead widget's slot on the persistent controller."""
         if self._overlay_edited_wired:
             controller = self._view_controller()
             if controller is not None:
@@ -510,7 +517,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 except (TypeError, RuntimeError):
                     pass
             self._overlay_edited_wired = False
-        event.accept()
 
     def _ensure_overlay_edited_wiring(self, controller) -> None:
         """Subscribe (once) to the controller's overlay-edit signal so a user drag of
