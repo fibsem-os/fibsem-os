@@ -1552,6 +1552,9 @@ class PointOverlay(QObject):
         add_on_right_click: bool = True,
         removable: bool = True,
         modal: bool = False,
+        edge_width: Optional[float] = None,
+        legend_label: Optional[str] = None,
+        numbered: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -1563,6 +1566,10 @@ class PointOverlay(QObject):
         self._add_on_right_click = add_on_right_click
         self._removable = removable
         self._modal = modal
+        self._edge_width = edge_width  # override the default marker edge width if set
+        self._legend_label = legend_label  # opt-in patch legend for this overlay
+        self._legend = None
+        self._numbered = numbered  # annotate each point with its 1-based index
         self._visible = True  # toggled by set_visible (points kept, artists hidden)
 
         self._ax = None
@@ -1666,7 +1673,7 @@ class PointOverlay(QObject):
             self._selected = None
         elif self._selected is not None and self._selected > index:
             self._selected -= 1
-        if self._label_prefix:
+        if self._label_prefix or self._numbered:
             self._refresh_ann_text()
         if self._canvas is not None:
             self._canvas.draw_idle()
@@ -1691,6 +1698,27 @@ class PointOverlay(QObject):
         for a in self._artists + self._anns:
             if a is not None:
                 a.set_visible(visible)
+        self._draw_legend()  # add/remove the legend to match visibility
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def set_selected(self, index: Optional[int]) -> None:
+        """Programmatically select a point (e.g. from a synced table).
+
+        Silent — does not emit ``point_selected`` — so it will not loop back onto a
+        producer that is driving the selection. Pass ``None`` (or an out-of-range
+        index) to clear the selection.
+        """
+        n = len(self._points)
+        idx = index if (index is not None and 0 <= index < n) else None
+        if idx == self._selected:
+            return
+        prev = self._selected
+        self._selected = idx
+        if prev is not None:
+            self._update_artist_appearance(prev)
+        if idx is not None:
+            self._update_artist_appearance(idx)
         if self._canvas is not None:
             self._canvas.draw_idle()
 
@@ -1717,19 +1745,68 @@ class PointOverlay(QObject):
                     except Exception:
                         pass
             lst.clear()
+        self._remove_legend()
 
     def _draw_all(self):
         for idx in range(len(self._points)):
             self._append_artist(idx)
+        self._draw_legend()
+
+    def _remove_legend(self) -> None:
+        if self._legend is not None:
+            try:
+                self._legend.remove()
+            except Exception:
+                pass
+            self._legend = None
+
+    def _draw_legend(self) -> None:
+        """Opt-in patch legend (top-left), styled like the milling-stage legend."""
+        self._remove_legend()
+        if (
+            not self._legend_label
+            or self._ax is None
+            or not self._points
+            or not self._visible
+        ):
+            return
+        import matplotlib.patches as mpatches
+        from matplotlib.legend import Legend
+
+        handle = mpatches.Patch(
+            facecolor=self._color, edgecolor="white", label=self._legend_label
+        )
+        # build the Legend directly (not ax.legend()) so it doesn't replace another
+        # overlay's primary legend (e.g. the milling stages, top-right)
+        leg = Legend(
+            self._ax,
+            [handle],
+            [self._legend_label],
+            loc="upper left",
+            fontsize=8,
+            facecolor="#1e2124",
+            edgecolor="#555555",
+            labelcolor="#d1d2d4",
+            framealpha=0.85,
+        )
+        leg.set_zorder(10)
+        self._ax.add_artist(leg)
+        self._legend = leg
 
     def _marker_edge(self, color: str, selected: bool):
         """Edge colour/width for the marker. Unfilled markers (+, x, ...) are drawn
         in their edge colour, so they take the point colour and a thicker line;
-        filled markers (o, s, ...) keep a thin white outline for contrast."""
+        filled markers (o, s, ...) keep a thin white outline for contrast.
+
+        ``edge_width`` (if set) overrides the normal-state width; the selected state
+        adds a fixed bump, so backward-compatible defaults are preserved when unset.
+        """
         from matplotlib.lines import Line2D
         if self._marker in Line2D.filled_markers:
-            return "white", (2.0 if selected else 0.8)
-        return color, (2.8 if selected else 2.0)
+            base = self._edge_width if self._edge_width is not None else 0.8
+            return "white", (base + 1.2 if selected else base)
+        base = self._edge_width if self._edge_width is not None else 2.0
+        return color, (base + 0.8 if selected else base)
 
     def _point_color(self, idx: int, selected: bool) -> str:
         """Per-point colour override if set, else the global selected/normal colour.
@@ -1740,11 +1817,14 @@ class PointOverlay(QObject):
         return self._selected_color if selected else self._color
 
     def _point_label(self, idx: int) -> Optional[str]:
-        """Per-point label override if set, else ``label_prefix + (idx+1)`` or None."""
+        """Per-point label override if set, else ``label_prefix + (idx+1)``, else the
+        bare 1-based index when ``numbered``, else None."""
         if self._point_labels is not None and idx < len(self._point_labels):
             return self._point_labels[idx]
         if self._label_prefix:
             return f"{self._label_prefix}{idx + 1}"
+        if self._numbered:
+            return str(idx + 1)
         return None
 
     def _append_artist(self, idx: int):

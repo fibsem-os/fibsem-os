@@ -76,6 +76,9 @@ class PointsSpec(OverlaySpec):
     add_on_right_click: bool = False
     removable: bool = False
     modal: bool = False
+    edge_width: Optional[float] = None
+    legend_label: Optional[str] = None
+    numbered: bool = False
     colors: Optional[Sequence] = None
     labels: Optional[Sequence] = None
 
