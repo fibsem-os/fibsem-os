@@ -7,7 +7,6 @@ import napari
 import napari.utils.notifications
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointsLayer
-from napari.qt.threading import FunctionWorker, thread_worker
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import pyqtSignal
 
@@ -15,6 +14,7 @@ from fibsem.imaging.spot import run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 from fibsem.ui import stylesheets
+from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.qtdesigner_files import FibsemSpotBurnWidget as FibsemSpotBurnWidgetUI
 from fibsem.utils import format_value
 

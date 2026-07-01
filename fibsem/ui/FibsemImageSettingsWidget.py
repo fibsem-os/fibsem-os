@@ -6,7 +6,6 @@ import numpy as np
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointLayer
 from napari.layers import Shapes as NapariShapesLayer
-from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import QIconifyIcon, ensure_main_thread
@@ -23,6 +22,7 @@ from fibsem.structures import (
 )
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui import notification_service
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.napari.patterns import (
     convert_reduced_area_to_napari_shape,
     convert_shape_to_image_area,

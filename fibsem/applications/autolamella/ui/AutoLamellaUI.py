@@ -56,6 +56,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QWidget,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 
@@ -210,7 +211,7 @@ class AutoLamellaUI(QMainWindow):
         self.SELECTED_POI: Optional[Point] = None
         self._poi_layer = None
         self._workflow_stop_event: threading.Event = threading.Event()
-        self._task_worker_thread: Optional[threading.Thread] = None
+        self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
 
@@ -966,10 +967,8 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget.clear()  # type: ignore
 
         # Start acquisition thread
-        self._task_worker_thread = threading.Thread(
-            target=self._run_tasks_worker,
-            args=(selected_tasks, selected_lamella),
-            daemon=True,
+        self._task_worker_thread = FunctionWorker(
+            self._run_tasks_worker, selected_tasks, selected_lamella
         )
         self._task_worker_thread.start()
 
