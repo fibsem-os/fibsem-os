@@ -258,11 +258,16 @@ class MovementPreferences:
     acquire_sem_after_stage_movement: bool = True
     acquire_fib_after_stage_movement: bool = True
 
+# Maximum number of recent experiments to remember for quick-select
+MAX_RECENT_EXPERIMENTS = 10
+
+
 @dataclass
 class ExperimentPreferences:
     default_experiment_directory: str = ""
     default_protocol_path: str = ""
     last_experiment_path: str = ""
+    recent_experiments: list = field(default_factory=list)
     user: str = ""
     project: str = ""
     organisation: str = ""
@@ -334,6 +339,77 @@ def save_user_preferences(preferences) -> None:
             yaml.safe_dump(data, f)
     except Exception as e:
         logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")
+
+
+@dataclass
+class RecentExperimentInfo:
+    """Display information for a recently used experiment."""
+    path: str  # path to the experiment.yaml file
+    name: str
+    created_at: float = 0.0
+    num_lamella: int = 0
+    exists: bool = True
+
+
+def _peek_experiment_yaml(experiment_yaml_path: str) -> RecentExperimentInfo:
+    """Read minimal display info from an experiment.yaml without fully loading it.
+
+    Falls back to the parent directory name if the file is missing or unreadable.
+    """
+    fallback_name = os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
+    if not os.path.exists(experiment_yaml_path):
+        return RecentExperimentInfo(path=experiment_yaml_path, name=fallback_name, exists=False)
+
+    try:
+        with open(experiment_yaml_path, "r") as f:
+            ddict = yaml.safe_load(f) or {}
+        return RecentExperimentInfo(
+            path=experiment_yaml_path,
+            name=ddict.get("name") or fallback_name,
+            created_at=ddict.get("created_at") or 0.0,
+            num_lamella=len(ddict.get("positions") or []),
+            exists=True,
+        )
+    except Exception as e:
+        logging.warning(f"Failed to read experiment info from {experiment_yaml_path}: {e}")
+        return RecentExperimentInfo(path=experiment_yaml_path, name=fallback_name, exists=True)
+
+
+def record_recent_experiment(experiment_yaml_path: str) -> None:
+    """Record an experiment as recently used, moving it to the front of the list.
+
+    Args:
+        experiment_yaml_path: Path to the experiment.yaml file.
+    """
+    if not experiment_yaml_path:
+        return
+
+    path = os.path.normpath(str(experiment_yaml_path))
+    prefs = load_user_preferences()
+    recent = [p for p in prefs.experiment.recent_experiments if os.path.normpath(str(p)) != path]
+    recent.insert(0, path)
+    prefs.experiment.recent_experiments = recent[:MAX_RECENT_EXPERIMENTS]
+    save_user_preferences(prefs)
+
+
+def get_recent_experiments(prune_missing: bool = True) -> "list[RecentExperimentInfo]":
+    """Return display info for recent experiments, most-recent-first.
+
+    Args:
+        prune_missing: If True, drop paths that no longer exist on disk and
+            persist the pruned list back to preferences.
+    """
+    prefs = load_user_preferences()
+    infos = [_peek_experiment_yaml(str(p)) for p in prefs.experiment.recent_experiments]
+
+    if prune_missing:
+        kept = [info for info in infos if info.exists]
+        if len(kept) != len(infos):
+            prefs.experiment.recent_experiments = [info.path for info in kept]
+            save_user_preferences(prefs)
+        return kept
+
+    return infos
 
 
 def apply_feature_flags(prefs: UserPreferences) -> None:

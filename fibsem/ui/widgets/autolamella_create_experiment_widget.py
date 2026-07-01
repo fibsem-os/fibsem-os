@@ -14,7 +14,11 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.config import load_user_preferences, save_user_preferences
+from fibsem.config import (
+    load_user_preferences,
+    record_recent_experiment,
+    save_user_preferences,
+)
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -413,6 +417,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             prefs = load_user_preferences()
             prefs.experiment.last_experiment_path = str(self.experiment.path)
             save_user_preferences(prefs)
+
+            # Record in the recent experiments quick-select list
+            record_recent_experiment(os.path.join(self.experiment.path, "experiment.yaml"))
 
             # Accept the dialog
             self.accept()
