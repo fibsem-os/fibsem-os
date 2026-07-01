@@ -2,11 +2,15 @@
 Widget for displaying experiment task history in a sortable table.
 """
 from typing import Optional
-import pandas as pd
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QCheckBox
 
 from fibsem.applications.autolamella.structures import Experiment, AutoLamellaTaskStatus
 from fibsem.ui.widgets.dataframe_table_widget import DataFrameTableWidget
+from fibsem.ui.widgets.task_summary_formatting import (
+    COLUMN_NAME_MAPPING,
+    format_duration_short,
+    make_status_cell_formatter,
+)
 
 
 class TaskHistoryTableWidget(QWidget):
@@ -110,56 +114,13 @@ class TaskHistoryTableWidget(QWidget):
 
         # Format duration column as MMm:SSs
         if 'duration' in df.columns:
-            def format_duration(seconds):
-                """Format duration in seconds as MMm:SSs."""
-                if pd.isna(seconds):
-                    return ""
-                try:
-                    total_seconds = int(float(seconds))
-                    minutes = total_seconds // 60
-                    secs = total_seconds % 60
-                    return f"{minutes:02d}m:{secs:02d}s"
-                except (ValueError, TypeError):
-                    return str(seconds)
-
-            df['duration'] = df['duration'].apply(format_duration)
+            df['duration'] = df['duration'].apply(format_duration_short)
 
         # Rename columns to nice titles
-        column_name_mapping = {
-            'lamella_name': 'Lamella',
-            'task_name': 'Task Name',
-            # 'task_type': 'Type',
-            'task_status': 'Status',
-            'task_status_message': 'Status Message',
-            'completed_at': 'Completed At',
-            'duration': 'Duration'
-        }
-        df = df.rename(columns=column_name_mapping)
+        df = df.rename(columns=COLUMN_NAME_MAPPING)
 
-        # Define cell formatter for conditional formatting
-        def format_cell(row_idx: int, col_idx: int, value) -> dict:
-            """Format cells based on their values."""
-            format_dict = {}
-
-            # Get the status column index
-            if 'Status' in df.columns:
-                status_col_idx = df.columns.get_loc('Status')
-                status_value = str(df.iloc[row_idx, status_col_idx])
-
-                # Make Failed rows red
-                if status_value == 'Failed':
-                    format_dict['color'] = 'red'
-                # Make Completed rows green
-                elif status_value == 'Completed':
-                    format_dict['color'] = 'white'
-                # Make InProgress rows blue
-                elif status_value == 'InProgress':
-                    format_dict['color'] = 'cyan'
-
-            return format_dict
-
-        # Update the table with formatter
-        self.table_widget.set_dataframe(df, cell_formatter=format_cell)
+        # Update the table with status-based cell colouring
+        self.table_widget.set_dataframe(df, cell_formatter=make_status_cell_formatter(df))
 
     def clear(self):
         """Clear the table."""

@@ -90,10 +90,13 @@ from fibsem.applications.autolamella.workflows.tasks.hooks import (
     NotificationHook,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
@@ -209,6 +212,7 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[threading.Thread] = None
         self._task_manager: Optional[TaskManager] = None
+        self._last_run_summary: Optional["pd.DataFrame"] = None
 
         # setup connections
         self.setup_connections()
@@ -1000,6 +1004,13 @@ class AutoLamellaUI(QMainWindow):
 
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            # capture the per-run summary before the manager is torn down
+            if self._task_manager is not None:
+                try:
+                    self._last_run_summary = self._task_manager.build_run_summary_dataframe()
+                except Exception as e:
+                    logging.warning(f"Failed to build workflow run summary: {e}")
+                    self._last_run_summary = None
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
@@ -1729,6 +1740,21 @@ class AutoLamellaUI(QMainWindow):
         self.image_widget.restore_active_layer_for_movement()
 
         self.set_current_workflow_message(msg=None, show=False)
+
+        # show the post-workflow summary of tasks run this session
+        self._show_workflow_summary()
+
+    def _show_workflow_summary(self) -> None:
+        """Show a modal summary dialog of the tasks run in the last workflow."""
+        summary = self._last_run_summary
+        self._last_run_summary = None
+        if summary is None or summary.empty:
+            return
+        try:
+            dialog = WorkflowSummaryDialog(summary, parent=self)
+            dialog.exec_()
+        except Exception as e:
+            logging.warning(f"Failed to show workflow summary dialog: {e}")
 
     def handle_workflow_update(self, info: dict) -> None:
         """Update the UI with the given information, ready for user interaction"""
