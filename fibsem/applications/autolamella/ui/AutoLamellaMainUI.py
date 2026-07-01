@@ -263,16 +263,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
         )
 
-        self.action_layer_controls_lamella = QAction("Lamella Editor", self)
-        self.action_layer_controls_lamella.setCheckable(True)
-        self.action_layer_controls_lamella.setChecked(False)
-        self.action_layer_controls_lamella.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "lamella")
-        )
-
         layer_controls_menu.addAction(self.action_layer_controls_microscope)
         layer_controls_menu.addAction(self.action_layer_controls_overview)
-        layer_controls_menu.addAction(self.action_layer_controls_lamella)
 
         view_menu.addAction(self.action_show_minimap)
 
@@ -543,7 +535,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         viewer_map = {
             "microscope": self.main_viewer,
             "overview": self.minimap_viewer,
-            "lamella": self.lamella_viewer,
         }
         viewer = viewer_map.get(viewer_key)
         if viewer is not None:
@@ -1192,16 +1183,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Review tab
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
-        # Protocol tab: napari viewer (left) + editor (right)
-        self.lamella_viewer = napari.Viewer(show=False, title="Lamella Editor")
-        self.lamella_viewer.window._qt_window.menuBar().hide()
-        self.lamella_viewer.window._qt_window.statusBar().hide()
-        self.lamella_viewer.window._qt_viewer.dockLayerList.setVisible(False)
-        self.lamella_viewer.window._qt_viewer.dockLayerControls.setVisible(False)
-        self.viewers.append(self.lamella_viewer)
-
+        # Protocol tab: matplotlib canvas (left) + editor (right)
         self.lamella_widget = AutoLamellaProtocolEditorWidget(
-            viewer=self.lamella_viewer,
             parent=self.autolamella_ui,
         )
         self.autolamella_ui.system_widget.connected_signal.connect(
@@ -1211,7 +1194,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         protocol_splitter = QSplitter(Qt.Horizontal)
         protocol_splitter.setChildrenCollapsible(False)
-        protocol_splitter.addWidget(self.lamella_viewer.window._qt_window)
+        protocol_splitter.addWidget(self.lamella_widget.view_controller.widget)
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.lamella_widget)
         scroll_area.setWidgetResizable(True)

@@ -1,303 +1,312 @@
-import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-import numpy as np
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QListWidget,
+    QListWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-import napari
-from napari.layers import Points as NapariPointsLayer
-
-from fibsem.structures import Point
+from fibsem.structures import BeamType, Point
+from fibsem.ui.widgets.canvas_state import PointsSpec
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.applications.autolamella.workflows.tasks.tasks import SpotBurnFiducialTaskConfig
 
 
-SPOT_BURN_EDITOR_POINTS_LAYER = "spot-burn-coordinates"
+_HEADER_BG = "#1e2124"
+_MUTED = "#8a9099"
+
+
+class _SpotBurnRow(QWidget):
+    """A single read-only coordinate row: index + X + Y + a remove button."""
+
+    remove_clicked = pyqtSignal(int)
+
+    def __init__(self, index: int, point: Point, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.index = index
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(8)
+
+        idx_lbl = QLabel(str(index + 1))
+        idx_lbl.setFixedWidth(20)
+        idx_lbl.setAlignment(Qt.AlignCenter)
+        idx_lbl.setStyleSheet(f"color: {_MUTED}; background: transparent;")
+        layout.addWidget(idx_lbl)
+
+        x_lbl = QLabel(f"{point.x:.3f}")
+        x_lbl.setStyleSheet("background: transparent; font-family: monospace;")
+        layout.addWidget(x_lbl, stretch=1)
+
+        y_lbl = QLabel(f"{point.y:.3f}")
+        y_lbl.setStyleSheet("background: transparent; font-family: monospace;")
+        layout.addWidget(y_lbl, stretch=1)
+
+        btn_remove = IconToolButton(
+            "mdi:trash-can-outline", tooltip="Remove coordinate", size=24
+        )
+        btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.index))
+        layout.addWidget(btn_remove)
 
 
 class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
-    """Widget for editing spot burn coordinates in the protocol editor.
+    """Editor for spot-burn coordinates, backed by a canvas points overlay.
 
-    Provides a table with x, y columns and add/remove buttons,
-    synced with a napari points layer for visual placement.
+    A titled list of read-only coordinate rows (index + x, y in relative 0-1 image
+    space), each with a remove button, plus an add button in the header — styled to
+    match the app's task / lamella lists. Coordinates are *placed and moved on the
+    image* (right-click to add, drag to move, Delete to remove); the list mirrors the
+    overlay and its selection both ways, and the on-image markers are numbered to match
+    the rows.
+
+    Reusable by any host that owns a ``MicroscopeViewController`` (the protocol editor
+    now; the live spot-burn widget in a later slice).
     """
 
     settings_changed = pyqtSignal(SpotBurnFiducialTaskConfig)
+    OVERLAY_ID = "spot_burn"
 
     def __init__(self,
-                 viewer: napari.Viewer,
+                 controller,
+                 beam: BeamType = BeamType.ION,
                  config: Optional[SpotBurnFiducialTaskConfig] = None,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.viewer = viewer
+        self.controller = controller
+        self.beam = beam
         self.config = config
-        self.pts_layer: Optional[NapariPointsLayer] = None
-        self._updating = False  # guard against re-entrant updates
+        self._coordinates: List[Point] = list(config.coordinates) if config else []
+        self._image_shape: Optional[Tuple[int, int]] = None  # (h, w) for 0-1 <-> px
+        self._updating = False  # guard against re-entrant list/overlay updates
+        self._active = False    # overlay armed + shown while the widget is visible
+        self._wired = False     # subscribed to controller signals
 
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        label_info = QLabel("Coordinates are in relative image space (0-1).")
-        label_info.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(label_info)
+        # header: title + add button (matches TaskNameListWidget / LamellaNameListWidget)
+        header = QWidget()
+        header.setStyleSheet(f"background: {_HEADER_BG};")
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(8, 3, 4, 3)
+        hl.setSpacing(4)
+        title = QLabel("Spot Burn Coordinates")
+        title.setStyleSheet("font-weight: bold; background: transparent;")
+        hl.addWidget(title)
+        hl.addStretch()
+        self.btn_add = IconToolButton("mdi:plus", tooltip="Add coordinate", size=24)
+        self.btn_add.clicked.connect(self._add_coordinate)
+        hl.addWidget(self.btn_add)
+        outer.addWidget(header)
 
-        # table
-        self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["x", "y"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setMaximumHeight(150)
-        self.table.cellChanged.connect(self._on_table_changed)
-        self.table.currentCellChanged.connect(self._on_table_selection_changed)
-        layout.addWidget(self.table)
+        # column header
+        col = QWidget()
+        cl = QHBoxLayout(col)
+        cl.setContentsMargins(6, 2, 6, 2)
+        cl.setSpacing(8)
+        lbl_idx = QLabel("#")
+        lbl_idx.setFixedWidth(20)
+        lbl_idx.setAlignment(Qt.AlignCenter)
+        lbl_x = QLabel("X (0-1)")
+        lbl_y = QLabel("Y (0-1)")
+        for lbl in (lbl_idx, lbl_x, lbl_y):
+            lbl.setStyleSheet(f"color: {_MUTED}; background: transparent; font-size: 11px;")
+        cl.addWidget(lbl_idx)
+        cl.addWidget(lbl_x, stretch=1)
+        cl.addWidget(lbl_y, stretch=1)
+        cl.addSpacing(24)  # align with the per-row remove button
+        outer.addWidget(col)
 
-        # mode buttons
-        mode_layout = QHBoxLayout()
-        self.btn_mode_add = QPushButton("Add Mode")
-        self.btn_mode_select = QPushButton("Select Mode")
-        self.btn_mode_add.setCheckable(True)
-        self.btn_mode_select.setCheckable(True)
-        self.btn_mode_add.setChecked(True)
-        self.btn_mode_add.clicked.connect(lambda: self._set_layer_mode("add"))
-        self.btn_mode_select.clicked.connect(lambda: self._set_layer_mode("select"))
-        mode_layout.addWidget(self.btn_mode_add)
-        mode_layout.addWidget(self.btn_mode_select)
-        layout.addLayout(mode_layout)
+        # rows
+        self._list = QListWidget()
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._list.setMaximumHeight(180)
+        self._list.itemSelectionChanged.connect(self._on_row_selection_changed)
+        outer.addWidget(self._list)
 
-        # buttons
-        btn_layout = QHBoxLayout()
-        self.add_btn = QPushButton("Add")
-        self.remove_btn = QPushButton("Remove")
-        self.add_btn.clicked.connect(self._add_coordinate)
-        self.remove_btn.clicked.connect(self._remove_coordinate)
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.remove_btn)
-        layout.addLayout(btn_layout)
+        # footer summary + hint
+        self.label_summary = QLabel()
+        self.label_summary.setWordWrap(True)
+        self.label_summary.setStyleSheet(f"color: {_MUTED}; padding: 4px 6px;")
+        outer.addWidget(self.label_summary)
 
-        # summary label
-        self.label_summary = QLabel("No coordinates defined.")
-        layout.addWidget(self.label_summary)
+        self._rebuild_rows()
 
-    # --- public API (matches fluorescence widget pattern) ---
+    # --- public API ---
+
+    def set_image_shape(self, shape) -> None:
+        """Set the host FIB image shape (h, w), used for 0-1 <-> pixel conversion."""
+        self._image_shape = (int(shape[0]), int(shape[1])) if shape is not None else None
+        self._sync_overlay()
 
     def set_task_config(self, config: SpotBurnFiducialTaskConfig):
-        """Set the config and update the table + points layer."""
+        """Set the config and update the rows + overlay."""
         self.config = config
-        self._populate_table(config.coordinates)
-        self._sync_points_layer_from_table()
-        self._update_summary()
+        self._coordinates = list(config.coordinates)
+        self._sync_overlay()
+        self._rebuild_rows()
 
     def get_task_config(self) -> Optional[SpotBurnFiducialTaskConfig]:
-        """Read coordinates from the table back into the config."""
+        """Read the current coordinates back into the config."""
         if self.config is None:
             return None
-        self.config.coordinates = self._read_table()
+        self.config.coordinates = list(self._coordinates)
         return self.config
 
-    # --- table helpers ---
+    # --- rows ---
 
-    def _populate_table(self, coordinates: List[Point]):
-        """Fill the table from a list of Points."""
-        self.table.blockSignals(True)
-        self.table.setRowCount(len(coordinates))
-        for i, pt in enumerate(coordinates):
-            self.table.setItem(i, 0, QTableWidgetItem(f"{pt.x:.4f}"))
-            self.table.setItem(i, 1, QTableWidgetItem(f"{pt.y:.4f}"))
-        self.table.blockSignals(False)
-
-    def _read_table(self) -> List[Point]:
-        """Read the table rows as a list of Points."""
-        points = []
-        for i in range(self.table.rowCount()):
-            x_item = self.table.item(i, 0)
-            y_item = self.table.item(i, 1)
-            if x_item and y_item:
-                try:
-                    points.append(Point(float(x_item.text()), float(y_item.text())))
-                except ValueError:
-                    pass
-        return points
+    def _rebuild_rows(self):
+        self._updating = True
+        self._list.clear()
+        for i, pt in enumerate(self._coordinates):
+            row = _SpotBurnRow(i, pt)
+            row.remove_clicked.connect(self._remove_coordinate)
+            item = QListWidgetItem(self._list)
+            item.setSizeHint(row.sizeHint())
+            self._list.addItem(item)
+            self._list.setItemWidget(item, row)
+        self._updating = False
+        self._update_summary()
 
     def _add_coordinate(self):
-        """Add a new coordinate row at (0.5, 0.5)."""
-        row = self.table.rowCount()
-        self.table.blockSignals(True)
-        self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem("0.5000"))
-        self.table.setItem(row, 1, QTableWidgetItem("0.5000"))
-        self.table.blockSignals(False)
-        self._on_coordinates_changed()
-
-    def _remove_coordinate(self):
-        """Remove the currently selected coordinate row."""
-        row = self.table.currentRow()
-        if row >= 0:
-            self.table.removeRow(row)
-            self._on_coordinates_changed()
-
-    # --- napari points layer ---
-
-    def _ensure_points_layer(self):
-        """Create or retrieve the napari points layer."""
-        if SPOT_BURN_EDITOR_POINTS_LAYER in self.viewer.layers:
-            self.pts_layer = self.viewer.layers[SPOT_BURN_EDITOR_POINTS_LAYER]
-        else:
-            self.pts_layer = self.viewer.add_points(
-                data=[],
-                name=SPOT_BURN_EDITOR_POINTS_LAYER,
-                visible=True,
-                size=20,
-            )
-            self.pts_layer.events.data.connect(self._on_points_layer_changed)
-            self.pts_layer.events.highlight.connect(self._on_points_layer_selection_changed)
-            self.pts_layer.mode = "add"
-
-    def _remove_points_layer(self):
-        """Remove the points layer from the viewer."""
-        if SPOT_BURN_EDITOR_POINTS_LAYER in self.viewer.layers:
-            self.viewer.layers.remove(SPOT_BURN_EDITOR_POINTS_LAYER)
-        self.pts_layer = None
-
-    def _sync_points_layer_from_table(self):
-        """Update the napari points layer to match the table contents."""
-        self._ensure_points_layer()
-
-        coordinates = self._read_table()
-        if not coordinates:
-            self.pts_layer.data = np.empty((0, 2))
-            return
-
-        # find the reference image layer to get shape for coordinate conversion
-        image_layer = self._get_image_layer()
-        if image_layer is None:
-            return
-
-        image_shape = image_layer.data.shape
-        translate = image_layer.translate
-
-        pts = np.array([[pt.y * image_shape[0] + translate[0],
-                         pt.x * image_shape[1] + translate[1]]
-                        for pt in coordinates])
-
-        self._updating = True
-        self.pts_layer.data = pts
-        self._updating = False
-
-    def _sync_table_from_points_layer(self):
-        """Update the table to match the napari points layer."""
-        if self.pts_layer is None or len(self.pts_layer.data) == 0:
-            self._populate_table([])
-            return
-
-        image_layer = self._get_image_layer()
-        if image_layer is None:
-            return
-
-        layer_translated = self.pts_layer.data - image_layer.translate
-        image_shape = image_layer.data.shape
-
-        coordinates = [Point(float(pt[1] / image_shape[1]), float(pt[0] / image_shape[0]))
-                       for pt in layer_translated]
-        self._populate_table(coordinates)
-
-    def _get_image_layer(self):
-        """Get the reference image layer from the viewer."""
-        if "Reference Image (FIB)" in self.viewer.layers:
-            return self.viewer.layers["Reference Image (FIB)"]
-        return None
-
-    # --- change handlers ---
-
-    def _on_table_changed(self):
-        """Called when the user edits a cell in the table."""
-        self._on_coordinates_changed()
-
-    def _on_points_layer_changed(self, event=None):
-        """Called when the user moves/adds/removes points in napari."""
-        if self._updating:
-            return
-        self._updating = True
-        self._sync_table_from_points_layer()
-        self._update_summary()
+        """Add a coordinate at the image centre; the user then drags it into place."""
+        self._coordinates.append(Point(0.5, 0.5))
+        self._sync_overlay()
+        self._rebuild_rows()
         self._emit_settings_changed()
-        self._updating = False
 
-    def _on_coordinates_changed(self):
-        """Common handler: sync points layer from table, emit signal."""
-        self._sync_points_layer_from_table()
-        self._update_summary()
+    def _remove_coordinate(self, index: int):
+        if 0 <= index < len(self._coordinates):
+            self._coordinates.pop(index)
+            self._sync_overlay()
+            self._rebuild_rows()
+            self._emit_settings_changed()
+
+    # --- overlay sync ---
+
+    def _points_spec(self, px_points) -> PointsSpec:
+        return PointsSpec(
+            id=self.OVERLAY_ID,
+            points=px_points,
+            color="white",
+            selected_color="cyan",
+            marker="o",
+            size=12,
+            add_on_right_click=True,
+            removable=True,
+            modal=True,
+            numbered=True,
+        )
+
+    def _sync_overlay(self):
+        """Push the coordinates onto the canvas overlay (relative -> pixels)."""
+        if not self._active or self._image_shape is None:
+            return
+        h, w = self._image_shape
+        px = [(pt.x * w, pt.y * h) for pt in self._coordinates]
+        self.controller.set_overlay(self.beam, self._points_spec(px))
+
+    def _on_overlay_edited(self, beam, overlay_id, points):
+        """A point was added / moved / removed on the canvas -> refresh the rows."""
+        if beam != self.beam or overlay_id != self.OVERLAY_ID or self._image_shape is None:
+            return
+        h, w = self._image_shape
+        # overlay already reflects the edit (incl. renumbering); just mirror it here
+        self._coordinates = [Point(float(x / w), float(y / h)) for (x, y) in points]
+        self._rebuild_rows()
         self._emit_settings_changed()
+
+    # --- selection sync (list <-> overlay) ---
+
+    def _on_row_selection_changed(self):
+        """A row was selected -> highlight the matching point on the canvas."""
+        if self._updating or not self._active:
+            return
+        row = self._list.currentRow()
+        self.controller.set_selected_point(
+            self.beam, self.OVERLAY_ID, row if row >= 0 else None
+        )
+
+    def _on_overlay_point_selected(self, beam, overlay_id, index):
+        """A point was selected on the canvas -> select the matching row."""
+        if beam != self.beam or overlay_id != self.OVERLAY_ID:
+            return
+        if 0 <= index < self._list.count():
+            self._updating = True
+            self._list.setCurrentRow(index)
+            self._updating = False
+
+    # --- misc ---
 
     def _emit_settings_changed(self):
-        """Update config and emit the settings_changed signal."""
         config = self.get_task_config()
         if config is not None:
             self.settings_changed.emit(config)
 
     def _update_summary(self):
-        """Update the summary label with the current coordinate count."""
-        n = self.table.rowCount()
+        n = len(self._coordinates)
         if n == 0:
-            self.label_summary.setText("No coordinates defined.")
+            self.label_summary.setText(
+                "No coordinates defined.  ·  right-click the image to add a burn point."
+            )
         else:
-            self.label_summary.setText(f"{n} coordinate{'s' if n != 1 else ''} defined.")
+            self.label_summary.setText(
+                f"{n} coordinate{'s' if n != 1 else ''}  ·  drag to move, Delete to remove."
+            )
 
-    # --- layer mode ---
+    # --- activation (arming) driven by visibility ---
 
-    def _set_layer_mode(self, mode: str):
-        """Set the points layer mode and update button state."""
-        if self.pts_layer is not None:
-            self.pts_layer.mode = mode
-        self.btn_mode_add.setChecked(mode == "add")
-        self.btn_mode_select.setChecked(mode == "select")
-
-    # --- selection sync ---
-
-    def _on_table_selection_changed(self):
-        """When a row is selected in the table, select the corresponding point in napari."""
-        if self._updating or self.pts_layer is None:
+    def _set_active(self, active: bool):
+        if active == self._active:
+            if active:
+                self._sync_overlay()  # refresh on re-show
             return
-        row = self.table.currentRow()
-        if row < 0 or row >= len(self.pts_layer.data):
-            return
-        self._updating = True
-        self.viewer.layers.selection.active = self.pts_layer
-        self.pts_layer.selected_data = {row}
-        self._updating = False
-
-    def _on_points_layer_selection_changed(self, event=None):
-        """When a point is selected in napari, select the corresponding row in the table."""
-        if self._updating or self.pts_layer is None:
-            return
-        selected = self.pts_layer.selected_data
-        if len(selected) == 1:
-            row = next(iter(selected))
-            if 0 <= row < self.table.rowCount():
-                self._updating = True
-                self.table.selectRow(row)
-                self._updating = False
-
-    # --- visibility ---
+        self._active = active
+        if active:
+            if not self._wired:
+                self.controller.overlay_edited.connect(self._on_overlay_edited)
+                self.controller.overlay_point_selected.connect(
+                    self._on_overlay_point_selected
+                )
+                self._wired = True
+            self._sync_overlay()
+            self.controller.arm_overlay(
+                self.beam,
+                self.OVERLAY_ID,
+                label="Spot Burn",
+                icon="mdi:record-circle-outline",
+            )
+        else:
+            self.controller.arm_overlay(self.beam, None)
+            self.controller.remove_overlay(self.beam, self.OVERLAY_ID)
 
     def showEvent(self, event):
-        """When the widget becomes visible, ensure the points layer exists."""
         super().showEvent(event)
-        self._sync_points_layer_from_table()
+        self._set_active(True)
 
     def hideEvent(self, event):
-        """When the widget is hidden, remove the points layer."""
         super().hideEvent(event)
-        self._remove_points_layer()
+        self._set_active(False)
+
+    def closeEvent(self, event):
+        if self._wired:
+            for sig, slot in (
+                (self.controller.overlay_edited, self._on_overlay_edited),
+                (self.controller.overlay_point_selected, self._on_overlay_point_selected),
+            ):
+                try:
+                    sig.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+            self._wired = False
+        super().closeEvent(event)
