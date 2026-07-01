@@ -16,7 +16,14 @@ import logging
 from typing import TYPE_CHECKING, Dict, Optional, Set
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (
+    QFrame,
+    QLabel,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from fibsem import constants
 from fibsem.structures import BeamType, FibsemImage
@@ -114,6 +121,56 @@ class QuadViewWidget(QWidget):
         lay.addWidget(root)
 
 
+class LamellaEditorView(QWidget):
+    """Task-driven stacked view backing the lamella protocol editor.
+
+    Unlike :class:`QuadViewWidget` (a static 2x2 grid), this shows *one* page at a
+    time, chosen by the selected task type — mirroring the old editor's per-task
+    napari layer-visibility toggle:
+
+        * "beams"        — the FIB canvas, with the SEM canvas beside it (hidden
+                           unless toggled on). Milling / POI / alignment / spot-burn
+                           overlays all live on the FIB canvas.
+        * "fluorescence" — the multi-channel FM widget.
+
+    Exposes ``sem_canvas`` / ``fib_canvas`` / ``fm_widget`` / ``fm_canvas`` so a
+    :class:`MicroscopeViewController` can drive it exactly like ``QuadViewWidget``.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.sem_canvas = FibsemImageCanvas()
+        self.fib_canvas = FibsemImageCanvas()
+        self.fm_widget = FMCanvasWidget()
+        self.fm_canvas = self.fm_widget.canvas
+
+        self._sem_panel = _titled("SEM", self.sem_canvas)
+        self._sem_panel.setVisible(False)  # shown on demand via set_sem_visible()
+        self._beams_page = _splitter(
+            Qt.Horizontal, _titled("FIB", self.fib_canvas), self._sem_panel
+        )
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._beams_page)  # index 0: beams
+        self._stack.addWidget(_titled("Fluorescence", self.fm_widget))  # index 1: FM
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self._stack)
+
+    def show_beams(self) -> None:
+        """Show the FIB (+ optional SEM) page."""
+        self._stack.setCurrentIndex(0)
+
+    def show_fluorescence(self) -> None:
+        """Show the multi-channel FM page."""
+        self._stack.setCurrentIndex(1)
+
+    def set_sem_visible(self, visible: bool) -> None:
+        """Show/hide the SEM canvas beside FIB on the beams page."""
+        self._sem_panel.setVisible(visible)
+
+
 class MicroscopeViewController(QObject):
     """Seam object that replaces the napari ``Viewer`` in the main microscope tab.
 
@@ -134,9 +191,17 @@ class MicroscopeViewController(QObject):
     # (beam, overlay_id, value). Producers subscribe and filter by overlay_id.
     overlay_edited = pyqtSignal(object, str, object)
 
-    def __init__(self, parent: Optional[QObject] = None) -> None:
+    # Emitted when the user selects a point on a PointsSpec overlay:
+    # (beam, overlay_id, index). Producers subscribe to mirror selection (e.g. a table).
+    overlay_point_selected = pyqtSignal(object, str, int)
+
+    def __init__(
+        self, parent: Optional[QObject] = None, view: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
-        self._widget = QuadViewWidget()
+        # The view widget must expose sem_canvas / fib_canvas / fm_widget / fm_canvas.
+        # Defaults to the 2x2 quad; the lamella editor passes a LamellaEditorView.
+        self._widget = view if view is not None else QuadViewWidget()
         self._canvases: Dict[BeamType, FibsemImageCanvas] = {
             BeamType.ELECTRON: self._widget.sem_canvas,
             BeamType.ION: self._widget.fib_canvas,
@@ -167,7 +232,8 @@ class MicroscopeViewController(QObject):
         self._render_requested.connect(self._do_render, Qt.QueuedConnection)
 
     @property
-    def widget(self) -> QuadViewWidget:
+    def widget(self) -> QWidget:
+        """The view widget (``QuadViewWidget`` or a ``LamellaEditorView``)."""
         return self._widget
 
     @property
@@ -276,6 +342,20 @@ class MicroscopeViewController(QObject):
         if isinstance(spec, PointsSpec):
             spec.points = list(points)
             self._mark_dirty(canvas)
+
+    def set_selected_point(
+        self, beam: BeamType, overlay_id: str, index: Optional[int]
+    ) -> None:
+        """Select a point on a ``PointsSpec`` overlay (e.g. mirroring a table row).
+
+        Acts on the live overlay object (not the spec) and is silent, so producers can
+        drive it without an echo. No-op if the overlay isn't rendered yet."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return
+        obj = self._overlay_objs.get(canvas, {}).get(overlay_id)
+        if obj is not None and hasattr(obj, "set_selected"):
+            obj.set_selected(index)
 
     def set_alignment_edit(
         self, beam: BeamType, rect: Optional["FibsemRectangle"], editing: bool
@@ -471,6 +551,9 @@ class MicroscopeViewController(QObject):
                 add_on_right_click=spec.add_on_right_click,
                 removable=spec.removable,
                 modal=spec.modal,
+                edge_width=spec.edge_width,
+                legend_label=spec.legend_label,
+                numbered=spec.numbered,
             )
             beam = self._beams.get(canvas)
             for sig in (obj.point_added, obj.point_moved, obj.point_removed):
@@ -479,6 +562,11 @@ class MicroscopeViewController(QObject):
                         b, i, o.get_points()
                     )
                 )
+            obj.point_selected.connect(
+                lambda idx, x, y, b=beam, i=overlay_id: self.overlay_point_selected.emit(
+                    b, i, idx
+                )
+            )
             return obj
         _logger.warning(
             "MicroscopeViewController: no renderer for spec %r", type(spec).__name__

@@ -181,6 +181,31 @@ class MillingTaskViewerWidget(QWidget):
         except Exception:
             return None
 
+    def set_controller(self, controller) -> None:
+        """Directly attach a :class:`MicroscopeViewController` for callers that have no
+        ``image_widget`` to discover one through (e.g. the Lamella Editor).
+
+        Switches this widget onto the canvas pattern path *additively* — patterns and
+        the read-only alignment display go through the reducer, and right-click
+        reposition moves to the FIB canvas signal. The napari path is left intact for
+        any caller that never sets a controller.
+        """
+        # tear down the napari right-click callback if it was wired at construction
+        if self.viewer is not None and self._right_click_callback is not None:
+            try:
+                self.viewer.mouse_drag_callbacks.remove(self._right_click_callback)
+            except ValueError:
+                pass
+            self._right_click_callback = None
+
+        self._controller = controller
+        self._fib_canvas = (
+            controller.get_canvas(BeamType.ION) if controller is not None else None
+        )
+        if self._fib_canvas is not None:
+            self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
+        self._schedule_pattern_update()
+
     def closeEvent(self, event) -> None:
         if self._controller is not None and self._fib_canvas is not None:
             try:
