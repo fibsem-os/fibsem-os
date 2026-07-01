@@ -521,3 +521,26 @@ another napari consumer — see slice 7.4.
   shared `fibsem.ui` helper, not piecemeal.
 - **Lamella-position-on-live-view** (`_update_lamella_display`) was napari-only and removed in the
   cutover (flag + pref checkbox gone too). Needs a controller-based reimplementation if wanted.
+
+### Known minor bugs (pre-merge review 2026-07-01 — deferred, low-priority + recoverable)
+
+Surfaced by the pre-merge review of the branch; consciously left for later (display/interaction
+only, self-recovering — not worth the churn now). Fix if/when the surrounding code is next touched.
+
+- **Detect→mill renders patterns against the frozen detection image.** After a detection step,
+  `_update_features` leaves the detection image on the FIB canvas (`controller.set_image(beam,
+  det.fibsem_image)`, `FibsemEmbeddedDetectionWidget.py:91`) and nothing re-pushes the reference/live
+  image before the milling patterns render — the reducer injects the *stashed* image into the
+  `MillingSpec` (`quad_view.py` `_drive_overlay`) and `MillingTaskViewerWidget` never calls
+  `set_image`. So on the supervised confirm the patterns are scaled/positioned against the detection
+  frame whenever its HFW ≠ the milling/reference HFW. **Display-only** — the actual milling uses
+  real-world coordinates, and it self-corrects on the next acquisition. *Fix:* re-push the reference
+  image on detection teardown (`_detach_detection`/`clear_layers`), or have the milling widget set the
+  canvas image alongside its `MillingSpec`.
+- **Alignment "show" toggle disarms the spot-burn overlay.** The protocol editor's alignment toggle
+  buttons are always present, and `_on_toggle_alignment_area(False)` calls `arm_overlay(BeamType.ION,
+  None)` (`autolamella_lamella_protocol_editor.py:859`); arming is a single slot per canvas, so
+  toggling alignment off while a spot-burn task is active clears the armed spot overlay (`modal=True`)
+  and right-click-to-add-a-burn-point silently stops. **Recoverable** — re-selecting the spot-burn
+  task re-arms it. *Fix:* re-arm the task's overlay after an alignment toggle, or scope the toggle so
+  it only disarms the alignment overlay it owns.
