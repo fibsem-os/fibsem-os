@@ -146,13 +146,20 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     def __init__(self, parent=None):
         self._fig = Figure(facecolor=_BG)
+        # Axes + figure background; overridable via set_background_color (the minimap
+        # uses black). The label/hint bboxes keep their own colours.
+        self._facecolor = _BG
+        # Extra empty space around the image when fitting the view, as a fraction of the
+        # image size per side (0 = tight to the image; set via set_view_margin). Lets
+        # overlays that extend past the image (stage limits, grid boundary) stay visible.
+        self._view_margin = 0.0
         super().__init__(self._fig)
         self.setParent(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor(_BG)
+        self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
@@ -277,7 +284,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._img_w, self._img_h = w, h
 
         self._ax.cla()
-        self._ax.set_facecolor(_BG)
+        self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
@@ -296,8 +303,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         else:
             self._ax.imshow(to_show, **kw)
 
-        self._ax.set_xlim(-0.5, w - 0.5)
-        self._ax.set_ylim(h - 0.5, -0.5)
+        self._fit_view()
 
         # Scalebar
         self._scalebar_artist = None
@@ -316,10 +322,13 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
         self.draw_idle()
 
-    def update_display(self, arr: np.ndarray) -> None:
+    def update_display(self, arr: np.ndarray, pixel_size: Optional[float] = None) -> None:
         """Fast pixel-data swap without resetting overlays.
 
-        Use for z-slice navigation where image dimensions don't change.
+        Use for z-slice navigation / recomposites where image dimensions don't change.
+        *pixel_size* (metres/px) updates the scalebar if it changed — important when the
+        same-shape swap actually carries a different scale (e.g. a real overview replacing
+        a blank placeholder of matching pixel dimensions). ``None`` leaves it unchanged.
         Falls back to a no-op if no image has been set yet.
         """
         imgs = self._ax.get_images()
@@ -332,6 +341,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         imgs[0].set_data(to_show)
         if clim is not None:
             imgs[0].set_clim(*clim)
+        if pixel_size and pixel_size > 0 and pixel_size != self._pixel_size:
+            self._pixel_size = pixel_size
+            self._refresh_scalebar()
         self.draw_idle()
 
     def set_crosshair_visible(self, visible: bool) -> None:
@@ -465,14 +477,36 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         if contrast is not None and contrast.isVisible():
             contrast.reposition()
 
-    def reset_view(self) -> None:
-        """Fit the view to the full image extent."""
+    def _fit_view(self) -> None:
+        """Set the view to the image extent expanded by ``_view_margin`` on each side."""
         imgs = self._ax.get_images()
-        if imgs:
-            ext = imgs[0].get_extent()  # (xmin, xmax, ymax, ymin)
-            self._ax.set_xlim(ext[0], ext[1])
-            self._ax.set_ylim(ext[2], ext[3])
-            self._schedule_redraw()
+        if not imgs:
+            return
+        xmin, xmax, ybot, ytop = imgs[0].get_extent()  # (xmin, xmax, ymax, ymin)
+        mx = self._view_margin * (xmax - xmin)
+        my = self._view_margin * abs(ybot - ytop)
+        self._ax.set_xlim(xmin - mx, xmax + mx)
+        self._ax.set_ylim(ybot + my, ytop - my)  # y-axis stays inverted (origin upper)
+
+    def set_view_margin(self, frac: float) -> None:
+        """Empty space kept around the image when fitting the view, as a fraction of the
+        image size per side (0 = tight, 0.5 = 2x the image extent). Also keeps overlays
+        that extend beyond the image (e.g. stage limits) visible."""
+        self._view_margin = max(0.0, float(frac))
+        self._fit_view()
+        self._schedule_redraw()
+
+    def set_background_color(self, color: str) -> None:
+        """Set the axes + figure background colour (the area around the image)."""
+        self._facecolor = color
+        self._fig.set_facecolor(color)
+        self._ax.set_facecolor(color)
+        self._schedule_redraw()
+
+    def reset_view(self) -> None:
+        """Fit the view to the image extent (plus any view margin)."""
+        self._fit_view()
+        self._schedule_redraw()
 
     def add_overlay(self, overlay: CanvasOverlay) -> None:
         """Register an overlay and attach it to the current axes."""
@@ -571,7 +605,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     # ── internals ─────────────────────────────────────────────────────────
 
     def _plot_empty(self):
-        self._ax.set_facecolor(_BG)
+        self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
         self._ax.text(
             0.5,
