@@ -443,7 +443,21 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     @thread_worker
     def _autofocus_worker(self, beam_type: BeamType):
-        self.microscope.auto_focus(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
+        from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
+        settings = AutoFocusSettings(
+            method="tenengrad",
+            passes=[
+                FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                FocusSweepPass(search_range=100e-6, step_size=10e-6),
+            ],
+            reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+            use_autocontrast=True)
+        result = run_auto_focus(
+            self.microscope,
+            beam_type=beam_type,
+            hfw=self.microscope.get_field_of_view(beam_type),
+            settings=settings,
+        )
 
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
         self._toggle_interactions(enable=True)

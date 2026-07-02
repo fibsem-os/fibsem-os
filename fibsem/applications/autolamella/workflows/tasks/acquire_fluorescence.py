@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import (
     ClassVar,
@@ -15,8 +16,9 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
-from fibsem.fm.acquisition import acquire_image, run_autofocus
-from fibsem.fm.structures import AutoFocusResult, AutoFocusSettings, ChannelSettings, ZParameters
+from fibsem.fm.acquisition import acquire_image
+from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
+from fibsem.fm.calibration import run_coarse_fine_autofocus, AutoFocusResult
 
 
 @dataclass
@@ -83,11 +85,11 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
 
         # Run autofocus if requested
-        if self.config.autofocus_settings.fine_enabled:
+        if self.config.autofocus_settings.enabled:
             result = self._run_autofocus()
             # autofocus found a better focus — make it the lamella's saved objective position
             if result is not None and self.lamella.fluorescence_pose is not None:
-                self.lamella.fluorescence_pose.objective_position = result.best_z
+                self.lamella.fluorescence_pose.objective_position = result.working_distance
 
         # Generate timestamp-based filename
         timestamp = utils.current_timestamp_v3(timeonly=True)
@@ -122,15 +124,12 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             logging.warning(f"Autofocus channel '{self.config.autofocus_settings.channel_name}' not found, using first channel")
             autofocus_channel = self.config.channel_settings[0]
 
-        # Set up Z parameters for autofocus
-        autofocus_method = self.config.autofocus_settings.method.value
-        autofocus_zparams = ZParameters(
-            zmin=-self.config.autofocus_settings.fine_range/2,
-            zmax=self.config.autofocus_settings.fine_range/2, 
-            zstep=self.config.autofocus_settings.fine_step
-        )
 
-        logging.info(f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' with method '{autofocus_method}' and zparams: {autofocus_zparams}")
+        af_settings = self.config.autofocus_settings
+        logging.info(
+            f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' "
+            f"with method '{af_settings.method.value}' and {len(af_settings.passes)} pass(es)"
+        )
         if self.validate:
             ask_user(self.parent_ui,
                 msg=f"Run autofocus for {self.lamella.name} using channel '{autofocus_channel.name}'. Press continue when ready.",
@@ -139,20 +138,21 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         self.log_status_message("AUTOFOCUS", "Running Autofocus...")
         self.microscope.fm.acquisition_progress_signal.emit({"state": "autofocusing", "task": f"{self.task_name}"}) # type: ignore
-        result = run_autofocus(microscope=self.microscope.fm,                                                       # type: ignore
-                                channel_settings=autofocus_channel,
-                                z_parameters=autofocus_zparams, 
-                                method=autofocus_method,
-                                stop_event=self._stop_event)
+        # Query: pass in channel settings so we are certain the channel is correct
+        result = run_coarse_fine_autofocus(
+                self.microscope.fm,
+                autofocus_settings=self.config.autofocus_settings,
+                channel_settings=autofocus_channel,
+                stop_event=self._stop_event
+            )
         if result is None:
             logging.info("Autofocus cancelled")
             raise InterruptedError(f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus.")
         try:
-            timestamp = utils.current_timestamp_v3(timeonly=True)
-            save_path = os.path.join(self.lamella.path, f"{self.task_name}-autofocus-{timestamp}.png")
-            result.plot(save_path)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
         except Exception as e:
-            logging.warning(f"Failed to plot autofocus result: {e}")
+            logging.warning(f"Failed to save autofocus result: {e}")
 
         return result
 

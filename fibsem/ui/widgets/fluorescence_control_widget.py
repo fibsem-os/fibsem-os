@@ -140,7 +140,6 @@ class FMControlWidget(QWidget):
         self.autofocusWidget = AutofocusWidget(
             channel_settings=self.channelSettingsWidget.channel_settings, parent=self
         )
-        self.autofocusWidget.single_fine_search_mode()
         self.autofocusPanel = TitledPanel(
             "Autofocus Settings", content=self.autofocusWidget, collapsible=True
         )
@@ -904,30 +903,33 @@ class FMControlWidget(QWidget):
     ):
         """Worker thread for auto-focus."""
         try:
-            z_parameters = ZParameters(
-                zmin=-autofocus_settings.fine_range / 2,
-                zmax=autofocus_settings.fine_range / 2,
-                zstep=autofocus_settings.fine_step,
+            ranges = ", ".join(
+                f"{p.search_range*1e6:.1f}µm/{p.step_size*1e6:.1f}µm"
+                for p in autofocus_settings.passes if p.enabled
             )
             logging.info(
-                f"Running auto-focus: range={autofocus_settings.fine_range*1e6:.1f} µm, "
-                f"step={autofocus_settings.fine_step*1e6:.1f} µm, method={autofocus_settings.method.value}"
+                f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
+                f"method={autofocus_settings.method.value}"
             )
 
-            best_z = run_autofocus(
-                microscope=self.fm,
+            from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
+
+            result = run_coarse_fine_autofocus(
+                self.fm,
+                autofocus_settings=autofocus_settings,
                 channel_settings=channel_settings,
-                z_parameters=z_parameters,
-                method=autofocus_settings.method.value,
                 stop_event=self._acquisition_stop_event,
             )
 
-            if best_z is None or self._acquisition_stop_event.is_set():
+            if result is not None:
+                plot_autofocus(result)
+
+            if result is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {best_z * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result.working_distance * 1e6:.1f} μm"
             )
 
         except Exception as e:
