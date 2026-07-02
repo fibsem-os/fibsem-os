@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
+import fibsem.config as fcfg
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
@@ -107,8 +108,10 @@ class TaskManager:
                 continue
 
             # Wait until the task's scheduled start time, if set and in the future
+            # (only when the scheduled-tasks feature is enabled; otherwise any
+            # saved scheduled_at is left dormant and the task runs immediately).
             scheduled_at = self.experiment.task_protocol.workflow_config.get_scheduled_at(item.task_name)
-            if scheduled_at is not None:
+            if scheduled_at is not None and fcfg.FEATURE_SCHEDULED_TASKS_ENABLED:
                 self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
                 if self.is_stopped:
                     break
@@ -203,6 +206,11 @@ class TaskManager:
         The wait is interruptible: if ``stop()`` is called the loop exits early
         and the caller skips running the task.
         """
+        # Times are naive-local throughout, but a hand-edited/externally-produced
+        # protocol may carry a tz-aware scheduled_at. Normalize to naive-local so
+        # the subtraction against datetime.now() below doesn't raise TypeError.
+        if scheduled_at.tzinfo is not None:
+            scheduled_at = scheduled_at.astimezone().replace(tzinfo=None)
         target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
         next_update = 0.0  # force an immediate first message
         while not self.is_stopped:

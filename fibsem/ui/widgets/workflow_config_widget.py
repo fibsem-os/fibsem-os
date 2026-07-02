@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QIconifyIcon
 
+import fibsem.config as fcfg
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -219,7 +220,7 @@ class WorkflowConfigWidget(QWidget):
         super().__init__(parent)
 
         self._btn_visible = {
-            "schedule": True,
+            "schedule": fcfg.FEATURE_SCHEDULED_TASKS_ENABLED,
             "supervise": True,
             "edit": True,
             "remove": True,
@@ -281,6 +282,11 @@ class WorkflowConfigWidget(QWidget):
         row.edit_clicked.connect(self.edit_requested)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.selection_changed.connect(self._on_row_selection_changed)
+
+    def enable_schedule_button(self, visible: bool) -> None:
+        self._btn_visible["schedule"] = visible
+        for i in range(self._list.count()):
+            self._row(i).btn_schedule.setVisible(visible)
 
     def enable_supervise_button(self, visible: bool) -> None:
         self._btn_visible["supervise"] = visible

@@ -478,6 +478,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
+        # Toggle the per-task schedule button in the workflow tab live, so a
+        # scheduled-tasks flag change applies without restarting.
+        if hasattr(self, "lamella_workflow_widget"):
+            self.lamella_workflow_widget.workflow.enable_schedule_button(
+                self._preferences.features.scheduled_tasks
+            )
 
     def show_toast(
         self,

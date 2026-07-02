@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QIconifyIcon
 
+import fibsem.config as fcfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
@@ -149,18 +150,27 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.setDateTime(self._qdatetime_for(task))
         self._dt_edit.setEnabled(self._schedule_cb.isChecked())
 
+        # scheduling controls live in one container so the whole block can be
+        # hidden when the scheduled-tasks feature is disabled.
+        self._schedule_container = QWidget()
+        self._schedule_container.setStyleSheet("background: transparent;")
+        scl = QVBoxLayout(self._schedule_container)
+        scl.setContentsMargins(0, 0, 0, 0)
+        scl.setSpacing(4)
+
         # checkbox label + date/time field share one row
         sched_row = QHBoxLayout()
         sched_row.setContentsMargins(0, 0, 0, 0)
         sched_row.setSpacing(8)
         sched_row.addWidget(self._schedule_cb)
         sched_row.addWidget(self._dt_edit, 1)
-        pc.addLayout(sched_row)
+        scl.addLayout(sched_row)
 
         self._sched_hint = QLabel()
         self._sched_hint.setStyleSheet(_HINT_STYLE)
         self._sched_hint.setWordWrap(True)
-        pc.addWidget(self._sched_hint)
+        scl.addWidget(self._sched_hint)
+        pc.addWidget(self._schedule_container)
 
         self._schedule_cb.toggled.connect(self._dt_edit.setEnabled)
         self._schedule_cb.toggled.connect(self._refresh_schedule_hint)
@@ -169,6 +179,8 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.bound_exceeded.connect(self._on_bound_exceeded)
         self._dt_edit.dateTimeChanged.connect(self._refresh_schedule_hint)
         self._refresh_schedule_hint()
+
+        self._schedule_container.setVisible(fcfg.FEATURE_SCHEDULED_TASKS_ENABLED)
 
         self._props_panel = TitledPanel("Properties", content=props_content, collapsible=False)
         root.addWidget(self._props_panel)
@@ -300,6 +312,9 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.setDateTime(self._qdatetime_for(task))
         self._dt_edit.setEnabled(task.scheduled_at is not None)
         self._refresh_schedule_hint()
+        # re-read the flag each open so a Preferences toggle takes effect
+        # without restarting (the dialog is persistent and reused).
+        self._schedule_container.setVisible(fcfg.FEATURE_SCHEDULED_TASKS_ENABLED)
 
         self._populate_requirements(task)
 
@@ -343,10 +358,13 @@ class WorkflowTaskEditorWidget(QWidget):
             for row in self._req_rows
             if row.checkbox.isChecked()
         ]
-        if self._schedule_cb.isChecked():
-            self._task.scheduled_at = (
-                self._dt_edit.dateTime().toPyDateTime().replace(second=0, microsecond=0)
-            )
-        else:
-            self._task.scheduled_at = None
+        # Only touch scheduled_at when the feature is enabled; otherwise leave
+        # any previously-saved schedule untouched (the controls are hidden).
+        if fcfg.FEATURE_SCHEDULED_TASKS_ENABLED:
+            if self._schedule_cb.isChecked():
+                self._task.scheduled_at = (
+                    self._dt_edit.dateTime().toPyDateTime().replace(second=0, microsecond=0)
+                )
+            else:
+                self._task.scheduled_at = None
         self.apply_clicked.emit(self._task)

@@ -253,6 +253,7 @@ class FeatureFlags:
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
+    scheduled_tasks: bool = False
 
 @dataclass
 class MovementPreferences:
@@ -445,17 +446,20 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_VIEWER_MOVEMENT_EVENTS
     global FEATURE_COINCIDENCE_MILLING_ENABLED
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
+    global FEATURE_SCHEDULED_TASKS_ENABLED
     f = prefs.features
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
+    FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
 
     # Also update the autolamella config module which re-exports these
     try:
         import fibsem.applications.autolamella.config as al_cfg
         al_cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
         al_cfg.FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
+        al_cfg.FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
     except ImportError:
         pass
 
@@ -475,3 +479,4 @@ FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
+FEATURE_SCHEDULED_TASKS_ENABLED = False
