@@ -46,6 +46,7 @@ _MAX_DISPLAY_PX = 2048
 _ZOOM_FACTOR = 1.15
 _REDRAW_INTERVAL = 32  # ms (~60 fps)
 _BG = "#1e2124"
+_ACCENT = "#3a6ea5"  # primary accent (matches the quad-view selection border)
 
 _RECT_FRAC = 0.25
 _RECT_OFFSET = (1.0 - _RECT_FRAC) / 2.0
@@ -191,6 +192,13 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._info_artist = None  # bottom-left microscope-state info bar
         self._info_text: Optional[str] = None  # remembered so it survives set_image
 
+        # Transient top-centre flash message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears
+        self._flash_artist = None
+        self._flash_text: Optional[str] = None
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setSingleShot(True)
+        self._flash_timer.timeout.connect(self._clear_flash)
+
         # Drag-to-measure ruler (lazily created on first toggle; see toggle_ruler).
         # _ruler_prev_active restores whatever overlay owned input before measuring.
         self._ruler_overlay: Optional["RulerOverlay"] = None
@@ -318,6 +326,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_crosshair()
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
         self._refresh_info_bar()  # ditto: restore the remembered info bar
+        self._refresh_flash()  # ditto: keep a live flash (e.g. WD scroll) visible across frames
 
         for overlay in self._overlays:
             try:
@@ -411,6 +420,41 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
                           edgecolor="none", alpha=0.55),
             )
 
+    def flash_message(self, text: str, duration_ms: int = 1200) -> None:
+        """Show a brief top-centre status message that auto-clears after *duration_ms*.
+
+        Repeated calls refresh the text and restart the timer, so it stays visible during a
+        burst (e.g. Shift+scroll working-distance nudges) and fades shortly after the last
+        event. Independent of :meth:`set_hint` / :meth:`set_info_text` — transient, not
+        remembered across image changes."""
+        self._flash_text = text or None
+        self._refresh_flash()
+        self.draw_idle()
+        if self._flash_text:
+            self._flash_timer.start(duration_ms)
+
+    def _refresh_flash(self) -> None:
+        """(Re)create the flash artist from the cached text, or remove it."""
+        if self._flash_artist is not None:
+            try:
+                self._flash_artist.remove()
+            except Exception:
+                pass
+            self._flash_artist = None
+        if self._flash_text:
+            self._flash_artist = self._ax.text(
+                0.5, 0.975, self._flash_text,
+                transform=self._ax.transAxes, ha="center", va="top",
+                fontsize=9, color="#e8e8e8", zorder=12,
+                bbox=dict(boxstyle="round,pad=0.35", facecolor=_BG,
+                          edgecolor=_ACCENT, linewidth=1.0, alpha=0.85),
+            )
+
+    def _clear_flash(self) -> None:
+        self._flash_text = None
+        self._refresh_flash()
+        self.draw_idle()
+
     def clear(self) -> None:
         """Clear the image and show placeholder text."""
         self._img_w = self._img_h = None
@@ -423,6 +467,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._hint_text = None
         self._info_artist = None
         self._info_text = None
+        self._flash_artist = None
+        self._flash_text = None
+        self._flash_timer.stop()
         self._plot_empty()
         for overlay in self._overlays:
             try:
@@ -774,6 +821,10 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     def _on_press(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
+            return
+        if self._img_w is None:
+            # No image: axes span the default [0,1], so xdata/ydata are not image pixels.
+            # Suppress clicks/pan so a stray double-click can't drive a stage move to (~0,0).
             return
         mods = _modifiers_from_event(event)
         if event.dblclick:

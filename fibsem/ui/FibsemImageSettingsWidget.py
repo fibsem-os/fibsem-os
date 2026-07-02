@@ -56,9 +56,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self._set_image_settings_to_ui(image_settings)
             self.update_ui_saving_settings()
 
-        # seed the quad-view canvases with the initial blank images
-        self._on_acquire(self.eb_image)
-        self._on_acquire(self.ib_image)
+        # NOTE: the canvases are intentionally left empty ("No image") on connect — no blank
+        # placeholder is seeded. eb_image / ib_image remain as internal fallbacks and appear
+        # once a real acquisition arrives (sem/fib_acquisition_signal -> _on_acquire).
 
     # ------------------------------------------------------------------
     # Backward-compatibility properties for callers outside this widget
@@ -214,6 +214,25 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.microscope.sem_acquisition_signal.connect(self._on_acquire)
         self.microscope.fib_acquisition_signal.connect(self._on_acquire)
         self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
+
+        # Working-distance Shift+scroll nudge on the SEM/FIB canvases (mirrors the FM
+        # objective wheel). Store the bound-method connections for teardown — the canvases
+        # outlive this widget, so a leaked connection would drive a dead slot on reconnect.
+        self._wd_scroll_connections: List[tuple] = []
+        controller = self._view_controller()
+        if controller is not None:
+            for beam, canvas in (
+                (BeamType.ELECTRON, controller.sem_canvas),
+                (BeamType.ION, controller.fib_canvas),
+            ):
+                beam_widget = (
+                    self.dual_beam_widget.sem_widget
+                    if beam is BeamType.ELECTRON
+                    else self.dual_beam_widget.fib_widget
+                )
+                slot = beam_widget.beam_settings_widget._on_canvas_scroll
+                canvas.canvas_scrolled.connect(slot)
+                self._wd_scroll_connections.append((canvas, slot))
 
     @ensure_main_thread
     def _on_acquire(self, image: FibsemImage):
@@ -517,6 +536,20 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 except (TypeError, RuntimeError):
                     pass
             self._overlay_edited_wired = False
+
+        # WD Shift+scroll: disconnect from the (persistent) canvases and cancel any pending
+        # debounced move so it can't fire on a torn-down beam-settings widget.
+        for canvas, slot in getattr(self, "_wd_scroll_connections", []):
+            try:
+                canvas.canvas_scrolled.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._wd_scroll_connections = []
+        for beam_widget in (self.dual_beam_widget.sem_widget, self.dual_beam_widget.fib_widget):
+            try:
+                beam_widget.beam_settings_widget._execute_wd_wheel_move.cancel()
+            except Exception:
+                pass
 
     def _ensure_overlay_edited_wiring(self, controller) -> None:
         """Subscribe (once) to the controller's overlay-edit signal so a user drag of

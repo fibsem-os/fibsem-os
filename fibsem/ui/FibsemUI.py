@@ -164,6 +164,10 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.tabWidget.removeTab(2)
             self.tabWidget.removeTab(1)
             self.view_controller.clear()  # reset the quad-view canvases on disconnect
+            # drop the image widget's controller/canvas connections (WD scroll, overlay edits)
+            # before deleteLater — the canvases persist, so a leaked slot would fire on a dead
+            # widget after reconnect (deleteLater fires neither closeEvent nor close).
+            self.image_widget._teardown_connections()
             self.image_widget.deleteLater()
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()

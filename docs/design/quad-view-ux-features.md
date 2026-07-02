@@ -204,12 +204,32 @@ Mirror `ObjectiveControlWidget._on_canvas_scroll` + its debounced move
 - Update the beam-settings `working_distance_spinbox` immediately for visual feedback (block
   signals), then move on settle.
 
-### Safety (column-into-sample risk)
+### Safety
 
-- Large-change confirmation dialog on big deltas (cf. the objective widget's >1 mm prompt).
-- Lock out while acquiring / milling (subscribe to the acquisition signals as the objective
-  widget does).
-- Clamp to the microscope's WD limits where available.
+WD is beam focus (a lens parameter), **not** a physical objective — so unlike the FM objective
+it carries no collision risk and needs neither a large-change confirmation nor an acquisition
+lockout. The only guard is clamping to the spinbox WD range.
+
+### Implemented
+
+- Handler lives on `FibsemBeamSettingsWidget` (per beam): `_on_canvas_scroll` +
+  `_execute_wd_wheel_move_impl` (`qdebounced`, 150 ms) + `_set_working_distance_spinbox`.
+  One scroll notch = `WD_WHEEL_STEP_MM` = **1 µm** (0.001 mm); the WD spinbox was bumped to
+  3 decimals so the step is representable. The spinbox updates immediately (blocked signals)
+  and the debounced move coalesces the burst.
+- **On-canvas feedback:** a transient top-centre flash (`FibsemImageCanvas.flash_message`,
+  ~1.2 s auto-clear, independent of the hint / info bar) shows `WD x.xxx mm` on the canvas
+  being scrolled and fades after scrolling stops. The handler targets the emitting canvas via
+  `sender()`, and the flash is re-created in `set_array` so it stays visible across live
+  acquisition frames (which recomposite the canvas).
+- Wired in `FibsemImageSettingsWidget.setup_connections` — `controller.sem_canvas` /
+  `fib_canvas` `canvas_scrolled` → the SEM / FIB beam widget's `_on_canvas_scroll`; connections
+  are stored and torn down in `_teardown_connections` (the canvases outlive the widget), which
+  also cancels any pending debounce.
+- **No acquisition lockout and no large-change confirmation** — WD is beam focus, so it must
+  stay adjustable while scanning (that's how you focus) and a big move isn't a collision risk.
+  Both intentionally differ from the FM objective. The only guard is clamping to the spinbox range.
+- Headless smoke: `test_working_distance_scroll` (8).
 
 ---
 
