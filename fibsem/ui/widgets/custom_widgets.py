@@ -174,14 +174,20 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
 
     # find the closest match to the current value (should only be used for numerical values)
     idx = control.findData(value)
-    if idx == -1:
+    if idx == -1 and len(items) > 0:
         # get the closest value
         closest_value = min(items, key=lambda x: abs(x - value))
         idx = control.findData(closest_value)
+
     if idx == -1:
-        logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
-        idx = 0
-    control.setCurrentIndex(idx)
+        if len(items) == 0:
+            logging.warning(f"No items available for combobox with value {value}")
+        else:
+            logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
+            idx = 0
+
+    if idx >= 0:
+        control.setCurrentIndex(idx)
     control.installEventFilter(WheelBlocker(parent=control))
 
     return control
