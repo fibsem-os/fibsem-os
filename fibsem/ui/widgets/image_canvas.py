@@ -214,6 +214,11 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
         # Overlay buttons (parented to self; repositioned in resizeEvent)
         self._overlay_buttons: List[QPushButton] = []
+        # Toolbar-group visibility (quad-view "only the selected view shows its toolbar").
+        # _toolbar_hidden snapshots the buttons hidden by the group toggle so they restore
+        # exactly (buttons hidden for other reasons — e.g. FM hides btn_contrast — stay hidden).
+        self._toolbar_visible: bool = True
+        self._toolbar_hidden: List[QPushButton] = []
         self.btn_reset_view = self._add_overlay_button(
             "mdi:fit-to-screen-outline", "Reset view", self.reset_view
         )
@@ -469,6 +474,31 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             x -= btn.width()
             btn.move(x, _OVERLAY_MARGIN)
             x -= _OVERLAY_GAP
+
+    def set_toolbar_visible(self, visible: bool) -> None:
+        """Show or hide this canvas's top-right toolbar buttons as a group.
+
+        Used by the quad view so only the selected canvas shows its toolbar. The
+        contextual mode toggle (:attr:`btn_mode`) is exempt — it follows overlay-mode
+        state, not selection — so an in-progress edit on a non-selected canvas keeps its
+        toggle. Buttons already hidden for other reasons (e.g. the FM canvas hides
+        ``btn_contrast``) stay hidden when the group is shown again.
+        """
+        if visible == self._toolbar_visible:
+            return
+        self._toolbar_visible = visible
+        if not visible:
+            self._toolbar_hidden = [
+                b for b in self._overlay_buttons
+                if b is not self.btn_mode and not b.isHidden()
+            ]
+            for b in self._toolbar_hidden:
+                b.hide()
+        else:
+            for b in self._toolbar_hidden:
+                b.show()
+            self._toolbar_hidden = []
+        self._reposition_overlay_buttons()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Dict, Optional, Set
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QFrame,
     QLabel,
@@ -51,20 +51,27 @@ _TITLE_STYLE = (
     "color: #888; font-size: 11px; padding: 2px 6px; background: #1e2124;"
 )
 _PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
+# Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
+# A transparent border of the same width is always present so selection causes no layout shift,
+# and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
+_SELECT_ACCENT = "#3a6ea5"
+_PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 
 
-def _titled(title: str, inner: QWidget) -> QWidget:
-    """Wrap *inner* with a small title label above it."""
-    w = QWidget()
-    w.setStyleSheet(f"background: {_BG};")
+def _titled(title: str, inner: QWidget) -> QFrame:
+    """Wrap *inner* in a selectable panel frame with a small title label above it."""
+    frame = QFrame()
+    frame.setObjectName("viewPanel")
+    frame.setAttribute(Qt.WA_StyledBackground, True)
+    frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border="transparent"))
     lbl = QLabel(title, alignment=Qt.AlignLeft)
     lbl.setStyleSheet(_TITLE_STYLE)
-    lay = QVBoxLayout(w)
+    lay = QVBoxLayout(frame)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(0)
     lay.addWidget(lbl)
     lay.addWidget(inner)
-    return w
+    return frame
 
 
 def _splitter(orientation, *widgets) -> QSplitter:
@@ -89,14 +96,22 @@ class PlaceholderPanel(QFrame):
 
 
 class QuadViewWidget(QWidget):
-    """2x2 grid: SEM | FIB over FM | placeholder, each a titled panel.
+    """2x2 grid: SEM | FIB over FM | placeholder, each a selectable titled panel.
 
     The SEM/FIB cells are :class:`FibsemImageCanvas` instances (so they inherit
     the reset / scalebar / crosshair / contrast toolbar); the FM cell is an
     :class:`FMCanvasWidget` (multi-channel composite + per-channel controls), and
     the 4th is an inert placeholder. ``fm_canvas`` aliases the FM widget's inner
     canvas so overlays attach the same way they do on SEM/FIB.
+
+    The most-recently-clicked canvas is the *selected* view: its panel gets a subtle
+    primary border, only its canvas toolbar is shown, and it is the target for
+    view-scoped hotkeys. All canvases stay fully interactive regardless of selection.
     """
+
+    # Emitted when the selected view changes; payload is the view key
+    # (BeamType.ELECTRON / BeamType.ION for SEM / FIB, or the string "fm").
+    view_selected = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -106,19 +121,129 @@ class QuadViewWidget(QWidget):
         self.fm_canvas = self.fm_widget.canvas
         self.placeholder = PlaceholderPanel("No Data")
 
-        left = _splitter(
-            Qt.Vertical, _titled("SEM", self.sem_canvas), _titled("FM", self.fm_widget)
-        )
-        right = _splitter(
-            Qt.Vertical,
-            _titled("FIB", self.fib_canvas),
-            _titled("Placeholder", self.placeholder),
-        )
+        sem_panel = _titled("SEM", self.sem_canvas)
+        fm_panel = _titled("FM", self.fm_widget)
+        fib_panel = _titled("FIB", self.fib_canvas)
+        placeholder_panel = _titled("Placeholder", self.placeholder)
+
+        left = _splitter(Qt.Vertical, sem_panel, fm_panel)
+        right = _splitter(Qt.Vertical, fib_panel, placeholder_panel)
         root = _splitter(Qt.Horizontal, left, right)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(root)
+
+        # ── full-screen state ─────────────────────────────────────────────
+        # Full screen hides a cell's vertical-splitter sibling + the other vertical splitter,
+        # leaving one cell filling the quad. Reversible: saved sizes restore the grid.
+        self._root_splitter = root
+        self._splitters = {"left": left, "right": right}
+        self._all_panels = [sem_panel, fm_panel, fib_panel, placeholder_panel]
+        self._panel_splitter = {
+            sem_panel: left, fm_panel: left, fib_panel: right, placeholder_panel: right,
+        }
+        self._fullscreen: Optional[object] = None
+        self._saved_sizes: dict = {}
+
+        # ── selected-view state ───────────────────────────────────────────
+        self._panels: Dict[object, QFrame] = {
+            BeamType.ELECTRON: sem_panel,
+            BeamType.ION: fib_panel,
+            "fm": fm_panel,
+        }
+        self._canvas_keys: Dict[QWidget, object] = {
+            self.sem_canvas: BeamType.ELECTRON,
+            self.fib_canvas: BeamType.ION,
+            self.fm_canvas: "fm",
+        }
+        self._selected: Optional[object] = None
+        for canvas in self._canvas_keys:
+            canvas.installEventFilter(self)
+        # default: SEM selected, so exactly one view always has the border + toolbar
+        self.set_selected(BeamType.ELECTRON)
+
+    @property
+    def selected(self) -> Optional[object]:
+        """The selected view key (``BeamType.ELECTRON`` / ``BeamType.ION`` / ``"fm"``)."""
+        return self._selected
+
+    def set_selected(self, key: object) -> None:
+        """Select the view *key*: highlight its panel, show only its canvas toolbar, and
+        emit :attr:`view_selected`. No-op for unknown keys or re-selecting the current view."""
+        if key not in self._panels or key == self._selected:
+            return
+        self._selected = key
+        for k, frame in self._panels.items():
+            border = _SELECT_ACCENT if k == key else "transparent"
+            frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border=border))
+        for canvas, k in self._canvas_keys.items():
+            canvas.set_toolbar_visible(k == key)
+        self.view_selected.emit(key)
+
+    def eventFilter(self, obj, event):
+        """Select the view whose canvas was pressed (any mouse button). The event is not
+        consumed, so clicks still pan / move the stage / open menus exactly as before."""
+        if event.type() == QEvent.MouseButtonPress:
+            key = self._canvas_keys.get(obj)
+            if key is not None:
+                self.set_selected(key)
+        return super().eventFilter(obj, event)
+
+    # ── full screen ─────────────────────────────────────────────────────────
+    @property
+    def fullscreen(self) -> Optional[object]:
+        """The full-screened view key, or ``None`` when showing the 2x2 grid."""
+        return self._fullscreen
+
+    def toggle_fullscreen(self) -> None:
+        """Toggle full screen for the selected view (no-op if nothing is selected)."""
+        if self._fullscreen is not None:
+            self.set_fullscreen(None)
+        elif self._selected is not None:
+            self.set_fullscreen(self._selected)
+
+    def set_fullscreen(self, key: Optional[object]) -> None:
+        """Full-screen the view *key* (``BeamType.ELECTRON`` / ``BeamType.ION`` / ``"fm"``),
+        hiding the other cells; pass ``None`` to restore the 2x2 grid. No-op for unknown keys
+        or re-requesting the current state.
+
+        The full-screened view is also made the selected view, so the one visible cell always
+        shows its toolbar (selection drives toolbar visibility)."""
+        if key == self._fullscreen:
+            return
+        if key is None:
+            self._restore_grid()
+            return
+        if key not in self._panels:
+            return
+        self.set_selected(key)  # invariant: the full-screened cell is the selected one
+        if self._fullscreen is None:
+            # entering from the grid: remember the grid's splitter sizes for restore
+            self._saved_sizes = {
+                "root": self._root_splitter.sizes(),
+                "left": self._splitters["left"].sizes(),
+                "right": self._splitters["right"].sizes(),
+            }
+        target = self._panels[key]
+        keep_splitter = self._panel_splitter[target]
+        for panel in self._all_panels:
+            panel.setVisible(panel is target)
+        for spl in self._splitters.values():
+            spl.setVisible(spl is keep_splitter)
+        self._fullscreen = key
+
+    def _restore_grid(self) -> None:
+        """Show all cells + both splitters and restore the saved grid sizes."""
+        for panel in self._all_panels:
+            panel.setVisible(True)
+        for spl in self._splitters.values():
+            spl.setVisible(True)
+        if self._saved_sizes:
+            self._root_splitter.setSizes(self._saved_sizes["root"])
+            self._splitters["left"].setSizes(self._saved_sizes["left"])
+            self._splitters["right"].setSizes(self._saved_sizes["right"])
+        self._fullscreen = None
 
 
 class LamellaEditorView(QWidget):
@@ -195,6 +320,10 @@ class MicroscopeViewController(QObject):
     # (beam, overlay_id, index). Producers subscribe to mirror selection (e.g. a table).
     overlay_point_selected = pyqtSignal(object, str, int)
 
+    # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
+    # quad view emits this; the lamella editor view has no selection concept.
+    view_selected = pyqtSignal(object)
+
     def __init__(
         self, parent: Optional[QObject] = None, view: Optional[QWidget] = None
     ) -> None:
@@ -202,6 +331,10 @@ class MicroscopeViewController(QObject):
         # The view widget must expose sem_canvas / fib_canvas / fm_widget / fm_canvas.
         # Defaults to the 2x2 quad; the lamella editor passes a LamellaEditorView.
         self._widget = view if view is not None else QuadViewWidget()
+        # Forward the view's selection signal when it supports selection (quad view does;
+        # the lamella editor view does not).
+        if hasattr(self._widget, "view_selected"):
+            self._widget.view_selected.connect(self.view_selected)
         self._canvases: Dict[BeamType, FibsemImageCanvas] = {
             BeamType.ELECTRON: self._widget.sem_canvas,
             BeamType.ION: self._widget.fib_canvas,
@@ -235,6 +368,30 @@ class MicroscopeViewController(QObject):
     def widget(self) -> QWidget:
         """The view widget (``QuadViewWidget`` or a ``LamellaEditorView``)."""
         return self._widget
+
+    @property
+    def selected_view(self):
+        """The selected view key (``BeamType.ELECTRON`` / ``BeamType.ION`` / ``"fm"``), or
+        ``None`` for views (e.g. the lamella editor) that don't support selection."""
+        return getattr(self._widget, "selected", None)
+
+    @property
+    def fullscreen(self):
+        """The full-screened view key, or ``None`` (grid, or a view without full screen)."""
+        return getattr(self._widget, "fullscreen", None)
+
+    def set_fullscreen(self, key) -> None:
+        """Full-screen a view (``BeamType`` or ``"fm"``), or restore the grid with ``None``.
+        No-op on views that don't support it (e.g. the lamella editor)."""
+        fn = getattr(self._widget, "set_fullscreen", None)
+        if callable(fn):
+            fn(key)
+
+    def toggle_fullscreen(self) -> None:
+        """Toggle full screen for the selected view; no-op on unsupported views."""
+        fn = getattr(self._widget, "toggle_fullscreen", None)
+        if callable(fn):
+            fn()
 
     @property
     def sem_canvas(self) -> FibsemImageCanvas:
