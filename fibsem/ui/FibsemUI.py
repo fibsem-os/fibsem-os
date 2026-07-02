@@ -1,7 +1,5 @@
-import napari
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
-import napari.utils.notifications
 import fibsem
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings

@@ -6,19 +6,15 @@ import time
 from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-import napari
 import numpy as np
-from napari.layers import Image as NapariImageLayer
-from napari.layers import Layer as NapariLayer
-from napari.layers import Shapes as NapariShapesLayer
-from napari.utils.events import Event as NapariEvent
 from psygnal import EmissionInfo
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QLabel,
     QProgressBar,
@@ -57,24 +53,6 @@ from fibsem.structures import (
 )
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
-from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
-from fibsem.ui.napari.patterns import (
-    MILLING_PATTERN_LAYER_NAME,
-    draw_milling_patterns_in_napari,
-)
-from fibsem.ui.napari.properties import (
-    CORRELATION_IMAGE_LAYER_PROPERTIES,
-    GRIDBAR_IMAGE_LAYER_PROPERTIES,
-    OVERVIEW_IMAGE_LAYER_PROPERTIES,
-)
-from fibsem.ui.napari.utilities import (
-    NapariShapeOverlay,
-    create_circle_shape,
-    create_crosshair_shape,
-    create_rectangle_shape,
-    is_inside_image_bounds,
-    update_text_overlay,
-)
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
 from fibsem.ui.widgets.fm_composite import FMLayer, composite_fm_layers
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
@@ -86,8 +64,6 @@ from fibsem.ui.widgets.overview_acquisition_settings_widget import (
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
-
-COLOURS = CORRELATION_IMAGE_LAYER_PROPERTIES["colours"]
 
 OVERVIEW_IMAGE_PARAMETERS = {
     "nrows": 3,
@@ -145,6 +121,26 @@ LABEL_INSTRUCTIONS = {
     "image-available": "Instructions: \nRight Click to Add/Move a Lamella Position or Double Click to Move the Stage...",
     "no-image": "Please take or load an overview image..."
 }
+
+# Floating "Display" popover on the canvas toolbar (napari-dark, like the layer controls).
+_DISPLAY_PANEL_QSS = """
+QFrame#minimapDisplayPanel {
+    background: #262930;
+    border: 1px solid #3a3f47;
+    border-radius: 8px;
+}
+QFrame#minimapDisplayPanel QLabel#panelTitle {
+    color: #9aa0a6;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+QFrame#minimapDisplayPanel QCheckBox {
+    color: #d1d2d4;
+    font-size: 12px;
+    padding: 2px 0;
+}
+"""
 DEFAULT_OVERVIEW_ACQUISITION_SETTINGS = OverviewAcquisitionSettings(
     image_settings=ImageSettings(
         hfw=OVERVIEW_IMAGE_PARAMETERS["fov"] * constants.MICRO_TO_SI,
@@ -224,6 +220,10 @@ class FibsemMinimapWidget(QWidget):
         # matplotlib canvas (left pane) — replaces the napari viewer. The overview +
         # correlation images composite onto it; overlays + clicks attach in later stages.
         self.canvas = FibsemImageCanvas(self)
+        # A black background + ~2x view margin: the overview "floats" on black, and
+        # overlays that extend beyond the image (stage limits, grid boundary) stay visible.
+        self.canvas.set_background_color("black")
+        self.canvas.set_view_margin(0.5)
 
         # entity-grouped overlays (see docs/design/overview-minimap-cutover.md): each
         # redraws on its own trigger. ReferenceFrame (static geometry) behind
@@ -332,29 +332,38 @@ class FibsemMinimapWidget(QWidget):
         self.correlation_panel._btn_collapse.setChecked(False)
         self.gridLayout_5.addWidget(self.correlation_panel, 2, 0)
 
-        # ── Display Options panel ─────────────────────────────────
-        display_content = QWidget()
-        _dlo = QVBoxLayout(display_content)
-        _dlo.setContentsMargins(4, 4, 4, 4)
-        self.checkBox_show_overview_fov = QCheckBox("Show Overview FOV")
+        # ── Display Options — a floating popover on the canvas toolbar (like napari's
+        # layer controls), toggled by the "eye" button, instead of a side panel.
+        self._display_panel = QFrame(self)
+        self._display_panel.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self._display_panel.setObjectName("minimapDisplayPanel")
+        self._display_panel.setStyleSheet(_DISPLAY_PANEL_QSS)
+        _dlo = QVBoxLayout(self._display_panel)
+        _dlo.setContentsMargins(14, 12, 14, 14)
+        _dlo.setSpacing(6)
+        _display_title = QLabel("DISPLAY")
+        _display_title.setObjectName("panelTitle")
+        _dlo.addWidget(_display_title)
+        self.checkBox_show_overview_fov = QCheckBox("Overview FOV")
         self.checkBox_show_overview_fov.setChecked(True)
-        self.checkBox_show_saved_positions_fov = QCheckBox("Show Saved Positions FOV")
+        self.checkBox_show_saved_positions_fov = QCheckBox("Saved Positions FOV")
         self.checkBox_show_saved_positions_fov.setChecked(True)
-        self.checkBox_show_stage_limits = QCheckBox("Show Stage Limits")
+        self.checkBox_show_stage_limits = QCheckBox("Stage Limits")
         self.checkBox_show_stage_limits.setChecked(True)
-        self.checkBox_show_circle_overlays = QCheckBox("Show Circle Overlays")
+        self.checkBox_show_circle_overlays = QCheckBox("Circle Overlays")
         self.checkBox_show_circle_overlays.setChecked(True)
-        self.checkBox_show_tem_stage_limits = QCheckBox("Show TEM Stage Limits")
+        self.checkBox_show_tem_stage_limits = QCheckBox("TEM Stage Limits")
         self.checkBox_show_tem_stage_limits.setChecked(False)
-        _dlo.addWidget(self.checkBox_show_overview_fov)
-        _dlo.addWidget(self.checkBox_show_saved_positions_fov)
-        _dlo.addWidget(self.checkBox_show_stage_limits)
-        _dlo.addWidget(self.checkBox_show_circle_overlays)
-        _dlo.addWidget(self.checkBox_show_tem_stage_limits)
+        for _cb in (self.checkBox_show_overview_fov, self.checkBox_show_saved_positions_fov,
+                    self.checkBox_show_stage_limits, self.checkBox_show_circle_overlays,
+                    self.checkBox_show_tem_stage_limits):
+            _dlo.addWidget(_cb)
+        self._display_panel.hide()
 
-        display_panel = TitledPanel("Display Options", content=display_content)
-        display_panel._btn_collapse.setChecked(False)
-        self.gridLayout_5.addWidget(display_panel, 3, 0)
+        # canvas toolbar button that toggles the display popover
+        self._btn_display = self.canvas.add_toolbar_button(
+            "mdi:eye-outline", "Display options", self._toggle_display_panel, checkable=True
+        )
 
         self.pushButton_load_image = QPushButton("Load Image")
         self.gridLayout_5.addWidget(self.pushButton_load_image, 4, 0)
@@ -374,6 +383,26 @@ class FibsemMinimapWidget(QWidget):
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(splitter)
+
+    def _toggle_display_panel(self) -> None:
+        """Show/hide the Display popover from its canvas toolbar button."""
+        if self._btn_display.isChecked():
+            self._position_display_panel()
+            self._display_panel.show()
+            self._display_panel.raise_()
+        else:
+            self._display_panel.hide()
+
+    def _position_display_panel(self) -> None:
+        """Anchor the popover near the canvas top-right, just below the toolbar."""
+        self._display_panel.adjustSize()
+        anchor = self.canvas.mapToGlobal(QPoint(self.canvas.width() - 8, 44))
+        self._display_panel.move(anchor.x() - self._display_panel.width(), anchor.y())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if getattr(self, "_display_panel", None) is not None and self._display_panel.isVisible():
+            self._position_display_panel()
 
     def draw_blank_image(self):
         if self.microscope is None:
@@ -436,31 +465,15 @@ class FibsemMinimapWidget(QWidget):
         # signals
         self._acquisition_finished.connect(self.tile_collection_finished)
 
-        # pattern overlay
-        self.comboBox_pattern_overlay.currentIndexChanged.connect(self._draw_milling_pattern_overlay)
-        self.checkBox_pattern_overlay.stateChanged.connect(self._draw_milling_pattern_overlay)
-
-        # correlation
-        self.pushButton_load_correlation_image.clicked.connect(self.load_image)
-        self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
-        self.pushButton_enable_correlation.clicked.connect(self._toggle_correlation_mode)
-        self.pushButton_enable_correlation.setEnabled(False) # disabled until correlation images added
-
-        # gridbar controls
-        self.correlation_panel.setEnabled(True) # only grid-bar overlay enabled
-        self.checkBox_gridbar.setEnabled(True)
-        self.checkBox_gridbar.stateChanged.connect(self.toggle_gridbar_display)
-        self.label_gb_spacing.setVisible(False)
-        self.label_gb_width.setVisible(False)
-        self.doubleSpinBox_gb_spacing.setVisible(False)
-        self.doubleSpinBox_gb_width.setVisible(False)
-        self.doubleSpinBox_gb_spacing.setValue(GRIDBAR_IMAGE_LAYER_PROPERTIES["spacing"])
-        self.doubleSpinBox_gb_width.setValue(GRIDBAR_IMAGE_LAYER_PROPERTIES["width"])
-        self.doubleSpinBox_gb_spacing.setKeyboardTracking(False)
-        self.doubleSpinBox_gb_width.setKeyboardTracking(False)
-        self.doubleSpinBox_gb_spacing.valueChanged.connect(self.update_gridbar_layer)
-        self.doubleSpinBox_gb_width.valueChanged.connect(self.update_gridbar_layer)
-        self.correlation_panel.setToolTip("Correlation Controls are disabled until an image is acquired or loaded.")
+        # Correlation, gridbar, and milling-pattern overlays are disabled pending a
+        # rework (see docs/design/minimap-correlation-gridbar-rework.md): the
+        # composite / stretch-to-fit approach can't do properly aligned correlation.
+        # Hide their controls; the underlying methods are no-op stubs.
+        self.correlation_panel.setVisible(False)
+        self.pushButton_load_correlation_image.setVisible(False)
+        self.label_pattern_overlay.setVisible(False)
+        self.checkBox_pattern_overlay.setVisible(False)
+        self.comboBox_pattern_overlay.setVisible(False)
 
         # set styles
         self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -692,16 +705,12 @@ class FibsemMinimapWidget(QWidget):
         return self._acquisition_worker is not None and self._acquisition_worker.is_alive()
 
     def toggle_gridbar_display(self):
-        """Toggle the display of the synthetic grid bar overlay."""
-        show_gridbar = self.checkBox_gridbar.isChecked()
-        self.label_gb_spacing.setVisible(show_gridbar)
-        self.label_gb_width.setVisible(show_gridbar)
-        self.doubleSpinBox_gb_spacing.setVisible(show_gridbar)
-        self.doubleSpinBox_gb_width.setVisible(show_gridbar)
-        self.update_gridbar_layer()  # TODO(M5): add/remove gridbar composite layer
+        """Disabled pending the correlation/gridbar rework
+        (see docs/design/minimap-correlation-gridbar-rework.md)."""
+        return
 
     def update_gridbar_layer(self):
-        """Update the synthetic grid bar overlay (TODO(M5): composite as an FMLayer)."""
+        """Disabled pending the correlation/gridbar rework."""
         return
 
     def toggle_interaction(self, enable: bool = True):
@@ -793,7 +802,10 @@ class FibsemMinimapWidget(QWidget):
             if reset_view:
                 self.canvas.reset_view()
         else:
-            self.canvas.update_display(rgb)
+            # Pass pixel_size so the scalebar tracks a same-shape scale change — e.g. the
+            # real overview replacing the blank placeholder after a tiled acquisition,
+            # where the progressive tmp updates already set the canvas to this shape.
+            self.canvas.update_display(rgb, pixel_size=px)
 
     def _update_info_bar(self, stage_position: Optional[FibsemStagePosition] = None) -> None:
         """Refresh the canvas info bar (stage / milling angle / grid / objective),
@@ -1156,28 +1168,19 @@ class FibsemMinimapWidget(QWidget):
         return
 
     def add_correlation_image(self, image: FibsemImage, is_gridbar: bool = False):
-        """Add a correlation image to the composite.
-        TODO(M5): append an FMLayer (colormap + opacity) + recomposite."""
-        notification_service.show_toast(
-            "Correlation images are not available on the new canvas yet.", "warning"
-        )
+        """Disabled pending the correlation/gridbar rework
+        (see docs/design/minimap-correlation-gridbar-rework.md). The composite-based
+        approach was reverted: correlation needs a real, persisted alignment transform,
+        not a stretch-to-fit composite."""
+        return
 
-    # do this when image selected is changed
     def update_correlation_ui(self):
-
-        # set ui
-        layer_name = self.comboBox_correlation_selected_layer.currentText()
-        self.pushButton_enable_correlation.setEnabled(layer_name != "")
-        if layer_name == "":
-            notification_service.show_toast("Please select a layer to correlate with update data...")
-            return
+        """Disabled pending the correlation/gridbar rework."""
+        return
 
     def _toggle_correlation_mode(self, event=None):
-        """Correlation drag-align is deferred on the matplotlib canvas
-        (see docs/design/overview-minimap-cutover.md). TODO(M5): remove this control."""
-        notification_service.show_toast(
-            "Correlation alignment mode is not available on the new canvas.", "warning"
-        )
+        """Disabled pending the correlation/gridbar rework."""
+        return
 
     def set_active_layer_for_movement(self) -> None:
         """No-op on the matplotlib canvas — there is no layer-selection concept; the

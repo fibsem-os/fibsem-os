@@ -10,7 +10,6 @@ except Exception:
 
 import warnings
 
-import napari
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAction,
@@ -157,7 +156,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         _frame_layout.addWidget(self.tab_widget)
         self.setCentralWidget(self._border_frame)
 
-        self.viewers: list[napari.Viewer] = []
+        self.viewers: list = []  # retained for closeEvent; no napari viewers remain
         self.autolamella_ui: AutoLamellaUI
         self.minimap_widget: FibsemMinimapWidget
 
