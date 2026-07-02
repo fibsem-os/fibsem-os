@@ -108,20 +108,19 @@ TEM" → ReferenceFrame sub-visibility, "Show Overview FOV" → CurrentPosition 
 one cross-cutting quirk — a lamella's name label shows on its box when the FOV is on, else on its
 crosshair — which was awkward split across napari layers and is trivial inside one marker.
 
-## Deferred: correlation drag-to-align
+## Disabled: correlation + gridbar (rework pending)
 
-napari's "Enable Correlation Mode" sets `correlation_layer.mode = 'transform'` and makes the layer
-the active selection, giving a free drag-to-affine (translate/rotate/scale) so you can eyeball an FM
-image over the overview. **This is purely visual — the dragged transform is never saved or read back
-anywhere** (no `.affine` / `.translate` is consumed downstream; real correlation goes through the
-separate `CorrelationTabWidget`).
+**Update (2026-07-02): correlation *and* gridbar are now disabled entirely** — controls hidden, handlers
+no-op — pending a proper rework. See **`minimap-correlation-gridbar-rework.md`** for the why and the
+requirements.
 
-Decision (2026-07-02): **defer the interactive transform.** Correlation images still load, composite,
-colormap, and blend; gridbars still work. The "Enable Correlation Mode" button + its transform-drag are
-dropped (or disabled with a tooltip) for this pass. Rationale: it de-risks the cutover and gets us off
-napari soonest, and since the transform isn't persisted, nothing downstream regresses — only a visual
-convenience is temporarily unavailable. Re-add later (matplotlib drag on the composited layer) if users
-miss it.
+Short version: the first cut composited correlation images as colour-tinted `FMLayer`s, stretched to
+the overview shape when the resolution didn't match. But correlation is fundamentally about *aligning*
+two coordinate frames — a stretch-to-fit overlay is geometrically wrong except in the same-FOV case,
+and napari's old inline "transform mode" never persisted its affine either. Doing it right (a real,
+saved alignment transform, ideally reusing `fibsem/correlation/`) is a sizeable piece of work, so it's
+been reverted rather than shipped half-working. The gridbar composited fine but its model
+(image-in-composite vs. a vector overlay tied to real grid geometry) is reconsidered in the same rework.
 
 ## Deferred: milling-pattern overlay
 
@@ -183,11 +182,16 @@ swapped stage by stage; the final stage deletes the dead napari branches + impor
 - **M3 — LamellaMarkers.** Per-lamella FOV box + crosshair + name label, coloured by defect/selection;
   refreshed on add/remove/select/defect. The box↔crosshair label switch lives here. Selection sync via
   `update_current_selected_position`.
-- **M4 — correlation + gridbars.** Load correlation images + gridbar as `FMLayer`s in the composite;
-  correlation layer combobox + gridbar spacing/width controls. Drop the deferred transform-drag.
+- **M4 — correlation + gridbars.** ~~Load correlation images + gridbar as `FMLayer`s in the
+  composite.~~ **Reverted + disabled** — the composite/stretch-to-fit model can't do aligned
+  correlation; controls hidden, handlers stubbed. See `minimap-correlation-gridbar-rework.md`.
+- **Extras (post-review, kept):** black canvas background + ~2x view margin (opt-in
+  `FibsemImageCanvas.set_background_color` / `set_view_margin`; the margin also stops the
+  stage-limit / grid-boundary overlays clipping at the image edge); the display-option toggles moved
+  into a canvas-toolbar popover (napari-style layer controls).
 - **M5 — remove napari + finish.** Delete remaining `napari` imports + dead layer branches from the
-  widget; disable the deferred milling-pattern + correlation-mode controls (tooltips); headless verify
-  (offscreen) + smoke both call sites; update memory + this doc's status.
+  widget; hide the disabled correlation/gridbar + milling-pattern controls; headless verify (offscreen)
+  + smoke both call sites; update memory + this doc's status.
 
 ## Risks / watch-list
 
