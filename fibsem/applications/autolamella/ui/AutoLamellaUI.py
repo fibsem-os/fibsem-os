@@ -10,7 +10,6 @@ except Exception:
     pass
 import logging
 import os
-import subprocess
 import threading
 from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
@@ -826,15 +825,7 @@ class AutoLamellaUI(QMainWindow):
             )
             return
 
-        try:
-            if sys.platform.startswith("darwin"):
-                subprocess.Popen(["open", experiment_path])
-            elif os.name == "nt":
-                os.startfile(experiment_path)  # type: ignore[attr-defined]
-            else:
-                subprocess.Popen(["xdg-open", experiment_path])
-        except Exception:
-            logging.exception("Failed to open experiment directory.")
+        if not fui.open_path_in_file_explorer(experiment_path):
             notification_service.show_toast(
                 "Failed to open experiment directory.", "error"
             )

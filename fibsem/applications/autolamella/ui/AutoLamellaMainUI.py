@@ -295,6 +295,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
             raise RuntimeError("Failed to create Help menu in AutoLamella UI.")
+        self.action_report_issue = QAction("Report an Issue...", self)
+        self.action_report_issue.triggered.connect(self._on_report_issue)
+        help_menu.addAction(self.action_report_issue)
         self.action_about = QAction("About", self)
         self.action_about.triggered.connect(self._show_about_dialog)
         help_menu.addAction(self.action_about)
@@ -532,6 +535,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Show the About dialog."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.open_information_dialog()
+
+    def _on_report_issue(self):
+        """Open the Report an Issue dialog."""
+        from fibsem.ui.widgets.bug_report_widget import open_bug_report_dialog
+
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        open_bug_report_dialog(
+            experiment=experiment, microscope=microscope, parent=self
+        )
 
     def _on_toggle_minimap_widget(self, checked: bool):
         """Toggle the minimap plot dock widget visibility."""
@@ -1664,6 +1677,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
 def run_ui():
     """Run the AutoLamella embedded example."""
+    from fibsem.applications.autolamella.tools.bug_report import init_sentry
+
+    init_sentry()  # inert unless crash reporting is enabled in preferences
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
     window = AutoLamellaSingleWindowUI()
