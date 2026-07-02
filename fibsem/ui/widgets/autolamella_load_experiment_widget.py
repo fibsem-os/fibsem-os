@@ -26,13 +26,13 @@ ERROR_PROTOCOL_NOT_FOUND_MSG = (
 
 ERROR_INVALID_EXPERIMENT_TITLE = "Invalid Experiment"
 ERROR_INVALID_EXPERIMENT_MSG = (
-    "The selected experiment file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
+    "The selected experiment is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
     "Error: {error}\n\n"
-    "Please select a valid experiment file (experiment.yaml)."
+    "Please select a directory containing an experiment.yaml file."
 )
 
 ERROR_NO_EXPERIMENT_TITLE = "No Experiment"
-ERROR_NO_EXPERIMENT_MSG = "Please select an experiment file."
+ERROR_NO_EXPERIMENT_MSG = "Please select a directory containing an experiment.yaml file."
 
 ERROR_NO_PROTOCOL_TITLE = "No Protocol"
 ERROR_NO_PROTOCOL_MSG = "The experiment does not have a valid protocol file."
@@ -56,7 +56,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
     """Dialog for loading an existing AutoLamella experiment.
 
     Allows users to:
-    - Select and load an existing experiment file (experiment.yaml)
+    - Select a directory containing an experiment.yaml file and load it
     - Automatically load the associated protocol file (protocol.yaml)
     - View experiment and protocol information
 
@@ -228,7 +228,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
 
     def _select_experiment(self):
-        """Open dialog to select an experiment file."""
+        """Open dialog to select an experiment folder."""
         # Default to last used experiment directory if available
         default_path = str(cfg.LOG_PATH)
         prefs = load_user_preferences()
@@ -236,13 +236,27 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         if last_path and os.path.exists(last_path):
             default_path = last_path
 
-        experiment_path = fui.open_existing_file_dialog(
-            msg="Select an experiment file (experiment.yaml)",
+        experiment_dir = fui.open_existing_directory_dialog(
+            msg="Select an experiment folder",
             path=default_path,
             parent=self,
         )
 
-        if not experiment_path or experiment_path == "":
+        if not experiment_dir or experiment_dir == "":
+            return
+
+        # the experiment is always stored as experiment.yaml within the folder
+        experiment_path = os.path.join(experiment_dir, "experiment.yaml")
+
+        if not os.path.exists(experiment_path):
+            QtWidgets.QMessageBox.critical(
+                self,
+                ERROR_INVALID_EXPERIMENT_TITLE,
+                ERROR_INVALID_EXPERIMENT_MSG.format(
+                    error="No 'experiment.yaml' found in the selected folder."
+                ),
+            )
+            self._clear_display()
             return
 
         # Validate the experiment file
