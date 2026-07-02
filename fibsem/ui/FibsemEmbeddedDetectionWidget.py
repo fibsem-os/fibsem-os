@@ -1,15 +1,9 @@
 import logging
 import os
 from copy import deepcopy
-from typing import List, Optional
+from typing import Optional
 
-import napari
-import napari.utils.notifications
 import numpy as np
-from napari.layers import Image as NapariImageLayer
-from napari.layers import Labels as NapariLabelsLayer
-from napari.layers import Points as NapariPointsLayer
-from napari.layers import Shapes as NapariShapesLayer
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont
@@ -19,13 +13,12 @@ import fibsem
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
-from fibsem.segmentation.config import CLASS_COLORS
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
+    BeamType,
     FibsemImage,
     Point,
 )
-from fibsem.ui.napari.utilities import add_points_layer
 
 
 class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
@@ -39,20 +32,106 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self._setup_ui()
 
         self.parent = parent
-        if parent is not None:
-            viewer = parent.viewer
-        else:
-            viewer = napari.current_viewer()
-        self.viewer: napari.Viewer = viewer
-
         self.has_user_corrected: bool = False
 
-        self.image_layer: NapariImageLayer = None
-        self.mask_layer: NapariLabelsLayer = None
-        self.features_layer: NapariPointsLayer = None
-        self.cross_hair_layer: NapariShapesLayer = None
+        # quad-view: a "mask" MaskSpec + a modal "detection" PointsSpec on a beam
+        # canvas, owned by the controller.
+        self._host_beam = None         # BeamType the detection overlays are hosted on
+        self._detection_wired = False  # subscribed to controller.overlay_edited
 
         self.setup_connections()
+
+    # ------------------------------------------------------------------
+    # Quad-view overlays (controller-owned)
+    # ------------------------------------------------------------------
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None if unavailable."""
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
+
+    def _host_beam_for(self, det):
+        """Pick the beam to host detection — the beam of ``det.fibsem_image``
+        (fallback ION), or None if there's no controller."""
+        if self._view_controller() is None:
+            return None
+        fib = getattr(det, "fibsem_image", None)
+        beam = fib.metadata.beam_type if fib is not None and fib.metadata is not None else None
+        return beam if beam in (BeamType.ELECTRON, BeamType.ION) else BeamType.ION
+
+    def _detach_detection(self, beam):
+        """Remove the detection overlays from *beam* (e.g. when the host beam changes)."""
+        controller = self._view_controller()
+        if controller is None or beam is None:
+            return
+        controller.arm_overlay(beam, None)
+        controller.remove_overlay(beam, "detection")
+        controller.remove_overlay(beam, "mask")
+        canvas = controller.get_canvas(beam)
+        if canvas is not None:
+            canvas.set_hint(None)
+
+    def _update_features(self, beam):
+        """Show the detection image + read-only mask + draggable feature points on the
+        *beam* canvas via the reducer (quad-view equivalent of update_features_ui)."""
+        from fibsem.ui.widgets.canvas_state import MaskSpec, PointsSpec
+
+        controller = self._view_controller()
+        if controller is None:
+            return
+        if self._host_beam is not None and self._host_beam is not beam:
+            self._detach_detection(self._host_beam)  # host beam changed
+        self._host_beam = beam
+        if not self._detection_wired:
+            controller.overlay_edited.connect(self._on_detection_edited)
+            self._detection_wired = True
+
+        # the detection image: its pixel space matches det.mask + feature.px
+        if self.det.fibsem_image is not None:
+            controller.set_image(beam, self.det.fibsem_image)
+        controller.set_overlay(beam, MaskSpec(mask=self.det.mask))  # display-only
+        controller.set_overlay(
+            beam,
+            PointsSpec(
+                id="detection",
+                points=[(f.px.x, f.px.y) for f in self.det.features],
+                colors=[f.color for f in self.det.features],
+                labels=[f.name for f in self.det.features],
+                marker="+", size=16, removable=False, add_on_right_click=False, modal=True,
+            ),
+        )
+        controller.arm_overlay(beam, "detection", label="Detection", icon="mdi:vector-point")
+        canvas = controller.get_canvas(beam)
+        if canvas is not None:
+            canvas.set_hint("drag features to correct  ·  Continue when done")
+        self.update_info()
+
+    def _on_detection_edited(self, beam, overlay_id, points):
+        """A feature point was dragged → update ``feature.px`` (mirrors update_point)."""
+        if overlay_id != "detection":
+            return
+        for i, (x, y) in enumerate(points):
+            if i < len(self.det.features):
+                self.det.features[i].px = Point(x=x, y=y)
+        self.has_user_corrected = True
+        self.update_info()
+
+    def closeEvent(self, event) -> None:
+        self._teardown_connections()
+        super().closeEvent(event)
+
+    def _teardown_connections(self) -> None:
+        """Drop the controller subscription (idempotent). Called from ``closeEvent`` AND
+        the AutoLamella teardown path (``deleteLater`` fires neither), so a recreated
+        widget doesn't leave a dead slot on the persistent controller."""
+        if self._detection_wired:
+            controller = self._view_controller()
+            if controller is not None:
+                try:
+                    controller.overlay_edited.disconnect(self._on_detection_edited)
+                except (TypeError, RuntimeError):
+                    pass
+            self._detection_wired = False
 
     def _setup_ui(self):
         self.gridLayout = QGridLayout(self)
@@ -93,39 +172,22 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         )
 
     def clear_layers(self):
-        """Remove the layers added by the detection widget and reshow all other layers."""
-        # remove feature detection layers
-        if self.image_layer is not None:
-            if self.image_layer in self.viewer.layers:
-                self.viewer.layers.remove(self.image_layer)
-            if self.mask_layer in self.viewer.layers:
-                self.viewer.layers.remove(self.mask_layer)
-            if self.features_layer in self.viewer.layers:
-                self.viewer.layers.remove(self.features_layer)
-            if self.cross_hair_layer in self.viewer.layers:
-                self.viewer.layers.remove(self.cross_hair_layer)
-
-        # reshow all other layers
-        excluded_layers = ["alignment_area"]
-        for layer in self.viewer.layers:
-            if layer.name in excluded_layers:
-                continue
-            layer.visible = True
+        """Remove the detection overlays from the canvas."""
+        controller = self._view_controller()
+        if controller is not None:
+            if self._host_beam is not None:
+                self._detach_detection(self._host_beam)
+            self._host_beam = None
 
     def confirm_button_clicked(self):
-        """Confirm the detected features, save the data and and remove the layers from the viewer."""
-
-        # update the mask as the user may edit it
-        self.det.mask = self.mask_layer.data.astype(np.uint8) # type: ignore
-        
-        # log the difference between initial and final detections
-        # TODO: move this to outside the widget, into the same place as the non-supervised logging.
-        det_utils.save_ml_feature_data(det=self.det, 
+        """Confirm the detected features, save the data and clear the overlays."""
+        # mask is display-only (no painting), so det.mask stays the model output — but
+        # normalise its dtype to uint8 (save_feature_data_to_csv -> PIL.Image.fromarray needs it).
+        if self.det.mask is not None:
+            self.det.mask = np.asarray(self.det.mask).astype(np.uint8)
+        det_utils.save_ml_feature_data(det=self.det,
                                        initial_features=self._intial_det.features)
-
-        # reset layers and camera
         self.clear_layers()
-        self.viewer.reset_view()
 
     def set_detected_features(self, det_features: DetectedFeatures):
         """Set the detected features and update the UI"""
@@ -137,72 +199,11 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def update_features_ui(self):
         """Update the UI with the detected features"""
-        # hide all other layers?
-        for layer in self.viewer.layers:
-            layer.visible = False
-
-        self.image_layer = self.viewer.add_image( # type: ignore
-            self.det.image,
-            name="image",
-            opacity=0.7,
-            blending="additive",
-        )
-
-        # add mask to viewer
-        self.mask_layer = self.viewer.add_labels(self.det.mask, 
-                                                    name="mask", 
-                                                    opacity=0.3,
-                                                    blending="additive", 
-                                                    )
-        if hasattr(self.mask_layer, "colormap"):
-            self.mask_layer.colormap = CLASS_COLORS
-        else:
-            self.mask_layer.color = CLASS_COLORS
-
-        # add points to viewer
-        data = []
-        for feature in self.det.features:
-            x, y = feature.px
-            data.append([y, x])
-
-        text = {
-            "string": [feature.name for feature in self.det.features],
-            "color": "white",
-            "translation": np.array([-30, 0]),
-        }
-
-        self.features_layer = add_points_layer(
-            viewer=self.viewer,
-            data=data,
-            name="features",
-            text=text,
-            size=20,
-            border_width=7,
-            border_width_is_relative=False,
-            border_color="transparent",
-            face_color=[feature.color for feature in self.det.features],
-            blending="translucent",
-        )
-
-        # draw cross hairs
-        self.cross_hair_layer = None
-        self.draw_feature_crosshairs()
-
-        # set points layer to select mode and active
-        self.viewer.layers.selection.active = self.features_layer
-        self.features_layer.mode = "select"
-        
-        # when the point is moved update the feature
-        self.features_layer.events.data.connect(self.update_point)
-        self.update_info()
-            
-        # set camera
-        self.viewer.reset_view()
-
+        beam = self._host_beam_for(self.det)
+        if beam is not None:
+            self._update_features(beam)
         if self.det.checkpoint:
-            self.label_model.setText(f"Checkpont: {os.path.basename(self.det.checkpoint)}")
-        
-        napari.utils.notifications.show_info(f"Features ({', '.join([f.name for f in self.det.features])}) Detected")
+            self.label_model.setText(f"Checkpoint: {os.path.basename(self.det.checkpoint)}")
 
     def update_info(self):
         """Update the info label with the feature information"""
@@ -228,71 +229,6 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 )
             return
 
-    def update_point(self, event):
-        """Update the feature when the point is moved"""
-        # TODO: events have been updated so we can tell which point was deleted/moved/etc. Update this function to use that.
-        logging.debug(f"{event.source.name} changed its data!")
-
-        layer = self.viewer.layers[f"{event.source.name}"]  # type: ignore
-
-        # get the data
-        data = layer.data
-
-        # get which point was moved
-        index: List[int] = list(layer.selected_data)  
-                
-        if len(data) != len(self.det.features):
-            # loop backwards to remove the features
-            for idx in index[::-1]:
-                logging.debug({"msg": "detection_point_deleted",
-                               "idx": idx, "data": data[idx], 
-                               "feature": self.det.features[idx].name})
-                self.det.features.pop(idx)
-
-        else: 
-            for idx in index:
-                logging.debug({"msg": "detection_point_moved", 
-                               "idx": idx, "data": data[idx], 
-                               "feature": self.det.features[idx].name})
-                
-                # update the feature
-                self.det.features[idx].px = Point(
-                    x=data[idx][1], y=data[idx][0]
-                )
-
-        self.draw_feature_crosshairs()
-        self.has_user_corrected = True
-        self.update_info()
-
-    def draw_feature_crosshairs(self):
-        """Draw crosshairs for each feature on the image"""
-
-        data = self.features_layer.data
-
-        # for each data point draw two lines from the edge of the image to the point
-        line_data, line_colors = [], []
-        for idx, point in enumerate(data):
-            y, x = point # already flipped
-            vline = [[y, 0], [y, self.det.image.data.shape[1]]]
-            hline = [[0, x], [self.det.image.data.shape[0], x]]
-            
-            line_data += [hline, vline]
-            color = self.det.features[idx].color
-            line_colors += [color, color]
-        try:
-            self.cross_hair_layer.data = line_data
-            self.cross_hair_layer.edge_color = line_colors
-        except Exception as e:
-            self.cross_hair_layer = self.viewer.add_shapes(
-                data=line_data,
-                shape_type="line",
-                edge_width=3,
-                edge_color=line_colors,
-                name="feature_cross_hair",
-                opacity=0.7,
-                blending="additive",
-            )    
-    
     def _get_detected_features(self):
 
         from fibsem import conversions
@@ -323,16 +259,11 @@ def main():
         deepcopy(image.data), model, features=features, pixelsize=pixelsize
     )
 
-    viewer = napari.Viewer(ndisplay=2)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     det_widget_ui = FibsemEmbeddedDetectionUI()
     det_widget_ui.set_detected_features(det)
-
-    viewer.window.add_dock_widget(
-        det_widget_ui, area="right", 
-        add_vertical_stretch=False, 
-        name=f"OpenFIBSEMv{fibsem.__version__} Feature Detection"
-    )
-    napari.run()
+    det_widget_ui.show()
+    app.exec_()
 
     det = det_widget_ui.det
 

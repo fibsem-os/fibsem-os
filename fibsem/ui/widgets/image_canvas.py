@@ -34,10 +34,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle as MplRectangle
 from PyQt5.QtCore import QObject, QSize, QTimer, Qt, pyqtSignal
-from PyQt5.QtWidgets import QPushButton, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QPushButton, QSizePolicy
 from superqt import QIconifyIcon
 
 from fibsem.structures import FibsemImage
+from fibsem.ui.widgets.contrast_gamma_control import ContrastGammaControl
 
 _logger = logging.getLogger(__name__)
 
@@ -82,6 +83,29 @@ def _default_extents(H: int, W: int) -> Tuple[float, float, float, float]:
     return x0, x0 + rw, y0, y0 + rh
 
 
+# Keyboard modifiers mapped to napari-style strings, so handler bodies that
+# branch on ``"Alt" in modifiers`` port across from the napari callbacks verbatim.
+_QT_MODIFIER_MAP = (
+    (Qt.AltModifier, "Alt"),
+    (Qt.ShiftModifier, "Shift"),
+    (Qt.ControlModifier, "Control"),
+    (Qt.MetaModifier, "Meta"),
+)
+
+
+def _modifiers_from_event(event) -> Tuple[str, ...]:
+    """Active keyboard modifiers as napari-style strings, e.g. ``("Alt",)``.
+
+    Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
+    the reliable source in an embedded canvas, whereas matplotlib's
+    ``MouseEvent.key`` depends on canvas keyboard focus.  Falls back to the
+    application-wide modifier state when no Qt event is attached.
+    """
+    gui = getattr(event, "guiEvent", None)
+    mods = gui.modifiers() if gui is not None else QApplication.keyboardModifiers()
+    return tuple(name for flag, name in _QT_MODIFIER_MAP if mods & flag)
+
+
 # ---------------------------------------------------------------------------
 # Overlay base
 # ---------------------------------------------------------------------------
@@ -114,20 +138,28 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     * Optional scalebar (auto-populated from FibsemImage.metadata.pixel_size)
     """
 
-    canvas_clicked = pyqtSignal(float, float)  # left single-click (x, y) px
-    canvas_double_clicked = pyqtSignal(float, float)  # left double-click (x, y) px
-    canvas_right_clicked = pyqtSignal(float, float)  # right single-click (x, y) px
-    canvas_scrolled = pyqtSignal(float, float, int)  # (x, y) px, direction +1/-1
+    # Trailing ``object`` is a tuple of napari-style modifier strings, e.g. ("Alt",).
+    canvas_clicked = pyqtSignal(float, float, object)  # left single-click (x, y) px, mods
+    canvas_double_clicked = pyqtSignal(float, float, object)  # left double-click (x, y) px, mods
+    canvas_right_clicked = pyqtSignal(float, float, object)  # right single-click (x, y) px, mods
+    canvas_scrolled = pyqtSignal(float, float, int, object)  # (x, y) px, dir +1/-1, mods
 
     def __init__(self, parent=None):
         self._fig = Figure(facecolor=_BG)
+        # Axes + figure background; overridable via set_background_color (the minimap
+        # uses black). The label/hint bboxes keep their own colours.
+        self._facecolor = _BG
+        # Extra empty space around the image when fitting the view, as a fraction of the
+        # image size per side (0 = tight to the image; set via set_view_margin). Lets
+        # overlays that extend past the image (stage limits, grid boundary) stay visible.
+        self._view_margin = 0.0
         super().__init__(self._fig)
         self.setParent(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor(_BG)
+        self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
@@ -135,15 +167,39 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._img_h: Optional[int] = None
         self._overlays: List[CanvasOverlay] = []
         self._pan_start: Optional[Tuple] = None
+        # Modifiers captured at left-press, emitted with canvas_clicked on release
+        self._press_modifiers: Tuple[str, ...] = ()
 
         # Overlays set this True on press to suppress canvas pan
         self._overlay_consuming_event: bool = False
+
+        # Active-overlay input gating. None = default "Move" (full navigation +
+        # stage movement + milling menu). When set, that overlay owns input and
+        # the canvas suppresses its semantic click signals; see the design doc's
+        # active-overlay model. _mode_overlay/_mode_label back the toolbar toggle.
+        self._active_overlay = None
+        self._mode_overlay = None
+        self._mode_label: str = ""
 
         self._pixel_size: Optional[float] = None
         self._scalebar_artist = None
         self._scalebar_visible: bool = True
         self._crosshair_visible: bool = True
         self._crosshair_artists: list = []
+        self._hint_artist = None  # transient top-left instruction hint
+        self._hint_text: Optional[str] = None  # remembered so it survives set_image
+        self._info_artist = None  # bottom-left microscope-state info bar
+        self._info_text: Optional[str] = None  # remembered so it survives set_image
+
+        # Drag-to-measure ruler (lazily created on first toggle; see toggle_ruler).
+        # _ruler_prev_active restores whatever overlay owned input before measuring.
+        self._ruler_overlay: Optional["RulerOverlay"] = None
+        self._ruler_prev_active = None
+
+        # Contrast / gamma (display-only; applied to the downsampled grayscale frame)
+        self._display_base: Optional[np.ndarray] = None
+        self._norm: Optional[np.ndarray] = None  # normalized base, computed lazily
+        self._is_gray: bool = True
 
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setSingleShot(True)
@@ -169,6 +225,22 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             "mdi:crosshairs", "Hide crosshair", self.toggle_crosshair, checkable=True
         )
         self.btn_toggle_crosshair.setChecked(True)
+        self.btn_contrast = self._add_overlay_button(
+            "mdi:contrast-box", "Contrast / Gamma", self.toggle_contrast, checkable=True
+        )
+        self.btn_toggle_ruler = self._add_overlay_button(
+            "mdi:ruler", "Measure (ruler)", self.toggle_ruler, checkable=True
+        )
+        # Contextual mode toggle — shown only while an overlay owns input
+        # (enter_overlay_mode). Checked = active; unchecking returns to Move.
+        self.btn_mode = self._add_overlay_button(
+            "mdi:cursor-default-click", "", self._on_mode_button_clicked, checkable=True
+        )
+        self.btn_mode.hide()
+
+        # Floating contrast / gamma popover, anchored under btn_contrast
+        self._contrast = ContrastGammaControl(self)
+        self._contrast.changed.connect(self._apply_contrast)
 
         self._plot_empty()
 
@@ -186,38 +258,61 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     def set_image(self, image: FibsemImage, cmap: str = "gray") -> None:
         """Display a FibsemImage.  Notifies all registered overlays."""
-        h, w = image.data.shape[:2]
+        pixel_size = None
+        try:
+            if image.metadata and image.metadata.pixel_size:
+                pixel_size = image.metadata.pixel_size.x
+        except Exception:
+            pass
+        self.set_array(image.filtered_data, pixel_size=pixel_size, cmap=cmap)
+
+    def set_array(
+        self,
+        arr: np.ndarray,
+        pixel_size: Optional[float] = None,
+        cmap: str = "gray",
+    ) -> None:
+        """Display a raw 2-D (grayscale) or HxWx3 (RGB) array.
+
+        The lower-level entry point behind :meth:`set_image`, for composites/RGB
+        that have no backing ``FibsemImage`` (e.g. the multi-channel FM canvas).
+        *pixel_size* (metres/px) drives the scalebar; ``None`` leaves the current
+        value unchanged.  Notifies all registered overlays.
+        """
+        arr = np.asarray(arr)
+        h, w = arr.shape[:2]
         self._img_w, self._img_h = w, h
 
         self._ax.cla()
-        self._ax.set_facecolor(_BG)
+        self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        display = _downsample(image.filtered_data, _MAX_DISPLAY_PX)
+        self._display_base = _downsample(arr, _MAX_DISPLAY_PX)
+        self._is_gray = arr.ndim == 2
+        self._norm = None  # recomputed lazily when contrast is engaged
         extent = (-0.5, w - 0.5, h - 0.5, -0.5)
         kw = dict(
             origin="upper", aspect="equal", interpolation="nearest", extent=extent
         )
-        if image.data.ndim == 2:
-            self._ax.imshow(display, cmap=cmap, **kw)
+        to_show, clim = self._contrast_display()
+        if self._is_gray:
+            im = self._ax.imshow(to_show, cmap=cmap, **kw)
+            if clim is not None:
+                im.set_clim(*clim)
         else:
-            self._ax.imshow(display, **kw)
+            self._ax.imshow(to_show, **kw)
 
-        self._ax.set_xlim(-0.5, w - 0.5)
-        self._ax.set_ylim(h - 0.5, -0.5)
+        self._fit_view()
 
         # Scalebar
         self._scalebar_artist = None
-        try:
-            if image.metadata and image.metadata.pixel_size:
-                px = image.metadata.pixel_size.x
-                if px and px > 0:
-                    self._pixel_size = px
-        except Exception:
-            pass
+        if pixel_size and pixel_size > 0:
+            self._pixel_size = pixel_size
         self._refresh_scalebar()
         self._refresh_crosshair()
+        self._refresh_hint()  # axes was cleared above; restore the remembered hint
+        self._refresh_info_bar()  # ditto: restore the remembered info bar
 
         for overlay in self._overlays:
             try:
@@ -227,16 +322,28 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
         self.draw_idle()
 
-    def update_display(self, arr: np.ndarray) -> None:
+    def update_display(self, arr: np.ndarray, pixel_size: Optional[float] = None) -> None:
         """Fast pixel-data swap without resetting overlays.
 
-        Use for z-slice navigation where image dimensions don't change.
+        Use for z-slice navigation / recomposites where image dimensions don't change.
+        *pixel_size* (metres/px) updates the scalebar if it changed — important when the
+        same-shape swap actually carries a different scale (e.g. a real overview replacing
+        a blank placeholder of matching pixel dimensions). ``None`` leaves it unchanged.
         Falls back to a no-op if no image has been set yet.
         """
         imgs = self._ax.get_images()
         if not imgs:
             return
-        imgs[0].set_data(_downsample(arr, _MAX_DISPLAY_PX))
+        self._display_base = _downsample(arr, _MAX_DISPLAY_PX)
+        self._is_gray = arr.ndim == 2
+        self._norm = None
+        to_show, clim = self._contrast_display()
+        imgs[0].set_data(to_show)
+        if clim is not None:
+            imgs[0].set_clim(*clim)
+        if pixel_size and pixel_size > 0 and pixel_size != self._pixel_size:
+            self._pixel_size = pixel_size
+            self._refresh_scalebar()
         self.draw_idle()
 
     def set_crosshair_visible(self, visible: bool) -> None:
@@ -245,12 +352,72 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_crosshair()
         self.draw_idle()
 
+    def set_hint(self, text: Optional[str]) -> None:
+        """Show a small instruction hint in the top-left corner, or hide with None.
+
+        Drawn in axes-fraction coords so it stays fixed through zoom/pan.  The text
+        is remembered and re-applied after each image change (``set_image`` clears
+        the axes), so the hint is not silently dropped by a new acquisition.
+        """
+        self._hint_text = text or None
+        self._refresh_hint()
+        self.draw_idle()
+
+    def _refresh_hint(self) -> None:
+        """(Re)create the hint artist from the cached text, or remove it."""
+        if self._hint_artist is not None:
+            try:
+                self._hint_artist.remove()
+            except Exception:
+                pass
+            self._hint_artist = None
+        if self._hint_text:
+            self._hint_artist = self._ax.text(
+                0.012, 0.985, self._hint_text,
+                transform=self._ax.transAxes, ha="left", va="top",
+                fontsize=8, color="#1a1a1a", zorder=11,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
+                          edgecolor="none", alpha=0.85),
+            )
+
+    def set_info_text(self, text: Optional[str]) -> None:
+        """Show a small, muted info bar in the bottom-left, or hide with None/''.
+
+        Remembered + re-applied after each image change (like the hint). Driven by
+        the controller from the canvas-state model — microscope state, not image."""
+        self._info_text = text or None
+        self._refresh_info_bar()
+        self.draw_idle()
+
+    def _refresh_info_bar(self) -> None:
+        """(Re)create the info artist from the cached text, or remove it."""
+        if self._info_artist is not None:
+            try:
+                self._info_artist.remove()
+            except Exception:
+                pass
+            self._info_artist = None
+        if self._info_text:
+            self._info_artist = self._ax.text(
+                0.012, 0.015, self._info_text,
+                transform=self._ax.transAxes, ha="left", va="bottom",
+                fontsize=6.5, color="#e8e8e8", zorder=11,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor=_BG,
+                          edgecolor="none", alpha=0.55),
+            )
+
     def clear(self) -> None:
         """Clear the image and show placeholder text."""
         self._img_w = self._img_h = None
+        self._display_base = None
+        self._norm = None
         self._ax.cla()
         self._scalebar_artist = None
         self._crosshair_artists = []
+        self._hint_artist = None  # removed by cla(); drop the cached text too
+        self._hint_text = None
+        self._info_artist = None
+        self._info_text = None
         self._plot_empty()
         for overlay in self._overlays:
             try:
@@ -260,6 +427,13 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     # ── overlay buttons ───────────────────────────────────────────────────
+
+    def add_toolbar_button(
+        self, icon_name: str, tooltip: str, callback, checkable: bool = False
+    ) -> QPushButton:
+        """Public: add a custom button to the canvas's top-right toolbar (e.g. an
+        FM-layers control owned by a wrapper). Returns the QPushButton."""
+        return self._add_overlay_button(icon_name, tooltip, callback, checkable)
 
     def _add_overlay_button(
         self,
@@ -290,6 +464,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         """Place overlay buttons right-to-left in the top-right corner."""
         x = self.width() - _OVERLAY_MARGIN
         for btn in self._overlay_buttons:
+            if btn.isHidden():  # contextual buttons (e.g. mode toggle) reserve no slot
+                continue
             x -= btn.width()
             btn.move(x, _OVERLAY_MARGIN)
             x -= _OVERLAY_GAP
@@ -297,15 +473,40 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reposition_overlay_buttons()
+        contrast = getattr(self, "_contrast", None)
+        if contrast is not None and contrast.isVisible():
+            contrast.reposition()
+
+    def _fit_view(self) -> None:
+        """Set the view to the image extent expanded by ``_view_margin`` on each side."""
+        imgs = self._ax.get_images()
+        if not imgs:
+            return
+        xmin, xmax, ybot, ytop = imgs[0].get_extent()  # (xmin, xmax, ymax, ymin)
+        mx = self._view_margin * (xmax - xmin)
+        my = self._view_margin * abs(ybot - ytop)
+        self._ax.set_xlim(xmin - mx, xmax + mx)
+        self._ax.set_ylim(ybot + my, ytop - my)  # y-axis stays inverted (origin upper)
+
+    def set_view_margin(self, frac: float) -> None:
+        """Empty space kept around the image when fitting the view, as a fraction of the
+        image size per side (0 = tight, 0.5 = 2x the image extent). Also keeps overlays
+        that extend beyond the image (e.g. stage limits) visible."""
+        self._view_margin = max(0.0, float(frac))
+        self._fit_view()
+        self._schedule_redraw()
+
+    def set_background_color(self, color: str) -> None:
+        """Set the axes + figure background colour (the area around the image)."""
+        self._facecolor = color
+        self._fig.set_facecolor(color)
+        self._ax.set_facecolor(color)
+        self._schedule_redraw()
 
     def reset_view(self) -> None:
-        """Fit the view to the full image extent."""
-        imgs = self._ax.get_images()
-        if imgs:
-            ext = imgs[0].get_extent()  # (xmin, xmax, ymax, ymin)
-            self._ax.set_xlim(ext[0], ext[1])
-            self._ax.set_ylim(ext[2], ext[3])
-            self._schedule_redraw()
+        """Fit the view to the image extent (plus any view margin)."""
+        self._fit_view()
+        self._schedule_redraw()
 
     def add_overlay(self, overlay: CanvasOverlay) -> None:
         """Register an overlay and attach it to the current axes."""
@@ -320,6 +521,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
     def remove_overlay(self, overlay: CanvasOverlay) -> None:
         if overlay in self._overlays:
+            self.exit_overlay_mode(overlay)  # no-op unless it owns the mode
+            if overlay is self._active_overlay:  # active without a toolbar mode
+                self._active_overlay = None
             try:
                 overlay.detach()
             except Exception:
@@ -331,10 +535,77 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         for o in list(self._overlays):
             self.remove_overlay(o)
 
+    # ── active-overlay input gating ───────────────────────────────────────
+
+    @property
+    def active_overlay(self):
+        """The overlay currently owning input, or None (default 'Move' mode)."""
+        return self._active_overlay
+
+    def set_active_overlay(self, overlay) -> None:
+        """Make *overlay* the sole input handler on this canvas (None = Move).
+
+        While set, the canvas suppresses its semantic click signals
+        (``canvas_clicked`` / ``canvas_double_clicked`` / ``canvas_right_clicked``),
+        so stage movement and the milling menu stand down and other interactive
+        overlays stand down; pan / zoom / scroll stay live. This is the low-level
+        primitive — :meth:`enter_overlay_mode` wraps it with the toolbar toggle.
+        """
+        self._active_overlay = overlay
+        self.draw_idle()
+
+    def _overlay_input_allowed(self, overlay) -> bool:
+        """True if *overlay* may handle input now (nothing active, or it's active)."""
+        return self._active_overlay is None or self._active_overlay is overlay
+
+    def enter_overlay_mode(
+        self, overlay, label: str, icon: str = "mdi:cursor-default-click"
+    ) -> None:
+        """Activate *overlay* and show the contextual toolbar toggle (checked).
+
+        Checked = the overlay owns input; unchecking returns to Move (re-enables
+        stage movement); re-checking re-activates. Call :meth:`exit_overlay_mode`
+        when the workflow step ends.
+        """
+        self._mode_overlay = overlay
+        self._mode_label = label
+        self.btn_mode.setIcon(QIconifyIcon(icon, color="#aaaaaa"))
+        self.btn_mode.setToolTip(f"{label} active — click to enable Move")
+        self.btn_mode.setChecked(True)
+        self.btn_mode.show()
+        self._reposition_overlay_buttons()
+        self.set_active_overlay(overlay)
+
+    def exit_overlay_mode(self, overlay=None) -> None:
+        """Deactivate the overlay mode and hide the toolbar toggle (idempotent).
+
+        Pass *overlay* to scope the exit — it's a no-op unless that overlay owns
+        the current mode, so one caller can't tear down another's mode (POI and
+        alignment editing share the FIB canvas). ``None`` forces an exit.
+        """
+        if overlay is not None and overlay is not self._mode_overlay:
+            return
+        self._mode_overlay = None
+        self.btn_mode.setChecked(False)
+        self.btn_mode.hide()
+        self._reposition_overlay_buttons()
+        self.set_active_overlay(None)
+
+    def _on_mode_button_clicked(self) -> None:
+        """Toolbar toggle: flip between the bound overlay and Move (no teardown)."""
+        if self._mode_overlay is None:
+            return
+        if self.btn_mode.isChecked():
+            self.btn_mode.setToolTip(f"{self._mode_label} active — click to enable Move")
+            self.set_active_overlay(self._mode_overlay)
+        else:
+            self.btn_mode.setToolTip(f"Click to resume {self._mode_label}")
+            self.set_active_overlay(None)
+
     # ── internals ─────────────────────────────────────────────────────────
 
     def _plot_empty(self):
-        self._ax.set_facecolor(_BG)
+        self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
         self._ax.text(
             0.5,
@@ -365,6 +636,66 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             "Hide crosshair" if self._crosshair_visible else "Show crosshair"
         )
 
+    def toggle_ruler(self) -> None:
+        """Toggle the drag-to-measure ruler (a generic canvas tool).
+
+        While on, the ruler owns input (so a stray double-click/right-click
+        doesn't move the stage or open the milling menu); the previously active
+        overlay, if any, is restored when the ruler is turned off.
+        """
+        if self.btn_toggle_ruler.isChecked():
+            if self._ruler_overlay is None:
+                self._ruler_overlay = RulerOverlay()
+                self.add_overlay(self._ruler_overlay)
+            self._ruler_prev_active = self._active_overlay
+            self._ruler_overlay.set_visible(True)
+            self.set_active_overlay(self._ruler_overlay)
+            self.btn_toggle_ruler.setToolTip("Hide ruler")
+        else:
+            if self._ruler_overlay is not None:
+                self._ruler_overlay.set_visible(False)
+            self.set_active_overlay(self._ruler_prev_active)
+            self._ruler_prev_active = None
+            self.btn_toggle_ruler.setToolTip("Measure (ruler)")
+
+    # ── contrast / gamma ──────────────────────────────────────────────────
+
+    def toggle_contrast(self) -> None:
+        """Show or hide the floating contrast / gamma popover."""
+        self._contrast.set_open(self.btn_contrast.isChecked(), self.btn_contrast)
+
+    def _contrast_display(self) -> Tuple[Optional[np.ndarray], Optional[Tuple[float, float]]]:
+        """Return (array_to_show, clim) for the current contrast state.
+
+        When the control is at its defaults (or the image is RGB) the raw
+        downsampled frame is returned with ``clim=None`` — i.e. no change.
+        """
+        base = self._display_base
+        if base is None:
+            return None, None
+        if self._is_gray and not self._contrast.is_default():
+            if self._norm is None:
+                self._norm = ContrastGammaControl.normalize(base)
+            return self._contrast.apply(self._norm), (0.0, 1.0)
+        return base, None
+
+    def _apply_contrast(self) -> None:
+        """Re-apply contrast/gamma to the live image without a full redraw."""
+        imgs = self._ax.get_images()
+        if not imgs:
+            return
+        to_show, clim = self._contrast_display()
+        if to_show is None:
+            return
+        im = imgs[0]
+        im.set_data(to_show)
+        if clim is not None:
+            im.set_clim(*clim)
+        elif self._is_gray and self._display_base is not None:
+            # back to default → restore the raw intensity range
+            im.set_clim(float(self._display_base.min()), float(self._display_base.max()))
+        self.draw_idle()
+
     def _refresh_scalebar(self):
         if self._scalebar_artist is not None:
             try:
@@ -378,9 +709,9 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
                 self._scalebar_artist = ScaleBar(
                     dx=self._pixel_size,
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
+                    color="white",
+                    box_color=_BG,
+                    box_alpha=0.6,
                     location="lower right",
                 )
                 self._ax.add_artist(self._scalebar_artist)
@@ -397,11 +728,12 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         if not self._crosshair_visible or self._img_w is None:
             return
         cx, cy = self._img_w / 2.0, self._img_h / 2.0
-        half_w = self._img_w * 0.05 / 2
-        half_h = self._img_h * 0.05 / 2
+        # Size both arms from the longest dimension so the crosshair stays square
+        # (axes use aspect="equal", so equal data-unit arms are equal on screen).
+        half = max(self._img_w, self._img_h) * 0.05 / 2
         kw = dict(color="yellow", linewidth=1, alpha=0.8, zorder=7)
-        (h_line,) = self._ax.plot([cx - half_w, cx + half_w], [cy, cy], **kw)
-        (v_line,) = self._ax.plot([cx, cx], [cy - half_h, cy + half_h], **kw)
+        (h_line,) = self._ax.plot([cx - half, cx + half], [cy, cy], **kw)
+        (v_line,) = self._ax.plot([cx, cx], [cy - half, cy + half], **kw)
         self._crosshair_artists = [h_line, v_line]
 
     def _schedule_redraw(self):
@@ -413,15 +745,21 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def _on_press(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
             return
+        mods = _modifiers_from_event(event)
         if event.dblclick:
-            if event.button == 1:
-                self.canvas_double_clicked.emit(event.xdata, event.ydata)
+            # active overlay owns input → suppress stage-move double-click
+            if event.button == 1 and self._active_overlay is None:
+                self.canvas_double_clicked.emit(event.xdata, event.ydata, mods)
             return  # don't start a pan on double-click
         if event.button == 3:
-            self.canvas_right_clicked.emit(event.xdata, event.ydata)
+            # active overlay owns input → suppress the right-click (milling) menu
+            if self._active_overlay is None:
+                self.canvas_right_clicked.emit(event.xdata, event.ydata, mods)
             return
         if event.button != 1:
             return
+        # Capture now; canvas_clicked fires on release (after the drag-distance test)
+        self._press_modifiers = mods
         inv = self._ax.transData.inverted()
         self._pan_start = (
             event.x,
@@ -457,17 +795,23 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             if (
                 dist < 3
                 and not was_consuming
+                and self._active_overlay is None  # active overlay owns the click
                 and event.xdata is not None
                 and event.ydata is not None
             ):
-                self.canvas_clicked.emit(event.xdata, event.ydata)
+                self.canvas_clicked.emit(event.xdata, event.ydata, self._press_modifiers)
         self._pan_start = None
 
     def _on_scroll(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
             return
         direction = 1 if event.button == "up" else -1
-        self.canvas_scrolled.emit(event.xdata, event.ydata, direction)
+        mods = _modifiers_from_event(event)
+        self.canvas_scrolled.emit(event.xdata, event.ydata, direction, mods)
+        if mods:
+            # modified scroll (e.g. Shift+scroll → objective) is claimed by a
+            # consumer via canvas_scrolled; don't also zoom
+            return
         factor = 1.0 / _ZOOM_FACTOR if direction == 1 else _ZOOM_FACTOR
         cx, cy = event.xdata, event.ydata
         xlim = self._ax.get_xlim()
@@ -643,6 +987,7 @@ class RectOverlay(QObject):
         self._drag_start_rect: Optional[Tuple[float, float, float, float]] = None
         self._blit_bg = None  # background region captured at drag start
 
+        self._interactive: bool = True
         self._cids: List[int] = []
 
     # ── overlay protocol ──────────────────────────────────────────────────
@@ -743,6 +1088,7 @@ class RectOverlay(QObject):
                     markeredgecolor="white",
                     markeredgewidth=0.8,
                     zorder=6,
+                    visible=self._interactive,
                 )
                 self._handles[name] = line
 
@@ -777,6 +1123,11 @@ class RectOverlay(QObject):
     # ── mouse events ──────────────────────────────────────────────────────
 
     def _on_press(self, event):
+        if not self._interactive:
+            return
+        # Another overlay owns input on this canvas
+        if self._canvas is not None and not self._canvas._overlay_input_allowed(self):
+            return
         if event.inaxes is not self._ax or event.button != 1:
             return
         if self._patch is None or event.xdata is None:
@@ -885,6 +1236,286 @@ def _xywh_to_dict(x: float, y: float, w: float, h: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# RulerOverlay — drag-to-measure line (distance in SI units)
+# ---------------------------------------------------------------------------
+
+_RULER_PICK_PX = 10  # screen-space hit radius for ruler endpoints / line body
+
+
+def _clampf(v: float, lo: float, hi: float) -> float:
+    return lo if v < lo else hi if v > hi else v
+
+
+def _format_distance(metres: float) -> str:
+    """Auto-scale a distance in metres to a short SI string."""
+    a = abs(metres)
+    if a == 0:
+        return "0 nm"
+    if a < 1e-6:
+        return f"{metres * 1e9:.1f} nm"
+    if a < 1e-3:
+        return f"{metres * 1e6:.2f} µm"
+    if a < 1.0:
+        return f"{metres * 1e3:.3f} mm"
+    return f"{metres:.4f} m"
+
+
+class RulerOverlay(CanvasOverlay):
+    """Two-endpoint measure line on a :class:`FibsemImageCanvas`.
+
+    Drag either endpoint — or the line body — to measure; the label shows the
+    distance using the canvas pixel size (SI-formatted), or pixels when the
+    pixel size is unknown.  Endpoints live in data (image-pixel) coordinates, so
+    the ruler survives zoom / pan and image swaps.
+
+    Inert until :meth:`set_visible(True)` (driven by the canvas ruler button):
+    it builds no artists and captures no input while hidden, so canvases that
+    never enable it are unaffected.
+    """
+
+    def __init__(self, color: str = "#ffd23f"):
+        self._color = color
+        self._ax = None
+        self._canvas: Optional["FibsemImageCanvas"] = None
+        self._img_w: Optional[int] = None
+        self._img_h: Optional[int] = None
+        self._pixel_size: Optional[float] = None
+
+        # endpoints in data coords (None until seeded)
+        self._p1: Optional[List[float]] = None
+        self._p2: Optional[List[float]] = None
+        self._visible: bool = False
+
+        # artists
+        self._line = None   # Line2D segment
+        self._dots = None   # Line2D endpoint markers
+        self._label = None  # Annotation (distance)
+
+        # drag state: None | "p1" | "p2" | "line"
+        self._drag: Optional[str] = None
+        self._drag_start_data: Optional[Tuple[float, float]] = None
+        self._drag_start_pts = None
+        self._blit_bg = None
+        self._cids: List[int] = []
+
+    # ── overlay protocol ──────────────────────────────────────────────────
+
+    def attach(self, ax, canvas: "FibsemImageCanvas") -> None:
+        self._ax = ax
+        self._canvas = canvas
+        self._cids = [
+            canvas.mpl_connect("button_press_event", self._on_press),
+            canvas.mpl_connect("motion_notify_event", self._on_motion),
+            canvas.mpl_connect("button_release_event", self._on_release),
+        ]
+
+    def detach(self) -> None:
+        if self._canvas is not None:
+            for cid in self._cids:
+                try:
+                    self._canvas.mpl_disconnect(cid)
+                except Exception:
+                    pass
+        self._cids = []
+        self._remove_artists()
+        self._ax = None
+        self._canvas = None
+
+    def on_image_changed(self, width: int, height: int) -> None:
+        self._img_w, self._img_h = width, height
+        if self._canvas is not None:
+            self._pixel_size = self._canvas._pixel_size
+        if self._ax is None or width == 0 or height == 0 or not self._visible:
+            self._remove_artists()  # inert while hidden / between images
+            return
+        if self._p1 is None or self._p2 is None:
+            self._seed_default()
+        else:
+            self._clamp()
+        self._rebuild()
+
+    # ── public ────────────────────────────────────────────────────────────
+
+    def set_visible(self, visible: bool) -> None:
+        """Show/hide the ruler.  Endpoints persist while hidden."""
+        self._visible = visible
+        if not visible:
+            self._remove_artists()
+        elif self._img_w:
+            if self._p1 is None or self._p2 is None:
+                self._seed_default()
+            self._rebuild()
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def measurement(self) -> Optional[float]:
+        """Current distance in metres (or pixels when no pixel size), or None."""
+        if self._p1 is None or self._p2 is None:
+            return None
+        d = math.hypot(self._p2[0] - self._p1[0], self._p2[1] - self._p1[1])
+        return d * self._pixel_size if self._pixel_size else d
+
+    # ── build / teardown ──────────────────────────────────────────────────
+
+    def _seed_default(self) -> None:
+        if not self._img_w or not self._img_h:
+            return
+        cx, cy = self._img_w / 2.0, self._img_h / 2.0
+        half = self._img_w * 0.125
+        self._p1 = [cx - half, cy]
+        self._p2 = [cx + half, cy]
+
+    def _clamp(self) -> None:
+        if self._img_w is None:
+            return
+        for p in (self._p1, self._p2):
+            p[0] = _clampf(p[0], 0.0, self._img_w)
+            p[1] = _clampf(p[1], 0.0, self._img_h)
+
+    def _remove_artists(self) -> None:
+        for a in (self._line, self._dots, self._label):
+            if a is not None:
+                try:
+                    a.remove()
+                except Exception:
+                    pass
+        self._line = self._dots = self._label = None
+
+    def _xs_ys(self) -> Tuple[List[float], List[float]]:
+        return [self._p1[0], self._p2[0]], [self._p1[1], self._p2[1]]
+
+    def _rebuild(self) -> None:
+        self._remove_artists()
+        if self._p1 is None or self._p2 is None:
+            return
+        xs, ys = self._xs_ys()
+        (self._line,) = self._ax.plot(
+            xs, ys, color=self._color, linewidth=1.6,
+            solid_capstyle="round", zorder=8,
+        )
+        (self._dots,) = self._ax.plot(
+            xs, ys, linestyle="none", marker="o", markersize=6,
+            markerfacecolor=self._color, markeredgecolor="white",
+            markeredgewidth=0.8, zorder=9,
+        )
+        mx, my = (xs[0] + xs[1]) / 2.0, (ys[0] + ys[1]) / 2.0
+        self._label = self._ax.annotate(
+            self._text(), xy=(mx, my), xytext=(0, 9),
+            textcoords="offset points", ha="center", va="bottom",
+            fontsize=8, color="#ffffff", zorder=10,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
+                      edgecolor=self._color, alpha=0.8, linewidth=0.8),
+        )
+
+    def _text(self) -> str:
+        d = math.hypot(self._p2[0] - self._p1[0], self._p2[1] - self._p1[1])
+        if self._pixel_size:
+            return _format_distance(d * self._pixel_size)
+        return f"{d:.0f} px"
+
+    def _update_artists(self) -> None:
+        xs, ys = self._xs_ys()
+        self._line.set_data(xs, ys)
+        self._dots.set_data(xs, ys)
+        self._label.xy = ((xs[0] + xs[1]) / 2.0, (ys[0] + ys[1]) / 2.0)
+        self._label.set_text(self._text())
+
+    # ── hit testing (screen space) ────────────────────────────────────────
+
+    def _screen(self, p: List[float]) -> Tuple[float, float]:
+        return self._ax.transData.transform((p[0], p[1]))
+
+    def _hit(self, event) -> Optional[str]:
+        for name, p in (("p1", self._p1), ("p2", self._p2)):
+            sx, sy = self._screen(p)
+            if math.hypot(event.x - sx, event.y - sy) <= _RULER_PICK_PX:
+                return name
+        x1, y1 = self._screen(self._p1)
+        x2, y2 = self._screen(self._p2)
+        if self._seg_dist(event.x, event.y, x1, y1, x2, y2) <= _RULER_PICK_PX * 0.6:
+            return "line"
+        return None
+
+    @staticmethod
+    def _seg_dist(px, py, x1, y1, x2, y2) -> float:
+        dx, dy = x2 - x1, y2 - y1
+        if dx == 0 and dy == 0:
+            return math.hypot(px - x1, py - y1)
+        t = _clampf(((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+        return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+
+    # ── mouse events ──────────────────────────────────────────────────────
+
+    def _on_press(self, event) -> None:
+        if not self._visible or self._line is None:
+            return
+        if self._canvas is not None and not self._canvas._overlay_input_allowed(self):
+            return
+        if event.inaxes is not self._ax or event.button != 1 or event.xdata is None:
+            return
+        if self._canvas._overlay_consuming_event:
+            return
+        hit = self._hit(event)
+        if hit is None:
+            return
+        self._drag = hit
+        self._drag_start_data = (event.xdata, event.ydata)
+        self._drag_start_pts = (list(self._p1), list(self._p2))
+        self._canvas._overlay_consuming_event = True
+        self._set_animated(True)
+        self._canvas.draw()
+        self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+
+    def _on_motion(self, event) -> None:
+        if self._drag is None or event.xdata is None or event.ydata is None:
+            return
+        dx = event.xdata - self._drag_start_data[0]
+        dy = event.ydata - self._drag_start_data[1]
+        p1, p2 = self._drag_start_pts
+        W, H = self._img_w, self._img_h
+        if self._drag == "p1":
+            self._p1 = [_clampf(p1[0] + dx, 0, W), _clampf(p1[1] + dy, 0, H)]
+        elif self._drag == "p2":
+            self._p2 = [_clampf(p2[0] + dx, 0, W), _clampf(p2[1] + dy, 0, H)]
+        else:  # move the whole line, clamped so both endpoints stay in bounds
+            minx, maxx = min(p1[0], p2[0]), max(p1[0], p2[0])
+            miny, maxy = min(p1[1], p2[1]), max(p1[1], p2[1])
+            dx = _clampf(dx, -minx, W - maxx)
+            dy = _clampf(dy, -miny, H - maxy)
+            self._p1 = [p1[0] + dx, p1[1] + dy]
+            self._p2 = [p2[0] + dx, p2[1] + dy]
+        self._update_artists()
+        self._blit()
+
+    def _on_release(self, event) -> None:
+        if self._canvas is not None:
+            self._canvas._overlay_consuming_event = False
+        if self._drag is not None:
+            self._drag = None
+            self._set_animated(False)
+            self._blit_bg = None
+            if self._canvas is not None:
+                self._canvas.draw_idle()
+
+    # ── blitting ──────────────────────────────────────────────────────────
+
+    def _set_animated(self, val: bool) -> None:
+        for a in (self._line, self._dots, self._label):
+            if a is not None:
+                a.set_animated(val)
+
+    def _blit(self) -> None:
+        if self._blit_bg is None:
+            self._canvas.draw_idle()
+            return
+        self._canvas.restore_region(self._blit_bg)
+        for a in (self._line, self._dots, self._label):
+            if a is not None:
+                self._ax.draw_artist(a)
+        self._canvas.blit(self._ax.bbox)
+
+
+# ---------------------------------------------------------------------------
 # PointOverlay — interactive scatter points (select / drag / delete)
 # ---------------------------------------------------------------------------
 
@@ -894,9 +1525,10 @@ _PICK_RADIUS_PX = 12  # screen-space hit radius for point picking
 class PointOverlay(QObject):
     """Interactive points overlay.
 
-    * Click on empty image area → adds a new point (when ``add_on_click=True``)
-    * Click on a point → selects it (highlighted colour + larger marker)
+    * Left-click a point → selects it (highlighted colour + larger marker)
+    * Left-click empty area → deselects
     * Drag a selected point → moves it, clamped to image bounds (blitted)
+    * Right-click empty area → adds a new point (when ``add_on_right_click=True``)
     * Delete / Backspace → removes the selected point
 
     Parameters
@@ -911,13 +1543,20 @@ class PointOverlay(QObject):
         Marker size in points (selected markers are drawn at ``size * 1.4``).
     label_prefix : str
         If non-empty, each point gets an annotation ``label_prefix + (index+1)``.
-    add_on_click : bool
-        If True (default), clicking on empty canvas adds a new point.
+    add_on_right_click : bool
+        If True (default), right-clicking adds a new point.
+    removable : bool
+        If True (default), Delete/Backspace removes the selected point.
+    modal : bool
+        If True, the overlay handles input *only* while it is the canvas's active
+        overlay (e.g. spot burn — inert in Move mode). If False (default), it also
+        responds when no overlay is active (always-on, backward-compatible).
     """
 
     point_added = pyqtSignal(int, float, float)  # index, x, y
     point_selected = pyqtSignal(int, float, float)  # index, x, y
-    point_moved = pyqtSignal(int, float, float)  # index, x, y
+    point_dragging = pyqtSignal(int, float, float)  # index, x, y  (each motion step)
+    point_moved = pyqtSignal(int, float, float)  # index, x, y  (on release)
     point_removed = pyqtSignal(int)  # index (before removal)
 
     def __init__(
@@ -927,7 +1566,12 @@ class PointOverlay(QObject):
         marker: str = "o",
         size: float = 10.0,
         label_prefix: str = "",
-        add_on_click: bool = True,
+        add_on_right_click: bool = True,
+        removable: bool = True,
+        modal: bool = False,
+        edge_width: Optional[float] = None,
+        legend_label: Optional[str] = None,
+        numbered: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -936,7 +1580,14 @@ class PointOverlay(QObject):
         self._marker = marker
         self._size = size
         self._label_prefix = label_prefix
-        self._add_on_click = add_on_click
+        self._add_on_right_click = add_on_right_click
+        self._removable = removable
+        self._modal = modal
+        self._edge_width = edge_width  # override the default marker edge width if set
+        self._legend_label = legend_label  # opt-in patch legend for this overlay
+        self._legend = None
+        self._numbered = numbered  # annotate each point with its 1-based index
+        self._visible = True  # toggled by set_visible (points kept, artists hidden)
 
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
@@ -946,10 +1597,14 @@ class PointOverlay(QObject):
         self._points: List[List[float]] = []  # [[x, y], ...]  mutable for drag
         self._artists: List = []  # Line2D per point (index-aligned)
         self._anns: List = []  # Annotation per point (or None)
+        # Optional per-point overrides (index-aligned), else the global style is used
+        self._point_colors: Optional[List[str]] = None
+        self._point_labels: Optional[List[str]] = None
 
         self._selected: Optional[int] = None
         self._drag_idx: Optional[int] = None
         self._drag_offset: Tuple[float, float] = (0.0, 0.0)
+        self._drag_start_xy: Tuple[float, float] = (0.0, 0.0)
         self._blit_bg = None
 
         self._cids: List[int] = []
@@ -986,9 +1641,21 @@ class PointOverlay(QObject):
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def set_points(self, points: List[Tuple[float, float]]) -> None:
-        """Replace all points."""
+    def set_points(
+        self,
+        points: List[Tuple[float, float]],
+        colors: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> None:
+        """Replace all points.
+
+        ``colors`` / ``labels``, when given, are index-aligned per-point overrides
+        (e.g. one colour + name per detection feature); otherwise the global
+        ``color`` / ``label_prefix`` style is used.
+        """
         self._points = [[float(x), float(y)] for x, y in points]
+        self._point_colors = list(colors) if colors is not None else None
+        self._point_labels = list(labels) if labels is not None else None
         self._selected = None
         self._remove_all_artists()
         if self._ax is not None and self._img_w:
@@ -1023,7 +1690,7 @@ class PointOverlay(QObject):
             self._selected = None
         elif self._selected is not None and self._selected > index:
             self._selected -= 1
-        if self._label_prefix:
+        if self._label_prefix or self._numbered:
             self._refresh_ann_text()
         if self._canvas is not None:
             self._canvas.draw_idle()
@@ -1038,7 +1705,53 @@ class PointOverlay(QObject):
     def get_points(self) -> List[Tuple[float, float]]:
         return [(p[0], p[1]) for p in self._points]
 
+    def set_visible(self, visible: bool) -> None:
+        """Show or hide all markers/labels without discarding the points.
+
+        State is remembered and re-applied across image rebuilds (a hidden
+        overlay stays hidden when a new image arrives).
+        """
+        self._visible = visible
+        for a in self._artists + self._anns:
+            if a is not None:
+                a.set_visible(visible)
+        self._draw_legend()  # add/remove the legend to match visibility
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def set_selected(self, index: Optional[int]) -> None:
+        """Programmatically select a point (e.g. from a synced table).
+
+        Silent — does not emit ``point_selected`` — so it will not loop back onto a
+        producer that is driving the selection. Pass ``None`` (or an out-of-range
+        index) to clear the selection.
+        """
+        n = len(self._points)
+        idx = index if (index is not None and 0 <= index < n) else None
+        if idx == self._selected:
+            return
+        prev = self._selected
+        self._selected = idx
+        if prev is not None:
+            self._update_artist_appearance(prev)
+        if idx is not None:
+            self._update_artist_appearance(idx)
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
     # ── private: artists ──────────────────────────────────────────────────
+
+    def _input_allowed(self) -> bool:
+        """Whether this overlay may handle input now (modal-aware).
+
+        Modal overlays respond only while they are the canvas's active overlay;
+        non-modal overlays also respond when nothing is active (default).
+        """
+        if self._canvas is None:
+            return True
+        if self._modal:
+            return self._canvas._active_overlay is self
+        return self._canvas._overlay_input_allowed(self)
 
     def _remove_all_artists(self):
         for lst in (self._artists, self._anns):
@@ -1049,36 +1762,115 @@ class PointOverlay(QObject):
                     except Exception:
                         pass
             lst.clear()
+        self._remove_legend()
 
     def _draw_all(self):
         for idx in range(len(self._points)):
             self._append_artist(idx)
+        self._draw_legend()
+
+    def _remove_legend(self) -> None:
+        if self._legend is not None:
+            try:
+                self._legend.remove()
+            except Exception:
+                pass
+            self._legend = None
+
+    def _draw_legend(self) -> None:
+        """Opt-in patch legend (top-left), styled like the milling-stage legend."""
+        self._remove_legend()
+        if (
+            not self._legend_label
+            or self._ax is None
+            or not self._points
+            or not self._visible
+        ):
+            return
+        import matplotlib.patches as mpatches
+        from matplotlib.legend import Legend
+
+        handle = mpatches.Patch(
+            facecolor=self._color, edgecolor="white", label=self._legend_label
+        )
+        # build the Legend directly (not ax.legend()) so it doesn't replace another
+        # overlay's primary legend (e.g. the milling stages, top-right)
+        leg = Legend(
+            self._ax,
+            [handle],
+            [self._legend_label],
+            loc="upper left",
+            fontsize=8,
+            facecolor="#1e2124",
+            edgecolor="#555555",
+            labelcolor="#d1d2d4",
+            framealpha=0.85,
+        )
+        leg.set_zorder(10)
+        self._ax.add_artist(leg)
+        self._legend = leg
+
+    def _marker_edge(self, color: str, selected: bool):
+        """Edge colour/width for the marker. Unfilled markers (+, x, ...) are drawn
+        in their edge colour, so they take the point colour and a thicker line;
+        filled markers (o, s, ...) keep a thin white outline for contrast.
+
+        ``edge_width`` (if set) overrides the normal-state width; the selected state
+        adds a fixed bump, so backward-compatible defaults are preserved when unset.
+        """
+        from matplotlib.lines import Line2D
+        if self._marker in Line2D.filled_markers:
+            base = self._edge_width if self._edge_width is not None else 0.8
+            return "white", (base + 1.2 if selected else base)
+        base = self._edge_width if self._edge_width is not None else 2.0
+        return color, (base + 0.8 if selected else base)
+
+    def _point_color(self, idx: int, selected: bool) -> str:
+        """Per-point colour override if set, else the global selected/normal colour.
+        (Per-point points keep their own colour even when selected — size + edge
+        convey the selection instead.)"""
+        if self._point_colors is not None and idx < len(self._point_colors):
+            return self._point_colors[idx]
+        return self._selected_color if selected else self._color
+
+    def _point_label(self, idx: int) -> Optional[str]:
+        """Per-point label override if set, else ``label_prefix + (idx+1)``, else the
+        bare 1-based index when ``numbered``, else None."""
+        if self._point_labels is not None and idx < len(self._point_labels):
+            return self._point_labels[idx]
+        if self._label_prefix:
+            return f"{self._label_prefix}{idx + 1}"
+        if self._numbered:
+            return str(idx + 1)
+        return None
 
     def _append_artist(self, idx: int):
         if self._ax is None:
             return
         x, y = self._points[idx]
         selected = idx == self._selected
-        color = self._selected_color if selected else self._color
+        color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
-        mew = 2.0 if selected else 0.8
+        edge_color, mew = self._marker_edge(color, selected)
         (line,) = self._ax.plot(
             x,
             y,
             marker=self._marker,
             markersize=ms,
             color=color,
-            markeredgecolor="white",
+            markeredgecolor=edge_color,
             markeredgewidth=mew,
             linestyle="none",
             zorder=8,
             animated=False,
+            visible=self._visible,
         )
         self._artists.append(line)
         ann = None
-        if self._label_prefix:
+        label = self._point_label(idx)
+        if label is not None:
             ann = self._ax.annotate(
-                f"{self._label_prefix}{idx + 1}",
+                label,
                 xy=(x, y),
                 xytext=(6, 4),
                 textcoords="offset points",
@@ -1086,6 +1878,7 @@ class PointOverlay(QObject):
                 fontsize=8,
                 zorder=9,
                 animated=False,
+                visible=self._visible,
             )
         self._anns.append(ann)
 
@@ -1093,12 +1886,13 @@ class PointOverlay(QObject):
         if idx >= len(self._artists):
             return
         selected = idx == self._selected
-        color = self._selected_color if selected else self._color
+        color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
-        mew = 2.0 if selected else 0.8
+        edge_color, mew = self._marker_edge(color, selected)
         line = self._artists[idx]
         line.set_color(color)
         line.set_markersize(ms)
+        line.set_markeredgecolor(edge_color)
         line.set_markeredgewidth(mew)
         ann = self._anns[idx] if idx < len(self._anns) else None
         if ann is not None:
@@ -1117,7 +1911,9 @@ class PointOverlay(QObject):
     def _refresh_ann_text(self):
         for idx, ann in enumerate(self._anns):
             if ann is not None:
-                ann.set_text(f"{self._label_prefix}{idx + 1}")
+                label = self._point_label(idx)
+                if label is not None:
+                    ann.set_text(label)
 
     # ── hit testing ───────────────────────────────────────────────────────
 
@@ -1141,6 +1937,7 @@ class PointOverlay(QObject):
         self._drag_idx = idx
         px, py = self._points[idx]
         self._drag_offset = (event.xdata - px, event.ydata - py)
+        self._drag_start_xy = (px, py)  # so a no-move select-click skips point_moved
         self._canvas._overlay_consuming_event = True
         self._artists[idx].set_animated(True)
         ann = self._anns[idx] if idx < len(self._anns) else None
@@ -1167,11 +1964,29 @@ class PointOverlay(QObject):
     def _on_press(self, event):
         if self._canvas is None or self._ax is None:
             return
-        if event.inaxes is not self._ax or event.button != 1:
+        if not self._input_allowed():  # another overlay owns input (modal-aware)
             return
-        if event.xdata is None or event.dblclick:
+        if event.inaxes is not self._ax or event.xdata is None or event.dblclick:
             return
         if self._canvas._overlay_consuming_event:
+            return
+
+        if event.button == 3:  # right-click → add a new point
+            if not self._add_on_right_click:
+                return
+            x = max(0.0, min(event.xdata, (self._img_w or 1) - 1))
+            y = max(0.0, min(event.ydata, (self._img_h or 1) - 1))
+            idx = self.add_point(x, y)
+            old_sel = self._selected
+            self._selected = idx
+            if old_sel is not None:
+                self._update_artist_appearance(old_sel)
+            self._update_artist_appearance(idx)
+            self.point_added.emit(idx, x, y)
+            self._canvas.draw_idle()
+            return
+
+        if event.button != 1:
             return
 
         hit = self._hit_point(event)
@@ -1183,17 +1998,11 @@ class PointOverlay(QObject):
             self._update_artist_appearance(hit)
             self.point_selected.emit(hit, self._points[hit][0], self._points[hit][1])
             self._start_drag(hit, event)
-        elif self._add_on_click:
-            x = max(0.0, min(event.xdata, (self._img_w or 1) - 1))
-            y = max(0.0, min(event.ydata, (self._img_h or 1) - 1))
-            idx = self.add_point(x, y)
-            self._canvas._overlay_consuming_event = True
+        elif self._selected is not None:
+            # left-click empty → deselect
             old_sel = self._selected
-            self._selected = idx
-            if old_sel is not None:
-                self._update_artist_appearance(old_sel)
-            self._update_artist_appearance(idx)
-            self.point_added.emit(idx, x, y)
+            self._selected = None
+            self._update_artist_appearance(old_sel)
             self._canvas.draw_idle()
 
     def _on_motion(self, event):
@@ -1207,6 +2016,7 @@ class PointOverlay(QObject):
         y = max(0.0, min(event.ydata - self._drag_offset[1], H - 1))
         self._points[self._drag_idx] = [x, y]
         self._update_artist_position(self._drag_idx)
+        self.point_dragging.emit(self._drag_idx, x, y)
         self._blit()
 
     def _on_release(self, event):
@@ -1221,10 +2031,17 @@ class PointOverlay(QObject):
             ann = self._anns[idx] if idx < len(self._anns) else None
             if ann is not None:
                 ann.set_animated(False)
-            self.point_moved.emit(idx, self._points[idx][0], self._points[idx][1])
+            # Only a real move emits point_moved (a select-click without a drag
+            # leaves the position unchanged; point_selected already covered it).
+            if tuple(self._points[idx]) != self._drag_start_xy:
+                self.point_moved.emit(idx, self._points[idx][0], self._points[idx][1])
             self._canvas.draw_idle()
 
     def _on_key(self, event):
+        if not self._input_allowed():  # another overlay owns input (modal-aware)
+            return
+        if not self._removable:
+            return
         if event.key in ("delete", "backspace") and self._selected is not None:
             self.remove_point(self._selected)
 

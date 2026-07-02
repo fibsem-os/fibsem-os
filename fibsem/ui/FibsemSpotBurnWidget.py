@@ -1,259 +1,281 @@
+from __future__ import annotations
+
 import logging
 import threading
-from typing import List, Optional
-import numpy as np
 
-import napari
-import napari.utils.notifications
-from napari.layers import Image as NapariImageLayer
-from napari.layers import Points as NapariPointsLayer
-from napari.qt.threading import FunctionWorker, thread_worker
-from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import (
+    QFormLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from fibsem.imaging.spot import run_spot_burn
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, Point
-from fibsem.ui import stylesheets
-from fibsem.ui.qtdesigner_files import FibsemSpotBurnWidget as FibsemSpotBurnWidgetUI
+from fibsem.structures import BeamType
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
 
-SPOT_BURN_POINTS_LAYER_NAME = "spot-burn-points"
 DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
 
-class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
+
+class FibsemSpotBurnWidget(QWidget):
+    """Live spot-burn tab: place coordinates + set current/exposure + run.
+
+    The *coordinate* half is the shared :class:`SpotBurnCoordinatesWidget` (canvas points
+    overlay + list); this widget adds the beam-current/exposure form and the run / cancel
+    / progress machinery. Everything is one :class:`SpotBurnSettings`: the editor writes
+    ``coordinates``, the form writes current/exposure, and the burn runs the settings.
+    """
+
     spot_burn_progress_signal = pyqtSignal(dict)
+    # worker-thread completion, marshalled back onto the GUI thread
+    _spot_burn_finished_signal = pyqtSignal(object)
+    _spot_burn_errored_signal = pyqtSignal(object)
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
-        self.setupUi(self)
-
         self.parent = parent
-        self.viewer: napari.Viewer = parent.viewer
         self.microscope: FibsemMicroscope = parent.microscope
-        self.worker: FunctionWorker = None
+        self.worker = None  # threading.Thread while a burn is running
         self.stop_event: threading.Event = threading.Event()
+        self._is_burning = False  # guards the Run/Cancel button while a burn runs
 
-        # napari layers
-        self.pts_layer: Optional[NapariPointsLayer] = None
-        self.image_layer: Optional[NapariImageLayer] = None
+        self._build_ui()
+        self._setup_connections()
 
-        self.setup_connections()
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
 
-    def setup_connections(self):
-        self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
 
+        # coordinate editor (shared canvas overlay + list)
+        self.coord_editor = SpotBurnCoordinatesWidget(
+            controller=self._view_controller(), beam=BeamType.ION, parent=self,
+        )
+        layout.addWidget(self.coord_editor)
+
+        # beam current + exposure
         beam_currents = self.microscope.get_available_values("current", BeamType.ION)
-        for current in beam_currents:
-            label = format_value(current, unit="A", precision=1)
-            self.comboBox_beam_current.addItem(label, current)
-
-        # find the current closest to 60pA, set index to that
-        closest_current = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
-        closest_index = beam_currents.index(closest_current)
-        self.comboBox_beam_current.setCurrentIndex(closest_index)
-
-        # set parameters for exposure time
-        self.doubleSpinBox_exposure_time.setSuffix(" s")
-        self.doubleSpinBox_exposure_time.setRange(0.1, 60)
+        closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
+        self.comboBox_beam_current = ValueComboBox(
+            items=beam_currents, value=closest, unit="A", decimals=1,
+        )
+        self.doubleSpinBox_exposure_time = ValueSpinBox(
+            suffix="s", minimum=0.1, maximum=60, decimals=3,
+        )
         self.doubleSpinBox_exposure_time.setValue(10)
-        self.doubleSpinBox_exposure_time.valueChanged.connect(self._on_data_changed)
+        form = QFormLayout()
+        form.addRow("Beam Current", self.comboBox_beam_current)
+        form.addRow("Exposure Time", self.doubleSpinBox_exposure_time)
+        layout.addLayout(form)
 
-        # initial state
-        self.label_information.setText("No points selected. Please add points to the layer.")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
+        # info + progress + run
+        self.label_information = QLabel("")
+        self.label_information.setWordWrap(True)
+        layout.addWidget(self.label_information)
+
+        self.progressBar = QProgressBar()
+        self.progressBar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+        self.progressBar.setVisible(False)
+        layout.addWidget(self.progressBar)
+
+        self.pushButton_run_spot_burn = QPushButton("Run Spot Burn")
+        layout.addWidget(self.pushButton_run_spot_burn)
+        layout.addStretch()
+
+    def _setup_connections(self) -> None:
+        self.comboBox_beam_current.currentIndexChanged.connect(self._refresh_info)
+        self.doubleSpinBox_exposure_time.valueChanged.connect(self._refresh_info)
+
+        # run button
+        self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_run_spot_burn.setEnabled(False)
 
-        # progress bar
-        self.progressBar.setVisible(False)
+        # coordinate + progress signals
+        self.coord_editor.settings_changed.connect(self._refresh_info)
         self.spot_burn_progress_signal.connect(self._update_progress_bar)
+        self._spot_burn_finished_signal.connect(self.spot_burn_finished)
+        self._spot_burn_errored_signal.connect(self.spot_burn_errored)
 
-    def _add_points_layer(self):
-        # check if the points layer exists, if not create it
-        if SPOT_BURN_POINTS_LAYER_NAME not in self.viewer.layers:
-            self.pts_layer = self.viewer.add_points(data=[],
-                                name=SPOT_BURN_POINTS_LAYER_NAME,
-                                visible=True,
-                                size=20)
-            self.pts_layer.events.data.connect(self._on_data_changed)
-        else:
-            self.pts_layer = self.viewer.layers[SPOT_BURN_POINTS_LAYER_NAME]
+        # re-feed the FIB image shape to the editor on each acquisition
+        iw = self._image_widget()
+        if iw is not None:
+            try:
+                iw.viewer_update_signal.connect(self._feed_image_shape)
+            except Exception:
+                pass
 
-    def set_active(self):
-        """Called when the widget is activated."""
+        self._refresh_info()
 
-        # add the points layer if it doesn't exist
-        self._add_points_layer()
-        if self.pts_layer is None:
-            raise RuntimeError("Failed to create points layer for spot burn.")
+    # ------------------------------------------------------------------
+    # Controller / image plumbing
+    # ------------------------------------------------------------------
 
-        self.viewer.layers.selection.active = self.pts_layer
-        self.pts_layer.visible = True
-        self.pts_layer.mode = "add"
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None."""
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
 
-    def set_inactive(self):
-        """Called when the widget is deactivated."""
+    def _image_widget(self):
+        return getattr(self.parent, "image_widget", None)
 
-        # hide the points layer
-        if SPOT_BURN_POINTS_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[SPOT_BURN_POINTS_LAYER_NAME].visible = False
+    def _feed_image_shape(self, *args) -> None:
+        """Push the current FIB image shape to the editor (for 0-1 <-> px conversion)."""
+        iw = self._image_widget()
+        img = getattr(iw, "ib_image", None) if iw is not None else None
+        if img is not None:
+            self.coord_editor.set_image_shape(img.data.shape[:2])
 
-        self.parent.image_widget.restore_active_layer_for_movement()
+    # ------------------------------------------------------------------
+    # Activation lifecycle (called by the workflow via AutoLamellaUI)
+    # ------------------------------------------------------------------
 
-    def update_parameters(self, parameters: dict):
-        """Update the parameters for the spot burn."""
-        milling_current = parameters.get("milling_current", None)
-        exposure_time = parameters.get("exposure_time", None)
-        coordinates = parameters.get("coordinates", None)
+    def set_active(self) -> None:
+        """Activate: feed the image shape and arm the overlay."""
+        self._feed_image_shape()
+        self.coord_editor.set_active(True)
+        self._refresh_info()
 
-        if self.pts_layer is None:
-            self._add_points_layer() # ensure points layer exists
-    
-        if milling_current is not None:
-            index = self.comboBox_beam_current.findData(milling_current)
-            if index != -1:
-                self.comboBox_beam_current.setCurrentIndex(index)
+    def set_inactive(self) -> None:
+        """Deactivate: disarm the overlay."""
+        self.coord_editor.set_active(False)
 
-        if exposure_time is not None:
-            self.doubleSpinBox_exposure_time.setValue(exposure_time)
+    def clear_points_layer(self) -> None:
+        """Clear the coordinates + overlay (called when the task exits)."""
+        self.coord_editor.set_settings(SpotBurnSettings())
+        self._refresh_info()
 
-        if coordinates and self.pts_layer is not None:
-            self._set_coordinates(coordinates)
+    # ------------------------------------------------------------------
+    # Workflow API (SpotBurnSettings in / out)
+    # ------------------------------------------------------------------
 
-    def _set_coordinates(self, coordinates: list):
-        """Pre-populate the points layer from normalised image coordinates (0-1)."""
+    def set_settings(self, settings: SpotBurnSettings) -> None:
+        """Apply a settings payload (current / exposure / coordinates)."""
+        # keep an off-grid (protocol) current exactly selectable so an untouched value
+        # round-trips losslessly — otherwise the closest-match snap would rewrite the config
+        if self.comboBox_beam_current.findData(settings.milling_current) == -1:
+            self.comboBox_beam_current.addItem(
+                format_value(settings.milling_current, unit="A", precision=1),
+                settings.milling_current,
+            )
+        self.comboBox_beam_current.set_value(settings.milling_current)
+        self.doubleSpinBox_exposure_time.setValue(settings.exposure_time)
 
-        self.image_layer = self.parent.image_widget.ib_layer
-        if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
-            return
+        self._feed_image_shape()
+        # the editor only owns coordinates; current/exposure live on the form
+        self.coord_editor.set_settings(SpotBurnSettings(coordinates=list(settings.coordinates)))
+        self._refresh_info()  # set_settings is programmatic (no settings_changed)
 
-        image_shape = self.image_layer.data.shape
-        translate = self.image_layer.translate
-
-        # convert normalised (0-1) Point coordinates to napari pixel coordinates
-        pts = np.array([[pt.y * image_shape[0] + translate[0],
-                         pt.x * image_shape[1] + translate[1]]
-                        for pt in coordinates])
-        self.pts_layer.data = pts
-        self._on_data_changed()
+    def get_settings(self) -> SpotBurnSettings:
+        """The run payload — coordinates from the editor, current/exposure from the form."""
+        return SpotBurnSettings(
+            coordinates=self.get_coordinates(),
+            milling_current=self.comboBox_beam_current.value(),
+            exposure_time=self.doubleSpinBox_exposure_time.value(),
+        )
 
     def get_coordinates(self) -> list:
-        """Get the current spot burn positions as normalised image coordinates (0-1)."""
-        if self.pts_layer is None or len(self.pts_layer.data) == 0:
-            return []
+        """Current spot positions (normalised 0-1), filtered to image bounds."""
+        coords = self.coord_editor.get_settings().coordinates
+        return [pt for pt in coords if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
 
-        self.image_layer = self.parent.image_widget.ib_layer
-        if self.image_layer is None or not isinstance(self.image_layer, NapariImageLayer):
-            return []
+    # ------------------------------------------------------------------
+    # Info / run
+    # ------------------------------------------------------------------
 
-        layer_translated = self.pts_layer.data - self.image_layer.translate
-        image_shape = self.image_layer.data.shape
-
-        coordinates = [Point(float(pt[1] / image_shape[1]), float(pt[0] / image_shape[0]))
-                       for pt in layer_translated]
-        # exclude points outside of image bounds
-        coordinates = [pt for pt in coordinates if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
-        return coordinates
-
-    def clear_points_layer(self):
-        """Clear the points layer."""
-        if SPOT_BURN_POINTS_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers.remove(SPOT_BURN_POINTS_LAYER_NAME)
-            self.pts_layer = None
-
-    def _on_data_changed(self, event = None):
-        """Called when the data in the points layer changes."""
-        if self.pts_layer is None:
-            return
-        coordinates = self.pts_layer.data
-        
-        enabled = bool(len(coordinates) > 0)
-        self.pushButton_run_spot_burn.setEnabled(enabled)
-        if enabled:
-            self.label_information.setText(f"Selected {len(coordinates)} points. Estimated time: {len(coordinates) * self.doubleSpinBox_exposure_time.value()} seconds")
-            self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+    def _refresh_info(self, *args) -> None:
+        n = len(self.coord_editor.get_settings().coordinates)
+        exposure = self.doubleSpinBox_exposure_time.value()
+        # while a burn runs the button is "Cancel" and must stay enabled — don't let a
+        # mid-burn coordinate edit (n -> 0) disable it, or the burn can't be cancelled
+        if not self._is_burning:
+            self.pushButton_run_spot_burn.setEnabled(n > 0)
+        if n > 0:
+            self.label_information.setText(
+                f"Selected {n} points. Estimated time: {n * exposure:.0f} seconds"
+            )
         else:
-            self.label_information.setText("No points selected. Please add points to the layer.")
-            self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
+            self.label_information.setText(
+                "No points selected. Right-click the FIB image to add points."
+            )
 
-    def run_spot_burn_worker(self):
+    def run_spot_burn_worker(self) -> None:
         """Run the spot burn worker."""
-
-        # get the points layer
-        if SPOT_BURN_POINTS_LAYER_NAME not in self.viewer.layers:
-            napari.utils.notifications.show_warning("No points layer found. Requires 'spot-burn-points' layer.")
+        settings = self.get_settings()
+        if len(settings.coordinates) == 0:
+            notification_service.show_toast(
+                "No points selected within FIB image bounds.", "warning"
+            )
             return
 
-        coordinates = self.get_coordinates()  # ensure coordinates are valid and within bounds
-
-        if len(coordinates) == 0:
-            napari.utils.notifications.show_warning("No points selected within FIB image bounds.")
-            return
-
-        beam_current = self.comboBox_beam_current.currentData()     # amps
-        exposure_time = self.doubleSpinBox_exposure_time.value()    # seconds
-
-        logging.info(f"Running spot burn with {len(coordinates)} points. Beam current: {beam_current} A, exposure time: {exposure_time} s")
+        logging.info(
+            f"Running spot burn with {len(settings.coordinates)} points. "
+            f"Beam current: {settings.milling_current} A, exposure time: {settings.exposure_time} s"
+        )
 
         self.stop_event.clear()
+        self._is_burning = True
         self.pushButton_run_spot_burn.setText("Cancel")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
 
-        self.worker = self._spot_burn_worker(microscope=self.microscope,
-                                             coordinates=coordinates,
-                                             exposure_time=exposure_time,
-                                             milling_current=beam_current,)
-        self.worker.returned.connect(self.spot_burn_finished)
-        self.worker.errored.connect(self.spot_burn_errored)
+        self.worker = threading.Thread(
+            target=self._run_spot_burn, args=(settings,), daemon=True
+        )
         self.worker.start()
 
-    def cancel_spot_burn(self):
+    def cancel_spot_burn(self) -> None:
         """Cancel the running spot burn."""
         logging.info("Cancelling spot burn...")
         self.stop_event.set()
 
-    @thread_worker
-    def _spot_burn_worker(self, microscope: FibsemMicroscope, coordinates: List[Point], exposure_time: float, milling_current: float):
-        """Worker function to run the spot burn."""
-        run_spot_burn(microscope=microscope,
-                       coordinates=coordinates,
-                       exposure_time=exposure_time,
-                       milling_current=milling_current,
-                       beam_type=BeamType.ION,
-                       parent_ui=self,
-                       stop_event=self.stop_event)
+    def _run_spot_burn(self, settings: SpotBurnSettings) -> None:
+        """Worker body (off the GUI thread). Progress is emitted from within
+        ``run_spot_burn`` via ``spot_burn_progress_signal``; completion is marshalled
+        back onto the GUI thread through the finished / errored signals."""
+        try:
+            settings.run(
+                microscope=self.microscope,
+                beam_type=BeamType.ION,
+                parent_ui=self,
+                stop_event=self.stop_event,
+            )
+        except Exception as exc:
+            self._spot_burn_errored_signal.emit(exc)
+        else:
+            self._spot_burn_finished_signal.emit(None)
 
-    def spot_burn_finished(self, result):
+    def spot_burn_finished(self, result) -> None:
         """Called when the spot burn is finished."""
+        self._is_burning = False
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)
-        self.pushButton_run_spot_burn.setText("Burn Spot")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_run_spot_burn.setText("Run Spot Burn")
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
-    def spot_burn_errored(self, error):
+    def spot_burn_errored(self, error) -> None:
         """Called when the spot burn fails."""
         logging.error(f"Spot burn failed: {error}")
         self.spot_burn_progress_signal.emit({"finished": True})
         self.spot_burn_finished(error)
 
-    def _update_progress_bar(self, ddict: dict):
+    def _update_progress_bar(self, ddict: dict) -> None:
         """Update the progress bar with the current progress.
-        
-        Parameters
-        ----------
-        ddict : dict
-            Dictionary with the following keys:
-            - total_points (int): Total number of points to burn
-            - current_point (int): Current point being burned
-            - remaining_time (float): Remaining time for current point in seconds
-            - total_remaining_time (float): Total remaining time in seconds
-            - total_estimated_time (float): Total estimated time in seconds
-            - finished (bool): Whether the spot burn is finished
-        """        
+
+        ``ddict`` keys: total_points, current_point, remaining_time,
+        total_remaining_time, total_estimated_time, finished.
+        """
         total_points = ddict.get("total_points", 0)
         current_point = ddict.get("current_point", 0)
         remaining_time = ddict.get("remaining_time", 0)
@@ -263,19 +285,28 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         finished = ddict.get("finished", False)
 
         self.progressBar.setVisible(True)
-        self.progressBar.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
         self.progressBar.setMinimum(0)
-        
+
         if total_elapsed_time > 0 and total_estimated_time > 0:
             self.progressBar.setMaximum(int(total_estimated_time))
             self.progressBar.setValue(int(total_elapsed_time))
             self.progressBar.setTextVisible(True)
-            self.progressBar.setFormat(f"Burning Spot {current_point}/{total_points}... {int(remaining_time)}s remaining")
+            self.progressBar.setFormat(
+                f"Burning Spot {current_point}/{total_points}... {int(remaining_time)}s remaining"
+            )
         else:
             self.progressBar.setValue(0)
             self.progressBar.setFormat("Preparing Spot Burn...")
 
         if finished:
-            self.progressBar.setValue(total_estimated_time)
+            self.progressBar.setValue(int(total_estimated_time))
             self.progressBar.setFormat("Spot Burn Finished")
 
+    def closeEvent(self, event) -> None:
+        iw = self._image_widget()
+        if iw is not None:
+            try:
+                iw.viewer_update_signal.disconnect(self._feed_image_shape)
+            except (TypeError, RuntimeError):
+                pass
+        super().closeEvent(event)

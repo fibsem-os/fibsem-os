@@ -43,7 +43,7 @@ from fibsem.ui import (
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
@@ -172,10 +172,8 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
+        # The main tab runs viewer-less; display is via the controller.
         self.viewer = viewer
-
-        # add placeholder layer
-        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -190,16 +188,12 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
-        # minimap plot widget
+        # minimap plot widget — a floating tool window, shown on demand (was a
+        # napari dock; relocated here so it no longer needs a viewer).
         self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_dock = self.viewer.window.add_dock_widget(
-            self.minimap_plot_widget,
-            name="Minimap Plot",
-            area="left",
-            add_vertical_stretch=False,
-            tabify=True,
-        )
-        self.minimap_plot_dock.setVisible(False)
+        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
+        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
+        self.minimap_plot_widget.hide()
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
@@ -385,123 +379,6 @@ class AutoLamellaUI(QMainWindow):
             self.movement_widget.update_ui()
 
         self._update_minimap_data(stage_position=stage_position)
-        self._update_lamella_display()
-
-    def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view."""
-
-        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
-            return
-
-        if self.experiment is None:
-            return
-
-        if self.image_widget is None:
-            return
-
-        if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
-            return
-
-        from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-        from fibsem.ui.napari.utilities import (
-            NapariShapeOverlay,
-            create_crosshair_shape,
-        )
-        from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-
-        if selected_name is None:
-            selected_name = self.lamella_list.selected_name
-
-        try:
-            # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
-            points = reproject_stage_positions_onto_image2(
-                image=self.image_widget.ib_image,
-                positions=self.experiment.get_milling_positions(),
-                bound=True,
-            )
-
-            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
-            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
-            # should disable until we can fix this properly
-
-            layer_scale = None
-            overlays: List[NapariShapeOverlay] = []
-            for pt in points:
-                saved_lines = create_crosshair_shape(
-                    pt, CROSSHAIR_CONFIG["crosshair_size"], layer_scale
-                )
-
-                # Use lime for selected position, cyan for others
-                color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-                if pt.name == selected_name:
-                    color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
-
-                # Show position name on crosshair if saved position FOV is disabled
-                # label = saved_pos.name if not self.show_saved_positions_fov else ""
-
-                for line, txt in zip(saved_lines, [pt.name, ""]):
-                    overlays.append(
-                        NapariShapeOverlay(
-                            shape=line, color=color, label=txt, shape_type="line"
-                        )
-                    )
-
-            crosshair_overlays = overlays
-
-            # TODO: use a common function for this?
-            # QUERY: also do it for the SEM?
-            # Collect all crosshair overlays
-            layer_name = CROSSHAIR_CONFIG["layer_name"]
-
-            if len(crosshair_overlays) == 0:
-                logging.info("No crosshair overlays to display.")
-                # Remove existing layer if no overlays to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers.remove(layer_name)
-                return
-
-            # Extract data for napari
-            crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-            colors = [overlay.color for overlay in crosshair_overlays]
-            labels = [overlay.label for overlay in crosshair_overlays]
-
-            # Prepare text properties for labels
-            text_properties = {"string": labels, **CROSSHAIR_CONFIG["text_properties"]}
-            # text_properties["color"] = colors # displays the text the same color as the line
-
-            # Update or create the napari layer
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[layer_name]
-                layer.data = crosshair_lines
-                # Note: edge_color and text updates may not work with all napari versions
-                try:
-                    layer.edge_color = colors
-                    layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                    layer.face_color = CROSSHAIR_CONFIG["line_style"]["face_color"]
-                    layer.text = text_properties
-                    layer.visible = True
-                    layer.translate = self.image_widget.ib_layer.translate
-                except AttributeError:
-                    logging.warning("Could not update layer properties directly")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=crosshair_lines,
-                    name=layer_name,
-                    shape_type="line",
-                    edge_color=colors,
-                    edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                    face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                    scale=layer_scale,
-                    text=text_properties,
-                    translate=self.image_widget.ib_layer.translate,
-                )
-
-        except Exception as e:
-            logging.warning(f"Could not update lamella display: {e}")
-        finally:
-            self.image_widget.restore_active_layer_for_movement()
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -713,10 +590,14 @@ class AutoLamellaUI(QMainWindow):
 
             # remove tabs
             if self.fm_control_widget is not None:
+                # deleteLater fires neither closeEvent nor close_widget, so tear
+                # down the FM widget's external signal connections explicitly
+                self.fm_control_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
                 self.fm_control_widget.deleteLater()
                 self.fm_control_widget = None
             if self.det_widget is not None:
+                self.det_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
                 self.det_widget.deleteLater()
                 self.det_widget = None
@@ -735,8 +616,8 @@ class AutoLamellaUI(QMainWindow):
                 self.movement_widget.deleteLater()
                 self.movement_widget = None
             if self.image_widget is not None:
+                self.image_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.clear_viewer()
                 self.image_widget.acquisition_progress_signal.disconnect(
                     self.handle_acquisition_update
                 )
@@ -1174,7 +1055,6 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.set_lamella(lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
-        self._update_lamella_display(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -1736,9 +1616,6 @@ class AutoLamellaUI(QMainWindow):
             self.microscope.turn_off(BeamType.ELECTRON)
             self.microscope.turn_off(BeamType.ION)
 
-        # set electron image as active layer
-        self.image_widget.restore_active_layer_for_movement()
-
         self.set_current_workflow_message(msg=None, show=False)
 
         # show the post-workflow summary of tasks run this session
@@ -1810,7 +1687,9 @@ class AutoLamellaUI(QMainWindow):
         if isinstance(alignment_area, FibsemRectangle):
             self.image_widget.toggle_alignment_area(alignment_area)
         if alignment_area == "clear":
-            self.image_widget.clear_alignment_area()
+            # the workflow's "clear" is a hide-then-read-back: keep the value for the
+            # get_alignment_area() that follows in update_alignment_area_ui.
+            self.image_widget.hide_alignment_area()
 
         # POI selection
         poi_selection = info.get("poi_selection", None)
@@ -1823,9 +1702,9 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
-        spot_burn_parameters = info.get("spot_burn_parameters", None)
-        if spot_burn_parameters is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.update_parameters(spot_burn_parameters)
+        spot_burn_settings = info.get("spot_burn_settings", None)
+        if spot_burn_settings is not None and self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_settings(spot_burn_settings)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
 
@@ -1854,51 +1733,49 @@ class AutoLamellaUI(QMainWindow):
     _POI_LAYER_NAME = "Point of Interest"
 
     def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Add a draggable point marker on the FIB image for POI selection.
+        """Show a draggable POI marker on the FIB canvas (via the controller)."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is not None:
+            self._show_poi_overlay(controller, initial_poi)
 
-        Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
-        """
-        ib_translate = self.image_widget.ib_layer.translate
+    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
+        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
+        from fibsem.ui.widgets.canvas_state import PointsSpec
+
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:
             px = conversions.microscope_image_to_image_coordinates(
                 initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
             )
-            row = ib_translate[0] + px.y
-            col = ib_translate[1] + px.x
+            col, row = px.x, px.y
         else:
-            row = ib_translate[0] + ib_image.data.shape[0] / 2
-            col = ib_translate[1] + ib_image.data.shape[1] / 2
-        data = [[row, col]]
-        from fibsem.ui.napari.utilities import add_points_layer
-
-        self._poi_layer = add_points_layer(
-            viewer=self.viewer,
-            data=data,
-            name=self._POI_LAYER_NAME,
-            size=20,
-            face_color="magenta",
-            border_color="white",
-            symbol="cross",
-            blending="additive",
-            border_width=None,
-            border_width_is_relative=False,
+            row = ib_image.data.shape[0] / 2
+            col = ib_image.data.shape[1] / 2
+        controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="poi", points=[(col, row)],
+                color="magenta", selected_color="magenta", marker="+", size=18,
+                add_on_right_click=False, removable=False,
+            ),
         )
-        self._poi_layer.mode = "select"
-        self.viewer.layers.selection.active = self._poi_layer
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
+        # toggle lets the user drop to Move and back. (See active-overlay model.)
+        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
+        controller.fib_canvas.set_hint("drag to move")
 
     def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from current layer position, remove the layer, store in SELECTED_POI."""
-        if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
-            pos = self._poi_layer.data[0]  # [row, col] napari coords
-            ib_translate = self.image_widget.ib_layer.translate
-            py = pos[0] - ib_translate[0]  # pixel y in IB image
-            px = pos[1] - ib_translate[1]  # pixel x in IB image
+        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is None:
+            return
+        pts = controller.overlay_points(BeamType.ION, "poi")
+        if pts:
+            col, row = pts[0]
             ib_image = self.image_widget.ib_image
             self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=px, y=py),
-                ib_image.data,
-                ib_image.metadata.pixel_size.x,
+                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
             )
-            self.viewer.layers.remove(self._poi_layer)
-            self._poi_layer = None
+        controller.arm_overlay(BeamType.ION, None)  # restore Move
+        controller.remove_overlay(BeamType.ION, "poi")
+        controller.fib_canvas.set_hint(None)

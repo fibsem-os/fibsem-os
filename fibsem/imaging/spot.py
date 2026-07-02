@@ -2,6 +2,7 @@ from  __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import dataclass, field
 
 from typing import List, Optional, TYPE_CHECKING
 
@@ -95,3 +96,46 @@ def run_spot_burn(microscope: FibsemMicroscope,
         parent_ui.spot_burn_progress_signal.emit({"finished": True})
 
     microscope.set_beam_current(current=imaging_current, beam_type=beam_type)
+
+
+@dataclass
+class SpotBurnSettings:
+    """The payload for a spot-burn run: where to burn, and with what.
+
+    Shared, fibsem-level currency for the coordinate editor + the live spot-burn widget
+    + :func:`run_spot_burn` (to which it maps 1:1). Workflow concerns such as the stage
+    orientation live on the task config, not here.
+    """
+
+    coordinates: List[Point] = field(default_factory=list)
+    milling_current: float = 60e-12  # amperes
+    exposure_time: float = 10.0      # seconds
+
+    def to_dict(self) -> dict:
+        return {
+            "coordinates": [pt.to_dict() for pt in self.coordinates],
+            "milling_current": self.milling_current,
+            "exposure_time": self.exposure_time,
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "SpotBurnSettings":
+        return cls(
+            coordinates=[Point.from_dict(pt) for pt in ddict.get("coordinates", [])],
+            milling_current=ddict.get("milling_current", 60e-12),
+            exposure_time=ddict.get("exposure_time", 10.0),
+        )
+
+    def run(self,
+            microscope: FibsemMicroscope,
+            beam_type: BeamType = BeamType.ION,
+            parent_ui: Optional['FibsemSpotBurnWidget'] = None,
+            stop_event: Optional[threading.Event] = None) -> None:
+        """Run this spot burn on *microscope* (thin wrapper over :func:`run_spot_burn`)."""
+        run_spot_burn(microscope=microscope,
+                      coordinates=self.coordinates,
+                      exposure_time=self.exposure_time,
+                      milling_current=self.milling_current,
+                      beam_type=beam_type,
+                      parent_ui=parent_ui,
+                      stop_event=stop_event)
