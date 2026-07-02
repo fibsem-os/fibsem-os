@@ -3,6 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import List
 
 import yaml
 
@@ -267,7 +268,7 @@ class ExperimentPreferences:
     default_experiment_directory: str = ""
     default_protocol_path: str = ""
     last_experiment_path: str = ""
-    recent_experiments: list = field(default_factory=list)
+    recent_experiments: List[str] = field(default_factory=list)
     user: str = ""
     project: str = ""
     organisation: str = ""
@@ -349,16 +350,21 @@ class RecentExperimentInfo:
     created_at: float = 0.0
     num_lamella: int = 0
     exists: bool = True
+    available: bool = True  # False if the file is missing or could not be read
 
 
 def _peek_experiment_yaml(experiment_yaml_path: str) -> RecentExperimentInfo:
     """Read minimal display info from an experiment.yaml without fully loading it.
 
     Falls back to the parent directory name if the file is missing or unreadable.
+    A file that exists but cannot be parsed is kept (exists=True) but flagged
+    as unavailable so the UI can show it as such rather than silently pruning it.
     """
     fallback_name = os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
     if not os.path.exists(experiment_yaml_path):
-        return RecentExperimentInfo(path=experiment_yaml_path, name=fallback_name, exists=False)
+        return RecentExperimentInfo(
+            path=experiment_yaml_path, name=fallback_name, exists=False, available=False
+        )
 
     try:
         with open(experiment_yaml_path, "r") as f:
@@ -369,10 +375,33 @@ def _peek_experiment_yaml(experiment_yaml_path: str) -> RecentExperimentInfo:
             created_at=ddict.get("created_at") or 0.0,
             num_lamella=len(ddict.get("positions") or []),
             exists=True,
+            available=True,
         )
     except Exception as e:
         logging.warning(f"Failed to read experiment info from {experiment_yaml_path}: {e}")
-        return RecentExperimentInfo(path=experiment_yaml_path, name=fallback_name, exists=True)
+        return RecentExperimentInfo(
+            path=experiment_yaml_path, name=fallback_name, exists=True, available=False
+        )
+
+
+def add_recent_experiment(prefs: UserPreferences, experiment_yaml_path: str) -> None:
+    """Update ``prefs.experiment.recent_experiments`` in place (does not save).
+
+    Moves the path to the front, de-duplicates, and truncates to
+    ``MAX_RECENT_EXPERIMENTS``. Use this when the caller already holds a prefs
+    object it intends to save, to avoid a redundant load/save cycle.
+
+    Args:
+        prefs: The preferences object to mutate.
+        experiment_yaml_path: Path to the experiment.yaml file.
+    """
+    if not experiment_yaml_path:
+        return
+
+    path = os.path.normpath(str(experiment_yaml_path))
+    recent = [p for p in prefs.experiment.recent_experiments if os.path.normpath(str(p)) != path]
+    recent.insert(0, path)
+    prefs.experiment.recent_experiments = recent[:MAX_RECENT_EXPERIMENTS]
 
 
 def record_recent_experiment(experiment_yaml_path: str) -> None:
@@ -384,15 +413,12 @@ def record_recent_experiment(experiment_yaml_path: str) -> None:
     if not experiment_yaml_path:
         return
 
-    path = os.path.normpath(str(experiment_yaml_path))
     prefs = load_user_preferences()
-    recent = [p for p in prefs.experiment.recent_experiments if os.path.normpath(str(p)) != path]
-    recent.insert(0, path)
-    prefs.experiment.recent_experiments = recent[:MAX_RECENT_EXPERIMENTS]
+    add_recent_experiment(prefs, experiment_yaml_path)
     save_user_preferences(prefs)
 
 
-def get_recent_experiments(prune_missing: bool = True) -> "list[RecentExperimentInfo]":
+def get_recent_experiments(prune_missing: bool = True) -> List[RecentExperimentInfo]:
     """Return display info for recent experiments, most-recent-first.
 
     Args:

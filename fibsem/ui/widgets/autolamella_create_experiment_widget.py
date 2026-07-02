@@ -15,8 +15,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.config import (
+    add_recent_experiment,
     load_user_preferences,
-    record_recent_experiment,
     save_user_preferences,
 )
 from fibsem.ui import utils as fui
@@ -413,13 +413,12 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             logging.info(f"Experiment '{experiment_name}' created successfully at {self.experiment.path}")
             logging.info(f"Protocol saved to {protocol_save_path}")
 
-            # Save last used experiment path
+            # Save last used experiment path + record in the recent quick-select
+            # list (single load/save cycle).
             prefs = load_user_preferences()
             prefs.experiment.last_experiment_path = str(self.experiment.path)
+            add_recent_experiment(prefs, os.path.join(self.experiment.path, "experiment.yaml"))
             save_user_preferences(prefs)
-
-            # Record in the recent experiments quick-select list
-            record_recent_experiment(os.path.join(self.experiment.path, "experiment.yaml"))
 
             # Accept the dialog
             self.accept()

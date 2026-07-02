@@ -21,7 +21,11 @@ from fibsem.config import (
     save_user_preferences,
 )
 from fibsem.ui import utils as fui
-from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import (
+    PRIMARY_BUTTON_STYLESHEET,
+    PRIMARY_COLOR_PRESSED,
+    SECONDARY_BUTTON_STYLESHEET,
+)
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 # Error message constants
@@ -64,9 +68,12 @@ RECENT_COLUMN_WIDTH = 260
 # Recent-experiment row icons (superqt / material design icons) and colours
 RECENT_FOLDER_ICON = "mdi:folder-outline"
 RECENT_LAMELLA_ICON = "mdi:layers-triple-outline"
+RECENT_ALERT_ICON = "mdi:alert-circle-outline"
 RECENT_ICON_COLOR = "#9aa0ab"
 RECENT_PILL_TEXT_COLOR = "#b7bcc6"
 RECENT_NAME_COLOR = "#d6d6d6"
+# Muted colour for rows whose experiment.yaml is missing or unreadable
+RECENT_UNAVAILABLE_COLOR = "#6b6b6b"
 
 
 class _ElidedLabel(QtWidgets.QLabel):
@@ -100,25 +107,25 @@ class _ElidedLabel(QtWidgets.QLabel):
             self.rect(), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, elided
         )
 
-RECENT_LIST_STYLESHEET = """
-QListWidget {
+RECENT_LIST_STYLESHEET = f"""
+QListWidget {{
     background-color: #1e2027;
     border: 1px solid #3d4251;
     border-radius: 4px;
     outline: none;
     padding: 2px;
-}
-QListWidget::item {
+}}
+QListWidget::item {{
     border: none;
     border-radius: 4px;
     margin: 1px 0px;
-}
-QListWidget::item:selected {
-    background-color: #2d72c4;
-}
-QListWidget::item:hover:!selected {
+}}
+QListWidget::item:selected {{
+    background-color: {PRIMARY_COLOR_PRESSED};
+}}
+QListWidget::item:hover:!selected {{
     background-color: #2a2e39;
-}
+}}
 """
 
 
@@ -349,10 +356,18 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         self._load_experiment_from_path(experiment_path)
 
-    def _load_experiment_from_path(self, experiment_path: str) -> bool:
+    def _load_experiment_from_path(
+        self, experiment_path: str, warn_on_missing_protocol: bool = True
+    ) -> bool:
         """Load and validate an experiment from a path, updating the display.
 
         Shared by the manual file dialog and the recent-experiments quick-select.
+
+        Args:
+            experiment_path: Path to the experiment.yaml file to load.
+            warn_on_missing_protocol: If True, pop a modal warning when the
+                experiment has no task protocol. Suppressed for the lightweight
+                single-click preview so browsing the recent list stays quiet.
 
         Returns:
             True if the experiment was loaded (with or without a protocol),
@@ -378,13 +393,14 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
                 logging.info(f"Protocol loaded successfully from {protocol_path}")
             else:
                 # Protocol missing; keep experiment loaded so user can reattach one
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    ERROR_PROTOCOL_NOT_FOUND_TITLE,
-                    ERROR_PROTOCOL_NOT_FOUND_MSG.format(experiment_dir=experiment_dir)
-                    + "\n\nThe experiment has been loaded without a task protocol. "
-                      "Please load a protocol before continuing."
-                )
+                if warn_on_missing_protocol:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        ERROR_PROTOCOL_NOT_FOUND_TITLE,
+                        ERROR_PROTOCOL_NOT_FOUND_MSG.format(experiment_dir=experiment_dir)
+                        + "\n\nThe experiment has been loaded without a task protocol. "
+                          "Please load a protocol before continuing."
+                    )
                 self.protocol_path = None
                 self.btn_ok.setEnabled(False)
                 self._set_protocol_buttons_visible(True)
@@ -525,7 +541,13 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         for info in recents:
             item = QtWidgets.QListWidgetItem(self.list_recent_experiments)
             item.setData(QtCore.Qt.UserRole, info.path)
-            item.setToolTip(info.path)
+            # Unavailable rows (unreadable experiment.yaml) are shown greyed out
+            # and made non-interactive so a click can't try to load them.
+            if not info.available:
+                item.setFlags(QtCore.Qt.NoItemFlags)
+                item.setToolTip(f"{info.path}\n\nThis experiment could not be read.")
+            else:
+                item.setToolTip(info.path)
             row = self._make_recent_row_widget(info)
             # Width 0 lets the row track the list viewport width instead of the
             # row's (wide) content hint, so long names elide rather than clip.
@@ -537,16 +559,23 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         """Build a row widget for a recent experiment.
 
         Layout: folder icon | name + date (stacked) | lamella-count pill.
+        Rows whose experiment.yaml is missing or unreadable (``not
+        info.available``) are rendered muted with an alert icon and no pill.
         """
+        available = getattr(info, "available", True)
+        icon_color = RECENT_ICON_COLOR if available else RECENT_UNAVAILABLE_COLOR
+        name_color = RECENT_NAME_COLOR if available else RECENT_UNAVAILABLE_COLOR
+
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(widget)
         layout.setContentsMargins(10, 11, 8, 11)
         layout.setSpacing(9)
 
-        # Leading folder icon
+        # Leading icon (folder, or an alert marker when unavailable)
+        icon_name = RECENT_FOLDER_ICON if available else RECENT_ALERT_ICON
         folder_label = QtWidgets.QLabel()
         folder_label.setPixmap(
-            QIconifyIcon(RECENT_FOLDER_ICON, color=RECENT_ICON_COLOR).pixmap(18, 18)
+            QIconifyIcon(icon_name, color=icon_color).pixmap(18, 18)
         )
         folder_label.setFixedWidth(18)
         layout.addWidget(folder_label, alignment=QtCore.Qt.AlignVCenter)
@@ -556,28 +585,34 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(5)
 
-        name_label = _ElidedLabel(info.name, RECENT_NAME_COLOR)
+        name_label = _ElidedLabel(info.name, name_color)
         name_font = name_label.font()
         name_font.setPixelSize(13)
         name_font.setWeight(QtGui.QFont.DemiBold)
         name_label.setFont(name_font)
         name_label.setToolTip(info.name)
 
-        if info.created_at:
+        if not available:
+            date_str = "unavailable"
+        elif info.created_at:
             date_str = datetime.fromtimestamp(info.created_at).strftime("%Y-%m-%d")
         else:
             date_str = "unknown date"
+        date_color = "#8a8f99" if available else RECENT_UNAVAILABLE_COLOR
         date_label = QtWidgets.QLabel(date_str)
-        date_label.setStyleSheet("color: #8a8f99; font-size: 11px; background: transparent;")
+        date_label.setStyleSheet(
+            f"color: {date_color}; font-size: 11px; background: transparent;"
+        )
 
         text_layout.addWidget(name_label)
         text_layout.addWidget(date_label)
         layout.addLayout(text_layout, stretch=1)
 
-        # Trailing lamella-count pill
-        layout.addWidget(
-            self._make_lamella_pill(info.num_lamella), alignment=QtCore.Qt.AlignVCenter
-        )
+        # Trailing lamella-count pill (omitted for unavailable rows)
+        if available:
+            layout.addWidget(
+                self._make_lamella_pill(info.num_lamella), alignment=QtCore.Qt.AlignVCenter
+            )
         return widget
 
     def _make_lamella_pill(self, num_lamella: int) -> QtWidgets.QWidget:
@@ -605,11 +640,15 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         return pill
 
     def _on_recent_experiment_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
-        """Load the selected recent experiment into the form (single click)."""
+        """Load the selected recent experiment into the form (single click).
+
+        A single click is a lightweight preview, so a missing protocol does not
+        pop a modal warning here; it surfaces on the OK / double-click commit.
+        """
         path = item.data(QtCore.Qt.UserRole)
         if not path:
             return
-        self._load_experiment_from_path(path)
+        self._load_experiment_from_path(path, warn_on_missing_protocol=False)
 
     def _on_recent_experiment_double_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
         """Load the selected recent experiment and accept immediately (double click)."""
