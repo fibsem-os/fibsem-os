@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import time
 
@@ -11,6 +12,7 @@ except Exception:
 import warnings
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -23,6 +25,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QShortcut,
     QTextEdit,
     QSplitter,
     QTabWidget,
@@ -35,6 +38,7 @@ from superqt.iconify import QIconifyIcon
 import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.structures import BeamType
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
@@ -246,6 +250,39 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
 
         view_menu.addAction(self.action_show_minimap)
+
+        # Quad-view display controls (mirror the Microscope-tab hotkeys; the "\t<key>" suffix
+        # is a display hint only — the actual bindings are the QShortcuts in _install_shortcuts,
+        # which are scoped to the Microscope tab).
+        view_menu.addSeparator()
+        self.action_toggle_fullscreen = QAction("Full Screen\tF5", self)
+        self.action_toggle_fullscreen.setCheckable(True)
+        self.action_toggle_fullscreen.triggered.connect(self._hotkey_toggle_fullscreen)
+        view_menu.addAction(self.action_toggle_fullscreen)
+
+        self.action_exit_fullscreen = QAction("Exit Full Screen\tEsc", self)
+        self.action_exit_fullscreen.triggered.connect(self._hotkey_exit_fullscreen)
+        view_menu.addAction(self.action_exit_fullscreen)
+
+        fullscreen_menu = view_menu.addMenu("Full Screen View")
+        for label, key in (
+            ("SEM", BeamType.ELECTRON),
+            ("FIB", BeamType.ION),
+            ("Fluorescence", "fm"),
+        ):
+            act = QAction(label, self)
+            act.triggered.connect(
+                lambda _checked=False, k=key: self.view_controller.set_fullscreen(k)
+            )
+            fullscreen_menu.addAction(act)
+
+        view_menu.addSeparator()
+        self.action_acquire_selected = QAction("Acquire Selected View\tF6", self)
+        self.action_acquire_selected.triggered.connect(self._hotkey_acquire_selected)
+        view_menu.addAction(self.action_acquire_selected)
+
+        # keep the checkable / enabled state honest each time the menu opens
+        view_menu.aboutToShow.connect(self._sync_view_menu)
 
         # add tools menu, reporting submenu
         tools_menu = menu_bar.addMenu("Tools")
@@ -960,6 +997,71 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR),
             "Microscope",
         )
+        self._install_shortcuts(container)
+
+    def _install_shortcuts(self, container: QWidget) -> None:
+        """Install Microscope-tab keyboard shortcuts, scoped so they only fire when focus is
+        within the Microscope tab (not the minimap / editor / workflow tabs):
+
+            F5  — toggle full screen for the selected view
+            Esc — exit full screen
+            F6  — acquire the selected view (SEM / FIB / FM)
+        """
+        bindings = [
+            (QKeySequence(Qt.Key_F5), self._hotkey_toggle_fullscreen),
+            (QKeySequence(Qt.Key_Escape), self._hotkey_exit_fullscreen),
+            (QKeySequence(Qt.Key_F6), self._hotkey_acquire_selected),
+        ]
+        self._shortcuts = []
+        for seq, callback in bindings:
+            sc = QShortcut(seq, container)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(callback)
+            self._shortcuts.append(sc)
+
+    def _sync_view_menu(self) -> None:
+        """Refresh the View menu's dynamic state right before it opens: reflect whether a view
+        is full-screened (check + Exit-enabled)."""
+        if getattr(self, "view_controller", None) is None:
+            return
+        fullscreen = self.view_controller.fullscreen is not None
+        self.action_toggle_fullscreen.setChecked(fullscreen)
+        self.action_exit_fullscreen.setEnabled(fullscreen)
+
+    def _hotkey_toggle_fullscreen(self) -> None:
+        """F5: toggle full screen for the selected view."""
+        self.view_controller.toggle_fullscreen()
+
+    def _hotkey_exit_fullscreen(self) -> None:
+        """Esc: exit full screen (no-op when already showing the grid)."""
+        self.view_controller.set_fullscreen(None)
+
+    def _hotkey_acquire_selected(self) -> None:
+        """F6: acquire the selected view (SEM / FIB / FM), if a microscope is connected and
+        an acquisition isn't already running."""
+        view = self.view_controller.selected_view
+        ui = self.autolamella_ui
+        if view in (BeamType.ELECTRON, BeamType.ION):
+            image_widget = getattr(ui, "image_widget", None)
+            if image_widget is None:
+                logging.info("F6 acquire: no image widget (microscope not connected)")
+                return
+            if getattr(image_widget, "is_acquiring", False):
+                logging.info("F6 acquire: acquisition already in progress")
+                return
+            if view is BeamType.ELECTRON:
+                image_widget.acquire_sem_image()
+            else:
+                image_widget.acquire_fib_image()
+        elif view == "fm":
+            fm_widget = getattr(ui, "fm_control_widget", None)
+            if fm_widget is None:
+                logging.info("F6 acquire: no fluorescence widget")
+                return
+            if getattr(fm_widget, "is_acquiring", False):
+                logging.info("F6 acquire: fluorescence acquisition already in progress")
+                return
+            fm_widget.acquire_image()
 
     def create_tabs(self):
         """Create the tabs for the AutoLamella UI."""
