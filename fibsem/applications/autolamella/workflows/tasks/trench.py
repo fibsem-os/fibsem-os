@@ -17,6 +17,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
     MAX_ALIGNMENT_ATTEMPTS,
 )
+from fibsem.alignment import AlignmentSubsystem
 from fibsem.structures import BeamType, FibsemImage
 
 
@@ -68,9 +69,7 @@ class MillTrenchTask(AutoLamellaTask):
             ref_image = FibsemImage.load(reference_image_path)
             alignment.multi_step_alignment_v2(microscope=self.microscope,
                                             ref_image=ref_image,
-                                            beam_type=BeamType.ION,
-                                            alignment_current=None,
-                                            steps=1, subsystem="stage")
+                                            steps=1, subsystem=AlignmentSubsystem.STAGE)
 
         # get trench milling stages
         milling_task_config = self.config.milling[TRENCH_KEY]
