@@ -996,6 +996,10 @@ class AutoLamellaUI(QMainWindow):
                 parent_ui=self,
                 hook_manager=self.setup_hooks(),
             )
+            # Honor a stop requested before the manager existed (e.g. clicked
+            # during beam-on, while _task_manager was still None).
+            if self._workflow_stop_event.is_set():
+                self._task_manager.stop()
             self._task_manager.run(
                 task_names=task_names, required_lamella=lamella_names
             )
