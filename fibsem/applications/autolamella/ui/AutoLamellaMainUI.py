@@ -160,7 +160,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.viewers: list[napari.Viewer] = []
         self.autolamella_ui: AutoLamellaUI
         self.minimap_widget: FibsemMinimapWidget
-        self.minimap_viewer: napari.Viewer
 
         # Toast notification manager
         self.toast_manager = ToastManager(self)
@@ -246,17 +245,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.setCheckable(True)
         self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
-
-        layer_controls_menu = view_menu.addMenu("Show Layer Controls")
-
-        self.action_layer_controls_overview = QAction("Overview", self)
-        self.action_layer_controls_overview.setCheckable(True)
-        self.action_layer_controls_overview.setChecked(True)
-        self.action_layer_controls_overview.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
-        )
-
-        layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
 
@@ -521,17 +509,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if checked:
                 self.autolamella_ui.minimap_plot_widget.raise_()
                 self.autolamella_ui.minimap_plot_widget.activateWindow()
-
-    def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
-        """Toggle the layer list and layer controls for a specific viewer."""
-        viewer_map = {
-            "overview": self.minimap_viewer,
-        }
-        viewer = viewer_map.get(viewer_key)
-        if viewer is not None:
-            qt_viewer = viewer.window._qt_viewer
-            qt_viewer.dockLayerList.setVisible(checked)
-            qt_viewer.dockLayerControls.setVisible(checked)
 
     def _on_generate_report(self):
         """Handle Generate Report action."""
@@ -1568,22 +1545,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._set_border_state("idle")
 
     def add_minimap_tab(self):
-        """Add the minimap as a separate tab with its own viewer."""
+        """Add the minimap (Overview) as a separate tab. The widget owns its
+        matplotlib canvas + controls in an internal splitter — no napari viewer."""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create separate napari viewer for minimap
-        self.minimap_viewer = napari.Viewer(show=False, title="AutoLamella Minimap")
-        self.minimap_viewer.window._qt_window.menuBar().hide()
-        self.minimap_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.minimap_viewer)
-
-        # Create the minimap widget
-        self.minimap_widget = FibsemMinimapWidget(
-            viewer=self.minimap_viewer, parent=self.autolamella_ui
-        )
-        self.minimap_widget.setMinimumWidth(500)
+        self.minimap_widget = FibsemMinimapWidget(parent=self.autolamella_ui)
         self.minimap_widget._acquisition_finished.connect(
             self._on_tile_acquisition_finished
         )
@@ -1591,15 +1559,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_minimap_lamella_selected
         )
 
-        # Layout: napari viewer (left) | minimap controls (right) via splitter
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        splitter.addWidget(self.minimap_viewer.window._qt_window)
-        splitter.addWidget(self.minimap_widget)
-
-        splitter.setSizes([700, 500])
-        layout.addWidget(splitter)
+        layout.addWidget(self.minimap_widget)
         self.tab_widget.insertTab(
             1, container, QIconifyIcon("mdi:map", color=GRAY_ICON_COLOR), "Overview"
         )

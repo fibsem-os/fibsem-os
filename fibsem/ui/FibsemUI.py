@@ -9,6 +9,7 @@ from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
@@ -68,22 +69,23 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
     def open_minimap_widget(self):
         if self.microscope is None:
-            napari.utils.notifications.show_warning("Please connect to a microscope first... [No Microscope Connected]")
+            notification_service.show_toast("Please connect to a microscope first... [No Microscope Connected]", "warning")
             return
 
         if self.movement_widget is None:
-            napari.utils.notifications.show_warning("Please connect to a microscope first... [No Movement Widget]")
+            notification_service.show_toast("Please connect to a microscope first... [No Movement Widget]", "warning")
             return
 
-        self.viewer_minimap = napari.Viewer(ndisplay=2)
-        self.minimap_widget = FibsemMinimapWidget(viewer=self.viewer_minimap, parent=self)
-        self.viewer_minimap.window.add_dock_widget(
-            widget=self.minimap_widget, 
-            area="right", 
-            add_vertical_stretch=True, 
-            name="fibsemOS Minimap"
-        )
-        napari.run(max_loop_level=2)
+        # The minimap widget owns its matplotlib canvas + controls; host it in a
+        # plain window (the app already runs a Qt event loop — no napari.run).
+        self.minimap_widget = FibsemMinimapWidget(parent=self)
+        window = QtWidgets.QMainWindow(self)
+        window.setWindowTitle("fibsemOS Minimap")
+        window.setStyleSheet(NAPARI_STYLE)
+        window.setCentralWidget(self.minimap_widget)
+        window.resize(1200, 800)
+        self._minimap_window = window
+        window.show()
 
     def update_ui(self):
 
