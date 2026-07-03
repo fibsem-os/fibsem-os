@@ -56,7 +56,7 @@ from fibsem.ui import utils as ui_utils
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
 from fibsem.ui.widgets.fm_composite import FMLayer, composite_fm_layers
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.minimap_overlays import MinimapShapesOverlay, ShapeSpec
+from fibsem.ui.widgets.overlays.minimap_overlays import MinimapShapesOverlay, ShapeSpec
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )

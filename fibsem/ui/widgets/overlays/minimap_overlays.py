@@ -22,7 +22,12 @@ from dataclasses import dataclass
 
 import matplotlib.patches as mpatches
 
-from fibsem.ui.widgets.image_canvas import CanvasOverlay, FibsemImageCanvas
+from fibsem.ui.widgets.overlays.base import CanvasOverlay
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
 
 _logger = logging.getLogger(__name__)
 

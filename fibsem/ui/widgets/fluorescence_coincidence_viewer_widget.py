@@ -59,11 +59,8 @@ from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
-from fibsem.ui.widgets.image_canvas import (
-    FibsemImageCanvas,
-    RectOverlay,
-    ScanDirectionArrowOverlay,
-)
+from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.overlays import RectOverlay, ScanDirectionArrowOverlay
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella

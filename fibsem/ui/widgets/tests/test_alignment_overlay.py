@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWid
 
 from fibsem.structures import FibsemImage, FibsemRectangle
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.overlays.alignment_overlay import AlignmentAreaOverlay
 
 
 class AlignmentOverlayTest(QWidget):

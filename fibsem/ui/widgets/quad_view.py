@@ -36,17 +36,17 @@ from fibsem.ui.widgets.canvas_state import (
     PointsSpec,
     SceneModel,
 )
+from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _SELECT_ACCENT
 from fibsem.ui.widgets.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.structures import FibsemRectangle
-    from fibsem.ui.widgets.image_canvas import CanvasOverlay
+    from fibsem.ui.widgets.overlays.base import CanvasOverlay
 
 _logger = logging.getLogger(__name__)
 
-_BG = "#1e2124"
 _TITLE_STYLE = (
     "color: #888; font-size: 11px; padding: 2px 6px; background: #1e2124;"
 )
@@ -54,7 +54,6 @@ _PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
 # A transparent border of the same width is always present so selection causes no layout shift,
 # and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
-_SELECT_ACCENT = "#3a6ea5"
 _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 
 
@@ -689,15 +688,15 @@ class MicroscopeViewController(QObject):
         """Construct the overlay object for *spec* and wire its edit signal (if any)
         back to :attr:`overlay_edited` (one branch per migrated slice)."""
         if isinstance(spec, MillingSpec):
-            from fibsem.ui.widgets.milling_overlay import MillingPatternOverlay
+            from fibsem.ui.widgets.overlays.milling_overlay import MillingPatternOverlay
 
             return MillingPatternOverlay()
         if isinstance(spec, MaskSpec):
-            from fibsem.ui.widgets.mask_overlay import MaskOverlay
+            from fibsem.ui.widgets.overlays.mask_overlay import MaskOverlay
 
             return MaskOverlay()
         if isinstance(spec, AlignmentSpec):
-            from fibsem.ui.widgets.alignment_overlay import AlignmentAreaOverlay
+            from fibsem.ui.widgets.overlays.alignment_overlay import AlignmentAreaOverlay
 
             obj = AlignmentAreaOverlay(editable=spec.editing)
             beam = self._beams.get(canvas)
@@ -706,7 +705,7 @@ class MicroscopeViewController(QObject):
             )
             return obj
         if isinstance(spec, PointsSpec):
-            from fibsem.ui.widgets.image_canvas import PointOverlay
+            from fibsem.ui.widgets.overlays.point_overlay import PointOverlay
 
             obj = PointOverlay(
                 color=spec.color,
