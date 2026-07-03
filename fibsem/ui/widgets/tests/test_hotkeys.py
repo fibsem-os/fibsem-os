@@ -10,7 +10,7 @@ Run directly (no display needed):
 import sys
 import types
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import AutoLamellaSingleWindowUI
 from fibsem.structures import BeamType
@@ -50,19 +50,6 @@ def _fake_self(selected, image_widget=None, fm_widget=None):
         fm_control_widget=fm_widget if fm_widget is not None else _FakeFM(),
     )
     return types.SimpleNamespace(view_controller=ctrl, autolamella_ui=ui)
-
-
-def test_install_shortcuts_creates_bindings():
-    container = QWidget()
-    s = types.SimpleNamespace(
-        _hotkey_toggle_fullscreen=lambda: None,
-        _hotkey_exit_fullscreen=lambda: None,
-        _hotkey_acquire_selected=lambda: None,
-    )
-    AutoLamellaSingleWindowUI._install_shortcuts(s, container)
-    assert len(s._shortcuts) == 3
-    keys = {sc.key().toString() for sc in s._shortcuts}
-    assert "F5" in keys and "F6" in keys and "Esc" in keys
 
 
 def test_f5_toggles_fullscreen():

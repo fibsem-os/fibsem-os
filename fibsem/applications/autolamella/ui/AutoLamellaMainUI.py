@@ -25,7 +25,6 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QShortcut,
     QTextEdit,
     QSplitter,
     QTabWidget,
@@ -251,16 +250,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         view_menu.addAction(self.action_show_minimap)
 
-        # Quad-view display controls (mirror the Microscope-tab hotkeys; the "\t<key>" suffix
-        # is a display hint only — the actual bindings are the QShortcuts in _install_shortcuts,
-        # which are scoped to the Microscope tab).
+        # Quad-view display controls. The F5/Esc/F6 shortcuts live on these QActions — a single
+        # source of truth for the menu item + its keybinding (Qt renders the shortcut text in the
+        # menu automatically). They're scoped to the Microscope tab via setShortcutContext +
+        # container.addAction (see _create_main_tab), so they only fire when focus is in that tab.
         view_menu.addSeparator()
-        self.action_toggle_fullscreen = QAction("Full Screen\tF5", self)
+        self.action_toggle_fullscreen = QAction("Full Screen", self)
         self.action_toggle_fullscreen.setCheckable(True)
+        self.action_toggle_fullscreen.setShortcut(QKeySequence(Qt.Key_F5))
+        self.action_toggle_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.action_toggle_fullscreen.triggered.connect(self._hotkey_toggle_fullscreen)
         view_menu.addAction(self.action_toggle_fullscreen)
 
-        self.action_exit_fullscreen = QAction("Exit Full Screen\tEsc", self)
+        self.action_exit_fullscreen = QAction("Exit Full Screen", self)
+        self.action_exit_fullscreen.setShortcut(QKeySequence(Qt.Key_Escape))
+        self.action_exit_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.action_exit_fullscreen.triggered.connect(self._hotkey_exit_fullscreen)
         view_menu.addAction(self.action_exit_fullscreen)
 
@@ -277,7 +281,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             fullscreen_menu.addAction(act)
 
         view_menu.addSeparator()
-        self.action_acquire_selected = QAction("Acquire Selected View\tF6", self)
+        self.action_acquire_selected = QAction("Acquire Selected View", self)
+        self.action_acquire_selected.setShortcut(QKeySequence(Qt.Key_F6))
+        self.action_acquire_selected.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.action_acquire_selected.triggered.connect(self._hotkey_acquire_selected)
         view_menu.addAction(self.action_acquire_selected)
 
@@ -997,27 +1003,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR),
             "Microscope",
         )
-        self._install_shortcuts(container)
-
-    def _install_shortcuts(self, container: QWidget) -> None:
-        """Install Microscope-tab keyboard shortcuts, scoped so they only fire when focus is
-        within the Microscope tab (not the minimap / editor / workflow tabs):
-
-            F5  — toggle full screen for the selected view
-            Esc — exit full screen
-            F6  — acquire the selected view (SEM / FIB / FM)
-        """
-        bindings = [
-            (QKeySequence(Qt.Key_F5), self._hotkey_toggle_fullscreen),
-            (QKeySequence(Qt.Key_Escape), self._hotkey_exit_fullscreen),
-            (QKeySequence(Qt.Key_F6), self._hotkey_acquire_selected),
-        ]
-        self._shortcuts = []
-        for seq, callback in bindings:
-            sc = QShortcut(seq, container)
-            sc.setContext(Qt.WidgetWithChildrenShortcut)
-            sc.activated.connect(callback)
-            self._shortcuts.append(sc)
+        # The F5/Esc/F6 shortcuts are defined on the View-menu QActions (single source of
+        # truth). Adding those actions to the Microscope-tab container makes their
+        # WidgetWithChildrenShortcut scope resolve against this tab, so the keys only fire
+        # when focus is inside it (not the minimap / editor / workflow tabs).
+        for action in (
+            self.action_toggle_fullscreen,
+            self.action_exit_fullscreen,
+            self.action_acquire_selected,
+        ):
+            container.addAction(action)
 
     def _sync_view_menu(self) -> None:
         """Refresh the View menu's dynamic state right before it opens: reflect whether a view
