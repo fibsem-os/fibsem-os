@@ -19,9 +19,9 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.structures import FibsemImage
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.overlays.mask_overlay import MaskOverlay
-from fibsem.ui.widgets.overlays.point_overlay import PointOverlay
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.mask_overlay import MaskOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 
 H = W = 512
 

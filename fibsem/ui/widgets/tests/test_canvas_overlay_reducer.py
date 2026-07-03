@@ -18,10 +18,10 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
-from fibsem.ui.widgets.canvas_state import MaskSpec, MillingSpec, PointsSpec
-from fibsem.ui.widgets.overlays.alignment_overlay import AlignmentAreaOverlay
-from fibsem.ui.widgets.overlays.milling_overlay import MillingPatternOverlay
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, MillingSpec, PointsSpec
+from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
+from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 
 def _app() -> QApplication:
@@ -257,7 +257,7 @@ def test_points_create_arm_and_set():
     ctl.arm_overlay(BeamType.ION, "poi", label="POI")
     _flush(app)
 
-    from fibsem.ui.widgets.overlays.point_overlay import PointOverlay
+    from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
     ov = ctl._overlay_objs[fib]["poi"]
     assert isinstance(ov, PointOverlay)
     assert ov in fib._overlays
@@ -348,7 +348,7 @@ def test_mask_overlay_displays_and_removes():
     mask[10:30, 10:30] = 1
     ctl.set_overlay(BeamType.ION, MaskSpec(id="mask", mask=mask))
     _flush(app)
-    from fibsem.ui.widgets.overlays.mask_overlay import MaskOverlay
+    from fibsem.ui.widgets.canvas.overlays.mask_overlay import MaskOverlay
     ov = ctl._overlay_objs[fib]["mask"]
     assert isinstance(ov, MaskOverlay)
     assert ov in fib._overlays

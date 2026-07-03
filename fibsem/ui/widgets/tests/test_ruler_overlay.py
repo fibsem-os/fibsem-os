@@ -17,8 +17,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.overlays.ruler_overlay import RulerOverlay, _format_distance
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay, _format_distance
 
 _W, _H = 1536, 1024
 _PX = 10e-9  # 10 nm / px

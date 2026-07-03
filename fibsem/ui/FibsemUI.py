@@ -6,7 +6,7 @@ from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget

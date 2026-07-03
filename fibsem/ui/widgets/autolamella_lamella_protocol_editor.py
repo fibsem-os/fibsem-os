@@ -34,8 +34,8 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
-from fibsem.ui.widgets.canvas_state import AlignmentSpec, PointsSpec
-from fibsem.ui.widgets.quad_view import LamellaEditorView, MicroscopeViewController
+from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
+from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
 from fibsem.ui.widgets.autolamella_apply_protocol_dialog import ApplyLamellaConfigDialog
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,

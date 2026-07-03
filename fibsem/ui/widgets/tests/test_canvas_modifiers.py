@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.structures import FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
 class ModifierTestWidget(QWidget):

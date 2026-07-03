@@ -27,7 +27,7 @@ from fibsem.ui.napari.utilities import is_position_inside_layer
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
-from fibsem.ui.widgets.canvas_state import MillingSpec
+from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 
 if TYPE_CHECKING:
     from fibsem.ui import FibsemImageSettingsWidget

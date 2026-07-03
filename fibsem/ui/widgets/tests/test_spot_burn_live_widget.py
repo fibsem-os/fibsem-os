@@ -25,7 +25,7 @@ from fibsem import utils
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 _CONFIG = "fibsem/config/sim-arctis-configuration.yaml"
 

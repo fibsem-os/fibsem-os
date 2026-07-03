@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+    from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
 class CanvasOverlay:

@@ -26,7 +26,7 @@ from fibsem import utils
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 # FM-enabled Demo config so FMControlWidget (and ObjectiveControlWidget) build.
 _CONFIG = "fibsem/config/sim-arctis-configuration.yaml"

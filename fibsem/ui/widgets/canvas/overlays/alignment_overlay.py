@@ -17,7 +17,7 @@ from typing import Optional
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem.structures import FibsemRectangle
-from fibsem.ui.widgets.overlays.rect_overlay import RectOverlay
+from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
 
 _ALIGNMENT_COLOUR = "limegreen"
 

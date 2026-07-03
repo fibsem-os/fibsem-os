@@ -13,7 +13,7 @@ import types
 import numpy as np
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

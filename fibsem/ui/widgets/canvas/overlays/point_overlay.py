@@ -10,12 +10,12 @@ from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.ui.widgets.overlays.base import CanvasOverlay
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+    from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
 class PointsOverlay(CanvasOverlay):

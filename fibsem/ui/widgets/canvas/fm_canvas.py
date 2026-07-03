@@ -22,10 +22,10 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QIconifyIcon, QRangeSlider
 
-from fibsem.ui.widgets.fm_composite import (
+from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
 )
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage

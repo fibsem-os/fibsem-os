@@ -6,12 +6,12 @@ import math
 from typing import List, Optional, Tuple
 
 from fibsem.ui.stylesheets import CANVAS_BG as _BG
-from fibsem.ui.widgets.overlays.base import CanvasOverlay
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+    from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
 _RULER_PICK_PX = 10  # screen-space hit radius for ruler endpoints / line body

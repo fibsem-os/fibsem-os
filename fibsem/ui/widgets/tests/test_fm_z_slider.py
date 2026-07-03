@@ -20,7 +20,7 @@ from PyQt5 import QtWidgets
 
 _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
-from fibsem.ui.widgets.fm_canvas import FMCanvasWidget
+from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
 
 def _fake_fm(data: np.ndarray, colors):

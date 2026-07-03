@@ -18,7 +18,7 @@ from fibsem.ui.widgets.beam_settings_widget import (
     WD_WHEEL_STEP_MM,
     FibsemBeamSettingsWidget,
 )
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

@@ -14,7 +14,7 @@ Overlays that need Qt signals extend QObject directly.  An overlay that wants
 to suppress canvas pan/zoom during a drag sets ``canvas._overlay_consuming_event = True``
 on button-press; the canvas clears the flag automatically on button-release.
 
-The overlay classes themselves live in the :mod:`fibsem.ui.widgets.overlays`
+The overlay classes themselves live in the :mod:`fibsem.ui.widgets.canvas.overlays`
 package (``CanvasOverlay`` base + ``PointsOverlay`` / ``PointOverlay`` /
 ``RectOverlay`` / ``RulerOverlay`` / ``PatternOverlay`` / ``ScanDirectionArrowOverlay``
 and the milling / mask / alignment / minimap overlays).
@@ -35,11 +35,11 @@ from superqt import QIconifyIcon
 
 from fibsem.structures import FibsemImage
 from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _ACCENT
-from fibsem.ui.widgets.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.overlays.base import CanvasOverlay
-    from fibsem.ui.widgets.overlays.ruler_overlay import RulerOverlay
+    from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+    from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 _logger = logging.getLogger(__name__)
 
@@ -693,7 +693,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         """
         if self.btn_toggle_ruler.isChecked():
             if self._ruler_overlay is None:
-                from fibsem.ui.widgets.overlays.ruler_overlay import RulerOverlay
+                from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
                 self._ruler_overlay = RulerOverlay()
                 self.add_overlay(self._ruler_overlay)

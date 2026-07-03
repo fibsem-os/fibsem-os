@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
-from fibsem.ui.widgets.fm_canvas import FMCanvasWidget
+from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
 H = W = 512
 _RNG_SEED = 0

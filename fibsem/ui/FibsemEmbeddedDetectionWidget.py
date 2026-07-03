@@ -74,7 +74,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
     def _update_features(self, beam):
         """Show the detection image + read-only mask + draggable feature points on the
         *beam* canvas via the reducer (quad-view equivalent of update_features_ui)."""
-        from fibsem.ui.widgets.canvas_state import MaskSpec, PointsSpec
+        from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, PointsSpec
 
         controller = self._view_controller()
         if controller is None:

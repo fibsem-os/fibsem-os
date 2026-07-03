@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 
 def main() -> None:

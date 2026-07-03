@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QApplication, QWidget
 
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import AutoLamellaSingleWindowUI
 from fibsem.structures import BeamType
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

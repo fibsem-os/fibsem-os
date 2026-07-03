@@ -12,7 +12,7 @@ import sys
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.structures import BeamType
-from fibsem.ui.widgets.quad_view import (
+from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
 )

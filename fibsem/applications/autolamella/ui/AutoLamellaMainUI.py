@@ -42,7 +42,7 @@ from fibsem.structures import BeamType
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
-from fibsem.ui.widgets.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
     NAPARI_STYLE,

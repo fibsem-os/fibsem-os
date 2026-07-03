@@ -1839,7 +1839,7 @@ class AutoLamellaUI(QMainWindow):
 
     def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
         """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
-        from fibsem.ui.widgets.canvas_state import PointsSpec
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:

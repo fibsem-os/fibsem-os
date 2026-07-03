@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
-from fibsem.ui.widgets.canvas_state import PointsSpec
+from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 

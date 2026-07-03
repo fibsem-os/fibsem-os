@@ -20,8 +20,8 @@ from fibsem.milling.patterning.patterns2 import (
 )
 from fibsem.structures import FibsemImage, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.widgets.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.overlays.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
 
 
 def _stage(name: str, pattern, x_um: float, y_um: float) -> FibsemMillingStage:
