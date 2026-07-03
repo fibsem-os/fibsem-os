@@ -1,25 +1,23 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from PIL import Image, ImageDraw
-
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
-from fibsem.imaging.drawing import _get_font, draw_crosshair_at, draw_rectangle_reduced, draw_scalebar
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 
@@ -39,11 +37,13 @@ _EXAMPLE_PETNAME = "brave-tiger"
 _PREVIEW_HFW = 100e-6               # 100 µm horizontal field width
 _PREVIEW_W, _PREVIEW_H = 384, 288
 _PIXEL_SIZE = _PREVIEW_HFW / _PREVIEW_W
+_PREVIEW_VFW = _PREVIEW_HFW * _PREVIEW_H / _PREVIEW_W  # vertical field width (metres)
 
-_COLOR_CENTRE = (255, 255, 0)       # yellow  — image centre crosshair
-_COLOR_AA     = (0, 255, 0)         # lime    — alignment area rectangle
-_COLOR_POI    = (255, 0, 255)       # magenta — point of interest crosshair
+_COLOR_AA = "limegreen"            # alignment area rectangle
+_COLOR_POI = "magenta"             # point of interest marker
 
+# Black background the overlays are drawn over (the canvas adds its own scalebar +
+# centre crosshair from the pixel size, so only the AA rect + POI need overlays).
 _PREVIEW_BG: np.ndarray = np.zeros((_PREVIEW_H, _PREVIEW_W), dtype=np.uint8)
 
 
@@ -59,59 +59,50 @@ def _row(label_text: str, *widgets) -> QHBoxLayout:
     return row
 
 
-def _render_template_preview(template: LamellaDefaultConfig) -> QPixmap:
-    """Render a 100 µm FIB preview image with template overlays as a QPixmap."""
-    arr = _PREVIEW_BG.copy()
-
-    # Scale bar
-    arr = draw_scalebar(arr, _PIXEL_SIZE)
-
-    # Name text at top of image
+def _template_name(template: LamellaDefaultConfig) -> str:
+    """The example lamella name a template would produce (for the preview hint)."""
     prefix = template.name_prefix or ""
     sep = "-" if prefix else ""
-    name = (f"{prefix}{sep}01-{_EXAMPLE_PETNAME}" if template.use_petname
-            else f"{prefix}{sep}Lamella-01")
-    pil_img = Image.fromarray(arr).convert("RGBA")
-    overlay = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(overlay).text((4, 4), name, font=_get_font(16, bold=True), fill=(255, 255, 255, 220))
-    arr = np.array(Image.alpha_composite(pil_img, overlay).convert("RGB"))
+    if template.use_petname:
+        return f"{prefix}{sep}01-{_EXAMPLE_PETNAME}"
+    return f"{prefix}{sep}Lamella-01"
 
-    # Yellow crosshair at image centre (always visible)
-    arr = draw_crosshair_at(arr, 0.5, 0.5, color=_COLOR_CENTRE, alpha=0.9, size_ratio=0.06)
 
-    # Lime green rectangle for alignment area
-    aa = template.alignment_area if template.alignment_area is not None else _DEFAULT_AA
-    arr = draw_rectangle_reduced(
-        arr, aa.left, aa.top, aa.width, aa.height,
-        color=_COLOR_AA, alpha=0.9, thickness=2,
-    )
+def _poi_to_pixel(poi: Point) -> Tuple[float, float]:
+    """Microscope-coord POI offset (metres, +x right / +y up) → image pixel (top-left, y-down)."""
+    px = (0.5 + poi.x / _PREVIEW_HFW) * _PREVIEW_W
+    py = (0.5 - poi.y / _PREVIEW_VFW) * _PREVIEW_H
+    px = max(0.0, min(px, _PREVIEW_W - 1))
+    py = max(0.0, min(py, _PREVIEW_H - 1))
+    return px, py
 
-    # Magenta crosshair for POI (offset from image centre in microscope coords)
-    poi = template.poi if template.poi is not None else _DEFAULT_POI
-    vfw = _PREVIEW_HFW * _PREVIEW_H / _PREVIEW_W
-    cx_frac = max(0.02, min(0.98, 0.5 + poi.x / _PREVIEW_HFW))
-    cy_frac = max(0.02, min(0.98, 0.5 - poi.y / vfw))
-    arr = draw_crosshair_at(arr, cx_frac, cy_frac, color=_COLOR_POI, alpha=0.9, size_ratio=0.05)
 
-    arr_c = np.ascontiguousarray(arr)
-    h, w = arr_c.shape[:2]
-    qimg = QImage(arr_c.data, w, h, 3 * w, QImage.Format.Format_RGB888)
-    return QPixmap.fromImage(qimg)
+def _pixel_to_poi(px: float, py: float) -> Point:
+    """Inverse of :func:`_poi_to_pixel` — image pixel → POI offset in metres."""
+    x = (px / _PREVIEW_W - 0.5) * _PREVIEW_HFW
+    y = (0.5 - py / _PREVIEW_H) * _PREVIEW_VFW
+    return Point(x=x, y=y)
 
 
 class LamellaDefaultConfigWidget(QWidget):
-    """Compact editor for LamellaDefaultConfig protocol defaults."""
+    """Compact editor for LamellaDefaultConfig protocol defaults.
+
+    The right-hand preview is a live :class:`FibsemImageCanvas`: the alignment area
+    (lime rectangle) and point of interest (magenta marker) are editable overlays
+    that stay in two-way sync with the spinboxes — drag them on the canvas or type
+    values, either updates the other.
+    """
 
     template_changed = pyqtSignal(object)  # LamellaDefaultConfig
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._preview_pixmap: Optional[QPixmap] = None
         self.setStyleSheet(NAPARI_STYLE + "QCheckBox { background: transparent; }")
         self._setup_ui()
         self._connect_signals()
-        self._validate_alignment_area()
-        self._update_image_preview(LamellaDefaultConfig())
+        # Position spinboxes + overlays + name hint from the defaults (silent — the
+        # spinbox writes are blocked and the overlays don't echo programmatic sets).
+        self.set_template(LamellaDefaultConfig())
 
     # ------------------------------------------------------------------
     def _setup_ui(self) -> None:
@@ -198,18 +189,43 @@ class LamellaDefaultConfigWidget(QWidget):
         self._params_panel.add_header_widget(self._btn_reset)
         root.addWidget(self._params_panel)
 
-        # ── right column: preview image ───────────────────────────────
+        # ── right column: live preview canvas + editable overlays ─────
         preview_widget = QWidget()
         preview_layout = QVBoxLayout(preview_widget)
         preview_layout.setContentsMargins(4, 4, 4, 4)
         preview_layout.setSpacing(4)
 
-        self.image_preview_lbl = QLabel()
-        self.image_preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_preview_lbl.setMinimumSize(_PREVIEW_W // 2, _PREVIEW_H // 2)
-        self.image_preview_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.image_preview_lbl.setStyleSheet("background: black;")
-        preview_layout.addWidget(self.image_preview_lbl)
+        self.canvas = FibsemImageCanvas()
+        self.canvas.setMinimumSize(_PREVIEW_W // 2, _PREVIEW_H // 2)
+        # Config preview: keep only fit-to-view + scalebar + crosshair toggles;
+        # drop contrast / ruler (mode is already hidden until an overlay arms it).
+        self.canvas.btn_contrast.hide()
+        self.canvas.btn_toggle_ruler.hide()
+        # Seed the black background (gives the overlays their pixel dimensions and the
+        # canvas its scalebar); then attach overlays. POI is added *before* the
+        # alignment rect so its press handler wins when the marker sits inside the rect.
+        self.canvas.set_array(_PREVIEW_BG, pixel_size=_PIXEL_SIZE)
+        self._poi_overlay = PointOverlay(
+            color=_COLOR_POI,
+            selected_color=_COLOR_POI,
+            marker="+",       # thin cross, reads like the (yellow) centre crosshair
+            size=11.0,
+            edge_width=1.2,   # thin lines (centre crosshair is linewidth=1)
+            add_on_right_click=False,
+            removable=False,
+        )
+        self._aa_overlay = AlignmentAreaOverlay(color=_COLOR_AA, editable=True)
+        self.canvas.add_overlay(self._poi_overlay)
+        self.canvas.add_overlay(self._aa_overlay)
+        # Patch legend keying the three preview elements ("yellow" = the canvas's
+        # built-in centre crosshair; see FibsemImageCanvas._refresh_crosshair).
+        # Lower-left: name hint is upper-left, toolbar upper-right, scalebar lower-right.
+        self.canvas.set_legend([
+            ("yellow", "Image centre"),
+            (_COLOR_AA, "Alignment area"),
+            (_COLOR_POI, "Point of interest"),
+        ], loc="lower left")
+        preview_layout.addWidget(self.canvas)
 
         preview_panel = TitledPanel("Preview  (100 µm FIB)", content=preview_widget, collapsible=False)
         root.addWidget(preview_panel)
@@ -223,6 +239,10 @@ class LamellaDefaultConfigWidget(QWidget):
             sb.valueChanged.connect(self._on_alignment_changed)
         for sb in self._poi_widgets:
             sb.valueChanged.connect(self._on_changed)
+        # Overlay → spinbox (only fires on user drag/resize, never on programmatic set)
+        self._aa_overlay.alignment_area_changed.connect(self._on_overlay_alignment_changed)
+        self._poi_overlay.point_dragging.connect(self._on_overlay_poi_dragging)
+        self._poi_overlay.point_moved.connect(self._on_overlay_poi_moved)
 
     # ------------------------------------------------------------------
     # Public API
@@ -251,7 +271,7 @@ class LamellaDefaultConfigWidget(QWidget):
         self.name_prefix_edit.blockSignals(False)
 
         self._validate_alignment_area()
-        self._update_image_preview(template)
+        self._sync_overlays(template)
 
     def get_template(self) -> LamellaDefaultConfig:
         return LamellaDefaultConfig(
@@ -305,29 +325,54 @@ class LamellaDefaultConfigWidget(QWidget):
             self.aa_validation_lbl.setText("⚠ " + ";  ".join(issues))
             self.aa_validation_lbl.setVisible(True)
 
-    def _update_image_preview(self, template: LamellaDefaultConfig) -> None:
-        self._preview_pixmap = _render_template_preview(template)
-        self._scale_preview()
+    def _sync_overlays(self, template: LamellaDefaultConfig) -> None:
+        """Push a template onto the canvas overlays + name hint (no signals emitted)."""
+        aa = template.alignment_area if template.alignment_area is not None else _DEFAULT_AA
+        self._aa_overlay.set_area(aa)
+        self._aa_overlay.set_visible(True)
 
-    def _scale_preview(self) -> None:
-        if self._preview_pixmap is None:
-            return
-        scaled = self._preview_pixmap.scaled(
-            self.image_preview_lbl.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.image_preview_lbl.setPixmap(scaled)
+        poi = template.poi if template.poi is not None else _DEFAULT_POI
+        self._poi_overlay.set_points([_poi_to_pixel(poi)])
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self._scale_preview()
+        self.canvas.set_hint(_template_name(template))
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._scale_preview()
+    # ── overlay → spinbox sync ────────────────────────────────────────
+
+    def _on_overlay_alignment_changed(self, area: FibsemRectangle) -> None:
+        """User dragged/resized the alignment rectangle on the canvas."""
+        for sb in self._aa_widgets:
+            sb.blockSignals(True)
+        self.aa_left.setValue(area.left)
+        self.aa_top.setValue(area.top)
+        self.aa_width.setValue(area.width)
+        self.aa_height.setValue(area.height)
+        for sb in self._aa_widgets:
+            sb.blockSignals(False)
+        self._validate_alignment_area()
+        self._emit_changed()
+
+    def _on_overlay_poi_dragging(self, _idx: int, x: float, y: float) -> None:
+        """Live spinbox feedback while dragging the POI marker (no emit)."""
+        poi = _pixel_to_poi(x, y)
+        for sb in self._poi_widgets:
+            sb.blockSignals(True)
+        self.poi_x.setValue(poi.x * 1e6)
+        self.poi_y.setValue(poi.y * 1e6)
+        for sb in self._poi_widgets:
+            sb.blockSignals(False)
+
+    def _on_overlay_poi_moved(self, _idx: int, x: float, y: float) -> None:
+        """POI marker released — commit the value and notify listeners."""
+        self._on_overlay_poi_dragging(_idx, x, y)  # ensure spinboxes match the release point
+        self._emit_changed()
+
+    # ── outward change notification ───────────────────────────────────
+
+    def _emit_changed(self) -> None:
+        """Emit template_changed without re-touching the overlays (avoids echo)."""
+        self.template_changed.emit(self.get_template())
 
     def _on_changed(self) -> None:
         template = self.get_template()
-        self._update_image_preview(template)
+        self._sync_overlays(template)
         self.template_changed.emit(template)

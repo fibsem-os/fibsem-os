@@ -170,6 +170,11 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
 
+        # Optional patch legend (list of (color, label)); re-applied across image changes.
+        self._legend_artist = None
+        self._legend_entries: Optional[List[Tuple[str, str]]] = None
+        self._legend_loc: str = "upper right"
+
         # Drag-to-measure ruler (lazily created on first toggle; see toggle_ruler).
         # _ruler_prev_active restores whatever overlay owned input before measuring.
         self._ruler_overlay: Optional["RulerOverlay"] = None
@@ -298,6 +303,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
         self._refresh_info_bar()  # ditto: restore the remembered info bar
         self._refresh_flash()  # ditto: keep a live flash (e.g. WD scroll) visible across frames
+        self._refresh_legend()  # ditto: restore the patch legend
 
         for overlay in self._overlays:
             try:
@@ -426,6 +432,46 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_flash()
         self.draw_idle()
 
+    def set_legend(self, entries, loc: str = "upper right") -> None:
+        """Show a small patch legend, or clear it with None / an empty list.
+
+        *entries* is a sequence of ``(color, label)`` pairs, each drawn as a filled
+        swatch. Remembered and re-applied after every image change (like the hint /
+        info bar), so a new frame doesn't silently drop it."""
+        self._legend_entries = list(entries) if entries else None
+        self._legend_loc = loc
+        self._refresh_legend()
+        self.draw_idle()
+
+    def _refresh_legend(self) -> None:
+        """(Re)create the legend artist from the cached entries, or remove it."""
+        if self._legend_artist is not None:
+            try:
+                self._legend_artist.remove()
+            except Exception:
+                pass
+            self._legend_artist = None
+        if not self._legend_entries:
+            return
+        import matplotlib.patches as mpatches
+        from matplotlib.legend import Legend
+
+        labels = [label for _, label in self._legend_entries]
+        handles = [
+            mpatches.Patch(facecolor=color, edgecolor="white", label=label)
+            for color, label in self._legend_entries
+        ]
+        # Build the Legend directly (not ax.legend) so it doesn't replace an overlay's
+        # own legend (e.g. milling stages); styled like the point/milling legends.
+        leg = Legend(
+            self._ax, handles, labels, loc=self._legend_loc,
+            fontsize=7, facecolor=_BG, edgecolor="#555555",
+            labelcolor="#d1d2d4", framealpha=0.85,
+        )
+        leg.set_zorder(10)
+        self._ax.add_artist(leg)
+        self._legend_artist = leg
+
     def clear(self) -> None:
         """Clear the image and show placeholder text."""
         self._img_w = self._img_h = None
@@ -441,6 +487,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._flash_artist = None
         self._flash_text = None
         self._flash_timer.stop()
+        self._legend_artist = None  # removed by cla(); drop the cached entries too
+        self._legend_entries = None
         self._plot_empty()
         for overlay in self._overlays:
             try:
