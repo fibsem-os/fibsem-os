@@ -9,7 +9,8 @@ from napari.layers import Shapes as NapariShapesLayer
 from napari.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
-from superqt import QIconifyIcon, ensure_main_thread
+from superqt import ensure_main_thread
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem import acquire, constants, utils
 from fibsem.microscope import FibsemMicroscope
@@ -254,8 +255,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_run_autocontrast.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_run_autofocus.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
-        self.pushButton_run_autocontrast.setIcon(QIconifyIcon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR))
-        self.pushButton_run_autofocus.setIcon(QIconifyIcon("mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR))
+        self.pushButton_run_autocontrast.setIcon(fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR))
+        self.pushButton_run_autofocus.setIcon(fibsem_icon("mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR))
 
         self.acquisition_buttons: List[QtWidgets.QPushButton] = [
             self.pushButton_take_all_images,

@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 import fibsem.config as fcfg
 from fibsem.constants import DATETIME_DISPLAY_AMPM
@@ -159,15 +159,15 @@ class WorkflowTaskRowWidget(QWidget):
         requires_text = ", ".join(self.task.requires) if self.task.requires else "No requirements"
         self.requires_label.setText(requires_text)
         icon_name, icon_color, tooltip = _supervise_icon(self.task)
-        self.btn_supervise.setIcon(QIconifyIcon(icon_name, color=icon_color))
+        self.btn_supervise.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_supervise.setToolTip(tooltip)
         if self.task.scheduled_at is not None:
-            self.btn_schedule.setIcon(QIconifyIcon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR))
+            self.btn_schedule.setIcon(fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR))
             self.btn_schedule.setToolTip(
                 f"Scheduled: {self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)}"
             )
         else:
-            self.btn_schedule.setIcon(QIconifyIcon("mdi:clock-outline", color="#606060"))
+            self.btn_schedule.setIcon(fibsem_icon("mdi:clock-outline", color="#606060"))
             self.btn_schedule.setToolTip("Not scheduled — click to set")
 
 

@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional, Union
 
-from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor, QIcon, QTransform
+import qtawesome as qta
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QCursor, QIcon, QPainter
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -26,7 +27,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.utils import WheelBlocker
@@ -522,7 +523,7 @@ class TitledPanel(QWidget):
             expanded = True
         self._body.setVisible(expanded)
         icon = "mdi:chevron-up" if expanded else "mdi:chevron-down"
-        self._btn_collapse.setIcon(QIconifyIcon(icon, color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_collapse.setIcon(fibsem_icon(icon, color=stylesheets.GRAY_ICON_COLOR))
         self._btn_collapse.setToolTip("Collapse" if expanded else "Expand")
 
     def set_title(self, title: str) -> None:
@@ -542,37 +543,50 @@ class TitledPanel(QWidget):
 
 
 class _SpinnerLabel(QLabel):
-    """Rotating icon label used as a lightweight acquisition progress indicator."""
+    """Spinning icon label used as a lightweight acquisition progress indicator.
+
+    Backed by qtawesome's native ``Spin`` animation: the icon engine rotates the
+    glyph and repaints this widget on a timer, so there is no manual rotation
+    bookkeeping. The animation timer is created lazily on first paint, so we let
+    it ``autostart`` and drive visibility via :meth:`start`/:meth:`stop`.
+    """
 
     def __init__(self, icon_name="mdi:loading", color="#4fc3f7", size=24,
                  step_deg=20, interval_ms=40, parent=None):
         super().__init__(parent)
-        self._pixmap = QIconifyIcon(icon_name, color=color).pixmap(size, size)
-        self._angle = 0
-        self._step = step_deg
-        self._timer = QTimer(self)
-        self._timer.setInterval(interval_ms)
-        self._timer.timeout.connect(self._tick)
+        self._spin = qta.Spin(self, interval=interval_ms, step=step_deg)
+        self._icon = fibsem_icon(icon_name, color=color, animation=self._spin)
+        self._active = False
         self.setFixedSize(size, size)
         self.setAlignment(Qt.AlignCenter)
-        self._render()
         self.setStyleSheet("background: transparent;")
 
-    def _tick(self):
-        self._angle = (self._angle + self._step) % 360
-        self._render()
-
-    def _render(self):
-        t = QTransform().rotate(self._angle)
-        self.setPixmap(self._pixmap.transformed(t, Qt.SmoothTransformation))
+    def paintEvent(self, event):
+        # only draw (and thereby drive the animation) while active
+        if not self._active:
+            return
+        painter = QPainter(self)
+        try:
+            self._icon.paint(painter, self.rect())
+        finally:
+            painter.end()
 
     def start(self):
-        self._timer.start()
+        self._active = True
+        # first paint registers the widget with the Spin (autostart=True) and
+        # starts its timer; _spin.start() then resumes it on a start-after-stop.
+        self.update()
+        self._spin.start()
 
     def stop(self):
-        self._timer.stop()
-        self._angle = 0
-        self._render()
+        self._active = False
+        self._spin.stop()
+        self.update()        # repaint blank
+
+    def clear(self):
+        # blanking the spinner implies stopping its animation
+        self.stop()
+        super().clear()
 
 
 class IconToolButton(QToolButton):
@@ -638,14 +652,14 @@ class IconToolButton(QToolButton):
             super().setChecked(checked)
             self._on_toggled(checked)
         else:
-            self.setIcon(QIconifyIcon(self._icon, color=self._color))
+            self.setIcon(fibsem_icon(self._icon, color=self._color))
             if tooltip:
                 self.setToolTip(tooltip)
 
     def _on_toggled(self, checked: bool) -> None:
         icon = self._checked_icon if checked else self._icon
         color = self._checked_color if checked else self._color
-        self.setIcon(QIconifyIcon(icon, color=color))
+        self.setIcon(fibsem_icon(icon, color=color))
         tip = self._checked_tooltip if checked else self._tooltip
         if tip is not None:
             self.setToolTip(tip)
@@ -824,7 +838,7 @@ class _LamellaRow(QWidget):
 
         # Direct action buttons (replaces "…" dropdown)
         self.btn_move_to = QToolButton()
-        self.btn_move_to.setIcon(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move_to.setIcon(fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_move_to.setToolTip("Move to Position")
         self.btn_move_to.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_move_to.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -832,7 +846,7 @@ class _LamellaRow(QWidget):
         layout.addWidget(self.btn_move_to)
 
         self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(QIconifyIcon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_edit.setIcon(fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_edit.setToolTip("Edit Lamella")
         self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -840,7 +854,7 @@ class _LamellaRow(QWidget):
         layout.addWidget(self.btn_edit)
 
         self.btn_update = QToolButton()
-        self.btn_update.setIcon(QIconifyIcon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_update.setIcon(fibsem_icon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_update.setToolTip("Update Position")
         self.btn_update.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_update.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -853,7 +867,7 @@ class _LamellaRow(QWidget):
 
         # Remove button
         self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_remove.setIcon(fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_remove.setToolTip("Remove")
         self.btn_remove.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -870,13 +884,13 @@ class _LamellaRow(QWidget):
             return
         menu = QMenu(self)
         action_none = menu.addAction(
-            QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
+            fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            QIconifyIcon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
         )
         action_failure = menu.addAction(
-            QIconifyIcon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
         )
         chosen = menu.exec_(self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft()))
         if chosen == action_none:
@@ -906,7 +920,7 @@ class _LamellaRow(QWidget):
         # Update defect icon if visible
         if self.btn_defect.isVisible():
             icon_name, icon_color, tooltip = _lamella_defect_icon(self.lamella)
-            self.btn_defect.setIcon(QIconifyIcon(icon_name, color=icon_color))
+            self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
             self.btn_defect.setToolTip(tooltip)
 
 
@@ -1078,7 +1092,7 @@ class LamellaNameListWidget(QWidget):
             # Set icon directly — row.refresh() won't work here because
             # isVisible() returns False before the row is parented via setItemWidget
             icon_name, icon_color, tooltip = _lamella_defect_icon(row.lamella)
-            row.btn_defect.setIcon(QIconifyIcon(icon_name, color=icon_color))
+            row.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
             row.btn_defect.setToolTip(tooltip)
 
     # ------------------------------------------------------------------
