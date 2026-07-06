@@ -65,7 +65,6 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         )
         self.autofocusWidget.set_autofocus_settings(self.config.autofocus_settings)
         self.autofocusPanel = TitledPanel("Autofocus Settings", content=self.autofocusWidget, collapsible=True)
-        self.autofocusWidget.single_fine_search_mode()
 
         # propagate settings change events
         self.channelSettingsWidget.settings_changed.connect(self._on_channel_settings_changed)
@@ -140,7 +139,7 @@ def main():
                 ChannelSettings(name="Reflection Channel", excitation_wavelength=550, emission_wavelength=None, power=0.02, exposure_time=0.005),
                 ChannelSettings(name="Red Channel", excitation_wavelength=550, emission_wavelength="FLUORESCENCE", power=0.3, exposure_time=0.5, color="red")],
             zparams=ZParameters(zmin=-10e-6, zmax=10e-6, zstep=1e-6),
-            autofocus_settings=AutoFocusSettings(fine_enabled=False, method=FocusMethod.SOBEL, channel_name="Reflection Channel")
+            autofocus_settings=AutoFocusSettings.from_coarse_fine(fine_enabled=False, method=FocusMethod.SOBEL, channel_name="Reflection Channel")
         )
 
     viewer = napari.Viewer()

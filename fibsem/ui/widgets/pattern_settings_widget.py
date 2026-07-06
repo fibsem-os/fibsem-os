@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import List, Optional, Union
@@ -22,6 +23,7 @@ from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType, Point
 from fibsem.ui.widgets.custom_widgets import (
     FormRow,
+    QLineEdit,
     QFilePathLineEdit,
     ValueComboBox,
     ValueSpinBox,
@@ -167,8 +169,11 @@ class FibsemPatternSettingsWidget(QWidget):
                 control = ValueComboBox(items_list, value, m.get("unit"))
             elif items:
                 control = ValueComboBox(items, value, m.get("unit"))
-            elif m.get("filepath"):
-                control = QFilePathLineEdit()
+            elif type_ is str:
+                if m.get("filepath"):
+                    control = QFilePathLineEdit()
+                else:
+                    control = QLineEdit()
                 control.setText(str(value) if value else "")
             elif type_ is bool or isinstance(value, bool):
                 control = QCheckBox()
@@ -185,6 +190,7 @@ class FibsemPatternSettingsWidget(QWidget):
                 display_val = value * effective_scale if effective_scale else value
                 control.setValue(display_val)
             else:
+                logging.warning("Control for '%s' is unsupported", field_name)
                 continue  # unsupported type
 
             label = QLabel(label_text)

@@ -26,7 +26,6 @@ import datetime
 import logging
 import math
 import time
-import threading
 from collections import deque
 from datetime import timedelta
 from pprint import pformat
@@ -49,21 +48,20 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread, QDoubleSlider, QIconifyIcon
+from superqt import ensure_main_thread, QDoubleSlider
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
-from fibsem.imaging.autogamma import apply_gamma
+from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
-from fibsem.ui.widgets.image_canvas import (
-    FibsemImageCanvas,
-    RectOverlay,
-    ScanDirectionArrowOverlay,
-)
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -979,12 +977,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         auto_row.setSpacing(4)
         self.btn_autocontrast_fib = QPushButton("AutoContrast")
         self.btn_autocontrast_fib.setIcon(
-            QIconifyIcon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_autocontrast_fib.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.btn_autofocus_fib = QPushButton("AutoFocus")
         self.btn_autofocus_fib.setIcon(
-            QIconifyIcon(
+            fibsem_icon(
                 "mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR
             )
         )
@@ -1138,7 +1136,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.btn_milling = QPushButton("Start Milling")
         self.btn_milling.setIcon(
-            QIconifyIcon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
 
@@ -1148,7 +1146,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.label_threshold_chip = QPushButton("Threshold Reached")
         self.label_threshold_chip.setIcon(
-            QIconifyIcon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.label_threshold_chip.setStyleSheet(
             stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
@@ -1277,13 +1275,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
             return
 
-        def _move():
-            try:
-                self.microscope.safe_absolute_stage_movement(lamella.stage_position)
-            except Exception:
-                logging.exception("Error moving to lamella position")
-
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(
+            self.microscope.safe_absolute_stage_movement, lamella.stage_position
+        )
+        worker.start()
 
     def _acquire_fib_image(self):
         """Acquire a FIB image using current microscope settings and display it."""
@@ -1299,7 +1294,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             finally:
                 self._fib_acquire_done.emit()
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.start()
 
     def _acquire_fm_image(self):
         """Acquire a single FM image in a background thread and display it."""
@@ -1327,7 +1323,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             finally:
                 self._fm_acquire_done.emit()
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.start()
 
     def _set_fib_buttons_enabled(self, enabled: bool) -> None:
         for btn in [
@@ -1357,9 +1354,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error running FIB autocontrast")
             finally:
                 self._fib_acquire_done.emit()
-                self.btn_autocontrast_fib.setText("AutoContrast")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        # reset the button label on the GUI thread when the worker finishes (success or error)
+        worker.finished.connect(lambda: self.btn_autocontrast_fib.setText("AutoContrast"))
+        worker.start()
 
     def _run_fib_autofocus(self) -> None:
         from fibsem.structures import FibsemRectangle
@@ -1381,9 +1380,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error running FIB autofocus")
             finally:
                 self._fib_acquire_done.emit()
-                self.btn_autofocus_fib.setText("AutoFocus")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.finished.connect(lambda: self.btn_autofocus_fib.setText("AutoFocus"))
+        worker.start()
 
     def _on_fib_acquire_done(self):
         self._set_fib_buttons_enabled(True)
@@ -1765,7 +1765,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.progressBar_stages.setVisible(True)
             self.btn_milling.setText("Stop Milling")
             self.btn_milling.setIcon(
-                QIconifyIcon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
             self.btn_pause_milling.setVisible(True)
@@ -1789,7 +1789,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.progressBar_stages.setVisible(False)
             self.btn_milling.setText("Start Milling")
             self.btn_milling.setIcon(
-                QIconifyIcon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
             self.btn_pause_milling.setVisible(False)
@@ -1945,12 +1945,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         dx = (x - img_w / 2) * pixel_size
         dy = -(y - img_h / 2) * pixel_size
-        threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=dx, dy=dy, beam_type=BeamType.ION
-            ),
-            daemon=True,
-        ).start()
+        worker = FunctionWorker(
+            self.microscope.stable_move, dx=dx, dy=dy, beam_type=BeamType.ION
+        )
+        worker.start()
 
     def _on_fm_double_clicked(self, x: float, y: float) -> None:
         """Stable-move the stage to the double-clicked position on the FM canvas."""
@@ -1991,12 +1989,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             px, py = -py, px
         elif transform is CameraImageTransform.ROTATE_180:
             px, py = -px, -py
-        threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=px, dy=py, beam_type=BeamType.ELECTRON
-            ),
-            daemon=True,
-        ).start()
+        worker = FunctionWorker(
+            self.microscope.stable_move, dx=px, dy=py, beam_type=BeamType.ELECTRON
+        )
+        worker.start()
 
     # Public API
     # ------------------------------------------------------------------

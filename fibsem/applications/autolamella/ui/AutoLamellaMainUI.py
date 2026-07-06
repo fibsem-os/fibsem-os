@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -11,8 +12,8 @@ except Exception:
 
 import warnings
 
-import napari
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -32,15 +33,17 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from superqt.iconify import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.structures import BeamType
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.run_preflight import build_run_preflight
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
     NAPARI_STYLE,
@@ -171,10 +174,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         _frame_layout.addWidget(self.tab_widget)
         self.setCentralWidget(self._border_frame)
 
-        self.viewers: list[napari.Viewer] = []
+        self.viewers: list = []  # retained for closeEvent; no napari viewers remain
         self.autolamella_ui: AutoLamellaUI
         self.minimap_widget: FibsemMinimapWidget
-        self.minimap_viewer: napari.Viewer
 
         # Toast notification manager
         self.toast_manager = ToastManager(self)
@@ -261,34 +263,60 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
 
-        layer_controls_menu = view_menu.addMenu("Show Layer Controls")
-
-        self.action_layer_controls_microscope = QAction("Microscope", self)
-        self.action_layer_controls_microscope.setCheckable(True)
-        self.action_layer_controls_microscope.setChecked(True)
-        self.action_layer_controls_microscope.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "microscope")
-        )
-
-        self.action_layer_controls_overview = QAction("Overview", self)
-        self.action_layer_controls_overview.setCheckable(True)
-        self.action_layer_controls_overview.setChecked(True)
-        self.action_layer_controls_overview.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
-        )
-
-        self.action_layer_controls_lamella = QAction("Lamella Editor", self)
-        self.action_layer_controls_lamella.setCheckable(True)
-        self.action_layer_controls_lamella.setChecked(False)
-        self.action_layer_controls_lamella.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "lamella")
-        )
-
-        layer_controls_menu.addAction(self.action_layer_controls_microscope)
-        layer_controls_menu.addAction(self.action_layer_controls_overview)
-        layer_controls_menu.addAction(self.action_layer_controls_lamella)
-
         view_menu.addAction(self.action_show_minimap)
+
+        # Quad-view display controls. The F5/Esc/F6 shortcuts live on these QActions — a single
+        # source of truth for the menu item + its keybinding (Qt renders the shortcut text in the
+        # menu automatically). They're scoped to the Microscope tab via setShortcutContext +
+        # container.addAction (see _create_main_tab), so they only fire when focus is in that tab.
+        view_menu.addSeparator()
+        self.action_toggle_fullscreen = QAction("Full Screen", self)
+        self.action_toggle_fullscreen.setCheckable(True)
+        self.action_toggle_fullscreen.setShortcut(QKeySequence(Qt.Key_F5))
+        self.action_toggle_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.action_toggle_fullscreen.triggered.connect(self._hotkey_toggle_fullscreen)
+        view_menu.addAction(self.action_toggle_fullscreen)
+
+        self.action_exit_fullscreen = QAction("Exit Full Screen", self)
+        self.action_exit_fullscreen.setShortcut(QKeySequence(Qt.Key_Escape))
+        self.action_exit_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.action_exit_fullscreen.triggered.connect(self._hotkey_exit_fullscreen)
+        view_menu.addAction(self.action_exit_fullscreen)
+
+        fullscreen_menu = view_menu.addMenu("Full Screen View")
+        for label, key in (
+            ("SEM", BeamType.ELECTRON),
+            ("FIB", BeamType.ION),
+            ("Fluorescence", "fm"),
+        ):
+            act = QAction(label, self)
+            act.triggered.connect(
+                lambda _checked=False, k=key: self.view_controller.set_fullscreen(k)
+            )
+            fullscreen_menu.addAction(act)
+
+        # keep the checkable / enabled state honest each time the menu opens
+        view_menu.aboutToShow.connect(self._sync_view_menu)
+
+        # Imaging hotkeys (Microscope tab; scoped via container.addAction). Live / auto
+        # contrast / auto focus act on the selected beam — the view<->radio sync keeps
+        # dual_beam_widget.beam_type aligned with the selected view.
+        imaging_menu = menu_bar.addMenu("Imaging")
+        if imaging_menu is None:
+            raise RuntimeError("Failed to create Imaging menu in AutoLamella UI.")
+        self._imaging_actions: list = []  # added to the Microscope-tab container for scoping
+        for label, key, handler in (
+            ("Acquire", Qt.Key_F2, self._hotkey_acquire),
+            ("Live Acquisition", Qt.Key_F6, self._hotkey_toggle_live),
+            ("Auto Contrast", Qt.Key_F9, self._hotkey_autocontrast),
+            ("Auto Focus", Qt.Key_F11, self._hotkey_autofocus),
+        ):
+            action = QAction(label, self)
+            action.setShortcut(QKeySequence(key))
+            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            action.triggered.connect(handler)
+            imaging_menu.addAction(action)
+            self._imaging_actions.append(action)
 
         # add tools menu, reporting submenu
         tools_menu = menu_bar.addMenu("Tools")
@@ -310,6 +338,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
             raise RuntimeError("Failed to create Help menu in AutoLamella UI.")
+        self.action_report_issue = QAction("Report an Issue...", self)
+        self.action_report_issue.triggered.connect(self._on_report_issue)
+        help_menu.addAction(self.action_report_issue)
         self.action_about = QAction("About", self)
         self.action_about.triggered.connect(self._show_about_dialog)
         help_menu.addAction(self.action_about)
@@ -495,6 +526,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         # Toggle grid-workflow tabs (Grids tab, Sample tab, Workflow→Grids sub-tab)
         self._apply_grid_workflow_visibility()
+        # Toggle the "Report an Issue..." Help menu action
+        self.action_report_issue.setVisible(
+            self._preferences.features.bug_report_enabled
+        )
+        # Toggle the per-task schedule button in the workflow tab live, so a
+        # scheduled-tasks flag change applies without restarting.
+        if hasattr(self, "lamella_workflow_widget"):
+            self.lamella_workflow_widget.workflow.enable_schedule_button(
+                self._preferences.features.scheduled_tasks
+            )
 
     def _apply_grid_workflow_visibility(self) -> None:
         """Show/hide all grid-workflow tabs per the ``grid_workflow`` feature flag."""
@@ -560,26 +601,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is not None:
             self.autolamella_ui.open_information_dialog()
 
-    def _on_toggle_minimap_widget(self, checked: bool):
-        """Toggle the minimap plot dock widget visibility."""
-        if self.autolamella_ui is not None and hasattr(
-            self.autolamella_ui, "minimap_plot_dock"
-        ):
-            self.autolamella_ui.minimap_plot_dock.setVisible(checked)
-            self.autolamella_ui.minimap_plot_dock.activateWindow()
+    def _on_report_issue(self):
+        """Open the Report an Issue dialog."""
+        from fibsem.ui.widgets.bug_report_widget import open_bug_report_dialog
 
-    def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
-        """Toggle the layer list and layer controls for a specific viewer."""
-        viewer_map = {
-            "microscope": self.main_viewer,
-            "overview": self.minimap_viewer,
-            "lamella": self.lamella_viewer,
-        }
-        viewer = viewer_map.get(viewer_key)
-        if viewer is not None:
-            qt_viewer = viewer.window._qt_viewer
-            qt_viewer.dockLayerList.setVisible(checked)
-            qt_viewer.dockLayerControls.setVisible(checked)
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        open_bug_report_dialog(
+            experiment=experiment, microscope=microscope, parent=self
+        )
+
+    def _on_toggle_minimap_widget(self, checked: bool):
+        """Toggle the minimap plot window visibility (a floating tool window)."""
+        if self.autolamella_ui is not None and hasattr(
+            self.autolamella_ui, "minimap_plot_widget"
+        ):
+            self.autolamella_ui.minimap_plot_widget.setVisible(checked)
+            if checked:
+                self.autolamella_ui.minimap_plot_widget.raise_()
+                self.autolamella_ui.minimap_plot_widget.activateWindow()
 
     def _on_generate_report(self):
         """Handle Generate Report action."""
@@ -644,7 +684,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.user_attention_btn = QPushButton("Attention Required")
         self.user_attention_btn.setStyleSheet(USER_ATTENTION_BUTTON_STYLESHEET)
         self.user_attention_btn.setIcon(
-            QIconifyIcon("mdi:alert-circle", color=GRAY_ICON_COLOR)
+            fibsem_icon("mdi:alert-circle", color=GRAY_ICON_COLOR)
         )
         self.user_attention_btn.hide()  # Hidden by default
         self.user_attention_btn.setToolTip(
@@ -667,7 +707,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.run_workflow_btn = QPushButton("Run Workflow")
         self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.run_workflow_btn.setIcon(
-            QIconifyIcon("mdi:play-circle", color=GRAY_ICON_COLOR)
+            fibsem_icon("mdi:play-circle", color=GRAY_ICON_COLOR)
         )
         self.run_workflow_btn.setEnabled(False)
         self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
@@ -678,7 +718,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn = QPushButton("Stop Workflow")
         self.stop_workflow_btn.setStyleSheet(STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.stop_workflow_btn.setIcon(
-            QIconifyIcon("mdi:stop-circle", color=GRAY_ICON_COLOR)
+            fibsem_icon("mdi:stop-circle", color=GRAY_ICON_COLOR)
         )
         self.stop_workflow_btn.hide()  # Hidden by default
         self.stop_workflow_btn.setToolTip(
@@ -747,6 +787,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
         self._set_border_state(initial_state)
         ui._start_run_workflow_thread(task_names, lamella_names)
+        # Show the Stop button immediately so the run is cancellable even while
+        # waiting for a scheduled first task (before any task status arrives).
+        self.set_workflow_running()
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list._on_select_all(False)
         self.lamella_workflow_widget.workflow._on_select_all(False)
@@ -833,7 +876,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised:
             self.supervised_status_btn.setIcon(
-                QIconifyIcon("mdi:account-hard-hat", color="white")
+                fibsem_icon("mdi:account-hard-hat", color="white")
             )
             self.supervised_status_btn.setText("Supervised")
             self.supervised_status_btn.setToolTip(
@@ -844,7 +887,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         else:
             self.supervised_status_btn.setIcon(
-                QIconifyIcon("mdi:lightning-bolt", color="white")
+                fibsem_icon("mdi:lightning-bolt", color="white")
             )
             self.supervised_status_btn.setText("Automated")
             self.supervised_status_btn.setToolTip(
@@ -1039,14 +1082,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create napari viewer for main UI
-        self.main_viewer = napari.Viewer(show=False, title="AutoLamella Main")
-        self.main_viewer.window._qt_window.menuBar().hide()
-        self.main_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.main_viewer)
+        # Main tab is viewer-less: the quad-view controller is the display, so no
+        # napari viewer is created here (minimap + lamella editor keep their own).
+        self.main_viewer = None
 
         # Create the AutoLamellaUI widget
-        self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer, parent_ui=self)
+        self.autolamella_ui = AutoLamellaUI(viewer=None, parent_ui=self)
 
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
@@ -1084,11 +1125,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.menuBar().setVisible(False)
         self.autolamella_ui.setMinimumWidth(550)
 
-        # Layout: napari viewer (left) | autolamella controls (right) via splitter
+        # Layout: viewer (left) | autolamella controls (right) via splitter
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        splitter.addWidget(self.main_viewer.window._qt_window)
+        # Quad-view display (SEM/FIB/FM + placeholder): the controller's canvases
+        # are the left pane and drive the control widgets (viewer-less).
+        self.view_controller = MicroscopeViewController(parent=self)
+        splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
 
         splitter.setSizes([700, 550])
@@ -1097,9 +1141,95 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(splitter)
         self.tab_widget.addTab(
             container,
-            QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR),
+            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
             "Microscope",
         )
+        # The F5/Esc (View) + F2/F6/F9/F11 (Imaging) shortcuts are defined on QActions (a
+        # single source of truth for the menu item + keybinding). Adding those actions to
+        # the Microscope-tab container makes their WidgetWithChildrenShortcut scope resolve
+        # against this tab, so the keys only fire when focus is inside it (not the minimap /
+        # editor / workflow tabs).
+        for action in (
+            self.action_toggle_fullscreen,
+            self.action_exit_fullscreen,
+            *self._imaging_actions,
+        ):
+            container.addAction(action)
+
+    def _sync_view_menu(self) -> None:
+        """Refresh the View menu's dynamic state right before it opens: reflect whether a view
+        is full-screened (check + Exit-enabled)."""
+        if getattr(self, "view_controller", None) is None:
+            return
+        fullscreen = self.view_controller.fullscreen is not None
+        self.action_toggle_fullscreen.setChecked(fullscreen)
+        self.action_exit_fullscreen.setEnabled(fullscreen)
+
+    def _hotkey_toggle_fullscreen(self) -> None:
+        """F5: toggle full screen for the selected view."""
+        self.view_controller.toggle_fullscreen()
+
+    def _hotkey_exit_fullscreen(self) -> None:
+        """Esc: exit full screen (no-op when already showing the grid)."""
+        self.view_controller.set_fullscreen(None)
+
+    def _hotkey_acquire(self) -> None:
+        """F2: acquire the selected view (SEM / FIB / FM), if a microscope is connected and
+        an acquisition isn't already running."""
+        view = self.view_controller.selected_view
+        ui = self.autolamella_ui
+        if view in (BeamType.ELECTRON, BeamType.ION):
+            image_widget = getattr(ui, "image_widget", None)
+            if image_widget is None:
+                logging.info("F2 acquire: no image widget (microscope not connected)")
+                return
+            if getattr(image_widget, "is_acquiring", False):
+                logging.info("F2 acquire: acquisition already in progress")
+                return
+            if view is BeamType.ELECTRON:
+                image_widget.acquire_sem_image()
+            else:
+                image_widget.acquire_fib_image()
+        elif view == "fm":
+            fm_widget = getattr(ui, "fm_control_widget", None)
+            if fm_widget is None:
+                logging.info("F2 acquire: no fluorescence widget")
+                return
+            if getattr(fm_widget, "is_acquiring", False):
+                logging.info("F2 acquire: fluorescence acquisition already in progress")
+                return
+            fm_widget.acquire_image()
+
+    def _selected_em_image_widget(self):
+        """The image widget when a SEM/FIB view is selected, else None (FM / not connected).
+        Backs the EM-only imaging hotkeys (live / auto contrast / auto focus)."""
+        if self.view_controller.selected_view not in (BeamType.ELECTRON, BeamType.ION):
+            return None
+        return getattr(self.autolamella_ui, "image_widget", None)
+
+    def _hotkey_toggle_live(self) -> None:
+        """F6: toggle live acquisition on the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F6 live: only SEM/FIB support live acquisition")
+            return
+        image_widget.toggle_live_acquisition()
+
+    def _hotkey_autocontrast(self) -> None:
+        """F9: auto-contrast the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F9 autocontrast: only SEM/FIB supported")
+            return
+        image_widget.run_autocontrast()
+
+    def _hotkey_autofocus(self) -> None:
+        """F11: auto-focus the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F11 autofocus: only SEM/FIB supported")
+            return
+        image_widget.run_autofocus()
 
     def create_tabs(self):
         """Create the tabs for the AutoLamella UI."""
@@ -1243,7 +1373,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(self.task_widget)
         self.tab_widget.addTab(
             container,
-            QIconifyIcon("mdi:file-document-edit", color=GRAY_ICON_COLOR),
+            fibsem_icon("mdi:file-document-edit", color=GRAY_ICON_COLOR),
             "Protocol",
         )
 
@@ -1292,16 +1422,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Review tab
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
-        # Protocol tab: napari viewer (left) + editor (right)
-        self.lamella_viewer = napari.Viewer(show=False, title="Lamella Editor")
-        self.lamella_viewer.window._qt_window.menuBar().hide()
-        self.lamella_viewer.window._qt_window.statusBar().hide()
-        self.lamella_viewer.window._qt_viewer.dockLayerList.setVisible(False)
-        self.lamella_viewer.window._qt_viewer.dockLayerControls.setVisible(False)
-        self.viewers.append(self.lamella_viewer)
-
+        # Protocol tab: matplotlib canvas (left) + editor (right)
         self.lamella_widget = AutoLamellaProtocolEditorWidget(
-            viewer=self.lamella_viewer,
             parent=self.autolamella_ui,
         )
         self.autolamella_ui.system_widget.connected_signal.connect(
@@ -1311,7 +1433,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         protocol_splitter = QSplitter(Qt.Horizontal)
         protocol_splitter.setChildrenCollapsible(False)
-        protocol_splitter.addWidget(self.lamella_viewer.window._qt_window)
+        protocol_splitter.addWidget(self.lamella_widget.view_controller.widget)
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.lamella_widget)
         scroll_area.setWidgetResizable(True)
@@ -1327,7 +1449,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         layout.addWidget(outer_splitter)
         self.tab_widget.addTab(
-            container, QIconifyIcon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella"
+            container, fibsem_icon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella"
         )
         self._lamella_tab_container = container
 
@@ -1382,9 +1504,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_added.connect(self._save_workflow_config)
-        self.lamella_workflow_widget.task_schedule_changed.connect(
-            self._save_workflow_config
-        )
 
         # Workflow info signals — name/description/options changes also persist
         self.lamella_workflow_widget.workflow_name_changed.connect(
@@ -1441,7 +1560,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(splitter)
         self.tab_widget.addTab(
             container,
-            QIconifyIcon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
+            fibsem_icon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
             "Workflow",
         )
 
@@ -1540,6 +1659,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                     total_seconds=progress.get("total", 0.0),
                     message=progress.get("message", ""),
                 ))
+
+        # transient status-bar messages (e.g. scheduled-start countdown)
+        status_bar_msg = info.get("status_bar", None)
+        if status_bar_msg is not None and self.status_bar is not None:
+            self.status_bar.showMessage(status_bar_msg)
 
         status_msg = info.get("status", None)
         if status_msg is not None:
@@ -1744,22 +1868,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._set_border_state("idle")
 
     def add_minimap_tab(self):
-        """Add the minimap as a separate tab with its own viewer."""
+        """Add the minimap (Overview) as a separate tab. The widget owns its
+        matplotlib canvas + controls in an internal splitter — no napari viewer."""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create separate napari viewer for minimap
-        self.minimap_viewer = napari.Viewer(show=False, title="AutoLamella Minimap")
-        self.minimap_viewer.window._qt_window.menuBar().hide()
-        self.minimap_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.minimap_viewer)
-
-        # Create the minimap widget
-        self.minimap_widget = FibsemMinimapWidget(
-            viewer=self.minimap_viewer, parent=self.autolamella_ui
-        )
-        self.minimap_widget.setMinimumWidth(500)
+        self.minimap_widget = FibsemMinimapWidget(parent=self.autolamella_ui)
         self.minimap_widget._acquisition_finished.connect(
             self._on_tile_acquisition_finished
         )
@@ -1767,17 +1882,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_minimap_lamella_selected
         )
 
-        # Layout: napari viewer (left) | minimap controls (right) via splitter
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        splitter.addWidget(self.minimap_viewer.window._qt_window)
-        splitter.addWidget(self.minimap_widget)
-
-        splitter.setSizes([700, 500])
-        layout.addWidget(splitter)
+        layout.addWidget(self.minimap_widget)
         self.tab_widget.insertTab(
-            1, container, QIconifyIcon("mdi:map", color=GRAY_ICON_COLOR), "Overview"
+            1, container, fibsem_icon("mdi:map", color=GRAY_ICON_COLOR), "Overview"
         )
 
         # disable the tab by default
@@ -1802,15 +1909,40 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             except Exception:
                 pass
         super().closeEvent(event)
+        # Force the event loop to exit even if another top-level window (e.g. a stray
+        # matplotlib pyplot figure) would otherwise keep the app alive once this window
+        # closes. quit() — not os._exit — so atexit / experiment autosave still run.
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
 
 def run_ui():
     """Run the AutoLamella embedded example."""
+    import faulthandler
+    import signal
+
+    # Ctrl+C: PyQt never runs Python's SIGINT handler while blocked in the C++ event
+    # loop — and if the GUI thread wedges, no Python runs at all — so restore the OS
+    # default disposition: SIGINT then terminates the process at the kernel level,
+    # making the app always killable with Ctrl+C. (A hard stop, not a graceful one;
+    # use Cmd+Q / File→Exit for a clean shutdown when the loop is responsive.)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    # Diagnostics: dump every thread's Python stack on a fatal signal, and on demand
+    # via `kill -USR1 <pid>` — the fastest way to see *where* a frozen GUI thread is
+    # stuck (it does not terminate the process, so you can dump repeatedly).
+    faulthandler.enable()
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+
+    from fibsem.applications.autolamella.tools.bug_report import init_sentry
+
+    init_sentry()  # inert unless crash reporting is enabled in preferences
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
     window = AutoLamellaSingleWindowUI()
     window.show()
-    app.exec_()
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":

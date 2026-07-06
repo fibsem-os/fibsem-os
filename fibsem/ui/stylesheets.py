@@ -616,6 +616,10 @@ ORANGE_COLOR = " #ff9800"
 DEFECT_ORANGE_COLOR = "#e8a020"
 DEFECT_RED_COLOR = "#d04040"
 
+# Shared canvas colours (image canvas / overlays / quad-view selection border)
+CANVAS_BG = "#1e2124"
+PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
+
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }
     QFrame#workflow_border_frame[borderState="automated"]  { border: 4px solid #4caf50; }
@@ -657,3 +661,77 @@ LIST_WIDGET_STYLESHEET = """
                 background: #2d3f5c;
             }
         """
+
+# QDateTimeEdit with visible up/down step arrows (calendar popup must be OFF for
+# the buttons to appear). Stepping applies to whichever field has focus
+# (year / month / day / hour / minute), also via mouse-wheel and arrow keys.
+DATETIME_EDIT_STYLESHEET = """
+QDateTimeEdit {
+    background-color: #1e2027;
+    color: #d6d6d6;
+    border: 1px solid #3d4251;
+    border-radius: 3px;
+    padding: 4px 8px;
+}
+
+QDateTimeEdit:focus {
+    border: 1px solid #50a6ff;
+}
+
+QDateTimeEdit:disabled {
+    color: #6b6b6b;
+    background-color: #2d313b;
+}
+
+QDateTimeEdit::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: center right;
+    background-color: #3d4251;
+    border: none;
+    border-left: 1px solid #3d4251;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+    width: 20px;
+    height: 100%;
+}
+
+QDateTimeEdit::up-button:hover {
+    background-color: #4a5168;
+}
+
+QDateTimeEdit::up-button:pressed {
+    background-color: #50a6ff;
+}
+
+QDateTimeEdit::up-arrow {
+    image: url("__ICONS_DIR__/plus.svg");
+    width: 10px;
+    height: 10px;
+}
+
+QDateTimeEdit::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: center left;
+    background-color: #3d4251;
+    border: none;
+    border-right: 1px solid #3d4251;
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+    width: 20px;
+    height: 100%;
+}
+
+QDateTimeEdit::down-button:hover {
+    background-color: #4a5168;
+}
+
+QDateTimeEdit::down-button:pressed {
+    background-color: #50a6ff;
+}
+
+QDateTimeEdit::down-arrow {
+    image: url("__ICONS_DIR__/minus.svg");
+    width: 10px;
+    height: 10px;
+}
+""".replace("__ICONS_DIR__", _ICONS_DIR)

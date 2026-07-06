@@ -10,7 +10,6 @@ except Exception:
     pass
 import logging
 import os
-import subprocess
 import threading
 from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
@@ -46,13 +45,10 @@ from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -60,7 +56,9 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QWidget,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.sample_widget import SampleWidget
+from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     LamellaNameListWidget,
@@ -99,10 +97,13 @@ from fibsem.applications.autolamella.workflows.tasks.hooks import (
     NotificationHook,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
@@ -187,10 +188,8 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
+        # The main tab runs viewer-less; display is via the controller.
         self.viewer = viewer
-
-        # add placeholder layer
-        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -208,16 +207,12 @@ class AutoLamellaUI(QMainWindow):
         # sample (holder + optional loader magazine) tab
         self.sample_widget: Optional[SampleWidget] = None
 
-        # minimap plot widget
+        # minimap plot widget — a floating tool window, shown on demand (was a
+        # napari dock; relocated here so it no longer needs a viewer).
         self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_dock = self.viewer.window.add_dock_widget(
-            self.minimap_plot_widget,
-            name="Minimap Plot",
-            area="left",
-            add_vertical_stretch=False,
-            tabify=True,
-        )
-        self.minimap_plot_dock.setVisible(False)
+        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
+        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
+        self.minimap_plot_widget.hide()
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
@@ -228,8 +223,9 @@ class AutoLamellaUI(QMainWindow):
         self.SELECTED_POI: Optional[Point] = None
         self._poi_layer = None
         self._workflow_stop_event: threading.Event = threading.Event()
-        self._task_worker_thread: Optional[threading.Thread] = None
+        self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
+        self._last_run_summary: Optional["pd.DataFrame"] = None
 
         # setup connections
         self.setup_connections()
@@ -266,56 +262,15 @@ class AutoLamellaUI(QMainWindow):
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)
 
-        self.label_lamella_objective_position = QLabel("Objective Position")
-        self.doubleSpinBox_lamella_objective_position = ValueSpinBox(
-            suffix="µm", decimals=1, step=1.0, minimum=-20000.0, maximum=20000.0
-        )
-        self.btn_lamella_objective_actions = IconToolButton(
-            "mdi:dots-horizontal", tooltip="Actions"
-        )
-        self.btn_lamella_objective_actions.setPopupMode(IconToolButton.InstantPopup)
-        self.btn_lamella_objective_actions.setStyleSheet(
-            "QToolButton::menu-indicator { image: none; }"
-        )
-        _obj_menu = QMenu(self)
-        self._action_use_current_obj_pos = _obj_menu.addAction("Use Current Objective Position")
-        self._action_apply_obj_to_all = _obj_menu.addAction("Apply to All Lamella")
-        self.btn_lamella_objective_actions.setMenu(_obj_menu)
-
-        self.label_lamella_pose = QLabel("Pose")
-        self.comboBox_lamella_pose = QComboBox()
-
-        self.label_lamella_pose_position = QLabel("Pose Position")
-        self.pushButton_lamella_set_pose = QPushButton("Set Current Pose")
-        self.pushButton_lamella_move_to_pose = QPushButton("Move to Pose")
         # --- Selected Lamella panel (row 6, colspan 2) ---
-        selected_content = QWidget()
-        selected_layout = QGridLayout(selected_content)
-        selected_layout.setContentsMargins(0, 0, 0, 0)
-        _obj_row = QWidget()
-        _obj_row_layout = QHBoxLayout(_obj_row)
-        _obj_row_layout.setContentsMargins(0, 0, 0, 0)
-        _obj_row_layout.setSpacing(2)
-        _obj_row_layout.addWidget(self.doubleSpinBox_lamella_objective_position)
-        _obj_row_layout.addWidget(self.btn_lamella_objective_actions)
-        selected_layout.addWidget(self.label_lamella_objective_position, 0, 0)
-        selected_layout.addWidget(_obj_row, 0, 1)
-        selected_layout.addWidget(self.label_lamella_pose, 1, 0)
-        selected_layout.addWidget(self.comboBox_lamella_pose, 1, 1)
-        selected_layout.addWidget(self.label_lamella_pose_position, 2, 0, 1, 2)
-        selected_layout.addWidget(self.pushButton_lamella_set_pose, 3, 0)
-        selected_layout.addWidget(self.pushButton_lamella_move_to_pose, 3, 1)
-
-        self.selected_lamella_content = TitledPanel(
-            "Selected Lamella", content=selected_content, collapsible=False
-        )
+        self.selected_lamella_widget = SelectedLamellaWidget()
 
         self.grid_layout_experiment.addWidget(self.label_experiment_name, 0, 0)
         self.grid_layout_experiment.addWidget(self.lineEdit_experiment_name, 0, 1)
         self.grid_layout_experiment.addWidget(self.label_protocol_name, 1, 0)
         self.grid_layout_experiment.addWidget(self.lineEdit_protocol_name, 1, 1)
         self.grid_layout_experiment.addWidget(self.lamella_list, 2, 0, 1, 2)
-        self.grid_layout_experiment.addWidget(self.selected_lamella_content, 3, 0, 1, 2)
+        self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 3, 0, 1, 2)
 
         # Vertical spacer (row 7)
         self.grid_layout_experiment.addItem(
@@ -400,37 +355,21 @@ class AutoLamellaUI(QMainWindow):
         # refresh ui
         self.update_ui()
 
-        self.doubleSpinBox_lamella_objective_position.valueChanged.connect(
+        self.selected_lamella_widget.objective_position_changed.connect(
             self.update_lamella_objective_position
         )
-        self._action_use_current_obj_pos.triggered.connect(
+        self.selected_lamella_widget.use_current_objective_requested.connect(
             self._use_current_objective_position
         )
-        self._action_apply_obj_to_all.triggered.connect(
+        self.selected_lamella_widget.apply_objective_to_all_requested.connect(
             self._apply_objective_position_to_all
         )
-
-        self.comboBox_lamella_pose.currentIndexChanged.connect(
-            self._on_lamella_pose_combobox_changed
-        )
-        self.pushButton_lamella_set_pose.clicked.connect(
+        self.selected_lamella_widget.pose_update_requested.connect(
             self._set_current_position_as_pose
         )
-        self.pushButton_lamella_set_pose.setToolTip(
-            "Set the current stage position as the lamella pose position."
+        self.selected_lamella_widget.pose_move_to_requested.connect(
+            self._move_to_lamella_pose
         )
-
-        self.pushButton_lamella_move_to_pose.clicked.connect(self._move_to_lamella_pose)
-        self.pushButton_lamella_move_to_pose.setToolTip(
-            "Move the stage to the lamella pose position."
-        )
-        self.pushButton_lamella_set_pose.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.pushButton_lamella_move_to_pose.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.label_lamella_pose_position.setWordWrap(True)
 
     ##########
 
@@ -463,123 +402,6 @@ class AutoLamellaUI(QMainWindow):
             self.movement_widget.update_ui()
 
         self._update_minimap_data(stage_position=stage_position)
-        self._update_lamella_display()
-
-    def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view."""
-
-        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
-            return
-
-        if self.experiment is None:
-            return
-
-        if self.image_widget is None:
-            return
-
-        if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
-            return
-
-        from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-        from fibsem.ui.napari.utilities import (
-            NapariShapeOverlay,
-            create_crosshair_shape,
-        )
-        from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-
-        if selected_name is None:
-            selected_name = self.lamella_list.selected_name
-
-        try:
-            # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
-            points = reproject_stage_positions_onto_image2(
-                image=self.image_widget.ib_image,
-                positions=self.experiment.get_milling_positions(),
-                bound=True,
-            )
-
-            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
-            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
-            # should disable until we can fix this properly
-
-            layer_scale = None
-            overlays: List[NapariShapeOverlay] = []
-            for pt in points:
-                saved_lines = create_crosshair_shape(
-                    pt, CROSSHAIR_CONFIG["crosshair_size"], layer_scale
-                )
-
-                # Use lime for selected position, cyan for others
-                color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-                if pt.name == selected_name:
-                    color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
-
-                # Show position name on crosshair if saved position FOV is disabled
-                # label = saved_pos.name if not self.show_saved_positions_fov else ""
-
-                for line, txt in zip(saved_lines, [pt.name, ""]):
-                    overlays.append(
-                        NapariShapeOverlay(
-                            shape=line, color=color, label=txt, shape_type="line"
-                        )
-                    )
-
-            crosshair_overlays = overlays
-
-            # TODO: use a common function for this?
-            # QUERY: also do it for the SEM?
-            # Collect all crosshair overlays
-            layer_name = CROSSHAIR_CONFIG["layer_name"]
-
-            if len(crosshair_overlays) == 0:
-                logging.info("No crosshair overlays to display.")
-                # Remove existing layer if no overlays to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers.remove(layer_name)
-                return
-
-            # Extract data for napari
-            crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-            colors = [overlay.color for overlay in crosshair_overlays]
-            labels = [overlay.label for overlay in crosshair_overlays]
-
-            # Prepare text properties for labels
-            text_properties = {"string": labels, **CROSSHAIR_CONFIG["text_properties"]}
-            # text_properties["color"] = colors # displays the text the same color as the line
-
-            # Update or create the napari layer
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[layer_name]
-                layer.data = crosshair_lines
-                # Note: edge_color and text updates may not work with all napari versions
-                try:
-                    layer.edge_color = colors
-                    layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                    layer.face_color = CROSSHAIR_CONFIG["line_style"]["face_color"]
-                    layer.text = text_properties
-                    layer.visible = True
-                    layer.translate = self.image_widget.ib_layer.translate
-                except AttributeError:
-                    logging.warning("Could not update layer properties directly")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=crosshair_lines,
-                    name=layer_name,
-                    shape_type="line",
-                    edge_color=colors,
-                    edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                    face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                    scale=layer_scale,
-                    text=text_properties,
-                    translate=self.image_widget.ib_layer.translate,
-                )
-
-        except Exception as e:
-            logging.warning(f"Could not update lamella display: {e}")
-        finally:
-            self.image_widget.restore_active_layer_for_movement()
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -799,10 +621,14 @@ class AutoLamellaUI(QMainWindow):
 
             # remove tabs
             if self.fm_control_widget is not None:
+                # deleteLater fires neither closeEvent nor close_widget, so tear
+                # down the FM widget's external signal connections explicitly
+                self.fm_control_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
                 self.fm_control_widget.deleteLater()
                 self.fm_control_widget = None
             if self.det_widget is not None:
+                self.det_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
                 self.det_widget.deleteLater()
                 self.det_widget = None
@@ -825,8 +651,8 @@ class AutoLamellaUI(QMainWindow):
                 self.movement_widget.deleteLater()
                 self.movement_widget = None
             if self.image_widget is not None:
+                self.image_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.clear_viewer()
                 self.image_widget.acquisition_progress_signal.disconnect(
                     self.handle_acquisition_update
                 )
@@ -964,15 +790,7 @@ class AutoLamellaUI(QMainWindow):
             )
             return
 
-        try:
-            if sys.platform.startswith("darwin"):
-                subprocess.Popen(["open", experiment_path])
-            elif os.name == "nt":
-                os.startfile(experiment_path)  # type: ignore[attr-defined]
-            else:
-                subprocess.Popen(["xdg-open", experiment_path])
-        except Exception:
-            logging.exception("Failed to open experiment directory.")
+        if not fui.open_path_in_file_explorer(experiment_path):
             notification_service.show_toast(
                 "Failed to open experiment directory.", "error"
             )
@@ -1104,10 +922,8 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget.clear()  # type: ignore
 
         # Start acquisition thread
-        self._task_worker_thread = threading.Thread(
-            target=self._run_tasks_worker,
-            args=(selected_tasks, selected_lamella),
-            daemon=True,
+        self._task_worker_thread = FunctionWorker(
+            self._run_tasks_worker, selected_tasks, selected_lamella
         )
         self._task_worker_thread.start()
 
@@ -1134,6 +950,10 @@ class AutoLamellaUI(QMainWindow):
                 parent_ui=self,
                 hook_manager=self.setup_hooks(),
             )
+            # Honor a stop requested before the manager existed (e.g. clicked
+            # during beam-on, while _task_manager was still None).
+            if self._workflow_stop_event.is_set():
+                self._task_manager.stop()
             self._task_manager.run(
                 task_names=task_names, required_lamella=lamella_names
             )
@@ -1142,6 +962,13 @@ class AutoLamellaUI(QMainWindow):
 
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            # capture the per-run summary before the manager is torn down
+            if self._task_manager is not None:
+                try:
+                    self._last_run_summary = self._task_manager.build_run_summary_dataframe()
+                except Exception as e:
+                    logging.warning(f"Failed to build workflow run summary: {e}")
+                    self._last_run_summary = None
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
@@ -1268,7 +1095,7 @@ class AutoLamellaUI(QMainWindow):
         """Update the ui based on the current state of the application."""
 
         if self.is_workflow_running:
-            self.selected_lamella_content.setEnabled(False)
+            self.selected_lamella_widget.setEnabled(False)
 
             return
 
@@ -1303,19 +1130,14 @@ class AutoLamellaUI(QMainWindow):
 
         # buttons
         self.lamella_list.setEnabled(is_experiment_ready)
-        self.selected_lamella_content.setEnabled(is_experiment_ready)
+        self.selected_lamella_widget.setEnabled(is_experiment_ready)
 
-        enable_pose_controls = bool(has_lamella)
-        self.label_lamella_pose.setVisible(enable_pose_controls)
-        self.comboBox_lamella_pose.setVisible(enable_pose_controls)
-        self.label_lamella_pose_position.setVisible(enable_pose_controls)
-        self.pushButton_lamella_move_to_pose.setVisible(enable_pose_controls)
-        self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
-        self.label_lamella_objective_position.setVisible(False)
-        self.doubleSpinBox_lamella_objective_position.setVisible(False)
+        # clear the panel when no lamella is selected; populated by update_lamella_ui otherwise
+        if not has_lamella:
+            self.selected_lamella_widget.set_lamella(None)
 
         # disable lamella controls while workflow is running
-        self.selected_lamella_content.setEnabled(not self.is_workflow_running)
+        self.selected_lamella_widget.setEnabled(not self.is_workflow_running)
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
@@ -1386,53 +1208,10 @@ class AutoLamellaUI(QMainWindow):
         lamella: Lamella = self.experiment.positions[idx]
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
 
-        # set objective position (show as µm)
-        obj_pos = (
-            lamella.fluorescence_pose.objective_position
-            if lamella.fluorescence_pose is not None
-            else None
-        )
-        obj_controls_enabled = obj_pos is not None
-        if obj_controls_enabled:
-            self.doubleSpinBox_lamella_objective_position.blockSignals(True)
-            self.doubleSpinBox_lamella_objective_position.setValue(obj_pos * METRE_TO_MICRON)
-            self.doubleSpinBox_lamella_objective_position.blockSignals(False)
-        self.label_lamella_objective_position.setVisible(obj_controls_enabled)
-        self.doubleSpinBox_lamella_objective_position.setVisible(obj_controls_enabled)
-        self.btn_lamella_objective_actions.setVisible(obj_controls_enabled)
-
-        # set lamella pose display
-        if lamella.poses:
-            self.comboBox_lamella_pose.blockSignals(True)
-            current_text = self.comboBox_lamella_pose.currentText()
-            self.comboBox_lamella_pose.clear()
-            self.comboBox_lamella_pose.addItems(list(lamella.poses.keys()))
-
-            # restore
-            if current_text in lamella.poses:
-                self.comboBox_lamella_pose.setCurrentText(current_text)
-            else:
-                self.comboBox_lamella_pose.setCurrentIndex(0)
-
-            current_pose = self.comboBox_lamella_pose.currentText()
-            pose = lamella.poses.get(current_pose, None)
-
-            txt = "Pose: Unknown"
-            if pose is not None and pose.stage_position is not None:
-                txt = f"Pose: {pose.stage_position.pretty}"
-            self.label_lamella_pose_position.setText(txt)
-            self.comboBox_lamella_pose.blockSignals(False)
-
-        # hide pose controls if no poses
-        enable_pose_controls = bool(lamella.poses)
-        self.label_lamella_pose.setVisible(enable_pose_controls)
-        self.comboBox_lamella_pose.setVisible(enable_pose_controls)
-        self.label_lamella_pose_position.setVisible(enable_pose_controls)
-        self.pushButton_lamella_move_to_pose.setVisible(enable_pose_controls)
-        self.pushButton_lamella_set_pose.setVisible(enable_pose_controls)
+        # refresh objective position + pose display for the selected lamella
+        self.selected_lamella_widget.set_lamella(lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
-        self._update_lamella_display(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -1680,26 +1459,8 @@ class AutoLamellaUI(QMainWindow):
         self.experiment.save()
         self.experiment.positions.events.changed.emit()
 
-    def _on_lamella_pose_combobox_changed(self):
-        """Update the pose position label when the pose combobox is changed."""
-
-        lamella: Lamella
-        if self.experiment is None or self.experiment.positions == []:
-            return
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            return
-        lamella = self.experiment.positions[idx]
-        pose_name = self.comboBox_lamella_pose.currentText()
-        if pose_name not in lamella.poses:
-            return
-        pose = lamella.poses[pose_name]
-        if pose.stage_position is None:
-            return
-        self.label_lamella_pose_position.setText(f"Pose: {pose.stage_position.pretty}")
-
-    def _set_current_position_as_pose(self):
-        """Set the current stage position as the selected pose for the current lamella."""
+    def _set_current_position_as_pose(self, pose_name: str):
+        """Set the current stage position as the given pose for the current lamella."""
 
         if self.microscope is None:
             notification_service.show_toast("No microscope connected.", "warning")
@@ -1712,7 +1473,6 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("No lamella selected.", "warning")
             return
         lamella: Lamella = self.experiment.positions[idx]
-        pose_name = self.comboBox_lamella_pose.currentText()
         if pose_name == "":
             notification_service.show_toast("No pose selected.", "warning")
             return
@@ -1734,15 +1494,22 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
+        # preserve the configured objective (focus) position of the existing pose:
+        # get_microscope_state() does not capture the objective position, so replacing
+        # the pose outright would wipe the fluorescence pose's focus setting.
+        existing_pose = lamella.poses.get(pose_name)
+        if existing_pose is not None and existing_pose.objective_position is not None:
+            state.objective_position = existing_pose.objective_position
+
         lamella.poses[pose_name] = state
         self.experiment.save()
-        self.label_lamella_pose_position.setText(f"{state.stage_position.pretty}")
+        self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
         notification_service.show_toast(
             f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
         )
 
-    def _move_to_lamella_pose(self):
-        """Move the stage to the selected pose for the current lamella."""
+    def _move_to_lamella_pose(self, pose_name: str):
+        """Move the stage to the given pose for the current lamella."""
 
         if self.microscope is None:
             notification_service.show_toast("No microscope connected.", "warning")
@@ -1758,7 +1525,6 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("No lamella selected.", "warning")
             return
         lamella: Lamella = self.experiment.positions[idx]
-        pose_name = self.comboBox_lamella_pose.currentText()
         if pose_name == "":
             notification_service.show_toast("No pose selected.", "warning")
             return
@@ -1809,9 +1575,8 @@ class AutoLamellaUI(QMainWindow):
             return
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
-        self.doubleSpinBox_lamella_objective_position.blockSignals(True)
-        self.doubleSpinBox_lamella_objective_position.setValue(value_m * METRE_TO_MICRON)
-        self.doubleSpinBox_lamella_objective_position.blockSignals(False)
+        # full refresh so the objective value shows and "Apply to All" re-enables
+        self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
         )
@@ -1836,7 +1601,7 @@ class AutoLamellaUI(QMainWindow):
         """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
         if self.experiment is None:
             return
-        value_um = self.doubleSpinBox_lamella_objective_position.value()
+        value_um = self.selected_lamella_widget.objective_value_um()
         value_m = value_um * MICRON_TO_METRE
         count = 0
         for lamella in self.experiment.positions:
@@ -2033,10 +1798,22 @@ class AutoLamellaUI(QMainWindow):
             self.microscope.turn_off(BeamType.ELECTRON)
             self.microscope.turn_off(BeamType.ION)
 
-        # set electron image as active layer
-        self.image_widget.restore_active_layer_for_movement()
-
         self.set_current_workflow_message(msg=None, show=False)
+
+        # show the post-workflow summary of tasks run this session
+        self._show_workflow_summary()
+
+    def _show_workflow_summary(self) -> None:
+        """Show a modal summary dialog of the tasks run in the last workflow."""
+        summary = self._last_run_summary
+        self._last_run_summary = None
+        if summary is None or summary.empty:
+            return
+        try:
+            dialog = WorkflowSummaryDialog(summary, parent=self)
+            dialog.exec_()
+        except Exception as e:
+            logging.warning(f"Failed to show workflow summary dialog: {e}")
 
     def handle_workflow_update(self, info: dict) -> None:
         """Update the UI with the given information, ready for user interaction"""
@@ -2092,7 +1869,9 @@ class AutoLamellaUI(QMainWindow):
         if isinstance(alignment_area, FibsemRectangle):
             self.image_widget.toggle_alignment_area(alignment_area)
         if alignment_area == "clear":
-            self.image_widget.clear_alignment_area()
+            # the workflow's "clear" is a hide-then-read-back: keep the value for the
+            # get_alignment_area() that follows in update_alignment_area_ui.
+            self.image_widget.hide_alignment_area()
 
         # POI selection
         poi_selection = info.get("poi_selection", None)
@@ -2105,9 +1884,9 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
-        spot_burn_parameters = info.get("spot_burn_parameters", None)
-        if spot_burn_parameters is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.update_parameters(spot_burn_parameters)
+        spot_burn_settings = info.get("spot_burn_settings", None)
+        if spot_burn_settings is not None and self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_settings(spot_burn_settings)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
 
@@ -2136,51 +1915,49 @@ class AutoLamellaUI(QMainWindow):
     _POI_LAYER_NAME = "Point of Interest"
 
     def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Add a draggable point marker on the FIB image for POI selection.
+        """Show a draggable POI marker on the FIB canvas (via the controller)."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is not None:
+            self._show_poi_overlay(controller, initial_poi)
 
-        Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
-        """
-        ib_translate = self.image_widget.ib_layer.translate
+    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
+        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:
             px = conversions.microscope_image_to_image_coordinates(
                 initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
             )
-            row = ib_translate[0] + px.y
-            col = ib_translate[1] + px.x
+            col, row = px.x, px.y
         else:
-            row = ib_translate[0] + ib_image.data.shape[0] / 2
-            col = ib_translate[1] + ib_image.data.shape[1] / 2
-        data = [[row, col]]
-        from fibsem.ui.napari.utilities import add_points_layer
-
-        self._poi_layer = add_points_layer(
-            viewer=self.viewer,
-            data=data,
-            name=self._POI_LAYER_NAME,
-            size=20,
-            face_color="magenta",
-            border_color="white",
-            symbol="cross",
-            blending="additive",
-            border_width=None,
-            border_width_is_relative=False,
+            row = ib_image.data.shape[0] / 2
+            col = ib_image.data.shape[1] / 2
+        controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="poi", points=[(col, row)],
+                color="magenta", selected_color="magenta", marker="+", size=18,
+                add_on_right_click=False, removable=False,
+            ),
         )
-        self._poi_layer.mode = "select"
-        self.viewer.layers.selection.active = self._poi_layer
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
+        # toggle lets the user drop to Move and back. (See active-overlay model.)
+        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
+        controller.fib_canvas.set_hint("drag to move")
 
     def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from current layer position, remove the layer, store in SELECTED_POI."""
-        if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
-            pos = self._poi_layer.data[0]  # [row, col] napari coords
-            ib_translate = self.image_widget.ib_layer.translate
-            py = pos[0] - ib_translate[0]  # pixel y in IB image
-            px = pos[1] - ib_translate[1]  # pixel x in IB image
+        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is None:
+            return
+        pts = controller.overlay_points(BeamType.ION, "poi")
+        if pts:
+            col, row = pts[0]
             ib_image = self.image_widget.ib_image
             self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=px, y=py),
-                ib_image.data,
-                ib_image.metadata.pixel_size.x,
+                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
             )
-            self.viewer.layers.remove(self._poi_layer)
-            self._poi_layer = None
+        controller.arm_overlay(BeamType.ION, None)  # restore Move
+        controller.remove_overlay(BeamType.ION, "poi")
+        controller.fib_canvas.set_hint(None)

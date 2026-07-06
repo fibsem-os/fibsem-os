@@ -331,7 +331,7 @@ def run_tileset_autofocus(
     microscope: 'FibsemMicroscope',
     channel_settings: Optional[ChannelSettings],
     z_parameters: Optional[ZParameters],
-    method: str = "laplacian",
+    method: str = "tenengrad",
     stop_event: Optional[threading.Event] = None,
 ) -> bool:
     """Run autofocus during tileset acquisition with error handling and logging.
@@ -340,8 +340,7 @@ def run_tileset_autofocus(
         microscope: The FIBSEM microscope instance
         channel_settings: Channel settings for autofocus
         z_parameters: Z parameters for autofocus range
-        context: Description of the autofocus context for logging
-        method: Autofocus method to use (default: 'laplacian')
+        method: Autofocus method to use (default: 'tenengrad')
         stop_event: Threading event to check for cancellation (optional)
 
     Returns:
@@ -468,17 +467,16 @@ def acquire_tileset(
             autofocus_channel = channel_settings[0]
         # if autofocus_zparams is None:
             # autofocus_zparams = zparams
+        enabled_passes = [p for p in autofocus_settings.passes if p.enabled]
+        if not enabled_passes:
+            raise ValueError("Auto-focus settings has no enabled passes")
         logging.info(f"Auto-focus mode: {autofocus_mode.value}")
-        logging.info(f"Auto-focus settings: {autofocus_settings.method.value}, coarse: {autofocus_settings.coarse_enabled}, fine: {autofocus_settings.fine_enabled}")
+        logging.info(f"Auto-focus settings: {autofocus_settings.method.value}, {len(enabled_passes)} enabled pass(es)")
 
         autofocus_method = autofocus_settings.method.value
-        # Set up Z parameters for autofocus
-        autofocus_zparams = ZParameters(
-            zmin=-autofocus_settings.fine_range/2, 
-            zmax=autofocus_settings.fine_range/2, 
-            zstep=autofocus_settings.fine_step
-        )
-        # NOTE: coarse auto-focus should only be used initially. fine-autofocus should be use at each position
+        # Per-tile / per-row autofocus uses the final (narrowest) enabled pass.
+        # NOTE: a wider initial pass should only be used once, before acquisition.
+        autofocus_zparams = ZParameters.from_focus_pass(enabled_passes[-1])
 
     # Perform initial auto-focus if mode is ONCE (before moving to starting position)
     if autofocus_mode == AutoFocusMode.ONCE:

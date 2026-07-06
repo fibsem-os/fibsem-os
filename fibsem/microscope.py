@@ -1708,7 +1708,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self.set_field_of_view(hfw=image_settings.hfw, beam_type=image_settings.beam_type)
 
         logging.info(f"acquiring new {image_settings.beam_type.name} image.")
-        self.set_channel(image_settings.beam_type)
 
         # set the imaging frame settings
         frame_settings = GrabFrameSettings(
@@ -1721,6 +1720,7 @@ class ThermoMicroscope(FibsemMicroscope):
             drift_correction=image_settings.drift_correction,
         )
 
+        self.set_channel(image_settings.beam_type)
         image = self.connection.imaging.grab_frame(frame_settings)
 
         # restore to full frame imaging
@@ -2116,7 +2116,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # convert to autoscript position
         autoscript_position = stage_position_to_autoscript(position, compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
-        if self.get_stage_orientation() == "FM":
+        if self.get_stage_orientation() == "FM": # or (self.fm is not None and self.fm.objective.state == "Inserted"): # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 
@@ -3273,7 +3273,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _resize_bitmap_to_pattern(
         self, pattern_settings: FibsemBitmapSettings
-    ) -> NDArray[np.float_ | np.uint8]:
+    ) -> NDArray[np.float64 | np.uint8]:
         points = pattern_settings.bitmap
 
         if points is None:
@@ -3312,11 +3312,11 @@ class ThermoMicroscope(FibsemMicroscope):
         resized_points = np.empty((*new_shape, 2), dtype=object)
 
         resized_points[:, :, 0] = transform.resize(
-            points[:, :, 0].reshape(points.shape[0], points.shape[1]).astype(np.float_),
+            points[:, :, 0].reshape(points.shape[0], points.shape[1]).astype(np.float64),
             output_shape=new_shape,
             order=order,
             preserve_range=True,
-        ).astype(np.float_)
+        ).astype(np.float64)
         resized_points[:, :, 1] = transform.resize(
             points[:, :, 1].reshape(points.shape[0], points.shape[1]).astype(np.uint8),
             output_shape=new_shape,

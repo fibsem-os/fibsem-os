@@ -30,7 +30,7 @@ def run_beam_shift_alignment_test(scan_rotation: int = 180, hfw: float = 150e-6,
     image2 = acquire.acquire_image(microscope=microscope, settings=settings.image)
 
     # align beam shift
-    alignment.multi_step_alignment_v2(microscope, ref_image=image1, beam_type=beam_type, use_autocontrast=True)
+    alignment.multi_step_alignment_v2(microscope, ref_image=image1, use_autocontrast=True)
 
     # acquire FIB Image
     image3 = acquire.acquire_image(microscope=microscope, settings=settings.image)

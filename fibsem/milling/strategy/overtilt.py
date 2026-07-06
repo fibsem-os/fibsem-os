@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
+from typing import Optional
+
 import numpy as np
 
 from fibsem import acquire, alignment
@@ -12,6 +15,7 @@ from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
+    raise_if_stopped,
 )
 from fibsem.milling.properties import (
     DEFAULT_IMAGE_RESOLUTION_METADATA,
@@ -79,6 +83,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         stage: "FibsemMillingStage",
         asynch: bool = False,
         parent_ui=None,
+        stop_event: Optional[threading.Event] = None,
     ) -> None:
         """Mill a trench pattern with overtilt,
         based on https://www.sciencedirect.com/science/article/abs/pii/S1047847716301514 and autolamella v1"""
@@ -126,17 +131,17 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             alignment.multi_step_alignment_v2(
                 microscope=microscope,
                 ref_image=ref_image,
-                beam_type=stage.milling.milling_channel,
-                alignment_current=None,
                 steps=3,
+                stop_event=stop_event,  # abort between alignment steps
             )
 
             # setup again to ensure we are milling at the correct current, cleared patterns
-            setup_milling(microscope=microscope, milling_stage=stage)
+            setup_milling(microscope=microscope, milling_stage=stage, stop_event=stop_event)
 
             # draw pattern
             microscope.draw_pattern(pattern=pattern)
 
+            raise_if_stopped(stop_event)  # last chance before the beam starts
             # run milling
             microscope.run_milling(
                 milling_current=stage.milling.milling_current,

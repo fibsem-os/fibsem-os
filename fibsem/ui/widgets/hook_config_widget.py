@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt.iconify import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.workflows.tasks.hooks import (
     FunctionHook,

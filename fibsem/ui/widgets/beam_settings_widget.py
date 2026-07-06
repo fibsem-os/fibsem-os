@@ -11,11 +11,16 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from superqt.utils import qdebounced
+
 from fibsem import constants, utils
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui.widgets.custom_widgets import WheelBlocker, _create_combobox_control
+
+# Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
+WD_WHEEL_STEP_MM = 0.001
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -57,7 +62,7 @@ WIDGET_CONFIG = {
     "working_distance": {
         "label": "Working Distance",
         "range": (1.0, 30.0),
-        "decimals": 2,
+        "decimals": 3,  # mm -> 1 um resolution (matches the Shift+scroll step)
         "step": 0.01,
         "suffix": f" {constants.MILLIMETRE_SYMBOL}",
     },
@@ -84,6 +89,12 @@ class FibsemBeamSettingsWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
         self._update_visibility()
+
+        # Shift+scroll working-distance nudge (mirrors the FM objective wheel): the spinbox
+        # updates immediately for feedback, the hardware move is debounced so a burst of
+        # scroll notches coalesces into a single move.
+        self._wd_wheel_target_mm: float = self.working_distance_spinbox.value()
+        self._execute_wd_wheel_move = qdebounced(self._execute_wd_wheel_move_impl, timeout=150)
 
     # ------------------------------------------------------------------
     # UI setup
@@ -248,6 +259,49 @@ class FibsemBeamSettingsWidget(QWidget):
         self.microscope.set_working_distance(wd, self.beam_type)
         logging.info({"msg": "_on_working_distance_changed", "beam_type": self.beam_type.name, "working_distance": wd})
         self.settings_changed.emit(self.get_settings())
+
+    # ------------------------------------------------------------------
+    # Working-distance mouse-wheel nudge (Shift + scroll on the beam canvas)
+    # ------------------------------------------------------------------
+
+    def _on_canvas_scroll(self, x: float, y: float, direction: int, modifiers) -> None:
+        """Shift+scroll on this beam's canvas nudges the working distance by one spinbox step;
+        plain scroll is left to the canvas (zoom). The hardware move is debounced so a burst of
+        notches coalesces into one move. Unlike the FM objective, WD (beam focus) can be adjusted
+        live while scanning — that's how you focus — so there is deliberately no acquisition lockout."""
+        if "Shift" not in modifiers:
+            return
+        sb = self.working_distance_spinbox
+        new_val = float(
+            np.clip(sb.value() + WD_WHEEL_STEP_MM * direction, sb.minimum(), sb.maximum())
+        )
+        # immediate visual feedback without a hardware call; debounce the actual move
+        sb.blockSignals(True)
+        sb.setValue(new_val)
+        sb.blockSignals(False)
+        self._wd_wheel_target_mm = new_val
+        # transient flash on the canvas that emitted the scroll (fades after scrolling stops)
+        canvas = self.sender()
+        if canvas is not None and hasattr(canvas, "flash_message"):
+            canvas.flash_message(f"WD {new_val:.3f} mm")
+        self._execute_wd_wheel_move()
+
+    def _execute_wd_wheel_move_impl(self) -> None:
+        """Apply the settled Shift+scroll target to hardware. No large-change confirmation —
+        WD is beam focus (lens), not a physical objective, so a big move isn't a collision risk."""
+        target_m = self._wd_wheel_target_mm * constants.MILLI_TO_SI
+        logging.info(
+            {"msg": "_on_canvas_scroll", "beam_type": self.beam_type.name, "working_distance": target_m}
+        )
+        self.microscope.set_working_distance(target_m, self.beam_type)
+        self._set_working_distance_spinbox(self.microscope.get_working_distance(self.beam_type))
+        self.settings_changed.emit(self.get_settings())
+
+    def _set_working_distance_spinbox(self, wd_m: float) -> None:
+        """Set the WD spinbox from a value in metres without triggering a hardware move."""
+        self.working_distance_spinbox.blockSignals(True)
+        self.working_distance_spinbox.setValue(wd_m * constants.SI_TO_MILLI)
+        self.working_distance_spinbox.blockSignals(False)
 
     def _on_scan_rotation_changed(self, value: float):
         self.microscope.set_scan_rotation(np.deg2rad(value), self.beam_type)

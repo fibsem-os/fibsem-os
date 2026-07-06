@@ -1,5 +1,7 @@
 import logging
+import threading
 from dataclasses import dataclass
+from typing import Optional
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import setup_milling
@@ -7,6 +9,7 @@ from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
+    raise_if_stopped,
 )
 
 import time
@@ -32,14 +35,10 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         stage: FibsemMillingStage,
         asynch: bool = False,
         parent_ui=None,
+        stop_event: Optional[threading.Event] = None,
     ) -> None:
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
-        setup_milling(microscope, milling_stage=stage)
-
-        if parent_ui and hasattr(parent_ui, "_milling_stop_event"):
-            if parent_ui._milling_stop_event.is_set():
-                logging.info(f"Stopping {self.name} Milling Strategy for {stage.name}")
-                return
+        setup_milling(microscope, milling_stage=stage, stop_event=stop_event)
 
         microscope.draw_patterns(stage.define_patterns())
 
@@ -58,6 +57,7 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
             }
         )
 
+        raise_if_stopped(stop_event)  # last chance before the beam starts
         microscope.run_milling(
             milling_current=stage.milling.milling_current,
             milling_voltage=stage.milling.milling_voltage,

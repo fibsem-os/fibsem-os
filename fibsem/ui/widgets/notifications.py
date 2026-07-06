@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt.iconify import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 from fibsem.constants import TIME_DISPLAY
 from fibsem.ui import stylesheets
 
@@ -63,7 +63,7 @@ class ToastNotification(QWidget):
 
         # Close button
         self.close_btn = QToolButton()
-        self.close_btn.setIcon(QIconifyIcon("mdi:close", color="#888"))
+        self.close_btn.setIcon(fibsem_icon("mdi:close", color="#888"))
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.hide_toast)
         self.close_btn.setCursor(Qt.PointingHandCursor)
@@ -73,6 +73,11 @@ class ToastNotification(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.container)
+
+        # Neutralise the app-global NAPARI_STYLE `QWidget { background-color: #262930 }`
+        # bleed: keep every surface transparent so it shows the #toast_container's #1e2027
+        # (the id selector wins over this type rule).
+        self.setStyleSheet("QWidget { background-color: transparent; }")
 
         # Opacity effect for fade animation
         self.opacity_effect = QGraphicsOpacityEffect(self)
@@ -112,14 +117,14 @@ class ToastNotification(QWidget):
         """)
 
         self.close_btn.setStyleSheet("""
-            QPushButton {
+            QToolButton {
                 background-color: transparent;
                 color: #888;
                 border: none;
                 font-size: 16px;
                 font-weight: bold;
             }
-            QPushButton:hover {
+            QToolButton:hover {
                 color: #d6d6d6;
             }
         """)
@@ -277,6 +282,11 @@ class NotificationHistoryPopup(QWidget):
                 border-bottom: 1px solid #3d4251;
             }
         """)
+        # The app-global NAPARI_STYLE sets `QWidget { background-color: #262930 }`, which
+        # otherwise bleeds into every child surface (header / scroll area / rows). Force them
+        # transparent so they show the container's #1e2027; the container + item:hover keep
+        # their opaque colour via higher-specificity id selectors.
+        self.setStyleSheet("QWidget { background-color: transparent; }")
 
     def add_notification(self, message: str, notification_type: str, timestamp: str):
         """Add a notification to the history."""
@@ -344,9 +354,9 @@ class NotificationBell(QWidget):
         self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
 
-        # Bell icon button using QToolButton with QIconifyIcon
+        # Bell icon button using QToolButton with a Material Design icon
         self.bell_btn = QToolButton()
-        self.bell_btn.setIcon(QIconifyIcon("mdi:bell", color="#d6d6d6"))
+        self.bell_btn.setIcon(fibsem_icon("mdi:bell", color="#d6d6d6"))
         self.bell_btn.setFixedSize(24, 24)
         self.bell_btn.setIconSize(self.bell_btn.size() * 0.7)
         self.bell_btn.clicked.connect(self._on_clicked)

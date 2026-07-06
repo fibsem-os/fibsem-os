@@ -228,6 +228,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         stage: FibsemMillingStage,
         asynch: bool = False,
         parent_ui: Optional["FibsemMillingWidget2"] = None,
+        stop_event: Optional["threading.Event"] = None,
     ) -> None:
         """Coincidence Milling Strategy"""
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")

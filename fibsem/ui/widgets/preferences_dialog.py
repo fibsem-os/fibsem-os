@@ -33,8 +33,6 @@ _LBL_DEV_MODE      = "Enable Development Mode"
 _TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
 
 # Features
-_LBL_LAMELLA_LIVE  = "Show Lamella Position on Live View"
-_TIP_LAMELLA_LIVE  = "Overlay lamella target positions on the live SEM/FIB image during acquisition."
 _LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
 _TIP_COINCIDENCE   = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
@@ -46,6 +44,17 @@ _LBL_GRID_WORKFLOW = "Enable Grid Workflow"
 _TIP_GRID_WORKFLOW = (
     "Show the grid workflow tabs (Grids tab, the Sample tab in the Microscope tab, "
     "and the Grids sub-tab in the Workflow tab) for multi-grid screening and execution."
+)
+_LBL_SCHEDULED     = "Enable Scheduled Tasks"
+_TIP_SCHEDULED     = (
+    "Allow tasks to be scheduled to start at a specific date/time. Adds a scheduling "
+    "control to the task editor; the workflow waits until the scheduled time before "
+    "running that task."
+)
+_LBL_BUG_REPORT    = "Enable Bug Reporter"
+_TIP_BUG_REPORT    = (
+    "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
+    "optionally submitting experiment data privately to the maintainers."
 )
 
 # Experiment defaults
@@ -117,18 +126,21 @@ class PreferencesDialog(QDialog):
         # --- Feature Flags ---
         features_page = QWidget()
         features_form = QFormLayout(features_page)
-        self._chk_lamella_live = QCheckBox()
-        self._chk_lamella_live.setToolTip(_TIP_LAMELLA_LIVE)
         self._chk_coincidence_milling = QCheckBox()
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
         self._chk_sample_holder = QCheckBox()
         self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
         self._chk_grid_workflow = QCheckBox()
         self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
-        features_form.addRow(_LBL_LAMELLA_LIVE, self._chk_lamella_live)
+        self._chk_scheduled_tasks = QCheckBox()
+        self._chk_scheduled_tasks.setToolTip(_TIP_SCHEDULED)
+        self._chk_bug_report = QCheckBox()
+        self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_GRID_WORKFLOW, self._chk_grid_workflow)
+        features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
+        features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -185,10 +197,11 @@ class PreferencesDialog(QDialog):
         self._chk_dev_mode.setChecked(d.dev_mode)
 
         f = prefs.features
-        self._chk_lamella_live.setChecked(f.lamella_position_on_live_view)
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_grid_workflow.setChecked(f.grid_workflow)
+        self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
+        self._chk_bug_report.setChecked(f.bug_report_enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -240,10 +253,11 @@ class PreferencesDialog(QDialog):
                 dev_mode=self._chk_dev_mode.isChecked(),
             ),
             features=FeatureFlags(
-                lamella_position_on_live_view=self._chk_lamella_live.isChecked(),
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
                 grid_workflow=self._chk_grid_workflow.isChecked(),
+                scheduled_tasks=self._chk_scheduled_tasks.isChecked(),
+                bug_report_enabled=self._chk_bug_report.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
@@ -253,8 +267,11 @@ class PreferencesDialog(QDialog):
                 default_experiment_directory=self._dir_experiment.text(),
                 default_protocol_path=self._dir_protocol.text(),
                 last_experiment_path=self._preferences.experiment.last_experiment_path,
+                recent_experiments=self._preferences.experiment.recent_experiments,
                 user=self._edit_exp_user.text(),
                 project=self._edit_exp_project.text(),
                 organisation=self._edit_exp_organisation.text(),
             ),
+            # Preserve sections not managed by this dialog.
+            reporting=self._preferences.reporting,
         )

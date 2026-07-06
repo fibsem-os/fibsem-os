@@ -34,7 +34,6 @@ from superqt import ensure_main_thread
 
 from fibsem import config as fcfg
 from fibsem import constants, utils
-from fibsem.applications.autolamella.config import LOG_PATH
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.fm.acquisition import (
     acquire_and_stitch_tileset,
@@ -65,7 +64,6 @@ from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     FluorescenceMultiChannelWidget,
     DisplayOptionsDialog,
-    ExperimentCreationDialog,
     HistogramWidget,
     LoadImageDialog,
     ObjectiveControlWidget,
@@ -85,6 +83,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 from fibsem.utils import format_duration
 
@@ -387,7 +386,7 @@ class FMAcquisitionWidget(QWidget):
         self.histogramWidget: HistogramWidget
 
         # Consolidated acquisition threading
-        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
@@ -889,10 +888,8 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
-        self._acquisition_thread = threading.Thread(
-            target=self._stage_movement_worker,
-            args=(stage_position, objective_position),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._stage_movement_worker, stage_position, objective_position
         )
         self._acquisition_thread.start()
 
@@ -985,72 +982,6 @@ class FMAcquisitionWidget(QWidget):
             self.microscope.stage_position_changed.disconnect(
                 self._update_stage_position_display
             )
-
-    def show_new_experiment_dialog(self):
-        """Show the experiment setup dialog for creating or loading experiments."""
-        dialog = ExperimentCreationDialog(initial_directory=str(LOG_PATH), parent=self)
-        if dialog.exec_() == QDialog.Accepted:
-            experiment_info = dialog.get_experiment_info()
-
-            if experiment_info["mode"] == "create":
-                self._handle_create_experiment(experiment_info)
-            else:
-                self._handle_load_experiment(experiment_info)
-
-    def _handle_create_experiment(self, experiment_info):
-        """Handle creating a new experiment."""
-        experiment_name = experiment_info["name"]
-
-        if not experiment_name:
-            QMessageBox.warning(
-                self, "Invalid Name", "Please enter a valid experiment name."
-            )
-            return
-
-        # Create the experiment directory
-        try:
-            self.experiment = Experiment.create(
-                path=experiment_info["directory"],
-                name=experiment_name,
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error Creating Experiment",
-                f"Failed to create experiment directory:\n{str(e)}",
-            )
-
-    def _handle_load_experiment(self, experiment_info):
-        """Handle loading an existing experiment."""
-        experiment_file = experiment_info["experiment_file"]
-        experiment_path = experiment_info["full_path"]
-
-        try:
-            # load experiment
-            self.experiment = Experiment.load(Path(experiment_file))
-
-            # Update the positions widget
-            self.lamella_list.set_lamella(self.experiment.positions)
-            self.draw_stage_position_crosshairs()
-
-            # Show success message
-            QMessageBox.information(
-                self,
-                "Experiment Loaded",
-                f"Loaded experiment '{os.path.basename(experiment_path)}' with {len(self.experiment.positions)} positions.\n\nPath: {experiment_path}",
-            )
-
-            logging.info(
-                f"Loaded experiment from {experiment_path} with {len(self.experiment.positions)} positions"
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error Loading Experiment",
-                f"Failed to load experiment:\n{str(e)}",
-            )
-            logging.error(f"Failed to load experiment from {experiment_file}: {e}")
 
     def show_load_image_dialog(self):
         """Show the load image dialog and display the loaded image."""
@@ -1869,10 +1800,8 @@ class FMAcquisitionWidget(QWidget):
             z_parameters = settings["z_parameters"]
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._image_acquistion_worker,
-            args=(channel_settings, z_parameters),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._image_acquistion_worker, channel_settings, z_parameters
         )
         self._acquisition_thread.start()
 
@@ -2011,16 +1940,13 @@ class FMAcquisitionWidget(QWidget):
         positions = None  # self.experiment.positions
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._overview_worker,
-            args=(
-                channel_settings,
-                overview_parameters,
-                z_parameters,
-                autofocus_settings,
-                positions,
-            ),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._overview_worker,
+            channel_settings,
+            overview_parameters,
+            z_parameters,
+            autofocus_settings,
+            positions,
         )
         self._acquisition_thread.start()
 
@@ -2172,10 +2098,8 @@ class FMAcquisitionWidget(QWidget):
         z_parameters = settings["z_parameters"]
 
         # Start auto-focus thread
-        self._acquisition_thread = threading.Thread(
-            target=self._autofocus_worker,
-            args=(channel_settings, z_parameters),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._autofocus_worker, channel_settings, z_parameters
         )
         self._acquisition_thread.start()
 
@@ -2186,20 +2110,19 @@ class FMAcquisitionWidget(QWidget):
         try:
             logging.info("Running auto-focus with laplacian method")
 
-            best_z = run_autofocus(
+            result = run_autofocus(
                 microscope=self.fm,
                 channel_settings=channel_settings,
-                # z_parameters=z_parameters,
                 method="laplacian",
                 stop_event=self._acquisition_stop_event,
             )
 
-            if best_z is None or self._acquisition_stop_event.is_set():
+            if result is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {best_z * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result.working_distance * 1e6:.1f} μm"
             )
 
         except Exception as e:
@@ -2253,13 +2176,11 @@ def create_widget() -> FMAcquisitionWidget:
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
 
-    return FMAcquisitionWidget(microscope=microscope, parent=None)
+    return FMAcquisitionWidget(microscope=microscope, experiment=None, parent=None)
 
 
 def main():
     widget = create_widget()
-    if widget.experiment is None:
-        widget.show_new_experiment_dialog()
     widget.show()
     napari.run()
     return
