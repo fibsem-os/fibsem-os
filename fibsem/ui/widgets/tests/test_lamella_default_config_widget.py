@@ -189,11 +189,15 @@ def test_toolbar_shows_only_view_scalebar_crosshair():
     assert w.canvas.btn_toggle_ruler.isHidden() is True       # dropped
 
 
-def test_legend_has_three_patches():
+def test_legend_entries_markers_and_patch():
     w = _widget()
-    labels = [label for _, label in w.canvas._legend_entries]
+    labels = [e[1] for e in w.canvas._legend_entries]
     assert labels == ["Image centre", "Alignment area", "Point of interest"]
-    assert w.canvas._legend_artist is not None
+    leg = w.canvas._legend_artist
+    assert leg is not None
+    # Image centre + POI render as "+" markers; Alignment area is a filled swatch.
+    assert len(leg.get_lines()) == 2 and all(ln.get_marker() == "+" for ln in leg.get_lines())
+    assert len(leg.get_patches()) == 1
 
 
 def test_legend_survives_image_change_and_clears():

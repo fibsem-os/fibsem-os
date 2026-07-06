@@ -454,7 +454,10 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def _refresh_legend(self) -> None:
-        """(Re)create the legend artist from the cached entries, or remove it."""
+        """(Re)create the legend artist from the cached entries, or remove it.
+
+        Each entry is ``(color, label)`` (a filled swatch) or ``(color, label, marker)``
+        (a marker glyph, e.g. ``"+"`` for a crosshair / point of interest)."""
         if self._legend_artist is not None:
             try:
                 self._legend_artist.remove()
@@ -465,12 +468,20 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
             return
         import matplotlib.patches as mpatches
         from matplotlib.legend import Legend
+        from matplotlib.lines import Line2D
 
-        labels = [label for _, label in self._legend_entries]
-        handles = [
-            mpatches.Patch(facecolor=color, edgecolor="white", label=label)
-            for color, label in self._legend_entries
-        ]
+        labels, handles = [], []
+        for entry in self._legend_entries:
+            color, label = entry[0], entry[1]
+            marker = entry[2] if len(entry) > 2 else None
+            labels.append(label)
+            if marker:
+                handles.append(Line2D(
+                    [], [], linestyle="None", marker=marker, markersize=9,
+                    color=color, markeredgewidth=1.6, label=label,
+                ))
+            else:
+                handles.append(mpatches.Patch(facecolor=color, edgecolor="white", label=label))
         # Build the Legend directly (not ax.legend) so it doesn't replace an overlay's
         # own legend (e.g. milling stages); styled like the point/milling legends.
         leg = Legend(

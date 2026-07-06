@@ -357,7 +357,8 @@ class PointOverlay(QObject):
             self._legend = None
 
     def _draw_legend(self) -> None:
-        """Opt-in patch legend (top-left), styled like the milling-stage legend."""
+        """Opt-in legend (top-left); the swatch is the overlay's own marker glyph
+        (e.g. a "+" for the POI), styled like the milling-stage legend."""
         self._remove_legend()
         if (
             not self._legend_label
@@ -366,11 +367,14 @@ class PointOverlay(QObject):
             or not self._visible
         ):
             return
-        import matplotlib.patches as mpatches
         from matplotlib.legend import Legend
+        from matplotlib.lines import Line2D
 
-        handle = mpatches.Patch(
-            facecolor=self._color, edgecolor="white", label=self._legend_label
+        handle = Line2D(
+            [], [], linestyle="None", marker=self._marker, markersize=9,
+            color=self._color,
+            markeredgewidth=(self._edge_width if self._edge_width is not None else 2.0),
+            label=self._legend_label,
         )
         # build the Legend directly (not ax.legend()) so it doesn't replace another
         # overlay's primary legend (e.g. the milling stages, top-right)

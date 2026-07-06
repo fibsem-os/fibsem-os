@@ -221,9 +221,9 @@ class LamellaDefaultConfigWidget(QWidget):
         # built-in centre crosshair; see FibsemImageCanvas._refresh_crosshair).
         # Lower-left: name hint is upper-left, toolbar upper-right, scalebar lower-right.
         self.canvas.set_legend([
-            ("yellow", "Image centre"),
-            (_COLOR_AA, "Alignment area"),
-            (_COLOR_POI, "Point of interest"),
+            ("yellow", "Image centre", "+"),      # matches the built-in crosshair glyph
+            (_COLOR_AA, "Alignment area"),        # a region -> filled swatch
+            (_COLOR_POI, "Point of interest", "+"),
         ], loc="lower left")
         preview_layout.addWidget(self.canvas)
 
