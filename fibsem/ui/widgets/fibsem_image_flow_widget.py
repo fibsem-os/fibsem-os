@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QFlowLayout, QIconifyIcon
+from superqt import QFlowLayout
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.structures import FibsemImage
 
@@ -96,7 +97,7 @@ class FibsemImageCard(QWidget):
 
         # Zoom button — top-right of the image container
         self._zoom_btn = QPushButton(img_container)
-        self._zoom_btn.setIcon(QIconifyIcon("mdi:magnify", color="#cccccc"))
+        self._zoom_btn.setIcon(fibsem_icon("mdi:magnify", color="#cccccc"))
         self._zoom_btn.setFixedSize(28, 28)
         self._zoom_btn.setStyleSheet(
             "QPushButton {"

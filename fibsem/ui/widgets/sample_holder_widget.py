@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
 from fibsem.ui import stylesheets
@@ -76,7 +76,7 @@ class _GridSlotRowWidget(QWidget):
         self.btn_capture = QToolButton()
         self.btn_capture.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_capture.setStyleSheet(_BTN_STYLE)
-        self.btn_capture.setIcon(QIconifyIcon("mdi:map-marker-plus", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_capture.setIcon(fibsem_icon("mdi:map-marker-plus", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_capture.setToolTip("Update Position")
         self.btn_capture.setVisible(_show_move)
         self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
@@ -86,7 +86,7 @@ class _GridSlotRowWidget(QWidget):
         self.btn_move = QToolButton()
         self.btn_move.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_move.setStyleSheet(_BTN_STYLE)
-        self.btn_move.setIcon(QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move.setIcon(fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_move.setToolTip("Move to Position")
         self.btn_move.setVisible(_show_move)
         self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
@@ -98,7 +98,7 @@ class _GridSlotRowWidget(QWidget):
         self.btn_clear.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_clear.setStyleSheet(_BTN_STYLE)
         self.btn_clear.setIcon(
-            QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_clear.setToolTip("Remove grid from this slot")
         self.btn_clear.setVisible(show_grid_edit)

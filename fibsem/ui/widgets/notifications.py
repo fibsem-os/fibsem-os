@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt.iconify import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 from fibsem.constants import TIME_DISPLAY
 from fibsem.ui import stylesheets
 
@@ -63,7 +63,7 @@ class ToastNotification(QWidget):
 
         # Close button
         self.close_btn = QToolButton()
-        self.close_btn.setIcon(QIconifyIcon("mdi:close", color="#888"))
+        self.close_btn.setIcon(fibsem_icon("mdi:close", color="#888"))
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.hide_toast)
         self.close_btn.setCursor(Qt.PointingHandCursor)
@@ -344,9 +344,9 @@ class NotificationBell(QWidget):
         self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
 
-        # Bell icon button using QToolButton with QIconifyIcon
+        # Bell icon button using QToolButton with a Material Design icon
         self.bell_btn = QToolButton()
-        self.bell_btn.setIcon(QIconifyIcon("mdi:bell", color="#d6d6d6"))
+        self.bell_btn.setIcon(fibsem_icon("mdi:bell", color="#d6d6d6"))
         self.bell_btn.setFixedSize(24, 24)
         self.bell_btn.setIconSize(self.bell_btn.size() * 0.7)
         self.bell_btn.clicked.connect(self._on_clicked)

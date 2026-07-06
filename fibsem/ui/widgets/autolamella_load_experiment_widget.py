@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -65,7 +65,7 @@ ERROR_INVALID_LEGACY_PROTOCOL_MSG = (
 # Width of the recent-experiments quick-select column
 RECENT_COLUMN_WIDTH = 260
 
-# Recent-experiment row icons (superqt / material design icons) and colours
+# Recent-experiment row icons (material design icons) and colours
 RECENT_FOLDER_ICON = "mdi:folder-outline"
 RECENT_LAMELLA_ICON = "mdi:layers-triple-outline"
 RECENT_ALERT_ICON = "mdi:alert-circle-outline"
@@ -589,7 +589,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         icon_name = RECENT_FOLDER_ICON if available else RECENT_ALERT_ICON
         folder_label = QtWidgets.QLabel()
         folder_label.setPixmap(
-            QIconifyIcon(icon_name, color=icon_color).pixmap(18, 18)
+            fibsem_icon(icon_name, color=icon_color).pixmap(18, 18)
         )
         folder_label.setFixedWidth(18)
         layout.addWidget(folder_label, alignment=QtCore.Qt.AlignVCenter)
@@ -641,7 +641,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         icon_label = QtWidgets.QLabel()
         icon_label.setPixmap(
-            QIconifyIcon(RECENT_LAMELLA_ICON, color=RECENT_PILL_TEXT_COLOR).pixmap(12, 12)
+            fibsem_icon(RECENT_LAMELLA_ICON, color=RECENT_PILL_TEXT_COLOR).pixmap(12, 12)
         )
         count_label = QtWidgets.QLabel(str(num_lamella))
         count_label.setStyleSheet(

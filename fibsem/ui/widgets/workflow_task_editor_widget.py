@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 import fibsem.config as fcfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
@@ -107,7 +107,7 @@ class WorkflowTaskEditorWidget(QWidget):
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(QIconifyIcon("mdi:pencil", color="#a0a0a0").pixmap(18, 18))
+        icon_lbl.setPixmap(fibsem_icon("mdi:pencil", color="#a0a0a0").pixmap(18, 18))
         icon_lbl.setStyleSheet("background: transparent;")
         header_row.addWidget(icon_lbl)
 

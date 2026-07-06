@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
 from fibsem.ui.widgets.lamella_list_widget import _defect_icon, _status_text
@@ -130,18 +130,18 @@ class LamellaCardWidget(QWidget):
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
         self._btn_actions.setStyleSheet(_BTN_STYLE + " QToolButton::menu-indicator { image: none; }")
-        self._btn_actions.setIcon(QIconifyIcon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_actions.setIcon(fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
-            QIconifyIcon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
+            fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
         )
         self._action_update = _actions_menu.addAction(
-            QIconifyIcon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR), "Update Position"
+            fibsem_icon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR), "Update Position"
         )
         self._action_remove = _actions_menu.addAction(
-            QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR), "Remove"
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR), "Remove"
         )
         self._btn_actions.setMenu(_actions_menu)
         self._action_move.triggered.connect(lambda: self.move_to_requested.emit(self.lamella))
@@ -181,7 +181,7 @@ class LamellaCardWidget(QWidget):
         self._name_label.setText(self.lamella.name)
 
         icon_name, icon_color, tooltip = _defect_icon(self.lamella)
-        self._btn_defect.setIcon(QIconifyIcon(icon_name, color=icon_color))
+        self._btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self._btn_defect.setToolTip(tooltip)
 
         status_text, status_style = _status_text(self.lamella)
@@ -218,13 +218,13 @@ class LamellaCardWidget(QWidget):
     def _on_defect_clicked(self) -> None:
         menu = QMenu(self)
         action_none = menu.addAction(
-            QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
+            fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            QIconifyIcon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
         )
         action_failure = menu.addAction(
-            QIconifyIcon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
         )
 
         chosen = menu.exec_(self._btn_defect.mapToGlobal(

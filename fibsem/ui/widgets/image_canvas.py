@@ -35,7 +35,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle as MplRectangle
 from PyQt5.QtCore import QObject, QSize, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import QPushButton, QSizePolicy
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.structures import FibsemImage
 
@@ -274,7 +274,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         repositioned automatically on resize.  Returns the button.
         """
         btn = QPushButton(self)
-        btn.setIcon(QIconifyIcon(icon_name, color="#aaaaaa"))
+        btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
         btn.setIconSize(_OVERLAY_ICON_SIZE)
         btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
         btn.setToolTip(tooltip)
