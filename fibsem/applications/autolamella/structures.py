@@ -338,6 +338,13 @@ class AutoLamellaWorkflowConfig:
                 return task.supervise
         return False
 
+    def get_scheduled_at(self, task_name: str) -> Optional[datetime]:
+        """Get the scheduled start time for a task, or None if not scheduled."""
+        for task in self.tasks:
+            if task.name == task_name:
+                return task.scheduled_at
+        return None
+
     def add_task(self, task: AutoLamellaTaskConfig) -> None:
         """Add a task to the workflow configuration."""
         self.tasks.append(AutoLamellaTaskDescription(name=task.task_name, 

@@ -34,7 +34,6 @@ from superqt import ensure_main_thread
 
 from fibsem import config as fcfg
 from fibsem import constants, utils
-from fibsem.applications.autolamella.config import LOG_PATH
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.fm.acquisition import (
     acquire_and_stitch_tileset,
@@ -65,7 +64,6 @@ from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     FluorescenceMultiChannelWidget,
     DisplayOptionsDialog,
-    ExperimentCreationDialog,
     HistogramWidget,
     LoadImageDialog,
     ObjectiveControlWidget,
@@ -985,72 +983,6 @@ class FMAcquisitionWidget(QWidget):
             self.microscope.stage_position_changed.disconnect(
                 self._update_stage_position_display
             )
-
-    def show_new_experiment_dialog(self):
-        """Show the experiment setup dialog for creating or loading experiments."""
-        dialog = ExperimentCreationDialog(initial_directory=str(LOG_PATH), parent=self)
-        if dialog.exec_() == QDialog.Accepted:
-            experiment_info = dialog.get_experiment_info()
-
-            if experiment_info["mode"] == "create":
-                self._handle_create_experiment(experiment_info)
-            else:
-                self._handle_load_experiment(experiment_info)
-
-    def _handle_create_experiment(self, experiment_info):
-        """Handle creating a new experiment."""
-        experiment_name = experiment_info["name"]
-
-        if not experiment_name:
-            QMessageBox.warning(
-                self, "Invalid Name", "Please enter a valid experiment name."
-            )
-            return
-
-        # Create the experiment directory
-        try:
-            self.experiment = Experiment.create(
-                path=experiment_info["directory"],
-                name=experiment_name,
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error Creating Experiment",
-                f"Failed to create experiment directory:\n{str(e)}",
-            )
-
-    def _handle_load_experiment(self, experiment_info):
-        """Handle loading an existing experiment."""
-        experiment_file = experiment_info["experiment_file"]
-        experiment_path = experiment_info["full_path"]
-
-        try:
-            # load experiment
-            self.experiment = Experiment.load(Path(experiment_file))
-
-            # Update the positions widget
-            self.lamella_list.set_lamella(self.experiment.positions)
-            self.draw_stage_position_crosshairs()
-
-            # Show success message
-            QMessageBox.information(
-                self,
-                "Experiment Loaded",
-                f"Loaded experiment '{os.path.basename(experiment_path)}' with {len(self.experiment.positions)} positions.\n\nPath: {experiment_path}",
-            )
-
-            logging.info(
-                f"Loaded experiment from {experiment_path} with {len(self.experiment.positions)} positions"
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error Loading Experiment",
-                f"Failed to load experiment:\n{str(e)}",
-            )
-            logging.error(f"Failed to load experiment from {experiment_file}: {e}")
 
     def show_load_image_dialog(self):
         """Show the load image dialog and display the loaded image."""
@@ -2252,13 +2184,11 @@ def create_widget() -> FMAcquisitionWidget:
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
 
-    return FMAcquisitionWidget(microscope=microscope, parent=None)
+    return FMAcquisitionWidget(microscope=microscope, experiment=None, parent=None)
 
 
 def main():
     widget = create_widget()
-    if widget.experiment is None:
-        widget.show_new_experiment_dialog()
     widget.show()
     napari.run()
     return

@@ -44,11 +44,11 @@ def setup_milling(
         alignment.multi_step_alignment_v2(
             microscope=microscope,
             ref_image=reference_image,
-            beam_type=milling_stage.milling.milling_channel,
             steps=milling_stage.alignment.steps,
             use_autocontrast=milling_stage.alignment.use_autocontrast,
             use_autofocus=milling_stage.alignment.use_autofocus,
-            plot_title=f"{milling_stage.name} - {milling_stage.milling.milling_current * 1e9:.2e}nA",
+            run_name=milling_stage.name,
+            acquire_final_image=True,
         )  # high current -> damaging
 
 

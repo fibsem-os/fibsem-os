@@ -106,8 +106,8 @@ class _TaskEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Edit Task")
         self.setModal(True)
-        self.setMinimumWidth(380)
-        self.setMinimumHeight(440)
+        self.setMinimumWidth(470)
+        self.setMinimumHeight(520)
         self.setStyleSheet("background: #2b2d31; color: #d6d6d6;")
 
         layout = QVBoxLayout(self)
@@ -117,18 +117,10 @@ class _TaskEditorDialog(QDialog):
         self.editor = WorkflowTaskEditorWidget(
             task=AutoLamellaTaskDescription(name="", supervise=False, required=True),
         )
-        # Hide the built-in Apply/Cancel buttons — the dialog provides its own.
-        self.editor._apply_btn.hide()
-        self.editor._cancel_btn.hide()
+        # Use the editor's own styled Apply/Cancel buttons as the dialog actions.
+        self.editor.apply_clicked.connect(self.accept)
+        self.editor.cancel_clicked.connect(self.reject)
         layout.addWidget(self.editor, 1)
-
-        self._btn_box = QDialogButtonBox(
-            QDialogButtonBox.Apply | QDialogButtonBox.Cancel
-        )
-        self._btn_box.setStyleSheet("padding: 6px;")
-        self._btn_box.button(QDialogButtonBox.Apply).clicked.connect(self._on_apply)
-        self._btn_box.rejected.connect(self.reject)
-        layout.addWidget(self._btn_box)
 
     def open_for(
         self,
@@ -137,10 +129,6 @@ class _TaskEditorDialog(QDialog):
     ) -> None:
         self.editor.load_task(task, available_tasks=available_tasks)
         self.open()
-
-    def _on_apply(self) -> None:
-        self.editor._on_apply()
-        self.accept()
 
 
 class LamellaWorkflowWidget(QWidget):
@@ -164,7 +152,6 @@ class LamellaWorkflowWidget(QWidget):
     task_edited = pyqtSignal(object)                 # AutoLamellaTaskDescription (after apply)
     task_remove_requested = pyqtSignal(object)       # AutoLamellaTaskDescription
     task_added = pyqtSignal(object)                  # AutoLamellaTaskDescription
-    task_schedule_changed = pyqtSignal(object)       # AutoLamellaTaskDescription
     task_selection_changed = pyqtSignal(list)        # List[AutoLamellaTaskDescription]
     task_order_changed = pyqtSignal(list)            # List[AutoLamellaTaskDescription]
 
@@ -248,7 +235,6 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.supervised_changed.connect(self.task_supervised_changed)
         self.workflow.edit_requested.connect(self._on_task_edit_requested)
         self.workflow.remove_requested.connect(self.task_remove_requested)
-        self.workflow.schedule_changed.connect(self.task_schedule_changed)
         self.workflow.selection_changed.connect(self.task_selection_changed)
         self.workflow.order_changed.connect(self.task_order_changed)
         self.workflow.add_task_clicked.connect(self._on_add_task_clicked)

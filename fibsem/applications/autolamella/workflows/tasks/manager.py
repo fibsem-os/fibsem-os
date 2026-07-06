@@ -3,8 +3,11 @@
 import logging
 import threading
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
+import fibsem.config as fcfg
+from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -12,6 +15,7 @@ from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext, H
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.microscope import FibsemMicroscope
+from fibsem.utils import format_time_remaining
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -103,6 +107,15 @@ class TaskManager:
                 )
                 continue
 
+            # Wait until the task's scheduled start time, if set and in the future
+            # (only when the scheduled-tasks feature is enabled; otherwise any
+            # saved scheduled_at is left dormant and the task runs immediately).
+            scheduled_at = self.experiment.task_protocol.workflow_config.get_scheduled_at(item.task_name)
+            if scheduled_at is not None and fcfg.FEATURE_SCHEDULED_TASKS_ENABLED:
+                self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
+                if self.is_stopped:
+                    break
+
             # Emit InProgress status
             self._emit_status(
                 task_name=item.task_name,
@@ -185,6 +198,34 @@ class TaskManager:
         self.hook_manager.fire(HookContext(event=event))
 
     # --- Internal helpers ---
+
+    def _wait_until_scheduled(self, scheduled_at: datetime, task_name: str,
+                              lamella: 'Lamella') -> None:
+        """Block until ``scheduled_at`` is reached, emitting a periodic countdown.
+
+        The wait is interruptible: if ``stop()`` is called the loop exits early
+        and the caller skips running the task.
+        """
+        # Times are naive-local throughout, but a hand-edited/externally-produced
+        # protocol may carry a tz-aware scheduled_at. Normalize to naive-local so
+        # the subtraction against datetime.now() below doesn't raise TypeError.
+        if scheduled_at.tzinfo is not None:
+            scheduled_at = scheduled_at.astimezone().replace(tzinfo=None)
+        target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
+        next_update = 0.0  # force an immediate first message
+        while not self.is_stopped:
+            remaining = (scheduled_at - datetime.now()).total_seconds()
+            if remaining <= 0:
+                break
+
+            now = time.monotonic()
+            if now >= next_update:
+                msg = (f"Waiting until {target_str} to start {task_name} on "
+                       f"{lamella.name} ({format_time_remaining(remaining)} remaining).")
+                update_status_ui(self.parent_ui, "", status_bar=msg)
+                next_update = now + 15.0
+
+            time.sleep(min(1.0, remaining))
 
     def _should_skip(self, lamella: 'Lamella', task_name: str,
                      required_lamella: List[str]) -> Optional[str]:

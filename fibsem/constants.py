@@ -42,6 +42,7 @@ DATETIME_FILE           = "%Y-%m-%d_%H-%M-%S"    # filename-safe datetime
 DATETIME_COMPACT        = "%Y%m%d_%H%M%S"         # compact datetime (no separators)
 DATETIME_DISPLAY        = "%Y-%m-%d %H:%M:%S"     # human-readable datetime
 DATETIME_DISPLAY_SHORT  = "%Y-%m-%d  %H:%M"       # short display datetime
+DATETIME_DISPLAY_AMPM   = "%Y-%m-%d %I:%M %p"     # short display datetime, 12-hour AM/PM
 DATETIME_DISPLAY_FULL   = "%Y-%m-%d %H:%M:%S %p"  # datetime with AM/PM suffix
 DATETIME_EXPERIMENT     = "%Y-%m-%d-%H-%M"         # experiment folder name
 DATE_COMPACT            = "%Y%m%d"                 # compact date only
