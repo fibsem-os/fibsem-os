@@ -270,6 +270,12 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         """
         arr = np.asarray(arr)
         h, w = arr.shape[:2]
+        # Preserve the current zoom/pan across a same-resolution update — otherwise live
+        # acquisition re-frames on every frame. Auto-fit only on the first image or a
+        # resolution change; the toolbar "fit to view" (reset_view) still fits on demand.
+        had_image = self._img_w is not None
+        prev_wh = (self._img_w, self._img_h)
+        prev_xlim, prev_ylim = self._ax.get_xlim(), self._ax.get_ylim()
         self._img_w, self._img_h = w, h
 
         self._ax.cla()
@@ -292,7 +298,11 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         else:
             self._ax.imshow(to_show, **kw)
 
-        self._fit_view()
+        if had_image and prev_wh == (w, h):
+            self._ax.set_xlim(prev_xlim)  # same resolution -> keep the user's zoom/pan
+            self._ax.set_ylim(prev_ylim)
+        else:
+            self._fit_view()
 
         # Scalebar
         self._scalebar_artist = None
