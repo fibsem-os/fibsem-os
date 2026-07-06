@@ -234,6 +234,21 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 canvas.canvas_scrolled.connect(slot)
                 self._wd_scroll_connections.append((canvas, slot))
 
+        # Two-way sync between the quad-view selection and the SEM/FIB beam radios:
+        # selecting a canvas checks its radio (revealing that beam's settings), and checking
+        # a radio selects its canvas. The controller is persistent, so store the connections
+        # for teardown (else a reconnect leaks onto a dead widget). Loop-safe: set_selected
+        # no-ops on re-select and setChecked emits no toggled when already set.
+        self._view_sync_connections: List[tuple] = []
+        if controller is not None:
+            controller.view_selected.connect(self._on_view_selected)
+            self._view_sync_connections.append((controller.view_selected, self._on_view_selected))
+            self._on_view_selected(controller.selected_view)  # align radio to current selection
+            self.dual_beam_widget.sem_radio.toggled.connect(self._on_beam_radio_toggled)
+            self._view_sync_connections.append(
+                (self.dual_beam_widget.sem_radio.toggled, self._on_beam_radio_toggled)
+            )
+
     @ensure_main_thread
     def _on_acquire(self, image: FibsemImage):
         """Update the viewer from the main thread"""
@@ -269,6 +284,23 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             return controller
         parent_ui = getattr(self.parent, "parent_widget", None)
         return getattr(parent_ui, "view_controller", None)
+
+    def _on_view_selected(self, key) -> None:
+        """Quad-view selection changed -> check the matching beam radio (view -> radio).
+        Ignores ``"fm"`` / ``None`` (no beam radio)."""
+        if key is BeamType.ELECTRON:
+            self.dual_beam_widget.sem_radio.setChecked(True)
+        elif key is BeamType.ION:
+            self.dual_beam_widget.fib_radio.setChecked(True)
+
+    def _on_beam_radio_toggled(self, sem_checked: bool) -> None:
+        """Beam radio toggled -> select the matching canvas in the quad view (radio -> view)."""
+        controller = self._view_controller()
+        if controller is None:
+            return
+        widget = getattr(controller, "widget", None)
+        if widget is not None and hasattr(widget, "set_selected"):
+            widget.set_selected(BeamType.ELECTRON if sem_checked else BeamType.ION)
 
     def toggle_live_acquisition(self, event=None):
         if self.microscope.is_acquiring:
@@ -550,6 +582,14 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 beam_widget.beam_settings_widget._execute_wd_wheel_move.cancel()
             except Exception:
                 pass
+
+        # View <-> beam-radio sync: drop both directions (controller is persistent).
+        for signal, slot in getattr(self, "_view_sync_connections", []):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._view_sync_connections = []
 
     def _ensure_overlay_edited_wiring(self, controller) -> None:
         """Subscribe (once) to the controller's overlay-edit signal so a user drag of
