@@ -842,10 +842,16 @@ class FibsemMinimapWidget(QWidget):
         """Refresh the canvas info bar (stage / milling angle / grid / objective),
         mirroring the napari ``update_text_overlay``."""
         try:
+            if self.microscope is None:
+                self.canvas.set_info_text(None)  # not connected yet — nothing to show
+                return
             if type(self.microscope).__name__ == "TescanMicroscope":
                 return  # no stage-position display yet
             if stage_position is None:
                 stage_position = self.microscope._stage_position
+            if stage_position is None:
+                self.canvas.set_info_text(None)  # connected, but no stage read yet
+                return
             orientation = self.microscope.get_stage_orientation(stage_position=stage_position)
             grid = self.microscope.current_grid
             milling_angle = self.microscope.get_current_milling_angle(stage_position=stage_position)
