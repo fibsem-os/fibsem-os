@@ -57,9 +57,11 @@ def test_image_and_movement_build_viewer_less():
     parent.image_widget = iw
     mw = FibsemMovementWidget(microscope=microscope, parent=parent)
     assert mw.viewer is None
-    # the controller received the seeded SEM image (viewer-less display works)
+    # The SEM canvas is intentionally left empty ("No image") on connect — no blank
+    # placeholder is seeded; a real frame only arrives via sem/fib_acquisition_signal
+    # -> _on_acquire. The controller still tracks state for the canvas, sans image.
     state = parent.view_controller._states[parent.view_controller.sem_canvas]
-    assert state.image is not None
+    assert state.image is None
 
 
 def test_fm_widget_and_objective_build_viewer_less():
