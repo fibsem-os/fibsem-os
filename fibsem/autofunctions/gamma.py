@@ -61,12 +61,9 @@ def auto_gamma(
     """
 
     if method == "autogamma":
-        std = np.std(image.data)  # unused variable?
         mean = np.mean(image.data)
         diff = mean - 255 / 2.0
-        gam = np.clip(
-            min_gamma, 1 + diff * scale_factor, max_gamma
-        )
+        gam = np.clip(1 + diff * scale_factor, min_gamma, max_gamma)
         if abs(diff) < gamma_threshold:
             gam = 1.0
         if image.metadata is not None:
@@ -76,7 +73,7 @@ def auto_gamma(
         image_data = exposure.adjust_gamma(image.data, gam)
 
         image = FibsemImage(data=image_data, metadata=image.metadata)
-    
+
     if method == "autoclahe":
         image = apply_clahe(image)
 

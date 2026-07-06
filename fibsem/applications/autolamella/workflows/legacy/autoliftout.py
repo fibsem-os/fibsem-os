@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import numpy as np
 from fibsem import acquire, alignment, calibration
+from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.alignment import AlignmentSubsystem
 from fibsem import utils as fibsem_utils
 from fibsem import validation
@@ -280,7 +281,7 @@ def land_needle_on_milled_lamella(
         settings.protocol["options"].get("liftout_charge_neutralisation_iterations", 35)
     )
 
-    calibration.auto_charge_neutralisation(
+    auto_charge_neutralisation(
         microscope=microscope, 
         image_settings=settings.image, 
         n_iterations=n_iter, 
@@ -669,7 +670,7 @@ def land_lamella_on_post(
     )
     while response is False:
         settings.image.beam_type = BeamType.ELECTRON
-        calibration.auto_charge_neutralisation(
+        auto_charge_neutralisation(
             microscope, settings.image, n_iterations=n_iter
         )
 

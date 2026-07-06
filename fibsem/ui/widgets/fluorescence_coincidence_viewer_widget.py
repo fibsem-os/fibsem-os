@@ -53,7 +53,7 @@ from superqt import ensure_main_thread, QDoubleSlider
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
-from fibsem.imaging.autogamma import apply_gamma
+from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
