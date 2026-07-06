@@ -280,15 +280,28 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
             fullscreen_menu.addAction(act)
 
-        view_menu.addSeparator()
-        self.action_acquire_selected = QAction("Acquire Selected View", self)
-        self.action_acquire_selected.setShortcut(QKeySequence(Qt.Key_F6))
-        self.action_acquire_selected.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-        self.action_acquire_selected.triggered.connect(self._hotkey_acquire_selected)
-        view_menu.addAction(self.action_acquire_selected)
-
         # keep the checkable / enabled state honest each time the menu opens
         view_menu.aboutToShow.connect(self._sync_view_menu)
+
+        # Imaging hotkeys (Microscope tab; scoped via container.addAction). Live / auto
+        # contrast / auto focus act on the selected beam — the view<->radio sync keeps
+        # dual_beam_widget.beam_type aligned with the selected view.
+        imaging_menu = menu_bar.addMenu("Imaging")
+        if imaging_menu is None:
+            raise RuntimeError("Failed to create Imaging menu in AutoLamella UI.")
+        self._imaging_actions: list = []  # added to the Microscope-tab container for scoping
+        for label, key, handler in (
+            ("Acquire", Qt.Key_F2, self._hotkey_acquire),
+            ("Live Acquisition", Qt.Key_F6, self._hotkey_toggle_live),
+            ("Auto Contrast", Qt.Key_F9, self._hotkey_autocontrast),
+            ("Auto Focus", Qt.Key_F11, self._hotkey_autofocus),
+        ):
+            action = QAction(label, self)
+            action.setShortcut(QKeySequence(key))
+            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            action.triggered.connect(handler)
+            imaging_menu.addAction(action)
+            self._imaging_actions.append(action)
 
         # add tools menu, reporting submenu
         tools_menu = menu_bar.addMenu("Tools")
@@ -1003,14 +1016,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR),
             "Microscope",
         )
-        # The F5/Esc/F6 shortcuts are defined on the View-menu QActions (single source of
-        # truth). Adding those actions to the Microscope-tab container makes their
-        # WidgetWithChildrenShortcut scope resolve against this tab, so the keys only fire
-        # when focus is inside it (not the minimap / editor / workflow tabs).
+        # The F5/Esc (View) + F2/F6/F9/F11 (Imaging) shortcuts are defined on QActions (a
+        # single source of truth for the menu item + keybinding). Adding those actions to
+        # the Microscope-tab container makes their WidgetWithChildrenShortcut scope resolve
+        # against this tab, so the keys only fire when focus is inside it (not the minimap /
+        # editor / workflow tabs).
         for action in (
             self.action_toggle_fullscreen,
             self.action_exit_fullscreen,
-            self.action_acquire_selected,
+            *self._imaging_actions,
         ):
             container.addAction(action)
 
@@ -1031,18 +1045,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Esc: exit full screen (no-op when already showing the grid)."""
         self.view_controller.set_fullscreen(None)
 
-    def _hotkey_acquire_selected(self) -> None:
-        """F6: acquire the selected view (SEM / FIB / FM), if a microscope is connected and
+    def _hotkey_acquire(self) -> None:
+        """F2: acquire the selected view (SEM / FIB / FM), if a microscope is connected and
         an acquisition isn't already running."""
         view = self.view_controller.selected_view
         ui = self.autolamella_ui
         if view in (BeamType.ELECTRON, BeamType.ION):
             image_widget = getattr(ui, "image_widget", None)
             if image_widget is None:
-                logging.info("F6 acquire: no image widget (microscope not connected)")
+                logging.info("F2 acquire: no image widget (microscope not connected)")
                 return
             if getattr(image_widget, "is_acquiring", False):
-                logging.info("F6 acquire: acquisition already in progress")
+                logging.info("F2 acquire: acquisition already in progress")
                 return
             if view is BeamType.ELECTRON:
                 image_widget.acquire_sem_image()
@@ -1051,12 +1065,43 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif view == "fm":
             fm_widget = getattr(ui, "fm_control_widget", None)
             if fm_widget is None:
-                logging.info("F6 acquire: no fluorescence widget")
+                logging.info("F2 acquire: no fluorescence widget")
                 return
             if getattr(fm_widget, "is_acquiring", False):
-                logging.info("F6 acquire: fluorescence acquisition already in progress")
+                logging.info("F2 acquire: fluorescence acquisition already in progress")
                 return
             fm_widget.acquire_image()
+
+    def _selected_em_image_widget(self):
+        """The image widget when a SEM/FIB view is selected, else None (FM / not connected).
+        Backs the EM-only imaging hotkeys (live / auto contrast / auto focus)."""
+        if self.view_controller.selected_view not in (BeamType.ELECTRON, BeamType.ION):
+            return None
+        return getattr(self.autolamella_ui, "image_widget", None)
+
+    def _hotkey_toggle_live(self) -> None:
+        """F6: toggle live acquisition on the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F6 live: only SEM/FIB support live acquisition")
+            return
+        image_widget.toggle_live_acquisition()
+
+    def _hotkey_autocontrast(self) -> None:
+        """F9: auto-contrast the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F9 autocontrast: only SEM/FIB supported")
+            return
+        image_widget.run_autocontrast()
+
+    def _hotkey_autofocus(self) -> None:
+        """F11: auto-focus the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F11 autofocus: only SEM/FIB supported")
+            return
+        image_widget.run_autofocus()
 
     def create_tabs(self):
         """Create the tabs for the AutoLamella UI."""

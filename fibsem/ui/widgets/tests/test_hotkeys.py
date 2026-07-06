@@ -1,8 +1,13 @@
-"""Headless smoke for the Microscope-tab hotkeys (PR3).
+"""Headless smoke for the Microscope-tab hotkeys.
 
 Exercises the AutoLamellaMainUI hotkey handlers in isolation (unbound methods called with a
-lightweight fake ``self``), so we test the F5 / Esc / F6 routing + guards without building the
-whole main window.
+lightweight fake ``self``), so we test the F2 / F5 / Esc / F6 / F9 / F11 routing + guards
+without building the whole main window.
+
+    F2  acquire selected view (SEM/FIB/FM)
+    F6  toggle live acquisition (SEM/FIB only)
+    F9  auto contrast          (SEM/FIB only)
+    F11 auto focus             (SEM/FIB only)
 
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_hotkeys.py
@@ -30,6 +35,15 @@ class _FakeImageWidget:
     def acquire_fib_image(self):
         self.calls.append("fib")
 
+    def toggle_live_acquisition(self):
+        self.calls.append("live")
+
+    def run_autocontrast(self):
+        self.calls.append("autocontrast")
+
+    def run_autofocus(self):
+        self.calls.append("autofocus")
+
 
 class _FakeFM:
     def __init__(self):
@@ -49,56 +63,77 @@ def _fake_self(selected, image_widget=None, fm_widget=None):
         image_widget=image_widget if image_widget is not None else _FakeImageWidget(),
         fm_control_widget=fm_widget if fm_widget is not None else _FakeFM(),
     )
-    return types.SimpleNamespace(view_controller=ctrl, autolamella_ui=ui)
+    s = types.SimpleNamespace(view_controller=ctrl, autolamella_ui=ui)
+    # the EM-only handlers route through this helper; bind the real one to the fake self
+    s._selected_em_image_widget = lambda: AutoLamellaSingleWindowUI._selected_em_image_widget(s)
+    return s
 
 
-def test_f5_toggles_fullscreen():
+# ── F2: acquire selected ─────────────────────────────────────────────────────
+
+def test_f2_acquires_sem_when_sem_selected():
     s = _fake_self(BeamType.ELECTRON)
-    AutoLamellaSingleWindowUI._hotkey_toggle_fullscreen(s)
-    assert s.view_controller.fullscreen is BeamType.ELECTRON
-    AutoLamellaSingleWindowUI._hotkey_toggle_fullscreen(s)
-    assert s.view_controller.fullscreen is None
-
-
-def test_esc_exits_fullscreen():
-    s = _fake_self(BeamType.ION)
-    s.view_controller.set_fullscreen(BeamType.ION)
-    AutoLamellaSingleWindowUI._hotkey_exit_fullscreen(s)
-    assert s.view_controller.fullscreen is None
-
-
-def test_f6_acquires_sem_when_sem_selected():
-    s = _fake_self(BeamType.ELECTRON)
-    AutoLamellaSingleWindowUI._hotkey_acquire_selected(s)
+    AutoLamellaSingleWindowUI._hotkey_acquire(s)
     assert s.autolamella_ui.image_widget.calls == ["sem"]
 
 
-def test_f6_acquires_fib_when_fib_selected():
+def test_f2_acquires_fib_when_fib_selected():
     s = _fake_self(BeamType.ION)
-    AutoLamellaSingleWindowUI._hotkey_acquire_selected(s)
+    AutoLamellaSingleWindowUI._hotkey_acquire(s)
     assert s.autolamella_ui.image_widget.calls == ["fib"]
 
 
-def test_f6_acquires_fm_when_fm_selected():
+def test_f2_acquires_fm_when_fm_selected():
     s = _fake_self("fm")
-    AutoLamellaSingleWindowUI._hotkey_acquire_selected(s)
+    AutoLamellaSingleWindowUI._hotkey_acquire(s)
     assert s.autolamella_ui.fm_control_widget.calls == ["fm"]
 
 
-def test_f6_noop_when_no_image_widget():
+def test_f2_noop_when_no_image_widget():
     ctrl = MicroscopeViewController()
     ctrl.widget.set_selected(BeamType.ELECTRON)
     ui = types.SimpleNamespace(image_widget=None, fm_control_widget=None)
     s = types.SimpleNamespace(view_controller=ctrl, autolamella_ui=ui)
-    AutoLamellaSingleWindowUI._hotkey_acquire_selected(s)  # must not raise
+    AutoLamellaSingleWindowUI._hotkey_acquire(s)  # must not raise
 
 
-def test_f6_noop_when_already_acquiring():
+def test_f2_noop_when_already_acquiring():
     s = _fake_self(BeamType.ELECTRON)
     s.autolamella_ui.image_widget.is_acquiring = True
-    AutoLamellaSingleWindowUI._hotkey_acquire_selected(s)
+    AutoLamellaSingleWindowUI._hotkey_acquire(s)
     assert s.autolamella_ui.image_widget.calls == []
 
+
+# ── F6 / F9 / F11: EM-only (live / autocontrast / autofocus) ─────────────────
+
+def test_f6_live_toggles_on_selected_em_beam():
+    s = _fake_self(BeamType.ELECTRON)
+    AutoLamellaSingleWindowUI._hotkey_toggle_live(s)
+    assert s.autolamella_ui.image_widget.calls == ["live"]
+
+
+def test_f9_autocontrast_on_selected_em_beam():
+    s = _fake_self(BeamType.ION)
+    AutoLamellaSingleWindowUI._hotkey_autocontrast(s)
+    assert s.autolamella_ui.image_widget.calls == ["autocontrast"]
+
+
+def test_f11_autofocus_on_selected_em_beam():
+    s = _fake_self(BeamType.ELECTRON)
+    AutoLamellaSingleWindowUI._hotkey_autofocus(s)
+    assert s.autolamella_ui.image_widget.calls == ["autofocus"]
+
+
+def test_em_hotkeys_noop_when_fm_selected():
+    # FM is selected -> the EM-only hotkeys must not touch the image widget.
+    s = _fake_self("fm")
+    AutoLamellaSingleWindowUI._hotkey_toggle_live(s)
+    AutoLamellaSingleWindowUI._hotkey_autocontrast(s)
+    AutoLamellaSingleWindowUI._hotkey_autofocus(s)
+    assert s.autolamella_ui.image_widget.calls == []
+
+
+# ── View menu (fullscreen) ───────────────────────────────────────────────────
 
 class _FakeAction:
     def __init__(self):
