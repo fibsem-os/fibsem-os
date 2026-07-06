@@ -1,4 +1,8 @@
 
+import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -15,6 +19,28 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
+
+
+def open_path_in_file_explorer(path: str) -> bool:
+    """Open a directory (or file's location) in the system file explorer.
+
+    Returns True on success. Cross-platform: uses ``open`` on macOS,
+    ``os.startfile`` on Windows, and ``xdg-open`` elsewhere.
+    """
+    if not path or not os.path.isdir(path):
+        logging.warning("Cannot open path in file explorer (not found): %s", path)
+        return False
+    try:
+        if sys.platform.startswith("darwin"):
+            subprocess.Popen(["open", path])
+        elif os.name == "nt":
+            os.startfile(path)  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", path])
+        return True
+    except Exception:
+        logging.exception("Failed to open path in file explorer: %s", path)
+        return False
 
 
 class WheelBlocker(QObject):

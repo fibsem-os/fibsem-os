@@ -254,6 +254,7 @@ class FeatureFlags:
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
     scheduled_tasks: bool = False
+    bug_report_enabled: bool = False
 
 @dataclass
 class MovementPreferences:
@@ -275,11 +276,18 @@ class ExperimentPreferences:
     organisation: str = ""
 
 @dataclass
+class ReportingPreferences:
+    contact_email: str = ""
+    crash_reporting_enabled: bool = False
+    sentry_dsn: str = ""
+
+@dataclass
 class UserPreferences:
     display: DisplayPreferences = field(default_factory=DisplayPreferences)
     features: FeatureFlags = field(default_factory=FeatureFlags)
     movement: MovementPreferences = field(default_factory=MovementPreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
+    reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -287,12 +295,13 @@ class UserPreferences:
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        if any(k in d for k in ("display", "features", "movement", "experiment")):
+        if any(k in d for k in ("display", "features", "movement", "experiment", "reporting")):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
                 experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),
+                reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
             )
         # Legacy flat format
         prefs = cls()
