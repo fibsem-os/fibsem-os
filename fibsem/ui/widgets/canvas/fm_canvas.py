@@ -20,8 +20,9 @@ from PyQt5.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QToolButton,
     QVBoxLayout, QWidget,
 )
-from superqt import QIconifyIcon, QRangeSlider
+from superqt import QRangeSlider
 
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
 )
@@ -145,7 +146,7 @@ class _ChannelRow(QFrame):
 
     def _refresh_eye(self, visible: bool) -> None:
         icon = "mdi:eye" if visible else "mdi:eye-off-outline"
-        self.eye.setIcon(QIconifyIcon(icon, color="#d2d5d9" if visible else "#70757b"))
+        self.eye.setIcon(fibsem_icon(icon, color="#d2d5d9" if visible else "#70757b"))
 
     def _dim(self, dim: bool) -> None:
         self.name.setStyleSheet("color: #70757b;" if dim else "color: #e4e6e9;")
@@ -447,7 +448,7 @@ class FMLayersPanel(QFrame):
         # header
         header = QHBoxLayout(); header.setSpacing(8)
         hicon = QLabel()
-        hicon.setPixmap(QIconifyIcon("mdi:layers-triple-outline", color="#9aa0a6").pixmap(QSize(16, 16)))
+        hicon.setPixmap(fibsem_icon("mdi:layers-triple-outline", color="#9aa0a6").pixmap(QSize(16, 16)))
         title = QLabel("FM CHANNELS"); title.setObjectName("panelTitle")
         header.addWidget(hicon); header.addWidget(title); header.addStretch()
         root.addLayout(header)
