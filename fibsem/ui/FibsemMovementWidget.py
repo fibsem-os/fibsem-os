@@ -353,6 +353,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self._toggle_interactions(enable=False)
         worker = self.absolute_movement_worker(stage_position=stage_position)
         worker.finished.connect(self.move_stage_finished)
+        worker.errored.connect(self._on_movement_error)
         worker.start()
     
     @thread_worker
@@ -369,6 +370,17 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if self.image_widget.is_acquiring:
             return
         self._toggle_interactions(enable=True)
+
+    def _on_movement_error(self, exc: Exception) -> None:
+        """Surface a background stage-movement failure to the user.
+
+        The napari ``thread_worker`` this widget migrated off used to reraise
+        unhandled worker errors onto the GUI thread (visible notification); the
+        napari-free ``FunctionWorker`` only logs them, so surface a toast here.
+        Interaction state is still re-enabled by ``move_stage_finished`` (wired to
+        ``finished``, which fires on error too).
+        """
+        notification_service.show_toast(f"Stage movement failed: {exc}", "error")
 
     def get_position_from_ui(self):
         """Get the stage position from the UI"""
@@ -400,6 +412,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         worker = self._double_click_worker(layer, event)
         worker.finished.connect(self.move_stage_finished)
+        worker.errored.connect(self._on_movement_error)
         worker.start()
 
     @thread_worker
@@ -472,6 +485,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self._toggle_interactions(False)
         worker = self.move_to_orientation_worker(orientation)
         worker.finished.connect(self.move_stage_finished)
+        worker.errored.connect(self._on_movement_error)
         worker.start()
 
     @thread_worker
