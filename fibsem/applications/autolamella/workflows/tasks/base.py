@@ -237,6 +237,22 @@ class AutoLamellaTask(ABC):
         if self._stop_event is not None and self._stop_event.is_set():
             raise InterruptedError("Workflow aborted by user.")
 
+    def _update_fluorescence_pose(self) -> None:
+        """Refresh the lamella's recorded fluorescence pose from the current microscope state.
+
+        The configured objective (focus) position is preserved: get_microscope_state()
+        does not capture the objective position, so overwriting the pose here (and
+        re-reading the live objective position) previously wiped the user's configured
+        focus.
+        """
+        configured_objective_position = (
+            self.lamella.fluorescence_pose.objective_position
+            if self.lamella.fluorescence_pose is not None
+            else None
+        )
+        self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
+        self.lamella.fluorescence_pose.objective_position = configured_objective_position
+
     def update_milling_config_ui(self,
                                  milling_config: FibsemMillingTaskConfig,
                                  msg: str = "Run Milling",
@@ -344,26 +360,12 @@ class AutoLamellaTask(ABC):
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD = False
-        if FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD:
-            alignment.align_until_converged(microscope=self.microscope, 
-                                            ref_image=ref_image, 
-                                    beam_type=BeamType.ION,
-                                    use_autocontrast=True,
-                                    max_steps=5, 
-                                    minimum_response=0.5,
-                                    stop_event=self._stop_event,
-                                    save_plot=True,
-                                    plot_title=f"{self.lamella.name} - {self.task_name}")
-            return
         alignment.multi_step_alignment_v2(microscope=self.microscope,
                                         ref_image=ref_image,
-                                        beam_type=BeamType.ION,
-                                        alignment_current=None,
                                         use_autocontrast=True,
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
                                         stop_event=self._stop_event,
-                                        plot_title=f"{self.lamella.name} - {self.task_name}")
+                                        run_name=f"{self.lamella.name} - {self.task_name}")
 
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""

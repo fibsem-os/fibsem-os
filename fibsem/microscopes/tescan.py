@@ -171,7 +171,7 @@ def fromTescanImage(image: 'Document', image_settings: ImageSettings = None) -> 
         pixel_size=pixelsize,
     )
 
-    return FibsemImage(data=image_data, metadata=md)
+    return FibsemImage(data=image_data, metadata=deepcopy(md))
 
 def to_tescan_image_roi(rect: FibsemRectangle, image_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
     """Convert a FibsemRectangle to a Tescan image ROI (left, top, right, bottom)."""
@@ -275,6 +275,9 @@ class TescanMicroscope(FibsemMicroscope):
         self.last_image_eb: Optional[FibsemImage] = None
         self.last_image_ib: Optional[FibsemImage] = None
 
+        # fluorescence microscope (not available on Tescan)
+        self.fm = None
+
         # cached beam parameters
         # not all parameters are available via the api, so we cache them after acquiring image
         self._beam_parameters: Dict[BeamType, BeamSettings] = {
@@ -320,6 +323,13 @@ class TescanMicroscope(FibsemMicroscope):
         # reset beam shifts
         if reset_beam_shift:
             self.reset_beam_shifts()
+
+        # create sample stage holder (needed by UI widgets)
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
+
         logging.debug({"msg": "connect_to_microscope", "ip_address": ip_address, "port": port, "system_info": self.system.info.to_dict()})
 
     @property
@@ -414,14 +424,17 @@ class TescanMicroscope(FibsemMicroscope):
 
         # convert to FibsemImage
         fibsem_image: FibsemImage = fromTescanImage(image, effective_image_settings)
+        fibsem_image.metadata.image_settings.beam_type = deepcopy(effective_beam_type)
 
         # save the last image for md
         if effective_beam_type == BeamType.ELECTRON:
             self.last_image_eb = fibsem_image
             beam_state = fibsem_image.metadata.microscope_state.electron_beam
-        if effective_beam_type == BeamType.ION:
+        elif effective_beam_type == BeamType.ION:
             self.last_image_ib = fibsem_image
             beam_state = fibsem_image.metadata.microscope_state.ion_beam
+        else:
+            raise ValueError(f"Unknown beam type: {effective_beam_type}")
 
         # cache beam metadata parameters
         self._beam_parameters[effective_beam_type].dwell_time = effective_image_settings.dwell_time
@@ -456,10 +469,12 @@ class TescanMicroscope(FibsemMicroscope):
             FibsemImage: The last acquired image of the specified beam type.
 
         """
-        if beam_type is BeamType.ELECTRON:
+        if beam_type == BeamType.ELECTRON:
             image = self.last_image_eb
-        if beam_type is BeamType.ION:
+        elif beam_type == BeamType.ION:
             image = self.last_image_ib
+        else:
+            raise ValueError(f"Unknown beam type: {beam_type}")
 
         if image is not None:
             image.metadata.user = self.user
@@ -1383,14 +1398,14 @@ class TescanMicroscope(FibsemMicroscope):
         if key == "current":
             if beam_type == BeamType.ELECTRON:
                 values = [1.0e-12]
-            if beam_type == BeamType.ION:
+            elif beam_type == BeamType.ION:
                 values = [20e-12, 60e-12, 0.2e-9, 0.74e-9, 2.0e-9, 7.6e-9, 28.0e-9, 120e-9]
 
         if key == "detector_type":
             detectors = self._get_available_detectors(beam_type=beam_type)
             values = [detector.name for detector in detectors]
 
-        if key == "presets":
+        if key == "preset":
             values = self._get_presets(beam_type=beam_type)
 
         if key == "scan_direction":

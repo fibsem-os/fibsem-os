@@ -6,6 +6,7 @@ from pprint import pprint
 
 import fibsem
 from fibsem import acquire, milling, utils, alignment
+from fibsem.alignment import AlignmentSubsystem
 from fibsem.structures import BeamType, ImageSettings, FibsemRectangleSettings
 import numpy as np
 
@@ -57,10 +58,15 @@ def main():
         eb_image = acquire.new_image(microscope, settings.image)
 
 
-        # align
+        # align to the previous slice (stage movement)
         if ref_eb is not None:
-            alignment.align_using_reference_images(microscope, ref_eb, eb_image)
-            ref_eb = eb_image
+            alignment.multi_step_alignment_v2(
+                microscope=microscope,
+                ref_image=ref_eb,
+                steps=3,
+                subsystem=AlignmentSubsystem.STAGE,
+            )
+        ref_eb = eb_image
 
     
         # update patterns

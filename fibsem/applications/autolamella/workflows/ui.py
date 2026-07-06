@@ -108,10 +108,12 @@ def set_images_ui(
     while parent_ui.WAITING_FOR_UI_UPDATE:
         time.sleep(0.5)
 
-def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str, workflow_info: Optional[str] = None) -> None:
+def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str,
+                     workflow_info: Optional[str] = None,
+                     status_bar: Optional[str] = None) -> None:
 
     if parent_ui is None:
-        logging.info(msg)
+        logging.info(msg or status_bar or "")
         return
 
     _check_for_abort(parent_ui)
@@ -119,6 +121,7 @@ def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str, workflow_in
     INFO = {
         "msg": msg,
         "workflow_info": workflow_info,
+        "status_bar": status_bar,
     }
     parent_ui.workflow_update_signal.emit(INFO)
 

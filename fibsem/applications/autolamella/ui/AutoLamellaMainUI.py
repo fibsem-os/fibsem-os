@@ -323,6 +323,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
             raise RuntimeError("Failed to create Help menu in AutoLamella UI.")
+        self.action_report_issue = QAction("Report an Issue...", self)
+        self.action_report_issue.triggered.connect(self._on_report_issue)
+        help_menu.addAction(self.action_report_issue)
         self.action_about = QAction("About", self)
         self.action_about.triggered.connect(self._show_about_dialog)
         help_menu.addAction(self.action_about)
@@ -506,6 +509,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
+        # Toggle the "Report an Issue..." Help menu action
+        self.action_report_issue.setVisible(
+            self._preferences.features.bug_report_enabled
+        )
+        # Toggle the per-task schedule button in the workflow tab live, so a
+        # scheduled-tasks flag change applies without restarting.
+        if hasattr(self, "lamella_workflow_widget"):
+            self.lamella_workflow_widget.workflow.enable_schedule_button(
+                self._preferences.features.scheduled_tasks
+            )
 
     def show_toast(
         self,
@@ -554,6 +567,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Show the About dialog."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.open_information_dialog()
+
+    def _on_report_issue(self):
+        """Open the Report an Issue dialog."""
+        from fibsem.ui.widgets.bug_report_widget import open_bug_report_dialog
+
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        open_bug_report_dialog(
+            experiment=experiment, microscope=microscope, parent=self
+        )
 
     def _on_toggle_minimap_widget(self, checked: bool):
         """Toggle the minimap plot window visibility (a floating tool window)."""
@@ -716,6 +739,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
         self._set_border_state(initial_state)
         ui._start_run_workflow_thread(task_names, lamella_names)
+        # Show the Stop button immediately so the run is cancellable even while
+        # waiting for a scheduled first task (before any task status arrives).
+        self.set_workflow_running()
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list._on_select_all(False)
         self.lamella_workflow_widget.workflow._on_select_all(False)
@@ -1368,9 +1394,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_added.connect(self._save_workflow_config)
-        self.lamella_workflow_widget.task_schedule_changed.connect(
-            self._save_workflow_config
-        )
 
         # Workflow info signals — name/description/options changes also persist
         self.lamella_workflow_widget.workflow_name_changed.connect(
@@ -1484,6 +1507,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle workflow update signal and update the workflow status bar."""
         t0 = t1 = time.time()
         timings = {}
+
+        # transient status-bar messages (e.g. scheduled-start countdown)
+        status_bar_msg = info.get("status_bar", None)
+        if status_bar_msg is not None and self.status_bar is not None:
+            self.status_bar.showMessage(status_bar_msg)
+
         status_msg = info.get("status", None)
         if status_msg is not None:
             _is_start = not self._workflow_timeline_initialized
@@ -1753,6 +1782,9 @@ def run_ui():
     if hasattr(signal, "SIGUSR1"):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
+    from fibsem.applications.autolamella.tools.bug_report import init_sentry
+
+    init_sentry()  # inert unless crash reporting is enabled in preferences
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
     window = AutoLamellaSingleWindowUI()

@@ -490,13 +490,17 @@ class TiledAcquisitionRunner:
         signal = self.microscope.tiled_acquisition_signal
         total_tiles = self.settings.nrows * self.settings.ncols
         signal.emit({"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles})
-        image = FibsemImage(data=self._canvas, metadata=self._first_image.metadata)
+        # deepcopy so the stitched image gets its OWN metadata snapshot — the edits below
+        # (hfw → total FOV, stitched resolution) must not mutate the caller's shared
+        # settings object or the first tile's metadata.
+        image = FibsemImage(data=self._canvas, metadata=deepcopy(self._first_image.metadata))
         if image.metadata is None:
             raise ValueError("Image metadata is not set. Cannot update metadata for stitched image.")
         image.metadata.microscope_state = deepcopy(self._start_state)
-        image.metadata.image_settings = self._image_settings
-        image.metadata.image_settings.hfw = deepcopy(float(self.settings.total_fov_x))
-        image.metadata.image_settings.resolution = deepcopy((self._canvas.shape[0], self._canvas.shape[1]))
+        image.metadata.image_settings = deepcopy(self._image_settings)
+        image.metadata.image_settings.hfw = float(self.settings.total_fov_x)
+        # resolution is (width, height); numpy canvas.shape is (height, width).
+        image.metadata.image_settings.resolution = (self._canvas.shape[1], self._canvas.shape[0])
 
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
