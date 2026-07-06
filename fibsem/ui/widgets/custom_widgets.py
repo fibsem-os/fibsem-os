@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional, Union
 
-import qtawesome as qta
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QCursor, QIcon, QPainter
 from PyQt5.QtWidgets import (
@@ -27,7 +26,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import fibsem_icon, qta
 
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.utils import WheelBlocker

@@ -24,7 +24,14 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-import qtawesome as qta
+try:
+    import qtawesome as qta
+except ModuleNotFoundError as e:  # pragma: no cover - dependency guard
+    raise ModuleNotFoundError(
+        "The fibsem UI requires 'qtawesome' for offline icon rendering "
+        "(added in this version). Install it with:\n"
+        "    pip install 'fibsem[ui]'   (or: pip install qtawesome)"
+    ) from e
 from qtpy.QtGui import QIcon
 
 # qtawesome's font prefix for Material Design Icons v6.
