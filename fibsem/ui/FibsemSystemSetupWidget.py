@@ -6,7 +6,7 @@ from typing import Optional
 import napari
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem import config as cfg
 from fibsem import utils
@@ -129,7 +129,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.pushButton_apply_configuration.clicked.connect(lambda: self.apply_microscope_configuration(None))
         self.pushButton_apply_configuration.setToolTip("Apply configuration can take some time. Please make sure the microscope beams are both on.")
-        self.toolButton_import_configuration.setIcon(QIconifyIcon("mdi:add", color="#a0a0a0"))
+        self.toolButton_import_configuration.setIcon(fibsem_icon("mdi:add", color="#a0a0a0"))
 
     def load_configuration(self, configuration_name: Optional[str] = None) -> Optional[str]:
         if configuration_name is None:
@@ -240,7 +240,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
             info = self.microscope.system.info
             self._label_status_icon.setPixmap(
-                QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(20, 20)
+                fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(20, 20)
             )
             self._label_status_title.setText("Microscope Connected")
             self._label_status_subtitle.setText(
@@ -256,7 +256,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             self.disconnected_signal.emit()
 
             self._label_status_icon.setPixmap(
-                QIconifyIcon("mdi:close-circle", color="#f44336").pixmap(20, 20)
+                fibsem_icon("mdi:close-circle", color="#f44336").pixmap(20, 20)
             )
             self._label_status_title.setText("Not Connected")
             self._label_status_subtitle.setText("No microscope connected")

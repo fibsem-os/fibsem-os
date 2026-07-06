@@ -367,6 +367,31 @@ class AutoLamellaTask(ABC):
                                         stop_event=self._stop_event,
                                         run_name=f"{self.lamella.name} - {self.task_name}")
 
+    def _run_autofocus(self, beam_type, hfw: float = None) -> None:
+        """Run the image-based autofocus sweep, saving diagnostics to the lamella path."""
+        from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
+        settings = AutoFocusSettings(
+            method="tenengrad",
+            passes=[
+                FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                FocusSweepPass(search_range=100e-6, step_size=10e-6),
+            ],
+            reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+            use_autocontrast=True)
+        result = run_auto_focus(
+            self.microscope,
+            beam_type=beam_type,
+            hfw=hfw or self.image_settings.hfw,
+            settings=settings,
+        )
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
+        self.log_status_message(
+            "AUTOFOCUS",
+            f"Autofocus (image-based): WD={result.working_distance*1e3:.3f}mm score={result.focus_score:.2f}",
+            f"Autofocus complete: WD={result.working_distance*1e3:.3f}mm",
+        )
+
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""
         acquire_fib = self.config.reference_imaging.acquire_fib

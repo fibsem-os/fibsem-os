@@ -4,7 +4,8 @@ import copy
 import os
 from typing import Optional, Tuple
 
-from fibsem.imaging import autogamma
+from fibsem.autofunctions import gamma as autogamma
+from fibsem.autofunctions.acb import run_auto_contrast_brightness
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -39,8 +40,9 @@ def new_image(
     # run autocontrast
     if settings.autocontrast:
         microscope.autocontrast(
-            beam_type=settings.beam_type, reduced_area=settings.reduced_area
-        )
+                beam_type=settings.beam_type,
+                reduced_area=settings.reduced_area
+            )
 
     # acquire the image
     image = microscope.acquire_image(

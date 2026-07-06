@@ -49,10 +49,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread, QDoubleSlider, QIconifyIcon
+from superqt import ensure_main_thread, QDoubleSlider
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
-from fibsem.imaging.autogamma import apply_gamma
+from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
@@ -976,12 +977,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         auto_row.setSpacing(4)
         self.btn_autocontrast_fib = QPushButton("AutoContrast")
         self.btn_autocontrast_fib.setIcon(
-            QIconifyIcon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_autocontrast_fib.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.btn_autofocus_fib = QPushButton("AutoFocus")
         self.btn_autofocus_fib.setIcon(
-            QIconifyIcon(
+            fibsem_icon(
                 "mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR
             )
         )
@@ -1135,7 +1136,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.btn_milling = QPushButton("Start Milling")
         self.btn_milling.setIcon(
-            QIconifyIcon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
 
@@ -1145,7 +1146,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.label_threshold_chip = QPushButton("Threshold Reached")
         self.label_threshold_chip.setIcon(
-            QIconifyIcon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.label_threshold_chip.setStyleSheet(
             stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
@@ -1762,7 +1763,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.progressBar_stages.setVisible(True)
             self.btn_milling.setText("Stop Milling")
             self.btn_milling.setIcon(
-                QIconifyIcon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
             self.btn_pause_milling.setVisible(True)
@@ -1786,7 +1787,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.progressBar_stages.setVisible(False)
             self.btn_milling.setText("Start Milling")
             self.btn_milling.setIcon(
-                QIconifyIcon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
             self.btn_pause_milling.setVisible(False)

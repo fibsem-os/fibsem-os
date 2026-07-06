@@ -506,7 +506,7 @@ class TiledAcquisitionRunner:
         image.save(filename)
 
         if self._cryo:
-            from fibsem.imaging.autogamma import auto_gamma
+            from fibsem.autofunctions.gamma import auto_gamma
             image = auto_gamma(image, method="autogamma")
             filename = os.path.join(image.metadata.image_settings.path, f"{self._prev_label}-autogamma")  # type: ignore
             image.save(filename)

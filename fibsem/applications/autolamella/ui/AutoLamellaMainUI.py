@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from superqt.iconify import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 import fibsem
 import fibsem.config as fibsem_cfg
@@ -651,7 +651,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.user_attention_btn = QPushButton("Attention Required")
         self.user_attention_btn.setStyleSheet(USER_ATTENTION_BUTTON_STYLESHEET)
         self.user_attention_btn.setIcon(
-            QIconifyIcon("mdi:alert-circle", color=GRAY_ICON_COLOR)
+            fibsem_icon("mdi:alert-circle", color=GRAY_ICON_COLOR)
         )
         self.user_attention_btn.hide()  # Hidden by default
         self.user_attention_btn.setToolTip(
@@ -673,7 +673,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.run_workflow_btn = QPushButton("Run Workflow")
         self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.run_workflow_btn.setIcon(
-            QIconifyIcon("mdi:play-circle", color=GRAY_ICON_COLOR)
+            fibsem_icon("mdi:play-circle", color=GRAY_ICON_COLOR)
         )
         self.run_workflow_btn.setEnabled(False)
         self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
@@ -684,7 +684,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn = QPushButton("Stop Workflow")
         self.stop_workflow_btn.setStyleSheet(STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.stop_workflow_btn.setIcon(
-            QIconifyIcon("mdi:stop-circle", color=GRAY_ICON_COLOR)
+            fibsem_icon("mdi:stop-circle", color=GRAY_ICON_COLOR)
         )
         self.stop_workflow_btn.hide()  # Hidden by default
         self.stop_workflow_btn.setToolTip(
@@ -812,7 +812,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised:
             self.supervised_status_btn.setIcon(
-                QIconifyIcon("mdi:account-hard-hat", color="white")
+                fibsem_icon("mdi:account-hard-hat", color="white")
             )
             self.supervised_status_btn.setText("Supervised")
             self.supervised_status_btn.setToolTip(
@@ -823,7 +823,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         else:
             self.supervised_status_btn.setIcon(
-                QIconifyIcon("mdi:lightning-bolt", color="white")
+                fibsem_icon("mdi:lightning-bolt", color="white")
             )
             self.supervised_status_btn.setText("Automated")
             self.supervised_status_btn.setToolTip(
@@ -1039,7 +1039,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(splitter)
         self.tab_widget.addTab(
             container,
-            QIconifyIcon("mdi:microscope", color=GRAY_ICON_COLOR),
+            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
             "Microscope",
         )
         # The F5/Esc (View) + F2/F6/F9/F11 (Imaging) shortcuts are defined on QActions (a
@@ -1269,7 +1269,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(self.task_widget)
         self.tab_widget.addTab(
             container,
-            QIconifyIcon("mdi:file-document-edit", color=GRAY_ICON_COLOR),
+            fibsem_icon("mdi:file-document-edit", color=GRAY_ICON_COLOR),
             "Protocol",
         )
 
@@ -1345,7 +1345,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         layout.addWidget(outer_splitter)
         self.tab_widget.addTab(
-            container, QIconifyIcon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella"
+            container, fibsem_icon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella"
         )
         self._lamella_tab_container = container
 
@@ -1431,7 +1431,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.addWidget(splitter)
         self.tab_widget.addTab(
             container,
-            QIconifyIcon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
+            fibsem_icon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
             "Workflow",
         )
 
@@ -1731,7 +1731,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         layout.addWidget(self.minimap_widget)
         self.tab_widget.insertTab(
-            1, container, QIconifyIcon("mdi:map", color=GRAY_ICON_COLOR), "Overview"
+            1, container, fibsem_icon("mdi:map", color=GRAY_ICON_COLOR), "Overview"
         )
 
         # disable the tab by default

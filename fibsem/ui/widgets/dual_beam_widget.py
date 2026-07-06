@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
@@ -78,11 +78,11 @@ class FibsemDualBeamWidget(QWidget):
 
         # --- Beam on / blanked buttons ---
         self.btn_beam_on = QToolButton()
-        self.btn_beam_on.setIcon(QIconifyIcon("mdi:power", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_beam_on.setIcon(fibsem_icon("mdi:power", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_beam_on.setToolTip("Toggle beam on/off")
 
         self.btn_beam_blanked = QToolButton()
-        self.btn_beam_blanked.setIcon(QIconifyIcon("mdi:eye", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_beam_blanked.setIcon(fibsem_icon("mdi:eye", color=stylesheets.GRAY_ICON_COLOR))
         self.btn_beam_blanked.setToolTip("Toggle beam blank/unblank")
 
         # --- Refresh button ---
@@ -220,12 +220,12 @@ class FibsemDualBeamWidget(QWidget):
         is_blanked = self.microscope.is_blanked(bt)
 
         power_color = stylesheets.GREEN_COLOR if is_on else stylesheets.ORANGE_COLOR
-        self.btn_beam_on.setIcon(QIconifyIcon("mdi:power", color=power_color))
+        self.btn_beam_on.setIcon(fibsem_icon("mdi:power", color=power_color))
         self.btn_beam_on.setToolTip("Beam ON — click to turn off" if is_on else "Beam OFF — click to turn on")
 
         eye_icon = "mdi:eye-off" if is_blanked else "mdi:eye"
         eye_color = stylesheets.ORANGE_COLOR if is_blanked else stylesheets.GRAY_ICON_COLOR
-        self.btn_beam_blanked.setIcon(QIconifyIcon(eye_icon, color=eye_color))
+        self.btn_beam_blanked.setIcon(fibsem_icon(eye_icon, color=eye_color))
         self.btn_beam_blanked.setToolTip("Blanked — click to unblank" if is_blanked else "Unblanked — click to blank")
 
     def sync_from_microscope(self):
