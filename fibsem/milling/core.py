@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
+import threading
 from pathlib import Path
+from typing import Optional
 
 from fibsem import acquire, config as fcfg
 from fibsem.microscope import FibsemMicroscope
@@ -17,12 +19,16 @@ from fibsem.utils import current_timestamp_v2
 def setup_milling(
     microscope: FibsemMicroscope,
     milling_stage: FibsemMillingStage,
+    stop_event: Optional[threading.Event] = None,
 ):
     """Setup Microscope for FIB Milling.
 
     Args:
         microscope (FibsemMicroscope): Fibsem microscope instance
         milling_stage (FibsemMillingStage): Milling Stage
+        stop_event: threaded into the drift-correction alignment so a Stop during
+            "Preparing" aborts it between steps (the strategy then raises before the
+            beam starts).
     """
 
     # acquire reference image for drift correction
@@ -49,6 +55,7 @@ def setup_milling(
             use_autofocus=milling_stage.alignment.use_autofocus,
             run_name=milling_stage.name,
             acquire_final_image=True,
+            stop_event=stop_event,  # abort between alignment steps
         )  # high current -> damaging
 
 
