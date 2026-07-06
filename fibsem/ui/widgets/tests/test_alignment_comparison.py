@@ -24,9 +24,9 @@ import os
 import numpy as np
 
 from fibsem.alignment import (
-    AlignmentResult,
+    AlignmentIteration,
     crosscorrelation_cv2,
-    plot_multi_step_alignment_v2,
+    plot_multi_step_alignment,
     shift_from_crosscorrelation,
     shift_from_crosscorrelation_v2,
 )
@@ -43,7 +43,7 @@ def run_comparison(ref: FibsemImage, images: list[FibsemImage]) -> list[dict]:
     rows = []
     for i, img in enumerate(images):
         # original method
-        dx_v1, dy_v1, xcorr = shift_from_crosscorrelation(
+        dx_v1, dy_v1, xcorr, _ = shift_from_crosscorrelation(
             ref, img, lowpass=128, highpass=6, sigma=6, use_rect_mask=True
         )
 
@@ -163,15 +163,14 @@ def main():
 
     # v2 debug plot
     results = [
-        AlignmentResult(
+        AlignmentIteration(
             shift=r["shift"],
-            shift_px=r["shift_px"],
             score=r["score"],
             image=r["img"],
         )
         for r in rows
     ]
-    fig = plot_multi_step_alignment_v2(ref, results, title="Alignment comparison", save=False)
+    fig = plot_multi_step_alignment(ref, results, title="Alignment comparison", save=False)
     debug_path = "/tmp/alignment_comparison.png"
     fig.savefig(debug_path, dpi=100)
     print(f"Debug plot  → {debug_path}")

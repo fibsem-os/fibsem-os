@@ -126,8 +126,6 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             alignment.multi_step_alignment_v2(
                 microscope=microscope,
                 ref_image=ref_image,
-                beam_type=stage.milling.milling_channel,
-                alignment_current=None,
                 steps=3,
             )
 
