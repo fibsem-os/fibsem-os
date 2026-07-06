@@ -26,7 +26,6 @@ import datetime
 import logging
 import math
 import time
-import threading
 from collections import deque
 from datetime import timedelta
 from pprint import pformat
@@ -59,6 +58,7 @@ from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
@@ -1275,13 +1275,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
             return
 
-        def _move():
-            try:
-                self.microscope.safe_absolute_stage_movement(lamella.stage_position)
-            except Exception:
-                logging.exception("Error moving to lamella position")
-
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(
+            self.microscope.safe_absolute_stage_movement, lamella.stage_position
+        )
+        worker.start()
 
     def _acquire_fib_image(self):
         """Acquire a FIB image using current microscope settings and display it."""
@@ -1297,7 +1294,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             finally:
                 self._fib_acquire_done.emit()
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.start()
 
     def _acquire_fm_image(self):
         """Acquire a single FM image in a background thread and display it."""
@@ -1325,7 +1323,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             finally:
                 self._fm_acquire_done.emit()
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.start()
 
     def _set_fib_buttons_enabled(self, enabled: bool) -> None:
         for btn in [
@@ -1355,9 +1354,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error running FIB autocontrast")
             finally:
                 self._fib_acquire_done.emit()
-                self.btn_autocontrast_fib.setText("AutoContrast")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        # reset the button label on the GUI thread when the worker finishes (success or error)
+        worker.finished.connect(lambda: self.btn_autocontrast_fib.setText("AutoContrast"))
+        worker.start()
 
     def _run_fib_autofocus(self) -> None:
         from fibsem.structures import FibsemRectangle
@@ -1379,9 +1380,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error running FIB autofocus")
             finally:
                 self._fib_acquire_done.emit()
-                self.btn_autofocus_fib.setText("AutoFocus")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.finished.connect(lambda: self.btn_autofocus_fib.setText("AutoFocus"))
+        worker.start()
 
     def _on_fib_acquire_done(self):
         self._set_fib_buttons_enabled(True)
@@ -1943,12 +1945,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         dx = (x - img_w / 2) * pixel_size
         dy = -(y - img_h / 2) * pixel_size
-        threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=dx, dy=dy, beam_type=BeamType.ION
-            ),
-            daemon=True,
-        ).start()
+        worker = FunctionWorker(
+            self.microscope.stable_move, dx=dx, dy=dy, beam_type=BeamType.ION
+        )
+        worker.start()
 
     def _on_fm_double_clicked(self, x: float, y: float) -> None:
         """Stable-move the stage to the double-clicked position on the FM canvas."""
@@ -1989,12 +1989,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             px, py = -py, px
         elif transform is CameraImageTransform.ROTATE_180:
             px, py = -px, -py
-        threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=px, dy=py, beam_type=BeamType.ELECTRON
-            ),
-            daemon=True,
-        ).start()
+        worker = FunctionWorker(
+            self.microscope.stable_move, dx=px, dy=py, beam_type=BeamType.ELECTRON
+        )
+        worker.start()
 
     # Public API
     # ------------------------------------------------------------------

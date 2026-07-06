@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional
 
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
@@ -48,6 +48,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self._overlay_edited_wired = False  # quad-view: subscribed to controller.overlay_edited
         self.is_acquiring: bool = False
+        self._auto_function_error: Optional[Exception] = None
 
         self._setup_ui()
         self.setup_connections()
@@ -337,7 +338,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Run autocontrast for the selected beam type."""
         beam_type = self.dual_beam_widget.beam_type
         self._toggle_interactions(enable=False)
+        self._auto_function_error = None
         worker = self._autocontrast_worker(beam_type)
+        worker.errored.connect(self._on_auto_function_errored)
         worker.finished.connect(lambda: self._on_auto_function_finished("AutoContrast", beam_type=beam_type))
         worker.start()
 
@@ -345,7 +348,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Run autofocus for the selected beam type."""
         beam_type = self.dual_beam_widget.beam_type
         self._toggle_interactions(enable=False)
+        self._auto_function_error = None
         worker = self._autofocus_worker(beam_type)
+        worker.errored.connect(self._on_auto_function_errored)
         worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type))
         worker.start()
 
@@ -371,10 +376,23 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             settings=settings,
         )
 
+    def _on_auto_function_errored(self, exc: Exception) -> None:
+        """Record a background auto-function failure.
+
+        The user-facing toast is shown in ``_on_auto_function_finished`` (which
+        runs after ``sync_from_microscope``); ``errored`` is delivered before
+        ``finished``, so the flag is set by the time it is read.
+        """
+        self._auto_function_error = exc
+
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
         self._toggle_interactions(enable=True)
         beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
         beam_widget.sync_from_microscope()
+        if self._auto_function_error is not None:
+            notification_service.show_toast(f"{name} failed: {self._auto_function_error}", "error")
+            self._auto_function_error = None
+            return
         if name == "AutoFocus":
             wd = beam_widget.beam_settings_widget.working_distance_spinbox.value()
             notification_service.show_toast(f"AutoFocus Complete. Best WD: {wd:.2f}mm")
@@ -507,6 +525,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._toggle_interactions(True)
         self.is_acquiring = False
 
+    def _on_acquisition_errored(self, exc: Exception) -> None:
+        """Surface a background image-acquisition failure to the user.
+
+        ``FunctionWorker`` logs the traceback but (unlike napari's old
+        ``thread_worker``) does not reraise it onto the GUI thread; interaction
+        state is still reset by ``acquisition_finished`` on ``finished``.
+        """
+        notification_service.show_toast(f"Image acquisition failed: {exc}", "error")
+
     def acquire_sem_image(self) -> None:
         """Acquire an SEM image with the current settings"""
         self.start_acquisition(both=False, beam_type=BeamType.ELECTRON)
@@ -544,6 +571,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
         worker.finished.connect(self.acquisition_finished)
+        worker.errored.connect(self._on_acquisition_errored)
         worker.start()
 
     @thread_worker

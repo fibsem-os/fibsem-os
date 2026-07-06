@@ -17,6 +17,7 @@ from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
@@ -42,7 +43,7 @@ class FibsemSpotBurnWidget(QWidget):
         super().__init__(parent=parent)
         self.parent = parent
         self.microscope: FibsemMicroscope = parent.microscope
-        self.worker = None  # threading.Thread while a burn is running
+        self.worker = None  # FunctionWorker while a burn is running
         self.stop_event: threading.Event = threading.Event()
         self._is_burning = False  # guards the Run/Cancel button while a burn runs
 
@@ -229,9 +230,7 @@ class FibsemSpotBurnWidget(QWidget):
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
 
-        self.worker = threading.Thread(
-            target=self._run_spot_burn, args=(settings,), daemon=True
-        )
+        self.worker = FunctionWorker(self._run_spot_burn, settings)
         self.worker.start()
 
     def cancel_spot_burn(self) -> None:
