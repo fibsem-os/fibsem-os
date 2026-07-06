@@ -48,6 +48,11 @@ _TIP_SCHEDULED     = (
     "control to the task editor; the workflow waits until the scheduled time before "
     "running that task."
 )
+_LBL_BUG_REPORT    = "Enable Bug Reporter"
+_TIP_BUG_REPORT    = (
+    "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
+    "optionally submitting experiment data privately to the maintainers."
+)
 
 # Experiment defaults
 _LBL_EXP_DIR       = "Default Experiment Directory"
@@ -126,10 +131,13 @@ class PreferencesDialog(QDialog):
         self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
         self._chk_scheduled_tasks = QCheckBox()
         self._chk_scheduled_tasks.setToolTip(_TIP_SCHEDULED)
+        self._chk_bug_report = QCheckBox()
+        self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         features_form.addRow(_LBL_LAMELLA_LIVE, self._chk_lamella_live)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
+        features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -190,6 +198,7 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
+        self._chk_bug_report.setChecked(f.bug_report_enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -245,6 +254,7 @@ class PreferencesDialog(QDialog):
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
                 scheduled_tasks=self._chk_scheduled_tasks.isChecked(),
+                bug_report_enabled=self._chk_bug_report.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
@@ -254,8 +264,11 @@ class PreferencesDialog(QDialog):
                 default_experiment_directory=self._dir_experiment.text(),
                 default_protocol_path=self._dir_protocol.text(),
                 last_experiment_path=self._preferences.experiment.last_experiment_path,
+                recent_experiments=self._preferences.experiment.recent_experiments,
                 user=self._edit_exp_user.text(),
                 project=self._edit_exp_project.text(),
                 organisation=self._edit_exp_organisation.text(),
             ),
+            # Preserve sections not managed by this dialog.
+            reporting=self._preferences.reporting,
         )

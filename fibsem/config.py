@@ -254,6 +254,7 @@ class FeatureFlags:
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
     scheduled_tasks: bool = False
+    bug_report_enabled: bool = False
 
 @dataclass
 class MovementPreferences:

@@ -316,12 +316,15 @@ def compose_support_email(
 def init_sentry() -> bool:
     """Initialise automatic crash reporting, if enabled and available.
 
-    Inert by default: returns ``False`` unless the user has opted in
+    Inert by default: returns ``False`` unless the bug reporter feature is
+    enabled (``features.bug_report_enabled``), the user has opted in
     (``reporting.crash_reporting_enabled``), provided a DSN, and installed
     ``sentry-sdk``. Safe to call unconditionally at startup.
     """
     try:
         prefs = fibsem_cfg.load_user_preferences()
+        if not getattr(prefs.features, "bug_report_enabled", False):
+            return False
         reporting = getattr(prefs, "reporting", None)
         if reporting is None or not getattr(reporting, "crash_reporting_enabled", False):
             return False

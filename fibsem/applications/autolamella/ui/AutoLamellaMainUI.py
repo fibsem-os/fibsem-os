@@ -481,6 +481,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
+        # Toggle the "Report an Issue..." Help menu action
+        self.action_report_issue.setVisible(
+            self._preferences.features.bug_report_enabled
+        )
         # Toggle the per-task schedule button in the workflow tab live, so a
         # scheduled-tasks flag change applies without restarting.
         if hasattr(self, "lamella_workflow_widget"):
