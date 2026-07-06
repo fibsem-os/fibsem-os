@@ -225,6 +225,15 @@ class FibsemMinimapWidget(QWidget):
         self.canvas.set_background_color("black")
         self.canvas.set_view_margin(0.5)
 
+        # The overview is shown as an RGB composite (overview base + correlation layers),
+        # so the canvas's built-in grayscale contrast/gamma is a no-op on it. Re-point the
+        # contrast popover at the overview *layer* (clim/gamma) and recomposite instead.
+        try:
+            self.canvas._contrast.changed.disconnect(self.canvas._apply_contrast)
+        except (TypeError, RuntimeError):
+            pass
+        self.canvas._contrast.changed.connect(self._on_overview_contrast_changed)
+
         # entity-grouped overlays (see docs/design/overview-minimap-cutover.md): each
         # redraws on its own trigger. ReferenceFrame (static geometry) behind
         # CurrentPosition behind LamellaMarkers (the interactive one, on top).
@@ -772,6 +781,28 @@ class FibsemMinimapWidget(QWidget):
             self._draw_milling_pattern_overlay()  # draw the reprojected positions on the image
             self.label_instructions.setText(LABEL_INSTRUCTIONS["image-available"])
         self._update_info_bar()
+
+    def _on_overview_contrast_changed(self) -> None:
+        """Drive the overview layer's contrast/gamma from the canvas popover, then
+        recomposite. The composite is RGB, so the canvas's grayscale contrast can't
+        touch it — we adjust the overview FMLayer's clim/gamma instead (mirrors the FM
+        canvas). The popover's min/max are normalized [0, 1] over the data range."""
+        layer = self._overview_layer
+        if layer is None or layer.data is None:
+            return
+        ctrl = self.canvas._contrast
+        if ctrl.is_default():
+            layer.autocontrast = True
+            layer.clim = None
+            layer.gamma = 1.0
+        else:
+            d = layer.data
+            dmin, dmax = float(d.min()), float(d.max())
+            span = (dmax - dmin) or 1.0
+            layer.autocontrast = False
+            layer.clim = (dmin + ctrl.contrast_min * span, dmin + ctrl.contrast_max * span)
+            layer.gamma = ctrl.gamma
+        self._recomposite()
 
     def _set_overview_array(self, arr: np.ndarray, reset_view: bool = True) -> None:
         """Show *arr* as the grayscale base layer of the composite (overview image)."""
