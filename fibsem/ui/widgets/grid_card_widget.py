@@ -358,6 +358,15 @@ class GridCardContainer(QWidget):
         lamella_counts = lamella_counts or {}
         prev = self._selected_name
 
+        # relabel the add button for static holders (no loader): grids are placed
+        # manually in the working slot, so "from Loader" reads wrong there.
+        if loader_present:
+            self.btn_add.setText("Add from Loader")
+            self.btn_add.setToolTip("Import grids loaded in the magazine / working slot")
+        else:
+            self.btn_add.setText("Add from Holder")
+            self.btn_add.setToolTip("Import grids placed in the holder's working slot")
+
         for card in self._cards:
             card.deleteLater()
         self._cards.clear()
@@ -417,9 +426,17 @@ class GridCardContainer(QWidget):
     def _rebuild_grid(self) -> None:
         while self._grid.count():
             self._grid.takeAt(0)
+        # clear stretch left over from a previously larger grid
+        for r in range(self._grid.rowCount()):
+            self._grid.setRowStretch(r, 0)
+        last_row = -1
         for i, card in enumerate(self._cards):
             row, col = divmod(i, self._n_cols)
             self._grid.addWidget(card, row, col)
+            last_row = row
+        # trailing stretch row soaks up spare height so a few cards keep their
+        # natural size at the top instead of stretching to fill the viewport
+        self._grid.setRowStretch(last_row + 1, 1)
 
     def _update_empty(self) -> None:
         empty = not self._cards
