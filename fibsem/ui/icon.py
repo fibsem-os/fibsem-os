@@ -63,3 +63,10 @@ def fibsem_icon(key: str, color: Optional[str] = None, **kwargs) -> QIcon:
         # rather than crashing - and log so the missing key can be fixed.
         logging.warning("fibsem_icon: unknown icon %r; rendering blank", key)
         return QIcon()
+
+
+# ── Canonical icon keys for shared actions ───────────────────────────────────
+# Reference these instead of hardcoding "mdi:..." so the same action reads the same
+# everywhere (moving to / updating a saved stage/objective position).
+ICON_MOVE_TO_POSITION = "mdi:crosshairs-gps"   # go to a saved/target position
+ICON_UPDATE_POSITION = "mdi:map-marker-check"  # overwrite a saved position with the current one

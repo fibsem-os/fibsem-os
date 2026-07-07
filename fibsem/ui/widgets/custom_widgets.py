@@ -27,7 +27,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon, qta
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon, qta
 
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.utils import WheelBlocker
@@ -867,7 +867,7 @@ class _LamellaRow(QWidget):
 
         # Direct action buttons (replaces "…" dropdown)
         self.btn_move_to = QToolButton()
-        self.btn_move_to.setIcon(fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move_to.setIcon(fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR))
         self.btn_move_to.setToolTip("Move to Position")
         self.btn_move_to.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_move_to.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -883,7 +883,7 @@ class _LamellaRow(QWidget):
         layout.addWidget(self.btn_edit)
 
         self.btn_update = QToolButton()
-        self.btn_update.setIcon(fibsem_icon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_update.setIcon(fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR))
         self.btn_update.setToolTip("Update Position")
         self.btn_update.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_update.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
