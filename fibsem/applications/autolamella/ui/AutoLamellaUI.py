@@ -555,6 +555,11 @@ class AutoLamellaUI(QMainWindow):
                     )
                 self.tabWidget.addTab(self.fm_control_widget, "Fluorescence")
 
+            # show the main-tab quad-view FM cell only when a fluorescence microscope is present (#8)
+            controller = getattr(getattr(self, "parent_widget", None), "view_controller", None)
+            if controller is not None and hasattr(controller, "set_fm_visible"):
+                controller.set_fm_visible(self.microscope.fm is not None)
+
             # add the detection widget if ml dependencies are available
             if DETECTION_AVAILABLE:
                 self.det_widget = FibsemEmbeddedDetectionWidget(parent=self)

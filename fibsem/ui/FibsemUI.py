@@ -154,6 +154,9 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.system_widget.image_widget = self.image_widget
             self.system_widget.milling_widget = self.milling_widget
 
+            # show the FM cell only when a fluorescence microscope is present (#8)
+            self.view_controller.set_fm_visible(self.microscope.fm is not None)
+
         else:
             if self.image_widget is None:
                 return
@@ -164,6 +167,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.tabWidget.removeTab(2)
             self.tabWidget.removeTab(1)
             self.view_controller.clear()  # reset the quad-view canvases on disconnect
+            self.view_controller.set_fm_visible(True)  # restore the default 2x2 for next connect
             # drop the image widget's controller/canvas connections (WD scroll, overlay edits)
             # before deleteLater — the canvases persist, so a leaked slot would fire on a dead
             # widget after reconnect (deleteLater fires neither closeEvent nor close).

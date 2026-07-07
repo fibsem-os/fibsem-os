@@ -142,6 +142,7 @@ class QuadViewWidget(QWidget):
         self._panel_splitter = {
             sem_panel: left, fm_panel: left, fib_panel: right, placeholder_panel: right,
         }
+        self._placeholder_panel = placeholder_panel
         self._fullscreen: Optional[object] = None
         self._saved_sizes: dict = {}
 
@@ -179,6 +180,15 @@ class QuadViewWidget(QWidget):
         for canvas, k in self._canvas_keys.items():
             canvas.set_toolbar_visible(k == key)
         self.view_selected.emit(key)
+
+    def set_fm_visible(self, visible: bool) -> None:
+        """Show/hide the FM cell (plus the inert 'No Data' placeholder that balances the 2x2
+        grid), so a system with no fluorescence microscope shows a clean SEM | FIB layout.
+        If FM was the selected view and is being hidden, selection falls back to SEM."""
+        self._panels["fm"].setVisible(visible)
+        self._placeholder_panel.setVisible(visible)
+        if not visible and self._selected == "fm":
+            self.set_selected(BeamType.ELECTRON)
 
     def eventFilter(self, obj, event):
         """Select the view whose canvas was pressed (any mouse button). The event is not
@@ -391,6 +401,14 @@ class MicroscopeViewController(QObject):
         fn = getattr(self._widget, "toggle_fullscreen", None)
         if callable(fn):
             fn()
+
+    def set_fm_visible(self, visible: bool) -> None:
+        """Show/hide the FM cell (call with ``microscope.fm is not None`` on connect) so a
+        system without a fluorescence microscope shows a clean SEM | FIB layout. No-op on
+        views that don't support it."""
+        fn = getattr(self._widget, "set_fm_visible", None)
+        if callable(fn):
+            fn(visible)
 
     @property
     def sem_canvas(self) -> FibsemImageCanvas:
