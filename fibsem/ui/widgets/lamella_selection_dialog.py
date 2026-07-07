@@ -14,7 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (
     QDialog,
@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -32,22 +31,16 @@ from fibsem.imaging.tiled import (
     reproject_stage_positions_onto_image2,
 )
 from fibsem.structures import FibsemImage, FibsemStagePosition
-from fibsem.ui.widgets.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    MinimapShapesOverlay,
+    ShapeSpec,
+)
 
-try:
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    MATPLOTLIB_AVAILABLE = False
-
-_BG = "#262930"
 _SELECTED = "lime"
 _UNSELECTED = "cyan"
 _FOV_WIDTH = 80e-6  # milling field-of-view width (m), matching the minimap markers
 _FOV_ASPECT = 1024 / 1536  # height / width
-_ZOOM_SCALE = 1.5
-_CLICK_TOL = 3  # px of drag below which a left-press counts as a click (select)
 
 
 @dataclass
@@ -64,10 +57,13 @@ class _Entry:
 
 
 class OverviewCanvas(QWidget):
-    """Matplotlib canvas showing the overview + lamella position markers.
+    """Overview + lamella markers on the shared matplotlib ``FibsemImageCanvas``.
 
     Pixel<->stage uses the overview image's own metadata, so it needs a
-    microscope only to project clicks (``microscope`` may be None → read-only).
+    microscope only to project right-clicks (``microscope`` may be None ->
+    read-only). The canvas downsamples large overviews for display and keeps the
+    markers in a separate overlay, so add/select/move only re-draws the markers
+    (not the whole image).
     """
 
     position_selected = pyqtSignal(object)  # index into entries, or None
@@ -83,229 +79,85 @@ class OverviewCanvas(QWidget):
         self._selected: Optional[int] = None
         self._show_names = True
         self._show_fov = True
-        self._show_crosshair = False
-        self._show_scalebar = False
-        self._has_view = False  # preserve zoom/pan across redraws once drawn
-        # contrast / gamma popover (display-only; the raw image is never mutated)
-        self._contrast = ContrastGammaControl(self)
-        self._contrast.changed.connect(self._redraw)
-        self._norm = ContrastGammaControl.normalize(image.data)  # cached for apply()
-        # pan state
-        self._pan = None  # (start_x, start_y, press_px) while a left-drag is active
-        self._dragged = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        layout.addLayout(self._build_toolbar())
-
-        self.figure = Figure(figsize=(6, 6), dpi=80)
-        self.figure.patch.set_facecolor(_BG)
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.canvas.setMinimumSize(300, 300)
-        # axes fill the whole figure so the image grows with the canvas
-        self.ax = self.figure.add_axes([0, 0, 1, 1])
+        layout.setSpacing(0)
+        self.canvas = FibsemImageCanvas(self)
         layout.addWidget(self.canvas)
 
-        self.canvas.mpl_connect("button_press_event", self._on_press)
-        self.canvas.mpl_connect("button_release_event", self._on_release)
-        self.canvas.mpl_connect("motion_notify_event", self._on_move)
-        self.canvas.mpl_connect("scroll_event", self._on_scroll)
-        self._redraw()
+        # lamella markers (FOV rect + crosshair + name) as one overlay, so moving
+        # or selecting a marker just re-sets specs — no full-image re-render.
+        self._markers = MinimapShapesOverlay(zorder=6)
+        self.canvas.add_overlay(self._markers)
 
-    # --- toolbar -----------------------------------------------------------
+        # names + FOV toggles (contrast / scalebar / crosshair / reset-view are
+        # built into the canvas toolbar already).
+        self._btn_names = self.canvas.add_toolbar_button(
+            "mdi:label-outline", "Show names", self._set_show_names, checkable=True)
+        self._btn_names.setChecked(True)
+        self._btn_fov = self.canvas.add_toolbar_button(
+            "mdi:vector-rectangle", "Show FOV", self._set_show_fov, checkable=True)
+        self._btn_fov.setChecked(True)
 
-    def _build_toolbar(self):
-        from fibsem.ui.widgets.custom_widgets import IconToolButton
+        self.canvas.canvas_clicked.connect(self._on_click)
+        self.canvas.canvas_right_clicked.connect(self._on_right_click)
 
-        bar = QHBoxLayout()
-        bar.setContentsMargins(2, 2, 2, 0)
-        bar.setSpacing(2)
-        bar.addStretch(1)  # right-align the toolbar buttons
-
-        def btn(icon, tip, slot, checkable=False, checked=False):
-            b = IconToolButton(icon=icon, tooltip=tip, checkable=checkable, checked=checked)
-            b.clicked.connect(slot) if not checkable else b.toggled.connect(slot)
-            bar.addWidget(b)
-            return b
-
-        self._btn_contrast = btn(
-            "mdi:contrast-box", "Contrast / gamma",
-            lambda on: self._contrast.set_open(on, self._btn_contrast),
-            checkable=True, checked=False)
-        btn("mdi:fit-to-page-outline", "Fit view", lambda *_: self.fit_view())
-        btn("mdi:crosshairs", "Show crosshair", self.set_show_crosshair,
-            checkable=True, checked=self._show_crosshair)
-        btn("mdi:ruler", "Show scalebar", self.set_show_scalebar,
-            checkable=True, checked=self._show_scalebar)
-        btn("mdi:label-outline", "Show names", self.set_show_names,
-            checkable=True, checked=self._show_names)
-        btn("mdi:vector-rectangle", "Show FOV", self.set_show_fov,
-            checkable=True, checked=self._show_fov)
-        return bar
-
-    def fit_view(self) -> None:
-        """Reset the zoom/pan to the full image extent."""
-        h, w = self.image.data.shape[:2]
-        self.ax.set_xlim(-0.5, w - 0.5)
-        self.ax.set_ylim(h - 0.5, -0.5)  # origin upper
-        self.canvas.draw_idle()
-
-    def set_show_crosshair(self, show: bool) -> None:
-        self._show_crosshair = show
-        self._redraw()
-
-    def set_show_scalebar(self, show: bool) -> None:
-        self._show_scalebar = show
-        self._redraw()
-
-    # --- contrast / gamma --------------------------------------------------
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        super().resizeEvent(event)
-        if self._contrast.isVisible():
-            self._contrast.reposition()
-
-    def _display_data(self):
-        """The image to show: raw at defaults, else contrast/gamma-processed."""
-        if self._contrast.is_default():
-            return self.image.data, None
-        return self._contrast.apply(self._norm), (0.0, 1.0)
+        # downsampled display; metadata drives the scalebar pixel size
+        self.canvas.set_image(image)
 
     # --- state -------------------------------------------------------------
 
     def set_entries(self, entries: List[_Entry]) -> None:
         self._entries = entries
-        self._redraw()
+        self._redraw_markers()
 
     def set_selected(self, index: Optional[int]) -> None:
         self._selected = index
-        self._redraw()
+        self._redraw_markers()
 
-    def set_show_names(self, show: bool) -> None:
+    def _set_show_names(self, show: bool) -> None:
         self._show_names = show
-        self._redraw()
+        self._redraw_markers()
 
-    def set_show_fov(self, show: bool) -> None:
+    def _set_show_fov(self, show: bool) -> None:
         self._show_fov = show
-        self._redraw()
+        self._redraw_markers()
 
-    # --- drawing -----------------------------------------------------------
+    # --- markers -----------------------------------------------------------
 
-    def _redraw(self) -> None:
-        view = (self.ax.get_xlim(), self.ax.get_ylim()) if self._has_view else None
-        self.ax.clear()
-        self.ax.set_facecolor(_BG)
-        data, clim = self._display_data()
-        im = self.ax.imshow(data, cmap="gray", origin="upper")
-        if clim is not None:
-            im.set_clim(*clim)
-        self.ax.axis("off")
+    def _fov_dims(self):
+        """(width, height) of the milling-FOV box in pixels, or (None, None)."""
+        meta = self.image.metadata
+        if meta is None or meta.pixel_size is None:
+            return None, None
+        w = _FOV_WIDTH / meta.pixel_size.x
+        return w, w * _FOV_ASPECT
 
-        if self._show_crosshair:
-            self._draw_crosshair()
-        if self._show_scalebar:
-            self._draw_scalebar()
-
+    def _redraw_markers(self) -> None:
+        specs: List[ShapeSpec] = []
         positions = [e.stage_position for e in self._entries]
         if positions:
             points = reproject_stage_positions_onto_image2(self.image, positions)
+            fov_w, fov_h = self._fov_dims()
             for i, pt in enumerate(points):
                 color = _SELECTED if i == self._selected else _UNSELECTED
-                if self._show_fov:
-                    rect = self._fov_rect(pt.x, pt.y, color)
-                    if rect is not None:
-                        self.ax.add_patch(rect)
-                self.ax.plot(pt.x, pt.y, marker="+", ms=15, c=color,
-                             markeredgewidth=2, alpha=0.7)
-                if self._show_names:
-                    self.ax.text(pt.x + 10, pt.y - 10, self._entries[i].name,
-                                 fontsize=8, color=color, alpha=0.75)
+                label = self._entries[i].name if self._show_names else ""
+                if self._show_fov and fov_w:
+                    specs.append(ShapeSpec(kind="rect", cx=pt.x, cy=pt.y,
+                                           width=fov_w, height=fov_h,
+                                           color=color, label=label))
+                    specs.append(ShapeSpec(kind="crosshair", cx=pt.x, cy=pt.y,
+                                           color=color))
+                else:
+                    specs.append(ShapeSpec(kind="crosshair", cx=pt.x, cy=pt.y,
+                                           color=color, label=label))
+        self._markers.set_shapes(specs)
 
-        if view is not None:  # restore the user's zoom/pan
-            self.ax.set_xlim(view[0])
-            self.ax.set_ylim(view[1])
-        self._has_view = True
-        self.canvas.draw_idle()
+    # --- interaction (canvas emits image-pixel coords) ---------------------
 
-    def _fov_rect(self, px: float, py: float, color: str):
-        """A dashed milling-FOV rectangle centred on a position (pixels)."""
-        from matplotlib.patches import Rectangle
-        meta = self.image.metadata
-        if meta is None or meta.pixel_size is None:
-            return None
-        w = _FOV_WIDTH / meta.pixel_size.x
-        h = w * _FOV_ASPECT
-        return Rectangle((px - w / 2, py - h / 2), w, h, color=color,
-                         fill=False, linewidth=1.5, linestyle="--", alpha=0.7)
-
-    def _draw_crosshair(self) -> None:
-        """Yellow crosshair at the image centre (matches the image-canvas)."""
-        h, w = self.image.data.shape[:2]
-        cx, cy = w / 2.0, h / 2.0
-        kw = dict(color="yellow", linewidth=1, alpha=0.8, zorder=7)
-        self.ax.plot([cx - w * 0.025, cx + w * 0.025], [cy, cy], **kw)
-        self.ax.plot([cx, cx], [cy - h * 0.025, cy + h * 0.025], **kw)
-
-    def _draw_scalebar(self) -> None:
-        meta = self.image.metadata
-        if meta is None or meta.pixel_size is None:
-            return
-        try:
-            from matplotlib_scalebar.scalebar import ScaleBar
-            self.ax.add_artist(ScaleBar(
-                dx=meta.pixel_size.x, color="black", box_color="white",
-                box_alpha=0.5, location="lower right"))
-        except Exception:
-            pass
-
-    # --- interaction (left-drag = pan, left-click = select, wheel = zoom) ---
-
-    def _on_press(self, event) -> None:
-        if event.inaxes != self.ax or event.xdata is None:
-            return
-        if event.button == 1:
-            self._pan = (event.xdata, event.ydata, (event.x, event.y))
-            self._dragged = False
-            self.canvas.setCursor(Qt.CursorShape.ClosedHandCursor)
-        elif event.button == 3:  # right-click: add / move menu
-            self._show_menu(event)
-
-    def _on_move(self, event) -> None:
-        if self._pan is None or event.inaxes != self.ax or event.xdata is None:
-            return
-        # past the click tolerance → it's a pan, not a select
-        if abs(event.x - self._pan[2][0]) > _CLICK_TOL or abs(event.y - self._pan[2][1]) > _CLICK_TOL:
-            self._dragged = True
-        cur_x, cur_y = self.ax.get_xlim(), self.ax.get_ylim()
-        dx, dy = event.xdata - self._pan[0], event.ydata - self._pan[1]
-        self.ax.set_xlim(cur_x[0] - dx, cur_x[1] - dx)
-        self.ax.set_ylim(cur_y[0] - dy, cur_y[1] - dy)
-        self.canvas.draw_idle()
-
-    def _on_release(self, event) -> None:
-        if self._pan is None or event.button != 1:
-            return
-        was_click = not self._dragged
-        start = self._pan
-        self._pan = None
-        self.canvas.setCursor(Qt.CursorShape.ArrowCursor)
-        if was_click and event.inaxes == self.ax and event.xdata is not None:
-            self._select_nearest(event.xdata, event.ydata)
-
-    def _on_scroll(self, event) -> None:
-        if event.inaxes != self.ax or event.xdata is None:
-            return
-        scale = (1 / _ZOOM_SCALE) if event.button == "up" else _ZOOM_SCALE
-        cur_x, cur_y = self.ax.get_xlim(), self.ax.get_ylim()
-        relx = (cur_x[1] - event.xdata) / (cur_x[1] - cur_x[0])
-        rely = (cur_y[1] - event.ydata) / (cur_y[1] - cur_y[0])
-        nw = (cur_x[1] - cur_x[0]) * scale
-        nh = (cur_y[1] - cur_y[0]) * scale
-        self.ax.set_xlim(event.xdata - nw * (1 - relx), event.xdata + nw * relx)
-        self.ax.set_ylim(event.ydata - nh * (1 - rely), event.ydata + nh * rely)
-        self.canvas.draw_idle()
+    def _on_click(self, x: float, y: float, _mods) -> None:
+        self._select_nearest(x, y)
 
     def _select_nearest(self, x: float, y: float) -> None:
         if not self._entries:
@@ -313,7 +165,6 @@ class OverviewCanvas(QWidget):
             return
         points = reproject_stage_positions_onto_image2(
             self.image, [e.stage_position for e in self._entries])
-        # nearest within a reasonable pixel radius, else clear
         best, best_d = None, None
         for i, pt in enumerate(points):
             d = (pt.x - x) ** 2 + (pt.y - y) ** 2
@@ -322,12 +173,12 @@ class OverviewCanvas(QWidget):
         radius = max(self.image.data.shape) * 0.03  # ~3% of the image
         self.position_selected.emit(best if best_d ** 0.5 <= radius else None)
 
-    def _show_menu(self, event) -> None:
+    def _on_right_click(self, x: float, y: float, _mods) -> None:
         if self.microscope is None:
             return  # read-only without a microscope to project the click
         try:
             stage_position = convert_image_coord_to_stage_position(
-                self.microscope, self.image, (event.ydata, event.xdata))
+                self.microscope, self.image, (y, x))
         except Exception:
             return
         menu = QMenu(self)

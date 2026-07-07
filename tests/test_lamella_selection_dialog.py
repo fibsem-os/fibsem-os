@@ -163,84 +163,74 @@ def test_unmoved_existing_lamella_untouched_on_accept(qapp, scene):
     assert host.added == []
 
 
-def test_fov_rectangles_drawn(qapp, scene):
+def test_markers_drawn_for_positions(qapp, scene):
     microscope, image, exp, rec = scene
     dlg = _dialog(scene, _FakeHost(exp))
     dlg._on_add(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0))
     dlg._on_add(FibsemStagePosition(x=2e-5, y=0, z=0, r=0, t=0))
 
-    assert len(dlg.canvas.ax.patches) == 2  # one FOV rectangle per position
-    dlg.canvas.set_show_fov(False)
-    assert len(dlg.canvas.ax.patches) == 0
+    specs = dlg.canvas._markers._specs
+    assert len([s for s in specs if s.kind == "rect"]) == 2       # a FOV box per position
+    assert len([s for s in specs if s.kind == "crosshair"]) == 2  # + a crosshair marker each
 
 
-def test_zoom_persists_across_redraw(qapp, scene):
+def test_fov_toggle_removes_rectangles(qapp, scene):
     microscope, image, exp, rec = scene
     dlg = _dialog(scene, _FakeHost(exp))
-    canvas = dlg.canvas
+    dlg._on_add(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0))
 
-    canvas._on_scroll(SimpleNamespace(inaxes=canvas.ax, xdata=100, ydata=100, button="up"))
-    zoomed = (canvas.ax.get_xlim(), canvas.ax.get_ylim())
-
-    dlg._on_add(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0))  # triggers a redraw
-    assert canvas.ax.get_xlim() == pytest.approx(zoomed[0])
-    assert canvas.ax.get_ylim() == pytest.approx(zoomed[1])
+    dlg.canvas._set_show_fov(False)
+    specs = dlg.canvas._markers._specs
+    assert [s for s in specs if s.kind == "rect"] == []
+    assert len([s for s in specs if s.kind == "crosshair"]) == 1  # crosshair marker stays
 
 
-def test_fit_view_resets_to_image_extent(qapp, scene):
+def test_names_toggle_clears_labels(qapp, scene):
     microscope, image, exp, rec = scene
-    canvas = _dialog(scene, _FakeHost(exp)).canvas
-    canvas._on_scroll(SimpleNamespace(inaxes=canvas.ax, xdata=100, ydata=100, button="up"))
-    canvas.fit_view()
+    dlg = _dialog(scene, _FakeHost(exp))
+    dlg._on_add(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0))
+    assert any(s.label for s in dlg.canvas._markers._specs)  # named by default
 
-    h, w = image.data.shape[:2]
-    assert canvas.ax.get_xlim() == pytest.approx((-0.5, w - 0.5))
-    assert canvas.ax.get_ylim() == pytest.approx((h - 0.5, -0.5))
+    dlg.canvas._set_show_names(False)
+    assert all(s.label == "" for s in dlg.canvas._markers._specs)
 
 
-def test_crosshair_toggle(qapp, scene):
+def test_marker_update_preserves_view(qapp, scene):
+    # adding/selecting a marker only re-draws the overlay, never re-fits the image
     microscope, image, exp, rec = scene
-    canvas = _dialog(scene, _FakeHost(exp)).canvas  # grid has no lamellae → no markers
-    assert len(canvas.ax.lines) == 0
-    canvas.set_show_crosshair(True)
-    assert len(canvas.ax.lines) == 2  # horizontal + vertical crosshair lines
-    canvas.set_show_crosshair(False)
-    assert len(canvas.ax.lines) == 0
+    dlg = _dialog(scene, _FakeHost(exp))
+    ax = dlg.canvas.canvas._ax
+    ax.set_xlim(100, 300)
+    ax.set_ylim(300, 100)
+
+    dlg._on_add(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0))
+    assert ax.get_xlim() == pytest.approx((100, 300))
+    assert ax.get_ylim() == pytest.approx((300, 100))
 
 
-def test_canvas_display_uses_contrast_control(qapp, scene):
+def test_uses_shared_image_canvas_with_downsample_cap(qapp, scene):
+    from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
     microscope, image, exp, rec = scene
-    dlg = _dialog(scene, _FakeHost(exp))  # keep a ref (popover is a Qt child)
-    canvas = dlg.canvas
-
-    # at defaults → raw image is shown untouched (auto clim)
-    data, clim = canvas._display_data()
-    assert data is image.data and clim is None
-
-    # adjusting the reusable control → processed float image in [0, 1]
-    canvas._contrast.sld_gamma.setValue(0.5)
-    data, clim = canvas._display_data()
-    assert clim == (0.0, 1.0)
-    assert data.min() >= 0.0 and data.max() <= 1.0
-    assert data is not image.data  # raw is never mutated
-
-    canvas._contrast.reset()
-    data, clim = canvas._display_data()
-    assert data is image.data and clim is None
+    dlg = _dialog(scene, _FakeHost(exp))
+    assert isinstance(dlg.canvas.canvas, FibsemImageCanvas)
+    # the display buffer is the (capped) downsample, never larger than the cap
+    base = dlg.canvas.canvas._display_base
+    assert base is not None and max(base.shape[:2]) <= 2048
 
 
-def test_contrast_popover_toggles(qapp, scene):
+def test_click_selects_nearest_then_clears(qapp, scene):
+    from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
     microscope, image, exp, rec = scene
-    dlg = _dialog(scene, _FakeHost(exp))  # keep a ref (popover is a Qt child)
-    canvas = dlg.canvas
-    ctrl = canvas._contrast
-    assert ctrl.parent() is canvas      # floats over the canvas, not in the layout
-    assert ctrl.isVisibleTo(canvas) is False
+    dlg = _dialog(scene, _FakeHost(exp))
+    dlg._on_add(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0))
+    pt = reproject_stage_positions_onto_image2(image, [dlg._entries[0].stage_position])[0]
 
-    ctrl.set_open(True, canvas._btn_contrast)
-    assert ctrl.isVisibleTo(canvas) is True
-    ctrl.set_open(False)
-    assert ctrl.isVisibleTo(canvas) is False
+    got = []
+    dlg.canvas.position_selected.connect(lambda i: got.append(i))
+    dlg.canvas._on_click(pt.x, pt.y, None)          # on the marker -> selects index 0
+    assert got[-1] == 0
+    dlg.canvas._on_click(pt.x + 1e6, pt.y, None)    # far away -> clears
+    assert got[-1] is None
 
 
 def test_delete_draft_removes_without_committing(qapp, scene):
@@ -288,5 +278,5 @@ def test_no_microscope_is_read_only(qapp, scene):
     from fibsem.ui.widgets.lamella_selection_dialog import LamellaSelectionDialog
     dlg = LamellaSelectionDialog(exp, rec, image, microscope=None, host=host)
     # right-click add is a no-op without a microscope to project the click
-    dlg.canvas._show_menu(SimpleNamespace(xdata=10, ydata=10))
+    dlg.canvas._on_right_click(10, 10, None)
     assert dlg._entries == []
