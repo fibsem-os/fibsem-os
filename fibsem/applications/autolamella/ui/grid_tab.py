@@ -13,10 +13,11 @@ import os
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QSplitter, QTabWidget, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QSplitter, QTabWidget, QVBoxLayout, QWidget
 from superqt.iconify import QIconifyIcon
 
 from fibsem.ui import notification_service
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.grid_card_widget import GridCardContainer
 from fibsem.ui.widgets.grid_protocol_editor_widget import GridProtocolEditorWidget
@@ -25,6 +26,9 @@ from fibsem.ui.widgets.grid_results_widget import GridResultsWidget
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, GridRecord
 
+# how many loaded overviews to keep in memory (they are large full-res images)
+_OVERVIEW_CACHE_SIZE = 2
+
 
 class GridTabWidget(QWidget):
     """Grids tab content: cards (left) + Protocol / Results sub-tabs (right)."""
@@ -32,6 +36,10 @@ class GridTabWidget(QWidget):
     def __init__(self, main: QWidget) -> None:
         super().__init__(main)
         self.main = main
+        # overview images cached by path -> (mtime, FibsemImage); loading is slow
+        # (full-res median/gaussian filter) so re-opening the same one is instant
+        self._overview_cache: dict = {}
+        self._overview_worker = None  # in-flight FibsemImage.load worker, if any
         self._setup_ui()
 
     @property
@@ -263,29 +271,85 @@ class GridTabWidget(QWidget):
             self.main._on_lamella_edit(lamella)
 
     def _on_edit_positions(self, record) -> None:
-        """Open the overview to place/move lamella positions for this grid."""
-        from fibsem.structures import FibsemImage
-        from fibsem.ui.widgets.lamella_selection_dialog import LamellaSelectionDialog
-        from fibsem.ui import notification_service
+        """Open the overview to place/move lamella positions for this grid.
 
+        A stitched overview can be large, and ``FibsemImage.load`` applies a
+        full-res median/gaussian filter that takes seconds — so load it on a
+        worker (UI stays responsive, shows a wait cursor) and cache the result
+        by (path, mtime) so re-opening the same overview is instant.
+        """
         ui = self.autolamella_ui
         if record is None or ui is None or ui.experiment is None:
             return
         overview = self.grids_results_widget._overview_path()
         if not overview:
             return
-        try:
-            image = FibsemImage.load(overview)
-        except Exception as e:  # noqa: BLE001
-            notification_service.show_toast(f"Could not load overview: {e}", "error")
+
+        cached = self._cached_overview(overview)
+        if cached is not None:
+            self._open_position_dialog(record, cached)
             return
-        if image.metadata is None:
+
+        if self._overview_worker is not None and self._overview_worker.is_alive():
+            return  # a load is already in flight — ignore the repeat click
+
+        from fibsem.structures import FibsemImage
+        notification_service.show_toast(
+            f"Loading overview for {record.name}…", "info")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        worker = FunctionWorker(FibsemImage.load, overview)
+        self._overview_worker = worker
+        worker.returned.connect(
+            lambda img, r=record, p=overview: self._on_overview_loaded(r, p, img))
+        worker.errored.connect(self._on_overview_load_error)
+        worker.finished.connect(QApplication.restoreOverrideCursor)
+        worker.start()
+
+    def _on_overview_loaded(self, record, path, image) -> None:
+        if image is None or image.metadata is None:
             notification_service.show_toast(
                 "Overview image has no metadata; can't place positions.", "warning")
             return
+        self._cache_overview(path, image)
+        # the experiment may have gone away while the load was in flight
+        ui = self.autolamella_ui
+        if ui is None or ui.experiment is None:
+            return
+        self._open_position_dialog(record, image)
 
+    def _on_overview_load_error(self, exc) -> None:
+        notification_service.show_toast(f"Could not load overview: {exc}", "error")
+
+    def _open_position_dialog(self, record, image) -> None:
+        from fibsem.ui.widgets.lamella_selection_dialog import LamellaSelectionDialog
+        ui = self.autolamella_ui
         self._position_dialog = LamellaSelectionDialog(
             experiment=ui.experiment, grid_record=record, image=image,
             microscope=ui.microscope, host=ui, parent=self.main)
         self._position_dialog.accepted_positions.connect(self.refresh)
         self._position_dialog.show()
+
+    # --- overview cache (by path, mtime) ---
+
+    def _cached_overview(self, path):
+        """Return the cached FibsemImage for ``path`` if still fresh, else None."""
+        entry = self._overview_cache.get(path)
+        if entry is None:
+            return None
+        mtime, image = entry
+        try:
+            if os.path.getmtime(path) == mtime:
+                return image
+        except OSError:
+            pass
+        return None
+
+    def _cache_overview(self, path, image) -> None:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return
+        self._overview_cache[path] = (mtime, image)
+        # bound the cache — these are large images
+        while len(self._overview_cache) > _OVERVIEW_CACHE_SIZE:
+            self._overview_cache.pop(next(iter(self._overview_cache)))
