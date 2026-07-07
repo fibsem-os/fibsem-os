@@ -176,6 +176,10 @@ class FibsemMillingTask:
         self.parent_ui = parent_ui
         self.task_id = str(uuid.uuid4())
         self.initial_beam_shift: Optional[Point] = None
+        # Imaging current/voltage captured before milling starts, so cleanup restores the
+        # exact pre-milling state (not a config default) even if the task is cancelled.
+        self.initial_imaging_current: Optional[float] = None
+        self.initial_imaging_voltage: Optional[float] = None
         self._stop_event: Optional[threading.Event] = None
         if self.parent_ui and hasattr(self.parent_ui, "_milling_stop_event"):
             self._stop_event = self.parent_ui._milling_stop_event
@@ -208,6 +212,10 @@ class FibsemMillingTask:
 
         try:
             self.initial_beam_shift = self.microscope.get_beam_shift(beam_type=self.config.channel)
+            # Capture the live imaging current/voltage BEFORE setup_milling switches to the
+            # milling current, so cleanup restores exactly what the user was imaging at.
+            self.initial_imaging_current = self.microscope.get_beam_current(self.config.channel)
+            self.initial_imaging_voltage = self.microscope.get_beam_voltage(self.config.channel)
 
             # configure acquisition filepaths
             self._configure_path()
@@ -232,9 +240,15 @@ class FibsemMillingTask:
                 "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
                 "progress": {"state": "finished", "task_id": self.task_id, "task_name": self.name}
             })
+            # restore the captured pre-milling imaging current/voltage (falling back to the
+            # system defaults if we never got to capture them, e.g. an early failure).
             self.microscope.finish_milling(
-                imaging_current=self.microscope.system.ion.beam.beam_current,
-                imaging_voltage=self.microscope.system.ion.beam.voltage,
+                imaging_current=(self.initial_imaging_current
+                                 if self.initial_imaging_current is not None
+                                 else self.microscope.system.ion.beam.beam_current),
+                imaging_voltage=(self.initial_imaging_voltage
+                                 if self.initial_imaging_voltage is not None
+                                 else self.microscope.system.ion.beam.voltage),
             )
             # restore initial beam shift
             if self.initial_beam_shift is not None:
