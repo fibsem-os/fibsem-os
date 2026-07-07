@@ -3023,6 +3023,10 @@ class ThermoMicroscope(FibsemMicroscope):
             self.set_application_file("Si-ccs", strict=False)
         else:
             create_pattern_function = patterning_api.create_rectangle
+            # ensure a rectangle-compatible application file is set; the stage's
+            # application file may be a cross-section-only file (e.g. Si-ccs) that
+            # AutoScript rejects for a plain Rectangle pattern.
+            self.set_application_file("Si", strict=False)
 
         # create pattern
         pattern = create_pattern_function(
