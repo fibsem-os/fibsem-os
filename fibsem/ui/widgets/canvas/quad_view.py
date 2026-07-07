@@ -55,6 +55,9 @@ _PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
 # A transparent border of the same width is always present so selection causes no layout shift,
 # and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
 _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
+# Live-acquisition border: green, and it takes priority over the blue selected border so a
+# live view is obvious even when you've clicked away to another cell.
+_LIVE_ACCENT = "#4caf50"
 
 
 def _titled(title: str, inner: QWidget) -> QFrame:
@@ -157,6 +160,8 @@ class QuadViewWidget(QWidget):
             self.fib_canvas: BeamType.ION,
             self.fm_canvas: "fm",
         }
+        self._key_canvas: Dict[object, QWidget] = {v: k for k, v in self._canvas_keys.items()}
+        self._live: set = set()  # view keys currently live-acquiring (green border + LIVE badge)
         self._selected: Optional[object] = None
         for canvas in self._canvas_keys:
             canvas.installEventFilter(self)
@@ -174,12 +179,36 @@ class QuadViewWidget(QWidget):
         if key not in self._panels or key == self._selected:
             return
         self._selected = key
-        for k, frame in self._panels.items():
-            border = _SELECT_ACCENT if k == key else "transparent"
-            frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border=border))
+        self._refresh_borders()
         for canvas, k in self._canvas_keys.items():
             canvas.set_toolbar_visible(k == key)
         self.view_selected.emit(key)
+
+    def _panel_border(self, key: object) -> str:
+        """Border colour for a panel: green while live (wins), else blue if selected, else none."""
+        if key in self._live:
+            return _LIVE_ACCENT
+        if key == self._selected:
+            return _SELECT_ACCENT
+        return "transparent"
+
+    def _refresh_borders(self) -> None:
+        for k, frame in self._panels.items():
+            frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border=self._panel_border(k)))
+
+    def set_live(self, key: object, live: bool) -> None:
+        """Mark view *key* (a ``BeamType``) as live-acquiring: green border + a "LIVE" badge on
+        its canvas, independent of which view is selected. The border wins over selection."""
+        if key not in self._panels:
+            return
+        if live:
+            self._live.add(key)
+        else:
+            self._live.discard(key)
+        self._refresh_borders()
+        canvas = self._key_canvas.get(key)
+        if canvas is not None and hasattr(canvas, "set_live_badge"):
+            canvas.set_live_badge(live)
 
     def set_fm_visible(self, visible: bool) -> None:
         """Show/hide the FM cell (plus the inert 'No Data' placeholder that balances the 2x2
@@ -409,6 +438,13 @@ class MicroscopeViewController(QObject):
         fn = getattr(self._widget, "set_fm_visible", None)
         if callable(fn):
             fn(visible)
+
+    def set_live(self, key: BeamType, live: bool) -> None:
+        """Mark a beam view as live-acquiring (green border + LIVE badge). No-op on views
+        that don't support it."""
+        fn = getattr(self._widget, "set_live", None)
+        if callable(fn):
+            fn(key, live)
 
     @property
     def sem_canvas(self) -> FibsemImageCanvas:

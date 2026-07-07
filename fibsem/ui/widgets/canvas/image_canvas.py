@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+_LIVE_BADGE_BG = "#2e7d32"  # dark green behind the white "● LIVE" badge
 _MAX_DISPLAY_PX = 2048
 _ZOOM_FACTOR = 1.15
 _REDRAW_INTERVAL = 32  # ms (~60 fps)
@@ -162,6 +163,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._hint_text: Optional[str] = None  # remembered so it survives set_image
         self._info_artist = None  # bottom-left microscope-state info bar
         self._info_text: Optional[str] = None  # remembered so it survives set_image
+        self._live_artist = None  # top-right "LIVE" badge during live acquisition
+        self._live_on: bool = False  # remembered so it survives set_image
 
         # Transient top-centre flash message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears
         self._flash_artist = None
@@ -312,6 +315,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_crosshair()
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
         self._refresh_info_bar()  # ditto: restore the remembered info bar
+        self._refresh_live_badge()  # ditto: keep the LIVE badge across streamed frames
         self._refresh_flash()  # ditto: keep a live flash (e.g. WD scroll) visible across frames
         self._refresh_legend()  # ditto: restore the patch legend
 
@@ -405,6 +409,32 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
                 fontsize=6.5, color="#e8e8e8", zorder=11,
                 bbox=dict(boxstyle="round,pad=0.25", facecolor=_BG,
                           edgecolor="none", alpha=0.55),
+            )
+
+    def set_live_badge(self, on: bool) -> None:
+        """Show/hide a green "● LIVE" badge in the top-right during live acquisition.
+
+        Remembered + re-applied after each image change (like the info bar), so it stays put as
+        live frames stream in."""
+        self._live_on = bool(on)
+        self._refresh_live_badge()
+        self.draw_idle()
+
+    def _refresh_live_badge(self) -> None:
+        """(Re)create the LIVE badge artist, or remove it."""
+        if self._live_artist is not None:
+            try:
+                self._live_artist.remove()
+            except Exception:
+                pass
+            self._live_artist = None
+        if self._live_on:
+            self._live_artist = self._ax.text(
+                0.988, 0.985, "● LIVE",
+                transform=self._ax.transAxes, ha="right", va="top",
+                fontsize=7, color="#ffffff", zorder=12, fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=_LIVE_BADGE_BG,
+                          edgecolor="none", alpha=0.9),
             )
 
     def flash_message(self, text: str, duration_ms: int = 1200) -> None:
@@ -505,6 +535,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._hint_text = None
         self._info_artist = None
         self._info_text = None
+        self._live_artist = None
+        self._live_on = False
         self._flash_artist = None
         self._flash_text = None
         self._flash_timer.stop()

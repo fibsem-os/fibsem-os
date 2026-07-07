@@ -48,6 +48,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self._overlay_edited_wired = False  # quad-view: subscribed to controller.overlay_edited
         self.is_acquiring: bool = False
+        self._live_beam: Optional[BeamType] = None  # beam currently live (for the canvas LIVE badge)
         self._auto_function_error: Optional[Exception] = None
 
         self._setup_ui()
@@ -308,6 +309,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         if self.microscope.is_acquiring:
             logging.info("Microscope is already acquiring. Stopping acquisition...")
             self.microscope.stop_acquisition()
+            self._set_live_indicator(None)  # clear the green border + LIVE badge
             self.pushButton_start_acquisition.setText("Start Acquisition")
             self.pushButton_start_acquisition.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
             for btn in self.acquisition_buttons:
@@ -331,8 +333,19 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         beam_type = self.dual_beam_widget.beam_type
         self.microscope.start_acquisition(beam_type)
+        self._set_live_indicator(beam_type)  # green border + LIVE badge on the live view
         self.pushButton_start_acquisition.setText("Stop Acquisition")
         self.pushButton_start_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+
+    def _set_live_indicator(self, beam_type: Optional[BeamType]) -> None:
+        """Drive the quad-view live indicator (green border + 'LIVE' badge): pass the live beam,
+        or None to clear. Also clears a previously-live beam (on stop or a beam switch)."""
+        controller = self._view_controller()
+        if self._live_beam is not None and self._live_beam is not beam_type and controller is not None:
+            controller.set_live(self._live_beam, False)
+        self._live_beam = beam_type
+        if beam_type is not None and controller is not None:
+            controller.set_live(beam_type, True)
 
     def _stop_live_acquisition_if_running(self) -> None:
         """Stop live acquisition if it's running — it contends with the auto-functions for the

@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.structures import BeamType
 from fibsem.ui.widgets.canvas.quad_view import (
+    _LIVE_ACCENT,
     _SELECT_ACCENT,
     MicroscopeViewController,
 )
@@ -111,6 +112,22 @@ def test_set_fm_visible_hides_cell_and_placeholder():
     c.set_fm_visible(True)
     assert w._panels["fm"].isHidden() is False
     assert w._placeholder_panel.isHidden() is False
+
+
+def test_live_border_wins_over_selection_and_badges_canvas():
+    """A live view shows the green border even when a *different* view is selected, plus a
+    "LIVE" badge on its canvas; both clear when live stops."""
+    c = MicroscopeViewController()
+    w = c.widget
+    w.set_selected(BeamType.ION)            # FIB selected (blue border)
+    c.set_live(BeamType.ELECTRON, True)     # SEM live (green border, independent of selection)
+    assert _LIVE_ACCENT in w._panels[BeamType.ELECTRON].styleSheet()
+    assert _SELECT_ACCENT in w._panels[BeamType.ION].styleSheet()
+    assert c.sem_canvas._live_on is True
+
+    c.set_live(BeamType.ELECTRON, False)
+    assert _LIVE_ACCENT not in w._panels[BeamType.ELECTRON].styleSheet()
+    assert c.sem_canvas._live_on is False
 
 
 def main() -> int:
