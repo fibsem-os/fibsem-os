@@ -334,8 +334,16 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_start_acquisition.setText("Stop Acquisition")
         self.pushButton_start_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
 
+    def _stop_live_acquisition_if_running(self) -> None:
+        """Stop live acquisition if it's running — it contends with the auto-functions for the
+        beam, so an auto-contrast/focus request stops live first (then runs)."""
+        if self.microscope.is_acquiring:
+            logging.info("Stopping live acquisition before running auto-function...")
+            self.toggle_live_acquisition()  # stops live + resets its button/UI state
+
     def run_autocontrast(self) -> None:
         """Run autocontrast for the selected beam type."""
+        self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
         self._toggle_interactions(enable=False)
         self._auto_function_error = None
@@ -346,6 +354,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def run_autofocus(self) -> None:
         """Run autofocus for the selected beam type."""
+        self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
         self._toggle_interactions(enable=False)
         self._auto_function_error = None
