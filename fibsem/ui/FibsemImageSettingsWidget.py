@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import List, Optional
 
 from fibsem.ui.qt.threading import thread_worker
@@ -8,6 +9,7 @@ from superqt import ensure_main_thread
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem import acquire, utils
+from fibsem.cancellation import OperationCancelledError
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
@@ -50,6 +52,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.is_acquiring: bool = False
         self._live_beam: Optional[BeamType] = None  # beam currently live (for the canvas LIVE badge)
         self._auto_function_error: Optional[Exception] = None
+        self._autofocus_stop_event = threading.Event()  # cancel signal for a running autofocus
+        self._autofocus_running: bool = False  # drives the Run <-> Cancel button morph
 
         self._setup_ui()
         self.setup_connections()
@@ -366,15 +370,34 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         worker.start()
 
     def run_autofocus(self) -> None:
-        """Run autofocus for the selected beam type."""
+        """Run autofocus, or cancel it if already running — the "Run AutoFocus" button morphs
+        into "Cancel" while it runs (F11 toggles the same way)."""
+        if self._autofocus_running:
+            # cancel: signal the worker to stop at its next checkpoint (between WD steps/passes)
+            self._autofocus_stop_event.set()
+            self.pushButton_run_autofocus.setEnabled(False)
+            self.pushButton_run_autofocus.setText("Cancelling…")
+            return
         self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
-        self._toggle_interactions(enable=False)
         self._auto_function_error = None
+        self._autofocus_stop_event.clear()
+        self._autofocus_running = True
+        self._toggle_interactions(enable=False)
+        # keep the autofocus button live, morphed into a Cancel control
+        self.pushButton_run_autofocus.setEnabled(True)
+        self.pushButton_run_autofocus.setText("Cancel AutoFocus")
+        self.pushButton_run_autofocus.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         worker = self._autofocus_worker(beam_type)
         worker.errored.connect(self._on_auto_function_errored)
         worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type))
         worker.start()
+
+    def _restore_autofocus_button(self) -> None:
+        """Un-morph the autofocus button back to its default 'Run AutoFocus' state."""
+        self.pushButton_run_autofocus.setText("Run AutoFocus")
+        self.pushButton_run_autofocus.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_run_autofocus.setEnabled(True)
 
     @thread_worker
     def _autocontrast_worker(self, beam_type: BeamType):
@@ -396,6 +419,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             beam_type=beam_type,
             hfw=self.microscope.get_field_of_view(beam_type),
             settings=settings,
+            stop_event=self._autofocus_stop_event,
         )
 
     def _on_auto_function_errored(self, exc: Exception) -> None:
@@ -408,11 +432,16 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._auto_function_error = exc
 
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
+        self._autofocus_running = False
         self._toggle_interactions(enable=True)
+        self._restore_autofocus_button()  # un-morph if it was showing "Cancel"
         beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
         beam_widget.sync_from_microscope()
         if self._auto_function_error is not None:
-            notification_service.show_toast(f"{name} failed: {self._auto_function_error}", "error")
+            if isinstance(self._auto_function_error, OperationCancelledError):
+                notification_service.show_toast(f"{name} cancelled", "warning")  # user cancel, not a failure
+            else:
+                notification_service.show_toast(f"{name} failed: {self._auto_function_error}", "error")
             self._auto_function_error = None
             return
         if name == "AutoFocus":

@@ -327,6 +327,44 @@ def test_run_auto_focus_restores_wd_on_error():
     assert last_set == pytest.approx(initial_wd)
 
 
+def test_run_auto_focus_cancelled_at_entry_restores_wd():
+    """A stop event set before autofocus starts aborts before any sweep and restores the WD."""
+    from fibsem.cancellation import OperationCancelledError
+    initial_wd = 7.0e-3
+    m = mock_microscope(initial_wd=initial_wd)
+    ev = threading.Event(); ev.set()
+    settings = AutoFocusSettings(passes=[FocusSweepPass(2.5e-3, 0.5e-3)])
+    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+        with pytest.raises(OperationCancelledError):
+            run_auto_focus(m, settings=settings, stop_event=ev)
+    m.acquire_image.assert_not_called()  # aborted before any sweep image
+    assert m.set_working_distance.call_args[0][0] == pytest.approx(initial_wd)  # WD restored
+
+
+def test_run_auto_focus_cancelled_mid_sweep_restores_wd():
+    """A stop event set *during* the sweep aborts partway (not all steps) and restores the WD."""
+    from fibsem.cancellation import OperationCancelledError
+    initial_wd = 7.0e-3
+    m = mock_microscope(initial_wd=initial_wd)
+    ev = threading.Event()
+    calls = {"n": 0}
+    orig = m.acquire_image.side_effect
+
+    def acquire_then_cancel(image_settings=None):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            ev.set()  # user clicks Cancel after a couple of steps
+        return orig(image_settings)
+
+    m.acquire_image.side_effect = acquire_then_cancel
+    settings = AutoFocusSettings(passes=[FocusSweepPass(2.5e-3, 0.1e-3)])  # ~26 steps
+    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+        with pytest.raises(OperationCancelledError):
+            run_auto_focus(m, settings=settings, stop_event=ev)
+    assert calls["n"] < settings.passes[0].n_steps + 1  # stopped before completing the sweep
+    assert m.set_working_distance.call_args[0][0] == pytest.approx(initial_wd)  # WD restored
+
+
 # ── AutoFocusResult serialisation ─────────────────────────────────────────────
 
 def test_autofocus_result_save_load(tmp_path):
