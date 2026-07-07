@@ -33,9 +33,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
-
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import GridRecord
@@ -75,6 +74,18 @@ def _status(record: "GridRecord", lamella_count: int = 0):
     if n:
         return f"{n} task{'s' if n != 1 else ''} complete{suffix}", _GREEN
     return ("Not started" + suffix), _GRAY
+
+
+def _quality_visual(record: "GridRecord"):
+    """(icon_name, color, tooltip) for a grid's manual quality verdict."""
+    from fibsem.applications.autolamella.structures import GridQuality
+    q = record.quality
+    note = f": {q.description}" if q.description else ""
+    if q.state is GridQuality.GOOD:
+        return "mdi:check-circle", _GREEN, f"Grid quality: good{note}"
+    if q.state is GridQuality.POOR:
+        return "mdi:alert-circle", _AMBER, f"Grid quality: poor{note}"
+    return "mdi:help-circle-outline", _GRAY, "Grid quality: unassessed"
 
 
 class _GridThumbnail(QWidget):
@@ -157,6 +168,7 @@ class GridCardWidget(QWidget):
     remove_requested = pyqtSignal(object)  # GridRecord
     load_requested = pyqtSignal(object)    # GridRecord (load into the working slot)
     unload_requested = pyqtSignal(object)  # GridRecord (retract from the beam)
+    quality_changed = pyqtSignal(object)   # GridRecord (manual quality verdict changed)
 
     def __init__(self, record: "GridRecord", slot_label: str = "",
                  in_beam: bool = False, loader_present: bool = True,
@@ -212,11 +224,19 @@ class GridCardWidget(QWidget):
         self._name_label.setStyleSheet("font-weight: 500; font-size: 14px; background: transparent;")
         name_row.addWidget(self._name_label, 1)
 
+        # manual quality verdict (unassessed / good / poor)
+        self._btn_quality = QToolButton()
+        self._btn_quality.setFixedSize(_BTN_SIZE, _BTN_SIZE)
+        self._btn_quality.setStyleSheet(_BTN_STYLE)
+        self._btn_quality.clicked.connect(self._on_quality_clicked)
+        self._refresh_quality_button()
+        name_row.addWidget(self._btn_quality)
+
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
         self._btn_actions.setStyleSheet(_BTN_STYLE + " QToolButton::menu-indicator { image: none; }")
         self._btn_actions.setIcon(
-            QIconifyIcon("mdi:dots-vertical", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-vertical", color=stylesheets.GRAY_ICON_COLOR)
         )
         self._btn_actions.clicked.connect(self._on_actions_clicked)
         name_row.addWidget(self._btn_actions)
@@ -249,17 +269,17 @@ class GridCardWidget(QWidget):
         if self._loader_present:  # load/unload only meaningful with an autoloader
             if self._in_beam:
                 act_load = menu.addAction(
-                    QIconifyIcon("mdi:logout-variant", color=stylesheets.GRAY_ICON_COLOR),
+                    fibsem_icon("mdi:logout-variant", color=stylesheets.GRAY_ICON_COLOR),
                     "Unload from microscope",
                 )
             else:
                 act_load = menu.addAction(
-                    QIconifyIcon("mdi:login", color=stylesheets.GRAY_ICON_COLOR),
+                    fibsem_icon("mdi:login", color=stylesheets.GRAY_ICON_COLOR),
                     "Load into microscope",
                 )
             menu.addSeparator()
         act_remove = menu.addAction(
-            QIconifyIcon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Remove from experiment",
         )
         chosen = menu.exec_(
@@ -279,6 +299,40 @@ class GridCardWidget(QWidget):
         if reply == QMessageBox.Yes:
             self.remove_requested.emit(self.record)
 
+    # --- quality verdict ---
+
+    def _refresh_quality_button(self) -> None:
+        icon, color, tooltip = _quality_visual(self.record)
+        self._btn_quality.setIcon(fibsem_icon(icon, color=color))
+        self._btn_quality.setToolTip(tooltip)
+
+    def _on_quality_clicked(self) -> None:
+        from fibsem.applications.autolamella.structures import GridQuality
+        menu = QMenu(self)
+        act_unassessed = menu.addAction(
+            fibsem_icon("mdi:help-circle-outline", color=_GRAY), "Unassessed"
+        )
+        act_good = menu.addAction(
+            fibsem_icon("mdi:check-circle", color=_GREEN), "Good"
+        )
+        act_poor = menu.addAction(
+            fibsem_icon("mdi:alert-circle", color=_AMBER), "Poor"
+        )
+        chosen = menu.exec_(
+            self._btn_quality.mapToGlobal(self._btn_quality.rect().bottomLeft())
+        )
+        if chosen == act_unassessed:
+            state = GridQuality.UNASSESSED
+        elif chosen == act_good:
+            state = GridQuality.GOOD
+        elif chosen == act_poor:
+            state = GridQuality.POOR
+        else:
+            return
+        self.record.quality.set_quality(state)
+        self._refresh_quality_button()
+        self.quality_changed.emit(self.record)
+
 
 class GridCardContainer(QWidget):
     """Header (title + count + Add from Loader) over a scrollable strip of grid
@@ -289,6 +343,7 @@ class GridCardContainer(QWidget):
     remove_requested = pyqtSignal(object)         # GridRecord
     load_requested = pyqtSignal(object)           # GridRecord
     unload_requested = pyqtSignal(object)         # GridRecord
+    quality_changed = pyqtSignal(object)          # GridRecord
 
     def __init__(self, columns: int = 1, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -318,7 +373,7 @@ class GridCardContainer(QWidget):
         self.btn_add = QToolButton()
         self.btn_add.setText("Add from Loader")
         self.btn_add.setIcon(
-            QIconifyIcon("mdi:tray-arrow-down", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:tray-arrow-down", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_add.setToolTip("Import grids loaded in the magazine / working slot")
@@ -384,6 +439,7 @@ class GridCardContainer(QWidget):
             card.remove_requested.connect(self.remove_requested)
             card.load_requested.connect(self.load_requested)
             card.unload_requested.connect(self.unload_requested)
+            card.quality_changed.connect(self.quality_changed)
             self._cards.append(card)
         self._rebuild_grid()
 

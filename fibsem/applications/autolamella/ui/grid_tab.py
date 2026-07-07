@@ -56,6 +56,7 @@ class GridTabWidget(QWidget):
         self.grids_view.grid_selected.connect(self._on_grid_selected)
         self.grids_view.load_requested.connect(self._on_grid_card_load)
         self.grids_view.unload_requested.connect(self._on_grid_card_unload)
+        self.grids_view.quality_changed.connect(self._on_grid_quality_changed)
         left = QWidget()
         left.setMaximumWidth(340)
         left_layout = QVBoxLayout(left)
@@ -224,6 +225,14 @@ class GridTabWidget(QWidget):
         ui.experiment.remove_grid(record.name)
         ui.experiment.save()
         self.refresh()
+
+    def _on_grid_quality_changed(self, record: "GridRecord") -> None:
+        """Persist a manual grid-quality change. The card already updated its own
+        button; just save (no full refresh, which would rebuild every card)."""
+        ui = self.autolamella_ui
+        if ui is None or ui.experiment is None:
+            return
+        ui.experiment.save()
 
     def _on_grid_card_load(self, record: "GridRecord") -> None:
         """Load a grid into the working slot from the Grids tab (delegates to the

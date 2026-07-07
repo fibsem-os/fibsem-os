@@ -937,6 +937,54 @@ class Lamella:
             synced_tasks.append(task_name)
         return synced_tasks
 
+class GridQuality(Enum):
+    """A user's manual screening verdict for a whole grid.
+
+    Distinct from the automatic ``task_state.status`` (which tracks workflow
+    progress): this is the human call on whether a grid is worth processing.
+    """
+    UNASSESSED = auto()
+    GOOD = auto()
+    POOR = auto()
+
+
+@evented
+@dataclass
+class GridQualityState:
+    """Manual grid-quality verdict + optional note. Mirrors :class:`DefectState`
+    for lamellae, but the grid-appropriate concept is quality, not defect."""
+    state: GridQuality = field(default=GridQuality.UNASSESSED)
+    description: str = ""
+    updated_at: Optional[float] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "state": self.state.name,
+            "description": self.description,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'GridQualityState':
+        if not data:
+            return cls()
+        return cls(
+            state=GridQuality[data.get("state", "UNASSESSED")],
+            description=data.get("description", ""),
+            updated_at=data.get("updated_at", None),
+        )
+
+    def clear(self):
+        self.state = GridQuality.UNASSESSED
+        self.description = ""
+        self.updated_at = None
+
+    def set_quality(self, state: GridQuality, description: str = ""):
+        self.state = state
+        self.description = description
+        self.updated_at = datetime.timestamp(datetime.now())
+
+
 @evented
 @dataclass
 class GridRecord:
@@ -955,6 +1003,8 @@ class GridRecord:
     # per-task artifacts/metadata (task_name -> {image paths, pixel_size, ...}),
     # written by tasks via GridTask.record_result; read by the Results UI
     results: Dict[str, Any] = field(default_factory=dict)
+    # user's manual screening verdict for the grid (independent of task_state)
+    quality: GridQualityState = field(default_factory=GridQualityState)
 
     @property
     def completed_tasks(self) -> List[str]:
@@ -977,6 +1027,7 @@ class GridRecord:
             "task_state": self.task_state.to_dict(),
             "task_history": [ts.to_dict() for ts in self.task_history],
             "results": deepcopy(self.results),
+            "quality": self.quality.to_dict(),
         }
 
     @classmethod
@@ -989,6 +1040,8 @@ class GridRecord:
             AutoLamellaTaskState.from_dict(ts) for ts in data.get("task_history", [])
         ]
         record.results = dict(data.get("results", {}))
+        # quality absent in older experiments -> defaults to UNASSESSED
+        record.quality = GridQualityState.from_dict(data.get("quality"))
         return record
 
 
