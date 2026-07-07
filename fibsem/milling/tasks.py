@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from fibsem import acquire
 from fibsem import config as fcfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling.base import FibsemMillingStage, MillingStoppedError, raise_if_stopped
+from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import BeamType, FibsemImage, ImageSettings, MillingAlignment, Point
 from fibsem.utils import current_timestamp_v3
 
@@ -222,8 +223,8 @@ class FibsemMillingTask:
             for idx, stage in enumerate(self.stages):
                 self._mill_stage(stage, idx)
 
-        except MillingStoppedError as e:
-            logging.info(f"Milling task '{self.name}' stopped by user: {e}")
+        except OperationCancelledError as e:
+            logging.info(f"Milling task '{self.name}' cancelled by user: {e}")
         except Exception as e:
             logging.error(e)
         finally:
@@ -260,7 +261,7 @@ class FibsemMillingTask:
         """
 
         start_time = time.time()
-        raise_if_stopped(self._stop_event)
+        raise_if_cancelled(self._stop_event)
 
         msgd =  {"msg": f"Preparing: {stage.name}",
                 "progress": {"state": "start", 
@@ -308,7 +309,7 @@ class FibsemMillingTask:
             if self.config.acquisition.enabled:
                 self._acquire_milling_task_images(stage_name=f"{self.name}-{stage.name}", tag="finished")
 
-        except MillingStoppedError:
+        except OperationCancelledError:
             raise  # unwind to run() so the whole task aborts + restores conditions
         except Exception as e:
             logging.error(f"Error running milling stage: {stage.name}, {e}", exc_info=True)

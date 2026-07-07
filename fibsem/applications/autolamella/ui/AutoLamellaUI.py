@@ -905,6 +905,7 @@ class AutoLamellaUI(QMainWindow):
                     HookEvent.TASK_STARTED,
                     HookEvent.TASK_COMPLETED,
                     HookEvent.TASK_FAILED,
+                    HookEvent.TASK_CANCELLED,
                 ],
             )
         )
@@ -922,6 +923,14 @@ class AutoLamellaUI(QMainWindow):
                 events=[HookEvent.TASK_FAILED],
                 notification_type="error",
                 message_template="Task {task_name} FAILED: {error}",
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="cancellation_toast",
+                events=[HookEvent.TASK_CANCELLED],
+                notification_type="warning",
+                message_template="Task {task_name} cancelled for {lamella_name}",
             )
         )
         manager.wire(self)

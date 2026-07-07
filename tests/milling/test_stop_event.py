@@ -5,7 +5,7 @@ Regression: a Stop issued mid-"Preparing" — especially during overtilt's
 ``multi_step_alignment_v2`` — was ignored until beam-milling started (or never, on
 the last stage), because the stop signal was not threaded into the strategy/prep
 path. The fix passes an explicit ``stop_event`` through ``strategy.run`` and the
-task, checked at the prep checkpoints, raising ``MillingStoppedError`` to unwind the
+task, checked at the prep checkpoints, raising ``OperationCancelledError`` to unwind the
 whole task (so its ``finally`` still restores imaging conditions).
 
 Run headless:
@@ -18,7 +18,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.milling import FibsemMillingStage
-from fibsem.milling.base import MillingStoppedError, raise_if_stopped
+from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.milling.patterning.patterns2 import TrenchPattern
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
 from fibsem.milling.strategy.standard import StandardMillingStrategy
@@ -52,12 +52,12 @@ def _trench_stage(name: str) -> FibsemMillingStage:
 
 # ── the primitive ────────────────────────────────────────────────────────────
 
-def test_raise_if_stopped():
-    raise_if_stopped(None)                 # no-op when absent
-    raise_if_stopped(threading.Event())    # no-op when clear
+def test_raise_if_cancelled():
+    raise_if_cancelled(None)                 # no-op when absent
+    raise_if_cancelled(threading.Event())    # no-op when clear
     ev = threading.Event(); ev.set()
-    with pytest.raises(MillingStoppedError):
-        raise_if_stopped(ev)
+    with pytest.raises(OperationCancelledError):
+        raise_if_cancelled(ev)
 
 
 # ── strategies abort before the beam starts ──────────────────────────────────
@@ -67,7 +67,7 @@ def test_standard_strategy_aborts_before_milling():
     stage = FibsemMillingStage(name="std")
     milled = _spy(microscope, "run_milling")
     ev = threading.Event(); ev.set()
-    with pytest.raises(MillingStoppedError):
+    with pytest.raises(OperationCancelledError):
         StandardMillingStrategy().run(microscope, stage, stop_event=ev)
     assert milled == []  # beam never started
 
@@ -77,7 +77,7 @@ def test_overtilt_strategy_aborts_before_milling():
     stage = _trench_stage("ot")
     milled = _spy(microscope, "run_milling")
     ev = threading.Event(); ev.set()
-    with pytest.raises(MillingStoppedError):
+    with pytest.raises(OperationCancelledError):
         stage.strategy.run(microscope, stage, stop_event=ev)
     assert milled == []
 
@@ -102,7 +102,7 @@ def test_overtilt_threads_stop_event_into_alignment(monkeypatch):
         fake_alignment,
     )
 
-    with pytest.raises(MillingStoppedError):
+    with pytest.raises(OperationCancelledError):
         stage.strategy.run(microscope, stage, stop_event=ev)
 
     assert captured["stop_event"] is ev  # wiring: strategy -> alignment
@@ -126,7 +126,7 @@ def test_task_aborts_and_restores_conditions(tmp_path):
     finished = _spy(microscope, "finish_milling")
 
     task = FibsemMillingTask(microscope, config, parent_ui=parent_ui)
-    task.run()  # MillingStoppedError is caught inside run(); must not propagate
+    task.run()  # OperationCancelledError is caught inside run(); must not propagate
 
     assert milled == []        # never milled
     assert len(finished) >= 1  # but cleanup (finish_milling) still ran

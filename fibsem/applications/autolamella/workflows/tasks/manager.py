@@ -11,6 +11,7 @@ from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext, HookEvent, HookManager
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
@@ -290,9 +291,17 @@ class TaskManager:
             self.experiment.save()
             return None
         except Exception as e:
-            logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
-            lamella.task_state.status = AutoLamellaTaskStatus.Failed
-            lamella.task_state.status_message = str(e)
+            # A user Stop surfaces as OperationCancelledError (milling) or InterruptedError
+            # (_check_for_abort); either way self.is_stopped is set by TaskManager.stop().
+            # Mark it Cancelled, not Failed — it isn't an error.
+            if self.is_stopped or isinstance(e, OperationCancelledError):
+                logging.info(f"Task {task_name} for lamella {lamella.name} cancelled by user.")
+                lamella.task_state.status = AutoLamellaTaskStatus.Cancelled
+                lamella.task_state.status_message = "Cancelled by user."
+            else:
+                logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
+                lamella.task_state.status = AutoLamellaTaskStatus.Failed
+                lamella.task_state.status_message = str(e)
             self.experiment.save()
             return e
 

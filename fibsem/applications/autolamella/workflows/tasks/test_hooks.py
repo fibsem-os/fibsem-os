@@ -86,6 +86,41 @@ def test_notification_hook_formats_error():
     assert "Stage timeout" in received[0][0]
 
 
+def test_notification_hook_cancelled_is_warning():
+    """A user cancel notifies as a 'warning' (amber), not an 'error' failure."""
+    received = []
+    hook = NotificationHook(
+        name="cancel",
+        events=[HookEvent.TASK_CANCELLED],
+        notification_type="warning",
+        message_template="Task {task_name} cancelled for {lamella_name}",
+        _notify=lambda msg, typ: received.append((msg, typ)),
+    )
+    # only fires for the cancelled event, not for a failure
+    manager = HookManager()
+    manager.register(hook)
+    manager.fire(_ctx(event=HookEvent.TASK_FAILED, error="boom"))
+    assert received == []
+    manager.fire(_ctx(event=HookEvent.TASK_CANCELLED, task_name="Mill", lamella_name="01-elk"))
+    assert received == [("Task Mill cancelled for 01-elk", "warning")]
+
+
+def test_task_is_cancellation_classifies_stop_vs_failure():
+    """AutoLamellaTask._is_cancellation: user Stop (cancel exc / stop event) vs real failure."""
+    import types
+    from fibsem.cancellation import OperationCancelledError
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+
+    def _isc(exc, stopped=False):
+        s = types.SimpleNamespace(task_manager=types.SimpleNamespace(is_stopped=stopped))
+        return AutoLamellaTask._is_cancellation(s, exc)
+
+    assert _isc(OperationCancelledError("x")) is True
+    assert _isc(InterruptedError("Workflow aborted by user.")) is True
+    assert _isc(ValueError("real bug")) is False
+    assert _isc(ValueError("real bug"), stopped=True) is True  # stop event set → cancelled
+
+
 def test_notification_hook_falls_back_to_logging_without_notify(caplog):
     import logging
     hook = NotificationHook(

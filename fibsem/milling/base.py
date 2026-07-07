@@ -26,28 +26,6 @@ TMillingStrategyConfig = TypeVar(
 TMillingStrategy = TypeVar("TMillingStrategy", bound="MillingStrategy")
 
 
-class MillingStoppedError(Exception):
-    """Raised to abort a milling task/stage when its stop event is set.
-
-    Distinct from a generic failure so callers can tell a user-requested stop
-    apart from an error (and re-raise it to unwind the whole task rather than
-    swallow it like a per-stage exception)."""
-
-
-def raise_if_stopped(
-    stop_event: Optional[threading.Event],
-    msg: str = "Milling stopped by user.",
-) -> None:
-    """Raise :class:`MillingStoppedError` if ``stop_event`` is set.
-
-    A no-op when ``stop_event`` is ``None`` or clear. Call this at the natural
-    checkpoints in a milling task/strategy (before/after each slow prep step —
-    reference imaging, alignment, drawing patterns) so a Stop requested while
-    "Preparing" takes effect promptly instead of only at stage boundaries."""
-    if stop_event is not None and stop_event.is_set():
-        raise MillingStoppedError(msg)
-
-
 @dataclass
 class MillingStrategyConfig(ABC):
     """Abstract base class for milling strategy configurations"""

@@ -3,13 +3,13 @@ import threading
 from dataclasses import dataclass
 from typing import Optional
 
+from fibsem.cancellation import raise_if_cancelled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import setup_milling
 from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
-    raise_if_stopped,
 )
 
 import time
@@ -57,7 +57,7 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
             }
         )
 
-        raise_if_stopped(stop_event)  # last chance before the beam starts
+        raise_if_cancelled(stop_event)  # last chance before the beam starts
         microscope.run_milling(
             milling_current=stage.milling.milling_current,
             milling_voltage=stage.milling.milling_voltage,

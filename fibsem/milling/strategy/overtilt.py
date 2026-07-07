@@ -9,13 +9,13 @@ from typing import Optional
 import numpy as np
 
 from fibsem import acquire, alignment
+from fibsem.cancellation import raise_if_cancelled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import setup_milling
 from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
-    raise_if_stopped,
 )
 from fibsem.milling.properties import (
     DEFAULT_IMAGE_RESOLUTION_METADATA,
@@ -141,7 +141,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             # draw pattern
             microscope.draw_pattern(pattern=pattern)
 
-            raise_if_stopped(stop_event)  # last chance before the beam starts
+            raise_if_cancelled(stop_event)  # last chance before the beam starts
             # run milling
             microscope.run_milling(
                 milling_current=stage.milling.milling_current,
