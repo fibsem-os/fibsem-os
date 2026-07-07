@@ -1777,6 +1777,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         for lamella in experiment.positions:
             self.lamella_list_widget.add_lamella(lamella)
             self.lamella_card_container.add_lamella(lamella)
+        # populate the list's grid/task filter dropdowns
+        grid_map = {g._id: g.name for g in experiment.grids}
+        wc = experiment.task_protocol.workflow_config if experiment.task_protocol else None
+        self.lamella_list_widget.set_filter_options(grid_map, wc.workflow if wc else [])
         self._on_workflow_selection_changed()
         self._update_lamella_tab_enabled()
 
