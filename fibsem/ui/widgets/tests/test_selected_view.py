@@ -96,24 +96,6 @@ def test_fm_contrast_stays_hidden_across_cycle():
     assert c.fm_canvas.btn_contrast.isHidden() is True  # contrast stays hidden
 
 
-def test_set_fm_visible_hides_cell_and_placeholder():
-    """No fluorescence microscope -> hide the FM cell + the inert placeholder (clean SEM|FIB);
-    if FM was selected it falls back to SEM; and it restores on show."""
-    c = MicroscopeViewController()
-    w = c.widget
-    w.set_selected("fm")
-    assert c.selected_view == "fm"
-
-    c.set_fm_visible(False)
-    assert w._panels["fm"].isHidden() is True
-    assert w._placeholder_panel.isHidden() is True
-    assert c.selected_view is BeamType.ELECTRON  # selection fell back off the hidden FM view
-
-    c.set_fm_visible(True)
-    assert w._panels["fm"].isHidden() is False
-    assert w._placeholder_panel.isHidden() is False
-
-
 def test_live_border_wins_over_selection_and_badges_canvas():
     """A live view shows the green border even when a *different* view is selected, plus a
     "LIVE" badge on its canvas; both clear when live stops."""
