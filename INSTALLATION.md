@@ -8,8 +8,12 @@
 
 ### Python
 Python 3.9+ is required.
-The [Anaconda distribution](https://www.anaconda.com/distribution/)
-of python is recommended.
+We recommend installing Python via [Miniforge](https://conda-forge.org/download/),
+a minimal installer that uses the community-maintained
+[conda-forge](https://conda-forge.org/) channel by default. It provides the same
+`conda` (and `mamba`) commands as Anaconda/Miniconda while staying lightweight and
+avoiding the licensing terms that can apply to Anaconda's default channels for larger
+organizations.
 
 ## Setting up your python virtual environment
 It is also highly recommended to use virtual environments for development,
@@ -17,7 +21,8 @@ see [Managing Conda Environments](https://docs.conda.io/projects/conda/en/latest
 for more information.
 (Optionally, you could use `virtualenv` if you prefer.)
 
-Create a new virutal environment from the Anaconda Prompt terminal:
+Create a new virtual environment from your conda terminal (the Miniforge Prompt on
+Windows, or any terminal on macOS/Linux):
 ```
 cd fibsem
 conda env create -n fibsem python=3.11 pip
@@ -42,6 +47,34 @@ Once activated, move to the fibsem root directory and install fibsem like so
 ```
 pip install -e .
 ```
+
+### Installation with uv
+
+[uv](https://docs.astral.sh/uv/) is a fast, drop-in replacement for `pip`.
+
+First, install uv (see the [official install guide](https://docs.astral.sh/uv/getting-started/installation/)
+for all options):
+```
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+```
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+Alternatively, install it into an existing environment with `pip install uv`.
+
+uv works inside either environment above (conda or virtualenv) with nothing extra to
+set up. Once your environment is created and activated, install fibsem with:
+```
+uv pip install -e .
+```
+To include the GUI dependencies, install the `ui` extra:
+```
+uv pip install -e '.[ui]'
+```
+This resolves the same dependencies from `pyproject.toml` as `pip`, just faster.
+No lockfile or additional configuration is required.
 
 ## Installing Microscope Hardware APIs
 
