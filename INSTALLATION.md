@@ -27,7 +27,7 @@ Windows, or any terminal on macOS/Linux):
 cd fibsem
 conda env create -n fibsem python=3.11 pip
 conda activate fibsem
-pip install -e .
+python -m pip install -e .
 ```
 
 ### Installation through Python virtualenv
