@@ -118,14 +118,35 @@ class FibsemStrategySettingsWidget(QWidget):
             elif type_ is bool or isinstance(value, bool):
                 control = QCheckBox()
                 control.setChecked(bool(value))
-            elif isinstance(value, (float, int)):
+            elif type_ is int:
+                suffix = (
+                    utils._get_display_unit(base_scale, m.get("unit"))
+                    if base_scale
+                    else (m.get("unit") or "")
+                )
+                # Ensure integer types don't have a step size under 1 and have 0 decimals
+                control = ValueSpinBox(
+                    suffix,
+                    m.get("minimum"),
+                    m.get("maximum"),
+                    max(m.get("step", 1), 1),
+                    0,
+                )
+                control.setValue(
+                    int(round(value * effective_scale if effective_scale else value))
+                )
+            elif isinstance(value, (float, int)) or type_ is float:
                 suffix = (
                     utils._get_display_unit(base_scale, m.get("unit"))
                     if base_scale
                     else (m.get("unit") or "")
                 )
                 control = ValueSpinBox(
-                    suffix, m.get("minimum"), m.get("maximum"), m.get("step"), m.get("decimals")
+                    suffix,
+                    m.get("minimum"),
+                    m.get("maximum"),
+                    m.get("step"),
+                    m.get("decimals"),
                 )
                 control.setValue(value * effective_scale if effective_scale else value)
             else:
