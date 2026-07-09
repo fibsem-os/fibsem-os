@@ -51,13 +51,13 @@ control of compatible FEI microscope systems.
 This is a commercial product by Thermo Fisher FEI, please visit their website
 at https://www.thermofisher.com/au/en/home/electron-microscopy.html for information on pricing and installation.
 
-We use Autoscript version 4.6.+
+We use Autoscript version 4.7.+
 
 The version numbers of the python packages Autoscript installs were:
 * autoscript-core 5.12.0
-* autoscript-sdb-microscope-client 4.6.0
-* autoscript-sdb-microscope-client-tests 4.6.0
-* autoscript-toolkit 4.6.0
+* autoscript-sdb-microscope-client 4.7.0
+* autoscript-sdb-microscope-client-tests 4.7.0
+* autoscript-toolkit 4.7.0
 * thermoscientific-logging 5.12.0
 
 #### Add the autoscript python packages to your `site-packages`
@@ -93,10 +93,10 @@ You will need to copy:
 * autoscript_core-5.12.0.dist-info
 * autoscript_sdb_microscope_client
 * autoscript_sdb_microscope_client_tests
-* autoscript_sdb_microscope_client_tests-4.6.0.dist-info
-* autoscript_sdb_microscope_client-4.6.0.dist-info
+* autoscript_sdb_microscope_client_tests-4.7.0.dist-info
+* autoscript_sdb_microscope_client-4.7.0.dist-info
 * autoscript_toolkit
-* autoscript_toolkit-4.6.0.dist-info
+* autoscript_toolkit-4.7.0.dist-info
 * thermoscientific_logging
 * thermoscientific_logging-5.12.1.dist-info
 
