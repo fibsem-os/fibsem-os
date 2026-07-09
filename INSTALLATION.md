@@ -45,7 +45,7 @@ fibsem\Scripts\activate.bat
 ```
 Once activated, move to the fibsem root directory and install fibsem like so
 ```
-pip install -e .
+python -m pip install -e .
 ```
 
 ### Installation with uv
