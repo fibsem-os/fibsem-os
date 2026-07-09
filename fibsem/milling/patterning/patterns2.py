@@ -597,6 +597,24 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
             "tooltip": "Height of the lower trench.",
         },
     )
+    upper_trench_width: Optional[float] = field(
+        default=None,
+        metadata={
+            "label": "Upper Trench Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "advanced": True,
+            "tooltip": "Width of the upper trench. If None, uses Width.",
+        },
+    )
+    lower_trench_width: Optional[float] = field(
+        default=None,
+        metadata={
+            "label": "Lower Trench Width",
+            **DEFAULT_DISTANCE_METADATA,
+            "advanced": True,
+            "tooltip": "Width of the lower trench. If None, uses Width.",
+        },
+    )
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
     )
@@ -627,29 +645,23 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
         ])
 
     def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
-
         point = self.point
-        width = self.width
         spacing = self.spacing
         upper_trench_height = self.upper_trench_height
         lower_trench_height = self.lower_trench_height
         depth = self.depth
         cross_section = self.cross_section
         time = self.time
-        fillet = self.fillet
+        upper_trench_width = self.width if self.upper_trench_width is None else self.upper_trench_width
+        lower_trench_width = self.width if self.lower_trench_width is None else self.lower_trench_width
 
         # calculate the centre of the upper and lower trench
         centre_lower_y = point.y - (spacing / 2 + lower_trench_height / 2)
         centre_upper_y = point.y + (spacing / 2 + upper_trench_height / 2)
 
-        # fillet radius on the corners
-        fillet = np.clip(fillet, 0, upper_trench_height / 2)
-        if fillet > 0:
-            width = max(0, width - 2 * fillet) # ensure width is not negative
-
         # mill settings
         lower_trench_settings = FibsemRectangleSettings(
-            width=width,
+            width=lower_trench_width,
             height=lower_trench_height,
             depth=depth,
             centre_x=point.x,
@@ -660,7 +672,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
         )
 
         upper_trench_settings = FibsemRectangleSettings(
-            width=width,
+            width=upper_trench_width,
             height=upper_trench_height,
             depth=depth,
             centre_x=point.x,
@@ -672,85 +684,107 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
 
         self.shapes = [upper_trench_settings, lower_trench_settings]
 
+        # fillet radius must fit both trench height and width
+        max_fillet = min(
+            upper_trench_height / 2,
+            lower_trench_height / 2,
+            upper_trench_width / 2,
+            lower_trench_width / 2,
+        )
+        fillet = float(np.clip(self.fillet, 0.0, max_fillet))
+        if fillet <= 0:
+            return self.shapes
+
+        lower_inner_width = max(0.0, lower_trench_width - 2 * fillet)
+        upper_inner_width = max(0.0, upper_trench_width - 2 * fillet)
+
+        lower_left_x = point.x - lower_inner_width / 2
+        lower_right_x = point.x + lower_inner_width / 2
+        upper_left_x = point.x - upper_inner_width / 2
+        upper_right_x = point.x + upper_inner_width / 2
+
         # add fillet to the corners
-        if fillet > 0:            
-            left_x_pos = point.x - width / 2
-            right_x_pos = point.x + width / 2
+        fillet_offset = 1.5
+        lower_y_pos = centre_lower_y + lower_trench_height / 2 - fillet * fillet_offset
+        top_y_pos = centre_upper_y - upper_trench_height / 2 + fillet * fillet_offset
 
-            fillet_offset = 1.5
-            lower_y_pos = centre_lower_y + lower_trench_height / 2 - fillet * fillet_offset
-            top_y_pos = centre_upper_y - upper_trench_height / 2 + fillet * fillet_offset
+        lower_left_fillet = FibsemCircleSettings(
+            radius=fillet,
+            depth=depth / 2,
+            centre_x=lower_left_x,
+            centre_y=lower_y_pos,
+        )
+        lower_right_fillet = FibsemCircleSettings(
+            radius=fillet,
+            depth=depth / 2,
+            centre_x=lower_right_x,
+            centre_y=lower_y_pos,
+        )
 
-            lower_left_fillet = FibsemCircleSettings(
-                radius=fillet,
-                depth=depth/2,
-                centre_x=point.x - width / 2,
-                centre_y=lower_y_pos,
-            )
-            lower_right_fillet = FibsemCircleSettings(
-                radius=fillet,
-                depth=depth/2,
-                centre_x=point.x + width / 2,
-                centre_y=lower_y_pos,
-            )
+        # fill the remaining space with rectangles
+        lower_left_fill = FibsemRectangleSettings(
+            width=fillet,
+            height=lower_trench_height - fillet,
+            depth=depth,
+            centre_x=lower_left_x - fillet / 2,
+            centre_y=centre_lower_y - fillet / 2,
+            cross_section=cross_section,
+            scan_direction="BottomToTop",
+        )
+        lower_right_fill = FibsemRectangleSettings(
+            width=fillet,
+            height=lower_trench_height - fillet,
+            depth=depth,
+            centre_x=lower_right_x + fillet / 2,
+            centre_y=centre_lower_y - fillet / 2,
+            cross_section=cross_section,
+            scan_direction="BottomToTop",
+        )
 
-            # fill the remaining space with rectangles
-            lower_left_fill = FibsemRectangleSettings(
-                width=fillet,
-                height=lower_trench_height - fillet,
-                depth=depth,
-                centre_x=left_x_pos - fillet / 2,
-                centre_y=centre_lower_y - fillet / 2,
-                cross_section = cross_section,
-                scan_direction="BottomToTop",
+        top_left_fillet = FibsemCircleSettings(
+            radius=fillet,
+            depth=depth,
+            centre_x=upper_left_x,
+            centre_y=top_y_pos,
+        )
+        top_right_fillet = FibsemCircleSettings(
+            radius=fillet,
+            depth=depth,
+            centre_x=upper_right_x,
+            centre_y=top_y_pos,
+        )
 
-            )
-            lower_right_fill = FibsemRectangleSettings(
-                width=fillet,
-                height=lower_trench_height - fillet,
-                depth=depth,
-                centre_x=right_x_pos + fillet / 2,
-                centre_y=centre_lower_y - fillet / 2,
-                cross_section = cross_section,
-                scan_direction="BottomToTop",
-            )
+        top_left_fill = FibsemRectangleSettings(
+            width=fillet,
+            height=upper_trench_height - fillet,
+            depth=depth,
+            centre_x=upper_left_x - fillet / 2,
+            centre_y=centre_upper_y + fillet / 2,
+            cross_section=cross_section,
+            scan_direction="TopToBottom",
+        )
+        top_right_fill = FibsemRectangleSettings(
+            width=fillet,
+            height=upper_trench_height - fillet,
+            depth=depth,
+            centre_x=upper_right_x + fillet / 2,
+            centre_y=centre_upper_y + fillet / 2,
+            cross_section=cross_section,
+            scan_direction="TopToBottom",
+        )
 
-            top_left_fillet = FibsemCircleSettings(
-                radius=fillet,
-                depth=depth,
-                centre_x=point.x - width / 2,
-                centre_y=top_y_pos,
-            )
-            top_right_fillet = FibsemCircleSettings(
-                radius=fillet,
-                depth=depth,
-                centre_x=point.x + width / 2,
-                centre_y=top_y_pos,
-            )
-
-            top_left_fill = FibsemRectangleSettings(
-                width=fillet,
-                height=upper_trench_height - fillet,
-                depth=depth,
-                centre_x=left_x_pos - fillet / 2,
-                centre_y=centre_upper_y + fillet / 2,
-                cross_section = cross_section,
-                scan_direction="TopToBottom",
-            )
-            top_right_fill = FibsemRectangleSettings(
-                width=fillet,
-                height=upper_trench_height - fillet,
-                depth=depth,
-                centre_x=right_x_pos + fillet / 2,
-                centre_y=centre_upper_y + fillet / 2,
-                cross_section = cross_section,
-                scan_direction="TopToBottom",
-            )
-
-            self.shapes.extend([lower_left_fill, lower_right_fill, 
-                                top_left_fill, top_right_fill, 
-                                lower_left_fillet, lower_right_fillet, 
-                                top_left_fillet, top_right_fillet])
+        self.shapes.extend(
+            [
+                lower_left_fill,
+                lower_right_fill,
+                top_left_fill,
+                top_right_fill,
+                lower_left_fillet,
+                lower_right_fillet,
+                top_left_fillet,
+                top_right_fillet,
+            ]
+        )
 
         return self.shapes
 
