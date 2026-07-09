@@ -315,6 +315,8 @@ class TestTrenchPattern:
         assert trench.spacing == 20.0
         assert trench.upper_trench_height == 30.0
         assert trench.lower_trench_height == 25.0
+        assert trench.upper_trench_width is None
+        assert trench.lower_trench_width is None
         assert trench.cross_section == CrossSectionPattern.Rectangle
         assert trench.time == 0.0
         assert trench.fillet == 0.0
@@ -322,6 +324,10 @@ class TestTrenchPattern:
         assert trench.point.y == 0.0
         assert trench.name == "Trench"
         assert trench.shapes is None
+
+        field_map = {f.name: f for f in fields(TrenchPattern)}
+        assert field_map["upper_trench_width"].metadata["label"] == "Upper Trench Width"
+        assert field_map["lower_trench_width"].metadata["label"] == "Lower Trench Width"
 
     def test_define_without_fillet(self):
         trench = TrenchPattern(
@@ -381,9 +387,9 @@ class TestTrenchPattern:
         assert isinstance(shapes[0], FibsemRectangleSettings)
         assert isinstance(shapes[1], FibsemRectangleSettings)
 
-        # Check width reduction due to fillet
-        assert shapes[0].width == 90.0  # 100 - 2*5
-        assert shapes[1].width == 90.0  # 100 - 2*5
+        # Main trench widths are unchanged by fillet
+        assert shapes[0].width == 100.0
+        assert shapes[1].width == 100.0
 
         # Check fillet shapes
         fillet_shapes = shapes[2:]
@@ -398,7 +404,7 @@ class TestTrenchPattern:
             assert circle.radius == 5.0
 
     def test_fillet_clipping(self):
-        # Test when fillet is too large (more than half the upper trench height)
+        # Test when fillet is too large (clipped by min(height/2, width/2))
         trench = TrenchPattern(
             width=100.0,
             depth=50.0,
@@ -411,13 +417,38 @@ class TestTrenchPattern:
 
         shapes = trench.define()
 
-        # Check that fillet was clipped to upper_trench_height/2 = 15.0
+        # Check that fillet was clipped to min(15.0, 12.5, 50.0, 50.0) = 12.5
         circle_shapes = [s for s in shapes if isinstance(s, FibsemCircleSettings)]
         for circle in circle_shapes:
-            assert circle.radius == 15.0
+            assert circle.radius == 12.5
 
-        # Width should be reduced by 2*15.0
-        assert shapes[0].width == 70.0  # 100 - 2*15
+        # Main trench widths remain unchanged
+        assert shapes[0].width == 100.0
+        assert shapes[1].width == 100.0
+
+    def test_fillet_clipping_with_custom_trench_widths(self):
+        trench = TrenchPattern(
+            width=100.0,
+            upper_trench_width=12.0,
+            lower_trench_width=20.0,
+            depth=50.0,
+            spacing=20.0,
+            upper_trench_height=30.0,
+            lower_trench_height=25.0,
+            point=Point(10.0, 20.0),
+            fillet=10.0,
+        )
+
+        shapes = trench.define()
+
+        # Clipped by upper_trench_width / 2 => 6.0
+        circle_shapes = [s for s in shapes if isinstance(s, FibsemCircleSettings)]
+        for circle in circle_shapes:
+            assert circle.radius == 6.0
+
+        # Main trenches keep configured widths
+        assert shapes[0].width == 12.0
+        assert shapes[1].width == 20.0
 
     def test_to_dict(self):
         trench = TrenchPattern(
