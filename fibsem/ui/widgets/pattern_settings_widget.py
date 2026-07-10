@@ -231,7 +231,10 @@ class FibsemPatternSettingsWidget(QWidget):
                 control.toggled.connect(self._on_changed)
             elif isinstance(control, QFilePathLineEdit):
                 control.editingFinished.connect(self._on_changed)
-
+            else:
+                raise TypeError(
+                    f"Unsupported control type '{type(control)}' in FibsemPatternSettingsWidget"
+                )
             self._rows.append(FormRow(
                 label=label,
                 control=control,
