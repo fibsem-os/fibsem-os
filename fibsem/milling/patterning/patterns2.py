@@ -259,6 +259,10 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             "tooltip": "Height of the lower trench.",
         },
     )
+    passes: int = field(
+        default=0,
+        metadata=DEFAULT_PASSES_METADATA,
+    )
     time: float = field(
         default=0,
         metadata={
@@ -336,6 +340,7 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             centre_x=self.point.x,
             centre_y=centre_lower_y,
             scan_direction="BottomToTop",
+            passes=self.passes,
             time=self.time,
             flip_y=flip_lower_y,
             path=path_lower,
@@ -351,6 +356,7 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
             centre_x=self.point.x,
             centre_y=centre_upper_y,
             scan_direction="TopToBottom",
+            passes=self.passes,
             time=self.time,
             path=path,
             array=array,
@@ -597,6 +603,10 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
             "tooltip": "Height of the lower trench.",
         },
     )
+    passes: int = field(
+        default=0,
+        metadata=DEFAULT_PASSES_METADATA,
+    )
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
     )
@@ -623,6 +633,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
             f"        Spacing: {format_value(self.spacing, unit='m', precision=1)}",
             f"        Upper Trench Height: {format_value(self.upper_trench_height, unit='m', precision=1)}",
             f"        Lower Trench Height: {format_value(self.lower_trench_height, unit='m', precision=1)}",
+            f"        Passes: {format_value(self.passes, precision=0)}",
             f"        Cross Section: {self.cross_section.name}",
         ])
 
@@ -655,8 +666,9 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
             centre_x=point.x,
             centre_y=centre_lower_y,
             scan_direction="BottomToTop",
-            cross_section = cross_section,
-            time = time
+            cross_section=cross_section,
+            passes=self.passes,
+            time=time,
         )
 
         upper_trench_settings = FibsemRectangleSettings(
@@ -666,8 +678,9 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
             centre_x=point.x,
             centre_y=centre_upper_y,
             scan_direction="TopToBottom",
-            cross_section = cross_section,
-            time = time
+            cross_section=cross_section,
+            passes=self.passes,
+            time=time,
         )
 
         self.shapes = [upper_trench_settings, lower_trench_settings]
@@ -703,7 +716,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 centre_y=centre_lower_y - fillet / 2,
                 cross_section = cross_section,
                 scan_direction="BottomToTop",
-
+                passes=self.passes,
             )
             lower_right_fill = FibsemRectangleSettings(
                 width=fillet,
@@ -713,6 +726,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 centre_y=centre_lower_y - fillet / 2,
                 cross_section = cross_section,
                 scan_direction="BottomToTop",
+                passes=self.passes,
             )
 
             top_left_fillet = FibsemCircleSettings(
@@ -736,6 +750,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 centre_y=centre_upper_y + fillet / 2,
                 cross_section = cross_section,
                 scan_direction="TopToBottom",
+                passes=self.passes,
             )
             top_right_fill = FibsemRectangleSettings(
                 width=fillet,
@@ -745,6 +760,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 centre_y=centre_upper_y + fillet / 2,
                 cross_section = cross_section,
                 scan_direction="TopToBottom",
+                passes=self.passes,
             )
 
             self.shapes.extend([lower_left_fill, lower_right_fill, 
