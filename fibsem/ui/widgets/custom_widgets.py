@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QDoubleSpinBox,
+    QSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -234,6 +235,35 @@ class ValueComboBox(QComboBox):
     def value(self):
         """Return the raw value stored as item data for the current selection."""
         return self.currentData()
+
+
+class IntegerValueSpinBox(QSpinBox):
+    """QSpinBox with sensible defaults, WheelBlocker, and None-safe configuration."""
+
+    def __init__(
+        self,
+        suffix: Optional[str] = None,
+        minimum: Optional[float] = None,
+        maximum: Optional[float] = None,
+        step: Optional[float] = None,
+        tooltip: Optional[str] = None,
+        no_buttons: bool = False,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        if suffix:
+            self.setSuffix(f" {suffix}")
+        self.setRange(
+            minimum if minimum is not None else 0,
+            maximum if maximum is not None else 1000000,
+        )
+        self.setSingleStep(step if step is not None else 1)
+        if tooltip:
+            self.setToolTip(tooltip)
+        if no_buttons:
+            self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.setKeyboardTracking(False)
+        self.installEventFilter(WheelBlocker(parent=self))
 
 
 class ValueSpinBox(QDoubleSpinBox):
