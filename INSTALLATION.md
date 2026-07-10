@@ -64,14 +64,28 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ```
 Alternatively, install it into an existing environment with `pip install uv`.
 
-uv works inside either environment above (conda or virtualenv) with nothing extra to
-set up. Once your environment is created and activated, install fibsem with:
+uv can create and manage the virtual environment itself, so you don't need conda or
+`virtualenv`. From the fibsem root directory, create and activate an environment:
 ```
-uv pip install -e .
+# macOS / Linux
+uv venv
+source .venv/bin/activate
 ```
-To include the GUI dependencies, install the `ui` extra:
+```
+# Windows (PowerShell)
+uv venv
+.venv\Scripts\activate
+```
+uv also works inside a conda or `virtualenv` environment created above, with nothing
+extra to set up — just activate that environment instead.
+
+Once your environment is active, install fibsem with the GUI dependencies (recommended):
 ```
 uv pip install -e '.[ui]'
+```
+To install without the GUI dependencies:
+```
+uv pip install -e .
 ```
 This resolves the same dependencies from `pyproject.toml` as `pip`, just faster.
 No lockfile or additional configuration is required.
