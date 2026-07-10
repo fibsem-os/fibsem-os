@@ -61,7 +61,9 @@ class FibsemStrategySettingsWidget(QWidget):
         # Strategy type selector — fixed, not rebuilt
         type_form = QFormLayout()
         type_form.setContentsMargins(0, 0, 0, 0)
-        self._type_combo = ValueComboBox(get_strategy_names(), value=self._strategy.name)
+        self._type_combo = ValueComboBox(
+            get_strategy_names(), value=self._strategy.name
+        )
         type_form.addRow("Strategy:", self._type_combo)
         outer.addLayout(type_form)
 
@@ -246,6 +248,10 @@ class FibsemStrategySettingsWidget(QWidget):
                 setattr(strategy.config, row.field, row.control.isChecked())
             elif isinstance(row.control, QFilePathLineEdit):
                 setattr(strategy.config, row.field, row.control.text())
+            else:
+                raise TypeError(
+                    f"Unsupported control type '{type(row.control)}' in FibsemStrategySettingsWidget"
+                )
         return strategy
 
     def set_strategy(self, strategy: MillingStrategy[Any]) -> None:
@@ -275,5 +281,9 @@ class FibsemStrategySettingsWidget(QWidget):
                 row.control.setChecked(bool(value))
             elif isinstance(row.control, QFilePathLineEdit):
                 row.control.setText(str(value) if value else "")
+            else:
+                raise TypeError(
+                    f"Unsupported control type '{type(row.control)}' in FibsemStrategySettingsWidget"
+                )
         for row in self._rows:
             row.control.blockSignals(False)

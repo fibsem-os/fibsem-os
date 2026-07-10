@@ -299,6 +299,10 @@ class FibsemPatternSettingsWidget(QWidget):
                 setattr(pattern, row.field, row.control.isChecked())
             elif isinstance(row.control, QFilePathLineEdit):
                 setattr(pattern, row.field, row.control.text())
+            else:
+                raise TypeError(
+                    f"Unsupported control type '{type(row.control)}' in FibsemPatternSettingsWidget"
+                )
         return pattern
 
     def set_pattern(self, pattern: BasePattern) -> None:
@@ -339,6 +343,10 @@ class FibsemPatternSettingsWidget(QWidget):
                 row.control.setChecked(bool(value))
             elif isinstance(row.control, QFilePathLineEdit):
                 row.control.setText(str(value) if value else "")
+            else:
+                raise TypeError(
+                    f"Unsupported control type '{type(row.control)}' in FibsemPatternSettingsWidget"
+                )
         for row in self._rows:
             if not isinstance(row, _PointRow):
                 row.control.blockSignals(False)
