@@ -27,8 +27,10 @@ Windows, or any terminal on macOS/Linux):
 cd fibsem
 conda env create -n fibsem python=3.11 pip
 conda activate fibsem
-python -m pip install -e .
+python -m pip install -e ".[ui]"
 ```
+The `[ui]` extra installs the GUI dependencies (recommended). To install without the
+GUI, use `python -m pip install -e .` instead.
 
 ### Installation through Python virtualenv
 
@@ -45,8 +47,10 @@ fibsem\Scripts\activate.bat
 ```
 Once activated, move to the fibsem root directory and install fibsem like so
 ```
-python -m pip install -e .
+python -m pip install -e ".[ui]"
 ```
+The `[ui]` extra installs the GUI dependencies (recommended). To install without the
+GUI, use `python -m pip install -e .` instead.
 
 ### Installation with uv
 
@@ -81,7 +85,7 @@ extra to set up — just activate that environment instead.
 
 Once your environment is active, install fibsem with the GUI dependencies (recommended):
 ```
-uv pip install -e '.[ui]'
+uv pip install -e ".[ui]"
 ```
 To install without the GUI dependencies:
 ```
