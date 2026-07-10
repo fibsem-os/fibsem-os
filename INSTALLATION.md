@@ -43,6 +43,24 @@ Once activated, move to the fibsem root directory and install fibsem like so
 pip install -e .
 ```
 
+### Create a desktop shortcut
+1. Create a script file:
+    Activate the environment then run the following command to create the script:
+    - **Windows**
+
+        Create AutoLamella.bat
+        ```cmd
+        echo @echo off > AutoLamella.bat & where fibsem-autolamella-ui >> AutoLamella.bat
+        ```
+
+    - **Linux**
+
+      Create AutoLamella.sh
+      ```bash
+      printf '#!/bin/bash\n%s' $(which fibsem-autolamella-ui) > AutoLamella.sh
+      ```
+2. Create a shortcut to your script file and place it on your desktop.
+
 ## Installing Microscope Hardware APIs
 
 ## Installing Autoscript
