@@ -173,6 +173,8 @@ class FibsemStrategySettingsWidget(QWidget):
                 control.valueChanged.connect(self._on_changed)
             elif isinstance(control, QCheckBox):
                 control.toggled.connect(self._on_changed)
+            elif isinstance(control, QFilePathLineEdit):
+                control.editingFinished.connect(self._on_changed)
 
             self._rows.append(
                 FormRow(
@@ -242,6 +244,8 @@ class FibsemStrategySettingsWidget(QWidget):
                 )
             elif isinstance(row.control, QCheckBox):
                 setattr(strategy.config, row.field, row.control.isChecked())
+            elif isinstance(row.control, QFilePathLineEdit):
+                setattr(strategy.config, row.field, row.control.text())
         return strategy
 
     def set_strategy(self, strategy: MillingStrategy[Any]) -> None:
@@ -269,5 +273,7 @@ class FibsemStrategySettingsWidget(QWidget):
                 )
             elif isinstance(row.control, QCheckBox):
                 row.control.setChecked(bool(value))
+            elif isinstance(row.control, QFilePathLineEdit):
+                row.control.setText(str(value) if value else "")
         for row in self._rows:
             row.control.blockSignals(False)
