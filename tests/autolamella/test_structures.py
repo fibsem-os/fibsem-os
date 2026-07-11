@@ -243,6 +243,35 @@ def test_add_new_lamella_defaults_values_are_independent(tmp_path):
     assert exp.positions[1].alignment_area == rect
 
 
+def test_add_new_lamella_seeds_milling_angle_from_setup_task(tmp_path):
+    """Every new lamella should be seeded with the target milling angle so it is
+    not saved as null before the SetupLamella workflow runs."""
+    from fibsem.applications.autolamella.workflows.tasks.select_position import (
+        SelectMillingPositionTaskConfig,
+    )
+
+    exp = _make_experiment(tmp_path)
+    setup = SelectMillingPositionTaskConfig(
+        task_name="Setup Lamella Position", milling=EventedDict(), milling_angle=27.0
+    )
+    task_config = EventedDict()
+    task_config["Setup Lamella Position"] = setup
+
+    exp.add_new_lamella(MicroscopeState(), task_config)
+    exp.add_new_lamella(MicroscopeState(), task_config)
+
+    assert exp.positions[0].milling_angle == 27.0
+    assert exp.positions[1].milling_angle == 27.0
+
+
+def test_add_new_lamella_milling_angle_none_without_setup_task(tmp_path):
+    """Without a SetupLamella task config there is no target angle to seed, so
+    milling_angle stays None (and adding must not raise)."""
+    exp = _make_experiment(tmp_path)
+    exp.add_new_lamella(MicroscopeState(), EventedDict())
+    assert exp.positions[0].milling_angle is None
+
+
 def test_add_new_lamella_no_name_collision_after_delete(tmp_path):
     """Deleting a lamella must not cause the next one to reuse its name/number."""
     exp = _make_experiment(tmp_path, LamellaDefaultConfig(use_petname=False))
