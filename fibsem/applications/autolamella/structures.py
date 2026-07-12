@@ -1301,14 +1301,6 @@ class Experiment:
             lamella.poi = deepcopy(template.poi)
         lamella.milling_pose = microscope_state
 
-        # seed the target milling angle from the setup-lamella task config so it is
-        # not saved as null before the SetupLamella workflow runs (it is overwritten
-        # with the measured angle once the lamella is positioned).
-        for tc in lamella.task_config.values():
-            if getattr(tc, "task_type", None) == "SELECT_MILLING_POSITION":
-                lamella.milling_angle = tc.milling_angle
-                break
-
         # create the lamella directory
         os.makedirs(lamella.path, exist_ok=True)
 
