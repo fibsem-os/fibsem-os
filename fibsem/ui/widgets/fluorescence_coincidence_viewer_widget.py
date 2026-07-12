@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -44,6 +45,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSlider,
+    QSpinBox,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -344,7 +346,7 @@ class _FmImageCanvas(QWidget):
 
         self.canvas = FibsemImageCanvas()
         self.rect_overlay = RectOverlay(
-            color="white",
+            color="yellow",  # yellow reads against bright/white reflection images
             facecolor=None,
             alpha=0.9,
             linewidth=2,
@@ -1162,9 +1164,28 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self.btn_pause_acquisition.setVisible(False)
 
+        self.checkbox_supervised = QCheckBox("Supervised")
+        self.checkbox_supervised.setChecked(True)
+        self.checkbox_supervised.setToolTip(
+            "Supervised: stop milling manually. "
+            "Uncheck for unsupervised runs that automatically stop on an intensity drop."
+        )
+
+        self.spin_drop_threshold = QSpinBox()
+        self.spin_drop_threshold.setRange(5, 90)
+        self.spin_drop_threshold.setValue(40)  # % drop (40% == retained fraction 0.6)
+        self.spin_drop_threshold.setPrefix("Stop at ")
+        self.spin_drop_threshold.setSuffix("% drop")
+        self.spin_drop_threshold.setToolTip(
+            "Unsupervised auto-stop fires when the rolling mean drops by this "
+            "fraction below its peak."
+        )
+
         layout.addWidget(self.label_threshold_chip)
         layout.addWidget(self.progressBar_stages)
         layout.addWidget(self.progressBar_stage)
+        layout.addWidget(self.checkbox_supervised)
+        layout.addWidget(self.spin_drop_threshold)
         layout.addWidget(self.btn_pause_milling)
         layout.addWidget(self.btn_pause_acquisition)
         layout.addWidget(self.btn_milling)
@@ -1578,8 +1599,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 pass
 
-        # Connect strategy signals
+        # Apply the supervision preference + drop fraction, then connect signals
+        supervised = self.checkbox_supervised.isChecked()
+        drop_fraction = self.spin_drop_threshold.value() / 100.0
         for strategy in self._active_strategies:
+            strategy.config.supervised = supervised
+            strategy.config.intensity_drop_fraction = drop_fraction
             strategy.intensity_stats_signal.connect(self._on_intensity_stats)
 
     def _toggle_fm_acquisition(self):

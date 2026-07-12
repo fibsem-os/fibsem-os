@@ -58,7 +58,7 @@ milling_task_config.stages[0].strategy.config.save_rate_limit = 0.0
 BOUNDING_BOX_LAYER_CONFIG = {
     "name": "bbox",
     "shape_type": "rectangle",
-    "edge_color": "white",
+    "edge_color": "yellow",  # yellow reads against bright/white reflection images
     "edge_width": 2,
     "face_color": "transparent",
     "opacity": 0.7,

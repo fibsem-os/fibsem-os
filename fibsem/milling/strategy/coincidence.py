@@ -69,13 +69,13 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
             "tooltip": "Acquire a FIB image after milling",
         },
     )  # acquire a FIB image after milling
-    intensity_drop_threshold: float = field(
-        default=0.75,
+    intensity_drop_fraction: float = field(
+        default=0.4,
         metadata={
-            "label": "Drop Threshold",
-            "minimum": 0.1,
-            "maximum": 1.0,
-            "tooltip": "Trigger when rolling mean drops below this fraction of the peak rolling mean (e.g. 0.75 = 25% drop)",
+            "label": "Drop Fraction",
+            "minimum": 0.05,
+            "maximum": 0.95,
+            "tooltip": "Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
         },
     )
     rolling_window: int = field(
@@ -100,6 +100,13 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
             "tooltip": "Number of consecutive frames below threshold required to fire the signal",
         },
     )
+    supervised: bool = field(
+        default=True,
+        metadata={
+            "label": "Supervised",
+            "tooltip": "Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
+        },
+    )
     bbox: Optional[FibsemRectangle] = None  # reduced area for monitoring
     # oscillation parameters
 
@@ -109,9 +116,9 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
 #   CHANNEL SETTINGS ARE APPLIED TO MICROSCOPE
 #   OBJECTIVE IS IN THE CORRECT POSITION
 #   MILLING PATTERN IS VALID: Trench / Rectangle
-# MANUAL SUPERVISION:
-#   OPERATOR WILL SUPERVISE THE MILLING PROCESS AND STOP WHEN NECESSARY
-#   NO AUTOMATIC STOPPING IS IMPLEMENTED
+# SUPERVISION:
+#   SUPERVISED (default): OPERATOR SUPERVISES THE MILLING PROCESS AND STOPS WHEN NECESSARY
+#   UNSUPERVISED (supervised=False): AUTOMATICALLY STOPS ON INTENSITY DROP
 
 # SETUP MILLING
 # DRAW PATTERNS
@@ -156,6 +163,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self._consecutive_trigger_count: int = 0
         self._acquisition_start_time: Optional[float] = None
         self._warmup_complete: bool = False
+        self._drop_detected: bool = False  # latched when a drop event fires
         # Key images captured during the run
         self.first_fm_acq: Optional[FluorescenceImage] = None
         self.last_fm_acq: Optional[FluorescenceImage] = None
@@ -197,6 +205,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
     def _start_milling_and_acquisition(self) -> float:
         # start milling, and estimate time (if supported by microscope)
+        # explicitly re-select the FIB view before milling: FM live acquisition
+        # may have left a different channel active (see set_channel below in _setup_milling)
+        self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.start_milling()  # asynchronous start
         estimated_time = self.microscope.estimate_milling_time()
         if isinstance(self.microscope, DemoMicroscope):
@@ -220,6 +231,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # setup milling
         self.microscope.stop_milling()
         setup_milling(self.microscope, self.stage)
+        # explicitly select the FIB view before drawing patterns: the FM acquisition
+        # path can leave a non-FIB channel active, which breaks pattern drawing/milling
+        self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.draw_patterns(patterns=self.stage.define_patterns())
 
     def run(
@@ -250,6 +264,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self._peak_rolling_mean = 0.0
         self._consecutive_trigger_count = 0
         self._warmup_complete = False
+        self._drop_detected = False
         self._stats_records = []
 
         # start milling and acquisition
@@ -288,6 +303,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # finalize
         self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
         self.cropped_image_signal.disconnect(self._save_fm_image)
+        # ensure the FIB view is active so finish_milling (clears patterns, restores
+        # imaging current) operates on the correct channel
+        self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.finish_milling(
             imaging_current=self.microscope.system.ion.beam.beam_current,
             imaging_voltage=self.microscope.system.ion.beam.voltage,
@@ -325,6 +343,14 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             # check for stop event
             if self.is_cancelled:
                 logging.info("Milling stop event set. Stopping milling.")
+                self.microscope.stop_milling()
+                break
+
+            # unsupervised runs: automatically stop on intensity drop
+            if not self.config.supervised and self._drop_detected:
+                logging.info(
+                    "Unsupervised: intensity drop detected. Stopping milling."
+                )
                 self.microscope.stop_milling()
                 break
 
@@ -485,7 +511,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                     "warmup_complete": False,
                     "drop_detected": False,
                     "drop_fraction": 1.0,
-                    "threshold_fraction": self.config.intensity_drop_threshold,
+                    "threshold_fraction": 1.0 - self.config.intensity_drop_fraction,
                     "consecutive_count": 0,
                 }
             )
@@ -495,7 +521,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         if rolling_mean > self._peak_rolling_mean:
             self._peak_rolling_mean = rolling_mean
 
-        threshold_value = self.config.intensity_drop_threshold * self._peak_rolling_mean
+        threshold_value = (
+            1.0 - self.config.intensity_drop_fraction
+        ) * self._peak_rolling_mean
 
         # --- drop detection ---
         if rolling_mean < threshold_value:
@@ -508,6 +536,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         )
         if drop_detected:
             self._consecutive_trigger_count = 0  # reset so it fires once per event
+            self._drop_detected = True  # latch for the monitor loop (auto-stop)
             logging.warning(
                 f"Intensity drop detected: rolling_mean={rolling_mean:.2f} < "
                 f"threshold={threshold_value:.2f} (peak={self._peak_rolling_mean:.2f})"
@@ -528,7 +557,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             "warmup_complete": True,
             "drop_detected": drop_detected,
             "drop_fraction": drop_fraction,
-            "threshold_fraction": self.config.intensity_drop_threshold,
+            "threshold_fraction": 1.0 - self.config.intensity_drop_fraction,
             "consecutive_count": self.config.consecutive_triggers,
         }
         self.intensity_stats_signal.emit(stats)
