@@ -6,24 +6,21 @@ import time
 from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-import napari
 import numpy as np
-from napari.layers import Image as NapariImageLayer
-from napari.layers import Layer as NapariLayer
-from napari.layers import Shapes as NapariShapesLayer
-from napari.utils.events import Event as NapariEvent
 from psygnal import EmissionInfo
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QLabel,
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -56,25 +53,11 @@ from fibsem.structures import (
 )
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
-from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
-from fibsem.ui.napari.patterns import (
-    MILLING_PATTERN_LAYER_NAME,
-    draw_milling_patterns_in_napari,
-)
-from fibsem.ui.napari.properties import (
-    CORRELATION_IMAGE_LAYER_PROPERTIES,
-    GRIDBAR_IMAGE_LAYER_PROPERTIES,
-    OVERVIEW_IMAGE_LAYER_PROPERTIES,
-)
-from fibsem.ui.napari.utilities import (
-    NapariShapeOverlay,
-    create_circle_shape,
-    create_crosshair_shape,
-    create_rectangle_shape,
-    is_inside_image_bounds,
-    update_text_overlay,
-)
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
+from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import MinimapShapesOverlay, ShapeSpec
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )
@@ -82,8 +65,6 @@ from fibsem.ui.widgets.overview_acquisition_settings_widget import (
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
-
-COLOURS = CORRELATION_IMAGE_LAYER_PROPERTIES["colours"]
 
 OVERVIEW_IMAGE_PARAMETERS = {
     "nrows": 3,
@@ -141,6 +122,26 @@ LABEL_INSTRUCTIONS = {
     "image-available": "Instructions: \nRight Click to Add/Move a Lamella Position or Double Click to Move the Stage...",
     "no-image": "Please take or load an overview image..."
 }
+
+# Floating "Display" popover on the canvas toolbar (napari-dark, like the layer controls).
+_DISPLAY_PANEL_QSS = """
+QFrame#minimapDisplayPanel {
+    background: #262930;
+    border: 1px solid #3a3f47;
+    border-radius: 8px;
+}
+QFrame#minimapDisplayPanel QLabel#panelTitle {
+    color: #9aa0a6;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+QFrame#minimapDisplayPanel QCheckBox {
+    color: #d1d2d4;
+    font-size: 12px;
+    padding: 2px 0;
+}
+"""
 DEFAULT_OVERVIEW_ACQUISITION_SETTINGS = OverviewAcquisitionSettings(
     image_settings=ImageSettings(
         hfw=OVERVIEW_IMAGE_PARAMETERS["fov"] * constants.MICRO_TO_SI,
@@ -181,7 +182,6 @@ class FibsemMinimapWidget(QWidget):
 
     def __init__(
         self,
-        viewer: napari.Viewer,
         parent: 'AutoLamellaUI',
     ):
         super().__init__(parent=parent) # type: ignore
@@ -189,18 +189,20 @@ class FibsemMinimapWidget(QWidget):
 
         self.parent_widget = parent
 
-        self.viewer = viewer
-        self.viewer.window._qt_viewer.dockLayerList.setVisible(False)
-        self.viewer.window._qt_viewer.dockLayerControls.setVisible(False)
-
+        # Image display model — the overview + correlation images are composited
+        # into one RGB frame (FMLayer + composite_fm_layers) and shown on the
+        # matplotlib FibsemImageCanvas built in _setup_ui. Replaces the napari
+        # viewer + its image/shape/text layers.
         self.image: Optional[FibsemImage] = None
-        self.image_layer: Optional[NapariImageLayer]  = None
+        self._overview_layer: Optional[FMLayer] = None
+        self._correlation_layers: List[FMLayer] = []  # M5: correlation + gridbar
+        self._canvas_shape: Optional[Tuple[int, int]] = None
         self.correlation_image_layers: List[str] = []
 
         self.correlation_mode_enabled: bool = False
 
         self._thread_stop_event = threading.Event()
-        self._acquisition_worker: Optional[threading.Thread] = None
+        self._acquisition_worker: Optional[FunctionWorker] = None
 
         # display options
         self.show_current_fov: bool = True
@@ -211,13 +213,49 @@ class FibsemMinimapWidget(QWidget):
         self.show_tem_stage_limits: bool = False
 
         self.parent_widget.system_widget.connected_signal.connect(self._on_microscope_connected)
+        # a grid load/unload changes which lamellae are reachable → refresh the
+        # overview markers + list chips/controls (sample-state, not lamella-data)
+        if hasattr(self.parent_widget, "sample_state_changed_signal"):
+            self.parent_widget.sample_state_changed_signal.connect(self._update_position_display)
+        # a grid workflow exchanges grids on its worker thread → settle once at the end
+        if hasattr(self.parent_widget, "_workflow_finished_signal"):
+            self.parent_widget._workflow_finished_signal.connect(self._update_position_display)
 
         self.setup_connections()
         self.draw_blank_image()
 
     def _setup_ui(self):
-        # Main layout directly on self
-        self.gridLayout = QGridLayout(self)
+        # matplotlib canvas (left pane) — replaces the napari viewer. The overview +
+        # correlation images composite onto it; overlays + clicks attach in later stages.
+        self.canvas = FibsemImageCanvas(self)
+        # A black background + ~2x view margin: the overview "floats" on black, and
+        # overlays that extend beyond the image (stage limits, grid boundary) stay visible.
+        self.canvas.set_background_color("black")
+        self.canvas.set_view_margin(0.5)
+
+        # The overview is shown as an RGB composite (overview base + correlation layers),
+        # so the canvas's built-in grayscale contrast/gamma is a no-op on it. Re-point the
+        # contrast popover at the overview *layer* (clim/gamma) and recomposite instead.
+        try:
+            self.canvas._contrast.changed.disconnect(self.canvas._apply_contrast)
+        except (TypeError, RuntimeError):
+            pass
+        self.canvas._contrast.changed.connect(self._on_overview_contrast_changed)
+
+        # entity-grouped overlays (see docs/design/overview-minimap-cutover.md): each
+        # redraws on its own trigger. ReferenceFrame (static geometry) behind
+        # CurrentPosition behind LamellaMarkers (the interactive one, on top).
+        self._reference_overlay = MinimapShapesOverlay(zorder=4)
+        self._current_overlay = MinimapShapesOverlay(zorder=5)
+        self._lamella_overlay = MinimapShapesOverlay(zorder=6)
+        for _ov in (self._reference_overlay, self._current_overlay, self._lamella_overlay):
+            self.canvas.add_overlay(_ov)
+
+        # Controls (right pane) build onto their own container so the canvas + controls
+        # sit in one splitter owned by this widget. Both call sites now just place the
+        # widget; neither manages a separate viewer window.
+        controls_widget = QWidget()
+        self.gridLayout = QGridLayout(controls_widget)
 
         # Scroll area — row 0
         self.scrollArea = QScrollArea()
@@ -311,29 +349,38 @@ class FibsemMinimapWidget(QWidget):
         self.correlation_panel._btn_collapse.setChecked(False)
         self.gridLayout_5.addWidget(self.correlation_panel, 2, 0)
 
-        # ── Display Options panel ─────────────────────────────────
-        display_content = QWidget()
-        _dlo = QVBoxLayout(display_content)
-        _dlo.setContentsMargins(4, 4, 4, 4)
-        self.checkBox_show_overview_fov = QCheckBox("Show Overview FOV")
+        # ── Display Options — a floating popover on the canvas toolbar (like napari's
+        # layer controls), toggled by the "eye" button, instead of a side panel.
+        self._display_panel = QFrame(self)
+        self._display_panel.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self._display_panel.setObjectName("minimapDisplayPanel")
+        self._display_panel.setStyleSheet(_DISPLAY_PANEL_QSS)
+        _dlo = QVBoxLayout(self._display_panel)
+        _dlo.setContentsMargins(14, 12, 14, 14)
+        _dlo.setSpacing(6)
+        _display_title = QLabel("DISPLAY")
+        _display_title.setObjectName("panelTitle")
+        _dlo.addWidget(_display_title)
+        self.checkBox_show_overview_fov = QCheckBox("Overview FOV")
         self.checkBox_show_overview_fov.setChecked(True)
-        self.checkBox_show_saved_positions_fov = QCheckBox("Show Saved Positions FOV")
+        self.checkBox_show_saved_positions_fov = QCheckBox("Saved Positions FOV")
         self.checkBox_show_saved_positions_fov.setChecked(True)
-        self.checkBox_show_stage_limits = QCheckBox("Show Stage Limits")
+        self.checkBox_show_stage_limits = QCheckBox("Stage Limits")
         self.checkBox_show_stage_limits.setChecked(True)
-        self.checkBox_show_circle_overlays = QCheckBox("Show Circle Overlays")
+        self.checkBox_show_circle_overlays = QCheckBox("Circle Overlays")
         self.checkBox_show_circle_overlays.setChecked(True)
-        self.checkBox_show_tem_stage_limits = QCheckBox("Show TEM Stage Limits")
+        self.checkBox_show_tem_stage_limits = QCheckBox("TEM Stage Limits")
         self.checkBox_show_tem_stage_limits.setChecked(False)
-        _dlo.addWidget(self.checkBox_show_overview_fov)
-        _dlo.addWidget(self.checkBox_show_saved_positions_fov)
-        _dlo.addWidget(self.checkBox_show_stage_limits)
-        _dlo.addWidget(self.checkBox_show_circle_overlays)
-        _dlo.addWidget(self.checkBox_show_tem_stage_limits)
+        for _cb in (self.checkBox_show_overview_fov, self.checkBox_show_saved_positions_fov,
+                    self.checkBox_show_stage_limits, self.checkBox_show_circle_overlays,
+                    self.checkBox_show_tem_stage_limits):
+            _dlo.addWidget(_cb)
+        self._display_panel.hide()
 
-        display_panel = TitledPanel("Display Options", content=display_content)
-        display_panel._btn_collapse.setChecked(False)
-        self.gridLayout_5.addWidget(display_panel, 3, 0)
+        # canvas toolbar button that toggles the display popover
+        self._btn_display = self.canvas.add_toolbar_button(
+            "mdi:eye-outline", "Display options", self._toggle_display_panel, checkable=True
+        )
 
         self.pushButton_load_image = QPushButton("Load Image")
         self.gridLayout_5.addWidget(self.pushButton_load_image, 4, 0)
@@ -343,6 +390,36 @@ class FibsemMinimapWidget(QWidget):
 
         # add strech to end of scroll content
         self.gridLayout_5.setRowStretch(6, 1)
+
+        # assemble: canvas (left) | controls (right)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.canvas)
+        splitter.addWidget(controls_widget)
+        splitter.setSizes([700, 500])
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(splitter)
+
+    def _toggle_display_panel(self) -> None:
+        """Show/hide the Display popover from its canvas toolbar button."""
+        if self._btn_display.isChecked():
+            self._position_display_panel()
+            self._display_panel.show()
+            self._display_panel.raise_()
+        else:
+            self._display_panel.hide()
+
+    def _position_display_panel(self) -> None:
+        """Anchor the popover near the canvas top-right, just below the toolbar."""
+        self._display_panel.adjustSize()
+        anchor = self.canvas.mapToGlobal(QPoint(self.canvas.width() - 8, 44))
+        self._display_panel.move(anchor.x() - self._display_panel.width(), anchor.y())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if getattr(self, "_display_panel", None) is not None and self._display_panel.isVisible():
+            self._position_display_panel()
 
     def draw_blank_image(self):
         if self.microscope is None:
@@ -405,31 +482,15 @@ class FibsemMinimapWidget(QWidget):
         # signals
         self._acquisition_finished.connect(self.tile_collection_finished)
 
-        # pattern overlay
-        self.comboBox_pattern_overlay.currentIndexChanged.connect(self._draw_milling_pattern_overlay)
-        self.checkBox_pattern_overlay.stateChanged.connect(self._draw_milling_pattern_overlay)
-
-        # correlation
-        self.pushButton_load_correlation_image.clicked.connect(self.load_image)
-        self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
-        self.pushButton_enable_correlation.clicked.connect(self._toggle_correlation_mode)
-        self.pushButton_enable_correlation.setEnabled(False) # disabled until correlation images added
-
-        # gridbar controls
-        self.correlation_panel.setEnabled(True) # only grid-bar overlay enabled
-        self.checkBox_gridbar.setEnabled(True)
-        self.checkBox_gridbar.stateChanged.connect(self.toggle_gridbar_display)
-        self.label_gb_spacing.setVisible(False)
-        self.label_gb_width.setVisible(False)
-        self.doubleSpinBox_gb_spacing.setVisible(False)
-        self.doubleSpinBox_gb_width.setVisible(False)
-        self.doubleSpinBox_gb_spacing.setValue(GRIDBAR_IMAGE_LAYER_PROPERTIES["spacing"])
-        self.doubleSpinBox_gb_width.setValue(GRIDBAR_IMAGE_LAYER_PROPERTIES["width"])
-        self.doubleSpinBox_gb_spacing.setKeyboardTracking(False)
-        self.doubleSpinBox_gb_width.setKeyboardTracking(False)
-        self.doubleSpinBox_gb_spacing.valueChanged.connect(self.update_gridbar_layer)
-        self.doubleSpinBox_gb_width.valueChanged.connect(self.update_gridbar_layer)
-        self.correlation_panel.setToolTip("Correlation Controls are disabled until an image is acquired or loaded.")
+        # Correlation, gridbar, and milling-pattern overlays are disabled pending a
+        # rework (see docs/design/minimap-correlation-gridbar-rework.md): the
+        # composite / stretch-to-fit approach can't do properly aligned correlation.
+        # Hide their controls; the underlying methods are no-op stubs.
+        self.correlation_panel.setVisible(False)
+        self.pushButton_load_correlation_image.setVisible(False)
+        self.label_pattern_overlay.setVisible(False)
+        self.checkBox_pattern_overlay.setVisible(False)
+        self.comboBox_pattern_overlay.setVisible(False)
 
         # set styles
         self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -450,10 +511,11 @@ class FibsemMinimapWidget(QWidget):
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
         self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
 
-        # viewer-level click callbacks
-        self.viewer.mouse_drag_callbacks.append(self._on_right_click)
-        self.viewer.mouse_drag_callbacks.append(self.on_single_click)
-        self.viewer.mouse_double_click_callbacks.append(self.on_double_click)
+        # canvas click callbacks: single → select nearest position,
+        # double → move stage, right → add/move-position context menu.
+        self.canvas.canvas_clicked.connect(self._on_canvas_clicked)
+        self.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
+        self.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
 
         self._update_position_display()
         self.toggle_interaction(enable=True)
@@ -528,6 +590,14 @@ class FibsemMinimapWidget(QWidget):
             stage_positions.append(sp)
         return stage_positions
 
+    def _loaded_grid_ids(self) -> set:
+        """_ids of the grids currently loaded in the beam (reachable on this
+        overview). Empty when no experiment/microscope is available."""
+        exp = self.parent_widget.experiment if self.parent_widget is not None else None
+        if exp is None or self.microscope is None:
+            return set()
+        return {g._id for g in exp.get_loaded_grids(self.microscope)}
+
     def _lamella_color(self, lamella: Lamella, selected: bool) -> str:
         """Return a display color for a lamella based on its defect state and selection."""
         if selected:
@@ -581,10 +651,8 @@ class FibsemMinimapWidget(QWidget):
         self._hide_overlay_layers()
 
         self._thread_stop_event.clear()
-        self._acquisition_worker = threading.Thread(
-            target=self._run_tile_collection,
-            args=(self.microscope, overview_settings),
-            daemon=True,
+        self._acquisition_worker = FunctionWorker(
+            self._run_tile_collection, self.microscope, overview_settings
         )
         self._acquisition_worker.start()
 
@@ -660,44 +728,13 @@ class FibsemMinimapWidget(QWidget):
         return self._acquisition_worker is not None and self._acquisition_worker.is_alive()
 
     def toggle_gridbar_display(self):
-        """Toggle the display of the synthetic grid bar overlay."""
-        show_gridbar = self.checkBox_gridbar.isChecked()
-        self.label_gb_spacing.setVisible(show_gridbar)
-        self.label_gb_width.setVisible(show_gridbar)
-        self.doubleSpinBox_gb_spacing.setVisible(show_gridbar)
-        self.doubleSpinBox_gb_width.setVisible(show_gridbar)
-
-        if show_gridbar:
-            self.update_gridbar_layer()
-        else:
-            layer_name = GRIDBAR_IMAGE_LAYER_PROPERTIES["name"]
-            if layer_name in self.viewer.layers:
-                self.correlation_image_layers.remove(layer_name)
-                self.viewer.layers.remove(layer_name)
-
-            self.comboBox_correlation_selected_layer.currentIndexChanged.disconnect()
-            self.comboBox_correlation_selected_layer.clear()
-            self.comboBox_correlation_selected_layer.addItems([layer.name for layer in self.viewer.layers if "correlation-image" in layer.name ])
-            self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
-            # if no correlation layers left, disable enable correlation
-            if self.comboBox_correlation_selected_layer.count() == 0:
-                self.pushButton_enable_correlation.setEnabled(False)
+        """Disabled pending the correlation/gridbar rework
+        (see docs/design/minimap-correlation-gridbar-rework.md)."""
+        return
 
     def update_gridbar_layer(self):
-        """Update the synthetic grid bar overlay."""
-        # update gridbars image
-        spacing = self.doubleSpinBox_gb_spacing.value() * constants.MICRO_TO_SI
-        width = self.doubleSpinBox_gb_width.value() * constants.MICRO_TO_SI
-        gridbars_image = generate_gridbar_image(shape=self.image.data.shape,  # type: ignore
-                                                pixelsize=self.image.metadata.pixel_size.x, 
-                                                spacing=spacing, width=width)
-
-        # update gridbar layer
-        gridbar_layer = GRIDBAR_IMAGE_LAYER_PROPERTIES["name"]
-        if gridbar_layer in self.viewer.layers:
-            self.viewer.layers[gridbar_layer].data = gridbars_image.data
-        else:
-            self.add_correlation_image(gridbars_image, is_gridbar=True)
+        """Disabled pending the correlation/gridbar rework."""
+        return
 
     def toggle_interaction(self, enable: bool = True):
         """Toggle the interactivity of the UI elements."""
@@ -740,81 +777,133 @@ class FibsemMinimapWidget(QWidget):
             self.update_viewer(image)
 
     def update_viewer(self, image: Optional[FibsemImage] = None, tmp: bool = False):
-        """Update the viewer with the image and positions."""
+        """Update the canvas with the image and overlays."""
         if image is not None:
-
             if not tmp:
                 self.image = image
                 arr = image.filtered_data
             else:
-                arr = image # np.array(image)
+                arr = image  # raw array from a live tile update
 
-            try:
-                self.image_layer.data = arr
-            except Exception as e:
-                self.image_layer = self.viewer.add_image(arr, 
-                                                         name=OVERVIEW_IMAGE_LAYER_PROPERTIES["name"],
-                                                         colormap=OVERVIEW_IMAGE_LAYER_PROPERTIES["colormap"],
-                                                         blending=OVERVIEW_IMAGE_LAYER_PROPERTIES["blending"])  # type: ignore
+            self._set_overview_array(arr, reset_view=not tmp)
 
             if tmp:
-                return # don't update the rest of the UI, we are just updating the image
-            if self.image_layer is None:
-                notification_service.show_toast("Error adding image layer to viewer.", "error")
-                return
-
-            self.viewer.reset_view()
-
-            # NOTE: how to do respace scaling, convert to infinite canvas
-            # px = self.image.metadata.pixel_size.x
-            # self.image_layer.scale = [px*constants.SI_TO_MICRO, px*constants.SI_TO_MICRO]
-            # self.viewer.scale_bar.visible = True
-            # self.viewer.scale_bar.unit = "um"
+                return  # live tile update — image pixels only, skip the overlays
 
         if self.image:
             self.draw_current_stage_position()  # draw the current stage position on the image
-            self._draw_milling_pattern_overlay()         # draw the reprojected positions on the image
+            self._draw_milling_pattern_overlay()  # draw the reprojected positions on the image
             self.label_instructions.setText(LABEL_INSTRUCTIONS["image-available"])
-        update_text_overlay(self.viewer, self.microscope)
-        self.set_active_layer_for_movement()
+        self._update_info_bar()
 
-    def get_coordinate_in_microscope_coordinates(self, layer: NapariLayer, event: NapariEvent) -> Tuple[np.ndarray, Point]:
-        """Validate if event position is inside image, and convert to microscope coords
-        Args:
-            layer (NapariLayer): The image layer.
-            event (Event): The event object.
-        Returns:
-            Tuple[np.ndarray, Point]: The coordinates in image and microscope image coordinates.
-        """
-        if self.image is None:
-            raise ValueError("No image loaded. Please load an image first.")
+    def _on_overview_contrast_changed(self) -> None:
+        """Drive the overview layer's contrast/gamma from the canvas popover, then
+        recomposite. The composite is RGB, so the canvas's grayscale contrast can't
+        touch it — we adjust the overview FMLayer's clim/gamma instead (mirrors the FM
+        canvas). The popover's min/max are normalized [0, 1] over the data range."""
+        layer = self._overview_layer
+        if layer is None or layer.data is None:
+            return
+        ctrl = self.canvas._contrast
+        if ctrl.is_default():
+            layer.autocontrast = True
+            layer.clim = None
+            layer.gamma = 1.0
+        else:
+            d = layer.data
+            dmin, dmax = float(d.min()), float(d.max())
+            span = (dmax - dmin) or 1.0
+            layer.autocontrast = False
+            layer.clim = (dmin + ctrl.contrast_min * span, dmin + ctrl.contrast_max * span)
+            layer.gamma = ctrl.gamma
+        self._recomposite()
 
-        # get coords in image coordinates (adjusts for translation, etc)
-        coords = layer.world_to_data(event.position)
+    def _set_overview_array(self, arr: np.ndarray, reset_view: bool = True) -> None:
+        """Show *arr* as the grayscale base layer of the composite (overview image)."""
+        if self._overview_layer is None:
+            self._overview_layer = FMLayer(name="overview", data=arr, color="gray")
+        else:
+            self._overview_layer.data = arr
+        self._recomposite(reset_view=reset_view)
 
-        # check if clicked point is inside image
-        if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
-            notification_service.show_toast("Clicked outside image dimensions. Please click inside the image to move.", "warning")
-            return False, False
+    def _recomposite(self, reset_view: bool = False) -> None:
+        """Blend the overview + correlation layers into one RGB frame and show it
+        (mirrors ``FMCanvasWidget._recomposite``: rebuild the axes on a shape change,
+        otherwise swap pixels only)."""
+        if self._overview_layer is None or self._overview_layer.data is None:
+            return
+        layers = [l for l in [self._overview_layer, *self._correlation_layers] if l is not None]
+        shape = self._overview_layer.data.shape[:2]
+        rgb = composite_fm_layers(layers, shape)
+        if rgb is None:
+            return
+        h, w = rgb.shape[:2]
+        px = None
+        if self.image is not None and self.image.metadata and self.image.metadata.pixel_size:
+            px = self.image.metadata.pixel_size.x
+        if self._canvas_shape != (h, w):
+            self._canvas_shape = (h, w)
+            self.canvas.set_array(rgb, pixel_size=px)
+            if reset_view:
+                self.canvas.reset_view()
+        else:
+            # Pass pixel_size so the scalebar tracks a same-shape scale change — e.g. the
+            # real overview replacing the blank placeholder after a tiled acquisition,
+            # where the progressive tmp updates already set the canvas to this shape.
+            self.canvas.update_display(rgb, pixel_size=px)
 
-        point = conversions.image_to_microscope_image_coordinates(
-            coord=Point(x=coords[1], y=coords[0]), 
-            image=self.image.data, 
+    def _update_info_bar(self, stage_position: Optional[FibsemStagePosition] = None) -> None:
+        """Refresh the canvas info bar (stage / milling angle / grid / objective),
+        mirroring the napari ``update_text_overlay``."""
+        try:
+            if self.microscope is None:
+                self.canvas.set_info_text(None)  # not connected yet — nothing to show
+                return
+            if type(self.microscope).__name__ == "TescanMicroscope":
+                return  # no stage-position display yet
+            if stage_position is None:
+                stage_position = self.microscope._stage_position
+            if stage_position is None:
+                self.canvas.set_info_text(None)  # connected, but no stage read yet
+                return
+            orientation = self.microscope.get_stage_orientation(stage_position=stage_position)
+            grid = self.microscope.current_grid
+            milling_angle = self.microscope.get_current_milling_angle(stage_position=stage_position)
+            obj_txt = ""
+            if self.microscope.fm is not None:
+                obj_pos = self.microscope.fm.objective.position
+                obj_txt = f"OBJECTIVE: {obj_pos * constants.METRE_TO_MICRON:.1f} µm"
+            text = (
+                f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]\n"
+                f"MILLING ANGLE: {milling_angle:.1f}°\n{obj_txt}"
+            )
+            self.canvas.set_info_text(text)
+        except Exception as e:
+            logging.warning(f"Error updating minimap info bar: {e}")
+            self.canvas.set_info_text(None)
+
+    def _point_to_microscope_coordinates(self, x: float, y: float) -> Optional[Point]:
+        """Convert a canvas click at image-pixel ``(x, y)`` to microscope-image
+        coordinates, or ``None`` if outside the image. The canvas emits full-resolution
+        image-pixel coords, so there is no napari ``world_to_data`` step."""
+        if self.image is None or self.image.metadata is None:
+            return None
+        h, w = self.image.data.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            notification_service.show_toast(
+                "Clicked outside image dimensions. Please click inside the image.", "warning"
+            )
+            return None
+        return conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=x, y=y),
+            image=self.image.data,
             pixelsize=self.image.metadata.pixel_size.x,
         )
 
-        return coords, point
-
-    def on_single_click(self, viewer, event: NapariEvent) -> None:
-        """Callback for single click on the viewer. Selects the nearest experiment position."""
-        if event.button != 1:
-            return
-        if self.image_layer is None or self.image_layer not in self.viewer.layers:
-            return
-        coords, point = self.get_coordinate_in_microscope_coordinates(self.image_layer, event)
-        if point is False:
-            return
-        if self.image is None or self.image.metadata is None:
+    def _on_canvas_clicked(self, x: float, y: float, modifiers) -> None:
+        """Single left-click → select the nearest saved position (≤50 µm)."""
+        point = self._point_to_microscope_coordinates(x, y)
+        if point is None:
             return
         stage_position = self.microscope.project_stable_move(
             dx=point.x, dy=point.y,
@@ -851,82 +940,33 @@ class FibsemMinimapWidget(QWidget):
             self.lamella_list.select(closest_name)
             return
 
-    def on_double_click(self, viewer, event: NapariEvent) -> None:
-        """Callback for double click on the viewer. Moves the stage to the clicked position."""
+    def _on_canvas_double_clicked(self, x: float, y: float, modifiers) -> None:
+        """Double left-click → move the stage to the clicked point (limit-checked)."""
         if self.parent_widget.is_workflow_running:
             notification_service.show_toast("Cannot move stage while workflow is running.", "warning")
             return
-
-        if event.button != 1:
+        point = self._point_to_microscope_coordinates(x, y)
+        if point is None:
             return
-
-        if self.image_layer is None or self.image_layer not in self.viewer.layers:
-            return
-
-        coords, point = self.get_coordinate_in_microscope_coordinates(self.image_layer, event)
-
-        if point is False: # clicked outside image
-            return
-
-        if self.image is None or self.image.metadata is None:
-            return
-
         beam_type = self.image.metadata.image_settings.beam_type
         stage_position = self.microscope.project_stable_move(
             dx=point.x, dy=point.y,
             beam_type=beam_type,
             base_position=self.image.metadata.stage_position)
-
-        # check if position is within stage limits
         if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
             notification_service.show_toast("Position is outside stage limits. Please select a position within the stage limits.", "warning")
             return
-
         self.move_to_stage_position(stage_position)
 
-    def _on_right_click(self, viewer, event: NapariEvent) -> None:
-        """Callback for right-click on the viewer.
-        Shows a context menu with options to add a new position or move selected position.
-        Args:
-            viewer: The napari viewer.
-            event: The event object.
-        """
-        # Only handle right-click press events
-        if event.button != 2 or event.type != "mouse_press":
+    def _on_canvas_right_clicked(self, x: float, y: float, modifiers) -> None:
+        """Right-click → context menu: add a new position or move the selected one."""
+        point = self._point_to_microscope_coordinates(x, y)
+        if point is None:
             return
-
-        # Check if we have an image loaded
-        if self.image is None or self.image.metadata is None:
-            return
-
-        # Check if overview image layer exists
-        if self.image_layer is None or self.image_layer not in self.viewer.layers:
-            return
-
-        # Get coordinates in image space
-        coords = self.image_layer.world_to_data(event.position)
-
-        # Check if clicked point is inside image
-        if not is_inside_image_bounds(coords=coords, shape=self.image.data.shape):
-            notification_service.show_toast("Position is outside image bounds. Please select a position within the image.", "warning")
-            return
-
-        event.handled = True
-
-        # Convert to microscope coordinates
-        point = conversions.image_to_microscope_image_coordinates(
-            coord=Point(x=coords[1], y=coords[0]),
-            image=self.image.data,
-            pixelsize=self.image.metadata.pixel_size.x,
-        )
-
-        # Calculate the stage position for the clicked point
         stage_position = self.microscope.project_stable_move(
             dx=point.x, dy=point.y,
             beam_type=self.image.metadata.image_settings.beam_type,
             base_position=self.image.metadata.stage_position)
-
-        # Check if position is within stage limits
         if not stage_position.is_within_limits(self.microscope._stage.limits, axes=["x", "y"]):
             notification_service.show_toast("Position is outside stage limits. Please select a position within the stage limits.", "warning")
             return
@@ -995,7 +1035,10 @@ class FibsemMinimapWidget(QWidget):
         else:
             self.positions_panel.setToolTip("")
 
-        self.lamella_list.set_lamella(lamellas)
+        experiment = self.parent_widget.experiment if self.parent_widget is not None else None
+        self.lamella_list.set_lamella(
+            lamellas, experiment=experiment, microscope=self.microscope
+        )
 
     def _on_move_to_requested(self, lamella):
         """Handle move-to request from the list row's actions menu."""
@@ -1014,8 +1057,9 @@ class FibsemMinimapWidget(QWidget):
         self.parent_widget.experiment.save()
         self._update_position_display()
 
-    def _update_position_display(self):
-        """refresh the position display."""
+    def _update_position_display(self, *args):
+        """refresh the position display. (``*args`` lets it bind directly to
+        signals that pass payloads, e.g. ``_workflow_finished_signal(bool)``.)"""
         self.update_positions_combobox()
         self.update_viewer()
 
@@ -1030,24 +1074,20 @@ class FibsemMinimapWidget(QWidget):
             return # do not update while acquiring
         try:
             self.draw_current_stage_position(stage_position=stage_position)
-            update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
-            self.set_active_layer_for_movement()
+            self._update_info_bar(stage_position=stage_position)
         except Exception as e:
             self.microscope.stage_position_changed.disconnect(self._on_stage_position_changed)
             logging.error(f"Error updating viewer on stage position change, signal disconnected: {e}")
 
     def _hide_overlay_layers(self):
-        """Hide all overlay layers."""
-        if OVERLAY_CONFIG["layer_name"] in self.viewer.layers:
-            self.viewer.layers[OVERLAY_CONFIG["layer_name"]].visible = False
-        if CROSSHAIR_CONFIG["layer_name"] in self.viewer.layers:
-            self.viewer.layers[CROSSHAIR_CONFIG["layer_name"]].visible = False
-        if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = False
-        return
+        """Clear all overlay groups (e.g. during acquisition); repopulated on the next
+        ``draw_current_stage_position``."""
+        self._reference_overlay.clear()
+        self._current_overlay.clear()
+        self._lamella_overlay.clear()
 
     def draw_current_stage_position(self, stage_position: Optional[FibsemStagePosition] = None):
-        """Draws the current stage position on the image."""
+        """Redraw the stage-linked overlays (reference frame, current position, lamellas)."""
         if self.image is None or self.image.metadata is None:
             return
 
@@ -1061,48 +1101,36 @@ class FibsemMinimapWidget(QWidget):
         if stage_position is None:
             stage_position = self.microscope._stage_position
 
-        self._draw_overlay_shapes(stage_position=stage_position)
-        self._draw_position_crosshairs()
-        self._draw_milling_pattern_overlay()
+        self._draw_reference_frame()
+        self._draw_current_position(stage_position)
+        self._draw_lamella_markers()
+        self._draw_milling_pattern_overlay()  # deferred: no-op stub
 
-    def _collect_all_overlays(self, stage_position: FibsemStagePosition) -> List[NapariShapeOverlay]:
-        """Collect all overlay shapes to be drawn on the image."""
-
+    def _draw_reference_frame(self) -> None:
+        """Static reference geometry (ReferenceFrame overlay): origin + grid-slot
+        crosshairs, stage-limit rect, grid-boundary circle, TEM rect (compustage only).
+        Refreshes on image / holder change."""
         if self.image is None or self.image.metadata is None:
-            return []
-
-        # If no overlays are to be shown, return empty list
-        if not (self.show_current_fov or
-                self.show_overview_fov or
-                self.show_saved_positions_fov or
-                self.show_stage_limits or
-                self.show_circle_overlays or
-                self.show_tem_stage_limits
-                ):
-            return []
-
-        stage_position.name = "Current Position"
-        points = tiled.reproject_stage_positions_onto_image2(self.image, [stage_position])
-
+            self._reference_overlay.clear()
+            return
         pixelsize = self.image.metadata.pixel_size.x
-        current_position = points[0]
+        specs: List[ShapeSpec] = []
 
-        overlays = []
+        # origin crosshair
+        stage_origin = FibsemStagePosition(name="Origin", x=0, y=0, z=0, r=0, t=0)
+        origin_pt = tiled.reproject_stage_positions_onto_image2(self.image, [stage_origin])[0]
+        specs.append(ShapeSpec(kind="crosshair", cx=origin_pt.x, cy=origin_pt.y,
+                               color=CROSSHAIR_CONFIG["colors"]["origin"], label="Origin (0, 0)"))
 
-        # current overview fov
-        if self.show_overview_fov:
-            overview_settings = self.get_overview_settings()
-            width = overview_settings.total_fov_x / pixelsize
-            height = overview_settings.total_fov_y / pixelsize
-            rect = create_rectangle_shape(current_position, width, height)
-            overlays.append(NapariShapeOverlay(
-                shape=rect,
-                color="magenta",
-                label="Overview FoV",
-                shape_type='rectangle')
-            )
+        # grid-slot crosshairs
+        grid_positions = [s.position for s in self.microscope._stage.holder.slots.values()]
+        if grid_positions:
+            grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
+            for gp, sp in zip(grid_points, grid_positions):
+                specs.append(ShapeSpec(kind="crosshair", cx=gp.x, cy=gp.y,
+                                       color=CROSSHAIR_CONFIG["colors"]["grid"], label=sp.name))
 
-        # stage limits
+        # stage limits / grid boundary / TEM (compustage only)
         if (self.show_stage_limits or self.show_circle_overlays) and self.microscope.stage_is_compustage:
             stage_limits = self.microscope._stage.limits
             xmin, xmax = stage_limits["x"].min, stage_limits["x"].max
@@ -1110,399 +1138,112 @@ class FibsemMinimapWidget(QWidget):
             centre_grid = FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
             top_limit = FibsemStagePosition(name="Top Limit", x=0, y=ymin, z=0, r=0, t=0)
             bottom_limit = FibsemStagePosition(name="Bottom Limit", x=0, y=ymax, z=0, r=0, t=0)
-            points = tiled.reproject_stage_positions_onto_image2(self.image, [centre_grid, top_limit, bottom_limit])
-            width = (xmax-xmin) / pixelsize
-            height = points[1].y - points[2].y
-            grid_centre = points[0]
+            pts = tiled.reproject_stage_positions_onto_image2(
+                self.image, [centre_grid, top_limit, bottom_limit])
+            grid_centre = pts[0]
+            width = (xmax - xmin) / pixelsize
+            height = pts[1].y - pts[2].y
             if self.show_stage_limits:
-                rect = create_rectangle_shape(grid_centre, width, height)
-                overlays.append(NapariShapeOverlay(
-                    shape=rect,
-                    color="yellow",
-                    label="Stage Limits",
-                    shape_type='rectangle')
-                )
+                specs.append(ShapeSpec(kind="rect", cx=grid_centre.x, cy=grid_centre.y,
+                                       width=width, height=height, color="yellow",
+                                       label="Stage Limits"))
             if self.show_circle_overlays:
-                # grid boundary circle (red)
-                origin_radius = 1000e-6 / pixelsize  # 1000μm in meters
-                origin_circle = create_circle_shape(grid_centre, origin_radius, None)
-                overlays.append(NapariShapeOverlay(
-                    shape=origin_circle,
-                    color="red",
-                    label="Grid Boundary",
-                    shape_type="ellipse"
-                ))
-
-            # TEM stage limits (800µm × 800µm magenta rectangle centred on grid)
+                specs.append(ShapeSpec(kind="circle", cx=grid_centre.x, cy=grid_centre.y,
+                                       radius=1000e-6 / pixelsize, color="red",
+                                       label="Grid Boundary"))
             if self.show_tem_stage_limits:
-                TEM_LIMIT_M = 1600e-6  # 800µm in meters
-                size_px = TEM_LIMIT_M / pixelsize
-                rect = create_rectangle_shape(grid_centre, size_px, size_px)
-                overlays.append(NapariShapeOverlay(
-                    shape=rect,
-                    color="orange",
-                    label="TEM Stage Limits",
-                    shape_type="rectangle",
-                ))
+                size_px = 1600e-6 / pixelsize
+                specs.append(ShapeSpec(kind="rect", cx=grid_centre.x, cy=grid_centre.y,
+                                       width=size_px, height=size_px, color="orange",
+                                       label="TEM Stage Limits"))
 
-        if self.show_saved_positions_fov:
-            points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
-            width = 80e-6 / pixelsize # TODO: make this match the milling fov
-            height = 1024/1536 * width
-            selected_index = self.lamella_list.selected_index
-            for i, (lam, point) in enumerate(zip(self.lamellas, points)):
-                overlays.append(NapariShapeOverlay(
-                    shape=create_rectangle_shape(point, width=width, height=height),
-                    color=self._lamella_color(lam, selected=i == selected_index),
-                    label=point.name,
-                    shape_type='rectangle')
-                )
+        self._reference_overlay.set_shapes(specs)
 
-        return overlays
-
-    def _draw_overlay_shapes(self, stage_position: FibsemStagePosition,
-                             layer_scale: Optional[Tuple[float, float]] = None):
-        """Draw all overlay shapes (FOV boxes and circles) on a single layer.
-
-        Creates overlays for:
-        - Current position single image FOV (magenta rectangles)
-        - Overview acquisition area (orange rectangles, only if not acquiring)
-        - Saved positions FOV (cyan rectangles)
-        - Circle overlays (various colors based on configuration)
-
-        Args:
-            layer_scale: Tuple of (pixel_size_x, pixel_size_y) for coordinate conversion
-            stage_position: Optional FibsemStagePosition for the current stage position
-        """
-        layer_name = OVERLAY_CONFIG["layer_name"]
-
-        try:
-            # Collect all overlay shapes
-            overlays = self._collect_all_overlays(stage_position=stage_position)
-
-            # Update or create the layer
-            if not overlays:
-                # Hide layer if no shapes to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers[layer_name].visible = False
-                return
-
-            # Extract data for napari
-            all_shapes = [overlay.shape for overlay in overlays]
-            all_colors = [overlay.color for overlay in overlays]
-            all_labels = [overlay.label for overlay in overlays]
-            all_shape_types = [overlay.shape_type for overlay in overlays]
-
-            # Prepare text properties for labels
-            text_properties = {
-                "string": all_labels,
-                **OVERLAY_CONFIG["text_properties"]
-            }
-
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer: NapariShapesLayer = self.viewer.layers[layer_name]
-                layer.data = [] # clear to reset shape type
-                layer.data = all_shapes
-                layer.shape_type = all_shape_types
-                layer.edge_color = all_colors
-                layer.edge_width = OVERLAY_CONFIG["rectangle_style"]["edge_width"]
-                layer.face_color = OVERLAY_CONFIG["rectangle_style"]["face_color"]
-                layer.opacity = OVERLAY_CONFIG["rectangle_style"]["opacity"]
-                layer.visible = True
-                # Try to update text properties
-                try:
-                    layer.text = text_properties
-                except AttributeError:
-                    logging.debug("Could not update text properties for overlay layer")
-            else:
-                # Create new layer with mixed shape types
-                self.viewer.add_shapes(
-                    data=all_shapes,
-                    name=layer_name,
-                    shape_type=all_shape_types,
-                    edge_color=all_colors,
-                    edge_width=OVERLAY_CONFIG["rectangle_style"]["edge_width"],
-                    face_color=OVERLAY_CONFIG["rectangle_style"]["face_color"],
-                    scale=layer_scale,
-                    opacity=OVERLAY_CONFIG["rectangle_style"]["opacity"],
-                    text=text_properties,
-                )
-
-        except Exception as e:
-            logging.warning(f"Error drawing overlay shapes: {e}")
-            if layer_name in self.viewer.layers:
-                self.viewer.layers[layer_name].visible = False
-
-    def _collect_crosshair_overlays(self, layer_scale: Optional[Tuple[float, float]] = None):
-        """Collect crosshair overlays for current and saved positions."""
+    def _draw_current_position(self, stage_position: FibsemStagePosition) -> None:
+        """Current overview-acquisition FOV box + current-position crosshair
+        (CurrentPosition overlay). Refreshes on every stage move."""
         if self.image is None or self.image.metadata is None:
+            self._current_overlay.clear()
+            return
+        pixelsize = self.image.metadata.pixel_size.x
+        sp = deepcopy(stage_position)
+        sp.name = "Current Position"
+        current_pt = tiled.reproject_stage_positions_onto_image2(self.image, [sp])[0]
+
+        specs: List[ShapeSpec] = []
+        if self.show_overview_fov:
+            overview_settings = self.get_overview_settings()
+            specs.append(ShapeSpec(
+                kind="rect", cx=current_pt.x, cy=current_pt.y,
+                width=overview_settings.total_fov_x / pixelsize,
+                height=overview_settings.total_fov_y / pixelsize,
+                color="magenta", label="Overview FoV"))
+        specs.append(ShapeSpec(kind="crosshair", cx=current_pt.x, cy=current_pt.y,
+                               color=CROSSHAIR_CONFIG["colors"]["current"], label="Stage Position"))
+        self._current_overlay.set_shapes(specs)
+
+    def _draw_lamella_markers(self) -> None:
+        """Per-lamella FOV box + crosshair + name label, coloured by defect/selection
+        (LamellaMarkers overlay). Refreshes on add/remove/select/defect change.
+
+        The name label rides on the FOV box when saved-position FOVs are shown, else on
+        the crosshair — the one cross-cutting quirk that was awkward to split across
+        napari layers is trivial here (both live in this one overlay)."""
+        if self.image is None or self.image.metadata is None:
+            self._lamella_overlay.clear()
+            return
+        lamellas = self.lamellas
+        if not lamellas:
+            self._lamella_overlay.clear()
             return
 
-        current_stage_position = deepcopy(self.microscope._stage_position)
-        stage_origin = FibsemStagePosition(name="Origin", x=0, y=0, z=0, r=0, t=0)
-        points = tiled.reproject_stage_positions_onto_image2(self.image, [current_stage_position, stage_origin])
-
-        origin_point = points[1]
-        current_point = points[0]
-        crosshair_size = CROSSHAIR_CONFIG["crosshair_size"]
-        layer_scale = None
-        overlays: List[NapariShapeOverlay] = []
-
-        # grid centre
-        origin_lines = create_crosshair_shape(origin_point, crosshair_size, layer_scale)
-        for line, txt in zip(origin_lines, ["Origin (0, 0)", ""]):
-            overlays.append(NapariShapeOverlay(
-                shape=line,
-                color=CROSSHAIR_CONFIG["colors"]["origin"],
-                label=txt,
-                shape_type="line"
-            ))
-
-        # grid positions
-        grid_positions = [s.position for s in self.microscope._stage.holder.slots.values()]
-        grid_points = tiled.reproject_stage_positions_onto_image2(self.image, grid_positions)
-        for i, grid_point in enumerate(grid_points):
-            grid_lines = create_crosshair_shape(grid_point, crosshair_size, layer_scale)
-            for line, txt in zip(grid_lines, [grid_positions[i].name, ""]):
-                overlays.append(NapariShapeOverlay(
-                    shape=line,
-                    color=CROSSHAIR_CONFIG["colors"]["grid"],
-                    label=txt,
-                    shape_type="line"
-                ))
-
-        # current stage position
-        current_lines = create_crosshair_shape(current_point, crosshair_size, layer_scale)
-        for line, txt in zip(current_lines, ["Stage Position", ""]):
-            overlays.append(NapariShapeOverlay(
-                shape=line,
-                color=CROSSHAIR_CONFIG["colors"]["current"],
-                label=txt,
-                shape_type="line"
-            ))
-
-        # saved positions
+        pixelsize = self.image.metadata.pixel_size.x
+        points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
         selected_index = self.lamella_list.selected_index
-        lamellas = self.lamellas
-        positions = self.positions
-        pts = tiled.reproject_stage_positions_onto_image2(self.image, positions)
-        for i, (lam, saved_point) in enumerate(zip(lamellas, pts)):
-            saved_lines = create_crosshair_shape(saved_point, crosshair_size, layer_scale)
-            color = self._lamella_color(lam, selected=i == selected_index)
+        show_fov = self.show_saved_positions_fov
+        fov_w = 80e-6 / pixelsize  # TODO: make this match the milling fov
+        fov_h = 1024 / 1536 * fov_w
 
-            # Show position name on crosshair if saved position FOV is disabled
-            label = lam.name if not self.show_saved_positions_fov else ""
+        # only the loaded grid's lamellae sit on this (single-grid) overview;
+        # off-grid positions reproject to meaningless locations, so skip them
+        loaded_grid_ids = self._loaded_grid_ids()
 
-            for line, txt in zip(saved_lines, [label, ""]):
-                overlays.append(NapariShapeOverlay(
-                    shape=line,
-                    color=color,
-                    label=txt,
-                    shape_type="line"
-                ))
-
-        return overlays
-
-    def _draw_position_crosshairs(self, layer_scale: Optional[Tuple[float, float]] = None):
-        """Draw crosshair overlays for current and saved positions on a single layer. """
-
-        # Collect all crosshair overlays
-        layer_name = CROSSHAIR_CONFIG["layer_name"]
-        crosshair_overlays = self._collect_crosshair_overlays(layer_scale)
-
-        # Extract data for napari
-        crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-        colors = [overlay.color for overlay in crosshair_overlays]
-        labels = [overlay.label for overlay in crosshair_overlays]
-
-        # Prepare text properties for labels
-        text_properties = {
-            "string": labels,
-            **CROSSHAIR_CONFIG["text_properties"]
-        }
-
-        # Update or create the napari layer
-        if layer_name in self.viewer.layers:
-            # Update existing layer
-            layer: NapariShapesLayer = self.viewer.layers[layer_name]
-            layer.data = crosshair_lines
-            # Note: edge_color and text updates may not work with all napari versions
-            try:
-                layer.edge_color = colors
-                layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                layer.text = text_properties
-                layer.visible = True
-            except AttributeError:
-                logging.debug("Could not update layer properties directly")
-        else:
-            # Create new layer
-            self.viewer.add_shapes(
-                data=crosshair_lines,
-                name=layer_name,
-                shape_type="line",
-                edge_color=colors,
-                edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                scale=layer_scale,
-                text=text_properties,
-            )
+        specs: List[ShapeSpec] = []
+        for i, (lam, point) in enumerate(zip(lamellas, points)):
+            if lam.grid_id is not None and lam.grid_id not in loaded_grid_ids:
+                continue
+            color = self._lamella_color(lam, selected=(i == selected_index))
+            if show_fov:
+                specs.append(ShapeSpec(kind="rect", cx=point.x, cy=point.y,
+                                       width=fov_w, height=fov_h, color=color, label=lam.name))
+                specs.append(ShapeSpec(kind="crosshair", cx=point.x, cy=point.y, color=color))
+            else:
+                specs.append(ShapeSpec(kind="crosshair", cx=point.x, cy=point.y,
+                                       color=color, label=lam.name))
+        self._lamella_overlay.set_shapes(specs)
 
     def _draw_milling_pattern_overlay(self):
-        """Draws the milling patterns for all saved positions on the image."""
-
-        # Performance Note: the reason this is slow is because every time a new position is added, we re-draw every position
-        # this is not necessary, we can just add the new position to the existing layer
-        # almost all the slow down comes from the linked callbacks from fibsem.applications.autolamella. probably saving and re-drawing milling patterns
-        # we should delay that until the user requests it
-
-        if not self.checkBox_pattern_overlay.isChecked():
-            if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = False
-            return
-
-        if not (self.image
-                and self.image.metadata 
-                and self.image_layer 
-                and self.positions):
-            return
-
-        if self.protocol is None:
-            notification_service.show_toast("No milling patterns found in protocol...", "warning")
-            return
-
-        selected_pattern = self.comboBox_pattern_overlay.currentText()
-        selected_milling_stages: List[FibsemMillingStage] = []
-        if selected_pattern == "":
-            notification_service.show_toast("Please select a milling pattern to overlay...", "warning")
-            return
-
-        task_config = self.protocol.task_config
-        milling_config = task_config[selected_pattern].milling
-        if MILL_ROUGH_KEY in milling_config:
-            selected_milling_stages = deepcopy(milling_config[MILL_ROUGH_KEY].stages)
-        else:
-            key = list(milling_config.keys())[0]
-            selected_milling_stages = deepcopy(milling_config[key].stages)
-        points = tiled.reproject_stage_positions_onto_image2(self.image, self.positions)
-
-        # TODO: this should show the real milling patterns for each lamella, rather than the same one for all.
-        # then, changes in the protocol would be reflected in the minimap
-        milling_stages: List[FibsemMillingStage] = []
-        for point in points:
-            pt = conversions.image_to_microscope_image_coordinates(coord=point,
-                                                                image=self.image.data,
-                                                                pixelsize=self.image.metadata.pixel_size.x)
-            stages = deepcopy(selected_milling_stages)
-            for i, stage in enumerate(stages):
-                stage.name = f"{point.name}-{stage.name}"
-                stage.pattern.point += pt
-            milling_stages.extend(deepcopy(stages))
-
-        draw_milling_patterns_in_napari(
-            viewer=self.viewer,
-            image_layer=self.image_layer,
-            pixelsize=self.image.metadata.pixel_size.x,
-            milling_stages=milling_stages,
-            draw_crosshair=False,
-            colors=MILLING_PATTERN_COLOURS[:len(selected_milling_stages)],
-            )
-        if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = True
-
-        # set the image layer as the active layer for movement
-        self.set_active_layer_for_movement()
+        """Draw the selected task's milling pattern reprojected onto all saved positions.
+        Deferred (see docs/design/overview-minimap-cutover.md): re-add later by feeding
+        the reprojected stage list to a MillingPatternOverlay on the canvas."""
+        return
 
     def add_correlation_image(self, image: FibsemImage, is_gridbar: bool = False):
-        """Add a correlation image to the viewer."""
+        """Disabled pending the correlation/gridbar rework
+        (see docs/design/minimap-correlation-gridbar-rework.md). The composite-based
+        approach was reverted: correlation needs a real, persisted alignment transform,
+        not a stretch-to-fit composite."""
+        return
 
-        basename = CORRELATION_IMAGE_LAYER_PROPERTIES["name"]
-        if is_gridbar:
-            basename = GRIDBAR_IMAGE_LAYER_PROPERTIES["name"]
-        idx = 1
-        layer_name = f"{basename}-{idx:02d}"
-        while layer_name in self.viewer.layers:
-            idx+=1
-            layer_name = f"{basename}-{idx:02d}"
-
-        # if grid bar in _name, idx = 3
-        if is_gridbar:
-            layer_name = basename
-            idx = 3
-
-        # add the image layer
-        self.viewer.add_image(image.data, 
-                        name=layer_name, 
-                        colormap=COLOURS[idx%len(COLOURS)], 
-                        blending=CORRELATION_IMAGE_LAYER_PROPERTIES["blending"], 
-                        opacity=CORRELATION_IMAGE_LAYER_PROPERTIES["opacity"])
-        self.correlation_image_layers.append(layer_name)
-
-        # update the combobox
-        self.comboBox_correlation_selected_layer.currentIndexChanged.disconnect()
-        idx = self.comboBox_correlation_selected_layer.currentIndex()
-        self.comboBox_correlation_selected_layer.clear()
-        self.comboBox_correlation_selected_layer.addItems(self.correlation_image_layers)
-        if idx != -1:
-            self.comboBox_correlation_selected_layer.setCurrentIndex(idx)
-        self.comboBox_correlation_selected_layer.currentIndexChanged.connect(self.update_correlation_ui)
-
-        # set the image layer as the active layer
-        self.set_active_layer_for_movement()
-        self.correlation_panel.setEnabled(True) # TODO: allow enabling grid-bar overlay separately
-        self.checkBox_gridbar.setEnabled(True)
-        self.pushButton_enable_correlation.setEnabled(True)
-
-    # do this when image selected is changed
     def update_correlation_ui(self):
+        """Disabled pending the correlation/gridbar rework."""
+        return
 
-        # set ui
-        layer_name = self.comboBox_correlation_selected_layer.currentText()
-        self.pushButton_enable_correlation.setEnabled(layer_name != "")
-        if layer_name == "":
-            notification_service.show_toast("Please select a layer to correlate with update data...")
-            return
-
-    def _toggle_correlation_mode(self, event: Optional[NapariEvent] = None):
-        """Toggle correlation mode on or off."""
-        if self.image is None:
-            notification_service.show_toast("Please acquire an image first...", "warning")
-            return
-
-        if not self.correlation_image_layers:
-            notification_service.show_toast("Please load a correlation image first...", "warning")
-            return
-
-        # toggle correlation mode
-        self.correlation_mode_enabled = not self.correlation_mode_enabled
-
-        if self.correlation_mode_enabled:
-            self.pushButton_enable_correlation.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
-            self.pushButton_enable_correlation.setText("Disable Correlation Mode")
-            self.comboBox_correlation_selected_layer.setEnabled(False)
-        else:
-            self.pushButton_enable_correlation.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-            self.pushButton_enable_correlation.setText("Enable Correlation Mode")
-            self.comboBox_correlation_selected_layer.setEnabled(True)
-
-        # if no correlation layer selected, disable the button
-        if self.comboBox_correlation_selected_layer.currentIndex() == -1:
-            self.pushButton_enable_correlation.setEnabled(False)
-            return
-
-        # get current correlation layer
-        layer_name = self.comboBox_correlation_selected_layer.currentText()
-        correlation_layer = self.viewer.layers[layer_name]
-        
-        # set transformation mode on
-        if self.correlation_mode_enabled:
-            correlation_layer.mode = 'transform'
-            self.viewer.layers.selection.active = correlation_layer
-        else:
-            correlation_layer.mode = 'pan_zoom'
-            self.set_active_layer_for_movement()
+    def _toggle_correlation_mode(self, event=None):
+        """Disabled pending the correlation/gridbar rework."""
+        return
 
     def set_active_layer_for_movement(self) -> None:
-        """Set the active layer to the image layer for movement."""
-        if self.image_layer is not None and self.image_layer in self.viewer.layers:
-            self.viewer.layers.selection.active = self.image_layer
+        """No-op on the matplotlib canvas — there is no layer-selection concept; the
+        canvas always handles pan/zoom + clicks. Kept for call-site parity."""
+        return

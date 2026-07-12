@@ -20,6 +20,7 @@ from fibsem.structures import (
 from fibsem.applications.autolamella.structures import Experiment
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.imaging.spot import SpotBurnSettings
 
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
 def _check_for_abort(parent_ui: Optional['AutoLamellaUI'], msg: str = "Workflow aborted by user.") -> bool:
@@ -123,6 +124,33 @@ def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str,
         "status_bar": status_bar,
     }
     parent_ui.workflow_update_signal.emit(INFO)
+
+
+def update_progress_ui(parent_ui: Optional['AutoLamellaUI'], *,
+                       remaining: float = 0.0, total: float = 0.0,
+                       message: str = "", indeterminate: bool = False,
+                       done: bool = False) -> None:
+    """Drive the shared status-bar progress widget from a workflow task.
+
+    Emits a structured ``progress`` payload on ``workflow_update_signal``; the UI
+    maps it to a ``ProgressUpdate`` (countdown / indeterminate / done). No-op
+    (logs nothing) in headless mode.
+    """
+    if parent_ui is None:
+        return
+
+    _check_for_abort(parent_ui)
+
+    parent_ui.workflow_update_signal.emit({
+        "msg": message,
+        "progress": {
+            "remaining": remaining,
+            "total": total,
+            "indeterminate": indeterminate,
+            "done": done,
+            "message": message,
+        },
+    })
 
 
 def ask_user(
@@ -248,14 +276,14 @@ def update_experiment_ui(parent_ui: Optional['AutoLamellaUI'], experiment: Exper
     parent_ui.update_experiment_signal.emit(deepcopy(experiment))
 
 def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
-                                parameters: dict | None = None,
+                                settings: Optional['SpotBurnSettings'] = None,
                                 clear_spots: bool = False):
-    """Update the spot burn parameters in the UI."""
+    """Push spot-burn settings to the UI (or clear them)."""
     _check_for_abort(parent_ui)
 
     INFO = {
         "msg": "Updating Spot Burn Parameters",
-        "spot_burn_parameters": parameters,
+        "spot_burn_settings": settings,
         "clear_spot_burn": clear_spots,
     }
 
@@ -266,4 +294,4 @@ def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
 
 def clear_spot_burn_ui(parent_ui: 'AutoLamellaUI'):
     """Clear the spot burn UI."""
-    update_spot_burn_parameters(parent_ui=parent_ui, parameters=None, clear_spots=True)
+    update_spot_burn_parameters(parent_ui=parent_ui, settings=None, clear_spots=True)

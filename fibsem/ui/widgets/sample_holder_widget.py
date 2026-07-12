@@ -476,9 +476,17 @@ class SampleHolderWidget(QWidget):
     def _auto_save(self, holder: SampleHolder) -> None:
         if holder is None:
             return
+        # the compustage holder is hardware-derived (a fixed single working
+        # slot built in _create_sample_stage), not a user-editable config — never
+        # persist it over the shared sample-holder.yaml.
+        parent = getattr(holder, "_parent", None)
+        if parent is not None and getattr(parent, "stage_is_compustage", False):
+            return
         from fibsem import config as cfg
         try:
-            holder.save(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH)
+            # persist holder geometry only; which grid is loaded is transient
+            # hardware state, not part of the holder definition.
+            holder.save(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH, include_grids=False)
         except Exception as e:
             logging.warning(f"Auto-save of sample holder failed: {e}")
 

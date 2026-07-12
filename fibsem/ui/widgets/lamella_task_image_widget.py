@@ -9,7 +9,14 @@ import threading
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QRectF, QThread, Qt, pyqtSignal
+from PyQt5.QtCore import (
+    QObject,
+    QRectF,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    pyqtSignal,
+)
 from PyQt5.QtGui import QImage, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -77,9 +84,13 @@ class ClickableLabel(QLabel):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mousePressEvent(self, event) -> None:
+        # call super() first (while this widget is alive), then emit last: the
+        # clicked handler opens a modal (exec_) whose nested event loop can
+        # rebuild + deleteLater this label, so touching self afterwards would
+        # hit a deleted C/C++ object.
+        super().mousePressEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._filepath)
-        super().mousePressEvent(event)
 
 
 class ZoomableImageView(QGraphicsView):
@@ -147,31 +158,62 @@ class ExpandedImageDialog(QDialog):
         super().keyPressEvent(event)
 
 
-class _ImageLoaderWorker(QThread):
-    """Background worker that loads images one at a time."""
+class _ImageLoadTask(QRunnable):
+    """Loads + resizes a single image in a pool thread, emitting on the loader."""
+
+    def __init__(self, loader: "_ImageLoader", filepath: str, target_width: int):
+        super().__init__()
+        self._loader = loader
+        self._filepath = filepath
+        self._target_width = target_width
+
+    def run(self) -> None:
+        if self._loader._stopped:
+            return
+        try:
+            arr, pixel_size_x = _load_and_resize(self._filepath, self._target_width)
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"Failed to load image {self._filepath}: {e}")
+            return
+        if self._loader._stopped:  # widget tearing down — don't emit into it
+            return
+        # queued connection → delivered on the GUI thread
+        self._loader.image_loaded.emit(self._filepath, arr, pixel_size_x)
+
+
+class _ImageLoader(QObject):
+    """Loads images concurrently on a bounded thread pool.
+
+    One persistent loader per widget (created in __init__, parented). ``load``
+    submits a task per path; up to ``max_threads`` decode in parallel and emit
+    ``image_loaded`` on the GUI thread. ``cancel`` drops queued (not-yet-started)
+    tasks so refreshes don't keep loading images that are no longer shown; the
+    few in-flight tasks finish, but their results are harmless (the consumer only
+    applies arrays to labels still present after a rebuild).
+    """
 
     image_loaded = pyqtSignal(str, np.ndarray, float)  # filepath, array, pixel_size_x
 
-    def __init__(self, filepaths: List[str], target_width: int, parent=None):
+    def __init__(self, target_width: int, parent=None, max_threads: int = 4):
         super().__init__(parent)
-        self._filepaths = filepaths
         self._target_width = target_width
-        self._cancel = threading.Event()
+        self._stopped = False
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(max(1, min(max_threads, os.cpu_count() or max_threads)))
 
-    def cancel(self):
-        self._cancel.set()
+    def load(self, filepaths: List[str]) -> None:
+        for fpath in filepaths:
+            self._pool.start(_ImageLoadTask(self, fpath, self._target_width))
 
-    def run(self):
-        for fpath in self._filepaths:
-            if self._cancel.is_set():
-                return
-            try:
-                arr, pixel_size_x = _load_and_resize(fpath, self._target_width)
-                if self._cancel.is_set():
-                    return
-                self.image_loaded.emit(fpath, arr, pixel_size_x)
-            except Exception as e:
-                logging.warning(f"Failed to load image {fpath}: {e}")
+    def cancel(self) -> None:
+        """Drop queued tasks (non-blocking); in-flight tasks finish on their own."""
+        self._pool.clear()
+
+    def wait(self, msec: Optional[int] = None) -> None:
+        """Stop emitting + block until running tasks finish — for teardown only."""
+        self._stopped = True
+        self._pool.clear()
+        self._pool.waitForDone(-1 if msec is None else msec)
 
 
 class LamellaTaskImageWidget(QWidget):
@@ -198,7 +240,8 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella_id: Optional[str] = None
         self._pixmap_cache: Dict[str, QPixmap] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
-        self._worker: Optional[_ImageLoaderWorker] = None
+        self._loader = _ImageLoader(_TARGET_WIDTH, parent=self)
+        self._loader.image_loaded.connect(self._on_image_loaded)
 
         self._setup_ui()
 
@@ -250,12 +293,13 @@ class LamellaTaskImageWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _cancel_worker(self) -> None:
-        if self._worker is not None:
-            self._worker.image_loaded.disconnect(self._on_image_loaded)
-            self._worker.cancel()
-            self._worker.quit()
-            self._worker.wait(2000)
-            self._worker = None
+        # non-blocking: drop queued loads; in-flight ones finish but are harmless
+        # (their arrays only update labels still present after the rebuild).
+        self._loader.cancel()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self._loader.wait(2000)  # drain in-flight loads before teardown
+        super().closeEvent(event)
 
     def _clear_layout(self) -> None:
         """Remove all widgets from the content layout."""
@@ -335,11 +379,9 @@ class LamellaTaskImageWidget(QWidget):
             else:
                 to_load.append(fpath)
 
-        # Start background loader for remaining images
+        # Load remaining images concurrently (results applied on the GUI thread)
         if to_load:
-            self._worker = _ImageLoaderWorker(to_load, _TARGET_WIDTH, parent=self)
-            self._worker.image_loaded.connect(self._on_image_loaded)
-            self._worker.start()
+            self._loader.load(to_load)
 
     def _build_task_row_with_placeholders(
         self, task_name: str, filenames: List[str]

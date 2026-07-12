@@ -137,6 +137,11 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     from fibsem.structures import TFibsemPatternSettings
 
+# sentinel: a lazily-built hardware wrapper that hasn't been constructed yet
+# (distinct from None, which means "built, but no such device is fitted").
+_UNSET = object()
+
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
     milling_progress_signal = Signal(dict)
@@ -521,8 +526,13 @@ class FibsemMicroscope(ABC):
     def finish_sputter(self):
         pass
 
-    def run_sputter_coater(self, time_seconds: int) -> None:
+    def run_sputter_coater(self, time_seconds: int, current: Optional[float] = None) -> None:
         raise NotImplementedError("Sputter coater not implemented for this microscope.")
+
+    def run_gis_deposition(self, duration: float, *,
+                           stop_event: Optional['threading.Event'] = None,
+                           on_progress: Optional[Callable[[float], None]] = None) -> None:
+        raise NotImplementedError("GIS deposition not implemented for this microscope.")
 
     @abstractmethod
     def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float, int]]:
@@ -1541,6 +1551,11 @@ class ThermoMicroscope(FibsemMicroscope):
         self._default_application_file = "Si"
         self._current_application_file = self._default_application_file
 
+        # hardware wrappers, built lazily on first use (need a live connection +
+        # model). _UNSET distinguishes "not built yet" from "built, none fitted".
+        self._sputter_coater = _UNSET
+        self._gis_port = _UNSET
+
         # logging
         logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
 
@@ -1645,6 +1660,10 @@ class ThermoMicroscope(FibsemMicroscope):
             self._create_sample_stage()
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
+
+        # sputter coater / GIS port are built lazily on first use (see properties)
+        self._sputter_coater = _UNSET
+        self._gis_port = _UNSET
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -4048,32 +4067,88 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return offset
     
-    def run_sputter_coater(self, time_seconds: int) -> None:
+    @property
+    def sputter_coater(self):
+        """The sputter coater wrapper (or None if not fitted), built on first use."""
+        if self._sputter_coater is _UNSET:
+            self._sputter_coater = self._create_sputter_coater()
+        return self._sputter_coater
+
+    @property
+    def gis_port(self):
+        """The GIS port wrapper (or None if unavailable), built on first use."""
+        if self._gis_port is _UNSET:
+            self._gis_port = self._create_gis_port()
+        return self._gis_port
+
+    def _create_sputter_coater(self):
+        """Build the platform-specific sputter coater wrapper, or None.
+
+        Selects the Arctis wrapper (self-contained ``run``) vs the standard one
+        (``run`` wrapped in ``prepare`` / ``recover``). The specimen may expose
+        the attribute without a coater being fitted, so gate on ``is_installed``
+        (present + supported on all platforms).
+        """
+        from fibsem.microscopes.autoscript import (
+            AutoscriptArctisSputterCoater,
+            AutoscriptSputterCoater,
+        )
+
+        coater = getattr(self.connection.specimen, "sputter_coater", None)
+        if coater is None or not coater.is_installed:
+            return None
+
+        coater_cls = (
+            AutoscriptArctisSputterCoater
+            if "Arctis" in self.system.info.model
+            else AutoscriptSputterCoater
+        )
+        return coater_cls(self)
+
+    def _create_gis_port(self):
+        """Build the GIS port wrapper, or None if no port is available."""
+        from fibsem.microscopes.autoscript import AutoscriptGISPort
+        try:
+            return AutoscriptGISPort(self)
+        except Exception as e:  # no GIS port fitted / available
+            logging.warning(f"Could not create GIS port: {e}")
+            return None
+
+    def run_sputter_coater(self, time_seconds: int, current: Optional[float] = None) -> None:
         """Run the sputter coater for a given time in seconds.
+
+        Delegates to the (lazily built) coater wrapper.
+
         Args:
             time_seconds (int): The time to run the sputter coater in seconds.
-        Returns:
-            None
+            current (Optional[float]): The sputter coater current in Amps (e.g.
+                0.01 = 10 mA). If None, the current is left at its present value.
         Raises:
-            NotImplementedError: If the system is not an Arctis system.
+            NotImplementedError: If no sputter coater is installed on the system.
         """
-
-        if not hasattr(self.connection.specimen, "sputter_coater"):
+        if self.sputter_coater is None:
             raise NotImplementedError("Sputter coater not available on this microscope.")
+        self.sputter_coater.run(time_seconds, current=current)
 
-        # check if system is Arctis
-        if "Arctis" not in self.system.info.model:
-            self.connection.specimen.sputter_coater.run(time_seconds)
-            return
+    def run_gis_deposition(self, duration: float, *,
+                           stop_event: Optional['threading.Event'] = None,
+                           on_progress: Optional[Callable[[float], None]] = None) -> None:
+        """Run a GIS deposition for ``duration`` seconds.
 
-        # Prepare for sputtering
-        self.connection.specimen.sputter_coater.prepare()
+        The GIS port owns the insert/open/wait/close/retract cycle; here we drop
+        the stage to a safe insertion height, run the safety check, deposit, and
+        restore the microscope state afterwards (always, even on stop/error).
+        ``stop_event`` ends the deposition early; ``on_progress`` reports the
+        remaining time each second.
+        """
+        gis = self.gis_port
+        if gis is None:
+            raise NotImplementedError("No GIS port available on this microscope.")
 
-        # Change chamber pressure to 20 Pa and sputter current to 10 mA
-        # self.connection.vacuum.pump(VacuumSettings(pressure=20))
-        # self.connection.specimen.sputter_coater.current.value = 0.01
-        # Perform sputtering procedure with 10 second run time
-        self.connection.specimen.sputter_coater.run(time_seconds)
-
-        # Recover from sputtering
-        self.connection.specimen.sputter_coater.recover()
+        initial_state = self.get_microscope_state()
+        try:
+            gis._move_to_safe_gis_position()
+            gis._run_safety_check()
+            gis.run_deposition(duration, stop_event=stop_event, on_progress=on_progress)
+        finally:
+            self.set_microscope_state(initial_state)

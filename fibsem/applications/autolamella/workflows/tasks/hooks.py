@@ -27,7 +27,8 @@ class HookContext:
     event: str
     task_name: str = ""
     task_type: str = ""
-    lamella_name: str = ""
+    lamella_name: str = ""    # the work unit's name (lamella or grid)
+    item_name: str = ""       # neutral alias of lamella_name
     task_state: Optional["AutoLamellaTaskState"] = None
     error: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
@@ -37,6 +38,11 @@ class HookContext:
         # comparisons work consistently regardless of Python version.
         if hasattr(self.event, "value"):
             self.event = self.event.value
+        # mirror item_name <-> lamella_name so callers can pass either
+        if not self.item_name and self.lamella_name:
+            self.item_name = self.lamella_name
+        elif not self.lamella_name and self.item_name:
+            self.lamella_name = self.item_name
 
 
 @dataclass
@@ -72,7 +78,7 @@ class LoggingHook(Hook):
         level = getattr(logging, self.level.upper(), logging.INFO)
         logging.log(
             level,
-            f"[Hook] {context.event} | task={context.task_name} lamella={context.lamella_name} error={context.error}",
+            f"[Hook] {context.event} | task={context.task_name} unit={context.item_name} error={context.error}",
         )
 
     def to_dict(self) -> dict:
@@ -100,6 +106,7 @@ class NotificationHook(Hook):
             task_name=context.task_name,
             event=context.event,
             lamella_name=context.lamella_name,
+            item_name=context.item_name,
             error=context.error or "",
         )
         if self._notify:
@@ -169,6 +176,7 @@ class WebhookHook(Hook):
                 "task_name": context.task_name,
                 "task_type": context.task_type,
                 "lamella_name": context.lamella_name,
+                "item_name": context.item_name,
                 "error": context.error,
                 "timestamp": context.timestamp,
             }

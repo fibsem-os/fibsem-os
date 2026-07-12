@@ -26,6 +26,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeSettings,
+    MicroscopeState,
     Point,
 )
 from fibsem.ui import (
@@ -42,7 +43,7 @@ from fibsem.ui import (
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
@@ -55,8 +56,15 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QWidget,
 )
-from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget
+from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.widgets.sample_widget import SampleWidget
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    LamellaNameListWidget,
+    TitledPanel,
+    ValueSpinBox,
+)
 
 if (
     DETECTION_AVAILABLE
@@ -158,6 +166,15 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
+    # emitted after a load/unload changes which grid is in the working slot, so
+    # hosts (e.g. the Grids tab) can refresh their "in microscope" state
+    sample_state_changed_signal = pyqtSignal()
+    # emitted after a lamella is added, so the Grids tab can refresh its per-grid
+    # lamella counts (a lightweight refresh, not the heavy experiment_update)
+    lamella_added_signal = pyqtSignal()
+    # per-grid/task progress from GridTaskManager (thread → GUI), payload shape
+    # mirrors workflow_update_signal: {"msg": str, "status": {...}}
+    grid_workflow_update_signal = pyqtSignal(dict)
 
     def __init__(
         self,
@@ -171,10 +188,8 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
+        # The main tab runs viewer-less; display is via the controller.
         self.viewer = viewer
-
-        # add placeholder layer
-        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -189,16 +204,15 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
-        # minimap plot widget
+        # sample (holder + optional loader magazine) tab
+        self.sample_widget: Optional[SampleWidget] = None
+
+        # minimap plot widget — a floating tool window, shown on demand (was a
+        # napari dock; relocated here so it no longer needs a viewer).
         self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_dock = self.viewer.window.add_dock_widget(
-            self.minimap_plot_widget,
-            name="Minimap Plot",
-            area="left",
-            add_vertical_stretch=False,
-            tabify=True,
-        )
-        self.minimap_plot_dock.setVisible(False)
+        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
+        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
+        self.minimap_plot_widget.hide()
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
@@ -209,7 +223,7 @@ class AutoLamellaUI(QMainWindow):
         self.SELECTED_POI: Optional[Point] = None
         self._poi_layer = None
         self._workflow_stop_event: threading.Event = threading.Event()
-        self._task_worker_thread: Optional[threading.Thread] = None
+        self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
 
@@ -322,6 +336,10 @@ class AutoLamellaUI(QMainWindow):
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
+        # a grid workflow exchanges grids (ensure_loaded) as it runs — keep the
+        # Sample tab's holder + magazine views in sync with the working slot
+        self.grid_workflow_update_signal.connect(self._refresh_sample_views)
+        self._workflow_finished_signal.connect(lambda *_: self._refresh_sample_views())
 
         # labels and placeholders
         self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
@@ -384,123 +402,6 @@ class AutoLamellaUI(QMainWindow):
             self.movement_widget.update_ui()
 
         self._update_minimap_data(stage_position=stage_position)
-        self._update_lamella_display()
-
-    def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view."""
-
-        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
-            return
-
-        if self.experiment is None:
-            return
-
-        if self.image_widget is None:
-            return
-
-        if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
-            return
-
-        from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-        from fibsem.ui.napari.utilities import (
-            NapariShapeOverlay,
-            create_crosshair_shape,
-        )
-        from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-
-        if selected_name is None:
-            selected_name = self.lamella_list.selected_name
-
-        try:
-            # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
-            points = reproject_stage_positions_onto_image2(
-                image=self.image_widget.ib_image,
-                positions=self.experiment.get_milling_positions(),
-                bound=True,
-            )
-
-            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
-            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
-            # should disable until we can fix this properly
-
-            layer_scale = None
-            overlays: List[NapariShapeOverlay] = []
-            for pt in points:
-                saved_lines = create_crosshair_shape(
-                    pt, CROSSHAIR_CONFIG["crosshair_size"], layer_scale
-                )
-
-                # Use lime for selected position, cyan for others
-                color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-                if pt.name == selected_name:
-                    color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
-
-                # Show position name on crosshair if saved position FOV is disabled
-                # label = saved_pos.name if not self.show_saved_positions_fov else ""
-
-                for line, txt in zip(saved_lines, [pt.name, ""]):
-                    overlays.append(
-                        NapariShapeOverlay(
-                            shape=line, color=color, label=txt, shape_type="line"
-                        )
-                    )
-
-            crosshair_overlays = overlays
-
-            # TODO: use a common function for this?
-            # QUERY: also do it for the SEM?
-            # Collect all crosshair overlays
-            layer_name = CROSSHAIR_CONFIG["layer_name"]
-
-            if len(crosshair_overlays) == 0:
-                logging.info("No crosshair overlays to display.")
-                # Remove existing layer if no overlays to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers.remove(layer_name)
-                return
-
-            # Extract data for napari
-            crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-            colors = [overlay.color for overlay in crosshair_overlays]
-            labels = [overlay.label for overlay in crosshair_overlays]
-
-            # Prepare text properties for labels
-            text_properties = {"string": labels, **CROSSHAIR_CONFIG["text_properties"]}
-            # text_properties["color"] = colors # displays the text the same color as the line
-
-            # Update or create the napari layer
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[layer_name]
-                layer.data = crosshair_lines
-                # Note: edge_color and text updates may not work with all napari versions
-                try:
-                    layer.edge_color = colors
-                    layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                    layer.face_color = CROSSHAIR_CONFIG["line_style"]["face_color"]
-                    layer.text = text_properties
-                    layer.visible = True
-                    layer.translate = self.image_widget.ib_layer.translate
-                except AttributeError:
-                    logging.warning("Could not update layer properties directly")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=crosshair_lines,
-                    name=layer_name,
-                    shape_type="line",
-                    edge_color=colors,
-                    edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                    face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                    scale=layer_scale,
-                    text=text_properties,
-                    translate=self.image_widget.ib_layer.translate,
-                )
-
-        except Exception as e:
-            logging.warning(f"Could not update lamella display: {e}")
-        finally:
-            self.image_widget.restore_active_layer_for_movement()
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -659,6 +560,14 @@ class AutoLamellaUI(QMainWindow):
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
+
+            # sample tab: holder (always) + loader magazine (autoloader only)
+            # gated behind the grid-workflow feature flag
+            self.sample_widget = SampleWidget(self.microscope)
+            self.sample_widget.state_changed.connect(self._on_sample_state_changed)
+            self.tabWidget.addTab(self.sample_widget, "Sample")
+            import fibsem.config as _fibsem_cfg
+            self.set_grid_workflow_visible(_fibsem_cfg.FEATURE_GRID_WORKFLOW_ENABLED)
             self.milling_task_config_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
                 viewer=self.viewer,
@@ -712,10 +621,14 @@ class AutoLamellaUI(QMainWindow):
 
             # remove tabs
             if self.fm_control_widget is not None:
+                # deleteLater fires neither closeEvent nor close_widget, so tear
+                # down the FM widget's external signal connections explicitly
+                self.fm_control_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
                 self.fm_control_widget.deleteLater()
                 self.fm_control_widget = None
             if self.det_widget is not None:
+                self.det_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
                 self.det_widget.deleteLater()
                 self.det_widget = None
@@ -729,18 +642,70 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.milling_task_config_widget.deleteLater()
                 self.milling_task_config_widget = None
+            if self.sample_widget is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
+                self.sample_widget.deleteLater()
+                self.sample_widget = None
             if self.movement_widget is not None:
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
                 self.movement_widget.deleteLater()
                 self.movement_widget = None
             if self.image_widget is not None:
+                self.image_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.clear_viewer()
                 self.image_widget.acquisition_progress_signal.disconnect(
                     self.handle_acquisition_update
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+
+    # -------------------------------------------------------------------------
+    # Sample tab (SampleWidget owns the holder + magazine + hardware exchange)
+    # -------------------------------------------------------------------------
+    def request_grid_load(self, grid_name: str) -> None:
+        """Load a grid into the working slot (e.g. from the Grids tab)."""
+        if self.sample_widget is not None:
+            self.sample_widget.request_load(grid_name)
+
+    def request_grid_unload(self) -> None:
+        """Retract the working-slot grid (e.g. from the Grids tab)."""
+        if self.sample_widget is not None:
+            self.sample_widget.request_unload()
+
+    def set_grid_workflow_visible(self, visible: bool) -> None:
+        """Show/hide the grid-workflow UI owned by this widget (the Sample tab)."""
+        sample_widget = getattr(self, "sample_widget", None)
+        if sample_widget is None:
+            return
+        index = self.tabWidget.indexOf(sample_widget)
+        if index != -1:
+            self.tabWidget.setTabVisible(index, visible)
+
+    def _on_sample_state_changed(self) -> None:
+        """The loaded grid changed (via SampleWidget) → update the experiment
+        views that depend on it: lamella chips/controls + the Grids tab."""
+        self._refresh_lamella_list_reachability()
+        self.sample_state_changed_signal.emit()
+
+    def _refresh_sample_views(self, *args) -> None:
+        """Refresh the sample views + lamella reachability to match the working
+        slot (e.g. after a grid workflow exchanges grids on its worker thread)."""
+        if self.sample_widget is not None:
+            self.sample_widget.refresh()
+        self._refresh_lamella_list_reachability()
+
+    def _refresh_lamella_list_reachability(self) -> None:
+        """Rebuild the lamella list so each row's grid chip + reachability-gated
+        controls track the currently loaded grid. Loading/unloading a grid is a
+        sample-state change, not a lamella-data change, so the normal
+        ``update_lamella_combobox`` path doesn't fire — call this from the
+        grid-exchange paths. Selection is preserved by name."""
+        if self.experiment is None:
+            return
+        self.lamella_list.set_lamella(
+            self.experiment.positions,
+            experiment=self.experiment, microscope=self.microscope,
+        )
 
     def load_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
@@ -957,10 +922,8 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget.clear()  # type: ignore
 
         # Start acquisition thread
-        self._task_worker_thread = threading.Thread(
-            target=self._run_tasks_worker,
-            args=(selected_tasks, selected_lamella),
-            daemon=True,
+        self._task_worker_thread = FunctionWorker(
+            self._run_tasks_worker, selected_tasks, selected_lamella
         )
         self._task_worker_thread.start()
 
@@ -1010,10 +973,89 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
+    def _start_grid_workflow_thread(
+        self, task_names: List[str], grid_names: List[str]
+    ) -> None:
+        """Run a grid workflow on a worker thread (shares the workflow thread slot
+        + Run/Stop infra with the lamella workflow → mutually exclusive)."""
+        self._task_worker_thread = threading.Thread(
+            target=self._run_grid_tasks_worker,
+            args=(task_names, grid_names),
+            daemon=True,
+        )
+        self._task_worker_thread.start()
+
+    def _run_grid_tasks_worker(
+        self, task_names: List[str], grid_names: Optional[List[str]] = None
+    ) -> None:
+        """Worker thread for the grid workflow."""
+        from fibsem.applications.autolamella.workflows.tasks.grid_manager import (
+            GridTaskManager,
+        )
+
+        try:
+            self._workflow_stop_event.clear()
+            if self.microscope is None or self.experiment is None:
+                logging.error("No microscope or experiment loaded.")
+                return
+
+            if not self.microscope.is_on(BeamType.ELECTRON):
+                self.microscope.turn_on(BeamType.ELECTRON)
+            if not self.microscope.is_on(BeamType.ION):
+                self.microscope.turn_on(BeamType.ION)
+
+            logging.info(f"Starting grid tasks: {task_names}, for grids: {grid_names}")
+            self._task_manager = GridTaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_grid_hooks(),
+            )
+            self._task_manager.run(task_names=task_names, grid_names=grid_names)
+        except Exception as e:
+            logging.error(f"Error during running grid tasks: {e}")
+        finally:
+            cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            self._task_manager = None
+            self._task_worker_thread = None
+            self._workflow_finished_signal.emit(cancelled)  # type: ignore
+
     def stop_task_workflow(self):
         if not self.is_workflow_running:
             return
         self._stop_workflow_thread()
+
+    def setup_grid_hooks(self) -> HookManager:
+        """Build the HookManager for grid task lifecycle events (logging + toasts)."""
+        manager = HookManager()
+        manager.register(
+            LoggingHook(
+                name="grid_task_logger",
+                events=[
+                    HookEvent.TASK_STARTED,
+                    HookEvent.TASK_COMPLETED,
+                    HookEvent.TASK_FAILED,
+                ],
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="grid_completion_toast",
+                events=[HookEvent.TASK_COMPLETED],
+                notification_type="success",
+                message_template="Grid task {task_name} complete for {item_name}",
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="grid_failure_toast",
+                events=[HookEvent.TASK_FAILED],
+                notification_type="error",
+                message_template="Grid task {task_name} FAILED for {item_name}: {error}",
+            )
+        )
+        manager.wire(self)
+        return manager
 
     def setup_hooks(self) -> HookManager:
         """Build the default HookManager for task lifecycle events."""
@@ -1144,7 +1186,8 @@ class AutoLamellaUI(QMainWindow):
             else ""
         )
         self.lamella_list.set_lamella(
-            self.experiment.positions, preferred_name=preferred
+            self.experiment.positions, preferred_name=preferred,
+            experiment=self.experiment, microscope=self.microscope,
         )
 
     def update_lamella_ui(self, _lamella=None):
@@ -1169,7 +1212,6 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.set_lamella(lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
-        self._update_lamella_display(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -1238,12 +1280,19 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
+        microscope_state: Optional["MicroscopeState"] = None,
+        grid_id: Optional[str] = None,
+        notify: bool = True,
     ) -> Lamella:
         """Add a lamella to the experiment.
         Args:
             stage_position: The stage position of the lamella. If None, the current stage position is used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
+            microscope_state: The microscope state to record. If None, the current (live) state is captured.
+                Used to place lamellae from a previously-acquired image (e.g. the grid overview).
+            grid_id: The originating grid's _id. If None, the grid is resolved from the lamella's position.
+            notify: When False, defer the UI refresh + lamella_added_signal so a batch can refresh once.
         Returns:
             lamella: The created lamella.
         """
@@ -1256,16 +1305,31 @@ class AutoLamellaUI(QMainWindow):
                 "No microscope connected. Please connect a microscope first."
             )
 
-        # get microscope state
-        microscope_state = self.microscope.get_microscope_state()
+        # use the supplied state (e.g. from an overview image) or the live state
+        if microscope_state is None:
+            microscope_state = self.microscope.get_microscope_state()
+        else:
+            microscope_state = deepcopy(microscope_state)
         if stage_position is not None:
             microscope_state.stage_position = deepcopy(stage_position)
+
+        # link the lamella to its grid: an explicit grid_id wins (e.g. placed on
+        # a known grid's overview); else resolve from the position against the
+        # holder (None if uncalibrated / not tracked)
+        if grid_id is None:
+            sample_grid = self.microscope._stage.grid_at_position(
+                microscope_state.stage_position
+            )
+            if sample_grid is not None:
+                record = self.experiment.get_grid_by_name(sample_grid.name)
+                grid_id = record._id if record is not None else None
 
         # create the lamella
         self.experiment.add_new_lamella(
             microscope_state=microscope_state,
             task_config=self.experiment.task_protocol.task_config,
             name=name,
+            grid_id=grid_id,
         )
         lamella = self.experiment.positions[-1]
 
@@ -1284,8 +1348,11 @@ class AutoLamellaUI(QMainWindow):
             lamella.fluorescence_pose = fluorescence_pose
 
         self.experiment.save()
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
+        if notify:
+            self.update_lamella_combobox(latest=True)
+            self.update_ui()
+            # let the Grids tab recount this grid's lamellae (cheap card refresh)
+            self.lamella_added_signal.emit()
 
         return lamella
 
@@ -1731,9 +1798,6 @@ class AutoLamellaUI(QMainWindow):
             self.microscope.turn_off(BeamType.ELECTRON)
             self.microscope.turn_off(BeamType.ION)
 
-        # set electron image as active layer
-        self.image_widget.restore_active_layer_for_movement()
-
         self.set_current_workflow_message(msg=None, show=False)
 
         # show the post-workflow summary of tasks run this session
@@ -1805,7 +1869,9 @@ class AutoLamellaUI(QMainWindow):
         if isinstance(alignment_area, FibsemRectangle):
             self.image_widget.toggle_alignment_area(alignment_area)
         if alignment_area == "clear":
-            self.image_widget.clear_alignment_area()
+            # the workflow's "clear" is a hide-then-read-back: keep the value for the
+            # get_alignment_area() that follows in update_alignment_area_ui.
+            self.image_widget.hide_alignment_area()
 
         # POI selection
         poi_selection = info.get("poi_selection", None)
@@ -1818,9 +1884,9 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
-        spot_burn_parameters = info.get("spot_burn_parameters", None)
-        if spot_burn_parameters is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.update_parameters(spot_burn_parameters)
+        spot_burn_settings = info.get("spot_burn_settings", None)
+        if spot_burn_settings is not None and self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_settings(spot_burn_settings)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
 
@@ -1849,51 +1915,49 @@ class AutoLamellaUI(QMainWindow):
     _POI_LAYER_NAME = "Point of Interest"
 
     def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Add a draggable point marker on the FIB image for POI selection.
+        """Show a draggable POI marker on the FIB canvas (via the controller)."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is not None:
+            self._show_poi_overlay(controller, initial_poi)
 
-        Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
-        """
-        ib_translate = self.image_widget.ib_layer.translate
+    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
+        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:
             px = conversions.microscope_image_to_image_coordinates(
                 initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
             )
-            row = ib_translate[0] + px.y
-            col = ib_translate[1] + px.x
+            col, row = px.x, px.y
         else:
-            row = ib_translate[0] + ib_image.data.shape[0] / 2
-            col = ib_translate[1] + ib_image.data.shape[1] / 2
-        data = [[row, col]]
-        from fibsem.ui.napari.utilities import add_points_layer
-
-        self._poi_layer = add_points_layer(
-            viewer=self.viewer,
-            data=data,
-            name=self._POI_LAYER_NAME,
-            size=20,
-            face_color="magenta",
-            border_color="white",
-            symbol="cross",
-            blending="additive",
-            border_width=None,
-            border_width_is_relative=False,
+            row = ib_image.data.shape[0] / 2
+            col = ib_image.data.shape[1] / 2
+        controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="poi", points=[(col, row)],
+                color="magenta", selected_color="magenta", marker="+", size=18,
+                add_on_right_click=False, removable=False,
+            ),
         )
-        self._poi_layer.mode = "select"
-        self.viewer.layers.selection.active = self._poi_layer
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
+        # toggle lets the user drop to Move and back. (See active-overlay model.)
+        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
+        controller.fib_canvas.set_hint("drag to move")
 
     def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from current layer position, remove the layer, store in SELECTED_POI."""
-        if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
-            pos = self._poi_layer.data[0]  # [row, col] napari coords
-            ib_translate = self.image_widget.ib_layer.translate
-            py = pos[0] - ib_translate[0]  # pixel y in IB image
-            px = pos[1] - ib_translate[1]  # pixel x in IB image
+        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is None:
+            return
+        pts = controller.overlay_points(BeamType.ION, "poi")
+        if pts:
+            col, row = pts[0]
             ib_image = self.image_widget.ib_image
             self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=px, y=py),
-                ib_image.data,
-                ib_image.metadata.pixel_size.x,
+                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
             )
-            self.viewer.layers.remove(self._poi_layer)
-            self._poi_layer = None
+        controller.arm_overlay(BeamType.ION, None)  # restore Move
+        controller.remove_overlay(BeamType.ION, "poi")
+        controller.fib_canvas.set_hint(None)
