@@ -8,8 +8,12 @@
 
 ### Python
 Python 3.9+ is required.
-The [Anaconda distribution](https://www.anaconda.com/distribution/)
-of python is recommended.
+We recommend installing Python via [Miniforge](https://conda-forge.org/download/),
+a minimal installer that uses the community-maintained
+[conda-forge](https://conda-forge.org/) channel by default. It provides the same
+`conda` (and `mamba`) commands as Anaconda/Miniconda while staying lightweight and
+avoiding the licensing terms that can apply to Anaconda's default channels for larger
+organizations.
 
 ## Setting up your python virtual environment
 It is also highly recommended to use virtual environments for development,
@@ -17,13 +21,16 @@ see [Managing Conda Environments](https://docs.conda.io/projects/conda/en/latest
 for more information.
 (Optionally, you could use `virtualenv` if you prefer.)
 
-Create a new virutal environment from the Anaconda Prompt terminal:
+Create a new virtual environment from your conda terminal (the Miniforge Prompt on
+Windows, or any terminal on macOS/Linux):
 ```
 cd fibsem
 conda env create -n fibsem python=3.11 pip
 conda activate fibsem
-pip install -e .
+python -m pip install -e ".[ui]"
 ```
+The `[ui]` extra installs the GUI dependencies (recommended). To install without the
+GUI, use `python -m pip install -e .` instead.
 
 ### Installation through Python virtualenv
 
@@ -40,8 +47,52 @@ fibsem\Scripts\activate.bat
 ```
 Once activated, move to the fibsem root directory and install fibsem like so
 ```
-pip install -e .
+python -m pip install -e ".[ui]"
 ```
+The `[ui]` extra installs the GUI dependencies (recommended). To install without the
+GUI, use `python -m pip install -e .` instead.
+
+### Installation with uv
+
+[uv](https://docs.astral.sh/uv/) is a fast, drop-in replacement for `pip`.
+
+First, install uv (see the [official install guide](https://docs.astral.sh/uv/getting-started/installation/)
+for all options):
+```
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+```
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+Alternatively, install it into an existing environment with `pip install uv`.
+
+uv can create and manage the virtual environment itself, so you don't need conda or
+`virtualenv`. From the fibsem root directory, create and activate an environment:
+```
+# macOS / Linux
+uv venv
+source .venv/bin/activate
+```
+```
+# Windows (PowerShell)
+uv venv
+.venv\Scripts\activate
+```
+uv also works inside a conda or `virtualenv` environment created above, with nothing
+extra to set up — just activate that environment instead.
+
+Once your environment is active, install fibsem with the GUI dependencies (recommended):
+```
+uv pip install -e ".[ui]"
+```
+To install without the GUI dependencies:
+```
+uv pip install -e .
+```
+This resolves the same dependencies from `pyproject.toml` as `pip`, just faster.
+No lockfile or additional configuration is required.
 
 ### Create a desktop shortcut
 1. Create a script file:
