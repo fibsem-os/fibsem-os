@@ -89,7 +89,6 @@ from fibsem.applications.autolamella.workflows.tasks.hooks import (
     NotificationHook,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.core import update_milling_angle_from_pose
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
@@ -1271,7 +1270,7 @@ class AutoLamellaUI(QMainWindow):
         lamella = self.experiment.positions[-1]
 
         # derive the milling angle from the milling-pose stage tilt
-        update_milling_angle_from_pose(self.microscope, lamella)
+        lamella.update_milling_angle(self.microscope)
 
         # if the objective position is not provided, use the 'focus' position from the microscope
         if self.microscope.fm is not None:
@@ -1392,7 +1391,7 @@ class AutoLamellaUI(QMainWindow):
         lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
 
         # keep the milling angle consistent with the updated milling pose
-        update_milling_angle_from_pose(self.microscope, lamella)
+        lamella.update_milling_angle(self.microscope)
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -1445,7 +1444,7 @@ class AutoLamellaUI(QMainWindow):
 
         # if the milling pose changed, keep the milling angle consistent with it
         if pose_name == "MILLING":
-            update_milling_angle_from_pose(self.microscope, lamella)
+            lamella.update_milling_angle(self.microscope)
 
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)

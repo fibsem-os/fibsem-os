@@ -27,25 +27,7 @@ def log_status_message(lamella: 'Lamella', step: str):
     logging.debug({"msg": "status", "petname": lamella.name, "stage": lamella.status_info, "step": step})
 
 def log_status_message_raw(stage: str, step: str, petname: str = "null"):
-    logging.debug({"msg": "status", "petname": petname, stage: stage, "step": step })
-
-
-def update_milling_angle_from_pose(microscope: FibsemMicroscope, lamella: 'Lamella') -> None:
-    """Set lamella.milling_angle from its milling-pose stage tilt.
-
-    The milling angle is derived from the stage tilt (plus the microscope pretilt /
-    column-tilt configuration), so it is kept consistent with the stored milling pose.
-    Leaves the existing value unchanged if the stage tilt/rotation is unavailable.
-    """
-    milling_pose = lamella.milling_pose
-    if microscope is None or milling_pose is None or milling_pose.stage_position is None:
-        return
-    try:
-        lamella.milling_angle = microscope.get_current_milling_angle(
-            stage_position=milling_pose.stage_position
-        )
-    except ValueError:
-        logging.debug(f"Could not compute milling angle for {lamella.name}: stage tilt/rotation unavailable")
+    logging.debug({"msg": "status", "petname": petname, stage: stage, "step": step })   
 
 
 def align_feature_coincident(

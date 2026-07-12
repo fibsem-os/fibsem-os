@@ -5,7 +5,6 @@ import pytest
 
 import fibsem.utils as utils
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.workflows.core import update_milling_angle_from_pose
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 
@@ -29,7 +28,7 @@ def test_update_milling_angle_from_pose(microscope, tmp_path):
     """The milling angle is computed from the stored milling-pose stage tilt."""
     lamella = _make_lamella(tmp_path, tilt_rad=np.radians(20))
 
-    update_milling_angle_from_pose(microscope, lamella)
+    lamella.update_milling_angle(microscope)
 
     # milling angle = stage tilt + pretilt (see get_current_milling_angle)
     expected = microscope.get_current_milling_angle(
@@ -45,7 +44,7 @@ def test_update_milling_angle_missing_tilt_is_noop(microscope, tmp_path):
     lamella.milling_angle = 15.0
     lamella.milling_pose.stage_position.t = None
 
-    update_milling_angle_from_pose(microscope, lamella)  # must not raise
+    lamella.update_milling_angle(microscope)  # must not raise
 
     assert lamella.milling_angle == 15.0
 
@@ -53,5 +52,5 @@ def test_update_milling_angle_missing_tilt_is_noop(microscope, tmp_path):
 def test_update_milling_angle_no_milling_pose_is_noop(microscope, tmp_path):
     """A lamella without a milling pose is handled gracefully."""
     lamella = Lamella(petname="no-pose", path=str(tmp_path / "no-pose"), number=1)
-    update_milling_angle_from_pose(microscope, lamella)  # must not raise
+    lamella.update_milling_angle(microscope)  # must not raise
     assert lamella.milling_angle is None

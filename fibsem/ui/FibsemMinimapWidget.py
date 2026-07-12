@@ -973,10 +973,7 @@ class FibsemMinimapWidget(QWidget):
         lamella.stage_position = stage_position
 
         # keep the milling angle consistent with the updated milling pose
-        from fibsem.applications.autolamella.workflows.core import (
-            update_milling_angle_from_pose,
-        )
-        update_milling_angle_from_pose(self.microscope, lamella)
+        lamella.update_milling_angle(self.microscope)
 
         self.parent_widget.experiment.save()
         self._update_position_display()
