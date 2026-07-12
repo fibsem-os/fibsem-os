@@ -969,7 +969,12 @@ class FibsemMinimapWidget(QWidget):
             logging.debug("No position selected to update.")
             return
 
-        self.parent_widget.experiment.positions[idx].stage_position = stage_position
+        lamella = self.parent_widget.experiment.positions[idx]
+        lamella.stage_position = stage_position
+
+        # keep the milling angle consistent with the updated milling pose
+        lamella.update_milling_angle(self.microscope)
+
         self.parent_widget.experiment.save()
         self._update_position_display()
 

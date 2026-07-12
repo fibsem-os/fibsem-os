@@ -1269,6 +1269,9 @@ class AutoLamellaUI(QMainWindow):
         )
         lamella = self.experiment.positions[-1]
 
+        # derive the milling angle from the milling-pose stage tilt
+        lamella.update_milling_angle(self.microscope)
+
         # if the objective position is not provided, use the 'focus' position from the microscope
         if self.microscope.fm is not None:
             # convert the fluorescence pose to the configured orientation
@@ -1387,6 +1390,9 @@ class AutoLamellaUI(QMainWindow):
 
         lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
 
+        # keep the milling angle consistent with the updated milling pose
+        lamella.update_milling_angle(self.microscope)
+
         self.update_lamella_combobox()
         self.update_ui()
         self.experiment.save()
@@ -1435,6 +1441,11 @@ class AutoLamellaUI(QMainWindow):
             state.objective_position = existing_pose.objective_position
 
         lamella.poses[pose_name] = state
+
+        # if the milling pose changed, keep the milling angle consistent with it
+        if pose_name == "MILLING":
+            lamella.update_milling_angle(self.microscope)
+
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
         notification_service.show_toast(
