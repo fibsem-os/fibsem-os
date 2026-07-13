@@ -90,11 +90,16 @@ class _InsertObjectiveDialog(QDialog):
         self.accept()
 
 
-class ObjectiveControlWidget(QWidget):    
-    def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None):
+class ObjectiveControlWidget(QWidget):
+    def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None, microscope=None):
         super().__init__(parent)
         self.fm = fm
         self.parent_widget = parent
+        # microscope is required for insert (stage tilt read/move); fall back to
+        # the parent widget's microscope when embedded in a full acquisition UI.
+        self.microscope = microscope
+        if self.microscope is None and parent is not None:
+            self.microscope = getattr(parent, "microscope", None)
         self.initUI()
 
     def initUI(self):
@@ -241,12 +246,16 @@ class ObjectiveControlWidget(QWidget):
             )
             return
 
-        if self.parent_widget is None:
-            return
-        if self.parent_widget.microscope is None:
+        if self.microscope is None:
+            message_box_ui(
+                title="Objective Error",
+                text="Cannot insert objective: no microscope connection available.",
+                buttons=QMessageBox.Ok,
+                parent=self,
+            )
             return
 
-        stage_pos = self.parent_widget.microscope.get_stage_position()
+        stage_pos = self.microscope.get_stage_position()
         tilt_deg = np.degrees(stage_pos.t)
 
         dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
@@ -274,7 +283,7 @@ class ObjectiveControlWidget(QWidget):
                 f"Moving stage to {np.degrees(target_stage_pos.t):.0f}° tilt "
                 "before inserting objective."
             )
-            self.parent_widget.microscope.move_stage_absolute(target_stage_pos)
+            self.microscope.move_stage_absolute(target_stage_pos)
         logging.info("Inserting objective...")
         self.fm.objective.insert()
         logging.info("Objective inserted.")
