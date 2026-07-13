@@ -39,6 +39,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -47,6 +48,7 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QSplitter,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -1168,30 +1170,44 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
 
-        self.btn_pause_milling = QPushButton("Pause Milling")
-        self.btn_pause_milling.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_pause_milling.setVisible(False)
+        # single pause control: tool button with milling/acquisition menu options
+        self._milling_paused = False
+        self.btn_pause = QToolButton()
+        self.btn_pause.setText("Pause")
+        self.btn_pause.setIcon(fibsem_icon("mdi:pause", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_pause.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # type: ignore[attr-defined]
+        self.btn_pause.setPopupMode(QToolButton.InstantPopup)
+        # SECONDARY_BUTTON_STYLESHEET targets QPushButton; a QToolButton needs its
+        # own selector or it falls back to the unstyled default (mismatched size/font)
+        self.btn_pause.setStyleSheet(
+            "QToolButton { background-color: #3d4251; color: #d6d6d6; border: none;"
+            " padding: 5px 12px; border-radius: 3px; }"
+            "QToolButton:hover { background-color: #4a5168; }"
+            "QToolButton:disabled { background-color: #2d313b; color: #6b6b6b; }"
+            "QToolButton::menu-indicator { image: none; }"
+        )
+        pause_menu = QMenu(self.btn_pause)
+        self._act_pause_milling = pause_menu.addAction("Pause Milling")
+        self._act_pause_milling.triggered.connect(self._on_pause_milling_action)
+        self._act_pause_acquisition = pause_menu.addAction("Pause Acquisition")
+        self._act_pause_acquisition.triggered.connect(self._on_pause_acquisition_action)
+        self.btn_pause.setMenu(pause_menu)
+        self.btn_pause.setVisible(False)
 
-        self.label_threshold_chip = QPushButton("Threshold Reached")
+        # intensity-drop chip: neutral while monitoring, attention style on a drop
+        self.label_threshold_chip = QPushButton("Intensity Drop: 0%")
         self.label_threshold_chip.setIcon(
             fibsem_icon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.label_threshold_chip.setStyleSheet(
-            stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
-        )
+        self.label_threshold_chip.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.label_threshold_chip.setVisible(False)
-
-        self.btn_pause_acquisition = QPushButton("Pause Acquisition")
-        self.btn_pause_acquisition.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.btn_pause_acquisition.setVisible(False)
 
         # supervision toggle, styled like the main-UI supervised status button
         self._supervised: bool = True
         self.btn_supervised = QPushButton("Supervised")
         self.btn_supervised.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
         self.btn_supervised.clicked.connect(self._on_supervised_clicked)
+        self.btn_supervised.setVisible(False)
         self._update_supervised_button()
 
         self.spin_drop_threshold = QSpinBox()
@@ -1199,21 +1215,36 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.spin_drop_threshold.setValue(40)  # % drop (40% == retained fraction 0.6)
         self.spin_drop_threshold.setPrefix("Stop at ")
         self.spin_drop_threshold.setSuffix("% drop")
+        self.spin_drop_threshold.setButtonSymbols(QSpinBox.NoButtons)  # no -/+ arrows
+        self.spin_drop_threshold.setMinimumWidth(140)  # fit the prefix + suffix text
         self.spin_drop_threshold.setToolTip(
             "Unsupervised auto-stop fires when the rolling mean drops by this "
             "fraction below its peak."
         )
+        self.spin_drop_threshold.setVisible(False)
 
         # push live changes to any running strategies (not just at milling start)
         self.spin_drop_threshold.valueChanged.connect(self._on_drop_threshold_changed)
 
-        layout.addWidget(self.label_threshold_chip)
+        # uniform height so every control-bar item aligns (buttons/spinbox/bars),
+        # independent of the per-stylesheet padding differences + state flips
+        for w in (
+            self.progressBar_stages,
+            self.progressBar_stage,
+            self.label_threshold_chip,
+            self.spin_drop_threshold,
+            self.btn_pause,
+            self.btn_supervised,
+            self.btn_milling,
+        ):
+            w.setFixedHeight(28)
+
         layout.addWidget(self.progressBar_stages)
         layout.addWidget(self.progressBar_stage)
-        layout.addWidget(self.btn_supervised)
+        layout.addWidget(self.label_threshold_chip)
         layout.addWidget(self.spin_drop_threshold)
-        layout.addWidget(self.btn_pause_milling)
-        layout.addWidget(self.btn_pause_acquisition)
+        layout.addWidget(self.btn_pause)
+        layout.addWidget(self.btn_supervised)
         layout.addWidget(self.btn_milling)
 
         return bar
@@ -1275,13 +1306,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._on_channel_field_changed
         )
 
-        # Bottom bar buttons
+        # Bottom bar buttons (pause options are wired via the pause-menu actions)
         self.btn_milling.clicked.connect(self._toggle_milling)
-        self.btn_pause_acquisition.clicked.connect(self._toggle_fm_acquisition_pause)
         if self.milling_viewer_widget is not None:
-            self.btn_pause_milling.clicked.connect(
-                self.milling_viewer_widget.milling_widget.pause_resume_milling
-            )
             # finalize the viewer only when milling is *fully* complete (after the
             # post-stop final image) — the progress "finished" state fires too early
             self.milling_viewer_widget.milling_widget.milling_completed_signal.connect(
@@ -1739,11 +1766,25 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self._info_widget.update_stats(stats)
         self._info_widget.update_run_metrics(stats)
+        # live intensity-drop chip: neutral while monitoring, orange the moment the
+        # configured drop threshold is reached (drop_fraction/threshold_fraction are
+        # retained fractions, so the threshold is hit when drop <= threshold).
+        drop_fraction = stats.get("drop_fraction", 1.0)
+        threshold_fraction = stats.get("threshold_fraction", 0.0)
+        drop_pct = (1.0 - drop_fraction) * 100
+        self.label_threshold_chip.setText(f"Intensity Drop: {drop_pct:.0f}%")
+        self.label_threshold_chip.setVisible(True)
+        threshold_hit = (
+            stats.get("warmup_complete", False) and drop_fraction <= threshold_fraction
+        )
+        self.label_threshold_chip.setStyleSheet(
+            stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
+            if threshold_hit
+            else stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        # border/auto-stop stay tied to the debounced drop_detected event
         if stats.get("drop_detected"):
             self._set_border_state("waiting")
-            drop_pct = (1.0 - stats.get("drop_fraction", 1.0)) * 100
-            self.label_threshold_chip.setText(f"Intensity Drop: {drop_pct:.0f}%")
-            self.label_threshold_chip.setVisible(True)
 
     def _on_fm_rect_changed(self, info: dict):
         """Push the current FM rectangle to any active coincidence strategies as a bbox."""
@@ -1893,6 +1934,19 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET
             )
 
+    def _on_pause_milling_action(self):
+        """Pause/resume milling from the pause menu, toggling the action label."""
+        if self.milling_viewer_widget is not None:
+            self.milling_viewer_widget.milling_widget.pause_resume_milling()
+        self._milling_paused = not self._milling_paused
+        self._act_pause_milling.setText(
+            "Resume Milling" if self._milling_paused else "Pause Milling"
+        )
+
+    def _on_pause_acquisition_action(self):
+        """Pause/resume FM acquisition from the pause menu."""
+        self._toggle_fm_acquisition_pause()
+
     def _toggle_fm_acquisition_pause(self):
         """Pause or resume FM acquisition during milling."""
         if self.microscope is None or self.microscope.fm is None:
@@ -1900,16 +1954,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         fm = self.microscope.fm
         if fm.is_acquiring:
             fm.stop_acquisition()
-            self.btn_pause_acquisition.setText("Resume Acquisition")
-            self.btn_pause_acquisition.setStyleSheet(
-                stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET
-            )
+            self._act_pause_acquisition.setText("Resume Acquisition")
         else:
             fm.start_acquisition()
-            self.btn_pause_acquisition.setText("Pause Acquisition")
-            self.btn_pause_acquisition.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
-            )
+            self._act_pause_acquisition.setText("Pause Acquisition")
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single FM parameter live during acquisition (mirrors FMControlWidget)."""
@@ -2056,8 +2104,19 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 fibsem_icon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
-            self.btn_pause_milling.setVisible(True)
-            self.btn_pause_acquisition.setVisible(True)
+            # reveal the run-time controls (hidden until milling starts)
+            self.btn_pause.setVisible(True)
+            self.btn_supervised.setVisible(True)
+            self.spin_drop_threshold.setVisible(True)
+            self._milling_paused = False
+            self._act_pause_milling.setText("Pause Milling")
+            self._act_pause_acquisition.setText("Pause Acquisition")
+            # show the intensity-drop chip in a neutral state while monitoring
+            self.label_threshold_chip.setText("Intensity Drop: 0%")
+            self.label_threshold_chip.setStyleSheet(
+                stylesheets.SECONDARY_BUTTON_STYLESHEET
+            )
+            self.label_threshold_chip.setVisible(True)
 
         elif state == "update":
             remaining = progress_info.get("remaining_time")
@@ -2092,12 +2151,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
-        self.btn_pause_milling.setVisible(False)
-        self.btn_pause_acquisition.setVisible(False)
-        self.btn_pause_acquisition.setText("Pause Acquisition")
-        self.btn_pause_acquisition.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
+        # hide the run-time-only controls again
+        self.btn_pause.setVisible(False)
+        self.btn_supervised.setVisible(False)
+        self.spin_drop_threshold.setVisible(False)
         self._is_milling_active = False
         self._set_widgets_enabled(True)
         self.label_threshold_chip.setVisible(False)
