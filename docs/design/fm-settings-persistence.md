@@ -1,6 +1,6 @@
 # FM & Coincidence Settings Persistence
 
-Status: **draft / in progress**
+Status: **implemented** (all phases landed; camera transform kept per-preset, milling default kept separate, main-UI auto-saves the working state on change + close)
 Owner: Patrick
 Feedback items addressed: **#11** (load FM settings + restore channels in the coincidence viewer), **#12** (persist camera transform between restarts), **#13b** (reload FM + milling params after closing the viewer).
 
