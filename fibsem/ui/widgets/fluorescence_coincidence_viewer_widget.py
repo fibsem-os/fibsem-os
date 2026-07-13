@@ -2391,27 +2391,28 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def open_coincidence_viewer_dialog(microscope, experiment, viewer=None, parent=None):
-    """Open FluorescenceCoincidenceViewerWidget in a non-modal QDialog.
+def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=None):
+    """Open FluorescenceCoincidenceViewerWidget as a non-modal top-level window.
 
-    Returns the dialog (caller should keep a reference to prevent GC).
+    A plain top-level widget (not a QDialog): it never blocks, gets native
+    minimize/maximize/close on all platforms, and does not close on Esc — so the
+    operator can minimize it instead of closing (which would lose the FM setup).
+    ``parent`` is accepted for call-site compatibility but intentionally unused,
+    so the window is fully independent (minimizes on its own).
+
+    Returns the widget (caller should keep a reference to prevent GC).
     """
-    from PyQt5.QtWidgets import QDialog, QVBoxLayout
-
-    dlg = QDialog(parent)
-    dlg.setWindowTitle("Coincidence Milling Viewer")
-    dlg.setWindowFlags(dlg.windowFlags() | Qt.Window)  # type: ignore[attr-defined]
-    dlg.resize(1400, 800)
-
     widget = FluorescenceCoincidenceViewerWidget(
-        microscope=microscope, experiment=experiment, viewer=viewer, parent=dlg
+        microscope=microscope, experiment=experiment, viewer=viewer, parent=None
     )
-    layout = QVBoxLayout(dlg)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(widget)
+    widget.setWindowTitle("Coincidence Milling Viewer")
+    widget.resize(1400, 800)
+    widget.show()
+    return widget
 
-    dlg.show()
-    return dlg
+
+# Backwards-compatible alias (previously a QDialog)
+open_coincidence_viewer_dialog = open_coincidence_viewer_window
 
 
 # ---------------------------------------------------------------------------
