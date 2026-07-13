@@ -983,6 +983,30 @@ class FMControlWidget(QWidget):
         except Exception as e:
             logging.error(f"Failed to load FM configuration: {e}")
 
+    def _build_fluorescence_configuration(self) -> FluorescenceConfiguration:
+        """Build a complete FluorescenceConfiguration from the current UI settings."""
+        settings = self._get_current_settings()
+        return FluorescenceConfiguration(
+            channel_settings=settings["channel_settings"],
+            z_parameters=settings["z_parameters"],
+            overview_parameters=OverviewParameters(),
+            autofocus_settings=AutoFocusSettings(),
+            camera_settings=settings["camera_settings"],
+            focus_position=self.fm.objective.focus_position,
+            limit_position=self.fm.objective.limit_position,
+            default_orientation=self.fm.default_orientation,
+        )
+
+    def save_working_state(self) -> None:
+        """Persist the current FM configuration as the auto-loaded working state."""
+        if self.microscope.fm is None:
+            return
+        from fibsem.fm.config import save_fm_working_state
+        try:
+            save_fm_working_state(self._build_fluorescence_configuration())
+        except Exception as e:
+            logging.warning(f"Could not save FM working state: {e}")
+
     def _apply_fluorescence_configuration(self, config: FluorescenceConfiguration):
         """Apply a FluorescenceConfiguration to the widget settings."""
         self.channelSettingsWidget.channel_settings = config.channel_settings
@@ -1008,23 +1032,8 @@ class FMControlWidget(QWidget):
             if not filename:
                 return
 
-            # Gather current settings from UI
-            settings = self._get_current_settings()
-
-            # Create FM configuration (incl. camera transform + objective limit position)
-            fm_config = FluorescenceConfiguration(
-                channel_settings=settings["channel_settings"],
-                z_parameters=settings["z_parameters"],
-                overview_parameters=OverviewParameters(),
-                autofocus_settings=AutoFocusSettings(),
-                camera_settings=settings["camera_settings"],
-                focus_position=self.fm.objective.focus_position,
-                limit_position=self.fm.objective.limit_position,
-                default_orientation=self.fm.default_orientation,
-            )
-
-            # Export configuration
-            fm_config.export(filename)
+            # Export configuration (incl. camera transform + objective limit position)
+            self._build_fluorescence_configuration().export(filename)
 
             QMessageBox.information(
                 self,
