@@ -1080,10 +1080,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
         DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.config.save_rate_limit = 0.0
 
+        # reopen with the last-used milling config, else the default
+        milling_task_config = self._load_milling_config() or DEFAULT_MILLING_TASK_CONFIG
+
         self.milling_viewer_widget = MillingTaskViewerWidget(
             microscope=self.microscope,
             viewer=self.viewer,
-            milling_task_config=DEFAULT_MILLING_TASK_CONFIG,
+            milling_task_config=milling_task_config,
             milling_enabled=False,
             parent=self,
         )
@@ -1231,10 +1234,41 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 
+    def _load_milling_config(self):
+        """Load the last-used coincidence milling config, or None."""
+        import os
+        from fibsem import config as cfg
+        from fibsem.milling.tasks import FibsemMillingTaskConfig
+        from fibsem.utils import load_yaml
+        if not os.path.exists(cfg.COINCIDENCE_MILLING_CONFIG_PATH):
+            return None
+        try:
+            return FibsemMillingTaskConfig.from_dict(
+                load_yaml(cfg.COINCIDENCE_MILLING_CONFIG_PATH)
+            )
+        except Exception as e:
+            logging.warning(f"Could not load coincidence milling config: {e}")
+            return None
+
+    def _save_milling_config(self) -> None:
+        """Persist the current coincidence milling config."""
+        if self.milling_viewer_widget is None:
+            return
+        from fibsem import config as cfg
+        from fibsem.utils import save_yaml
+        try:
+            save_yaml(
+                cfg.COINCIDENCE_MILLING_CONFIG_PATH,
+                self.milling_viewer_widget.get_config().to_dict(),
+            )
+        except Exception as e:
+            logging.warning(f"Could not save coincidence milling config: {e}")
+
     def closeEvent(self, event):  # noqa: N802 (Qt override)
-        """Persist the FM working state when the window closes."""
+        """Persist the FM working state + milling config when the window closes."""
         if self.microscope is not None and self.microscope.fm is not None:
             self._save_fm_working_state()
+        self._save_milling_config()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
