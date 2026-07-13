@@ -139,7 +139,7 @@ class LinePlotWidget(QWidget):
         self._btn_reset_zoom = _obtn("mdi:fit-to-screen-outline", "Reset zoom / snap to live")
         self._btn_reset_zoom.clicked.connect(self._reset_view)
 
-        self.reset_button = _obtn("mdi:trash-can-outline", "Reset chart (clear data)")
+        self.reset_button = _obtn("mdi:refresh", "Reset chart (clear data)")
         self.reset_button.clicked.connect(self.reset_chart)
 
         self.xaxis_button = _obtn("mdi:clock-outline", "Toggle X axis: Time / Sample index")
