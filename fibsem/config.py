@@ -82,8 +82,6 @@ MICROSCOPE_CONFIGURATION_PATH = os.path.join(
 )
 # fluorescence settings persistence (see docs/design/fm-settings-persistence.md)
 FM_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "fm-configuration.yaml")  # working state
-FM_CONFIGURATIONS_DIR = os.path.join(CONFIG_PATH, "fm-configurations")      # named preset library
-FM_CONFIGURATIONS_PATH = os.path.join(CONFIG_PATH, "fm-configurations.yaml")  # preset registry
 COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(CONFIG_PATH, "coincidence-milling-config.yaml")  # milling default
 SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "sample-holder.yaml"

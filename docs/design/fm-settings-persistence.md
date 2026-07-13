@@ -1,6 +1,12 @@
 # FM & Coincidence Settings Persistence
 
-Status: **implemented** (all phases landed; camera transform kept per-preset, milling default kept separate, main-UI auto-saves the working state on change + close)
+Status: **implemented** (all phases landed). **Named FM presets were subsequently
+dropped** — the preset bar was declined in both the main UI and the coincidence
+viewer, so only the auto-managed **working state** + the separate **milling default**
+remain. The working state is auto-saved on change + on close (main UI) / on close
+(viewer) and re-applied on startup; the viewer also seeds from the live main-UI FM
+config. Sections below describing the preset library/registry are retained for
+historical context only.
 Owner: Patrick
 Feedback items addressed: **#11** (load FM settings + restore channels in the coincidence viewer), **#12** (persist camera transform between restarts), **#13b** (reload FM + milling params after closing the viewer).
 

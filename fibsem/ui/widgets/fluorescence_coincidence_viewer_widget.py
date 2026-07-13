@@ -1206,13 +1206,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _seed_fm_configuration(self) -> None:
         """On open, apply the FM config: the live main-UI config if provided,
-        else the last-used working state / default preset as a fallback."""
-        from fibsem.fm.config import get_default_fm_preset, load_fm_working_state
-        config = (
-            self._seed_fm_config
-            or load_fm_working_state()
-            or get_default_fm_preset()
-        )
+        else the last-used working state as a fallback."""
+        from fibsem.fm.config import load_fm_working_state
+        config = self._seed_fm_config or load_fm_working_state()
         if config is not None:
             try:
                 self._apply_fm_configuration(config)
