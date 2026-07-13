@@ -1093,6 +1093,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.milling_viewer_widget.set_parameters_visible(False)
         self.milling_viewer_widget.set_alignment_visible(False)
         self.milling_viewer_widget.set_acquisition_visible(False)
+
+        # Debounced auto-save of the milling config on any change. The viewer is
+        # usually minimized (not closed) for the session, so the closeEvent save
+        # alone could go unsaved for hours and be lost on a force-kill.
+        # Connected after construction so the initial load doesn't trigger a save.
+        from superqt.utils import qdebounced
+        self._autosave_milling_config = qdebounced(self._save_milling_config, timeout=1000)
+        self.milling_viewer_widget.settings_changed.connect(
+            lambda *_: self._autosave_milling_config()
+        )
         return self.milling_viewer_widget
 
     def _build_fm_tab(self) -> QWidget:
