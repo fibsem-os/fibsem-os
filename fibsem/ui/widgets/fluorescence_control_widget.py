@@ -990,7 +990,7 @@ class FMControlWidget(QWidget):
             channel_settings=settings["channel_settings"],
             z_parameters=settings["z_parameters"],
             overview_parameters=OverviewParameters(),
-            autofocus_settings=AutoFocusSettings(),
+            autofocus_settings=settings["autofocus_settings"],
             camera_settings=settings["camera_settings"],
             focus_position=self.fm.objective.focus_position,
             limit_position=self.fm.objective.limit_position,
@@ -1012,6 +1012,8 @@ class FMControlWidget(QWidget):
         self.channelSettingsWidget.channel_settings = config.channel_settings
         self.zParametersWidget.z_parameters = config.z_parameters
         self.cameraWidget.camera_settings = config.camera_settings
+        if config.autofocus_settings is not None:
+            self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
         if config.focus_position is not None:
             self.objectiveControlWidget._set_focus_position(config.focus_position)
         if config.limit_position:
