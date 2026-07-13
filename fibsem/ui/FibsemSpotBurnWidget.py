@@ -226,6 +226,10 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
                        parent_ui=self,
                        stop_event=self.stop_event)
 
+        # acquire a post-burn fib image and update the view
+        image = microscope.acquire_image(beam_type=BeamType.ION)
+        microscope.fib_acquisition_signal.emit(image)
+
     def spot_burn_finished(self, result):
         """Called when the spot burn is finished."""
         self.pushButton_run_spot_burn.clicked.disconnect()
