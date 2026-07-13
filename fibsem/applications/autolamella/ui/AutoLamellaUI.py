@@ -888,10 +888,10 @@ class AutoLamellaUI(QMainWindow):
             )
             return
         from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
-            open_coincidence_viewer_dialog,
+            open_coincidence_viewer_window,
         )
 
-        self._coincidence_viewer_dialog = open_coincidence_viewer_dialog(
+        self._coincidence_viewer_window = open_coincidence_viewer_window(
             microscope=self.microscope,
             experiment=self.experiment,
             parent=self,
