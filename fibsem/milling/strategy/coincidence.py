@@ -107,7 +107,10 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
             "tooltip": "Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
         },
     )
-    bbox: Optional[FibsemRectangle] = None  # reduced area for monitoring
+    bbox: Optional[FibsemRectangle] = field(
+        default=None,
+        metadata={"hidden": True},  # runtime state, not a form control
+    )  # reduced area for monitoring
     # oscillation parameters
 
 
