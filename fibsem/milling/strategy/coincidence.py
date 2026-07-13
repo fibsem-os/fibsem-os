@@ -106,9 +106,19 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
-        metadata={"hidden": True},  # runtime state, not a form control
-    )  # reduced area for monitoring
+        metadata={"hidden": True},  # set interactively via the FM ROI, not a form control
+    )  # reduced area for intensity monitoring
     # oscillation parameters
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CoincidenceMillingStrategyConfig":
+        # asdict() flattens bbox to a plain dict; reconstruct it back into a
+        # FibsemRectangle so config.bbox is a usable object after a round-trip.
+        d = dict(d)
+        bbox = d.get("bbox")
+        if bbox is not None and not isinstance(bbox, FibsemRectangle):
+            d["bbox"] = FibsemRectangle.from_dict(bbox)
+        return cls(**d)
 
 
 # ASSUMPTIONS:
