@@ -25,6 +25,7 @@ and two progress bars driven by ``microscope.milling_progress_signal``.
 import datetime
 import logging
 import math
+import os
 import time
 import threading
 from collections import deque
@@ -78,6 +79,9 @@ if TYPE_CHECKING:
 
 _BG = "#262930"
 _HEADER_BG = "#1e2124"
+
+# name used for the coincidence entry in the lamella review panel / task history
+COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
 
 COINCIDENCE_BORDER_STYLESHEET = """
     QFrame#coincidence_border_frame[borderState="idle"]       { border: 4px solid #262930; }
@@ -836,6 +840,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.viewer = viewer
         self._selected_lamella: Optional["Lamella"] = None
         self._active_strategies: list["CoincidenceMillingStrategy"] = []
+        self._latest_fib_image: Optional["FibsemImage"] = None
         self.selected_view: int = 0  # 0 = FM, 1 = FIB
 
         # Timelapse accumulation state
@@ -2158,7 +2163,51 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._is_milling_active = False
         self._set_widgets_enabled(True)
         self.label_threshold_chip.setVisible(False)
+        self._record_coincidence_result()
         self.milling_finished_signal.emit()
+
+    def _record_coincidence_result(self) -> None:
+        """Record the latest coincidence run against the selected lamella.
+
+        Saves the post-milling FIB with the review-panel naming (overwriting, so
+        the panel shows the latest) and appends a 'Coincidence Milling' entry to
+        the lamella's task history so the Review tab picks it up. Every run is
+        recorded (the panel dedups by name); per-run images stay archived in the
+        strategy's own coincidence-images folders.
+        """
+        lamella = self._selected_lamella
+        image = self._latest_fib_image
+        if lamella is None or self.experiment is None or image is None:
+            return
+        from fibsem.applications.autolamella.structures import (
+            AutoLamellaTaskState,
+            AutoLamellaTaskStatus,
+        )
+
+        try:
+            filename = os.path.join(
+                lamella.path,
+                f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
+            )
+            image.save(filename)
+
+            now = datetime.datetime.now().timestamp()
+            lamella.task_history.append(
+                AutoLamellaTaskState(
+                    name=COINCIDENCE_REVIEW_TASK_NAME,
+                    task_type="MILL_COINCIDENT",
+                    lamella_id=lamella._id,
+                    end_timestamp=now,
+                    status=AutoLamellaTaskStatus.Completed,
+                    status_message="Coincidence milling (recorded from viewer)",
+                )
+            )
+            self.experiment.save()
+            notification_service.show_toast(
+                f"Recorded coincidence result for {lamella.name}.", "info"
+            )
+        except Exception as e:
+            logging.error(f"Failed to record coincidence result: {e}", exc_info=e)
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -2360,6 +2409,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def set_fib_image(self, image: FibsemImage):
         """Display a FIB image in the FIB canvas."""
+        self._latest_fib_image = image  # remember the latest for review recording
         self.fib_canvas.set_image(image)
         if self.milling_viewer_widget is not None:
             self.milling_viewer_widget._fib_image = image
