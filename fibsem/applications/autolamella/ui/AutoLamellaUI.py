@@ -346,6 +346,9 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.apply_objective_to_all_requested.connect(
             self._apply_objective_position_to_all
         )
+        self.selected_lamella_widget.move_objective_requested.connect(
+            self._move_objective_to_lamella_position
+        )
         self.selected_lamella_widget.pose_update_requested.connect(
             self._set_current_position_as_pose
         )
@@ -1513,6 +1516,57 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
         )
+
+    def _move_objective_to_lamella_position(self):
+        """Move the FM objective to the selected lamella's stored objective position.
+
+        Independent of the stage move-to: this only drives the objective.
+        """
+        if self.microscope is None or self.microscope.fm is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self.get_selected_lamella()
+        if lamella is None or lamella.fluorescence_pose is None:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        objective_position = lamella.fluorescence_pose.objective_position
+        if objective_position is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no stored objective position.", "warning"
+            )
+            return
+        obj = self.microscope.fm.objective
+        if obj.state != "Inserted":
+            notification_service.show_toast(
+                "Insert the objective before moving to a stored position.", "warning"
+            )
+            return
+
+        # confirmation dialog
+        ret = QMessageBox.question(
+            self,
+            "Move Objective",
+            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+            f"for {lamella.name}?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+
+        try:
+            logging.info(
+                f"Moving objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+                f"for {lamella.name}."
+            )
+            obj.move_absolute(objective_position)
+            notification_service.show_toast(
+                f"Moved objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+                f"for {lamella.name}.",
+                "info",
+            )
+        except Exception as e:
+            logging.error(f"Failed to move objective: {e}", exc_info=e)
+            notification_service.show_toast(f"Failed to move objective: {e}", "warning")
 
     def update_lamella_objective_position(self, value: float):
         """Update the objective position of the current lamella."""
