@@ -150,6 +150,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
     name: str = "CoincidenceMilling"
     fullname: str = "Coincidence Fluorescence Milling Strategy"
     config_class = CoincidenceMillingStrategyConfig
+    # driven from the coincidence viewer, not offered in the generic selectors
+    selectable: bool = False
     cropped_image_signal = Signal(dict)
     intensity_stats_signal = Signal(
         dict
