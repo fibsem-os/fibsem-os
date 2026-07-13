@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import time
 
@@ -1665,6 +1666,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
+        # persist the FM working state (channels / camera transform / objective)
+        if self.autolamella_ui is not None and self.autolamella_ui.fm_control_widget is not None:
+            try:
+                self.autolamella_ui.fm_control_widget.save_working_state()
+            except Exception as e:
+                logging.warning(f"Could not save FM working state on close: {e}")
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service
