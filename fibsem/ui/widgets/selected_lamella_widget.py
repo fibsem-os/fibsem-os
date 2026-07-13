@@ -34,6 +34,7 @@ class SelectedLamellaWidget(QWidget):
     objective_position_changed = pyqtSignal(float)     # value in µm
     use_current_objective_requested = pyqtSignal()
     apply_objective_to_all_requested = pyqtSignal()
+    move_objective_requested = pyqtSignal()            # move objective to stored position
     pose_update_requested = pyqtSignal(str)            # pose name
     pose_move_to_requested = pyqtSignal(str)           # pose name
 
@@ -53,6 +54,10 @@ class SelectedLamellaWidget(QWidget):
             "QToolButton::menu-indicator { image: none; }"
         )
         obj_menu = QMenu(self)
+        self._action_move_to_obj_pos = obj_menu.addAction(
+            "Move Objective to Position"
+        )
+        obj_menu.addSeparator()
         self._action_use_current_obj_pos = obj_menu.addAction(
             "Use Current Objective Position"
         )
@@ -87,6 +92,9 @@ class SelectedLamellaWidget(QWidget):
         # --- wire internal widgets to public signals ---
         self.spinbox_objective_position.valueChanged.connect(
             self.objective_position_changed
+        )
+        self._action_move_to_obj_pos.triggered.connect(
+            self.move_objective_requested
         )
         self._action_use_current_obj_pos.triggered.connect(
             self.use_current_objective_requested
