@@ -28,6 +28,9 @@ class FibsemMillingWidget2(QWidget):
     """
 
     start_milling_signal = pyqtSignal()
+    # fires once, unconditionally, when the milling task is fully complete
+    # (after strategy.run(), finish_milling, and any post-task acquisition)
+    milling_completed_signal = pyqtSignal()
 
     def __init__(
         self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget2"
@@ -201,6 +204,8 @@ class FibsemMillingWidget2(QWidget):
         finally:
             self._milling_thread = None
             self._update_button_states()
+            # signal true completion (runs after the task's own finish/post-acquisition)
+            self.milling_completed_signal.emit()
 
     def stop_milling(self):
         if self.is_milling:
