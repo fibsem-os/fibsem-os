@@ -92,6 +92,9 @@ class FMControlWidget(QWidget):
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
+        # guards the debounced working-state autosave while applying a config
+        self._loading_config = False
+
         self.initUI()
         self.connect_signals()
         self._update_acquisition_button_states()
@@ -286,6 +289,24 @@ class FMControlWidget(QWidget):
         # live parameter updates from channel list
         self.channelSettingsWidget.channel_field_changed.connect(
             self._on_channel_field_changed
+        )
+
+        # Debounced auto-save of the FM working state on any settings change, so
+        # edits persist even if the app is force-killed before closeEvent runs.
+        from superqt.utils import qdebounced
+        self._autosave_working_state = qdebounced(self.save_working_state, timeout=1000)
+        self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.comboBox_default_orientation.currentTextChanged.connect(
+            self._on_fm_settings_changed
+        )
+        self.objectiveControlWidget.doubleSpinBox_focus_position.valueChanged.connect(
+            self._on_fm_settings_changed
+        )
+        self.objectiveControlWidget.doubleSpinBox_objective_limit.valueChanged.connect(
+            self._on_fm_settings_changed
         )
 
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
@@ -1007,18 +1028,28 @@ class FMControlWidget(QWidget):
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 
+    def _on_fm_settings_changed(self, *args) -> None:
+        """Trigger a debounced working-state save when an FM setting changes."""
+        if self._loading_config:
+            return
+        self._autosave_working_state()
+
     def _apply_fluorescence_configuration(self, config: FluorescenceConfiguration):
         """Apply a FluorescenceConfiguration to the widget settings."""
-        self.channelSettingsWidget.channel_settings = config.channel_settings
-        self.zParametersWidget.z_parameters = config.z_parameters
-        self.cameraWidget.camera_settings = config.camera_settings
-        if config.autofocus_settings is not None:
-            self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
-        if config.focus_position is not None:
-            self.objectiveControlWidget._set_focus_position(config.focus_position)
-        if config.limit_position:
-            self.objectiveControlWidget._set_limit_position(config.limit_position)
-        self.comboBox_default_orientation.setCurrentText(config.default_orientation)
+        self._loading_config = True
+        try:
+            self.channelSettingsWidget.channel_settings = config.channel_settings
+            self.zParametersWidget.z_parameters = config.z_parameters
+            self.cameraWidget.camera_settings = config.camera_settings
+            if config.autofocus_settings is not None:
+                self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
+            if config.focus_position is not None:
+                self.objectiveControlWidget._set_focus_position(config.focus_position)
+            if config.limit_position:
+                self.objectiveControlWidget._set_limit_position(config.limit_position)
+            self.comboBox_default_orientation.setCurrentText(config.default_orientation)
+        finally:
+            self._loading_config = False
 
     def save_fm_configuration(self):
         """Save current FM configuration to a YAML file."""
