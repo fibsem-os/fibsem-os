@@ -1011,7 +1011,7 @@ class FMControlWidget(QWidget):
             # Gather current settings from UI
             settings = self._get_current_settings()
 
-            # Create FM configuration
+            # Create FM configuration (incl. camera transform + objective limit position)
             fm_config = FluorescenceConfiguration(
                 channel_settings=settings["channel_settings"],
                 z_parameters=settings["z_parameters"],
@@ -1019,6 +1019,7 @@ class FMControlWidget(QWidget):
                 autofocus_settings=AutoFocusSettings(),
                 camera_settings=settings["camera_settings"],
                 focus_position=self.fm.objective.focus_position,
+                limit_position=self.fm.objective.limit_position,
                 default_orientation=self.fm.default_orientation,
             )
 
