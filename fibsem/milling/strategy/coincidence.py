@@ -26,9 +26,6 @@ from fibsem.microscopes.simulator import DemoMicroscope
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
-    from fibsem.ui.widgets.fluorescence_coincidence_widget import (
-        FluorescenceCoincidenceMillingWidget,
-    )
 
 
 @dataclass
@@ -358,15 +355,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 break
 
             # TODO: support pause behaviour... just keep fm acq, pause milling
-
-            # QUERY: should this just be simplified to emit the image, and then have the gui handle the rest?
-            # current thought: no, it will make it much harder to migrate to automated version...
-            try:
-                bbox = self.get_bounding_box()
-                if bbox is not None:
-                    self.config.bbox = bbox
-            except Exception as e:
-                logging.error(f"Error getting bounding box from UI: {e}", exc_info=True)
+            # NOTE: the bbox is pushed to self.config.bbox by the viewer via
+            # _on_bbox_update as the FM ROI rectangle changes.
 
             # update milling progress via signal
             remaining_time = max(0.0, max_end_time - time.time())
@@ -389,21 +379,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 break
 
             continue
-
-    @property
-    def _coincidence_widget(self) -> Optional["FluorescenceCoincidenceMillingWidget"]:
-        try:
-            return self.parent_ui.parent_widget.parent_widget.coincidence_milling_widget  # type: ignore
-        except AttributeError:
-            return None
-
-    def get_bounding_box(self) -> Optional[FibsemRectangle]:
-        """Get the current bounding box from the UI."""
-        try:
-            bbox = self._coincidence_widget.get_bounding_box()  # type: ignore
-        except AttributeError:
-            bbox = None
-        return bbox
 
     def _save_intensities(self):
         if self.path is None:
@@ -479,11 +454,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # save intensities and timestamps
         self.intensities.append(mean_intensity)
         self.timestamps.append(time.time())
-
-        try:
-            self._coincidence_widget.update_line_plot_signal.emit(mean_intensity)  # type: ignore
-        except AttributeError:
-            pass
 
         # --- rolling stats ---
         n = int(self.config.rolling_window)

@@ -1043,9 +1043,35 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return self._placeholder("No microscope connected")
 
         from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-        from fibsem.ui.widgets.fluorescence_coincidence_widget import (
-            milling_task_config as DEFAULT_MILLING_TASK_CONFIG,
+        from fibsem.milling.base import FibsemMillingSettings, FibsemMillingStage
+        from fibsem.milling.patterning import RectanglePattern
+        from fibsem.milling.tasks import FibsemMillingTaskConfig
+        from fibsem.structures import CrossSectionPattern
+
+        # Default coincidence milling task config (previously defined in the
+        # removed fluorescence_coincidence_widget module).
+        DEFAULT_MILLING_TASK_CONFIG = FibsemMillingTaskConfig(
+            name="Coincidence Milling Task",
+            field_of_view=100e-6,
+            stages=[
+                FibsemMillingStage(
+                    name="Coincidence Milling Stage",
+                    milling=FibsemMillingSettings(hfw=100e-6, milling_current=0.1e-9),
+                    pattern=RectanglePattern(
+                        depth=2.0e-6,
+                        width=5e-6,
+                        height=8e-6,
+                        scan_direction="BottomToTop",
+                        cross_section=CrossSectionPattern.CleaningCrossSection,
+                    ),
+                    strategy=CoincidenceMillingStrategy(),
+                )
+            ],
         )
+        DEFAULT_MILLING_TASK_CONFIG.alignment.enabled = False
+        DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_fib = False
+        DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
+        DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.config.save_rate_limit = 0.0
 
         self.milling_viewer_widget = MillingTaskViewerWidget(
             microscope=self.microscope,
