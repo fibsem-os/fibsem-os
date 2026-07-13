@@ -1105,7 +1105,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             FluorescenceMultiChannelWidget,
             ObjectiveControlWidget,
         )
-        from fibsem.ui.fm.widgets.fm_preset_bar import FMPresetBar
 
         fm = self.microscope.fm
 
@@ -1113,12 +1112,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
-
-        # Preset bar (load/save named FM configurations)
-        self.fm_preset_bar = FMPresetBar()
-        self.fm_preset_bar.set_config_provider(self._read_fm_configuration)
-        self.fm_preset_bar.configuration_loaded.connect(self._apply_fm_configuration)
-        layout.addWidget(self.fm_preset_bar)
 
         # Objective control
         from fibsem.ui.widgets.custom_widgets import IconToolButton
