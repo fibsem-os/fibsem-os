@@ -47,6 +47,7 @@ class FibsemStrategySettingsWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
         self._build_controls(strategy)
+        self._apply_strategy_type_selector(strategy)
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -77,6 +78,23 @@ class FibsemStrategySettingsWidget(QWidget):
 
     def _connect_signals(self) -> None:
         self._type_combo.currentIndexChanged.connect(self._on_type_changed)
+
+    def _apply_strategy_type_selector(self, strategy: MillingStrategy[Any]) -> None:
+        """Populate the strategy-type selector for *strategy*.
+
+        Strategies absent from the selectable registry (e.g. Coincidence, which is
+        special and FM-bound) are locked: show only that strategy and disable
+        switching. Normal builtins show the full list and stay switchable.
+        """
+        names = get_strategy_names()
+        locked = strategy.name not in names
+        self._type_combo.blockSignals(True)
+        self._type_combo.clear()
+        for name in ([strategy.name] if locked else names):
+            self._type_combo.addItem(name, name)
+        self._type_combo.set_value(strategy.name)
+        self._type_combo.blockSignals(False)
+        self._type_combo.setEnabled(not locked)
 
     # ------------------------------------------------------------------
     # Control building
@@ -210,11 +228,9 @@ class FibsemStrategySettingsWidget(QWidget):
     def set_strategy(self, strategy: MillingStrategy[Any]) -> None:
         type_changed = strategy.name != self._strategy.name
         self._strategy = strategy
+        self._apply_strategy_type_selector(strategy)
 
         if type_changed:
-            self._type_combo.blockSignals(True)
-            self._type_combo.set_value(strategy.name)
-            self._type_combo.blockSignals(False)
             self._build_controls(strategy)
             return  # _build_controls reads values from strategy.config directly
 
