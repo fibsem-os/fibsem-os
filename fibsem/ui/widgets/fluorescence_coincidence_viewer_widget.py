@@ -833,11 +833,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         experiment: "Experiment",
         viewer=None,
         parent=None,
+        fm_config: Optional["FluorescenceConfiguration"] = None,
     ):
         super().__init__(parent)
         self.microscope = microscope
         self.experiment = experiment
         self.viewer = viewer
+        # optional FM configuration to seed the FM tab (from the live main-UI widget)
+        self._seed_fm_config = fm_config
         self._selected_lamella: Optional["Lamella"] = None
         self._active_strategies: list["CoincidenceMillingStrategy"] = []
         self._latest_fib_image: Optional["FibsemImage"] = None
@@ -1206,9 +1209,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.fm_objective_widget._set_limit_position(config.limit_position)
 
     def _seed_fm_configuration(self) -> None:
-        """On open, apply the last-used FM working state (or default preset)."""
+        """On open, apply the FM config: the live main-UI config if provided,
+        else the last-used working state / default preset as a fallback."""
         from fibsem.fm.config import get_default_fm_preset, load_fm_working_state
-        config = load_fm_working_state() or get_default_fm_preset()
+        config = (
+            self._seed_fm_config
+            or load_fm_working_state()
+            or get_default_fm_preset()
+        )
         if config is not None:
             try:
                 self._apply_fm_configuration(config)
@@ -2533,7 +2541,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=None):
+def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=None, fm_config=None):
     """Open FluorescenceCoincidenceViewerWidget as a non-modal top-level window.
 
     A plain top-level widget (not a QDialog): it never blocks, gets native
@@ -2545,7 +2553,8 @@ def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=N
     Returns the widget (caller should keep a reference to prevent GC).
     """
     widget = FluorescenceCoincidenceViewerWidget(
-        microscope=microscope, experiment=experiment, viewer=viewer, parent=None
+        microscope=microscope, experiment=experiment, viewer=viewer, parent=None,
+        fm_config=fm_config,
     )
     widget.setWindowTitle("Coincidence Milling Viewer")
     widget.resize(1400, 800)
