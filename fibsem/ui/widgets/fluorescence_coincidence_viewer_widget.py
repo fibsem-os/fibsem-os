@@ -860,6 +860,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.set_experiment(experiment)
 
+        # seed the FM tab from the last-used working state / default preset
+        if self.microscope is not None and self.microscope.fm is not None:
+            self._seed_fm_configuration()
+
     # ------------------------------------------------------------------
     # UI setup
     # ------------------------------------------------------------------
@@ -1095,6 +1099,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             FluorescenceMultiChannelWidget,
             ObjectiveControlWidget,
         )
+        from fibsem.ui.fm.widgets.fm_preset_bar import FMPresetBar
 
         fm = self.microscope.fm
 
@@ -1102,6 +1107,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
+
+        # Preset bar (load/save named FM configurations)
+        self.fm_preset_bar = FMPresetBar()
+        self.fm_preset_bar.set_config_provider(self._read_fm_configuration)
+        self.fm_preset_bar.configuration_loaded.connect(self._apply_fm_configuration)
+        layout.addWidget(self.fm_preset_bar)
 
         # Objective control
         from fibsem.ui.widgets.custom_widgets import IconToolButton
@@ -1162,6 +1173,61 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         lbl.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         lbl.setStyleSheet("color: #888; font-style: italic; padding: 16px;")
         return lbl
+
+    # ------------------------------------------------------------------
+    # FM configuration (channels / camera / objective) persistence
+    # ------------------------------------------------------------------
+
+    def _read_fm_configuration(self) -> "FluorescenceConfiguration":
+        """Build a FluorescenceConfiguration from the FM tab's sub-widgets."""
+        from fibsem.fm.structures import (
+            FluorescenceConfiguration,
+            OverviewParameters,
+            ZParameters,
+        )
+        fm = self.microscope.fm
+        return FluorescenceConfiguration(
+            channel_settings=self.fm_channel_widget.channel_settings,
+            z_parameters=ZParameters(),
+            overview_parameters=OverviewParameters(),
+            camera_settings=self.fm_camera_widget.camera_settings,
+            focus_position=fm.objective.focus_position,
+            limit_position=fm.objective.limit_position,
+        )
+
+    def _apply_fm_configuration(self, config: "FluorescenceConfiguration") -> None:
+        """Apply a FluorescenceConfiguration to the FM tab's sub-widgets."""
+        if config.channel_settings:
+            self.fm_channel_widget.channel_settings = config.channel_settings
+        self.fm_camera_widget.camera_settings = config.camera_settings
+        if config.focus_position is not None:
+            self.fm_objective_widget._set_focus_position(config.focus_position)
+        if config.limit_position:
+            self.fm_objective_widget._set_limit_position(config.limit_position)
+
+    def _seed_fm_configuration(self) -> None:
+        """On open, apply the last-used FM working state (or default preset)."""
+        from fibsem.fm.config import get_default_fm_preset, load_fm_working_state
+        config = load_fm_working_state() or get_default_fm_preset()
+        if config is not None:
+            try:
+                self._apply_fm_configuration(config)
+            except Exception as e:
+                logging.warning(f"Could not apply saved FM configuration: {e}")
+
+    def _save_fm_working_state(self) -> None:
+        """Persist the current FM configuration as the working state."""
+        from fibsem.fm.config import save_fm_working_state
+        try:
+            save_fm_working_state(self._read_fm_configuration())
+        except Exception as e:
+            logging.warning(f"Could not save FM working state: {e}")
+
+    def closeEvent(self, event):  # noqa: N802 (Qt override)
+        """Persist the FM working state when the window closes."""
+        if self.microscope is not None and self.microscope.fm is not None:
+            self._save_fm_working_state()
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Bottom bar
