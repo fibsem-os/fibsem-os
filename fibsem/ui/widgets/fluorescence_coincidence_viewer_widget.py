@@ -36,11 +36,14 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAction,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMenuBar,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -876,6 +879,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(4)
 
+        # ── Menu bar: export/load a named coincidence configuration (FM + milling) ──
+        menubar = QMenuBar(self)
+        config_menu = menubar.addMenu("Configuration")
+        act_load = QAction("Load Configuration…", self)
+        act_export = QAction("Export Configuration…", self)
+        act_load.triggered.connect(self._load_configuration)
+        act_export.triggered.connect(self._export_configuration)
+        config_menu.addAction(act_load)
+        config_menu.addAction(act_export)
+        outer.setMenuBar(menubar)
+
         # ── Border frame — wraps splitter content, driven by _set_border_state ──
         self._border_frame = QFrame()
         self._border_frame.setObjectName("coincidence_border_frame")
@@ -1262,6 +1276,73 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
         except Exception as e:
             logging.warning(f"Could not save coincidence milling config: {e}")
+
+    # ------------------------------------------------------------------
+    # Export / load a named coincidence configuration (FM + milling)
+    # ------------------------------------------------------------------
+
+    def _default_config_dir(self) -> str:
+        """Default directory for the export/load dialogs (the experiment path)."""
+        if self.experiment is not None and getattr(self.experiment, "path", None):
+            return self.experiment.path
+        return ""
+
+    def _export_configuration(self) -> None:
+        """Export the current FM + milling configuration to a YAML file."""
+        from fibsem.utils import save_yaml
+        default_path = os.path.join(self._default_config_dir(), "coincidence-configuration.yaml")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Coincidence Configuration", default_path,
+            "YAML files (*.yaml *.yml);;All files (*.*)",
+        )
+        if not filename:
+            return
+
+        data = {}
+        if self.microscope is not None and self.microscope.fm is not None:
+            data["fm"] = self._read_fm_configuration().to_dict()
+        if self.milling_viewer_widget is not None:
+            data["milling"] = self.milling_viewer_widget.get_config().to_dict()
+
+        try:
+            save_yaml(filename, data)
+        except Exception as e:
+            logging.error(f"Failed to export coincidence configuration: {e}")
+            QMessageBox.warning(self, "Export Configuration", f"Failed to export:\n{e}")
+            return
+        QMessageBox.information(
+            self, "Export Configuration", f"Configuration saved to:\n{filename}"
+        )
+
+    def _load_configuration(self) -> None:
+        """Load an FM + milling configuration from a YAML file and apply it."""
+        from fibsem.utils import load_yaml
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Load Coincidence Configuration", self._default_config_dir(),
+            "YAML files (*.yaml *.yml);;All files (*.*)",
+        )
+        if not filename:
+            return
+
+        try:
+            data = load_yaml(filename)
+        except Exception as e:
+            logging.error(f"Failed to read coincidence configuration: {e}")
+            QMessageBox.warning(self, "Load Configuration", f"Failed to read:\n{e}")
+            return
+
+        try:
+            if data.get("fm") is not None and self.microscope is not None and self.microscope.fm is not None:
+                from fibsem.fm.structures import FluorescenceConfiguration
+                self._apply_fm_configuration(FluorescenceConfiguration.from_dict(data["fm"]))
+            if data.get("milling") is not None and self.milling_viewer_widget is not None:
+                from fibsem.milling.tasks import FibsemMillingTaskConfig
+                self.milling_viewer_widget.set_config(
+                    FibsemMillingTaskConfig.from_dict(data["milling"])
+                )
+        except Exception as e:
+            logging.error(f"Failed to apply coincidence configuration: {e}")
+            QMessageBox.warning(self, "Load Configuration", f"Failed to apply:\n{e}")
 
     def closeEvent(self, event):  # noqa: N802 (Qt override)
         """Persist the FM working state + milling config when the window closes."""
