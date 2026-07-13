@@ -80,6 +80,10 @@ MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
 )
+# fluorescence settings persistence (see docs/design/fm-settings-persistence.md)
+FM_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "fm-configuration.yaml")  # working state
+FM_CONFIGURATIONS_DIR = os.path.join(CONFIG_PATH, "fm-configurations")      # named preset library
+FM_CONFIGURATIONS_PATH = os.path.join(CONFIG_PATH, "fm-configurations.yaml")  # preset registry
 SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "sample-holder.yaml"
 )
