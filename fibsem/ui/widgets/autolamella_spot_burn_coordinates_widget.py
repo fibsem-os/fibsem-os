@@ -19,6 +19,10 @@ from napari.layers import Points as NapariPointsLayer
 
 from fibsem.structures import Point
 from fibsem.applications.autolamella.workflows.tasks.tasks import SpotBurnFiducialTaskConfig
+from fibsem.ui.stylesheets import (
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
+)
 
 
 SPOT_BURN_EDITOR_POINTS_LAYER = "spot-burn-coordinates"
@@ -73,6 +77,7 @@ class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
         self.btn_mode_add.setChecked(True)
         self.btn_mode_add.clicked.connect(lambda: self._set_layer_mode("add"))
         self.btn_mode_select.clicked.connect(lambda: self._set_layer_mode("select"))
+        self._update_mode_button_styles("add")
         mode_layout.addWidget(self.btn_mode_add)
         mode_layout.addWidget(self.btn_mode_select)
         layout.addLayout(mode_layout)
@@ -260,9 +265,22 @@ class AutoLamellaSpotBurnCoordinatesWidget(QWidget):
     def _set_layer_mode(self, mode: str):
         """Set the points layer mode and update button state."""
         if self.pts_layer is not None:
+            # napari only routes clicks to the active layer; reclaim it here so the
+            # mode buttons stay usable even after the user clicked another layer.
+            self.viewer.layers.selection.active = self.pts_layer
             self.pts_layer.mode = mode
         self.btn_mode_add.setChecked(mode == "add")
         self.btn_mode_select.setChecked(mode == "select")
+        self._update_mode_button_styles(mode)
+
+    def _update_mode_button_styles(self, mode: str):
+        """Highlight the active mode button with the primary style."""
+        self.btn_mode_add.setStyleSheet(
+            PRIMARY_BUTTON_STYLESHEET if mode == "add" else SECONDARY_BUTTON_STYLESHEET
+        )
+        self.btn_mode_select.setStyleSheet(
+            PRIMARY_BUTTON_STYLESHEET if mode == "select" else SECONDARY_BUTTON_STYLESHEET
+        )
 
     # --- selection sync ---
 
