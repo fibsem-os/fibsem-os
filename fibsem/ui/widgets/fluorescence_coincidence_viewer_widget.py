@@ -1198,7 +1198,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         return lbl
 
     # ------------------------------------------------------------------
-    # FM configuration (channels / camera / objective) persistence
+    # FM configuration persistence
     # ------------------------------------------------------------------
 
     def _read_fm_configuration(self) -> "FluorescenceConfiguration":

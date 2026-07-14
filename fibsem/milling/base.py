@@ -62,8 +62,6 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
     """Abstract base class for different milling strategies"""
     name: str = "Milling Strategy"
     config_class: Type[TMillingStrategyConfig]
-    # whether this strategy is offered in the generic strategy selectors; it is
-    # still resolvable by name for (de)serialisation when False.
     selectable: bool = True
 
     def __init__(self, config: Optional[TMillingStrategyConfig] = None) -> None:

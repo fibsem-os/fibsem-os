@@ -12,8 +12,6 @@ DEFAULT_STRATEGY_NAME = DEFAULT_STRATEGY.name
 BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {
     StandardMillingStrategy.name: StandardMillingStrategy,
     OvertiltTrenchMillingStrategy.name: OvertiltTrenchMillingStrategy,
-    # resolvable for (de)serialisation but hidden from the generic selectors
-    # (selectable = False); driven from the coincidence viewer instead.
     CoincidenceMillingStrategy.name: CoincidenceMillingStrategy,
 }
 REGISTERED_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {}
@@ -25,7 +23,6 @@ def get_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]
 
 
 def get_strategy_names() -> typing.List[str]:
-    # only strategies offered in the generic selectors (excludes e.g. coincidence)
     return [name for name, cls in get_strategies().items() if getattr(cls, "selectable", True)]
 
 
