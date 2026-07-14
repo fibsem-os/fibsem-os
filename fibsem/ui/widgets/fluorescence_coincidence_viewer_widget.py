@@ -866,7 +866,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.set_experiment(experiment)
 
-        # seed the FM tab from the last-used working state / default preset
         if self.microscope is not None and self.microscope.fm is not None:
             self._seed_fm_configuration()
 
@@ -1094,7 +1093,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
         DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.config.save_rate_limit = 0.0
 
-        # reopen with the last-used milling config, else the default
         milling_task_config = self._load_milling_config() or DEFAULT_MILLING_TASK_CONFIG
 
         self.milling_viewer_widget = MillingTaskViewerWidget(
