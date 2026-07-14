@@ -1530,7 +1530,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.milling_viewer_widget is not None:
             # finalize the viewer only when milling is *fully* complete (after the
             # post-stop final image) — the progress "finished" state fires too early
-            self.milling_viewer_widget.milling_widget.milling_completed_signal.connect(
+            self.milling_viewer_widget.milling_widget.finished_milling_signal.connect(
                 self._finalize_milling_ui
             )
             # FIB rect ↔ milling pattern sync
@@ -2352,13 +2352,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # NOTE: no "finished" handling here. The progress "finished" state fires
         # before finish_milling + the post-stop final image, so the viewer is kept
         # frozen until the milling widget reports true completion — see
-        # _finalize_milling_ui (wired to milling_completed_signal).
+        # _finalize_milling_ui (wired to finished_milling_signal).
 
     @ensure_main_thread
     def _finalize_milling_ui(self) -> None:
         """Reset the viewer once milling is fully complete (final image acquired).
 
-        Driven by ``FibsemMillingWidget.milling_completed_signal`` rather than the
+        Driven by ``FibsemMillingWidget.finished_milling_signal`` rather than the
         progress "finished" state, so the stage/controls stay locked until the
         post-stop final image has actually landed.
         """
