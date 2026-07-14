@@ -2,7 +2,7 @@
 
 A single ``fm-configuration.yaml`` holds the live FM config. It is auto-saved on
 change + on close and auto-loaded + applied on startup, so FM settings survive
-restarts. See docs/design/fm-settings-persistence.md.
+restarts.
 """
 
 import logging
