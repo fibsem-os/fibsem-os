@@ -1,7 +1,7 @@
-"""Round-trip for the FM working-state persistence (fibsem/fm/config.py)."""
+"""Round-trip for the FM configuration persistence (fibsem/fm/config.py)."""
 
 import fibsem.config as fibsem_cfg
-from fibsem.fm.config import load_fm_working_state, save_fm_working_state
+from fibsem.fm.config import load_fm_configuration, save_fm_configuration
 from fibsem.fm.structures import (
     CameraImageTransform,
     CameraSettings,
@@ -23,20 +23,20 @@ def _make_config() -> FluorescenceConfiguration:
     )
 
 
-def test_load_working_state_missing_returns_none(tmp_path, monkeypatch):
+def test_load_configuration_missing_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr(
         fibsem_cfg, "FM_CONFIGURATION_PATH", str(tmp_path / "fm-configuration.yaml")
     )
-    assert load_fm_working_state() is None
+    assert load_fm_configuration() is None
 
 
-def test_working_state_roundtrip(tmp_path, monkeypatch):
+def test_configuration_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(
         fibsem_cfg, "FM_CONFIGURATION_PATH", str(tmp_path / "fm-configuration.yaml")
     )
 
-    save_fm_working_state(_make_config())
-    loaded = load_fm_working_state()
+    save_fm_configuration(_make_config())
+    loaded = load_fm_configuration()
 
     assert loaded is not None
     # camera transform + objective limit are the fields the earlier save path dropped

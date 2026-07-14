@@ -1229,19 +1229,19 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _seed_fm_configuration(self) -> None:
         """On open, apply the FM config: the live main-UI config if provided,
         else the last-used working state as a fallback."""
-        from fibsem.fm.config import load_fm_working_state
-        config = self._seed_fm_config or load_fm_working_state()
+        from fibsem.fm.config import load_fm_configuration
+        config = self._seed_fm_config or load_fm_configuration()
         if config is not None:
             try:
                 self._apply_fm_configuration(config)
             except Exception as e:
                 logging.warning(f"Could not apply saved FM configuration: {e}")
 
-    def _save_fm_working_state(self) -> None:
+    def _save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the working state."""
-        from fibsem.fm.config import save_fm_working_state
+        from fibsem.fm.config import save_fm_configuration
         try:
-            save_fm_working_state(self._read_fm_configuration())
+            save_fm_configuration(self._read_fm_configuration())
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 
@@ -1345,7 +1345,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def closeEvent(self, event):  # noqa: N802 (Qt override)
         """Persist the FM working state + milling config when the window closes."""
         if self.microscope is not None and self.microscope.fm is not None:
-            self._save_fm_working_state()
+            self._save_fm_configuration()
         self._save_milling_config()
         super().closeEvent(event)
 

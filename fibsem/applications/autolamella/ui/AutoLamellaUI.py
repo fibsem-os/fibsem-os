@@ -745,7 +745,7 @@ class AutoLamellaUI(QMainWindow):
                 self.image_widget.deleteLater()
                 self.image_widget = None
 
-    def load_fm_configuration(self) -> None:
+    def import_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
         if self.fm_control_widget is None:
             msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
@@ -754,14 +754,14 @@ class AutoLamellaUI(QMainWindow):
             return
 
         try:
-            self.fm_control_widget.load_fm_configuration()
+            self.fm_control_widget.import_fm_configuration()
         except Exception:
             logging.exception("Failed to load FM configuration from AutoLamella UI.")
             notification_service.show_toast(
                 "Failed to load FM configuration. Check logs for details.", "error"
             )
 
-    def save_fm_configuration(self) -> None:
+    def export_fm_configuration(self) -> None:
         """Save the current fluorescence microscope configuration via the control widget."""
         if self.fm_control_widget is None:
             msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
@@ -770,7 +770,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         try:
-            self.fm_control_widget.save_fm_configuration()
+            self.fm_control_widget.export_fm_configuration()
         except Exception:
             logging.exception("Failed to save FM configuration from AutoLamella UI.")
             notification_service.show_toast(

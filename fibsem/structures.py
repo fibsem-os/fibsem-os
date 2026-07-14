@@ -1727,8 +1727,8 @@ class MicroscopeSettings:
             fm_config = FluorescenceConfiguration.load(fm_config_path)
         else:
             # fall back to the auto-persisted FM working state (survives restarts)
-            from fibsem.fm.config import load_fm_working_state
-            fm_config = load_fm_working_state()
+            from fibsem.fm.config import load_fm_configuration
+            fm_config = load_fm_configuration()
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),

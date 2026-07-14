@@ -294,7 +294,7 @@ class FMControlWidget(QWidget):
         # Debounced auto-save of the FM working state on any settings change, so
         # edits persist even if the app is force-killed before closeEvent runs.
         from superqt.utils import qdebounced
-        self._autosave_working_state = qdebounced(self.save_working_state, timeout=1000)
+        self._autosave_fm_configuration = qdebounced(self.save_fm_configuration, timeout=1000)
         self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
@@ -983,7 +983,7 @@ class FMControlWidget(QWidget):
 
         event.accept()
 
-    def load_fm_configuration(self):
+    def import_fm_configuration(self):
         """Load FM configuration from a YAML file."""
         try:
             # Get filename from user
@@ -1018,13 +1018,13 @@ class FMControlWidget(QWidget):
             default_orientation=self.fm.default_orientation,
         )
 
-    def save_working_state(self) -> None:
+    def save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the auto-loaded working state."""
         if self.microscope.fm is None:
             return
-        from fibsem.fm.config import save_fm_working_state
+        from fibsem.fm.config import save_fm_configuration
         try:
-            save_fm_working_state(self._build_fluorescence_configuration())
+            save_fm_configuration(self._build_fluorescence_configuration())
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 
@@ -1032,7 +1032,7 @@ class FMControlWidget(QWidget):
         """Trigger a debounced working-state save when an FM setting changes."""
         if self._loading_config:
             return
-        self._autosave_working_state()
+        self._autosave_fm_configuration()
 
     def _apply_fluorescence_configuration(self, config: FluorescenceConfiguration):
         """Apply a FluorescenceConfiguration to the widget settings."""
@@ -1051,7 +1051,7 @@ class FMControlWidget(QWidget):
         finally:
             self._loading_config = False
 
-    def save_fm_configuration(self):
+    def export_fm_configuration(self):
         """Save current FM configuration to a YAML file."""
         try:
             # Get filename from user

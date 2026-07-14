@@ -2,8 +2,8 @@
 
 Status: **implemented** (all phases landed). **Named FM presets were subsequently
 dropped** — the preset bar was declined in both the main UI and the coincidence
-viewer, so only the auto-managed **working state** + the separate **milling default**
-remain. The working state is auto-saved on change + on close (main UI) / on close
+viewer, so only the auto-managed **configuration** + the separate **milling default**
+remain. The configuration is auto-saved on change + on close (main UI) / on close
 (viewer) and re-applied on startup; the viewer also seeds from the live main-UI FM
 config. Sections below describing the preset library/registry are retained for
 historical context only.
@@ -49,23 +49,23 @@ should survive app restarts but currently does not.
    single default** (not multiplied per preset).
 2. **Camera transform home:** kept **inside each FM preset** (accepting minor duplication;
    no instrument/sample split of `FluorescenceConfiguration`).
-3. **Auto-load:** the viewer/FM widget reopen with the **last-active** preset / working state.
-4. **Auto-save trigger:** working state saved **on close** (+ explicit Save). Not on every change.
+3. **Auto-load:** the viewer/FM widget reopen with the **last-active** preset / configuration.
+4. **Auto-save trigger:** configuration saved **on close** (+ explicit Save). Not on every change.
 
 ## Data model — three artifacts
 
 1. **Named FM preset library** — `fibsem/config/fm-configurations/` (registry mirroring the
    microscope-config registry). Each entry is a full `FluorescenceConfiguration`, named per
    sample. Explicit **Save-as / Save / Delete / Load**.
-2. **Current working state** — `fibsem/config/fm-configuration.yaml`. The live FM config;
+2. **Current configuration** — `fibsem/config/fm-configuration.yaml`. The live FM config;
    **auto-saved on close, auto-loaded + applied on startup**. Loading a preset copies it into
    here; "Save as preset" copies here → the library. This is what makes the camera transform
    survive restarts **without silently overwriting a named preset**.
 3. **Coincidence milling default** — a single persisted `FibsemMillingTaskConfig` (strategy +
    pattern params), separate from FM presets. Loaded into the milling widget on viewer open.
 
-On viewer open: apply working state (FM) + milling default. Selecting a preset copies it into
-the working state and applies it.
+On viewer open: apply configuration (FM) + milling default. Selecting a preset copies it into
+the configuration and applies it.
 
 ### Caveat
 
@@ -98,7 +98,7 @@ Both are correctness bugs that block clean persistence and should land first.
 ## Phased build
 
 1. **Fixes** — the two above (small, self-contained; first commit).
-2. **FM working state + registry** — `FM_CONFIGURATION_PATH` + `fm-configurations/` registry
+2. **FM configuration + registry** — `FM_CONFIGURATION_PATH` + `fm-configurations/` registry
    helpers in `config.py` (mirroring add/remove/set_default_configuration); fallback-load in
    `MicroscopeSettings.from_dict`; auto-save-on-close; apply-on-startup (extend the existing
    `AutoLamellaUI:677` hook).
@@ -111,6 +111,6 @@ Both are correctness bugs that block clean persistence and should land first.
 
 | Item | Satisfied by |
 |---|---|
-| #11 | Preset dropdown applies channels/camera/objective; viewer seeds FM from working state (not a dummy channel). |
-| #12 | Transform lives in the working state (+ presets), auto-persisted on close, re-applied on startup. |
-| #13b | Reopening the viewer restores the last FM working state + milling default. |
+| #11 | Preset dropdown applies channels/camera/objective; viewer seeds FM from configuration (not a dummy channel). |
+| #12 | Transform lives in the configuration (+ presets), auto-persisted on close, re-applied on startup. |
+| #13b | Reopening the viewer restores the last FM configuration + milling default. |
