@@ -1322,22 +1322,28 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if not filename:
             return
 
+        # Parse both halves before applying anything, so a malformed file fails
+        # here (UI untouched) rather than leaving a half-applied configuration.
         try:
             data = load_yaml(filename)
+            fm_config = None
+            if data.get("fm") is not None:
+                from fibsem.fm.structures import FluorescenceConfiguration
+                fm_config = FluorescenceConfiguration.from_dict(data["fm"])
+            milling_config = None
+            if data.get("milling") is not None:
+                from fibsem.milling.tasks import FibsemMillingTaskConfig
+                milling_config = FibsemMillingTaskConfig.from_dict(data["milling"])
         except Exception as e:
             logging.error(f"Failed to read coincidence configuration: {e}")
             QMessageBox.warning(self, "Load Configuration", f"Failed to read:\n{e}")
             return
 
         try:
-            if data.get("fm") is not None and self.microscope is not None and self.microscope.fm is not None:
-                from fibsem.fm.structures import FluorescenceConfiguration
-                self._apply_fm_configuration(FluorescenceConfiguration.from_dict(data["fm"]))
-            if data.get("milling") is not None and self.milling_viewer_widget is not None:
-                from fibsem.milling.tasks import FibsemMillingTaskConfig
-                self.milling_viewer_widget.set_config(
-                    FibsemMillingTaskConfig.from_dict(data["milling"])
-                )
+            if fm_config is not None and self.microscope is not None and self.microscope.fm is not None:
+                self._apply_fm_configuration(fm_config)
+            if milling_config is not None and self.milling_viewer_widget is not None:
+                self.milling_viewer_widget.set_config(milling_config)
         except Exception as e:
             logging.error(f"Failed to apply coincidence configuration: {e}")
             QMessageBox.warning(self, "Load Configuration", f"Failed to apply:\n{e}")
