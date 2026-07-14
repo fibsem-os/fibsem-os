@@ -1547,8 +1547,8 @@ class CorrelationTabWidget(QWidget):
 class CorrelationTabDialog(QDialog):
     """Modal QDialog wrapping CorrelationTabWidget.
 
-    Replaces the napari-based CorrelationUI window with a self-contained
-    dialog. The Continue button inside the widget handles confirmation and
+    A self-contained correlation dialog. The Continue button inside the widget
+    handles confirmation and
     calls ``self.window().close()``; connecting ``continue_pressed_signal``
     to ``accept()`` ensures ``exec_()`` returns ``QDialog.Accepted``.
     """

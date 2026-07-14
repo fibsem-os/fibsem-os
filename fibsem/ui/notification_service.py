@@ -9,8 +9,6 @@
 #   fibsem/ui/FibsemSegmentationModelWidget.py
 #   fibsem/ui/FibsemModelTrainingWidget.py   (standalone — needs listener registration)
 #   fibsem/ui/FibsemFeatureLabellingUI.py    (standalone — needs listener registration)
-#   fibsem/correlation/app.py               (standalone — needs listener registration)
-#   fibsem/correlation/ui/fm_import_wizard.py
 
 from __future__ import annotations
 
