@@ -36,6 +36,23 @@ def run_spot_burn(microscope: FibsemMicroscope,
     """
     # - QUERY: do we need to set the full frame scanning mode each time, or only at the end?
 
+    # coerce numeric parameters: protocol-editor fields can arrive as strings
+    # (e.g. "3e-11"), which would break beam-current/timing arithmetic on hardware.
+    exposure_time = float(exposure_time)
+    milling_current = float(milling_current)
+
+    # drop points outside the image bounds (0-1 normalised); set_spot rejects out-of-range
+    # coordinates on hardware. The supervised widget filters these, so filter here too for
+    # the unsupervised/automatic path (coordinates come straight from the stored config).
+    in_bounds, dropped = [], []
+    for pt in coordinates:
+        (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
+    if dropped:
+        logging.warning(
+            f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds (0-1): {dropped}"
+        )
+    coordinates = in_bounds
+
     total_estimated_time = len(coordinates) * exposure_time
     total_remaining_time = total_estimated_time
 

@@ -75,8 +75,9 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             task_name=cfg.task_name,
             milling=cfg.milling,
             reference_imaging=cfg.reference_imaging,
-            milling_current=params.get("milling_current", 60.0e-12),
-            exposure_time=params.get("exposure_time", 10),
+            # coerce numeric params: older protocols may have stored these as strings
+            milling_current=float(params.get("milling_current", 60.0e-12)),
+            exposure_time=int(float(params.get("exposure_time", 10))),
             orientation=params.get("orientation", "MILLING"),
             coordinates=coordinates,
         )
@@ -120,7 +121,7 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         # acquire images, set ui
         self._acquire_reference_image(image_settings, field_of_view=self.config.reference_imaging.field_of_view1)
 
-        self.log_status_message("SPOT_BURN_FIDUCIAL")
+        self.log_status_message("SPOT_BURN_FIDUCIAL", "Running Spot Burn...")
 
         # update the spot burn parameters in the UI
         self.update_spot_burn_parameters_ui()

@@ -1045,7 +1045,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Objective control
         from fibsem.ui.widgets.custom_widgets import IconToolButton
 
-        self.fm_objective_widget = ObjectiveControlWidget(fm=fm)
+        self.fm_objective_widget = ObjectiveControlWidget(fm=fm, microscope=self.microscope)
         btn_refresh_objective = IconToolButton(
             icon="mdi:refresh", tooltip="Refresh objective position"
         )

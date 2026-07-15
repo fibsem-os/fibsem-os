@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import pandas as pd
 import petname
@@ -41,6 +41,9 @@ from fibsem.structures import (
     ReferenceImageParameters,
 )
 from fibsem.utils import configure_logging, format_duration
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 
 
@@ -796,6 +799,22 @@ class Lamella:
     @property
     def fluorescence_selected(self) -> bool:
         return self.fluorescence_pose is not None and self.fluorescence_pose.objective_position is not None
+
+    def update_milling_angle(self, microscope: "FibsemMicroscope") -> None:
+        """Recompute milling_angle from the milling-pose stage tilt.
+
+        The milling angle is derived from the stage tilt (plus the microscope pretilt /
+        column-tilt configuration), so it is kept consistent with the stored milling pose.
+        Leaves the existing value unchanged if the stage tilt/rotation is unavailable.
+        """
+        if microscope is None or self.milling_pose is None or self.milling_pose.stage_position is None:
+            return
+        try:
+            self.milling_angle = microscope.get_current_milling_angle(
+                stage_position=self.milling_pose.stage_position
+            )
+        except ValueError:
+            logging.debug(f"Could not compute milling angle for {self.name}: stage tilt/rotation unavailable")
 
     def to_dict(self):
         return {

@@ -125,6 +125,6 @@ class MillFiducialTask(AutoLamellaTask):
         # reference images
         self._acquire_set_of_reference_images(image_settings)
 
-        # store milling angle and pose
-        self.lamella.milling_angle = self.microscope.get_current_milling_angle()
+        # store milling pose and angle
         self.lamella.milling_pose = self.microscope.get_microscope_state()
+        self.lamella.update_milling_angle(self.microscope)

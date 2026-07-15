@@ -341,6 +341,9 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.apply_objective_to_all_requested.connect(
             self._apply_objective_position_to_all
         )
+        self.selected_lamella_widget.move_objective_requested.connect(
+            self._move_objective_to_lamella_position
+        )
         self.selected_lamella_widget.pose_update_requested.connect(
             self._set_current_position_as_pose
         )
@@ -1157,6 +1160,9 @@ class AutoLamellaUI(QMainWindow):
         )
         lamella = self.experiment.positions[-1]
 
+        # derive the milling angle from the milling-pose stage tilt
+        lamella.update_milling_angle(self.microscope)
+
         # if the objective position is not provided, use the 'focus' position from the microscope
         if self.microscope.fm is not None:
             # convert the fluorescence pose to the configured orientation
@@ -1275,6 +1281,9 @@ class AutoLamellaUI(QMainWindow):
 
         lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
 
+        # keep the milling angle consistent with the updated milling pose
+        lamella.update_milling_angle(self.microscope)
+
         self.update_lamella_combobox()
         self.update_ui()
         self.experiment.save()
@@ -1323,6 +1332,11 @@ class AutoLamellaUI(QMainWindow):
             state.objective_position = existing_pose.objective_position
 
         lamella.poses[pose_name] = state
+
+        # if the milling pose changed, keep the milling angle consistent with it
+        if pose_name == "MILLING":
+            lamella.update_milling_angle(self.microscope)
+
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
         notification_service.show_toast(
@@ -1401,6 +1415,57 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
         )
+
+    def _move_objective_to_lamella_position(self):
+        """Move the FM objective to the selected lamella's stored objective position.
+
+        Independent of the stage move-to: this only drives the objective.
+        """
+        if self.microscope is None or self.microscope.fm is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self.get_selected_lamella()
+        if lamella is None or lamella.fluorescence_pose is None:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        objective_position = lamella.fluorescence_pose.objective_position
+        if objective_position is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no stored objective position.", "warning"
+            )
+            return
+        obj = self.microscope.fm.objective
+        if obj.state != "Inserted":
+            notification_service.show_toast(
+                "Insert the objective before moving to a stored position.", "warning"
+            )
+            return
+
+        # confirmation dialog
+        ret = QMessageBox.question(
+            self,
+            "Move Objective",
+            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+            f"for {lamella.name}?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+
+        try:
+            logging.info(
+                f"Moving objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+                f"for {lamella.name}."
+            )
+            obj.move_absolute(objective_position)
+            notification_service.show_toast(
+                f"Moved objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+                f"for {lamella.name}.",
+                "info",
+            )
+        except Exception as e:
+            logging.error(f"Failed to move objective: {e}", exc_info=e)
+            notification_service.show_toast(f"Failed to move objective: {e}", "warning")
 
     def update_lamella_objective_position(self, value: float):
         """Update the objective position of the current lamella."""

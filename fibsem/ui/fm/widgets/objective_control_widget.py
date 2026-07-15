@@ -14,8 +14,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 import numpy as np
+from napari.qt.threading import thread_worker
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.ui import notification_service
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -88,11 +90,16 @@ class _InsertObjectiveDialog(QDialog):
         self.accept()
 
 
-class ObjectiveControlWidget(QWidget):    
-    def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None):
+class ObjectiveControlWidget(QWidget):
+    def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None, microscope=None):
         super().__init__(parent)
         self.fm = fm
         self.parent_widget = parent
+        # microscope is required for insert (stage tilt read/move); fall back to
+        # the parent widget's microscope when embedded in a full acquisition UI.
+        self.microscope = microscope
+        if self.microscope is None and parent is not None:
+            self.microscope = getattr(parent, "microscope", None)
         self.initUI()
 
     def initUI(self):
@@ -207,8 +214,30 @@ class ObjectiveControlWidget(QWidget):
                 and getattr(self.parent_widget, "viewer", None) is not None):
             self.parent_widget.viewer.mouse_wheel_callbacks.append(self._on_mouse_wheel)
 
+    def _set_objective_actions_enabled(self, enabled: bool) -> None:
+        """Enable/disable insert & retract buttons while a threaded move runs."""
+        self.pushButton_insert_objective.setEnabled(enabled)
+        self.pushButton_retract_objective.setEnabled(enabled)
+
+    def _on_objective_action_finished(self, *_) -> None:
+        """Re-enable controls and refresh labels after a threaded objective move."""
+        self._set_objective_actions_enabled(True)
+        self.update_objective_position_labels()
+
+    def _on_objective_action_error(self, exc: Exception) -> None:
+        """Report a failed objective operation without crashing the app."""
+        logging.error(f"Objective operation failed: {exc}", exc_info=exc)
+        self._set_objective_actions_enabled(True)
+        self.update_objective_position_labels()
+        message_box_ui(
+            title="Objective Error",
+            text=f"The objective operation failed:\n\n{exc}",
+            buttons=QMessageBox.Ok,
+            parent=self,
+        )
+
     def insert_objective(self):
-        """Insert the objective."""
+        """Insert the objective. The hardware move runs on a worker thread."""
         if self.fm.objective.state == "Inserted":
             message_box_ui(
                 title="Objective Already Inserted",
@@ -218,12 +247,16 @@ class ObjectiveControlWidget(QWidget):
             )
             return
 
-        if self.parent_widget is None:
-            return
-        if self.parent_widget.microscope is None:
+        if self.microscope is None:
+            message_box_ui(
+                title="Objective Error",
+                text="Cannot insert objective: no microscope connection available.",
+                buttons=QMessageBox.Ok,
+                parent=self,
+            )
             return
 
-        stage_pos = self.parent_widget.microscope.get_stage_position()
+        stage_pos = self.microscope.get_stage_position()
         tilt_deg = np.degrees(stage_pos.t)
 
         dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
@@ -232,19 +265,32 @@ class ObjectiveControlWidget(QWidget):
             return
 
         target_tilt_deg = dlg.selected_tilt
+        target_stage_pos = None
         if not np.isclose(tilt_deg, target_tilt_deg, atol=_SAFE_TILT_TOLERANCE_DEG):
             stage_pos.t = np.radians(target_tilt_deg)
-            logging.info(f"Moving stage to {target_tilt_deg:.0f}° tilt before inserting objective.")
-            self.parent_widget.microscope.move_stage_absolute(stage_pos)
+            target_stage_pos = stage_pos
 
+        self._set_objective_actions_enabled(False)
+        worker = self._insert_objective_worker(target_stage_pos)
+        worker.returned.connect(self._on_objective_action_finished)
+        worker.errored.connect(self._on_objective_action_error)
+        worker.start()
 
+    @thread_worker
+    def _insert_objective_worker(self, target_stage_pos) -> None:
+        """Worker: move stage to the insert tilt (if needed), then insert."""
+        if target_stage_pos is not None:
+            logging.info(
+                f"Moving stage to {np.degrees(target_stage_pos.t):.0f}° tilt "
+                "before inserting objective."
+            )
+            self.microscope.move_stage_absolute(target_stage_pos)
         logging.info("Inserting objective...")
         self.fm.objective.insert()
         logging.info("Objective inserted.")
-        self.update_objective_position_labels()
 
     def retract_objective(self):
-        """Retract the objective."""
+        """Retract the objective. The hardware move runs on a worker thread."""
         if self.fm.objective.state == "Retracted":
             message_box_ui(
                 title="Objective Already Retracted",
@@ -264,9 +310,18 @@ class ObjectiveControlWidget(QWidget):
             logging.info("Objective retraction cancelled by user.")
             return
 
+        self._set_objective_actions_enabled(False)
+        worker = self._retract_objective_worker()
+        worker.returned.connect(self._on_objective_action_finished)
+        worker.errored.connect(self._on_objective_action_error)
+        worker.start()
+
+    @thread_worker
+    def _retract_objective_worker(self) -> None:
+        """Worker: retract the objective."""
+        logging.info("Retracting objective...")
         self.fm.objective.retract()
         logging.info("Objective retracted.")
-        self.update_objective_position_labels()
 
     def update_objective_position_labels(self, objective_position: Optional[float] = None):
         """Update the objective position input and label."""
@@ -313,10 +368,19 @@ class ObjectiveControlWidget(QWidget):
                 return
 
         logging.info(f"Changing objective position to: {position:.1f} µm")
-        self.fm.objective.move_absolute(position * MICRON_TO_METRE)
-        logging.info(f"Objective moved to position: {position:.1f} µm")
+        try:
+            self.fm.objective.move_absolute(position * MICRON_TO_METRE)
+            logging.info(f"Objective moved to position: {position:.1f} µm")
+        except Exception as e:
+            logging.error(f"Failed to move objective: {e}", exc_info=e)
+            message_box_ui(
+                title="Objective Error",
+                text=f"Failed to move the objective:\n\n{e}",
+                buttons=QMessageBox.Ok,
+                parent=self,
+            )
 
-        # Update the objective position label
+        # Update the objective position label (re-syncs to the actual position)
         self.update_objective_position_labels()
 
     @pyqtSlot(float)
@@ -359,8 +423,17 @@ class ObjectiveControlWidget(QWidget):
                 return
 
         logging.info(f"Moving objective to focus position: {focus_position_um:.1f} µm")
-        self.fm.objective.move_absolute(self.fm.objective.focus_position)
-        logging.info(f"Objective moved to focus position: {focus_position_um:.1f} µm")
+        try:
+            self.fm.objective.move_absolute(self.fm.objective.focus_position)
+            logging.info(f"Objective moved to focus position: {focus_position_um:.1f} µm")
+        except Exception as e:
+            logging.error(f"Failed to move objective to focus position: {e}", exc_info=e)
+            message_box_ui(
+                title="Objective Error",
+                text=f"Failed to move the objective:\n\n{e}",
+                buttons=QMessageBox.Ok,
+                parent=self,
+            )
 
         # Update the objective position label
         self.update_objective_position_labels()
@@ -484,8 +557,13 @@ class ObjectiveControlWidget(QWidget):
         position_um = self._wheel_target_um
         position_m = position_um * MICRON_TO_METRE
         logging.info(f"Executing debounced wheel move to: {position_um:.1f} µm")
-        self.fm.objective.move_absolute(position_m)
-        self.update_objective_position_labels(objective_position=position_m)
+        try:
+            self.fm.objective.move_absolute(position_m)
+            self.update_objective_position_labels(objective_position=position_m)
+        except Exception as e:
+            logging.error(f"Objective wheel move failed: {e}", exc_info=e)
+            notification_service.show_toast(f"Objective move failed: {e}", "warning")
+            self.update_objective_position_labels()  # re-sync to actual position
 
     def cleanup(self):
         """Remove the napari mouse-wheel callback. Call on widget teardown so the
