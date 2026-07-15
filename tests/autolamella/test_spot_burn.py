@@ -18,6 +18,24 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 
+# The widget-dispatch tests need the UI stack (napari/PyQt5), which isn't installed
+# in the core CI env (`pip install .`). Guard the import so they skip there instead
+# of erroring; the run_spot_burn and config tests below have no UI dependency.
+try:
+    from fibsem.ui.widgets.autolamella_task_config_widget import (
+        AutoLamellaTaskParametersConfigWidget,
+        FloatParameterWidget,
+        IntParameterWidget,
+        resolve_field_types,
+    )
+    _HAS_UI_DEPS = True
+except Exception:  # pragma: no cover - exercised only in the no-UI CI env
+    _HAS_UI_DEPS = False
+
+requires_ui = pytest.mark.skipif(
+    not _HAS_UI_DEPS, reason="UI dependencies (napari/PyQt5) not installed"
+)
+
 IMAGING_CURRENT = 20e-12
 
 
@@ -155,10 +173,9 @@ def test_to_from_dict_preserves_coordinates_as_points():
 # --- widget factory: annotation resolution --------------------------------------
 
 
+@requires_ui
 def test_resolve_field_types_resolves_future_annotations():
     """`from __future__ import annotations` string types resolve to concrete types."""
-    from fibsem.ui.widgets.autolamella_task_config_widget import resolve_field_types
-
     cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
     hints = resolve_field_types(cfg)
 
@@ -176,14 +193,9 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+@requires_ui
 def test_spot_burn_params_render_as_spinboxes(qapp):
     """Regression: milling_current/exposure_time render as spinboxes, not QLineEdits."""
-    from fibsem.ui.widgets.autolamella_task_config_widget import (
-        AutoLamellaTaskParametersConfigWidget,
-        FloatParameterWidget,
-        IntParameterWidget,
-    )
-
     cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
     widget = AutoLamellaTaskParametersConfigWidget(cfg)
 
@@ -191,12 +203,9 @@ def test_spot_burn_params_render_as_spinboxes(qapp):
     assert isinstance(widget.parameter_widgets["exposure_time"], IntParameterWidget)
 
 
+@requires_ui
 def test_exposure_time_spinbox_has_seconds_suffix(qapp):
     """exposure_time's units metadata ('s') is shown as a spinbox suffix."""
-    from fibsem.ui.widgets.autolamella_task_config_widget import (
-        AutoLamellaTaskParametersConfigWidget,
-    )
-
     cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
     widget = AutoLamellaTaskParametersConfigWidget(cfg)
 
