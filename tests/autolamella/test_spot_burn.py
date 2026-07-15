@@ -160,6 +160,53 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     assert emitted[-1] == {"finished": True}
 
 
+# --- SpotBurnFiducialTask.update_spot_burn_parameters_ui ------------------------
+
+
+def _make_headless_spot_burn_task(coordinates, tmp_path):
+    """A SpotBurnFiducialTask with no parent UI (unsupervised/headless path)."""
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTask,
+    )
+
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    config = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn Fiducial", coordinates=coordinates
+    )
+    return SpotBurnFiducialTask(
+        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=None
+    )
+
+
+def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
+    """Unsupervised/headless with no coordinates skips, rather than blocking on ask_user."""
+    import fibsem.imaging.spot as spot_mod
+
+    calls = []
+    monkeypatch.setattr(spot_mod, "run_spot_burn", lambda **kw: calls.append(kw))
+
+    task = _make_headless_spot_burn_task([], tmp_path)
+    task.update_spot_burn_parameters_ui()  # must return, not hang
+
+    assert calls == []
+
+
+def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_path):
+    """Unsupervised/headless with coordinates burns them directly."""
+    import fibsem.imaging.spot as spot_mod
+
+    calls = []
+    monkeypatch.setattr(spot_mod, "run_spot_burn", lambda **kw: calls.append(kw))
+
+    coords = [Point(0.5, 0.5), Point(0.6, 0.6)]
+    task = _make_headless_spot_burn_task(coords, tmp_path)
+    task.update_spot_burn_parameters_ui()
+
+    assert len(calls) == 1
+    assert calls[0]["coordinates"] == coords
+
+
 # --- SpotBurnFiducialTaskConfig serialization -----------------------------------
 
 

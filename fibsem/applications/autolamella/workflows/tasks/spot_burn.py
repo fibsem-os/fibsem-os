@@ -115,20 +115,29 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         self._acquire_set_of_reference_images(image_settings)
 
     def update_spot_burn_parameters_ui(self):
-        """Update the spot burn parameters in the UI, or run automatically if unsupervised."""
-        if (not self.validate and self.config.coordinates) or self.parent_ui is None:
-            # run spot burn automatically with stored coordinates
+        """Run the spot burn automatically (unsupervised/headless), or hand off to the UI.
+
+        Supervised runs let the user place/adjust points and run the burn in the spot
+        burn widget; unsupervised/headless runs burn the stored coordinates directly.
+        """
+        # automatic path: no user in the loop (unsupervised or headless)
+        if not self.validate or self.parent_ui is None:
+            if not self.config.coordinates:
+                logging.warning(
+                    f"No spot burn coordinates set for {self.lamella.name}; skipping spot burn."
+                )
+                return
             from fibsem.imaging.spot import run_spot_burn
             run_spot_burn(microscope=self.microscope,
                           coordinates=self.config.coordinates,
                           exposure_time=self.config.exposure_time,
                           milling_current=self.config.milling_current,
                           beam_type=BeamType.ION,
-                        #   parent_ui=self.parent_ui, # needs spot burn widget for progress
                           stop_event=self._stop_event)
             return
 
-        if self.parent_ui is None or self.parent_ui.spot_burn_widget is None:
+        # supervised path: let the user run the burn interactively in the widget
+        if self.parent_ui.spot_burn_widget is None:
             logging.warning("Spot burn widget not available in UI.")
             return
 
