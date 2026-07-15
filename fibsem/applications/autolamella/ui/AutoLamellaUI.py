@@ -723,6 +723,7 @@ class AutoLamellaUI(QMainWindow):
                 self.det_widget.deleteLater()
                 self.det_widget = None
             if self.spot_burn_widget is not None:
+                self.spot_burn_widget.disconnect_signals()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.spot_burn_widget))
                 self.spot_burn_widget.deleteLater()
                 self.spot_burn_widget = None

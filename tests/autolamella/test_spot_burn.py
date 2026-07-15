@@ -139,6 +139,27 @@ def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
     assert last_current == IMAGING_CURRENT
 
 
+# --- run_spot_burn: progress reporting -----------------------------------------
+
+
+def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
+    """Progress is reported through microscope.spot_burn_progress_signal (both run paths)."""
+    run_spot_burn(
+        microscope=mock_microscope,
+        coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+        exposure_time=1.0,
+        milling_current=30e-12,
+    )
+    emitted = [
+        c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
+    ]
+    # initial progress reports the total number of points
+    assert emitted[0]["current_point"] == 0
+    assert emitted[0]["total_points"] == 2
+    # final emission signals completion
+    assert emitted[-1] == {"finished": True}
+
+
 # --- SpotBurnFiducialTaskConfig serialization -----------------------------------
 
 

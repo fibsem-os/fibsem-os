@@ -9,20 +9,37 @@ from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointsLayer
 from napari.qt.threading import FunctionWorker, thread_worker
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import pyqtSignal
+from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.qtdesigner_files import FibsemSpotBurnWidget as FibsemSpotBurnWidgetUI
+from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.utils import format_value
 
 SPOT_BURN_POINTS_LAYER_NAME = "spot-burn-points"
 DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
 
+
+def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
+    """Map a spot-burn progress dict (see run_spot_burn) to a ProgressUpdate.
+
+    Shared by the spot burn widget and the main-window status bar so both render
+    progress with identical text and formatting.
+    """
+    if ddict.get("finished"):
+        return ProgressUpdate.done()
+    return ProgressUpdate.combined(
+        current=ddict.get("current_point", 0),
+        total=ddict.get("total_points", 0),
+        remaining_seconds=ddict.get("total_remaining_time", 0.0),
+        total_seconds=ddict.get("total_estimated_time", 0.0),
+        message="Burning spots",
+    )
+
 class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
-    spot_burn_progress_signal = pyqtSignal(dict)
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
@@ -42,7 +59,7 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
     def setup_connections(self):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         beam_currents = self.microscope.get_available_values("current", BeamType.ION)
         for current in beam_currents:
@@ -60,14 +77,32 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.doubleSpinBox_exposure_time.setValue(10)
         self.doubleSpinBox_exposure_time.valueChanged.connect(self._on_data_changed)
 
-        # initial state
+        # initial state (PRIMARY greys out via its :disabled rule while no points are selected)
         self.label_information.setText("No points selected. Please add points to the layer.")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
         self.pushButton_run_spot_burn.setEnabled(False)
 
-        # progress bar
-        self.progressBar.setVisible(False)
-        self.spot_burn_progress_signal.connect(self._update_progress_bar)
+        # replace the .ui QProgressBar with the shared FibsemProgressWidget so the widget
+        # and the status bar render progress identically.
+        self.gridLayout_2.removeWidget(self.progressBar)
+        self.progressBar.deleteLater()
+        self.progress_widget = FibsemProgressWidget(self)
+        self.gridLayout_2.addWidget(self.progress_widget, 5, 1, 1, 2)
+
+        # progress is driven by the microscope's spot_burn_progress_signal (shared with the
+        # status bar). psygnal fires on the worker thread, so _update_progress_bar is
+        # marshalled to the GUI thread via @ensure_main_thread.
+        self.microscope.spot_burn_progress_signal.connect(self._update_progress_bar)
+
+    def disconnect_signals(self):
+        """Disconnect from the microscope's progress signal before the widget is destroyed.
+
+        The microscope outlives this widget; without this, the strong psygnal connection
+        would leak the widget and fire _update_progress_bar on a deleted object.
+        """
+        try:
+            self.microscope.spot_burn_progress_signal.disconnect(self._update_progress_bar)
+        except Exception:
+            pass
 
     def _add_points_layer(self):
         # check if the points layer exists, if not create it
@@ -172,10 +207,8 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.pushButton_run_spot_burn.setEnabled(enabled)
         if enabled:
             self.label_information.setText(f"Selected {len(coordinates)} points. Estimated time: {len(coordinates) * self.doubleSpinBox_exposure_time.value()} seconds")
-            self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
         else:
             self.label_information.setText("No points selected. Please add points to the layer.")
-            self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
 
     def run_spot_burn_worker(self):
         """Run the spot burn worker."""
@@ -198,7 +231,7 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
         self.stop_event.clear()
         self.pushButton_run_spot_burn.setText("Cancel")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
 
@@ -223,7 +256,6 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
                        exposure_time=exposure_time,
                        milling_current=milling_current,
                        beam_type=BeamType.ION,
-                       parent_ui=self,
                        stop_event=self.stop_event)
 
         # acquire a post-burn fib image and update the view
@@ -236,50 +268,16 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)
         self.pushButton_run_spot_burn.setText("Burn Spot")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
     def spot_burn_errored(self, error):
         """Called when the spot burn fails."""
         logging.error(f"Spot burn failed: {error}")
-        self.spot_burn_progress_signal.emit({"finished": True})
+        self.microscope.spot_burn_progress_signal.emit({"finished": True})
         self.spot_burn_finished(error)
 
+    @ensure_main_thread
     def _update_progress_bar(self, ddict: dict):
-        """Update the progress bar with the current progress.
-        
-        Parameters
-        ----------
-        ddict : dict
-            Dictionary with the following keys:
-            - total_points (int): Total number of points to burn
-            - current_point (int): Current point being burned
-            - remaining_time (float): Remaining time for current point in seconds
-            - total_remaining_time (float): Total remaining time in seconds
-            - total_estimated_time (float): Total estimated time in seconds
-            - finished (bool): Whether the spot burn is finished
-        """        
-        total_points = ddict.get("total_points", 0)
-        current_point = ddict.get("current_point", 0)
-        remaining_time = ddict.get("remaining_time", 0)
-        total_remaining_time = ddict.get("total_remaining_time", 0)
-        total_estimated_time = ddict.get("total_estimated_time", 0)
-        total_elapsed_time = total_estimated_time - total_remaining_time
-        finished = ddict.get("finished", False)
-
-        self.progressBar.setVisible(True)
-        self.progressBar.setStyleSheet(stylesheets.PROGRESS_BAR_GREEN_STYLE)
-        self.progressBar.setMinimum(0)
-        
-        if total_elapsed_time > 0 and total_estimated_time > 0:
-            self.progressBar.setMaximum(int(total_estimated_time))
-            self.progressBar.setValue(int(total_elapsed_time))
-            self.progressBar.setTextVisible(True)
-            self.progressBar.setFormat(f"Burning Spot {current_point}/{total_points}... {int(remaining_time)}s remaining")
-        else:
-            self.progressBar.setValue(0)
-            self.progressBar.setFormat("Preparing Spot Burn...")
-
-        if finished:
-            self.progressBar.setValue(total_estimated_time)
-            self.progressBar.setFormat("Spot Burn Finished")
+        """Render spot burn progress (identical formatting to the status bar)."""
+        self.progress_widget.update_progress(build_spot_burn_progress_update(ddict))
 
