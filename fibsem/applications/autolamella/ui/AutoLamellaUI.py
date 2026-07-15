@@ -1718,7 +1718,7 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.setEnabled(neg is not None)
         self.pushButton_no.setVisible(neg is not None)
 
-        if pos == "Run Milling":
+        if pos in ("Run Milling", "Run Spot Burn"):
             self.pushButton_yes.setStyleSheet(
                 stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
             )
@@ -1759,6 +1759,8 @@ class AutoLamellaUI(QMainWindow):
             self._workflow_stop_event.set()
         if self.milling_task_config_widget is not None:
             self.milling_task_config_widget.milling_widget.stop_milling()
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.cancel_spot_burn()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
@@ -1884,11 +1886,15 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
+            if self.spot_burn_widget is not None:
+                # hide the widget's own Burn button; the burn is run from the workflow control
+                self.spot_burn_widget.set_workflow_mode(True)
         spot_burn_parameters = info.get("spot_burn_parameters", None)
         if spot_burn_parameters is not None and self.spot_burn_widget is not None:
             self.spot_burn_widget.update_parameters(spot_burn_parameters)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
+            self.spot_burn_widget.set_workflow_mode(False)
 
         milling_config = info.get("milling_config", None)
         if milling_config is not None:

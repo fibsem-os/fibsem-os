@@ -8,7 +8,8 @@ import napari.utils.notifications
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointsLayer
 from napari.qt.threading import FunctionWorker, thread_worker
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QLabel, QWidget
+from PyQt5.QtCore import Qt, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import run_spot_burn
@@ -40,6 +41,8 @@ def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
     )
 
 class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
+    # emitted by the workflow task to trigger a burn (mirrors milling's start_milling_signal)
+    start_spot_burn_signal = pyqtSignal()
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
@@ -50,6 +53,8 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.microscope: FibsemMicroscope = parent.microscope
         self.worker: FunctionWorker = None
         self.stop_event: threading.Event = threading.Event()
+        self._is_burning: bool = False
+        self._workflow_mode: bool = False
 
         # napari layers
         self.pts_layer: Optional[NapariPointsLayer] = None
@@ -92,6 +97,48 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         # status bar). psygnal fires on the worker thread, so _update_progress_bar is
         # marshalled to the GUI thread via @ensure_main_thread.
         self.microscope.spot_burn_progress_signal.connect(self._update_progress_bar)
+
+        # the workflow task drives the burn via start_spot_burn_signal; BlockingQueuedConnection
+        # ensures emit() returns only once the burn has started (mirrors milling).
+        self.start_spot_burn_signal.connect(
+            self.run_spot_burn_worker, Qt.BlockingQueuedConnection  # type: ignore
+        )
+
+        # workflow-mode hint, shown when the widget's own Burn button is hidden during a
+        # supervised workflow (the burn is run from the workflow "Run Spot Burn" control).
+        self.label_workflow_hint = QLabel(
+            "Use the 'Run Spot Burn' button in the workflow controls to burn the selected points."
+        )
+        self.label_workflow_hint.setWordWrap(True)
+        self.label_workflow_hint.setStyleSheet("color: gray; font-style: italic;")
+        self.label_workflow_hint.setVisible(False)
+        self.gridLayout_2.addWidget(self.label_workflow_hint, 6, 1, 1, 2)
+
+    @property
+    def is_burning(self) -> bool:
+        """Whether a spot burn is currently running."""
+        return self._is_burning
+
+    def set_workflow_mode(self, active: bool):
+        """Toggle workflow mode.
+
+        During a supervised workflow the burn is task-orchestrated (like milling), so the
+        widget's own Burn button is hidden and a hint points the user to the workflow
+        "Run Spot Burn" control. The button still appears as "Cancel" while a burn is in
+        progress so the user can cancel locally. Outside the workflow it is used directly.
+        """
+        self._workflow_mode = active
+        self._update_run_button_visibility()
+
+    def _update_run_button_visibility(self):
+        """Show/hide the run button and workflow hint for the current mode + burn state."""
+        if self._workflow_mode:
+            # idle: hidden (run via the workflow control); burning: shown as "Cancel"
+            self.pushButton_run_spot_burn.setVisible(self._is_burning)
+            self.label_workflow_hint.setVisible(not self._is_burning)
+        else:
+            self.pushButton_run_spot_burn.setVisible(True)
+            self.label_workflow_hint.setVisible(False)
 
     def disconnect_signals(self):
         """Disconnect from the microscope's progress signal before the widget is destroyed.
@@ -230,10 +277,13 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         logging.info(f"Running spot burn with {len(coordinates)} points. Beam current: {beam_current} A, exposure time: {exposure_time} s")
 
         self.stop_event.clear()
+        self._is_burning = True
         self.pushButton_run_spot_burn.setText("Cancel")
         self.pushButton_run_spot_burn.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
+        # in workflow mode the button is hidden when idle — show it as "Cancel" while burning
+        self._update_run_button_visibility()
 
         self.worker = self._spot_burn_worker(microscope=self.microscope,
                                              coordinates=coordinates,
@@ -264,11 +314,14 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
 
     def spot_burn_finished(self, result):
         """Called when the spot burn is finished."""
+        self._is_burning = False
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)
         self.pushButton_run_spot_burn.setText("Burn Spot")
         self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        # in workflow mode, hide the button again now the burn is done
+        self._update_run_button_visibility()
 
     def spot_burn_errored(self, error):
         """Called when the spot burn fails."""

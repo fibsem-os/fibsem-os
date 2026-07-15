@@ -207,6 +207,71 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
     assert calls[0]["coordinates"] == coords
 
 
+# --- SpotBurnFiducialTask supervised loop ---------------------------------------
+
+
+def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
+    """A supervised SpotBurnFiducialTask with a mock parent UI + spot burn widget.
+
+    ask_user_responses is an iterable of the booleans ask_user should return.
+    Returns (task, widget, cleared_list).
+    """
+    import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTask,
+    )
+
+    widget = MagicMock()
+    widget.is_burning = False  # each burn "completes" immediately
+    widget.get_coordinates.return_value = [Point(0.5, 0.5)]
+    parent_ui = MagicMock()  # truthy experiment.task_protocol.get_supervision -> supervised
+    parent_ui.spot_burn_widget = widget
+
+    responses = iter(ask_user_responses)
+    monkeypatch.setattr(sb_mod, "ask_user", lambda *a, **k: next(responses))
+    monkeypatch.setattr(sb_mod, "update_spot_burn_parameters", lambda **k: None)
+    cleared = []
+    monkeypatch.setattr(sb_mod, "clear_spot_burn_ui", lambda ui: cleared.append(ui))
+
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    config = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn Fiducial", coordinates=[Point(0.5, 0.5)]
+    )
+    task = SpotBurnFiducialTask(
+        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=parent_ui
+    )
+    task.update_status_ui = lambda *a, **k: None  # isolate the loop
+    task._check_for_abort = lambda: None
+    return task, widget, cleared
+
+
+def test_supervised_spot_burn_runs_then_continues(monkeypatch, tmp_path):
+    """'Run Spot Burn' triggers the widget and waits; then Continue proceeds."""
+    task, widget, cleared = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, ask_user_responses=[True, False]
+    )
+
+    task.update_spot_burn_parameters_ui()
+
+    widget.start_spot_burn_signal.emit.assert_called_once()
+    widget.get_coordinates.assert_called_once()
+    assert cleared  # spot burn UI was cleared afterwards
+
+
+def test_supervised_spot_burn_continue_without_running(monkeypatch, tmp_path):
+    """Pressing Continue immediately runs no burn but still reads back + clears."""
+    task, widget, cleared = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, ask_user_responses=[False]
+    )
+
+    task.update_spot_burn_parameters_ui()
+
+    widget.start_spot_burn_signal.emit.assert_not_called()
+    widget.get_coordinates.assert_called_once()
+    assert cleared
+
+
 # --- SpotBurnFiducialTaskConfig serialization -----------------------------------
 
 
