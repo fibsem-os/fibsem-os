@@ -39,6 +39,12 @@ _DEFAULTS = ZetaParams(
 
 _DEFAULT_FACTOR = 1.47
 
+_TILT_TOOLTIP = "The angle between the FIB column and the sample surface"
+_TILT_LOCKED_TOOLTIP = (
+    "Locked to 0°: the FM-surface correction acts along the optical axis, "
+    "which is normal to the sample surface."
+)
+
 
 class RefractiveIndexWidget(QWidget):
     """Form widget that computes the depth scaling factor zeta from optical parameters.
@@ -57,6 +63,8 @@ class RefractiveIndexWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._zeta: Optional[float] = None
+        self._tilt_locked = False
+        self._tilt_before_lock: Optional[float] = None
         try:
             _ensure_lut()
         except Exception as e:
@@ -83,7 +91,7 @@ class RefractiveIndexWidget(QWidget):
 
         self._spin_tilt = ValueSpinBox(
             suffix="°", minimum=0.0, maximum=30.0, step=1.0, decimals=0,
-            tooltip="The angle between the FIB column and the sample surface",
+            tooltip=_TILT_TOOLTIP,
         )
         self._spin_depth = ValueSpinBox(
             suffix="µm", minimum=0.5, maximum=14.5, step=0.5, decimals=1,
@@ -123,6 +131,7 @@ class RefractiveIndexWidget(QWidget):
         self._btn_reset_factor.clicked.connect(lambda: self._spin_factor.setValue(_DEFAULT_FACTOR))
 
         lut_available = _LUT_PATH.exists()
+        self._lut_available = lut_available
         if not lut_available:
             self._lut_warning = QLabel("LUT not found — calculator disabled. Edit correction factor manually.")
             self._lut_warning.setStyleSheet("color: #f0a500; font-style: italic; padding: 4px 8px;")
@@ -172,6 +181,27 @@ class RefractiveIndexWidget(QWidget):
         self._spin_factor.blockSignals(True)
         self._spin_factor.setValue(v)
         self._spin_factor.blockSignals(False)
+
+    def set_tilt_locked(self, locked: bool) -> None:
+        """Lock the tilt spinbox to 0° (FM-space correction acts along the optical axis).
+
+        The previous tilt value is restored on unlock. Idempotent.
+        """
+        if locked == self._tilt_locked:
+            return
+        self._tilt_locked = locked
+        if locked:
+            self._tilt_before_lock = self._spin_tilt.value()
+            self._spin_tilt.setValue(0.0)  # triggers recompute if it changes
+            self._spin_tilt.setEnabled(False)
+            self._spin_tilt.setToolTip(_TILT_LOCKED_TOOLTIP)
+        else:
+            self._spin_tilt.setEnabled(self._lut_available)
+            self._spin_tilt.setToolTip(
+                _TILT_TOOLTIP if self._lut_available else _LUT_MISSING_MSG
+            )
+            if self._tilt_before_lock is not None:
+                self._spin_tilt.setValue(self._tilt_before_lock)
 
     def set_params(self, params: ZetaParams) -> None:
         """Populate all spinboxes from *params* without triggering recompute."""

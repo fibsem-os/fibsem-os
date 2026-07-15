@@ -15,7 +15,8 @@ class PointType(Enum):
     FIB = "FIB"
     FM = "FM"
     POI = "POI"
-    SURFACE = "SURFACE"
+    SURFACE = "SURFACE"          # sample surface in the FIB image (post-correlation RI correction)
+    SURFACE_FM = "FM-SURFACE"    # sample surface in the FM volume (pre-correlation RI correction)
 
 
 @dataclass
@@ -47,6 +48,30 @@ class Coordinate:
         return Coordinate(point=point, point_type=point_type)
 
 
+def apply_z_surface_correction(
+    poi_coords: np.ndarray, surface_z: float, correction_factor: float
+) -> np.ndarray:
+    """Scale POI z about the FM surface z (pre-correlation RI correction).
+
+    corrected_z = surface_z + (z - surface_z) * correction_factor
+
+    The scaling is signed, so it is independent of the stack z direction, and
+    unit-free, so it is valid in voxel indices for a uniform z-step.
+
+    Args:
+        poi_coords: (N, 3) array of POI coordinates (x, y, z) in FM voxels.
+        surface_z: z of the surface point in the FM volume (voxels).
+        correction_factor: depth scaling factor (zeta).
+
+    Returns:
+        A corrected copy; the input array is not modified.
+    """
+    corrected = np.array(poi_coords, dtype=np.float32, copy=True)
+    if corrected.size:
+        corrected[:, 2] = surface_z + (corrected[:, 2] - surface_z) * correction_factor
+    return corrected
+
+
 @dataclass
 class CorrelationInputData:
     fib_image: Optional[FibsemImage] = None
@@ -55,6 +80,11 @@ class CorrelationInputData:
     fm_coordinates: list[Coordinate] = field(default_factory=list)
     poi_coordinates: list[Coordinate] = field(default_factory=list)
     surface_coordinate: Optional[Coordinate] = None
+    # Surface point in the FM volume; mutually exclusive with surface_coordinate.
+    # When set together with ri_pre_correction_factor, the POI z is corrected
+    # before the correlation transform is applied (see run_correlation_from_data).
+    fm_surface_coordinate: Optional[Coordinate] = None
+    ri_pre_correction_factor: Optional[float] = None
     method: str = "multi-point"
 
     def to_dict(self):
@@ -65,6 +95,10 @@ class CorrelationInputData:
             "surface_coordinate": self.surface_coordinate.to_dict()
             if self.surface_coordinate
             else None,
+            "fm_surface_coordinate": self.fm_surface_coordinate.to_dict()
+            if self.fm_surface_coordinate
+            else None,
+            "ri_pre_correction_factor": self.ri_pre_correction_factor,
             "fm_image_shape": self.fm_image_shape,
             "fib_image_shape": self.fib_image_shape,
             "fib_image_pixel_size": self.fib_image_pixel_size,
@@ -114,7 +148,12 @@ class CorrelationInputData:
         ]
         surface_coordinate = (
             Coordinate.from_dict(data["surface_coordinate"])
-            if data["surface_coordinate"]
+            if data.get("surface_coordinate")
+            else None
+        )
+        fm_surface_coordinate = (
+            Coordinate.from_dict(data["fm_surface_coordinate"])
+            if data.get("fm_surface_coordinate")
             else None
         )
         return CorrelationInputData(
@@ -122,6 +161,8 @@ class CorrelationInputData:
             fm_coordinates=fm_coordinates,
             poi_coordinates=poi_coordinates,
             surface_coordinate=surface_coordinate,
+            fm_surface_coordinate=fm_surface_coordinate,
+            ri_pre_correction_factor=data.get("ri_pre_correction_factor"),
             method=data["method"],
         )
 
@@ -166,6 +207,10 @@ class CorrelationPointOfInterest:
 @dataclass
 class CorrelationResult:
     poi: list[CorrelationPointOfInterest] = field(default_factory=list)
+    # Where the POIs would land WITHOUT the pre-correlation RI correction,
+    # reprojected through the same fitted transform. Only populated when the
+    # pre-correction was applied; used as a "ghost" overlay for comparison.
+    poi_uncorrected: list[CorrelationPointOfInterest] = field(default_factory=list)
 
     # Transformation
     scale: float = 0.0
@@ -189,11 +234,15 @@ class CorrelationResult:
     # Provenance
     input_data: Optional[CorrelationInputData] = None
     refractive_index_correction_factor: Optional[float] = None
+    # "post": factor applied to the correlated POI in FIB image space
+    # "pre":  factor applied to the input POI z (FM space) before correlation
+    refractive_index_correction_mode: Optional[str] = None
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
         return {
             "poi": [p.to_dict() for p in self.poi],
+            "poi_uncorrected": [p.to_dict() for p in self.poi_uncorrected],
             "scale": self.scale,
             "rotation_eulers": self.rotation_eulers,
             "rotation_quaternion": self.rotation_quaternion,
@@ -205,6 +254,7 @@ class CorrelationResult:
             "reprojected_3d": [p.to_dict() for p in self.reprojected_3d],
             "input_data": self.input_data.to_dict() if self.input_data else None,
             "refractive_index_correction_factor": self.refractive_index_correction_factor,
+            "refractive_index_correction_mode": self.refractive_index_correction_mode,
             "updated_at": self.updated_at,
         }
 
@@ -212,6 +262,10 @@ class CorrelationResult:
     def from_dict(data: dict) -> CorrelationResult:
         return CorrelationResult(
             poi=[CorrelationPointOfInterest.from_dict(p) for p in data.get("poi", [])],
+            poi_uncorrected=[
+                CorrelationPointOfInterest.from_dict(p)
+                for p in data.get("poi_uncorrected", [])
+            ],
             scale=data.get("scale", 0.0),
             rotation_eulers=data.get("rotation_eulers", []),
             rotation_quaternion=data.get("rotation_quaternion", []),
@@ -229,6 +283,9 @@ class CorrelationResult:
             refractive_index_correction_factor=data.get(
                 "refractive_index_correction_factor"
             ),
+            refractive_index_correction_mode=data.get(
+                "refractive_index_correction_mode"
+            ),
             updated_at=data.get("updated_at", time.time()),
         )
 
@@ -238,8 +295,9 @@ class CorrelationResult:
     ) -> None:
         """Apply depth correction to the first POI (index 0) in-place.
 
-        Falls back to self.input_data for surface_y / fib_shape / pixel_size
-        when not provided explicitly.
+        Reads surface_y / fib_shape / pixel_size from self.input_data. The
+        uncorrected position of POI 1 is snapshotted into ``poi_uncorrected``
+        (ghost overlay) before the correction is applied.
         """
         if self.input_data is None:
             raise ValueError(
@@ -262,6 +320,14 @@ class CorrelationResult:
         fib_shape = self.input_data.fib_image_shape
         pixel_size = self.input_data.fib_image_pixel_size
         poi0 = self.poi[0]
+        # Snapshot the uncorrected position for the ghost overlay
+        self.poi_uncorrected = [
+            CorrelationPointOfInterest(
+                image_px=Point(poi0.image_px.x, poi0.image_px.y),
+                px=Point(poi0.px.x, poi0.px.y),
+                px_m=Point(poi0.px_m.x, poi0.px_m.y),
+            )
+        ]
         corrected_y = surface_y + (poi0.image_px.y - surface_y) * correction_factor
         poi0.image_px.y = corrected_y
         if fib_shape is not None and pixel_size is not None:
@@ -269,6 +335,7 @@ class CorrelationResult:
             poi0.px.y = -(corrected_y - cy)
             poi0.px_m.y = poi0.px.y * pixel_size
         self.refractive_index_correction_factor = correction_factor
+        self.refractive_index_correction_mode = "post"
         self.updated_at = time.time()
 
     def to_input_dataframe(self):
@@ -298,6 +365,17 @@ class CorrelationResult:
             rows.append(
                 {
                     "type": "SURFACE",
+                    "idx": 0,
+                    "x_px": sc.point.x,
+                    "y_px": sc.point.y,
+                    "z_px": sc.point.z,
+                }
+            )
+        if self.input_data.fm_surface_coordinate is not None:
+            sc = self.input_data.fm_surface_coordinate
+            rows.append(
+                {
+                    "type": PointType.SURFACE_FM.value,
                     "idx": 0,
                     "x_px": sc.point.x,
                     "y_px": sc.point.y,

@@ -48,16 +48,18 @@ from fibsem.correlation.structures import Coordinate, PointType
 _logger = logging.getLogger(__name__)
 
 _POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:     "#00ff00",
-    PointType.FM:      "#00e5ff",
-    PointType.POI:     "#ff00ff",
-    PointType.SURFACE: "#ff9800",
+    PointType.FIB:        "#00ff00",
+    PointType.FM:         "#00e5ff",
+    PointType.POI:        "#ff00ff",
+    PointType.SURFACE:    "#ff9800",
+    PointType.SURFACE_FM: "#ffea00",
 }
 _POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:     "o",
-    PointType.FM:      "o",
-    PointType.POI:     "o",
-    PointType.SURFACE: "+",
+    PointType.FIB:        "o",
+    PointType.FM:         "o",
+    PointType.POI:        "o",
+    PointType.SURFACE:    "+",
+    PointType.SURFACE_FM: "+",
 }
 _MARKER_SIZE     = 10
 _SELECTED_SIZE   = 14
@@ -335,11 +337,16 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         label_prefix: str = "",
         size: int = 7,
         marker: str = "o",
+        alpha: float = 1.0,
+        show_labels: bool = True,
+        hollow: bool = False,
     ) -> None:
         """Append a group of non-interactive overlay markers (e.g. correlation result).
 
         Call clear_overlay() before the first add_overlay_points() when replacing
         a previous result set.  Multiple add_overlay_points() calls accumulate.
+        ``hollow`` draws an unfilled ring (edge in ``color``), so the marker stays
+        visible when another marker sits on top of it.
         """
         for i, (x, y) in enumerate(points, start=1):
             (line,) = self._ax.plot(
@@ -347,14 +354,18 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 marker=marker,
                 markersize=size,
                 color=color,
-                markeredgecolor="white",
-                markeredgewidth=0.8,
+                markerfacecolor="none" if hollow else color,
+                markeredgecolor=color if hollow else "white",
+                markeredgewidth=1.5 if hollow else 0.8,
                 linestyle="none",
+                alpha=alpha,
                 zorder=8,
                 animated=True,
             )
             self._overlay_point_artists.append(line)
 
+            if not show_labels:
+                continue
             label = f"{label_prefix}{i}" if label_prefix else str(i)
             ann = self._ax.annotate(
                 label,
@@ -363,6 +374,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 textcoords="offset points",
                 color=color,
                 fontsize=8,
+                alpha=alpha,
                 animated=True,
                 zorder=9,
             )
