@@ -127,6 +127,40 @@ class TestApplyRefractiveIndexCorrection:
         assert math.isclose(result.poi_uncorrected[0].image_px.y, 300.0)
         assert math.isclose(result.poi[0].image_px.y, 350.0)
 
+    def test_double_apply_raises(self):
+        """Re-applying (post-on-post or post-on-pre) must not compound."""
+        result = _make_corrected_result()
+        result.apply_refractive_index_correction(1.5)
+        y_after_first = result.poi[0].image_px.y
+        with pytest.raises(ValueError, match="already been applied"):
+            result.apply_refractive_index_correction(1.5)
+        assert math.isclose(result.poi[0].image_px.y, y_after_first)
+        # the ghost still marks the truly uncorrected position
+        assert math.isclose(result.poi_uncorrected[0].image_px.y, 300.0)
+
+    def test_px_m_updated_after_json_roundtrip(self):
+        """Results loaded from JSON (images absent) must still update px/px_m.
+
+        from_dict restores the fib image shape/pixel size from the serialized
+        fields, so the metre-space POI handed to downstream consumers is the
+        corrected one.
+        """
+        pixel_size = 1e-8
+        fib_image = _make_fake_fib_image(shape=(512, 512), pixel_size=pixel_size)
+        surface = _make_coord(y=200.0, pt=PointType.SURFACE)
+        data = CorrelationInputData(surface_coordinate=surface, fib_image=fib_image)
+
+        data2 = CorrelationInputData.from_dict(data.to_dict())  # images dropped
+        assert data2.fib_image is None
+        assert tuple(data2.fib_image_shape) == (512, 512)
+        assert data2.fib_image_pixel_size == pytest.approx(pixel_size)
+
+        result = CorrelationResult(poi=[_make_poi(image_px_y=300.0)], input_data=data2)
+        result.apply_refractive_index_correction(1.5)
+        cy = 512 / 2.0
+        assert math.isclose(result.poi[0].px.y, -(350.0 - cy))
+        assert math.isclose(result.poi[0].px_m.y, -(350.0 - cy) * pixel_size)
+
     def test_updated_at_advances(self):
         result = _make_corrected_result()
         before = result.updated_at

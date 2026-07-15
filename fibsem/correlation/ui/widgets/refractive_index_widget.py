@@ -186,13 +186,19 @@ class RefractiveIndexWidget(QWidget):
         """Lock the tilt spinbox to 0° (FM-space correction acts along the optical axis).
 
         The previous tilt value is restored on unlock. Idempotent.
+
+        The programmatic tilt change recomputes zeta quietly (the correction
+        factor spinbox is NOT overwritten): a mode switch must not clobber a
+        manually entered factor. User edits to the optical parameters still
+        update the factor as usual.
         """
         if locked == self._tilt_locked:
             return
         self._tilt_locked = locked
+        self._spin_tilt.blockSignals(True)
         if locked:
             self._tilt_before_lock = self._spin_tilt.value()
-            self._spin_tilt.setValue(0.0)  # triggers recompute if it changes
+            self._spin_tilt.setValue(0.0)
             self._spin_tilt.setEnabled(False)
             self._spin_tilt.setToolTip(_TILT_LOCKED_TOOLTIP)
         else:
@@ -202,6 +208,8 @@ class RefractiveIndexWidget(QWidget):
             )
             if self._tilt_before_lock is not None:
                 self._spin_tilt.setValue(self._tilt_before_lock)
+        self._spin_tilt.blockSignals(False)
+        self._recompute(update_factor=False)
 
     def set_params(self, params: ZetaParams) -> None:
         """Populate all spinboxes from *params* without triggering recompute."""
@@ -243,7 +251,8 @@ class RefractiveIndexWidget(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
-    def _recompute(self) -> None:
+    def _recompute(self, _value: object = None, *, update_factor: bool = True) -> None:
+        # _value swallows the float from QDoubleSpinBox.valueChanged connections.
         if not _LUT_PATH.exists():
             return
         params = self.get_params()
@@ -256,6 +265,7 @@ class RefractiveIndexWidget(QWidget):
                 params.wavelength_um,
             )
             self._zeta = zeta
-            self.zeta_computed.emit(zeta)
+            if update_factor:
+                self.zeta_computed.emit(zeta)
         except Exception:
             self._zeta = None

@@ -229,6 +229,15 @@ class TestRunCorrelationPreCorrection:
         assert captured["poi_coords"][:, 2] == pytest.approx([30.0, 5.0])
         assert result.refractive_index_correction_mode is None
 
+    def test_both_surfaces_raise(self):
+        """FIB and FM surface points are mutually exclusive at the engine too."""
+        data = _make_input_data(
+            surface_coordinate=_coord(y=100.0, pt=PointType.SURFACE),
+            fm_surface_coordinate=_coord(z=10.0, pt=PointType.SURFACE_FM),
+        )
+        with pytest.raises(ValueError, match="only one surface point"):
+            run_correlation_from_data(data)
+
 
 # ---------------------------------------------------------------------------
 # Serialization

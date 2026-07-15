@@ -243,6 +243,48 @@ raise-based contract. End-to-end verified against the real `Rigid3D` fit with
 synthetic ground truth (corrected POI lands on the projection of the z-corrected
 3D point to <0.01 px; rms ≈ 0).
 
+## Code-review findings — FIXED (2026-07-15, uncommitted follow-up)
+
+Findings 1–9 of the multi-agent review are fixed with regression tests:
+1. `from_dict` now restores `stored_fib_image_shape`/`stored_fib_image_pixel_size`
+   (the properties fall back to them), so post-correcting a JSON-loaded result
+   updates px/px_m; the skip branch warns instead of staying silent.
+2. `_clear_pre_correction_factor()` runs on every FM-surface removal path
+   (canvas remove, list remove, FIB-surface replacement); `set_data` refuses to
+   arm a factor when the file has no FM surface.
+3. `_apply_post` guards `result.input_data is None` with a warning.
+4. Factor spinbox mirrors only on stored-value *change* (`_last_mirrored_factor`),
+   armed input factor outranks the older result factor, and the label shows
+   "stored — applied on next run" when they differ.
+5. `set_tilt_locked` changes tilt with signals blocked and recomputes zeta
+   quietly (`_recompute(update_factor=False)`) — mode switches never overwrite
+   a manually entered factor.
+6. `apply_refractive_index_correction` raises on double-apply;
+   `run_correlation_from_data` raises when both surfaces are set.
+7. `render_to_axes` copies `markerfacecolor` + `alpha` (hollow ghost survives
+   Save Plot).
+8. `_menu_load_result` logic extracted to `_load_result`; redundant trailing
+   `_update_run_button()` removed (status no longer clobbered on load).
+9. `_RITab._set_warning(text, level)` pairs text+color at every site.
+
+Finding 10 (PointType→list registry refactor) deferred to a follow-up PR.
+
+## Code-review follow-ups (verified, below the report cutoff)
+
+- `_RITab._populate_pre_table` inlines the correction formula instead of calling
+  `apply_z_surface_correction`; variants of `surface + (v−surface)·factor` now
+  exist in 5 places (util.py:770, structures.py ×2, tab widget ×2) — extract one
+  scalar helper used everywhere so preview and engine can't drift.
+- `_reproject_poi_via_transform` re-derives the image-px→centred-px→metres
+  conversion (3rd copy in correlation_v2.py); its `R.shape != (3,3)` guard is
+  unreachable at the only call site and silently degrades (returns no ghost).
+- `_RITab.set_result` explodes `input_data` into 5 parallel cached fields —
+  holding the object would remove the sync burden; it also rebuilds the pre
+  table + copies the POI list on every `data_changed` (minor churn).
+- Apply-and-re-run pays a full `copy.deepcopy(self.data)` (entire FM volume)
+  plus a stochastic re-fit per factor tweak — pre-existing Run cost, but the
+  deterministic reprojection path added for ghosts shows the cheap alternative.
+
 ## Remaining / follow-ups
 
 - Full validation on real METEOR data (initial live test done 2026-07-15:

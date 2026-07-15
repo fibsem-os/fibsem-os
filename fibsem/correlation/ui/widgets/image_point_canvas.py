@@ -296,8 +296,10 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 marker=line.get_marker(),
                 markersize=line.get_markersize(),
                 color=line.get_color(),
+                markerfacecolor=line.get_markerfacecolor(),
                 markeredgecolor=line.get_markeredgecolor(),
                 markeredgewidth=line.get_markeredgewidth(),
+                alpha=line.get_alpha(),
                 linestyle="none",
                 zorder=line.get_zorder(),
             )

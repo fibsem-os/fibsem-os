@@ -274,3 +274,125 @@ def test_apply_post_blocked_when_already_corrected(qapp):
     assert result.poi[0].image_px.y == pytest.approx(300.0)
     assert result.refractive_index_correction_factor == pytest.approx(1.4)
     assert "already applied" in w._ri_tab._lbl_warning.text()
+    # guard message renders in the error style, not the leftover green
+    assert "#e07b39" in w._ri_tab._lbl_warning.styleSheet()
+
+
+def test_apply_post_without_input_data_shows_warning(qapp):
+    """A result JSON with input_data: null must warn, not crash."""
+    w = _widget(qapp)
+    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
+        input_data=None,
+    )
+    w._ri_tab.set_result(result, input_data=w.data)
+    w._ri_tab._apply()  # must not raise
+    assert result.poi[0].image_px.y == pytest.approx(300.0)
+    assert "no input data" in w._ri_tab._lbl_warning.text()
+
+
+def test_factor_cleared_when_fm_surface_removed(qapp):
+    """The pre-correction factor's lifecycle is tied to the FM surface."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    w._ri_pre_correction_factor = 1.5
+
+    # canvas removal
+    coord = w._coords_tab.fm_surface_list.coordinates[0]
+    w._on_fm_canvas_removed(coord)
+    assert w._ri_pre_correction_factor is None
+    assert w.data.ri_pre_correction_factor is None
+
+    # replacement by a FIB surface
+    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    w._ri_pre_correction_factor = 1.5
+    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    assert w._ri_pre_correction_factor is None
+
+    # list-row removal
+    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    w._ri_pre_correction_factor = 1.5
+    coord = w._coords_tab.fm_surface_list.coordinates[0]
+    w._coords_tab.fm_surface_list.coordinates = []
+    w._on_fm_surface_list_removed(coord)
+    assert w._ri_pre_correction_factor is None
+
+
+def test_set_data_does_not_arm_factor_without_fm_surface(qapp):
+    w = _widget(qapp)
+    data = CorrelationInputData(ri_pre_correction_factor=1.5)
+    w.set_data(data)
+    assert w._ri_pre_correction_factor is None
+
+
+def test_typed_factor_survives_refresh_and_armed_priority(qapp):
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    # armed input factor (1.6) outranks an older result factor (1.5)
+    w._ri_pre_correction_factor = 1.6
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
+        refractive_index_correction_factor=1.5,
+        refractive_index_correction_mode="pre",
+    )
+    tab.set_result(result, input_data=w.data)
+    assert tab._ri_widget.get_factor() == pytest.approx(1.6)
+    assert "stored — applied on the next run" in tab._lbl_warning.text()
+
+    # a factor being typed survives an unrelated refresh (same stored value)
+    tab._ri_widget._spin_factor.setValue(1.8)
+    tab.set_result(result, input_data=w.data)
+    assert tab._ri_widget.get_factor() == pytest.approx(1.8)
+
+
+def test_tilt_lock_preserves_manual_factor(qapp):
+    from fibsem.correlation.ui.widgets.refractive_index_widget import (
+        RefractiveIndexWidget,
+    )
+
+    rw = RefractiveIndexWidget()
+    rw._spin_factor.setValue(1.6)
+    rw.set_tilt_locked(True)
+    assert rw._spin_tilt.value() == pytest.approx(0.0)
+    assert rw.get_factor() == pytest.approx(1.6)
+    rw.set_tilt_locked(False)
+    assert rw.get_factor() == pytest.approx(1.6)
+
+
+def test_load_result_keeps_status_message(qapp):
+    w = _widget(qapp)
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        input_data=CorrelationInputData(),
+        refractive_index_correction_factor=1.5,
+        refractive_index_correction_mode="pre",
+    )
+    w._load_result(result)
+    assert w._lbl_status.text() == "Done — RI pre-correction ×1.500 applied."
+
+
+def test_ghost_export_preserves_hollow_style(qapp):
+    from matplotlib.figure import Figure
+
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.add_overlay_points(
+        [(10.0, 20.0)],
+        color="#ff00ff",
+        size=13,
+        alpha=0.7,
+        show_labels=False,
+        hollow=True,
+    )
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    canvas.render_to_axes(ax)
+    lines = ax.get_lines()
+    assert len(lines) == 1
+    assert lines[0].get_markerfacecolor() == "none"
+    assert lines[0].get_alpha() == pytest.approx(0.7)

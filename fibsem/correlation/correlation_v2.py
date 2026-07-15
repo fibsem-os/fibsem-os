@@ -410,6 +410,12 @@ def run_correlation_from_data(
 ) -> CorrelationResult:
     """Run correlation from a CorrelationInputData struct, returning a CorrelationResult."""
 
+    if data.surface_coordinate is not None and data.fm_surface_coordinate is not None:
+        raise ValueError(
+            "Both surface_coordinate (FIB) and fm_surface_coordinate (FM) are set — "
+            "only one surface point is supported (applying both would double-correct)."
+        )
+
     fib_coords = _coords_to_array(data.fib_coordinates)
     fm_coords = _coords_to_array(data.fm_coordinates)
     poi_coords = (

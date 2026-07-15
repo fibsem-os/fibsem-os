@@ -612,6 +612,12 @@ class _RITab(QWidget):
     _POST_HEADERS = ["POI", "X (px)", "Y original (px)", "Y corrected (px)"]
     _PRE_HEADERS = ["POI", "X (px)", "Z original (px)", "Z corrected (px)"]
 
+    _WARNING_STYLES = {
+        "error":   "color: #e07b39; font-size: 11px;",
+        "success": "color: #6dbf6d; font-size: 11px;",
+        "armed":   "color: #e0c060; font-size: 11px;",
+    }
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._poi: List[CorrelationPointOfInterest] = []
@@ -622,7 +628,15 @@ class _RITab(QWidget):
         self._input_pre_factor: Optional[float] = None
         self._fm_pixel_size_z: Optional[float] = None
         self._result: Optional[CorrelationResult] = None
+        # Last factor mirrored into the spinbox; mirroring only on change keeps
+        # in-progress manual edits from being reverted by unrelated refreshes.
+        self._last_mirrored_factor: Optional[float] = None
         self._setup_ui()
+
+    def _set_warning(self, text: str, level: str = "error") -> None:
+        """Set the warning label text and its matching severity color together."""
+        self._lbl_warning.setStyleSheet(self._WARNING_STYLES[level])
+        self._lbl_warning.setText(text)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -750,35 +764,43 @@ class _RITab(QWidget):
         result_factor = result.refractive_index_correction_factor if result else None
         result_mode = result.refractive_index_correction_mode if result else None
 
-        # Factor spinbox mirrors the authoritative stored factor, if any
-        if result_factor is not None:
-            self._ri_widget.set_factor(result_factor)
-        elif mode == "pre" and self._input_pre_factor is not None:
-            self._ri_widget.set_factor(self._input_pre_factor)
+        # Factor spinbox mirrors the authoritative stored factor. In pre mode a
+        # newly armed input factor is the latest user intent and outranks the
+        # (older) result factor. Mirror only when the stored value changes so
+        # a factor the user is typing survives unrelated data_changed refreshes.
+        if mode == "pre" and self._input_pre_factor is not None:
+            stored_factor = self._input_pre_factor
+        else:
+            stored_factor = result_factor
+        if stored_factor is not None and stored_factor != self._last_mirrored_factor:
+            self._ri_widget.set_factor(stored_factor)
+        self._last_mirrored_factor = stored_factor
 
         # Pre-mode preview table (stored factor, applied or armed)
         if mode == "pre" and self._input_pre_factor is not None:
             self._populate_pre_table(self._input_pre_factor)
 
-        if result_factor is not None:
-            self._lbl_warning.setStyleSheet("color: #6dbf6d; font-size: 11px;")
-            self._lbl_warning.setText(
-                f"Correction applied ({result_mode or 'post'}, factor: {result_factor:.3f})."
+        armed = (
+            mode == "pre"
+            and self._input_pre_factor is not None
+            and self._input_pre_factor != result_factor
+        )
+        if armed:
+            self._set_warning(
+                f"Factor {self._input_pre_factor:.3f} stored — applied on the next run.",
+                level="armed",
             )
-        elif mode == "pre" and self._input_pre_factor is not None:
-            self._lbl_warning.setStyleSheet("color: #e0c060; font-size: 11px;")
-            self._lbl_warning.setText(
-                f"Factor {self._input_pre_factor:.3f} stored — applied on the next run."
+        elif result_factor is not None:
+            self._set_warning(
+                f"Correction applied ({result_mode or 'post'}, factor: {result_factor:.3f}).",
+                level="success",
             )
         elif not self._poi:
-            self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-            self._lbl_warning.setText("No POI in result.")
+            self._set_warning("No POI in result.")
         elif mode is None:
-            self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-            self._lbl_warning.setText("No surface coordinate — correction unavailable.")
+            self._set_warning("No surface coordinate — correction unavailable.")
         else:
-            self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-            self._lbl_warning.setText("")
+            self._set_warning("")
 
     def _update_distance_label(self) -> None:
         mode = self.mode
@@ -821,12 +843,12 @@ class _RITab(QWidget):
 
     def _apply_pre(self) -> None:
         if self._fm_surface_coordinate is None:
-            self._lbl_warning.setText("No FM surface coordinate — cannot apply correction.")
+            self._set_warning("No FM surface coordinate — cannot apply correction.")
             return
         if not self._input_poi:
-            self._lbl_warning.setText("No POI coordinates to correct.")
+            self._set_warning("No POI coordinates to correct.")
             return
-        self._lbl_warning.setText("")
+        self._set_warning("")
         factor = self._ri_widget.get_factor()
         rerun = self._chk_rerun.isChecked()
         logging.info(
@@ -840,23 +862,27 @@ class _RITab(QWidget):
 
     def _apply_post(self) -> None:
         if not self._poi:
-            self._lbl_warning.setText("No POI available.")
+            self._set_warning("No POI available.")
             return
         if self._surface_y is None or self._surface_coordinate is None:
-            self._lbl_warning.setText(
-                "No surface coordinate — cannot apply correction."
-            )
+            self._set_warning("No surface coordinate — cannot apply correction.")
             return
         if (
             self._result is not None
             and self._result.refractive_index_correction_factor is not None
         ):
             # Guard against double-correcting (post-on-post or post-on-pre)
-            self._lbl_warning.setText(
+            self._set_warning(
                 "Correction already applied to this result — run correlation again first."
             )
             return
-        self._lbl_warning.setText("")
+        if self._result is not None and self._result.input_data is None:
+            # e.g. a result JSON saved with input_data: null
+            self._set_warning(
+                "Loaded result has no input data — cannot apply correction."
+            )
+            return
+        self._set_warning("")
         factor = self._ri_widget.get_factor()
         surface_y = self._surface_y
 
@@ -1216,7 +1242,12 @@ class CorrelationTabWidget(QWidget):
         cl.fm_surface_list.coordinates = fm_surf_coords
         cl.update_headers()
 
-        self._ri_pre_correction_factor = data.ri_pre_correction_factor
+        # A factor without an FM surface is meaningless — don't arm it
+        self._ri_pre_correction_factor = (
+            data.ri_pre_correction_factor
+            if data.fm_surface_coordinate is not None
+            else None
+        )
 
     def load_data(self, path: str) -> None:
         """Load coordinates from JSON, preserving current images."""
@@ -1402,6 +1433,12 @@ class CorrelationTabWidget(QWidget):
                 "Pre-correction factor stored — run correlation to apply."
             )
 
+    def _clear_pre_correction_factor(self) -> None:
+        """The pre-correction factor's lifecycle is tied to the FM surface point:
+        removing the surface disarms the factor so it cannot silently re-apply
+        on a later run."""
+        self._ri_pre_correction_factor = None
+
     def _on_run_error(self, msg: str) -> None:
         self._lbl_status.setText(f"Error: {msg}")
         self._update_run_button()
@@ -1521,6 +1558,7 @@ class CorrelationTabWidget(QWidget):
             cl.fm_surface_list.coordinates = [
                 c for c in cl.fm_surface_list.coordinates if c is not coord
             ]
+            self._clear_pre_correction_factor()
         else:
             cl.poi_list.coordinates = [
                 c for c in cl.poi_list.coordinates if c is not coord
@@ -1538,6 +1576,7 @@ class CorrelationTabWidget(QWidget):
             if cl.fm_surface_list.coordinates:
                 cl.fm_surface_list.coordinates = []
                 self._refresh_fm_canvas()
+            self._clear_pre_correction_factor()
         else:
             cl.fib_list.add_coordinate(coord)
         self._refresh_fib_canvas()
@@ -1651,6 +1690,7 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _on_fm_surface_list_removed(self, _coord: Coordinate) -> None:
+        self._clear_pre_correction_factor()
         self._refresh_fm_canvas()
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
@@ -1749,12 +1789,16 @@ class CorrelationTabWidget(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Load Error", f"Could not load result:\n{exc}")
             return
-        # Populate the lists first so the RI tab sees the loaded surface points
+        self._load_result(result)
+
+    def _load_result(self, result: CorrelationResult) -> None:
+        """Adopt a loaded correlation result (and its input data, if any)."""
+        # Populate the lists first so the RI tab sees the loaded surface points.
+        # _on_result_ready refreshes the run button and sets the final status
+        # text itself — no trailing update here, it would overwrite the status.
         if result.input_data:
             self.set_data(result.input_data)
         self._on_result_ready(result)
-        if result.input_data:
-            self._update_run_button()
 
     def _on_load(self) -> None:
         start = self._project_dir or ""

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import auto, Enum
 from typing import Optional
 import json
+import logging
 import time
 
 import numpy as np
@@ -86,6 +87,10 @@ class CorrelationInputData:
     fm_surface_coordinate: Optional[Coordinate] = None
     ri_pre_correction_factor: Optional[float] = None
     method: str = "multi-point"
+    # Fallbacks restored from serialized files, so a result loaded from JSON
+    # (images absent) can still convert corrected pixels to px / px_m
+    stored_fib_image_shape: Optional[tuple] = None
+    stored_fib_image_pixel_size: Optional[float] = None
 
     def to_dict(self):
         return {
@@ -110,13 +115,13 @@ class CorrelationInputData:
     @property
     def fib_image_pixel_size(self) -> Optional[float]:
         if self.fib_image is None:
-            return None
+            return self.stored_fib_image_pixel_size
         return self.fib_image.metadata.pixel_size.x  # type: ignore[union-attr]
 
     @property
     def fib_image_shape(self) -> Optional[tuple[int, int]]:
         if self.fib_image is None or self.fib_image.data is None:
-            return None
+            return self.stored_fib_image_shape
         return self.fib_image.data.shape
 
     @property
@@ -156,6 +161,7 @@ class CorrelationInputData:
             if data.get("fm_surface_coordinate")
             else None
         )
+        stored_shape = data.get("fib_image_shape")
         return CorrelationInputData(
             fib_coordinates=fib_coordinates,
             fm_coordinates=fm_coordinates,
@@ -164,6 +170,8 @@ class CorrelationInputData:
             fm_surface_coordinate=fm_surface_coordinate,
             ri_pre_correction_factor=data.get("ri_pre_correction_factor"),
             method=data["method"],
+            stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
+            stored_fib_image_pixel_size=data.get("fib_image_pixel_size"),
         )
 
     def save(self, filename: str):
@@ -298,7 +306,17 @@ class CorrelationResult:
         Reads surface_y / fib_shape / pixel_size from self.input_data. The
         uncorrected position of POI 1 is snapshotted into ``poi_uncorrected``
         (ghost overlay) before the correction is applied.
+
+        Raises ValueError if a correction (pre or post) has already been
+        applied — re-applying would compound the depth scaling.
         """
+        if self.refractive_index_correction_factor is not None:
+            raise ValueError(
+                "A refractive-index correction has already been applied to this "
+                f"result ({self.refractive_index_correction_mode or 'post'}, factor "
+                f"{self.refractive_index_correction_factor}); re-applying would "
+                "compound it. Run the correlation again first."
+            )
         if self.input_data is None:
             raise ValueError(
                 "input_data is required to apply refractive index correction"
@@ -334,6 +352,11 @@ class CorrelationResult:
             cy = fib_shape[0] / 2.0
             poi0.px.y = -(corrected_y - cy)
             poi0.px_m.y = poi0.px.y * pixel_size
+        else:
+            logging.warning(
+                "RI correction: fib image shape/pixel size unavailable — "
+                "poi.px / poi.px_m were NOT updated (only image_px)."
+            )
         self.refractive_index_correction_factor = correction_factor
         self.refractive_index_correction_mode = "post"
         self.updated_at = time.time()
