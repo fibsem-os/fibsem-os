@@ -352,6 +352,65 @@ def test_registry_add_select_remove_for_every_type(qapp, point_type):
     assert spec.list_widget.coordinates == []
 
 
+def test_canvas_allow_lists_derive_from_registry_map(qapp):
+    """The right-click add menus and the registry share one source of truth."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        _POINT_TYPE_SIDES,
+    )
+
+    w = _widget(qapp)
+    fib_expected = [pt for pt, s in _POINT_TYPE_SIDES.items() if s == "fib"]
+    fm_expected = [pt for pt, s in _POINT_TYPE_SIDES.items() if s == "fm"]
+    assert w._fib_canvas._allowed_types == fib_expected
+    assert w._fm_display.canvas._allowed_types == fm_expected
+    # every mapped type has a spec (checked at build time too)
+    assert set(w._point_specs) == set(_POINT_TYPE_SIDES)
+
+
+def test_inconsistent_spec_rejected(qapp):
+    """Specs with mismatched side/adapter/fm_fit_role fail at construction."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        _PointTypeSpec,
+    )
+
+    w = _widget(qapp)
+    fib_list = w._coords_tab.fib_list
+
+    # FIB-side type bound to the FM adapter
+    with pytest.raises(ValueError, match="does not match"):
+        _PointTypeSpec(PointType.FIB, fib_list, w._fm_adapter)
+
+    # FIB-side spec with an FM fit role
+    with pytest.raises(ValueError, match="fm_fit_role"):
+        _PointTypeSpec(PointType.FIB, fib_list, w._fib_adapter, fm_fit_role="fid")
+
+    # FM-side spec without a fit role
+    with pytest.raises(ValueError, match="fm_fit_role"):
+        _PointTypeSpec(PointType.POI, w._coords_tab.poi_list, w._fm_adapter)
+
+
+def test_on_cleared_fires_only_when_last_point_removed(qapp):
+    """The lifecycle hook means 'the spec's last point is gone', not
+    'any point was removed' — pinned with a multi-point spec."""
+    from dataclasses import replace
+
+    w = _widget(qapp)
+    fired = []
+    poi_spec = w._point_specs[PointType.POI]
+    w._point_specs[PointType.POI] = replace(
+        poi_spec, on_cleared=lambda: fired.append(True)
+    )
+
+    w._on_canvas_add_requested(1.0, 1.0, PointType.POI)
+    w._on_canvas_add_requested(2.0, 2.0, PointType.POI)
+    first, second = w._point_specs[PointType.POI].list_widget.coordinates
+
+    w._on_canvas_removed(first)
+    assert fired == []  # one point remains
+    w._on_canvas_removed(second)
+    assert fired == [True]  # last point gone
+
+
 def test_unregistered_point_type_fails_loudly(qapp):
     """Routing must never silently misfile a coordinate (old behaviour sent
     unknown types to the POI list)."""

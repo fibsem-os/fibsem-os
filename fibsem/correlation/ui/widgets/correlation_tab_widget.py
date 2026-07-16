@@ -925,19 +925,38 @@ class _RITab(QWidget):
 # ---------------------------------------------------------------------------
 
 
+# Which canvas each point type lives on. Single source of truth: the canvas
+# right-click allow-lists and the registry's adapter binding both derive from
+# this map (declaration order = add-menu order).
+_POINT_TYPE_SIDES: Dict[PointType, str] = {
+    PointType.FIB: "fib",
+    PointType.SURFACE: "fib",
+    PointType.FM: "fm",
+    PointType.POI: "fm",
+    PointType.SURFACE_FM: "fm",
+}
+
+
 class _CanvasAdapter:
     """Thin seam over a point-display surface (canvas or display widget).
 
-    The registry-driven handlers talk to canvases exclusively through this
-    adapter, so migrating the correlation canvases onto the shared canvas
-    stack (fibsem.ui.widgets.canvas, PR #111) only requires new adapters —
-    the handlers, exclusivity, and lifecycle logic stay untouched.
+    Outbound canvas calls from the registry-driven handlers all go through
+    this adapter. NOTE: inbound signals (point_selected/moved/removed/
+    add_requested) still connect to the canvases directly and carry
+    identity-based Coordinate payloads — migrating onto the shared canvas
+    stack (fibsem.ui.widgets.canvas, PR #111, index-based PointOverlay
+    signals) therefore means new adapters PLUS an inbound translation layer;
+    what stays untouched is the registry, exclusivity, and lifecycle logic.
     """
 
     def __init__(
-        self, surface, z_provider: Optional[Callable[[], float]] = None
+        self,
+        surface,
+        side: str,
+        z_provider: Optional[Callable[[], float]] = None,
     ) -> None:
         self._surface = surface
+        self.side = side  # "fib" | "fm"
         self._z_provider = z_provider
 
     def set_coordinates(self, coords: List[Coordinate]) -> None:
@@ -958,20 +977,34 @@ class _CanvasAdapter:
 class _PointTypeSpec:
     """Registry entry driving all per-point-type canvas/list plumbing.
 
-    Adding a point type = adding one spec (plus its list panel); the generic
-    handlers, selection clearing, exclusivity, and refit routing follow from
-    the registry. Unregistered point types fail loudly (KeyError) instead of
-    being silently misrouted.
+    Adding a point type = one _POINT_TYPE_SIDES entry + one spec (plus its
+    list panel); the canvas add-menus, generic handlers, selection clearing,
+    exclusivity, axis maxima, and refit routing all follow from the registry.
+    Unregistered point types fail loudly (KeyError) instead of being silently
+    misrouted, and inconsistent specs are rejected at construction.
     """
 
     point_type: PointType
     list_widget: CoordinateListWidget
     adapter: _CanvasAdapter
-    side: str                                        # "fib" | "fm" (refit routing)
     max_one: bool = False                            # replace-on-add (surfaces)
     exclusive_group: Optional[str] = None            # mutually exclusive specs
     fm_fit_role: Optional[str] = None                # "fid" | "poi" → refit combos
-    on_cleared: Optional[Callable[[], None]] = None  # fired when points removed
+    on_cleared: Optional[Callable[[], None]] = None  # fired when the spec's
+                                                     # last point is removed
+
+    def __post_init__(self) -> None:
+        expected_side = _POINT_TYPE_SIDES.get(self.point_type)
+        if self.adapter.side != expected_side:
+            raise ValueError(
+                f"{self.point_type}: adapter side {self.adapter.side!r} does not "
+                f"match _POINT_TYPE_SIDES ({expected_side!r})"
+            )
+        if (self.adapter.side == "fm") != (self.fm_fit_role is not None):
+            raise ValueError(
+                f"{self.point_type}: fm_fit_role must be set for FM-side specs "
+                f"and None for FIB-side specs (got {self.fm_fit_role!r})"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1068,15 +1101,15 @@ class CorrelationTabWidget(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
 
-        # Left: FIB image canvas
+        # Left: FIB image canvas (add-menu types derived from the registry map)
         self._fib_canvas = ImagePointCanvas(
-            allowed_point_types=[PointType.FIB, PointType.SURFACE],
+            allowed_point_types=self._point_types_for_side("fib"),
         )
         splitter.addWidget(self._fib_canvas)
 
         # Middle: FM image display
         self._fm_display = FMImageDisplayWidget(
-            allowed_point_types=[PointType.FM, PointType.POI, PointType.SURFACE_FM],
+            allowed_point_types=self._point_types_for_side("fm"),
         )
         splitter.addWidget(self._fm_display)
 
@@ -1134,27 +1167,41 @@ class CorrelationTabWidget(QWidget):
 
         self._build_point_registry()
 
+    @staticmethod
+    def _point_types_for_side(side: str) -> List[PointType]:
+        return [pt for pt, s in _POINT_TYPE_SIDES.items() if s == side]
+
     def _build_point_registry(self) -> None:
         """One _PointTypeSpec per point type drives all canvas/list plumbing."""
-        self._fib_adapter = _CanvasAdapter(self._fib_canvas)
+        self._fib_adapter = _CanvasAdapter(self._fib_canvas, side="fib")
         self._fm_adapter = _CanvasAdapter(
-            self._fm_display, z_provider=lambda: self._fm_display.current_z
+            self._fm_display,
+            side="fm",
+            z_provider=lambda: self._fm_display.current_z,
         )
+        self._adapters: Dict[str, _CanvasAdapter] = {
+            "fib": self._fib_adapter,
+            "fm": self._fm_adapter,
+        }
+        adapter_for = lambda pt: self._adapters[_POINT_TYPE_SIDES[pt]]  # noqa: E731
+
         cl = self._coords_tab
         specs = (
-            _PointTypeSpec(PointType.FIB, cl.fib_list, self._fib_adapter, "fib"),
+            _PointTypeSpec(PointType.FIB, cl.fib_list, adapter_for(PointType.FIB)),
             _PointTypeSpec(
-                PointType.SURFACE, cl.surface_list, self._fib_adapter, "fib",
+                PointType.SURFACE, cl.surface_list, adapter_for(PointType.SURFACE),
                 max_one=True, exclusive_group="surface",
             ),
             _PointTypeSpec(
-                PointType.FM, cl.fm_list, self._fm_adapter, "fm", fm_fit_role="fid"
+                PointType.FM, cl.fm_list, adapter_for(PointType.FM), fm_fit_role="fid"
             ),
             _PointTypeSpec(
-                PointType.POI, cl.poi_list, self._fm_adapter, "fm", fm_fit_role="poi"
+                PointType.POI, cl.poi_list, adapter_for(PointType.POI),
+                fm_fit_role="poi",
             ),
             _PointTypeSpec(
-                PointType.SURFACE_FM, cl.fm_surface_list, self._fm_adapter, "fm",
+                PointType.SURFACE_FM, cl.fm_surface_list,
+                adapter_for(PointType.SURFACE_FM),
                 max_one=True, exclusive_group="surface", fm_fit_role="fid",
                 on_cleared=self._clear_pre_correction_factor,
             ),
@@ -1162,6 +1209,11 @@ class CorrelationTabWidget(QWidget):
         self._point_specs: Dict[PointType, _PointTypeSpec] = {
             spec.point_type: spec for spec in specs
         }
+        if set(self._point_specs) != set(_POINT_TYPE_SIDES):
+            missing = set(_POINT_TYPE_SIDES) ^ set(self._point_specs)
+            raise ValueError(
+                f"Point-type registry and _POINT_TYPE_SIDES disagree on: {missing}"
+            )
 
     def _connect_signals(self) -> None:
         # Images tab → push to canvases
@@ -1238,8 +1290,9 @@ class CorrelationTabWidget(QWidget):
         if fib_image.metadata and fib_image.metadata.pixel_size:
             self._fib_canvas.set_pixel_size(fib_image.metadata.pixel_size.x)
         h, w = fib_image.data.shape[:2]
-        self._coords_tab.fib_list.set_axis_maxima(x_max=w - 1, y_max=h - 1)
-        self._coords_tab.surface_list.set_axis_maxima(x_max=w - 1, y_max=h - 1)
+        for spec in self._point_specs.values():
+            if spec.adapter is self._fib_adapter:
+                spec.list_widget.set_axis_maxima(x_max=w - 1, y_max=h - 1)
         self._images_tab.set_fib_image(fib_image)
 
     def set_fm_image(self, fm_image: FluorescenceImage) -> None:
@@ -1250,15 +1303,11 @@ class CorrelationTabWidget(QWidget):
         if px:
             self._fm_display.canvas.set_pixel_size(px)
         _, n_z, h, w = fm_image.data.shape
-        self._coords_tab.fm_list.set_axis_maxima(
-            x_max=w - 1, y_max=h - 1, z_max=n_z - 1
-        )
-        self._coords_tab.poi_list.set_axis_maxima(
-            x_max=w - 1, y_max=h - 1, z_max=n_z - 1
-        )
-        self._coords_tab.fm_surface_list.set_axis_maxima(
-            x_max=w - 1, y_max=h - 1, z_max=n_z - 1
-        )
+        for spec in self._point_specs.values():
+            if spec.adapter is self._fm_adapter:
+                spec.list_widget.set_axis_maxima(
+                    x_max=w - 1, y_max=h - 1, z_max=n_z - 1
+                )
         self._coords_tab.rebuild_channel_combos(fm_image)
         self._images_tab.set_fm_image(fm_image)
 
@@ -1293,8 +1342,8 @@ class CorrelationTabWidget(QWidget):
         cl.poi_list.coordinates = poi_coords
         cl.surface_list.coordinates = surf_coords
         cl.fm_surface_list.coordinates = fm_surf_coords
-        self._refresh_canvas(self._fib_adapter)
-        self._refresh_canvas(self._fm_adapter)
+        for adapter in self._adapters.values():
+            self._refresh_canvas(adapter)
         cl.update_headers()
 
         # A factor without an FM surface is meaningless — don't arm it
@@ -1353,7 +1402,7 @@ class CorrelationTabWidget(QWidget):
         for other in self._point_specs.values():
             if other is not spec:
                 other.list_widget.select_coordinate_silent(None)
-        for adapter in (self._fib_adapter, self._fm_adapter):
+        for adapter in self._adapters.values():
             adapter.set_selected(coord if adapter is spec.adapter else None)
 
     # ------------------------------------------------------------------
@@ -1563,7 +1612,7 @@ class CorrelationTabWidget(QWidget):
         spec.list_widget.coordinates = [
             c for c in spec.list_widget.coordinates if c is not coord
         ]
-        if spec.on_cleared is not None:
+        if spec.on_cleared is not None and not spec.list_widget.coordinates:
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
@@ -1610,7 +1659,9 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
-        if spec.on_cleared is not None:
+        # on_cleared = "the spec's LAST point is gone" (the list widget removes
+        # the row before emitting, so the check sees the post-removal state)
+        if spec.on_cleared is not None and not spec.list_widget.coordinates:
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
@@ -1763,7 +1814,7 @@ class CorrelationTabWidget(QWidget):
         fig = None
 
         try:
-            if spec.side == "fib":
+            if spec.adapter.side == "fib":
                 method = cl._fib_method_combo.currentText()
                 if method == "Hole" and self._fib_image is not None:
                     xr, yr, fig = hole_fitting_FIB(

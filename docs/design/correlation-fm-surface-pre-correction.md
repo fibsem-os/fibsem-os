@@ -299,13 +299,26 @@ Finding 10 (PointType→list registry refactor) deferred to a follow-up PR.
 
 ## Follow-up: registry refactor (review finding 10) + PR #111 canvas convergence
 
-**Status: implemented on branch `claude/correlation-point-registry`
-(stacked on the #139 branch at Patrick's request; rebase onto main once #139
-merges).** Widget net −97 lines; 79 tests pass incl. a parametrized per-type
-behaviour sweep and a loud-failure (KeyError) routing test. Formula dedup
-included: `scale_about_surface()` in structures.py is now the only
-implementation of the depth-scaling formula (engine, model, util tuple
-helper, and both RI-tab previews call it).
+**Status: implemented — PR #140 (rebased onto main after #139 merged; CI
+green on py3.8–3.13).** 82 tests pass incl. a parametrized per-type behaviour
+sweep and a loud-failure (KeyError) routing test. Formula dedup included:
+`scale_about_surface()` in structures.py is now the only implementation of
+the depth-scaling formula (engine, model, util tuple helper, and both RI-tab
+previews call it).
+
+A medium-effort multi-agent review of the PR found zero correctness
+regressions (line-scan, removed-behaviour audit, cross-file trace, efficiency
+all clean) and six confirmed polish items, fixed in a follow-up commit:
+`_POINT_TYPE_SIDES` is now the single source for canvas allow-lists and
+adapter binding (a spec-only point type appears in the right-click menu);
+the adapter set, axis-maxima updates, and refit routing all derive from the
+registry; `_PointTypeSpec.__post_init__` rejects inconsistent side/fit-role
+combinations and the build asserts registry↔map completeness; `on_cleared`
+now fires only when the spec's LAST point is removed; the `_CanvasAdapter`
+docstring states honestly that the seam is outbound-only (inbound signal
+translation is part of the future #111 migration). A seventh candidate
+(remove the adapter as pass-through indirection) was refuted against the
+recorded design intent above.
 
 Agreed plan (2026-07-15): after PR #139 merges, a separate PR replaces the
 per-point-type plumbing in `correlation_tab_widget.py` with a
