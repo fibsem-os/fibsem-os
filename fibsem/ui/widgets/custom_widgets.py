@@ -243,9 +243,9 @@ class IntegerValueSpinBox(QSpinBox):
     def __init__(
         self,
         suffix: Optional[str] = None,
-        minimum: Optional[float] = None,
-        maximum: Optional[float] = None,
-        step: Optional[float] = None,
+        minimum: Optional[int] = None,
+        maximum: Optional[int] = None,
+        step: Optional[int] = None,
         tooltip: Optional[str] = None,
         no_buttons: bool = False,
         parent=None,
