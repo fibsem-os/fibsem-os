@@ -179,7 +179,7 @@ class FibsemStrategySettingsWidget(QWidget):
                 control.editingFinished.connect(self._on_changed)
             else:
                 raise TypeError(
-                    f"Unsupported control type '{type(control)}' in FibsemPatternSettingsWidget"
+                    f"Unsupported control type '{type(control)}' in FibsemStrategySettingsWidget"
                 )
 
             self._rows.append(
