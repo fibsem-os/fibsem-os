@@ -297,6 +297,36 @@ Finding 10 (PointType→list registry refactor) deferred to a follow-up PR.
   plus a stochastic re-fit per factor tweak — pre-existing Run cost, but the
   deterministic reprojection path added for ghosts shows the cheap alternative.
 
+## Follow-up: registry refactor (review finding 10) + PR #111 canvas convergence
+
+Agreed plan (2026-07-15): after PR #139 merges, a separate PR replaces the
+per-point-type plumbing in `correlation_tab_widget.py` with a
+`_PointTypeSpec` registry (point_type → list widget, canvas side, max_one,
+exclusive_group, fm_fit_role, on_cleared) + generic handlers; surface
+exclusivity and the pre-correction-factor lifecycle move into that single
+chokepoint; unknown types fail loudly (KeyError) instead of misfiling into the
+POI list; tests updated to the generic entry points + a parametrized per-type
+behaviour sweep. Includes the formula dedup (`scale_about_surface()` helper
+for the five copies of `surface + (v−surface)·factor`).
+
+**PR #111 consideration:** #111 introduces a shared canvas stack
+(`fibsem/ui/widgets/canvas/`: `FibsemImageCanvas`, `CanvasOverlay`,
+interactive `PointOverlay` with index-based signals and per-overlay legend,
+FM canvas/compositor, CanvasState reducer). It does not touch
+`fibsem/correlation/` (no conflicts), but `ImagePointCanvas` duplicates its
+concepts (and vice versa: legend/marker/datum-line features here vs
+PointOverlay's own legend). Therefore:
+- the registry's generic handlers must NOT talk to canvases directly — each
+  spec carries a thin canvas adapter (refresh/set_selected/set_points), so the
+  later swap from ImagePointCanvas (identity-based Coordinates) to per-type
+  PointOverlay (index-based) is localized to the adapter;
+- the canvas migration itself is a THIRD PR, after #111 merges and
+  stabilizes: one PointOverlay per point type, right-click type menu moves to
+  canvas level, aggregated legend / ghost / datum line ported (possibly
+  upstreamed into the canvas package), FM z-stack display onto fm_canvas.
+#111's minimap-correlation doc already defers to `CorrelationResult` as the
+canonical alignment product, so the data-model boundary stays as-is.
+
 ## Remaining / follow-ups
 
 - Full validation on real METEOR data (initial live test done 2026-07-15:
