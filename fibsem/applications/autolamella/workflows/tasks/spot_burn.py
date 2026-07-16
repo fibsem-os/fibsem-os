@@ -155,11 +155,20 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         while response:
             self.update_status_ui("Running Spot Burn...")
             spot_burn_widget.start_spot_burn_signal.emit()
-            # wait for the burn to finish (BlockingQueuedConnection guarantees is_burning
-            # is already True on return from emit)
-            while spot_burn_widget.is_burning:
-                self._check_for_abort()
-                time.sleep(1)
+            # BlockingQueuedConnection: on return from emit the burn is either running
+            # (is_burning=True) or was refused (no in-bounds points), in which case the
+            # wait loop exits immediately and the user is re-prompted.
+            try:
+                while spot_burn_widget.is_burning:
+                    self._check_for_abort()
+                    time.sleep(1)
+            except InterruptedError:
+                # workflow stopped: take the burn down with the task. Covers the race
+                # where the burn starts after the Stop click already ran cancel (the
+                # worker clears its stop_event on start). cancel_spot_burn only sets
+                # a threading.Event, so it is safe to call from the task thread.
+                spot_burn_widget.cancel_spot_burn()
+                raise
             response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
 
         # store the coordinates from the UI back to the config

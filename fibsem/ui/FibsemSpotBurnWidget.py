@@ -31,6 +31,8 @@ def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
     progress with identical text and formatting.
     """
     if ddict.get("finished"):
+        if ddict.get("error"):
+            return ProgressUpdate.failed("Spot burn failed")
         return ProgressUpdate.done()
     return ProgressUpdate.combined(
         current=ddict.get("current_point", 0),
@@ -86,33 +88,44 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.label_information.setText("No points selected. Please add points to the layer.")
         self.pushButton_run_spot_burn.setEnabled(False)
 
-        # replace the .ui QProgressBar with the shared FibsemProgressWidget so the widget
-        # and the status bar render progress identically.
+        # replace the .ui QProgressBar with the shared FibsemProgressWidget (in the same
+        # grid cell) so the widget and the status bar render progress identically.
+        bar_pos = self.gridLayout_2.getItemPosition(
+            self.gridLayout_2.indexOf(self.progressBar)
+        )
         self.gridLayout_2.removeWidget(self.progressBar)
         self.progressBar.deleteLater()
         self.progress_widget = FibsemProgressWidget(self)
-        self.gridLayout_2.addWidget(self.progress_widget, 5, 1, 1, 2)
+        self.gridLayout_2.addWidget(self.progress_widget, *bar_pos)
 
         # progress is driven by the microscope's spot_burn_progress_signal (shared with the
         # status bar). psygnal fires on the worker thread, so _update_progress_bar is
         # marshalled to the GUI thread via @ensure_main_thread.
         self.microscope.spot_burn_progress_signal.connect(self._update_progress_bar)
 
-        # the workflow task drives the burn via start_spot_burn_signal; BlockingQueuedConnection
-        # ensures emit() returns only once the burn has started (mirrors milling).
+        # the workflow task drives the burn via start_spot_burn_signal (mirrors milling).
+        # BlockingQueuedConnection: emit() returns only after run_spot_burn_worker has
+        # run, so the burn is then either in progress (is_burning=True) or was refused
+        # (no in-bounds points), in which case the task re-prompts.
         self.start_spot_burn_signal.connect(
             self.run_spot_burn_worker, Qt.BlockingQueuedConnection  # type: ignore
         )
 
         # workflow-mode hint, shown when the widget's own Burn button is hidden during a
         # supervised workflow (the burn is run from the workflow "Run Spot Burn" control).
+        # It shares the Burn button's grid cell on purpose: exactly one of the two is
+        # visible at any time (_update_run_button_visibility), so the hint appears in
+        # place of the hidden button without the layout shifting.
         self.label_workflow_hint = QLabel(
             "Use the 'Run Spot Burn' button in the workflow controls to burn the selected points."
         )
         self.label_workflow_hint.setWordWrap(True)
         self.label_workflow_hint.setStyleSheet("color: gray; font-style: italic;")
         self.label_workflow_hint.setVisible(False)
-        self.gridLayout_2.addWidget(self.label_workflow_hint, 6, 1, 1, 2)
+        btn_pos = self.gridLayout_2.getItemPosition(
+            self.gridLayout_2.indexOf(self.pushButton_run_spot_burn)
+        )
+        self.gridLayout_2.addWidget(self.label_workflow_hint, *btn_pos)
 
     @property
     def is_burning(self) -> bool:
@@ -326,7 +339,7 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
     def spot_burn_errored(self, error):
         """Called when the spot burn fails."""
         logging.error(f"Spot burn failed: {error}")
-        self.microscope.spot_burn_progress_signal.emit({"finished": True})
+        self.microscope.spot_burn_progress_signal.emit({"finished": True, "error": True})
         self.spot_burn_finished(error)
 
     @ensure_main_thread

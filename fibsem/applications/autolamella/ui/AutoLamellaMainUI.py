@@ -939,7 +939,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle spot burn progress updates from the microscope (supervised + unsupervised)."""
         self.progress_widget.update_progress(build_spot_burn_progress_update(ddict))
         if ddict.get("finished"):
-            QTimer.singleShot(2000, self.progress_widget.reset)
+            # hide the Done/Failed state after a moment; reset_if_finished leaves the
+            # widget alone if another operation has started rendering progress since
+            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
 
     @ensure_main_thread
     def _on_tile_acquisition_progress(self, ddict: dict) -> None:

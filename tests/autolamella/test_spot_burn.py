@@ -160,6 +160,26 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     assert emitted[-1] == {"finished": True}
 
 
+@requires_ui
+def test_build_spot_burn_progress_update_mapping():
+    """Progress dicts map to ProgressUpdate: running, done, and failed states."""
+    from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+    running = build_spot_burn_progress_update(
+        {"current_point": 1, "total_points": 3,
+         "total_remaining_time": 20.0, "total_estimated_time": 30.0}
+    )
+    assert (running.current, running.total) == (1, 3)
+    assert running.remaining_seconds == 20.0
+    assert not running.finished
+
+    done = build_spot_burn_progress_update({"finished": True})
+    assert done.finished and not done.message
+
+    failed = build_spot_burn_progress_update({"finished": True, "error": True})
+    assert failed.finished and failed.message == "Spot burn failed"
+
+
 # --- SpotBurnFiducialTask.update_spot_burn_parameters_ui ------------------------
 
 
@@ -270,6 +290,26 @@ def test_supervised_spot_burn_continue_without_running(monkeypatch, tmp_path):
     widget.start_spot_burn_signal.emit.assert_not_called()
     widget.get_coordinates.assert_called_once()
     assert cleared
+
+
+def test_supervised_spot_burn_abort_cancels_burn(monkeypatch, tmp_path):
+    """Workflow abort during the wait loop cancels the in-progress burn.
+
+    Also covers the stop-vs-start race: a burn that starts after the workflow
+    Stop already ran cancel_spot_burn (clearing its stop_event) is still taken
+    down by the aborting task.
+    """
+    task, widget, cleared = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, ask_user_responses=[True]
+    )
+    widget.is_burning = True  # burn in progress
+    task._check_for_abort = MagicMock(side_effect=InterruptedError("aborted"))
+
+    with pytest.raises(InterruptedError):
+        task.update_spot_burn_parameters_ui()
+
+    widget.cancel_spot_burn.assert_called_once()
+    assert not cleared  # abort propagates before the UI cleanup runs
 
 
 # --- SpotBurnFiducialTaskConfig serialization -----------------------------------

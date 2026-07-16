@@ -1784,6 +1784,13 @@ class AutoLamellaUI(QMainWindow):
                 True
             )
 
+        # restore the spot burn widget: an aborted workflow skips the clear_spot_burn
+        # message that normally resets it, which would leave the Burn button hidden
+        # (no-op after a normal completion, where clear_spot_burn already ran)
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_workflow_mode(False)
+            self.spot_burn_widget.clear_points_layer()
+
         # clear detection layers
         if self.det_widget is not None:
             self.det_widget.clear_layers()
