@@ -249,13 +249,13 @@ class FibsemSpotBurnWidget(QWidget):
                 parent_ui=self,
                 stop_event=self.stop_event,
             )
+            # acquire a post-burn fib image and push it to the view (off the GUI
+            # thread); a failure here routes to the errored signal so the UI resets
+            image = self.microscope.acquire_image(beam_type=BeamType.ION)
+            self.microscope.fib_acquisition_signal.emit(image)
         except Exception as exc:
             self._spot_burn_errored_signal.emit(exc)
         else:
-            # acquire a post-burn fib image and push it to the view (off the GUI
-            # thread) before signalling completion
-            image = self.microscope.acquire_image(beam_type=BeamType.ION)
-            self.microscope.fib_acquisition_signal.emit(image)
             self._spot_burn_finished_signal.emit(None)
 
     def spot_burn_finished(self, result) -> None:
