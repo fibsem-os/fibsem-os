@@ -40,6 +40,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QAction, QMenu, QSizePolicy, QWidget
@@ -48,16 +49,18 @@ from fibsem.correlation.structures import Coordinate, PointType
 _logger = logging.getLogger(__name__)
 
 _POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:     "#00ff00",
-    PointType.FM:      "#00e5ff",
-    PointType.POI:     "#ff00ff",
-    PointType.SURFACE: "#ff9800",
+    PointType.FIB:        "#00ff00",
+    PointType.FM:         "#00e5ff",
+    PointType.POI:        "#ff00ff",
+    PointType.SURFACE:    "#ff9800",
+    PointType.SURFACE_FM: "#ffea00",
 }
 _POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:     "o",
-    PointType.FM:      "o",
-    PointType.POI:     "o",
-    PointType.SURFACE: "+",
+    PointType.FIB:        "o",
+    PointType.FM:         "o",
+    PointType.POI:        "o",
+    PointType.SURFACE:    "+",
+    PointType.SURFACE_FM: "+",
 }
 _MARKER_SIZE     = 10
 _SELECTED_SIZE   = 14
@@ -84,6 +87,66 @@ def _generate_names(coordinates: List[Coordinate]) -> List[str]:
         counters[c.point_type] = counters.get(c.point_type, 0) + 1
         names.append(f"{c.point_type.value} {counters[c.point_type]}")
     return names
+
+
+def _marker_style(point_type: PointType, is_selected: bool) -> dict:
+    """Marker style for a coordinate point, shared by rebuild and restyle paths.
+
+    Filled markers (circles) show selection as a white rim. Unfilled markers
+    ("+" crosshairs) are drawn entirely by their edge — a white edge would
+    replace the type colour and "none" would erase the marker — so they keep
+    their own colour and show selection via size and stroke weight instead.
+    """
+    color = _POINT_COLORS.get(point_type, "white")
+    marker = _POINT_MARKERS.get(point_type, "o")
+    unfilled = marker not in Line2D.filled_markers
+    if unfilled:
+        edge_color = color
+        edge_width = 3.0 if is_selected else 2.0
+    else:
+        edge_color = "white" if is_selected else "none"
+        edge_width = 2.0
+    return dict(
+        marker=marker,
+        markersize=_SELECTED_SIZE if is_selected else _MARKER_SIZE,
+        color=color,
+        markeredgecolor=edge_color,
+        markeredgewidth=edge_width,
+    )
+
+
+# Shared by the live canvas legend and the render_to_axes export
+_LEGEND_KWARGS = dict(
+    loc="upper right",
+    fontsize=8,
+    framealpha=0.75,
+    facecolor="#1e2124",
+    edgecolor="#3a3d42",
+    labelcolor="#e0e0e0",
+    handletextpad=0.4,
+    borderpad=0.5,
+    labelspacing=0.35,
+)
+
+
+def _legend_handle(
+    color: str, marker: str = "o", hollow: bool = False, alpha: float = 1.0
+) -> Line2D:
+    """Proxy artist for a legend entry, matching the on-canvas marker style."""
+    # For unfilled markers (e.g. "+") the edge IS the marker — a white edge
+    # would swallow the colour, so those keep their own colour as the edge.
+    unfilled = marker not in Line2D.filled_markers
+    return Line2D(
+        [], [],
+        marker=marker,
+        markersize=7,
+        color=color,
+        markerfacecolor="none" if hollow else color,
+        markeredgecolor=color if (hollow or unfilled) else "white",
+        markeredgewidth=1.5 if (hollow or unfilled) else 0.8,
+        alpha=alpha,
+        linestyle="none",
+    )
 
 
 class ImagePointCanvas(FigureCanvasQTAgg):
@@ -131,6 +194,14 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._pixel_size: Optional[float] = None   # metres
         self._show_scalebar: bool = False
         self._scalebar_artist = None
+
+        # Legend (point types present + labeled overlay groups)
+        self._legend_visible: bool = True
+        self._overlay_legend: List[Tuple[str, dict]] = []  # (label, handle style)
+
+        # Dashed datum line across the canvas at the FIB surface y
+        self._surface_line = None
+        self._surface_line_coord: Optional[Coordinate] = None
 
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setSingleShot(True)
@@ -258,6 +329,42 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             except Exception:
                 pass
 
+    def set_legend_visible(self, visible: bool) -> None:
+        """Show or hide the point-type legend."""
+        self._legend_visible = visible
+        self._update_legend()
+        self._background = None
+        self.draw()
+
+    def _build_legend_entries(self) -> Tuple[List[Line2D], List[str]]:
+        """Proxy handles + labels for the point types on screen and labeled overlays."""
+        handles: List[Line2D] = []
+        labels: List[str] = []
+        for pt in PointType:
+            if any(c.point_type is pt for c in self._coordinates):
+                handles.append(
+                    _legend_handle(
+                        _POINT_COLORS.get(pt, "white"), _POINT_MARKERS.get(pt, "o")
+                    )
+                )
+                labels.append(pt.value)
+        for label, style in self._overlay_legend:
+            handles.append(_legend_handle(**style))
+            labels.append(label)
+        return handles, labels
+
+    def _update_legend(self) -> None:
+        """Rebuild the legend from current contents (removed when empty/hidden)."""
+        legend = self._ax.get_legend()
+        if legend is not None:
+            legend.remove()
+        if not self._legend_visible:
+            return
+        handles, labels = self._build_legend_entries()
+        if not handles:
+            return
+        self._ax.legend(handles, labels, **_LEGEND_KWARGS)
+
     def reset_view(self) -> None:
         """Fit the view to the full image extent."""
         images = self._ax.get_images()
@@ -288,17 +395,34 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             ax.set_xlim(self._ax.get_xlim())
             ax.set_ylim(self._ax.get_ylim())
 
+        if self._surface_line is not None and self._surface_line_coord is not None:
+            ax.axhline(
+                self._surface_line_coord.point.y,
+                color=_POINT_COLORS[PointType.SURFACE],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.6,
+                zorder=4,
+            )
+
         for line in self._point_artists + self._overlay_point_artists:
             ax.plot(
                 line.get_xdata(), line.get_ydata(),
                 marker=line.get_marker(),
                 markersize=line.get_markersize(),
                 color=line.get_color(),
+                markerfacecolor=line.get_markerfacecolor(),
                 markeredgecolor=line.get_markeredgecolor(),
                 markeredgewidth=line.get_markeredgewidth(),
+                alpha=line.get_alpha(),
                 linestyle="none",
                 zorder=line.get_zorder(),
             )
+
+        if self._legend_visible:
+            handles, labels = self._build_legend_entries()
+            if handles:
+                ax.legend(handles, labels, **_LEGEND_KWARGS)
 
         for ann in self._label_artists + self._overlay_label_artists:
             ax.annotate(
@@ -335,26 +459,42 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         label_prefix: str = "",
         size: int = 7,
         marker: str = "o",
+        alpha: float = 1.0,
+        show_labels: bool = True,
+        hollow: bool = False,
+        legend_label: Optional[str] = None,
     ) -> None:
         """Append a group of non-interactive overlay markers (e.g. correlation result).
 
         Call clear_overlay() before the first add_overlay_points() when replacing
         a previous result set.  Multiple add_overlay_points() calls accumulate.
+        ``hollow`` draws an unfilled ring (edge in ``color``), so the marker stays
+        visible when another marker sits on top of it. ``legend_label`` adds a
+        matching entry to the canvas legend for this group.
         """
+        if legend_label:
+            self._overlay_legend.append(
+                (legend_label, dict(color=color, marker=marker, hollow=hollow, alpha=alpha))
+            )
+            self._update_legend()
         for i, (x, y) in enumerate(points, start=1):
             (line,) = self._ax.plot(
                 x, y,
                 marker=marker,
                 markersize=size,
                 color=color,
-                markeredgecolor="white",
-                markeredgewidth=0.8,
+                markerfacecolor="none" if hollow else color,
+                markeredgecolor=color if hollow else "white",
+                markeredgewidth=1.5 if hollow else 0.8,
                 linestyle="none",
+                alpha=alpha,
                 zorder=8,
                 animated=True,
             )
             self._overlay_point_artists.append(line)
 
+            if not show_labels:
+                continue
             label = f"{label_prefix}{i}" if label_prefix else str(i)
             ann = self._ax.annotate(
                 label,
@@ -363,6 +503,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 textcoords="offset points",
                 color=color,
                 fontsize=8,
+                alpha=alpha,
                 animated=True,
                 zorder=9,
             )
@@ -377,6 +518,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             a.remove()
         self._overlay_point_artists.clear()
         self._overlay_label_artists.clear()
+        self._overlay_legend.clear()
+        self._update_legend()
         self._background = None
         self.draw_idle()
 
@@ -384,10 +527,18 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     # Blitting
     # ------------------------------------------------------------------
 
+    def _animated_artists(self) -> list:
+        """All animated artists in draw order (surface line at the bottom)."""
+        artists: list = []
+        if self._surface_line is not None:
+            artists.append(self._surface_line)
+        artists += (self._point_artists + self._label_artists
+                    + self._overlay_point_artists + self._overlay_label_artists)
+        return artists
+
     def _on_draw_event(self, _) -> None:
         self._background = self.copy_from_bbox(self._ax.bbox)
-        for a in (self._point_artists + self._label_artists
-                  + self._overlay_point_artists + self._overlay_label_artists):
+        for a in self._animated_artists():
             self._ax.draw_artist(a)
         self.update()
 
@@ -396,8 +547,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self.draw_idle()
             return
         self.restore_region(self._background)
-        for a in (self._point_artists + self._label_artists
-                  + self._overlay_point_artists + self._overlay_label_artists):
+        for a in self._animated_artists():
             self._ax.draw_artist(a)
         self.blit(self._ax.bbox)
 
@@ -423,6 +573,32 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._point_artists.clear()
         self._label_artists.clear()
 
+        if self._surface_line is not None:
+            try:
+                self._surface_line.remove()
+            except ValueError:
+                pass
+            self._surface_line = None
+        self._surface_line_coord = None
+
+        # The FIB surface is a datum row: anchor it with a dashed line across
+        # the full canvas width at the surface y (FM surfaces are z-planes —
+        # no in-plane line applies)
+        surf = next(
+            (c for c in self._coordinates if c.point_type is PointType.SURFACE), None
+        )
+        if surf is not None:
+            self._surface_line = self._ax.axhline(
+                surf.point.y,
+                color=_POINT_COLORS[PointType.SURFACE],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.6,
+                zorder=4,
+                animated=True,
+            )
+            self._surface_line_coord = surf
+
         names = _generate_names(self._coordinates)
         for coord, name in zip(self._coordinates, names):
             color = _POINT_COLORS.get(coord.point_type, "white")
@@ -430,14 +606,10 @@ class ImagePointCanvas(FigureCanvasQTAgg):
 
             (line,) = self._ax.plot(
                 coord.point.x, coord.point.y,
-                marker=_POINT_MARKERS.get(coord.point_type, "o"),
-                markersize=_SELECTED_SIZE if is_sel else _MARKER_SIZE,
-                color=color,
-                markeredgecolor="white" if is_sel else "none",
-                markeredgewidth=2.0,
                 linestyle="none",
                 zorder=10 if is_sel else 5,
                 animated=True,
+                **_marker_style(coord.point_type, is_sel),
             )
             self._point_artists.append(line)
 
@@ -454,6 +626,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             )
             self._label_artists.append(ann)
 
+        self._update_legend()
         self.draw_idle()
 
     def _apply_styles(self) -> None:
@@ -461,17 +634,26 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self._coordinates, self._point_artists, self._label_artists
         ):
             is_sel = coord is self._selected
-            marker.set_markersize(_SELECTED_SIZE if is_sel else _MARKER_SIZE)
-            marker.set_markeredgecolor("white" if is_sel else "none")
+            style = _marker_style(coord.point_type, is_sel)
+            marker.set_markersize(style["markersize"])
+            marker.set_markeredgecolor(style["markeredgecolor"])
+            marker.set_markeredgewidth(style["markeredgewidth"])
             marker.set_zorder(10 if is_sel else 5)
             label.set_fontweight("bold" if is_sel else "normal")
             label.set_zorder(11 if is_sel else 6)
+
+        if self._surface_line is not None:
+            sel = self._surface_line_coord is self._selected
+            self._surface_line.set_linewidth(1.5 if sel else 1.0)
+            self._surface_line.set_alpha(0.9 if sel else 0.6)
 
     def _sync_artist_position(self, idx: int) -> None:
         coord = self._coordinates[idx]
         self._point_artists[idx].set_xdata([coord.point.x])
         self._point_artists[idx].set_ydata([coord.point.y])
         self._label_artists[idx].xy = (coord.point.x, coord.point.y)
+        if coord is self._surface_line_coord and self._surface_line is not None:
+            self._surface_line.set_ydata([coord.point.y, coord.point.y])
 
     # ------------------------------------------------------------------
     # Cursor
