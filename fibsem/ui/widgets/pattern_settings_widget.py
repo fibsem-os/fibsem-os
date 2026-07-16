@@ -291,11 +291,11 @@ class FibsemPatternSettingsWidget(QWidget):
                 x = row.x_control.value() / _POINT_SCALE
                 y = row.y_control.value() / _POINT_SCALE
                 pattern.point = Point(x=x, y=y)
-            elif isinstance(row.control, (ValueComboBox, IntegerValueSpinBox)):
+            elif isinstance(row.control, ValueComboBox):
                 data = row.control.value()
                 if data is not None:
                     setattr(pattern, row.field, data)
-            elif isinstance(row.control, ValueSpinBox):
+            elif isinstance(row.control, (ValueSpinBox, IntegerValueSpinBox)):
                 val = row.control.value()
                 setattr(pattern, row.field, val / row.scale if row.scale else val)
             elif isinstance(row.control, QCheckBox):
