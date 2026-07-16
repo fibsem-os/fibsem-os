@@ -35,7 +35,9 @@ import copy
 import logging
 import os
 import time
-from typing import List, Optional
+from dataclasses import dataclass
+from functools import partial
+from typing import Callable, Dict, List, Optional
 
 logging.basicConfig(level=logging.INFO)
 
@@ -72,6 +74,7 @@ from fibsem.correlation.structures import (
     CorrelationResult,
     PointType,
     PointXYZ,
+    scale_about_surface,
 )
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.ui import stylesheets
@@ -829,7 +832,7 @@ class _RITab(QWidget):
         self._table.setRowCount(len(self._input_poi))
         for i, coord in enumerate(self._input_poi):
             z = coord.point.z
-            corrected_z = surface_z + (z - surface_z) * factor
+            corrected_z = scale_about_surface(z, surface_z, factor)
             self._table.setItem(i, 0, _ro_item(f"POI {i + 1}"))
             self._table.setItem(i, 1, _ro_item(f"{coord.point.x:.2f}"))
             self._table.setItem(i, 2, _ro_item(f"{z:.2f}"))
@@ -894,7 +897,7 @@ class _RITab(QWidget):
         self._table.setRowCount(len(self._poi))
         for i, poi in enumerate(self._poi):
             depth = poi.image_px.y - surface_y
-            corrected_y = surface_y + depth * factor
+            corrected_y = scale_about_surface(poi.image_px.y, surface_y, factor)
             logging.info(
                 f"[RITab._apply_post] POI {i + 1}: original_y={poi.image_px.y:.2f}, "
                 f"depth={depth:.2f}, corrected_y={corrected_y:.2f}"
@@ -915,6 +918,60 @@ class _RITab(QWidget):
         self._result.apply_refractive_index_correction(factor)
         logging.info("[RITab._apply_post] correction applied, emitting correction_applied")
         self.correction_applied.emit(self._result)
+
+
+# ---------------------------------------------------------------------------
+# Point-type registry
+# ---------------------------------------------------------------------------
+
+
+class _CanvasAdapter:
+    """Thin seam over a point-display surface (canvas or display widget).
+
+    The registry-driven handlers talk to canvases exclusively through this
+    adapter, so migrating the correlation canvases onto the shared canvas
+    stack (fibsem.ui.widgets.canvas, PR #111) only requires new adapters —
+    the handlers, exclusivity, and lifecycle logic stay untouched.
+    """
+
+    def __init__(
+        self, surface, z_provider: Optional[Callable[[], float]] = None
+    ) -> None:
+        self._surface = surface
+        self._z_provider = z_provider
+
+    def set_coordinates(self, coords: List[Coordinate]) -> None:
+        self._surface.set_coordinates(coords)
+
+    def set_selected(self, coord: Optional[Coordinate]) -> None:
+        self._surface.set_selected(coord)
+
+    def refresh_coordinate(self, coord: Coordinate) -> None:
+        self._surface.refresh_coordinate(coord)
+
+    def current_z(self) -> float:
+        """z for newly added points (FM: current slice; FIB: 0)."""
+        return float(self._z_provider()) if self._z_provider is not None else 0.0
+
+
+@dataclass(frozen=True, eq=False)
+class _PointTypeSpec:
+    """Registry entry driving all per-point-type canvas/list plumbing.
+
+    Adding a point type = adding one spec (plus its list panel); the generic
+    handlers, selection clearing, exclusivity, and refit routing follow from
+    the registry. Unregistered point types fail loudly (KeyError) instead of
+    being silently misrouted.
+    """
+
+    point_type: PointType
+    list_widget: CoordinateListWidget
+    adapter: _CanvasAdapter
+    side: str                                        # "fib" | "fm" (refit routing)
+    max_one: bool = False                            # replace-on-add (surfaces)
+    exclusive_group: Optional[str] = None            # mutually exclusive specs
+    fm_fit_role: Optional[str] = None                # "fid" | "poi" → refit combos
+    on_cleared: Optional[Callable[[], None]] = None  # fired when points removed
 
 
 # ---------------------------------------------------------------------------
@@ -1075,6 +1132,37 @@ class CorrelationTabWidget(QWidget):
         splitter.addWidget(right_pane)
         splitter.setSizes([500, 500, 350])
 
+        self._build_point_registry()
+
+    def _build_point_registry(self) -> None:
+        """One _PointTypeSpec per point type drives all canvas/list plumbing."""
+        self._fib_adapter = _CanvasAdapter(self._fib_canvas)
+        self._fm_adapter = _CanvasAdapter(
+            self._fm_display, z_provider=lambda: self._fm_display.current_z
+        )
+        cl = self._coords_tab
+        specs = (
+            _PointTypeSpec(PointType.FIB, cl.fib_list, self._fib_adapter, "fib"),
+            _PointTypeSpec(
+                PointType.SURFACE, cl.surface_list, self._fib_adapter, "fib",
+                max_one=True, exclusive_group="surface",
+            ),
+            _PointTypeSpec(
+                PointType.FM, cl.fm_list, self._fm_adapter, "fm", fm_fit_role="fid"
+            ),
+            _PointTypeSpec(
+                PointType.POI, cl.poi_list, self._fm_adapter, "fm", fm_fit_role="poi"
+            ),
+            _PointTypeSpec(
+                PointType.SURFACE_FM, cl.fm_surface_list, self._fm_adapter, "fm",
+                max_one=True, exclusive_group="surface", fm_fit_role="fid",
+                on_cleared=self._clear_pre_correction_factor,
+            ),
+        )
+        self._point_specs: Dict[PointType, _PointTypeSpec] = {
+            spec.point_type: spec for spec in specs
+        }
+
     def _connect_signals(self) -> None:
         # Images tab → push to canvases
         self._images_tab.fib_image_changed.connect(self._on_fib_image_changed)
@@ -1089,58 +1177,21 @@ class CorrelationTabWidget(QWidget):
         self._ri_tab.correction_applied.connect(self._on_correction_applied)
         self._ri_tab.pre_correction_requested.connect(self._on_pre_correction_requested)
 
-        # Canvas → list
-        self._fib_canvas.point_selected.connect(self._on_fib_canvas_selected)
-        self._fib_canvas.point_moved.connect(self._on_fib_canvas_moved)
-        self._fib_canvas.point_removed.connect(self._on_fib_canvas_removed)
-        self._fib_canvas.point_add_requested.connect(self._on_fib_add_requested)
+        # Canvas → list (registry-driven; handlers resolve the spec by type)
+        for canvas in (self._fib_canvas, self._fm_display):
+            canvas.point_selected.connect(self._on_canvas_selected)
+            canvas.point_moved.connect(self._on_canvas_moved)
+            canvas.point_removed.connect(self._on_canvas_removed)
+            canvas.point_add_requested.connect(self._on_canvas_add_requested)
 
-        self._fm_display.point_selected.connect(self._on_fm_canvas_selected)
-        self._fm_display.point_moved.connect(self._on_fm_canvas_moved)
-        self._fm_display.point_removed.connect(self._on_fm_canvas_removed)
-        self._fm_display.point_add_requested.connect(self._on_fm_add_requested)
-
-        # List → canvas
-        cl = self._coords_tab
-        cl.fib_list.coordinate_selected.connect(self._on_fib_list_selected)
-        cl.fib_list.coordinate_changed.connect(self._on_fib_list_changed)
-        cl.fib_list.coordinate_removed.connect(self._on_fib_list_removed)
-        cl.fib_list.order_changed.connect(
-            lambda _: (self._refresh_fib_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.fib_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.fm_list.coordinate_selected.connect(self._on_fm_list_selected)
-        cl.fm_list.coordinate_changed.connect(self._on_fm_list_changed)
-        cl.fm_list.coordinate_removed.connect(self._on_fm_list_removed)
-        cl.fm_list.order_changed.connect(
-            lambda _: (self._refresh_fm_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.fm_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.poi_list.coordinate_selected.connect(self._on_poi_list_selected)
-        cl.poi_list.coordinate_changed.connect(self._on_poi_list_changed)
-        cl.poi_list.coordinate_removed.connect(self._on_poi_list_removed)
-        cl.poi_list.order_changed.connect(
-            lambda _: (self._refresh_fm_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.poi_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.surface_list.coordinate_selected.connect(self._on_surface_list_selected)
-        cl.surface_list.coordinate_changed.connect(self._on_surface_list_changed)
-        cl.surface_list.coordinate_removed.connect(self._on_surface_list_removed)
-        cl.surface_list.order_changed.connect(
-            lambda _: (self._refresh_fib_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.surface_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.fm_surface_list.coordinate_selected.connect(self._on_fm_surface_list_selected)
-        cl.fm_surface_list.coordinate_changed.connect(self._on_fm_surface_list_changed)
-        cl.fm_surface_list.coordinate_removed.connect(self._on_fm_surface_list_removed)
-        cl.fm_surface_list.order_changed.connect(
-            lambda _: (self._refresh_fm_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.fm_surface_list.refit_requested.connect(self._on_refit_requested)
+        # List → canvas (one identical wiring block per spec)
+        for spec in self._point_specs.values():
+            lw = spec.list_widget
+            lw.coordinate_selected.connect(partial(self._on_list_selected, spec))
+            lw.coordinate_changed.connect(partial(self._on_list_changed, spec))
+            lw.coordinate_removed.connect(partial(self._on_list_removed, spec))
+            lw.order_changed.connect(partial(self._on_list_reordered, spec))
+            lw.refit_requested.connect(self._on_refit_requested)
 
         # File menu
         self._action_load_fib.triggered.connect(self._menu_load_fib)
@@ -1236,15 +1287,14 @@ class CorrelationTabWidget(QWidget):
             )
             surf_coords = []
 
-        self._fib_canvas.set_coordinates(fib_coords + surf_coords)
-        self._fm_display.set_coordinates(fm_coords + poi_coords + fm_surf_coords)
-
         cl = self._coords_tab
         cl.fib_list.coordinates = fib_coords
         cl.fm_list.coordinates = fm_coords
         cl.poi_list.coordinates = poi_coords
         cl.surface_list.coordinates = surf_coords
         cl.fm_surface_list.coordinates = fm_surf_coords
+        self._refresh_canvas(self._fib_adapter)
+        self._refresh_canvas(self._fm_adapter)
         cl.update_headers()
 
         # A factor without an FM surface is meaningless — don't arm it
@@ -1290,19 +1340,21 @@ class CorrelationTabWidget(QWidget):
     # Canvas refresh helpers
     # ------------------------------------------------------------------
 
-    def _refresh_fib_canvas(self) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_coordinates(
-            cl.fib_list.coordinates + cl.surface_list.coordinates
-        )
+    def _refresh_canvas(self, adapter: _CanvasAdapter) -> None:
+        """Push the full coordinate set of every spec shown on this canvas."""
+        coords: List[Coordinate] = []
+        for spec in self._point_specs.values():
+            if spec.adapter is adapter:
+                coords += spec.list_widget.coordinates
+        adapter.set_coordinates(coords)
 
-    def _refresh_fm_canvas(self) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_coordinates(
-            cl.fm_list.coordinates
-            + cl.poi_list.coordinates
-            + cl.fm_surface_list.coordinates
-        )
+    def _select_only(self, spec: _PointTypeSpec, coord: Optional[Coordinate]) -> None:
+        """Make coord the sole selection: clear every other list and canvas."""
+        for other in self._point_specs.values():
+            if other is not spec:
+                other.list_widget.select_coordinate_silent(None)
+        for adapter in (self._fib_adapter, self._fm_adapter):
+            adapter.set_selected(coord if adapter is spec.adapter else None)
 
     # ------------------------------------------------------------------
     # Image loaded slots
@@ -1496,211 +1548,76 @@ class CorrelationTabWidget(QWidget):
     # Canvas → list slots
     # ------------------------------------------------------------------
 
-    def _on_fib_canvas_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.SURFACE:
-            cl.surface_list.select_coordinate_silent(coord)
-            cl.fib_list.select_coordinate_silent(None)
-        else:
-            cl.fib_list.select_coordinate_silent(coord)
-            cl.surface_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.fm_surface_list.select_coordinate_silent(None)
-        self._fm_display.set_selected(None)
+    def _on_canvas_selected(self, coord: Coordinate) -> None:
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget.select_coordinate_silent(coord)
+        self._select_only(spec, coord)
 
-    def _on_fm_canvas_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.fm_surface_list.select_coordinate_silent(None)
-        if coord.point_type == PointType.FM:
-            cl.fm_list.select_coordinate_silent(coord)
-        elif coord.point_type == PointType.SURFACE_FM:
-            cl.fm_surface_list.select_coordinate_silent(coord)
-        else:
-            cl.poi_list.select_coordinate_silent(coord)
-
-    def _on_fib_canvas_moved(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.SURFACE:
-            cl.surface_list.refresh_coordinate(coord)
-        else:
-            cl.fib_list.refresh_coordinate(coord)
+    def _on_canvas_moved(self, coord: Coordinate) -> None:
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
-    def _on_fm_canvas_moved(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.FM:
-            cl.fm_list.refresh_coordinate(coord)
-        elif coord.point_type == PointType.SURFACE_FM:
-            cl.fm_surface_list.refresh_coordinate(coord)
-        else:
-            cl.poi_list.refresh_coordinate(coord)
+    def _on_canvas_removed(self, coord: Coordinate) -> None:
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget.coordinates = [
+            c for c in spec.list_widget.coordinates if c is not coord
+        ]
+        if spec.on_cleared is not None:
+            spec.on_cleared()
+        self._refresh_canvas(spec.adapter)
+        self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
-    def _on_fib_canvas_removed(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.SURFACE:
-            cl.surface_list.coordinates = [
-                c for c in cl.surface_list.coordinates if c is not coord
-            ]
+    def _on_canvas_add_requested(self, x: float, y: float, pt: PointType) -> None:
+        spec = self._point_specs[pt]
+        coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
+        if spec.max_one:
+            spec.list_widget.coordinates = [coord]
+            self._clear_exclusive_siblings(spec)
         else:
-            cl.fib_list.coordinates = [
-                c for c in cl.fib_list.coordinates if c is not coord
-            ]
-        self._refresh_fib_canvas()
-        cl.update_headers()
+            spec.list_widget.add_coordinate(coord)
+        self._refresh_canvas(spec.adapter)
+        self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
-    def _on_fm_canvas_removed(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.FM:
-            cl.fm_list.coordinates = [
-                c for c in cl.fm_list.coordinates if c is not coord
-            ]
-        elif coord.point_type == PointType.SURFACE_FM:
-            cl.fm_surface_list.coordinates = [
-                c for c in cl.fm_surface_list.coordinates if c is not coord
-            ]
-            self._clear_pre_correction_factor()
-        else:
-            cl.poi_list.coordinates = [
-                c for c in cl.poi_list.coordinates if c is not coord
-            ]
-        self._refresh_fm_canvas()
-        cl.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_fib_add_requested(self, x: float, y: float, pt: PointType) -> None:
-        cl = self._coords_tab
-        coord = Coordinate(PointXYZ(x, y, 0.0), pt)
-        if pt == PointType.SURFACE:
-            cl.surface_list.coordinates = [coord]
-            # Only one surface point at a time — replace any FM surface
-            if cl.fm_surface_list.coordinates:
-                cl.fm_surface_list.coordinates = []
-                self._refresh_fm_canvas()
-            self._clear_pre_correction_factor()
-        else:
-            cl.fib_list.add_coordinate(coord)
-        self._refresh_fib_canvas()
-        cl.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_fm_add_requested(self, x: float, y: float, pt: PointType) -> None:
-        cl = self._coords_tab
-        coord = Coordinate(PointXYZ(x, y, float(self._fm_display.current_z)), pt)
-        if pt == PointType.FM:
-            cl.fm_list.add_coordinate(coord)
-        elif pt == PointType.SURFACE_FM:
-            cl.fm_surface_list.coordinates = [coord]
-            # Only one surface point at a time — replace any FIB surface
-            if cl.surface_list.coordinates:
-                cl.surface_list.coordinates = []
-                self._refresh_fib_canvas()
-        else:
-            cl.poi_list.add_coordinate(coord)
-        self._refresh_fm_canvas()
-        cl.update_headers()
-        self.data_changed.emit(self.data)
+    def _clear_exclusive_siblings(self, spec: _PointTypeSpec) -> None:
+        """Enforce mutual exclusivity (one surface point at a time): clear the
+        other members of the spec's exclusive group and fire their lifecycle
+        hooks (e.g. disarming the pre-correction factor)."""
+        if spec.exclusive_group is None:
+            return
+        for other in self._point_specs.values():
+            if other is spec or other.exclusive_group != spec.exclusive_group:
+                continue
+            if other.list_widget.coordinates:
+                other.list_widget.coordinates = []
+                self._refresh_canvas(other.adapter)
+            if other.on_cleared is not None:
+                other.on_cleared()
 
     # ------------------------------------------------------------------
     # List → canvas slots
     # ------------------------------------------------------------------
 
-    def _on_fib_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_selected(coord)
-        self._fm_display.set_selected(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-        cl.fm_surface_list.select_coordinate_silent(None)
+    def _on_list_selected(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
+        self._select_only(spec, coord)
 
-    def _on_fm_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_selected(coord)
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-        cl.fm_surface_list.select_coordinate_silent(None)
-
-    def _on_poi_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_selected(coord)
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-        cl.fm_surface_list.select_coordinate_silent(None)
-
-    def _on_surface_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_selected(coord)
-        self._fm_display.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.fm_surface_list.select_coordinate_silent(None)
-
-    def _on_fm_surface_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_selected(coord)
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-
-    def _on_fib_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fib_canvas.refresh_coordinate(coord)
+    def _on_list_changed(
+        self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
+    ) -> None:
+        spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
-    def _on_fm_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fm_display.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_poi_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fm_display.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_surface_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fib_canvas.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_fm_surface_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fm_display.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_fib_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fib_canvas()
+    def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
+        if spec.on_cleared is not None:
+            spec.on_cleared()
+        self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
-    def _on_fm_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fm_canvas()
-        self._coords_tab.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_poi_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fm_canvas()
-        self._coords_tab.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_surface_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fib_canvas()
-        self._coords_tab.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_fm_surface_list_removed(self, _coord: Coordinate) -> None:
-        self._clear_pre_correction_factor()
-        self._refresh_fm_canvas()
-        self._coords_tab.update_headers()
+    def _on_list_reordered(self, spec: _PointTypeSpec, _coords: list) -> None:
+        self._refresh_canvas(spec.adapter)
         self.data_changed.emit(self.data)
 
     # ------------------------------------------------------------------
@@ -1841,22 +1758,22 @@ class CorrelationTabWidget(QWidget):
         )
 
         cl = self._coords_tab
+        spec = self._point_specs[coord.point_type]
         x, y, z = coord.point.x, coord.point.y, coord.point.z
         fig = None
 
         try:
-            if coord.point_type in (PointType.FIB, PointType.SURFACE):
+            if spec.side == "fib":
                 method = cl._fib_method_combo.currentText()
                 if method == "Hole" and self._fib_image is not None:
                     xr, yr, fig = hole_fitting_FIB(
                         self._fib_image.filtered_data, int(x), int(y)
                     )
                     coord.point.x, coord.point.y = float(xr), float(yr)
-
-            elif coord.point_type in (PointType.FM, PointType.POI, PointType.SURFACE_FM):
+            else:
                 # The FM surface is typically picked in the reflection channel,
                 # so it shares the fiducial method/channel settings.
-                is_fid = coord.point_type in (PointType.FM, PointType.SURFACE_FM)
+                is_fid = spec.fm_fit_role == "fid"
                 method = (
                     cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
                 ).currentText()
@@ -1881,22 +1798,8 @@ class CorrelationTabWidget(QWidget):
             QMessageBox.warning(self, "Refit failed", str(exc))
             return
 
-        if coord.point_type in (PointType.FIB, PointType.SURFACE):
-            list_w = (
-                cl.fib_list if coord.point_type == PointType.FIB else cl.surface_list
-            )
-            list_w.refresh_coordinate(coord)
-            self._fib_canvas.refresh_coordinate(coord)
-        else:
-            if coord.point_type == PointType.FM:
-                list_w = cl.fm_list
-            elif coord.point_type == PointType.SURFACE_FM:
-                list_w = cl.fm_surface_list
-            else:
-                list_w = cl.poi_list
-            list_w.refresh_coordinate(coord)
-            self._fm_display.refresh_coordinate(coord)
-
+        spec.list_widget.refresh_coordinate(coord)
+        spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
         if fig is not None and cl._show_diag_check.isChecked():

@@ -781,17 +781,15 @@ def apply_refractive_index_correction(
     Returns:
         corrected_poi: corrected point of interest coordinates (x, y)"""
 
-    # apply correction factor to poi
-    depth = initial_poi[1] - surface_coord[1]  # assume poi always below surface, y-axis
+    from fibsem.correlation.structures import scale_about_surface
 
-    corrected_depth = depth * correction_factor
+    corrected_y = scale_about_surface(initial_poi[1], surface_coord[1], correction_factor)
     logging.info(
-        f"Correction Factor: {correction_factor}, Depth: {depth}, Corrected Depth: {corrected_depth}"
+        f"Correction Factor: {correction_factor}, "
+        f"Depth: {initial_poi[1] - surface_coord[1]}, "
+        f"Corrected Depth: {corrected_y - surface_coord[1]}"
     )
-
-    # update the poi coordinate in poi
-    corrected_poi = (initial_poi[0], surface_coord[1] + corrected_depth)
-    return corrected_poi
+    return (initial_poi[0], corrected_y)
 
 
 

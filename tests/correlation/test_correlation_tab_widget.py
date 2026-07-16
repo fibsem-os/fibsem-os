@@ -59,14 +59,14 @@ def test_fm_surface_add_replaces_fib_surface(qapp):
     w = _widget(qapp)
     cl = w._coords_tab
 
-    w._on_fib_add_requested(1.0, 2.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE)
     assert len(cl.surface_list.coordinates) == 1
 
-    w._on_fm_add_requested(3.0, 4.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(3.0, 4.0, PointType.SURFACE_FM)
     assert cl.surface_list.coordinates == []
     assert len(cl.fm_surface_list.coordinates) == 1
 
-    w._on_fib_add_requested(5.0, 6.0, PointType.SURFACE)
+    w._on_canvas_add_requested(5.0, 6.0, PointType.SURFACE)
     assert cl.fm_surface_list.coordinates == []
     assert len(cl.surface_list.coordinates) == 1
 
@@ -74,8 +74,8 @@ def test_fm_surface_add_replaces_fib_surface(qapp):
 def test_fm_surface_add_is_max_one(qapp):
     w = _widget(qapp)
     cl = w._coords_tab
-    w._on_fm_add_requested(1.0, 1.0, PointType.SURFACE_FM)
-    w._on_fm_add_requested(2.0, 2.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(1.0, 1.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(2.0, 2.0, PointType.SURFACE_FM)
     assert len(cl.fm_surface_list.coordinates) == 1
     assert cl.fm_surface_list.coordinates[0].point.x == pytest.approx(2.0)
 
@@ -99,7 +99,7 @@ def test_set_data_prefers_fm_surface_when_both_present(qapp):
 
 def test_data_includes_fm_surface_and_factor(qapp):
     w = _widget(qapp)
-    w._on_fm_add_requested(3.0, 4.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(3.0, 4.0, PointType.SURFACE_FM)
     w._ri_pre_correction_factor = 1.33
     d = w.data
     assert d.fm_surface_coordinate is not None
@@ -128,11 +128,11 @@ def test_ri_tab_mode_follows_surface_type(qapp):
     tab = w._ri_tab
     assert tab.mode is None
 
-    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
     assert tab.mode == "post"
     assert not tab._chk_rerun.isVisible()
 
-    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     assert tab.mode == "pre"
 
 
@@ -142,12 +142,12 @@ def test_tilt_locked_to_zero_in_pre_mode(qapp):
     default_tilt = spin_tilt.value()
     assert default_tilt == pytest.approx(15.0)
 
-    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     assert spin_tilt.value() == pytest.approx(0.0)
     assert not spin_tilt.isEnabled()
 
     # removing the FM surface (via replacing with a FIB surface) unlocks tilt
-    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
     assert spin_tilt.value() == pytest.approx(default_tilt)
 
 
@@ -157,9 +157,9 @@ def test_tilt_locked_to_zero_in_pre_mode(qapp):
 
 
 def _setup_pre_mode(w):
-    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     w._coords_tab.fm_surface_list.coordinates[0].point.z = 10.0
-    w._on_fm_add_requested(5.0, 6.0, PointType.POI)
+    w._on_canvas_add_requested(5.0, 6.0, PointType.POI)
     w._coords_tab.poi_list.coordinates[0].point.z = 30.0
     w.data_changed.emit(w.data)  # refresh RI tab with the edited z values
 
@@ -237,7 +237,7 @@ def test_status_line_shows_pre_correction_after_run(qapp):
 
 def test_apply_post_creates_ghost_and_status(qapp):
     w = _widget(qapp)
-    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
 
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
@@ -259,7 +259,7 @@ def test_apply_post_creates_ghost_and_status(qapp):
 
 def test_apply_post_blocked_when_already_corrected(qapp):
     w = _widget(qapp)
-    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
 
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
@@ -281,7 +281,7 @@ def test_apply_post_blocked_when_already_corrected(qapp):
 def test_apply_post_without_input_data_shows_warning(qapp):
     """A result JSON with input_data: null must warn, not crash."""
     w = _widget(qapp)
-    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
 
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
@@ -301,23 +301,66 @@ def test_factor_cleared_when_fm_surface_removed(qapp):
 
     # canvas removal
     coord = w._coords_tab.fm_surface_list.coordinates[0]
-    w._on_fm_canvas_removed(coord)
+    w._on_canvas_removed(coord)
     assert w._ri_pre_correction_factor is None
     assert w.data.ri_pre_correction_factor is None
 
     # replacement by a FIB surface
-    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     w._ri_pre_correction_factor = 1.5
-    w._on_fib_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
     assert w._ri_pre_correction_factor is None
 
-    # list-row removal
-    w._on_fm_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    # list-row removal (generic handler bound to the SURFACE_FM spec)
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     w._ri_pre_correction_factor = 1.5
     coord = w._coords_tab.fm_surface_list.coordinates[0]
     w._coords_tab.fm_surface_list.coordinates = []
-    w._on_fm_surface_list_removed(coord)
+    w._on_list_removed(w._point_specs[PointType.SURFACE_FM], coord)
     assert w._ri_pre_correction_factor is None
+
+
+# ---------------------------------------------------------------------------
+# Point-type registry — generic behaviour for every registered type
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("point_type", list(PointType))
+def test_registry_add_select_remove_for_every_type(qapp, point_type):
+    """Every registered point type gets identical add/select/remove plumbing —
+    a new point type only needs a registry entry to inherit all of this."""
+    w = _widget(qapp)
+    spec = w._point_specs[point_type]
+
+    w._on_canvas_add_requested(3.0, 4.0, point_type)
+    assert len(spec.list_widget.coordinates) == 1
+    coord = spec.list_widget.coordinates[0]
+    assert coord.point_type is point_type
+
+    # selecting via the canvas clears every other list's selection
+    w._on_canvas_selected(coord)
+    for other in w._point_specs.values():
+        if other is not spec:
+            assert other.list_widget.selected_coordinate is None
+
+    # moving routes to the owning list without error
+    coord.point.x = 7.0
+    w._on_canvas_moved(coord)
+
+    # removal empties the owning list
+    w._on_canvas_removed(coord)
+    assert spec.list_widget.coordinates == []
+
+
+def test_unregistered_point_type_fails_loudly(qapp):
+    """Routing must never silently misfile a coordinate (old behaviour sent
+    unknown types to the POI list)."""
+    w = _widget(qapp)
+    w._point_specs.pop(PointType.POI)  # simulate an unregistered type
+    with pytest.raises(KeyError):
+        w._on_canvas_add_requested(1.0, 2.0, PointType.POI)
+    with pytest.raises(KeyError):
+        w._on_canvas_moved(_coord(pt=PointType.POI))
 
 
 def test_set_data_does_not_arm_factor_without_fm_surface(qapp):

@@ -299,6 +299,14 @@ Finding 10 (PointType→list registry refactor) deferred to a follow-up PR.
 
 ## Follow-up: registry refactor (review finding 10) + PR #111 canvas convergence
 
+**Status: implemented on branch `claude/correlation-point-registry`
+(stacked on the #139 branch at Patrick's request; rebase onto main once #139
+merges).** Widget net −97 lines; 79 tests pass incl. a parametrized per-type
+behaviour sweep and a loud-failure (KeyError) routing test. Formula dedup
+included: `scale_about_surface()` in structures.py is now the only
+implementation of the depth-scaling formula (engine, model, util tuple
+helper, and both RI-tab previews call it).
+
 Agreed plan (2026-07-15): after PR #139 merges, a separate PR replaces the
 per-point-type plumbing in `correlation_tab_widget.py` with a
 `_PointTypeSpec` registry (point_type → list widget, canvas side, max_one,
