@@ -49,6 +49,16 @@ class Coordinate:
         return Coordinate(point=point, point_type=point_type)
 
 
+def scale_about_surface(value, surface, correction_factor):
+    """Scale a depth-like value about a surface reference.
+
+    ``surface + (value - surface) * correction_factor`` — the single source of
+    the refractive-index depth-scaling formula. Signed (works regardless of
+    axis direction) and unit-free; accepts scalars or numpy arrays.
+    """
+    return surface + (value - surface) * correction_factor
+
+
 def apply_z_surface_correction(
     poi_coords: np.ndarray, surface_z: float, correction_factor: float
 ) -> np.ndarray:
@@ -69,7 +79,9 @@ def apply_z_surface_correction(
     """
     corrected = np.array(poi_coords, dtype=np.float32, copy=True)
     if corrected.size:
-        corrected[:, 2] = surface_z + (corrected[:, 2] - surface_z) * correction_factor
+        corrected[:, 2] = scale_about_surface(
+            corrected[:, 2], surface_z, correction_factor
+        )
     return corrected
 
 
@@ -346,7 +358,7 @@ class CorrelationResult:
                 px_m=Point(poi0.px_m.x, poi0.px_m.y),
             )
         ]
-        corrected_y = surface_y + (poi0.image_px.y - surface_y) * correction_factor
+        corrected_y = scale_about_surface(poi0.image_px.y, surface_y, correction_factor)
         poi0.image_px.y = corrected_y
         if fib_shape is not None and pixel_size is not None:
             cy = fib_shape[0] / 2.0
