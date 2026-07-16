@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Optional, Type
@@ -115,20 +116,31 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         self._acquire_set_of_reference_images(image_settings)
 
     def update_spot_burn_parameters_ui(self):
-        """Update the spot burn parameters in the UI, or run automatically if unsupervised."""
-        if (not self.validate and self.config.coordinates) or self.parent_ui is None:
-            # run spot burn automatically with stored coordinates
+        """Run the spot burn automatically (unsupervised/headless), or hand off to the UI.
+
+        Supervised runs let the user place/adjust points and run the burn in the spot
+        burn widget; unsupervised/headless runs burn the stored coordinates directly.
+        """
+        # automatic path: no user in the loop (unsupervised or headless)
+        if not self.validate or self.parent_ui is None:
+            if not self.config.coordinates:
+                logging.warning(
+                    f"No spot burn coordinates set for {self.lamella.name}; skipping spot burn."
+                )
+                return
             from fibsem.imaging.spot import run_spot_burn
             run_spot_burn(microscope=self.microscope,
                           coordinates=self.config.coordinates,
                           exposure_time=self.config.exposure_time,
                           milling_current=self.config.milling_current,
                           beam_type=BeamType.ION,
-                        #   parent_ui=self.parent_ui, # needs spot burn widget for progress
                           stop_event=self._stop_event)
             return
 
-        if self.parent_ui is None or self.parent_ui.spot_burn_widget is None:
+        # supervised path: task-orchestrated run/wait/re-prompt loop (mirrors milling).
+        # The user runs the burn via the workflow "Run Spot Burn" button; the task waits
+        # for each burn to finish before continuing so the workflow can't advance mid-burn.
+        if self.parent_ui.spot_burn_widget is None:
             logging.warning("Spot burn widget not available in UI.")
             return
 
@@ -137,12 +149,30 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                     "coordinates": self.config.coordinates})
         update_spot_burn_parameters(parent_ui=self.parent_ui, parameters=parameters)
 
-        # ask the user to select the position/parameters for spot burns
-        msg = f"Run the spot burn workflow for {self.lamella.name}. Press continue when finished."
-        ask_user(self.parent_ui, msg=msg, pos="Continue", spot_burn=True)
+        spot_burn_widget = self.parent_ui.spot_burn_widget
+        msg = f"Place points and run the spot burn for {self.lamella.name}. Press Continue when finished."
+        response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
+        while response:
+            self.update_status_ui("Running Spot Burn...")
+            spot_burn_widget.start_spot_burn_signal.emit()
+            # BlockingQueuedConnection: on return from emit the burn is either running
+            # (is_burning=True) or was refused (no in-bounds points), in which case the
+            # wait loop exits immediately and the user is re-prompted.
+            try:
+                while spot_burn_widget.is_burning:
+                    self._check_for_abort()
+                    time.sleep(1)
+            except InterruptedError:
+                # workflow stopped: take the burn down with the task. Covers the race
+                # where the burn starts after the Stop click already ran cancel (the
+                # worker clears its stop_event on start). cancel_spot_burn only sets
+                # a threading.Event, so it is safe to call from the task thread.
+                spot_burn_widget.cancel_spot_burn()
+                raise
+            response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
 
         # store the coordinates from the UI back to the config
-        self.config.coordinates = self.parent_ui.spot_burn_widget.get_coordinates()
+        self.config.coordinates = spot_burn_widget.get_coordinates()
 
         # clear the spot burn parameters from the UI
         clear_spot_burn_ui(self.parent_ui)

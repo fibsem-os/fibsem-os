@@ -139,6 +139,179 @@ def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
     assert last_current == IMAGING_CURRENT
 
 
+# --- run_spot_burn: progress reporting -----------------------------------------
+
+
+def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
+    """Progress is reported through microscope.spot_burn_progress_signal (both run paths)."""
+    run_spot_burn(
+        microscope=mock_microscope,
+        coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+        exposure_time=1.0,
+        milling_current=30e-12,
+    )
+    emitted = [
+        c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
+    ]
+    # initial progress reports the total number of points
+    assert emitted[0]["current_point"] == 0
+    assert emitted[0]["total_points"] == 2
+    # final emission signals completion
+    assert emitted[-1] == {"finished": True}
+
+
+@requires_ui
+def test_build_spot_burn_progress_update_mapping():
+    """Progress dicts map to ProgressUpdate: running, done, and failed states."""
+    from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+    running = build_spot_burn_progress_update(
+        {"current_point": 1, "total_points": 3,
+         "total_remaining_time": 20.0, "total_estimated_time": 30.0}
+    )
+    assert (running.current, running.total) == (1, 3)
+    assert running.remaining_seconds == 20.0
+    assert not running.finished
+
+    done = build_spot_burn_progress_update({"finished": True})
+    assert done.finished and not done.message
+
+    failed = build_spot_burn_progress_update({"finished": True, "error": True})
+    assert failed.finished and failed.message == "Spot burn failed"
+
+
+# --- SpotBurnFiducialTask.update_spot_burn_parameters_ui ------------------------
+
+
+def _make_headless_spot_burn_task(coordinates, tmp_path):
+    """A SpotBurnFiducialTask with no parent UI (unsupervised/headless path)."""
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTask,
+    )
+
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    config = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn Fiducial", coordinates=coordinates
+    )
+    return SpotBurnFiducialTask(
+        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=None
+    )
+
+
+def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
+    """Unsupervised/headless with no coordinates skips, rather than blocking on ask_user."""
+    import fibsem.imaging.spot as spot_mod
+
+    calls = []
+    monkeypatch.setattr(spot_mod, "run_spot_burn", lambda **kw: calls.append(kw))
+
+    task = _make_headless_spot_burn_task([], tmp_path)
+    task.update_spot_burn_parameters_ui()  # must return, not hang
+
+    assert calls == []
+
+
+def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_path):
+    """Unsupervised/headless with coordinates burns them directly."""
+    import fibsem.imaging.spot as spot_mod
+
+    calls = []
+    monkeypatch.setattr(spot_mod, "run_spot_burn", lambda **kw: calls.append(kw))
+
+    coords = [Point(0.5, 0.5), Point(0.6, 0.6)]
+    task = _make_headless_spot_burn_task(coords, tmp_path)
+    task.update_spot_burn_parameters_ui()
+
+    assert len(calls) == 1
+    assert calls[0]["coordinates"] == coords
+
+
+# --- SpotBurnFiducialTask supervised loop ---------------------------------------
+
+
+def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
+    """A supervised SpotBurnFiducialTask with a mock parent UI + spot burn widget.
+
+    ask_user_responses is an iterable of the booleans ask_user should return.
+    Returns (task, widget, cleared_list).
+    """
+    import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTask,
+    )
+
+    widget = MagicMock()
+    widget.is_burning = False  # each burn "completes" immediately
+    widget.get_coordinates.return_value = [Point(0.5, 0.5)]
+    parent_ui = MagicMock()  # truthy experiment.task_protocol.get_supervision -> supervised
+    parent_ui.spot_burn_widget = widget
+
+    responses = iter(ask_user_responses)
+    monkeypatch.setattr(sb_mod, "ask_user", lambda *a, **k: next(responses))
+    monkeypatch.setattr(sb_mod, "update_spot_burn_parameters", lambda **k: None)
+    cleared = []
+    monkeypatch.setattr(sb_mod, "clear_spot_burn_ui", lambda ui: cleared.append(ui))
+
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    config = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn Fiducial", coordinates=[Point(0.5, 0.5)]
+    )
+    task = SpotBurnFiducialTask(
+        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=parent_ui
+    )
+    task.update_status_ui = lambda *a, **k: None  # isolate the loop
+    task._check_for_abort = lambda: None
+    return task, widget, cleared
+
+
+def test_supervised_spot_burn_runs_then_continues(monkeypatch, tmp_path):
+    """'Run Spot Burn' triggers the widget and waits; then Continue proceeds."""
+    task, widget, cleared = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, ask_user_responses=[True, False]
+    )
+
+    task.update_spot_burn_parameters_ui()
+
+    widget.start_spot_burn_signal.emit.assert_called_once()
+    widget.get_coordinates.assert_called_once()
+    assert cleared  # spot burn UI was cleared afterwards
+
+
+def test_supervised_spot_burn_continue_without_running(monkeypatch, tmp_path):
+    """Pressing Continue immediately runs no burn but still reads back + clears."""
+    task, widget, cleared = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, ask_user_responses=[False]
+    )
+
+    task.update_spot_burn_parameters_ui()
+
+    widget.start_spot_burn_signal.emit.assert_not_called()
+    widget.get_coordinates.assert_called_once()
+    assert cleared
+
+
+def test_supervised_spot_burn_abort_cancels_burn(monkeypatch, tmp_path):
+    """Workflow abort during the wait loop cancels the in-progress burn.
+
+    Also covers the stop-vs-start race: a burn that starts after the workflow
+    Stop already ran cancel_spot_burn (clearing its stop_event) is still taken
+    down by the aborting task.
+    """
+    task, widget, cleared = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, ask_user_responses=[True]
+    )
+    widget.is_burning = True  # burn in progress
+    task._check_for_abort = MagicMock(side_effect=InterruptedError("aborted"))
+
+    with pytest.raises(InterruptedError):
+        task.update_spot_burn_parameters_ui()
+
+    widget.cancel_spot_burn.assert_called_once()
+    assert not cleared  # abort propagates before the UI cleanup runs
+
+
 # --- SpotBurnFiducialTaskConfig serialization -----------------------------------
 
 

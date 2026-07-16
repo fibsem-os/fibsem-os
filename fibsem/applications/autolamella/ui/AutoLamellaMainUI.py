@@ -11,7 +11,7 @@ except Exception:
 import warnings
 
 import napari
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -53,6 +53,7 @@ from fibsem.ui.stylesheets import (
     WORKFLOW_BORDER_STYLESHEET,
 )
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
@@ -881,6 +882,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope.tiled_acquisition_signal.connect(
                 self._on_tile_acquisition_progress
             )
+            try:
+                self.autolamella_ui.microscope.spot_burn_progress_signal.disconnect(
+                    self._on_spot_burn_progress
+                )
+            except Exception:
+                pass
+            self.autolamella_ui.microscope.spot_burn_progress_signal.connect(
+                self._on_spot_burn_progress
+            )
         self.btn_create_experiment.setEnabled(True)
         self.btn_load_experiment.setEnabled(True)
         self._update_instructions()
@@ -923,6 +933,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         elif state == "finished":
             self.milling_progress_bar.setVisible(False)
+
+    @ensure_main_thread
+    def _on_spot_burn_progress(self, ddict: dict) -> None:
+        """Handle spot burn progress updates from the microscope (supervised + unsupervised)."""
+        self.progress_widget.update_progress(build_spot_burn_progress_update(ddict))
+        if ddict.get("finished"):
+            # hide the Done/Failed state after a moment; reset_if_finished leaves the
+            # widget alone if another operation has started rendering progress since
+            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
 
     @ensure_main_thread
     def _on_tile_acquisition_progress(self, ddict: dict) -> None:
