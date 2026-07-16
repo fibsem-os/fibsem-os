@@ -995,8 +995,12 @@ class CorrelationTabWidget(QWidget):
         self._action_show_scalebar = QAction("Show ScaleBar", self)
         self._action_show_scalebar.setCheckable(True)
         self._action_show_scalebar.setChecked(True)
+        self._action_show_legend = QAction("Show Legend", self)
+        self._action_show_legend.setCheckable(True)
+        self._action_show_legend.setChecked(True)
         view_menu.addAction(self._action_reset_views)
         view_menu.addAction(self._action_show_scalebar)
+        view_menu.addAction(self._action_show_legend)
 
         test_menu = menubar.addMenu("Test")
         self._action_test_save_plot = QAction("Test Save Plot", self)
@@ -1148,6 +1152,7 @@ class CorrelationTabWidget(QWidget):
         self._action_reset_views.triggered.connect(lambda _: self._reset_views())
         self._action_show_scalebar.toggled.connect(self._on_scalebar_toggled)
         self._on_scalebar_toggled(True)
+        self._action_show_legend.toggled.connect(self._on_legend_toggled)
         self._action_test_save_plot.triggered.connect(lambda _: self.save_plot())
 
         # Bottom bar run button
@@ -1456,6 +1461,7 @@ class CorrelationTabWidget(QWidget):
                 label_prefix="E",
                 size=7,
                 marker="o",
+                legend_label="FM reprojected (E)",
             )
 
         # Ghost: where the POI would land without the RI pre-correction —
@@ -1471,6 +1477,7 @@ class CorrelationTabWidget(QWidget):
                 alpha=0.7,
                 show_labels=False,
                 hollow=True,
+                legend_label="POI uncorrected",
             )
 
         # Reprojected POI — magenta circle, labeled P1/P2/...
@@ -1482,6 +1489,7 @@ class CorrelationTabWidget(QWidget):
                 label_prefix="P",
                 size=9,
                 marker="o",
+                legend_label="POI (P)",
             )
 
     # ------------------------------------------------------------------
@@ -1748,6 +1756,10 @@ class CorrelationTabWidget(QWidget):
     def _on_scalebar_toggled(self, visible: bool) -> None:
         self._fib_canvas.set_scalebar_visible(visible)
         self._fm_display.canvas.set_scalebar_visible(visible)
+
+    def _on_legend_toggled(self, visible: bool) -> None:
+        self._fib_canvas.set_legend_visible(visible)
+        self._fm_display.canvas.set_legend_visible(visible)
 
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""

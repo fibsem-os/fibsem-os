@@ -375,6 +375,141 @@ def test_load_result_keeps_status_message(qapp):
     assert w._lbl_status.text() == "Done — RI pre-correction ×1.500 applied."
 
 
+def _legend_labels(ax):
+    legend = ax.get_legend()
+    return [t.get_text() for t in legend.get_texts()] if legend else []
+
+
+def test_canvas_legend_lists_present_point_types(qapp):
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates(
+        [
+            _coord(pt=PointType.FIB),
+            _coord(pt=PointType.FIB),
+            _coord(pt=PointType.SURFACE),
+        ]
+    )
+    assert _legend_labels(canvas._ax) == ["FIB", "SURFACE"]
+
+    # legend follows content
+    canvas.set_coordinates([_coord(pt=PointType.FM), _coord(pt=PointType.SURFACE_FM)])
+    assert _legend_labels(canvas._ax) == ["FM", "FM-SURFACE"]
+
+    # empty canvas → no legend
+    canvas.set_coordinates([])
+    assert canvas._ax.get_legend() is None
+
+
+def test_canvas_legend_overlay_groups_and_toggle(qapp):
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates([_coord(pt=PointType.FIB)])
+    canvas.add_overlay_points(
+        [(1.0, 2.0)], color="#ff00ff", hollow=True, legend_label="POI uncorrected"
+    )
+    assert _legend_labels(canvas._ax) == ["FIB", "POI uncorrected"]
+
+    canvas.clear_overlay()
+    assert _legend_labels(canvas._ax) == ["FIB"]
+
+    canvas.set_legend_visible(False)
+    assert canvas._ax.get_legend() is None
+    canvas.set_legend_visible(True)
+    assert _legend_labels(canvas._ax) == ["FIB"]
+
+
+def test_surface_crosshair_keeps_color(qapp):
+    """Unfilled '+' markers are drawn by their edge — selection must not turn
+    them white, and deselection must not erase them."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    fib = _coord(x=1.0, y=1.0, pt=PointType.FIB)
+    surface = _coord(x=5.0, y=5.0, pt=PointType.SURFACE)
+    canvas.set_coordinates([fib, surface])
+    fib_artist, surf_artist = canvas._point_artists
+
+    # unselected: crosshair keeps the type colour (was "none" → near-invisible)
+    assert surf_artist.get_markeredgecolor() == "#ff9800"
+
+    # selected: still the type colour, shown bolder (was white → colour lost)
+    canvas.set_selected(surface)
+    assert surf_artist.get_markeredgecolor() == "#ff9800"
+    assert surf_artist.get_markeredgewidth() == pytest.approx(3.0)
+
+    # filled circles keep the white-rim selection style
+    canvas.set_selected(fib)
+    assert fib_artist.get_markeredgecolor() == "white"
+    assert surf_artist.get_markeredgecolor() == "#ff9800"
+    assert surf_artist.get_markeredgewidth() == pytest.approx(2.0)
+
+
+def test_fib_surface_line_follows_surface_point(qapp):
+    """A dashed datum line spans the canvas at the FIB surface y."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates([_coord(x=1.0, y=1.0, pt=PointType.FIB)])
+    assert canvas._surface_line is None
+
+    surf = _coord(x=5.0, y=40.0, pt=PointType.SURFACE)
+    canvas.set_coordinates([surf])
+    assert canvas._surface_line is not None
+    assert canvas._surface_line.get_ydata()[0] == pytest.approx(40.0)
+
+    # follows coordinate edits
+    surf.point.y = 55.0
+    canvas.refresh_coordinate(surf)
+    assert canvas._surface_line.get_ydata()[0] == pytest.approx(55.0)
+
+    # removed with the point
+    canvas.set_coordinates([])
+    assert canvas._surface_line is None
+
+
+def test_fm_surface_point_gets_no_line(qapp):
+    """FM surfaces are z-planes — no in-plane datum line."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates([_coord(z=10.0, pt=PointType.SURFACE_FM)])
+    assert canvas._surface_line is None
+
+
+def test_surface_line_exported_by_render_to_axes(qapp):
+    from matplotlib.figure import Figure
+
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates([_coord(x=5.0, y=40.0, pt=PointType.SURFACE)])
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    canvas.render_to_axes(ax)
+    dashed = [l for l in ax.get_lines() if l.get_linestyle() == "--"]
+    assert len(dashed) == 1
+    assert dashed[0].get_ydata()[0] == pytest.approx(40.0)
+
+
+def test_render_to_axes_replicates_legend(qapp):
+    from matplotlib.figure import Figure
+
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates([_coord(pt=PointType.FIB)])
+    canvas.add_overlay_points(
+        [(1.0, 2.0)], color="#ff00ff", legend_label="POI (P)"
+    )
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    canvas.render_to_axes(ax)
+    assert _legend_labels(ax) == ["FIB", "POI (P)"]
+
+
 def test_ghost_export_preserves_hollow_style(qapp):
     from matplotlib.figure import Figure
 

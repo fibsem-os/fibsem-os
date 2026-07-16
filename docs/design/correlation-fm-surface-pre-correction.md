@@ -221,6 +221,18 @@ the (unchanged) fiducial fit.
   Z-column table in pre mode, post double-apply guard), `_menu_load_result`
   reordered so the RI tab sees loaded surfaces, `_logger` NameError fixed.
 - Canvas/list color+marker entries (yellow "+" / "yellow").
+- Canvas legend (proxy `Line2D` handles, upper right, dark-themed): shows the
+  point types currently on screen plus labeled overlay groups (FM reprojected,
+  POI, POI uncorrected); View → Show Legend toggle (default on); replicated in
+  `render_to_axes` exports. Unfilled markers ("+") keep their own colour as the
+  legend edge so they don't render white.
+- Marker styling unified in `_marker_style()`: filled circles show selection as
+  a white rim; unfilled "+" crosshairs keep their type colour always (white
+  edge would swallow it, "none" erased it) and show selection via size/stroke.
+- FIB surface datum line: dashed orange `axhline` across the canvas at the
+  surface y (the only coordinate the post correction uses), tracks drags/edits
+  live, emphasized while selected, exported by `render_to_axes`. FM surfaces
+  are z-planes — no in-plane line.
 - Visibility of the applied correction:
   - status line reads "Done — RI pre-correction ×N applied." after a corrected run;
   - **ghost marker (both modes)**: `CorrelationResult.poi_uncorrected` holds the
