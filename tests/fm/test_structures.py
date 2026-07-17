@@ -642,6 +642,47 @@ def test_fluorescence_image_load_fallback():
             os.unlink(filename)
 
 
+def test_safe_ome_from_tiff_strips_channel_filters():
+    """OME files with <Channel><Filter/></Channel> (rejected by the schema)
+    must still load their real PhysicalSize instead of falling back to the 1µm
+    default. Regression: the naive single-find strip dropped only the first of
+    multiple channels' Filter elements and re-threw, discarding all metadata.
+    """
+    import os
+
+    import tifffile
+
+    from fibsem.fm.structures import safe_ome_from_tiff
+
+    # Two channels, each with the schema-invalid nested <Filter/> (real METEOR
+    # export shape), and a real PhysicalSizeX of 0.13 µm.
+    ome_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
+        'Type="uint8" SizeX="4" SizeY="4" SizeC="2" SizeZ="1" SizeT="1" '
+        'PhysicalSizeX="0.13" PhysicalSizeY="0.13">'  # unit defaults to µm
+        '<Channel ID="Channel:0:0" SamplesPerPixel="1">'
+        '<Filter ID="Filter:0:0" Type="pass-through" /></Channel>'
+        '<Channel ID="Channel:0:1" SamplesPerPixel="1">'
+        '<Filter ID="Filter:0:1" Type="pass-through" /></Channel>'
+        '<TiffData /></Pixels></Image></OME>'
+    )
+    data = np.zeros((2, 4, 4), dtype=np.uint8)
+
+    with tempfile.NamedTemporaryFile(suffix=".ome.tiff", delete=False) as f:
+        filename = f.name
+    try:
+        tifffile.imwrite(filename, data, description=ome_xml)
+        ome = safe_ome_from_tiff(filename)
+        px = ome.images[0].pixels
+        assert px.physical_size_x == pytest.approx(0.13)
+        assert len(px.channels) == 2  # both channels survive the strip
+    finally:
+        if os.path.exists(filename):
+            os.unlink(filename)
+
+
 def test_fluorescence_image_multi_channel_stacking():
     """Test multi-channel image creation."""
     # Create individual channel images

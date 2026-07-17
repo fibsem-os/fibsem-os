@@ -28,7 +28,13 @@ Done — completes the bar and shows "Done"::
 
     ProgressUpdate.done()
 
-Call :meth:`FibsemProgressWidget.reset` to return to the initial hidden state.
+Failed — completes the bar but shows an error message::
+
+    ProgressUpdate.failed("Spot burn failed")
+
+Call :meth:`FibsemProgressWidget.reset` to return to the initial hidden state, or
+:meth:`FibsemProgressWidget.reset_if_finished` from delayed hide-after-done timers
+(it leaves the widget alone if a newer operation is already rendering progress).
 """
 
 from __future__ import annotations
@@ -108,6 +114,11 @@ class ProgressUpdate:
         """Signals completion — widget shows 100 % and "Done"."""
         return cls(finished=True)
 
+    @classmethod
+    def failed(cls, message: str = "Failed") -> "ProgressUpdate":
+        """Signals failure — completes the bar but shows ``message`` instead of "Done"."""
+        return cls(finished=True, message=message)
+
 
 # ---------------------------------------------------------------------------
 # Widget
@@ -153,6 +164,7 @@ class FibsemProgressWidget(QWidget):
 
         prefix = f"{info.message} — " if info.message else ""
 
+        self._finished = info.finished
         self.setVisible(True)
 
         if info.finished:
@@ -160,7 +172,7 @@ class FibsemProgressWidget(QWidget):
             self._spinner.clear()  # blank icon, fixed size keeps space reserved
             self._bar.setMaximum(100)
             self._bar.setValue(100)
-            self._bar.setFormat("Done")
+            self._bar.setFormat(info.message or "Done")
             self._bar.setVisible(True)
             return
 
@@ -212,8 +224,18 @@ class FibsemProgressWidget(QWidget):
 
         self._bar.setVisible(True)
 
+    def reset_if_finished(self) -> None:
+        """Reset only if the most recent update was a finished/failed one.
+
+        For delayed hide-after-done timers on a shared widget: if another
+        operation has started rendering progress in the meantime, leave it alone.
+        """
+        if self._finished:
+            self.reset()
+
     def reset(self) -> None:
         """Return to initial hidden state."""
+        self._finished = False
         self._spinner.stop()
         self._spinner.clear()
         self._bar.setMinimum(0)

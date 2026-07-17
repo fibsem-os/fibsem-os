@@ -10,15 +10,18 @@ Layout
 │    Add FIB          │  right-click →      │  │                         ││
 │    Add Surface      │    Add FM           │  │                         ││
 │                     │    Add POI          │  │                         ││
-│                     │                     │  └─────────────────────────┘│
+│                     │    Add FM-Surface   │  └─────────────────────────┘│
 └─────────────────────┴─────────────────────┴────────────────────────────┘
 
 Tabs
 ----
   Images      — browse / load FIB and FM images
-  Coordinates — coordinate lists (FIB, FM, POI, Surface) + fit settings + load/save
+  Coordinates — coordinate lists (FIB, FM, POI, Surface FIB/FM) + fit settings + load/save
   Results     — run correlation + CorrelationResultWidget overlay
-  RI          — refractive-index depth correction table
+  RI          — refractive-index depth correction; mode follows the surface point:
+                FIB surface → post-correlation (corrects the correlated POI 1),
+                FM surface  → pre-correlation (corrects every input POI z, applied
+                during the run). Only one surface point can exist at a time.
 
 Signals
 -------
@@ -32,7 +35,9 @@ import copy
 import logging
 import os
 import time
-from typing import List, Optional
+from dataclasses import dataclass
+from functools import partial
+from typing import Callable, Dict, List, Optional
 
 logging.basicConfig(level=logging.INFO)
 
@@ -69,6 +74,7 @@ from fibsem.correlation.structures import (
     CorrelationResult,
     PointType,
     PointXYZ,
+    scale_about_surface,
 )
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.ui import stylesheets
@@ -361,6 +367,7 @@ class _CoordinatesTab(QWidget):
     fm_list: CoordinateListWidget
     poi_list: CoordinateListWidget
     surface_list: CoordinateListWidget
+    fm_surface_list: CoordinateListWidget
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -405,14 +412,23 @@ class _CoordinatesTab(QWidget):
         self._poi_panel.add_header_widget(self._poi_count_label)
         layout.addWidget(self._poi_panel)
 
-        # Surface (max 1)
+        # Surface (max 1, FIB image; mutually exclusive with FM Surface)
         self.surface_list = CoordinateListWidget(point_type=PointType.SURFACE)
-        self._surface_panel = TitledPanel("Surface", collapsible=True)
+        self._surface_panel = TitledPanel("Surface (FIB)", collapsible=True)
         self._surface_panel.set_content(self.surface_list)
         self._surface_count_label = QLabel("(0)")
         self._surface_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
         self._surface_panel.add_header_widget(self._surface_count_label)
         layout.addWidget(self._surface_panel)
+
+        # FM Surface (max 1, FM volume; mutually exclusive with Surface)
+        self.fm_surface_list = CoordinateListWidget(point_type=PointType.SURFACE_FM)
+        self._fm_surface_panel = TitledPanel("Surface (FM)", collapsible=True)
+        self._fm_surface_panel.set_content(self.fm_surface_list)
+        self._fm_surface_count_label = QLabel("(0)")
+        self._fm_surface_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._fm_surface_panel.add_header_widget(self._fm_surface_count_label)
+        layout.addWidget(self._fm_surface_panel)
 
         # Fit Settings
         fit_body = QWidget()
@@ -461,6 +477,9 @@ class _CoordinatesTab(QWidget):
         self._fm_count_label.setText(f"({len(self.fm_list.coordinates)})")
         self._poi_count_label.setText(f"({len(self.poi_list.coordinates)})")
         self._surface_count_label.setText(f"({len(self.surface_list.coordinates)})")
+        self._fm_surface_count_label.setText(
+            f"({len(self.fm_surface_list.coordinates)})"
+        )
 
     def rebuild_channel_combos(self, fm_image: Optional[FluorescenceImage]) -> None:
         for cb in (self._fm_fid_ch_combo, self._fm_poi_ch_combo):
@@ -579,22 +598,59 @@ class _ResultsTab(QWidget):
 
 
 class _RITab(QWidget):
-    """Refractive-index depth correction table."""
+    """Refractive-index depth correction.
 
-    correction_applied = pyqtSignal(object)  # CorrelationResult
+    Two modes, implied by which surface point exists (mutually exclusive):
+
+    post — FIB surface: corrects the correlated POI 1 in FIB image space,
+           in-place on the existing result.
+    pre  — FM surface: corrects the z of every input POI (FM space). The
+           correction is applied inside ``run_correlation_from_data``, so
+           applying it triggers (or requires) a correlation run.
+    """
+
+    correction_applied = pyqtSignal(object)             # CorrelationResult (post)
+    pre_correction_requested = pyqtSignal(float, bool)  # factor, rerun (pre)
+
+    _POST_HEADERS = ["POI", "X (px)", "Y original (px)", "Y corrected (px)"]
+    _PRE_HEADERS = ["POI", "X (px)", "Z original (px)", "Z corrected (px)"]
+
+    _WARNING_STYLES = {
+        "error":   "color: #e07b39; font-size: 11px;",
+        "success": "color: #6dbf6d; font-size: 11px;",
+        "armed":   "color: #e0c060; font-size: 11px;",
+    }
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._poi: List[CorrelationPointOfInterest] = []
         self._surface_coordinate: Optional[Coordinate] = None
         self._surface_y: Optional[float] = None
+        self._fm_surface_coordinate: Optional[Coordinate] = None
+        self._input_poi: List[Coordinate] = []
+        self._input_pre_factor: Optional[float] = None
+        self._fm_pixel_size_z: Optional[float] = None
         self._result: Optional[CorrelationResult] = None
+        # Last factor mirrored into the spinbox; mirroring only on change keeps
+        # in-progress manual edits from being reverted by unrelated refreshes.
+        self._last_mirrored_factor: Optional[float] = None
         self._setup_ui()
+
+    def _set_warning(self, text: str, level: str = "error") -> None:
+        """Set the warning label text and its matching severity color together."""
+        self._lbl_warning.setStyleSheet(self._WARNING_STYLES[level])
+        self._lbl_warning.setText(text)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
+
+        self._lbl_mode = QLabel("")
+        self._lbl_mode.setStyleSheet("color: #a0c8ff; font-size: 11px;")
+        self._lbl_mode.setWordWrap(True)
+        self._lbl_mode.setVisible(False)
+        layout.addWidget(self._lbl_mode)
 
         self._ri_widget = RefractiveIndexWidget()
         layout.addWidget(self._ri_widget)
@@ -609,6 +665,15 @@ class _RITab(QWidget):
         self._btn_apply.clicked.connect(self._apply)
         apply_layout.addWidget(self._btn_apply)
 
+        self._chk_rerun = QCheckBox("Re-run on apply")
+        self._chk_rerun.setChecked(True)
+        self._chk_rerun.setToolTip(
+            "Re-run the correlation immediately when applying the correction. "
+            "If unchecked, the factor is stored and applied on the next run."
+        )
+        self._chk_rerun.setVisible(False)
+        apply_layout.addWidget(self._chk_rerun)
+
         self._lbl_warning = QLabel("")
         self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
         apply_layout.addWidget(self._lbl_warning)
@@ -621,9 +686,7 @@ class _RITab(QWidget):
         layout.addWidget(self._lbl_distance)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(
-            ["POI", "X (px)", "Y original (px)", "Y corrected (px)"]
-        )
+        self._table.setHorizontalHeaderLabels(self._POST_HEADERS)
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
@@ -643,45 +706,118 @@ class _RITab(QWidget):
         layout.addWidget(self._lbl_multi_poi)
         layout.addStretch(1)
 
+    @property
+    def mode(self) -> Optional[str]:
+        """'pre' when an FM surface exists, 'post' for a FIB surface, else None."""
+        if self._fm_surface_coordinate is not None:
+            return "pre"
+        if self._surface_coordinate is not None:
+            return "post"
+        return None
+
     def set_result(
         self,
         result: Optional[CorrelationResult],
-        surface_coordinate: Optional[Coordinate] = None,
+        input_data: Optional[CorrelationInputData] = None,
+        fm_pixel_size_z: Optional[float] = None,
     ) -> None:
         self._result = result
         self._poi = result.poi if result else []
-        self._surface_coordinate = surface_coordinate
-        self._surface_y = surface_coordinate.point.y if surface_coordinate else None
+        surface = input_data.surface_coordinate if input_data else None
+        self._surface_coordinate = surface
+        self._surface_y = surface.point.y if surface else None
+        self._fm_surface_coordinate = (
+            input_data.fm_surface_coordinate if input_data else None
+        )
+        self._input_poi = list(input_data.poi_coordinates) if input_data else []
+        self._input_pre_factor = (
+            input_data.ri_pre_correction_factor if input_data else None
+        )
+        self._fm_pixel_size_z = fm_pixel_size_z
 
+        mode = self.mode
         logging.debug(
-            f"[RITab.set_result] result={result is not None}, "
-            f"surface_coordinate={surface_coordinate}, "
+            f"[RITab.set_result] result={result is not None}, mode={mode}, "
             f"surface_y={self._surface_y}, "
+            f"fm_surface={self._fm_surface_coordinate}, "
             f"n_poi={len(self._poi)}"
         )
 
+        # Mode banner + pre-mode controls
+        if mode == "pre":
+            self._lbl_mode.setText(
+                "FM surface mode: corrects the z of every input POI before "
+                "correlation (applied during the run)."
+            )
+        elif mode == "post":
+            self._lbl_mode.setText(
+                "FIB surface mode: corrects the correlated POI 1 in the FIB image."
+            )
+        self._lbl_mode.setVisible(mode is not None)
+        self._chk_rerun.setVisible(mode == "pre")
+        self._ri_widget.set_tilt_locked(mode == "pre")
+
+        self._table.setHorizontalHeaderLabels(
+            self._PRE_HEADERS if mode == "pre" else self._POST_HEADERS
+        )
         self._table.setRowCount(0)
-        self._lbl_multi_poi.setVisible(len(self._poi) > 1)
+        self._lbl_multi_poi.setVisible(mode == "post" and len(self._poi) > 1)
         self._update_distance_label()
 
-        factor = result.refractive_index_correction_factor if result else None
-        if factor is not None:
-            self._ri_widget.set_factor(factor)
-            self._lbl_warning.setStyleSheet("color: #6dbf6d; font-size: 11px;")
-            self._lbl_warning.setText(
-                f"Correction already applied (factor: {factor:.3f})."
+        result_factor = result.refractive_index_correction_factor if result else None
+        result_mode = result.refractive_index_correction_mode if result else None
+
+        # Factor spinbox mirrors the authoritative stored factor. In pre mode a
+        # newly armed input factor is the latest user intent and outranks the
+        # (older) result factor. Mirror only when the stored value changes so
+        # a factor the user is typing survives unrelated data_changed refreshes.
+        if mode == "pre" and self._input_pre_factor is not None:
+            stored_factor = self._input_pre_factor
+        else:
+            stored_factor = result_factor
+        if stored_factor is not None and stored_factor != self._last_mirrored_factor:
+            self._ri_widget.set_factor(stored_factor)
+        self._last_mirrored_factor = stored_factor
+
+        # Pre-mode preview table (stored factor, applied or armed)
+        if mode == "pre" and self._input_pre_factor is not None:
+            self._populate_pre_table(self._input_pre_factor)
+
+        armed = (
+            mode == "pre"
+            and self._input_pre_factor is not None
+            and self._input_pre_factor != result_factor
+        )
+        if armed:
+            self._set_warning(
+                f"Factor {self._input_pre_factor:.3f} stored — applied on the next run.",
+                level="armed",
+            )
+        elif result_factor is not None:
+            self._set_warning(
+                f"Correction applied ({result_mode or 'post'}, factor: {result_factor:.3f}).",
+                level="success",
             )
         elif not self._poi:
-            self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-            self._lbl_warning.setText("No POI in result.")
-        elif self._surface_y is None:
-            self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-            self._lbl_warning.setText("No surface coordinate — correction unavailable.")
+            self._set_warning("No POI in result.")
+        elif mode is None:
+            self._set_warning("No surface coordinate — correction unavailable.")
         else:
-            self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-            self._lbl_warning.setText("")
+            self._set_warning("")
 
     def _update_distance_label(self) -> None:
+        mode = self.mode
+        if mode == "pre":
+            if self._fm_surface_coordinate is None or not self._input_poi:
+                self._lbl_distance.setVisible(False)
+                return
+            dz = abs(self._input_poi[0].point.z - self._fm_surface_coordinate.point.z)
+            text = f"Surface → POI 1 depth: {dz:.1f} slices"
+            if self._fm_pixel_size_z:
+                text += f" ({dz * self._fm_pixel_size_z * 1e6:.2f} µm)"
+            self._lbl_distance.setText(text)
+            self._lbl_distance.setVisible(True)
+            return
         if self._surface_y is None or not self._poi:
             self._lbl_distance.setVisible(False)
             return
@@ -689,30 +825,81 @@ class _RITab(QWidget):
         self._lbl_distance.setText(f"Surface → POI depth: {dist_px:.1f} px")
         self._lbl_distance.setVisible(True)
 
+    def _populate_pre_table(self, factor: float) -> None:
+        if self._fm_surface_coordinate is None:
+            return
+        surface_z = self._fm_surface_coordinate.point.z
+        self._table.setRowCount(len(self._input_poi))
+        for i, coord in enumerate(self._input_poi):
+            z = coord.point.z
+            corrected_z = scale_about_surface(z, surface_z, factor)
+            self._table.setItem(i, 0, _ro_item(f"POI {i + 1}"))
+            self._table.setItem(i, 1, _ro_item(f"{coord.point.x:.2f}"))
+            self._table.setItem(i, 2, _ro_item(f"{z:.2f}"))
+            self._table.setItem(i, 3, _ro_item(f"{corrected_z:.2f}"))
+
     def _apply(self) -> None:
+        if self.mode == "pre":
+            self._apply_pre()
+        else:
+            self._apply_post()
+
+    def _apply_pre(self) -> None:
+        if self._fm_surface_coordinate is None:
+            self._set_warning("No FM surface coordinate — cannot apply correction.")
+            return
+        if not self._input_poi:
+            self._set_warning("No POI coordinates to correct.")
+            return
+        self._set_warning("")
+        factor = self._ri_widget.get_factor()
+        rerun = self._chk_rerun.isChecked()
+        logging.info(
+            f"[RITab._apply_pre] factor={factor:.4f}, "
+            f"surface_z={self._fm_surface_coordinate.point.z:.2f}, "
+            f"n_poi={len(self._input_poi)}, rerun={rerun}"
+        )
+        # The parent stores the factor and emits data_changed, which refreshes
+        # this tab (preview table included) via set_result.
+        self.pre_correction_requested.emit(factor, rerun)
+
+    def _apply_post(self) -> None:
         if not self._poi:
-            self._lbl_warning.setText("No POI available.")
+            self._set_warning("No POI available.")
             return
         if self._surface_y is None or self._surface_coordinate is None:
-            self._lbl_warning.setText(
-                "No surface coordinate — cannot apply correction."
+            self._set_warning("No surface coordinate — cannot apply correction.")
+            return
+        if (
+            self._result is not None
+            and self._result.refractive_index_correction_factor is not None
+        ):
+            # Guard against double-correcting (post-on-post or post-on-pre)
+            self._set_warning(
+                "Correction already applied to this result — run correlation again first."
             )
             return
-        self._lbl_warning.setText("")
+        if self._result is not None and self._result.input_data is None:
+            # e.g. a result JSON saved with input_data: null
+            self._set_warning(
+                "Loaded result has no input data — cannot apply correction."
+            )
+            return
+        self._set_warning("")
         factor = self._ri_widget.get_factor()
         surface_y = self._surface_y
 
         logging.info(
-            f"[RITab._apply] factor={factor:.4f}, surface_y={surface_y:.2f}, n_poi={len(self._poi)}"
+            f"[RITab._apply_post] factor={factor:.4f}, surface_y={surface_y:.2f}, n_poi={len(self._poi)}"
         )
 
         # Populate table (all POIs shown for reference)
         self._table.setRowCount(len(self._poi))
         for i, poi in enumerate(self._poi):
             depth = poi.image_px.y - surface_y
-            corrected_y = surface_y + depth * factor
+            corrected_y = scale_about_surface(poi.image_px.y, surface_y, factor)
             logging.info(
-                f"[RITab._apply] POI {i + 1}: original_y={poi.image_px.y:.2f}, "
+                f"[RITab._apply_post] POI {i + 1}: original_y={poi.image_px.y:.2f}, "
                 f"depth={depth:.2f}, corrected_y={corrected_y:.2f}"
             )
             self._table.setItem(i, 0, _ro_item(f"POI {i + 1}"))
@@ -721,7 +908,7 @@ class _RITab(QWidget):
             self._table.setItem(i, 3, _ro_item(f"{corrected_y:.2f}"))
 
         if self._result is None:
-            logging.warning("[RITab._apply] No result to update with correction.")
+            logging.warning("[RITab._apply_post] No result to update with correction.")
             return
 
         # apply surface_y to the result for internal consistency (in case it wasn't set before)
@@ -729,8 +916,95 @@ class _RITab(QWidget):
 
         # Update POI 0 in the result and propagate (reads input_data internally)
         self._result.apply_refractive_index_correction(factor)
-        logging.info("[RITab._apply] correction applied, emitting correction_applied")
+        logging.info("[RITab._apply_post] correction applied, emitting correction_applied")
         self.correction_applied.emit(self._result)
+
+
+# ---------------------------------------------------------------------------
+# Point-type registry
+# ---------------------------------------------------------------------------
+
+
+# Which canvas each point type lives on. Single source of truth: the canvas
+# right-click allow-lists and the registry's adapter binding both derive from
+# this map (declaration order = add-menu order).
+_POINT_TYPE_SIDES: Dict[PointType, str] = {
+    PointType.FIB: "fib",
+    PointType.SURFACE: "fib",
+    PointType.FM: "fm",
+    PointType.POI: "fm",
+    PointType.SURFACE_FM: "fm",
+}
+
+
+class _CanvasAdapter:
+    """Thin seam over a point-display surface (canvas or display widget).
+
+    Outbound canvas calls from the registry-driven handlers all go through
+    this adapter. NOTE: inbound signals (point_selected/moved/removed/
+    add_requested) still connect to the canvases directly and carry
+    identity-based Coordinate payloads — migrating onto the shared canvas
+    stack (fibsem.ui.widgets.canvas, PR #111, index-based PointOverlay
+    signals) therefore means new adapters PLUS an inbound translation layer;
+    what stays untouched is the registry, exclusivity, and lifecycle logic.
+    """
+
+    def __init__(
+        self,
+        surface,
+        side: str,
+        z_provider: Optional[Callable[[], float]] = None,
+    ) -> None:
+        self._surface = surface
+        self.side = side  # "fib" | "fm"
+        self._z_provider = z_provider
+
+    def set_coordinates(self, coords: List[Coordinate]) -> None:
+        self._surface.set_coordinates(coords)
+
+    def set_selected(self, coord: Optional[Coordinate]) -> None:
+        self._surface.set_selected(coord)
+
+    def refresh_coordinate(self, coord: Coordinate) -> None:
+        self._surface.refresh_coordinate(coord)
+
+    def current_z(self) -> float:
+        """z for newly added points (FM: current slice; FIB: 0)."""
+        return float(self._z_provider()) if self._z_provider is not None else 0.0
+
+
+@dataclass(frozen=True, eq=False)
+class _PointTypeSpec:
+    """Registry entry driving all per-point-type canvas/list plumbing.
+
+    Adding a point type = one _POINT_TYPE_SIDES entry + one spec (plus its
+    list panel); the canvas add-menus, generic handlers, selection clearing,
+    exclusivity, axis maxima, and refit routing all follow from the registry.
+    Unregistered point types fail loudly (KeyError) instead of being silently
+    misrouted, and inconsistent specs are rejected at construction.
+    """
+
+    point_type: PointType
+    list_widget: CoordinateListWidget
+    adapter: _CanvasAdapter
+    max_one: bool = False                            # replace-on-add (surfaces)
+    exclusive_group: Optional[str] = None            # mutually exclusive specs
+    fm_fit_role: Optional[str] = None                # "fid" | "poi" → refit combos
+    on_cleared: Optional[Callable[[], None]] = None  # fired when the spec's
+                                                     # last point is removed
+
+    def __post_init__(self) -> None:
+        expected_side = _POINT_TYPE_SIDES.get(self.point_type)
+        if self.adapter.side != expected_side:
+            raise ValueError(
+                f"{self.point_type}: adapter side {self.adapter.side!r} does not "
+                f"match _POINT_TYPE_SIDES ({expected_side!r})"
+            )
+        if (self.adapter.side == "fm") != (self.fm_fit_role is not None):
+            raise ValueError(
+                f"{self.point_type}: fm_fit_role must be set for FM-side specs "
+                f"and None for FIB-side specs (got {self.fm_fit_role!r})"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +1038,8 @@ class CorrelationTabWidget(QWidget):
         self._result: Optional[CorrelationResult] = None
         self._worker: Optional[_CorrelationWorker] = None
         self._project_dir: Optional[str] = None
+        # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
+        self._ri_pre_correction_factor: Optional[float] = None
 
         self._setup_ui()
         self._connect_signals()
@@ -809,8 +1085,12 @@ class CorrelationTabWidget(QWidget):
         self._action_show_scalebar = QAction("Show ScaleBar", self)
         self._action_show_scalebar.setCheckable(True)
         self._action_show_scalebar.setChecked(True)
+        self._action_show_legend = QAction("Show Legend", self)
+        self._action_show_legend.setCheckable(True)
+        self._action_show_legend.setChecked(True)
         view_menu.addAction(self._action_reset_views)
         view_menu.addAction(self._action_show_scalebar)
+        view_menu.addAction(self._action_show_legend)
 
         test_menu = menubar.addMenu("Test")
         self._action_test_save_plot = QAction("Test Save Plot", self)
@@ -821,15 +1101,15 @@ class CorrelationTabWidget(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
 
-        # Left: FIB image canvas
+        # Left: FIB image canvas (add-menu types derived from the registry map)
         self._fib_canvas = ImagePointCanvas(
-            allowed_point_types=[PointType.FIB, PointType.SURFACE],
+            allowed_point_types=self._point_types_for_side("fib"),
         )
         splitter.addWidget(self._fib_canvas)
 
         # Middle: FM image display
         self._fm_display = FMImageDisplayWidget(
-            allowed_point_types=[PointType.FM, PointType.POI],
+            allowed_point_types=self._point_types_for_side("fm"),
         )
         splitter.addWidget(self._fm_display)
 
@@ -885,6 +1165,56 @@ class CorrelationTabWidget(QWidget):
         splitter.addWidget(right_pane)
         splitter.setSizes([500, 500, 350])
 
+        self._build_point_registry()
+
+    @staticmethod
+    def _point_types_for_side(side: str) -> List[PointType]:
+        return [pt for pt, s in _POINT_TYPE_SIDES.items() if s == side]
+
+    def _build_point_registry(self) -> None:
+        """One _PointTypeSpec per point type drives all canvas/list plumbing."""
+        self._fib_adapter = _CanvasAdapter(self._fib_canvas, side="fib")
+        self._fm_adapter = _CanvasAdapter(
+            self._fm_display,
+            side="fm",
+            z_provider=lambda: self._fm_display.current_z,
+        )
+        self._adapters: Dict[str, _CanvasAdapter] = {
+            "fib": self._fib_adapter,
+            "fm": self._fm_adapter,
+        }
+        adapter_for = lambda pt: self._adapters[_POINT_TYPE_SIDES[pt]]  # noqa: E731
+
+        cl = self._coords_tab
+        specs = (
+            _PointTypeSpec(PointType.FIB, cl.fib_list, adapter_for(PointType.FIB)),
+            _PointTypeSpec(
+                PointType.SURFACE, cl.surface_list, adapter_for(PointType.SURFACE),
+                max_one=True, exclusive_group="surface",
+            ),
+            _PointTypeSpec(
+                PointType.FM, cl.fm_list, adapter_for(PointType.FM), fm_fit_role="fid"
+            ),
+            _PointTypeSpec(
+                PointType.POI, cl.poi_list, adapter_for(PointType.POI),
+                fm_fit_role="poi",
+            ),
+            _PointTypeSpec(
+                PointType.SURFACE_FM, cl.fm_surface_list,
+                adapter_for(PointType.SURFACE_FM),
+                max_one=True, exclusive_group="surface", fm_fit_role="fid",
+                on_cleared=self._clear_pre_correction_factor,
+            ),
+        )
+        self._point_specs: Dict[PointType, _PointTypeSpec] = {
+            spec.point_type: spec for spec in specs
+        }
+        if set(self._point_specs) != set(_POINT_TYPE_SIDES):
+            missing = set(_POINT_TYPE_SIDES) ^ set(self._point_specs)
+            raise ValueError(
+                f"Point-type registry and _POINT_TYPE_SIDES disagree on: {missing}"
+            )
+
     def _connect_signals(self) -> None:
         # Images tab → push to canvases
         self._images_tab.fib_image_changed.connect(self._on_fib_image_changed)
@@ -897,51 +1227,23 @@ class CorrelationTabWidget(QWidget):
 
         # RI correction
         self._ri_tab.correction_applied.connect(self._on_correction_applied)
+        self._ri_tab.pre_correction_requested.connect(self._on_pre_correction_requested)
 
-        # Canvas → list
-        self._fib_canvas.point_selected.connect(self._on_fib_canvas_selected)
-        self._fib_canvas.point_moved.connect(self._on_fib_canvas_moved)
-        self._fib_canvas.point_removed.connect(self._on_fib_canvas_removed)
-        self._fib_canvas.point_add_requested.connect(self._on_fib_add_requested)
+        # Canvas → list (registry-driven; handlers resolve the spec by type)
+        for canvas in (self._fib_canvas, self._fm_display):
+            canvas.point_selected.connect(self._on_canvas_selected)
+            canvas.point_moved.connect(self._on_canvas_moved)
+            canvas.point_removed.connect(self._on_canvas_removed)
+            canvas.point_add_requested.connect(self._on_canvas_add_requested)
 
-        self._fm_display.point_selected.connect(self._on_fm_canvas_selected)
-        self._fm_display.point_moved.connect(self._on_fm_canvas_moved)
-        self._fm_display.point_removed.connect(self._on_fm_canvas_removed)
-        self._fm_display.point_add_requested.connect(self._on_fm_add_requested)
-
-        # List → canvas
-        cl = self._coords_tab
-        cl.fib_list.coordinate_selected.connect(self._on_fib_list_selected)
-        cl.fib_list.coordinate_changed.connect(self._on_fib_list_changed)
-        cl.fib_list.coordinate_removed.connect(self._on_fib_list_removed)
-        cl.fib_list.order_changed.connect(
-            lambda _: (self._refresh_fib_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.fib_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.fm_list.coordinate_selected.connect(self._on_fm_list_selected)
-        cl.fm_list.coordinate_changed.connect(self._on_fm_list_changed)
-        cl.fm_list.coordinate_removed.connect(self._on_fm_list_removed)
-        cl.fm_list.order_changed.connect(
-            lambda _: (self._refresh_fm_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.fm_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.poi_list.coordinate_selected.connect(self._on_poi_list_selected)
-        cl.poi_list.coordinate_changed.connect(self._on_poi_list_changed)
-        cl.poi_list.coordinate_removed.connect(self._on_poi_list_removed)
-        cl.poi_list.order_changed.connect(
-            lambda _: (self._refresh_fm_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.poi_list.refit_requested.connect(self._on_refit_requested)
-
-        cl.surface_list.coordinate_selected.connect(self._on_surface_list_selected)
-        cl.surface_list.coordinate_changed.connect(self._on_surface_list_changed)
-        cl.surface_list.coordinate_removed.connect(self._on_surface_list_removed)
-        cl.surface_list.order_changed.connect(
-            lambda _: (self._refresh_fib_canvas(), self.data_changed.emit(self.data))
-        )
-        cl.surface_list.refit_requested.connect(self._on_refit_requested)
+        # List → canvas (one identical wiring block per spec)
+        for spec in self._point_specs.values():
+            lw = spec.list_widget
+            lw.coordinate_selected.connect(partial(self._on_list_selected, spec))
+            lw.coordinate_changed.connect(partial(self._on_list_changed, spec))
+            lw.coordinate_removed.connect(partial(self._on_list_removed, spec))
+            lw.order_changed.connect(partial(self._on_list_reordered, spec))
+            lw.refit_requested.connect(self._on_refit_requested)
 
         # File menu
         self._action_load_fib.triggered.connect(self._menu_load_fib)
@@ -953,6 +1255,7 @@ class CorrelationTabWidget(QWidget):
         self._action_reset_views.triggered.connect(lambda _: self._reset_views())
         self._action_show_scalebar.toggled.connect(self._on_scalebar_toggled)
         self._on_scalebar_toggled(True)
+        self._action_show_legend.toggled.connect(self._on_legend_toggled)
         self._action_test_save_plot.triggered.connect(lambda _: self.save_plot())
 
         # Bottom bar run button
@@ -963,8 +1266,15 @@ class CorrelationTabWidget(QWidget):
 
     def _on_data_changed(self, data: CorrelationInputData) -> None:
         self._ri_tab.set_result(
-            self._result, surface_coordinate=data.surface_coordinate
+            self._result,
+            input_data=data,
+            fm_pixel_size_z=self._fm_pixel_size_z(),
         )
+
+    def _fm_pixel_size_z(self) -> Optional[float]:
+        if self._fm_image is None:
+            return None
+        return getattr(self._fm_image.metadata, "pixel_size_z", None)
 
     # ------------------------------------------------------------------
     # Public API
@@ -980,8 +1290,9 @@ class CorrelationTabWidget(QWidget):
         if fib_image.metadata and fib_image.metadata.pixel_size:
             self._fib_canvas.set_pixel_size(fib_image.metadata.pixel_size.x)
         h, w = fib_image.data.shape[:2]
-        self._coords_tab.fib_list.set_axis_maxima(x_max=w - 1, y_max=h - 1)
-        self._coords_tab.surface_list.set_axis_maxima(x_max=w - 1, y_max=h - 1)
+        for spec in self._point_specs.values():
+            if spec.adapter is self._fib_adapter:
+                spec.list_widget.set_axis_maxima(x_max=w - 1, y_max=h - 1)
         self._images_tab.set_fib_image(fib_image)
 
     def set_fm_image(self, fm_image: FluorescenceImage) -> None:
@@ -992,12 +1303,11 @@ class CorrelationTabWidget(QWidget):
         if px:
             self._fm_display.canvas.set_pixel_size(px)
         _, n_z, h, w = fm_image.data.shape
-        self._coords_tab.fm_list.set_axis_maxima(
-            x_max=w - 1, y_max=h - 1, z_max=n_z - 1
-        )
-        self._coords_tab.poi_list.set_axis_maxima(
-            x_max=w - 1, y_max=h - 1, z_max=n_z - 1
-        )
+        for spec in self._point_specs.values():
+            if spec.adapter is self._fm_adapter:
+                spec.list_widget.set_axis_maxima(
+                    x_max=w - 1, y_max=h - 1, z_max=n_z - 1
+                )
         self._coords_tab.rebuild_channel_combos(fm_image)
         self._images_tab.set_fm_image(fm_image)
 
@@ -1014,16 +1324,34 @@ class CorrelationTabWidget(QWidget):
         surf_coords = (
             [data.surface_coordinate] if data.surface_coordinate is not None else []
         )
-
-        self._fib_canvas.set_coordinates(fib_coords + surf_coords)
-        self._fm_display.set_coordinates(fm_coords + poi_coords)
+        fm_surf_coords = (
+            [data.fm_surface_coordinate]
+            if data.fm_surface_coordinate is not None
+            else []
+        )
+        if surf_coords and fm_surf_coords:
+            # Only one surface point is allowed — prefer the FM surface
+            logging.warning(
+                "Both FIB and FM surface coordinates present — keeping the FM surface."
+            )
+            surf_coords = []
 
         cl = self._coords_tab
         cl.fib_list.coordinates = fib_coords
         cl.fm_list.coordinates = fm_coords
         cl.poi_list.coordinates = poi_coords
         cl.surface_list.coordinates = surf_coords
+        cl.fm_surface_list.coordinates = fm_surf_coords
+        for adapter in self._adapters.values():
+            self._refresh_canvas(adapter)
         cl.update_headers()
+
+        # A factor without an FM surface is meaningless — don't arm it
+        self._ri_pre_correction_factor = (
+            data.ri_pre_correction_factor
+            if data.fm_surface_coordinate is not None
+            else None
+        )
 
     def load_data(self, path: str) -> None:
         """Load coordinates from JSON, preserving current images."""
@@ -1041,6 +1369,7 @@ class CorrelationTabWidget(QWidget):
     def data(self) -> CorrelationInputData:
         cl = self._coords_tab
         surf = cl.surface_list.coordinates
+        fm_surf = cl.fm_surface_list.coordinates
         return CorrelationInputData(
             fib_image=self._fib_image,
             fm_image=self._fm_image,
@@ -1048,6 +1377,8 @@ class CorrelationTabWidget(QWidget):
             fm_coordinates=cl.fm_list.coordinates,
             poi_coordinates=cl.poi_list.coordinates,
             surface_coordinate=surf[0] if surf else None,
+            fm_surface_coordinate=fm_surf[0] if fm_surf else None,
+            ri_pre_correction_factor=self._ri_pre_correction_factor,
         )
 
     @property
@@ -1058,17 +1389,21 @@ class CorrelationTabWidget(QWidget):
     # Canvas refresh helpers
     # ------------------------------------------------------------------
 
-    def _refresh_fib_canvas(self) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_coordinates(
-            cl.fib_list.coordinates + cl.surface_list.coordinates
-        )
+    def _refresh_canvas(self, adapter: _CanvasAdapter) -> None:
+        """Push the full coordinate set of every spec shown on this canvas."""
+        coords: List[Coordinate] = []
+        for spec in self._point_specs.values():
+            if spec.adapter is adapter:
+                coords += spec.list_widget.coordinates
+        adapter.set_coordinates(coords)
 
-    def _refresh_fm_canvas(self) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_coordinates(
-            cl.fm_list.coordinates + cl.poi_list.coordinates
-        )
+    def _select_only(self, spec: _PointTypeSpec, coord: Optional[Coordinate]) -> None:
+        """Make coord the sole selection: clear every other list and canvas."""
+        for other in self._point_specs.values():
+            if other is not spec:
+                other.list_widget.select_coordinate_silent(None)
+        for adapter in self._adapters.values():
+            adapter.set_selected(coord if adapter is spec.adapter else None)
 
     # ------------------------------------------------------------------
     # Image loaded slots
@@ -1090,7 +1425,7 @@ class CorrelationTabWidget(QWidget):
         try:
             data.save(os.path.join(self._project_dir, "correlation_data.json"))
         except Exception:
-            _logger.exception("Auto-save of correlation data failed")
+            logging.exception("Auto-save of correlation data failed")
 
     def _auto_save_result(self, result: CorrelationResult) -> None:
         if not self._project_dir:
@@ -1098,7 +1433,7 @@ class CorrelationTabWidget(QWidget):
         try:
             result.save(os.path.join(self._project_dir, "correlation_result.json"))
         except Exception:
-            _logger.exception("Auto-save of correlation result failed")
+            logging.exception("Auto-save of correlation result failed")
 
     # ------------------------------------------------------------------
     # Run correlation
@@ -1147,18 +1482,68 @@ class CorrelationTabWidget(QWidget):
     def _on_result_ready(self, result: CorrelationResult) -> None:
         self._result = result
         self._results_tab.set_result(result)
-        self._ri_tab.set_result(result, surface_coordinate=self.data.surface_coordinate)
+        self._ri_tab.set_result(
+            result, input_data=self.data, fm_pixel_size_z=self._fm_pixel_size_z()
+        )
         self._tabs.setTabEnabled(3, True)
         self._overlay_result_on_fib(result)
-        self._lbl_status.setText("Done.")
         self._btn_continue.setEnabled(True)
+        # after _update_run_button, which would otherwise overwrite it with "Ready."
         self._update_run_button()
+        if (
+            result.refractive_index_correction_mode == "pre"
+            and result.refractive_index_correction_factor is not None
+        ):
+            msg = (
+                f"Done — RI pre-correction ×{result.refractive_index_correction_factor:.3f} applied"
+            )
+            shift = self._poi_shift_px(result)
+            if shift is not None:
+                msg += f", POI 1 shifted {shift:.1f} px"
+            self._lbl_status.setText(msg + ".")
+        else:
+            self._lbl_status.setText("Done.")
         self.result_changed.emit(result)
+
+    @staticmethod
+    def _poi_shift_px(result: CorrelationResult) -> Optional[float]:
+        """Distance (px) between POI 1 and its uncorrected ghost, if present."""
+        if not (result.poi and result.poi_uncorrected):
+            return None
+        return float(
+            np.hypot(
+                result.poi[0].image_px.x - result.poi_uncorrected[0].image_px.x,
+                result.poi[0].image_px.y - result.poi_uncorrected[0].image_px.y,
+            )
+        )
 
     def _on_correction_applied(self, result: CorrelationResult) -> None:
         self._result = result
         self._overlay_result_on_fib(result)
+        factor = result.refractive_index_correction_factor
+        shift = self._poi_shift_px(result)
+        if factor is not None and shift is not None:
+            self._lbl_status.setText(
+                f"RI post-correction ×{factor:.3f} applied, POI 1 shifted {shift:.1f} px."
+            )
         self.result_changed.emit(result)
+
+    def _on_pre_correction_requested(self, factor: float, rerun: bool) -> None:
+        """Store the pre-correlation RI factor and optionally re-run."""
+        self._ri_pre_correction_factor = factor
+        self.data_changed.emit(self.data)  # auto-save + RI tab refresh
+        if rerun:
+            self._run()
+        else:
+            self._lbl_status.setText(
+                "Pre-correction factor stored — run correlation to apply."
+            )
+
+    def _clear_pre_correction_factor(self) -> None:
+        """The pre-correction factor's lifecycle is tied to the FM surface point:
+        removing the surface disarms the factor so it cannot silently re-apply
+        on a later run."""
+        self._ri_pre_correction_factor = None
 
     def _on_run_error(self, msg: str) -> None:
         self._lbl_status.setText(f"Error: {msg}")
@@ -1177,6 +1562,23 @@ class CorrelationTabWidget(QWidget):
                 label_prefix="E",
                 size=7,
                 marker="o",
+                legend_label="FM reprojected (E)",
+            )
+
+        # Ghost: where the POI would land without the RI pre-correction —
+        # hollow magenta ring, unlabeled, larger than the corrected marker so it
+        # stays visible even when the shift is small and the markers overlap
+        ghost_pts = [(p.image_px.x, p.image_px.y) for p in result.poi_uncorrected]
+        if ghost_pts:
+            self._fib_canvas.add_overlay_points(
+                ghost_pts,
+                color="#ff00ff",
+                size=13,
+                marker="o",
+                alpha=0.7,
+                show_labels=False,
+                hollow=True,
+                legend_label="POI uncorrected",
             )
 
         # Reprojected POI — magenta circle, labeled P1/P2/...
@@ -1188,172 +1590,85 @@ class CorrelationTabWidget(QWidget):
                 label_prefix="P",
                 size=9,
                 marker="o",
+                legend_label="POI (P)",
             )
 
     # ------------------------------------------------------------------
     # Canvas → list slots
     # ------------------------------------------------------------------
 
-    def _on_fib_canvas_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.SURFACE:
-            cl.surface_list.select_coordinate_silent(coord)
-            cl.fib_list.select_coordinate_silent(None)
-        else:
-            cl.fib_list.select_coordinate_silent(coord)
-            cl.surface_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        self._fm_display.set_selected(None)
+    def _on_canvas_selected(self, coord: Coordinate) -> None:
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget.select_coordinate_silent(coord)
+        self._select_only(spec, coord)
 
-    def _on_fm_canvas_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-        if coord.point_type == PointType.FM:
-            cl.fm_list.select_coordinate_silent(coord)
-            cl.poi_list.select_coordinate_silent(None)
-        else:
-            cl.fm_list.select_coordinate_silent(None)
-            cl.poi_list.select_coordinate_silent(coord)
-
-    def _on_fib_canvas_moved(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.SURFACE:
-            cl.surface_list.refresh_coordinate(coord)
-        else:
-            cl.fib_list.refresh_coordinate(coord)
+    def _on_canvas_moved(self, coord: Coordinate) -> None:
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
-    def _on_fm_canvas_moved(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.FM:
-            cl.fm_list.refresh_coordinate(coord)
-        else:
-            cl.poi_list.refresh_coordinate(coord)
+    def _on_canvas_removed(self, coord: Coordinate) -> None:
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget.coordinates = [
+            c for c in spec.list_widget.coordinates if c is not coord
+        ]
+        if spec.on_cleared is not None and not spec.list_widget.coordinates:
+            spec.on_cleared()
+        self._refresh_canvas(spec.adapter)
+        self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
-    def _on_fib_canvas_removed(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.SURFACE:
-            cl.surface_list.coordinates = [
-                c for c in cl.surface_list.coordinates if c is not coord
-            ]
+    def _on_canvas_add_requested(self, x: float, y: float, pt: PointType) -> None:
+        spec = self._point_specs[pt]
+        coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
+        if spec.max_one:
+            spec.list_widget.coordinates = [coord]
+            self._clear_exclusive_siblings(spec)
         else:
-            cl.fib_list.coordinates = [
-                c for c in cl.fib_list.coordinates if c is not coord
-            ]
-        self._refresh_fib_canvas()
-        cl.update_headers()
+            spec.list_widget.add_coordinate(coord)
+        self._refresh_canvas(spec.adapter)
+        self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
-    def _on_fm_canvas_removed(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        if coord.point_type == PointType.FM:
-            cl.fm_list.coordinates = [
-                c for c in cl.fm_list.coordinates if c is not coord
-            ]
-        else:
-            cl.poi_list.coordinates = [
-                c for c in cl.poi_list.coordinates if c is not coord
-            ]
-        self._refresh_fm_canvas()
-        cl.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_fib_add_requested(self, x: float, y: float, pt: PointType) -> None:
-        cl = self._coords_tab
-        coord = Coordinate(PointXYZ(x, y, 0.0), pt)
-        if pt == PointType.SURFACE:
-            cl.surface_list.coordinates = [coord]
-        else:
-            cl.fib_list.add_coordinate(coord)
-        self._refresh_fib_canvas()
-        cl.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_fm_add_requested(self, x: float, y: float, pt: PointType) -> None:
-        cl = self._coords_tab
-        coord = Coordinate(PointXYZ(x, y, float(self._fm_display.current_z)), pt)
-        if pt == PointType.FM:
-            cl.fm_list.add_coordinate(coord)
-        else:
-            cl.poi_list.add_coordinate(coord)
-        self._refresh_fm_canvas()
-        cl.update_headers()
-        self.data_changed.emit(self.data)
+    def _clear_exclusive_siblings(self, spec: _PointTypeSpec) -> None:
+        """Enforce mutual exclusivity (one surface point at a time): clear the
+        other members of the spec's exclusive group and fire their lifecycle
+        hooks (e.g. disarming the pre-correction factor)."""
+        if spec.exclusive_group is None:
+            return
+        for other in self._point_specs.values():
+            if other is spec or other.exclusive_group != spec.exclusive_group:
+                continue
+            if other.list_widget.coordinates:
+                other.list_widget.coordinates = []
+                self._refresh_canvas(other.adapter)
+            if other.on_cleared is not None:
+                other.on_cleared()
 
     # ------------------------------------------------------------------
     # List → canvas slots
     # ------------------------------------------------------------------
 
-    def _on_fib_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_selected(coord)
-        self._fm_display.set_selected(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
+    def _on_list_selected(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
+        self._select_only(spec, coord)
 
-    def _on_fm_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_selected(coord)
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-
-    def _on_poi_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fm_display.set_selected(coord)
-        self._fib_canvas.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.surface_list.select_coordinate_silent(None)
-
-    def _on_surface_list_selected(self, coord: Coordinate) -> None:
-        cl = self._coords_tab
-        self._fib_canvas.set_selected(coord)
-        self._fm_display.set_selected(None)
-        cl.fib_list.select_coordinate_silent(None)
-        cl.fm_list.select_coordinate_silent(None)
-        cl.poi_list.select_coordinate_silent(None)
-
-    def _on_fib_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fib_canvas.refresh_coordinate(coord)
+    def _on_list_changed(
+        self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
+    ) -> None:
+        spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
-    def _on_fm_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fm_display.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_poi_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fm_display.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_surface_list_changed(self, coord: Coordinate, _f: str, _v: float) -> None:
-        self._fib_canvas.refresh_coordinate(coord)
-        self.data_changed.emit(self.data)
-
-    def _on_fib_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fib_canvas()
+    def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
+        # on_cleared = "the spec's LAST point is gone" (the list widget removes
+        # the row before emitting, so the check sees the post-removal state)
+        if spec.on_cleared is not None and not spec.list_widget.coordinates:
+            spec.on_cleared()
+        self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
-    def _on_fm_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fm_canvas()
-        self._coords_tab.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_poi_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fm_canvas()
-        self._coords_tab.update_headers()
-        self.data_changed.emit(self.data)
-
-    def _on_surface_list_removed(self, _coord: Coordinate) -> None:
-        self._refresh_fib_canvas()
-        self._coords_tab.update_headers()
+    def _on_list_reordered(self, spec: _PointTypeSpec, _coords: list) -> None:
+        self._refresh_canvas(spec.adapter)
         self.data_changed.emit(self.data)
 
     # ------------------------------------------------------------------
@@ -1410,6 +1725,10 @@ class CorrelationTabWidget(QWidget):
         self._fib_canvas.set_scalebar_visible(visible)
         self._fm_display.canvas.set_scalebar_visible(visible)
 
+    def _on_legend_toggled(self, visible: bool) -> None:
+        self._fib_canvas.set_legend_visible(visible)
+        self._fm_display.canvas.set_legend_visible(visible)
+
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""
         import matplotlib.pyplot as plt
@@ -1450,10 +1769,16 @@ class CorrelationTabWidget(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Load Error", f"Could not load result:\n{exc}")
             return
-        self._on_result_ready(result)
+        self._load_result(result)
+
+    def _load_result(self, result: CorrelationResult) -> None:
+        """Adopt a loaded correlation result (and its input data, if any)."""
+        # Populate the lists first so the RI tab sees the loaded surface points.
+        # _on_result_ready refreshes the run button and sets the final status
+        # text itself — no trailing update here, it would overwrite the status.
         if result.input_data:
             self.set_data(result.input_data)
-            self._update_run_button()
+        self._on_result_ready(result)
 
     def _on_load(self) -> None:
         start = self._project_dir or ""
@@ -1484,20 +1809,22 @@ class CorrelationTabWidget(QWidget):
         )
 
         cl = self._coords_tab
+        spec = self._point_specs[coord.point_type]
         x, y, z = coord.point.x, coord.point.y, coord.point.z
         fig = None
 
         try:
-            if coord.point_type in (PointType.FIB, PointType.SURFACE):
+            if spec.adapter.side == "fib":
                 method = cl._fib_method_combo.currentText()
                 if method == "Hole" and self._fib_image is not None:
                     xr, yr, fig = hole_fitting_FIB(
                         self._fib_image.filtered_data, int(x), int(y)
                     )
                     coord.point.x, coord.point.y = float(xr), float(yr)
-
-            elif coord.point_type in (PointType.FM, PointType.POI):
-                is_fid = coord.point_type == PointType.FM
+            else:
+                # The FM surface is typically picked in the reflection channel,
+                # so it shares the fiducial method/channel settings.
+                is_fid = spec.fm_fit_role == "fid"
                 method = (
                     cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
                 ).currentText()
@@ -1522,17 +1849,8 @@ class CorrelationTabWidget(QWidget):
             QMessageBox.warning(self, "Refit failed", str(exc))
             return
 
-        if coord.point_type in (PointType.FIB, PointType.SURFACE):
-            list_w = (
-                cl.fib_list if coord.point_type == PointType.FIB else cl.surface_list
-            )
-            list_w.refresh_coordinate(coord)
-            self._fib_canvas.refresh_coordinate(coord)
-        else:
-            list_w = cl.fm_list if coord.point_type == PointType.FM else cl.poi_list
-            list_w.refresh_coordinate(coord)
-            self._fm_display.refresh_coordinate(coord)
-
+        spec.list_widget.refresh_coordinate(coord)
+        spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
         if fig is not None and cl._show_diag_check.isChecked():
@@ -1547,8 +1865,8 @@ class CorrelationTabWidget(QWidget):
 class CorrelationTabDialog(QDialog):
     """Modal QDialog wrapping CorrelationTabWidget.
 
-    Replaces the napari-based CorrelationUI window with a self-contained
-    dialog. The Continue button inside the widget handles confirmation and
+    A self-contained correlation dialog. The Continue button inside the widget
+    handles confirmation and
     calls ``self.window().close()``; connecting ``continue_pressed_signal``
     to ``accept()`` ensures ``exec_()`` returns ``QDialog.Accepted``.
     """

@@ -42,10 +42,11 @@ _ROW_HEIGHT = 40
 _ROW_RIGHT_WIDTH = 10
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
-    PointType.FIB:     "lime",
-    PointType.FM:      "cyan",
-    PointType.POI:     "magenta",
-    PointType.SURFACE: "red",
+    PointType.FIB:        "lime",
+    PointType.FM:         "cyan",
+    PointType.POI:        "magenta",
+    PointType.SURFACE:    "red",
+    PointType.SURFACE_FM: "yellow",
 }
 
 

@@ -10,7 +10,14 @@ import yaml
 
 from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.pyto.rigid_3d import Rigid3D # NOTE: this is still a 3DCT dependency, migrate
-from fibsem.correlation.structures import Coordinate, CorrelationInputData, CorrelationPointOfInterest, CorrelationResult, PointXYZ
+from fibsem.correlation.structures import (
+    Coordinate,
+    CorrelationInputData,
+    CorrelationPointOfInterest,
+    CorrelationResult,
+    PointXYZ,
+    apply_z_surface_correction,
+)
 from fibsem.structures import Point
 
 DEFAULT_OPTIMIZATION_PARAMETERS = {
@@ -359,11 +366,55 @@ def _coords_to_array(coords: list[Coordinate]) -> np.ndarray:
     return np.array([[c.point.x, c.point.y, c.point.z] for c in coords], dtype=np.float32)
 
 
+def _reproject_poi_via_transform(
+    transformation: dict,
+    poi_coords: np.ndarray,
+    fib_shape: Optional[Tuple[int, ...]],
+    pixel_size: Optional[float],
+) -> List[CorrelationPointOfInterest]:
+    """Project (N, 3) FM-space POIs into the FIB image using a fitted transform.
+
+    Reconstructs ``y = s * R @ x + d`` from the parsed transformation data.
+    The ``rotation_quaternion`` field stores ``Rigid3D.q``, which is the 3x3
+    rotation matrix (see ``Rigid3D.transform``); ``d`` is the translation
+    around rotation center zero — the same parameters ``correlate()`` uses to
+    reproject the POI.
+    """
+    R = np.asarray(transformation["rotation_quaternion"], dtype=float)
+    if R.shape != (3, 3):
+        logging.warning(
+            f"Cannot reproject POI: unexpected rotation shape {R.shape}"
+        )
+        return []
+    s = float(transformation["scale"])
+    d = np.asarray(
+        transformation["translation_around_rotation_center_zero"], dtype=float
+    )
+    projected = s * (R @ poi_coords.T.astype(float)) + d[:, None]  # (3, N)
+
+    pois: List[CorrelationPointOfInterest] = []
+    for i in range(projected.shape[1]):
+        x, y = float(projected[0, i]), float(projected[1, i])
+        poi = CorrelationPointOfInterest(image_px=Point(x, y))
+        if fib_shape is not None and pixel_size is not None:
+            cx, cy = fib_shape[1] / 2.0, fib_shape[0] / 2.0
+            poi.px = Point(x - cx, cy - y)
+            poi.px_m = Point(poi.px.x * pixel_size, poi.px.y * pixel_size)
+        pois.append(poi)
+    return pois
+
+
 def run_correlation_from_data(
     data: CorrelationInputData,
     path: Optional[str] = None,
 ) -> CorrelationResult:
     """Run correlation from a CorrelationInputData struct, returning a CorrelationResult."""
+
+    if data.surface_coordinate is not None and data.fm_surface_coordinate is not None:
+        raise ValueError(
+            "Both surface_coordinate (FIB) and fm_surface_coordinate (FM) are set — "
+            "only one surface point is supported (applying both would double-correct)."
+        )
 
     fib_coords = _coords_to_array(data.fib_coordinates)
     fm_coords = _coords_to_array(data.fm_coordinates)
@@ -372,6 +423,26 @@ def run_correlation_from_data(
         if data.poi_coordinates
         else np.zeros((0, 3), dtype=np.float32)
     )
+
+    # Pre-correlation refractive-index correction: scale POI z about the FM
+    # surface z. Applied transiently — data.poi_coordinates keeps the picked z,
+    # so re-running never double-applies.
+    pre_correction_applied = False
+    poi_coords_original = poi_coords
+    if (
+        data.fm_surface_coordinate is not None
+        and data.ri_pre_correction_factor is not None
+        and len(poi_coords)
+    ):
+        surface_z = data.fm_surface_coordinate.point.z
+        factor = data.ri_pre_correction_factor
+        poi_coords = apply_z_surface_correction(poi_coords, surface_z, factor)
+        pre_correction_applied = True
+        logging.info(
+            f"Pre-correlation RI correction: factor={factor:.4f}, "
+            f"surface_z={surface_z:.2f}, "
+            f"poi_z {poi_coords_original[:, 2].tolist()} -> {poi_coords[:, 2].tolist()}"
+        )
 
     # image_props: (fib_shape, pixel_size_um, fm_shape_3d)
     fib_shape = data.fib_image_shape
@@ -408,6 +479,14 @@ def run_correlation_from_data(
     r3d = err["reprojected_3d"] # [[x1,...], [y1,...], [z1,...]]
     n_markers = len(d2d[0])
 
+    # Ghost markers: where the POIs would land without the pre-correction,
+    # reprojected through the same fitted transform (no re-fit).
+    poi_uncorrected: List[CorrelationPointOfInterest] = []
+    if pre_correction_applied:
+        poi_uncorrected = _reproject_poi_via_transform(
+            transf, poi_coords_original, fib_shape, pixel_size
+        )
+
     return CorrelationResult(
         poi=[
             CorrelationPointOfInterest(
@@ -417,6 +496,7 @@ def run_correlation_from_data(
             )
             for p in out["poi"]
         ],
+        poi_uncorrected=poi_uncorrected,
         scale=transf["scale"],
         rotation_eulers=transf["rotation_eulers"],
         rotation_quaternion=transf["rotation_quaternion"],
@@ -427,4 +507,8 @@ def run_correlation_from_data(
         delta_2d=[Point(d2d[0][i], d2d[1][i]) for i in range(n_markers)],
         reprojected_3d=[PointXYZ(r3d[0][i], r3d[1][i], r3d[2][i]) for i in range(len(r3d[0]))],
         input_data=data,
+        refractive_index_correction_factor=(
+            data.ri_pre_correction_factor if pre_correction_applied else None
+        ),
+        refractive_index_correction_mode="pre" if pre_correction_applied else None,
     )
