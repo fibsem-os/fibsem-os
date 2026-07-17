@@ -306,9 +306,9 @@ class _FibImageCanvas(QWidget):
             self._position_histogram_panel()
 
     def set_image(self, image: FibsemImage):
-        self._raw_frame = image.data
+        self._raw_frame = image.filtered_data
         self.canvas.set_image(image)
-        processed = self._process_frame(image.data)
+        processed = self._process_frame(image.filtered_data)
         self.canvas.update_display(processed)
         imgs = self.canvas._ax.get_images()
         if imgs:
