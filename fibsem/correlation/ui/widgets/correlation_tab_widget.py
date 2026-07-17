@@ -57,6 +57,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QShortcut,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -64,6 +65,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PyQt5.QtGui import QKeySequence
 from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.structures import (
@@ -77,7 +79,10 @@ from fibsem.correlation.structures import (
 )
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.ui import stylesheets
-from fibsem.correlation.ui.widgets.fm_image_display_widget import FMImageDisplayWidget
+from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+    IMAGE_HEADER_STYLE,
+    FMImageDisplayWidget,
+)
 from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage
@@ -1077,20 +1082,28 @@ class CorrelationTabWidget(QWidget):
         view_menu.addAction(self._action_show_scalebar)
         view_menu.addAction(self._action_show_legend)
 
-        test_menu = menubar.addMenu("Test")
-        self._action_test_save_plot = QAction("Test Save Plot", self)
-        test_menu.addAction(self._action_test_save_plot)
-
         layout.addWidget(menubar)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
 
-        # Left: FIB image canvas (add-menu types derived from the registry map)
+        # Left: FIB image canvas with a filename header (mirrors the FM display)
+        fib_pane = QWidget()
+        fib_layout = QVBoxLayout(fib_pane)
+        fib_layout.setContentsMargins(0, 0, 0, 0)
+        fib_layout.setSpacing(0)
+
+        self._fib_name_label = QLabel("")
+        self._fib_name_label.setStyleSheet(IMAGE_HEADER_STYLE)
+        self._fib_name_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._fib_name_label.setVisible(False)
+        fib_layout.addWidget(self._fib_name_label)
+
         self._fib_canvas = ImagePointCanvas(
             allowed_point_types=self._point_types_for_side("fib"),
         )
-        splitter.addWidget(self._fib_canvas)
+        fib_layout.addWidget(self._fib_canvas, stretch=1)
+        splitter.addWidget(fib_pane)
 
         # Middle: FM image display
         self._fm_display = FMImageDisplayWidget(
@@ -1143,6 +1156,11 @@ class CorrelationTabWidget(QWidget):
         self._btn_continue.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         btn_layout.addWidget(self._btn_continue)
         btn_layout.addStretch(1)
+
+        self._btn_save_plot = QPushButton("Save Plot")
+        self._btn_save_plot.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self._btn_save_plot.setToolTip("Save the FIB + FM canvases as a PNG")
+        btn_layout.addWidget(self._btn_save_plot)
 
         run_layout.addWidget(btn_row)
         right_layout.addWidget(run_bar)
@@ -1241,11 +1259,11 @@ class CorrelationTabWidget(QWidget):
         self._action_show_scalebar.toggled.connect(self._on_scalebar_toggled)
         self._on_scalebar_toggled(True)
         self._action_show_legend.toggled.connect(self._on_legend_toggled)
-        self._action_test_save_plot.triggered.connect(lambda _: self.save_plot())
 
         # Bottom bar run button
         self._btn_run.clicked.connect(self._run)
         self._btn_continue.clicked.connect(self._on_continue_pressed)
+        self._btn_save_plot.clicked.connect(self._on_save_plot_clicked)
         self.data_changed.connect(self._update_run_button)
         self.data_changed.connect(self._on_data_changed)
 
@@ -1279,6 +1297,16 @@ class CorrelationTabWidget(QWidget):
             if spec.adapter is self._fib_adapter:
                 spec.list_widget.set_axis_maxima(x_max=w - 1, y_max=h - 1)
         self._images_tab.set_fib_image(fib_image)
+        self._update_fib_name_label(fib_image)
+
+    def _update_fib_name_label(self, image: FibsemImage) -> None:
+        """Show the loaded FIB image's filename in the header (mirrors FM)."""
+        iset = getattr(getattr(image, "metadata", None), "image_settings", None)
+        filename = getattr(iset, "filename", "") or ""
+        base = os.path.basename(filename) if filename else ""
+        self._fib_name_label.setText(base)
+        self._fib_name_label.setToolTip(filename)
+        self._fib_name_label.setVisible(bool(base))
 
     def set_fm_image(self, fm_image: FluorescenceImage) -> None:
         """Load FM image into canvas and update images tab."""
@@ -1716,6 +1744,12 @@ class CorrelationTabWidget(QWidget):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
+            # Auto-save the result plot alongside the auto-saved JSON.
+            if self._project_dir:
+                try:
+                    self.save_plot()
+                except Exception:
+                    logging.exception("Auto-save of correlation plot failed")
             self.continue_pressed_signal.emit(self._result)
             self.window().close()
 
@@ -1741,6 +1775,20 @@ class CorrelationTabWidget(QWidget):
     def _on_legend_toggled(self, visible: bool) -> None:
         self._fib_canvas.set_legend_visible(visible)
         self._fm_display.canvas.set_legend_visible(visible)
+
+    def _on_save_plot_clicked(self) -> None:
+        """Prompt for a path and save the side-by-side FIB + FM plot."""
+        start = self._project_dir or ""
+        default = (
+            os.path.join(start, f"correlation_plot_{time.strftime(DATETIME_FILE)}.png")
+            if start
+            else ""
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Correlation Plot", default, "PNG (*.png);;All files (*)"
+        )
+        if path:
+            self.save_plot(path)
 
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""
@@ -1890,6 +1938,15 @@ class CorrelationTabDialog(QDialog):
         self.setModal(True)
         self.resize(1500, 900)
 
+        # Allow the whole correlation window to be minimised / maximised.
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+        )
+        self._min_shortcut = QShortcut(QKeySequence("Ctrl+M"), self)
+        self._min_shortcut.activated.connect(self.showMinimized)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.widget = CorrelationTabWidget()
@@ -1911,15 +1968,112 @@ class CorrelationTabDialog(QDialog):
         return self.widget.result
 
 
+def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
+    """Locate FIB/FM images and saved data/result in a correlation project dir.
+
+    Conventions (matching the widget's auto-save + typical exports):
+      - FM image : ``*.ome.tif`` / ``*.ome.tiff``
+      - FIB image: ``*_ib.tif`` / ``*_ib.tiff`` (else the first non-OME TIFF)
+      - data     : ``correlation_data.json``
+      - result   : ``correlation_result.json``
+    """
+    import glob
+
+    def _first(patterns: List[str]) -> Optional[str]:
+        for pat in patterns:
+            hits = sorted(glob.glob(os.path.join(directory, pat)))
+            if hits:
+                return hits[0]
+        return None
+
+    fib = _first(["*_ib.tif", "*_ib.tiff"])
+    if fib is None:
+        tifs = sorted(
+            glob.glob(os.path.join(directory, "*.tif"))
+            + glob.glob(os.path.join(directory, "*.tiff"))
+        )
+        fib = next(
+            (t for t in tifs if not t.endswith((".ome.tif", ".ome.tiff"))), None
+        )
+
+    def _existing(name: str) -> Optional[str]:
+        p = os.path.join(directory, name)
+        return p if os.path.exists(p) else None
+
+    return {
+        "fib": fib,
+        "fm": _first(["*.ome.tif", "*.ome.tiff"]),
+        "data": _existing("correlation_data.json"),
+        "result": _existing("correlation_result.json"),
+    }
+
+
+def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
+    """Quickstart-load a correlation project directory into ``widget``.
+
+    Sets the project dir, then loads the FIB + FM images and, if present, the
+    saved correlation result (preferred) or coordinate data. Missing or
+    unreadable pieces are logged and skipped so a partial project still opens.
+    """
+    found = _discover_correlation_files(directory)
+    logging.info("Quickstart loading correlation project: %s", directory)
+    widget.set_project_dir(directory)
+
+    if found["fib"]:
+        try:
+            widget.set_fib_image(FibsemImage.load(found["fib"]))
+            logging.info("  FIB image: %s", os.path.basename(found["fib"]))
+        except Exception:
+            logging.exception("  failed to load FIB image %s", found["fib"])
+    else:
+        logging.warning("  no FIB image (*_ib.tif) found in %s", directory)
+
+    if found["fm"]:
+        try:
+            widget.set_fm_image(FluorescenceImage.load(found["fm"]))
+            logging.info("  FM image: %s", os.path.basename(found["fm"]))
+        except Exception:
+            logging.exception("  failed to load FM image %s", found["fm"])
+    else:
+        logging.warning("  no FM image (*.ome.tiff) found in %s", directory)
+
+    if found["result"]:
+        try:
+            widget._load_result(CorrelationResult.load(found["result"]))
+            logging.info("  result: %s", os.path.basename(found["result"]))
+        except Exception:
+            logging.exception("  failed to load result %s", found["result"])
+    elif found["data"]:
+        try:
+            widget.load_data(found["data"])
+            logging.info("  data: %s", os.path.basename(found["data"]))
+        except Exception:
+            logging.exception("  failed to load data %s", found["data"])
+
+
 def main() -> None:
-    from PyQt5.QtWidgets import QApplication
+    import argparse
     import sys
 
-    app = QApplication(sys.argv)
+    from PyQt5.QtWidgets import QApplication
+
+    parser = argparse.ArgumentParser(description="FIB-FM correlation widget")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        default=None,
+        help="Optional correlation project directory to quickstart-load "
+        "(FIB/FM images + correlation_data.json / correlation_result.json).",
+    )
+    args = parser.parse_args()
+
+    app = QApplication(sys.argv[:1])
     app.setStyle("Fusion")
     app.setStyleSheet(stylesheets.NAPARI_STYLE)
 
     widget = CorrelationTabWidget()
+    if args.project:
+        load_project(widget, args.project)
     widget.show()
 
     sys.exit(app.exec_())

@@ -43,7 +43,14 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QAction, QMenu, QPushButton, QSizePolicy, QWidget
+from PyQt5.QtWidgets import (
+    QAction,
+    QApplication,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui.icon import fibsem_icon
@@ -168,6 +175,27 @@ def _legend_handle(
     )
 
 
+_QT_MODIFIER_MAP = (
+    (Qt.AltModifier, "Alt"),
+    (Qt.ShiftModifier, "Shift"),
+    (Qt.ControlModifier, "Control"),
+    (Qt.MetaModifier, "Meta"),
+)
+
+
+def _modifiers_from_event(event) -> Tuple[str, ...]:
+    """Active keyboard modifiers for a matplotlib event, e.g. ``("Shift",)``.
+
+    Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
+    the reliable source in an embedded canvas, whereas matplotlib's
+    ``MouseEvent.key`` depends on canvas keyboard focus. Falls back to the
+    application-wide modifier state when no Qt event is attached.
+    """
+    gui = getattr(event, "guiEvent", None)
+    mods = gui.modifiers() if gui is not None else QApplication.keyboardModifiers()
+    return tuple(name for flag, name in _QT_MODIFIER_MAP if mods & flag)
+
+
 class ImagePointCanvas(FigureCanvasQTAgg):
     """Matplotlib canvas: image + draggable Coordinate markers."""
 
@@ -176,6 +204,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     point_removed       = pyqtSignal(object)               # Coordinate
     canvas_clicked      = pyqtSignal(float, float)         # x, y data coords
     point_add_requested = pyqtSignal(float, float, object) # x, y, PointType
+    z_scroll_requested  = pyqtSignal(int)                  # +1 / -1 (Shift+wheel)
 
     def __init__(
         self,
@@ -221,6 +250,9 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         # Dashed datum line across the canvas at the FIB surface y
         self._surface_line = None
         self._surface_line_coord: Optional[Coordinate] = None
+
+        # Shift+wheel steps Z instead of zooming (enabled by the FM display)
+        self._shift_z_enabled: bool = False
 
         # Overlay toolbar (top-right)
         self._overlay_buttons: List[QPushButton] = []
@@ -849,8 +881,15 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
 
+    def set_shift_z_scroll_enabled(self, enabled: bool) -> None:
+        """When enabled, Shift+wheel emits z_scroll_requested instead of zooming."""
+        self._shift_z_enabled = bool(enabled)
+
     def _on_scroll(self, event) -> None:
         if event.inaxes is not self._ax or event.xdata is None:
+            return
+        if self._shift_z_enabled and "Shift" in _modifiers_from_event(event):
+            self.z_scroll_requested.emit(1 if event.button == "up" else -1)
             return
         factor = 1.0 / _ZOOM_FACTOR if event.button == "up" else _ZOOM_FACTOR
         cx, cy = event.xdata, event.ydata

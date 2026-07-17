@@ -703,3 +703,175 @@ def test_ghost_export_preserves_hollow_style(qapp):
     assert len(lines) == 1
     assert lines[0].get_markerfacecolor() == "none"
     assert lines[0].get_alpha() == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------------
+# Polish round 2: Z navigation, FM header, save-plot, minimise
+# ---------------------------------------------------------------------------
+
+
+def _fake_fm(n_c=2, n_z=5, filename="/data/BeforeMilling_G1.ome.tiff"):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    chans = [SimpleNamespace(name=f"CH{i}", color=None) for i in range(n_c)]
+    return SimpleNamespace(
+        data=np.zeros((n_c, n_z, 8, 8), dtype=np.float32),
+        metadata=SimpleNamespace(filename=filename, channels=chans),
+    )
+
+
+def _scroll_event(canvas, *, button, shift):
+    """A matplotlib-style scroll event carrying a Qt guiEvent with modifiers.
+
+    Mirrors real usage: modifier state is read from ``event.guiEvent.modifiers()``
+    (matplotlib's own ``event.key`` is unreliable in an embedded canvas).
+    """
+    from types import SimpleNamespace
+
+    from PyQt5.QtCore import Qt
+
+    mods = Qt.ShiftModifier if shift else Qt.NoModifier
+    gui = SimpleNamespace(modifiers=lambda: mods)
+    return SimpleNamespace(
+        inaxes=canvas._ax, xdata=1.0, ydata=1.0, button=button, guiEvent=gui
+    )
+
+
+def test_canvas_shift_scroll_emits_z_when_enabled(qapp):
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    got = []
+    canvas.z_scroll_requested.connect(got.append)
+
+    # Disabled by default: Shift+wheel zooms, never emits.
+    canvas._on_scroll(_scroll_event(canvas, button="up", shift=True))
+    assert got == []
+
+    # Enabled: Shift+wheel emits +1 (up) / -1 (down), no zoom.
+    canvas.set_shift_z_scroll_enabled(True)
+    canvas._on_scroll(_scroll_event(canvas, button="up", shift=True))
+    canvas._on_scroll(_scroll_event(canvas, button="down", shift=True))
+    assert got == [1, -1]
+
+    # Enabled but no Shift held: still zooms, no emit.
+    canvas._on_scroll(_scroll_event(canvas, button="up", shift=False))
+    assert got == [1, -1]
+
+
+def test_fm_display_shows_image_name(qapp):
+    from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+        FMImageDisplayWidget,
+    )
+
+    w = FMImageDisplayWidget()
+    assert w._name_label.isHidden() is True  # nothing loaded yet
+
+    w.set_fm_image(_fake_fm(filename="/some/dir/BeforeMilling_G1.ome.tiff"))
+    assert w._name_label.text() == "BeforeMilling_G1.ome.tiff"
+    assert w._name_label.isHidden() is False
+
+
+def test_fib_header_shows_image_name(qapp):
+    from types import SimpleNamespace
+
+    w = _widget(qapp)
+    assert w._fib_name_label.isHidden() is True  # nothing loaded yet
+
+    img = SimpleNamespace(
+        metadata=SimpleNamespace(
+            image_settings=SimpleNamespace(filename="/x/ref_Mill_res_02")
+        )
+    )
+    w._update_fib_name_label(img)
+    assert w._fib_name_label.text() == "ref_Mill_res_02"
+    assert w._fib_name_label.isHidden() is False
+
+
+def test_fm_display_z_step_clamps_and_mip_disables(qapp):
+    from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+        FMImageDisplayWidget,
+    )
+
+    w = FMImageDisplayWidget()
+    w.set_fm_image(_fake_fm(n_z=5))
+    assert w.current_z == 2  # starts mid-stack (n_z // 2)
+
+    w._step_z(1)
+    assert w.current_z == 3
+    for _ in range(10):
+        w._step_z(-1)
+    assert w.current_z == 0  # clamped at floor
+    for _ in range(10):
+        w._step_z(1)
+    assert w.current_z == 4  # clamped at n_z - 1
+
+    # MIP disables the slider + step buttons and freezes _step_z.
+    w._mip_check.setChecked(True)
+    assert not w._z_prev.isEnabled()
+    assert not w._z_next.isEnabled()
+    assert not w._z_slider.isEnabled()
+    frozen = w.current_z
+    w._step_z(-1)
+    assert w.current_z == frozen
+
+
+def test_run_bar_has_save_plot_and_test_menu_removed(qapp):
+    w = _widget(qapp)
+    assert w._btn_save_plot.text() == "Save Plot"
+    assert not hasattr(w, "_action_test_save_plot")
+    # The FM display opts its canvas into Shift+scroll Z stepping.
+    assert w._fm_display.canvas._shift_z_enabled is True
+
+
+def test_dialog_allows_window_minimise(qapp):
+    from PyQt5.QtCore import Qt
+
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        CorrelationTabDialog,
+    )
+
+    d = CorrelationTabDialog()
+    assert bool(d.windowFlags() & Qt.WindowMinimizeButtonHint)
+    assert hasattr(d, "_min_shortcut")
+
+
+def test_discover_correlation_files(tmp_path):
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        _discover_correlation_files,
+    )
+
+    # Empty directory → everything None.
+    assert _discover_correlation_files(str(tmp_path)) == {
+        "fib": None,
+        "fm": None,
+        "data": None,
+        "result": None,
+    }
+
+    (tmp_path / "BeforeMilling_G1.ome.tiff").write_bytes(b"")
+    (tmp_path / "ref_Mill_ib.tif").write_bytes(b"")
+    (tmp_path / "correlation_data.json").write_text("{}")
+    (tmp_path / "correlation_result.json").write_text("{}")
+
+    found = _discover_correlation_files(str(tmp_path))
+    assert os.path.basename(found["fm"]) == "BeforeMilling_G1.ome.tiff"
+    assert os.path.basename(found["fib"]) == "ref_Mill_ib.tif"
+    assert os.path.basename(found["data"]) == "correlation_data.json"
+    assert os.path.basename(found["result"]) == "correlation_result.json"
+
+
+def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
+    """With no *_ib.tif, the FIB is the first TIFF that isn't the OME-TIFF."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        _discover_correlation_files,
+    )
+
+    (tmp_path / "scene.ome.tif").write_bytes(b"")  # FM — must not be taken as FIB
+    (tmp_path / "fib_image.tif").write_bytes(b"")  # plain TIFF → FIB fallback
+
+    found = _discover_correlation_files(str(tmp_path))
+    assert os.path.basename(found["fm"]) == "scene.ome.tif"
+    assert os.path.basename(found["fib"]) == "fib_image.tif"
