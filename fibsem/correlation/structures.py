@@ -38,15 +38,22 @@ class PointXYZ:
 class Coordinate:
     point: PointXYZ = field(default_factory=PointXYZ)
     point_type: PointType = field(default=PointType.FIB)
+    fitted: bool = False  # True when this position came from an accepted auto-fit
 
     def to_dict(self):
-        return {"point": self.point.to_dict(), "point_type": self.point_type.value}
+        return {
+            "point": self.point.to_dict(),
+            "point_type": self.point_type.value,
+            "fitted": self.fitted,
+        }
 
     @staticmethod
     def from_dict(data: dict) -> Coordinate:
         point = PointXYZ.from_dict(data["point"])
         point_type = PointType(data["point_type"])
-        return Coordinate(point=point, point_type=point_type)
+        return Coordinate(
+            point=point, point_type=point_type, fitted=data.get("fitted", False)
+        )
 
 
 def scale_about_surface(value, surface, correction_factor):

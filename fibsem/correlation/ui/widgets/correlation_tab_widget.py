@@ -77,6 +77,10 @@ from fibsem.correlation.structures import (
     scale_about_surface,
 )
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
+from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    FitConfirmationDialog,
+    PointFitResult,
+)
 from fibsem.ui import stylesheets
 from fibsem.correlation.ui.widgets.fm_image_display_widget import (
     IMAGE_HEADER_STYLE,
@@ -169,19 +173,6 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     return item
-
-
-def _show_figure_dialog(fig, title: str = "Diagnostic", parent=None) -> None:
-    """Show a matplotlib figure in a non-modal QDialog."""
-    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-
-    dlg = QDialog(parent)
-    dlg.setWindowTitle(title)
-    dlg.resize(600, 400)
-    layout = QVBoxLayout(dlg)
-    canvas = FigureCanvasQTAgg(fig)
-    layout.addWidget(canvas)
-    dlg.show()
 
 
 # ---------------------------------------------------------------------------
@@ -1832,6 +1823,7 @@ class CorrelationTabWidget(QWidget):
         self._select_only(spec, coord)
 
     def _on_canvas_moved(self, coord: Coordinate) -> None:
+        coord.fitted = False  # a manual drag supersedes any accepted fit
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
@@ -1884,6 +1876,7 @@ class CorrelationTabWidget(QWidget):
     def _on_list_changed(
         self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
     ) -> None:
+        coord.fitted = False  # a manual edit supersedes any accepted fit
         spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
 
@@ -2066,7 +2059,30 @@ class CorrelationTabWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_refit_requested(self, coord: Coordinate) -> None:
-        """Run auto-centroid fitting on the selected coordinate."""
+        """Auto-fit the coordinate, then confirm the result before applying it."""
+        result = self._run_point_fit(coord)
+        if result is None:
+            return  # no applicable method / image — nothing to fit
+
+        show_fig = self._coords_tab._show_diag_check.isChecked()
+        dialog = FitConfirmationDialog(result, show_figure=show_fig, parent=self)
+        try:
+            accepted = dialog.exec_() == QDialog.Accepted
+        finally:
+            if result.figure is not None:
+                import matplotlib.pyplot as plt
+
+                plt.close(result.figure)
+        if accepted:
+            self._apply_fit_result(result)
+
+    def _run_point_fit(self, coord: Coordinate) -> Optional[PointFitResult]:
+        """Compute an auto-fit for ``coord`` WITHOUT mutating it.
+
+        Returns None when no fit is applicable (method "None" / image missing);
+        otherwise a PointFitResult carrying the proposed position, coarse status,
+        and the diagnostic figure.
+        """
         from fibsem.correlation.util import (
             hole_fitting_FIB,
             hole_fitting_reflection,
@@ -2076,16 +2092,19 @@ class CorrelationTabWidget(QWidget):
         cl = self._coords_tab
         spec = self._point_specs[coord.point_type]
         x, y, z = coord.point.x, coord.point.y, coord.point.z
-        fig = None
+        initial = PointXYZ(x, y, z)
+        method, channel = "", None
+        fitted, fig, error, attempted = None, None, None, False
 
         try:
             if spec.adapter.side == "fib":
                 method = cl._fib_method_combo.currentText()
                 if method == "Hole" and self._fib_image is not None:
+                    attempted = True
                     xr, yr, fig = hole_fitting_FIB(
                         self._fib_image.filtered_data, int(x), int(y)
                     )
-                    coord.point.x, coord.point.y = float(xr), float(yr)
+                    fitted = PointXYZ(float(xr), float(yr), z)
             else:
                 # The FM surface is typically picked in the reflection channel,
                 # so it shares the fiducial method/channel settings.
@@ -2093,33 +2112,55 @@ class CorrelationTabWidget(QWidget):
                 method = (
                     cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
                 ).currentText()
-                ch = (
+                channel = (
                     cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
                 ).currentIndex()
-                if method != "None" and self._fm_image is not None and ch >= 0:
-                    img = self._fm_image.data[ch]
+                if method != "None" and self._fm_image is not None and channel >= 0:
+                    img = self._fm_image.data[channel]
                     if method == "Hole":
+                        attempted = True
                         xr, yr, zr, fig = hole_fitting_reflection(
                             img, int(x), int(y), z=int(z), cutout=2
                         )
+                        fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":
+                        attempted = True
                         xr, yr, zr, fig = target_fitting_fluorescence(
                             img, int(x), int(y), int(z), cutout=5
                         )
-                    coord.point.x = float(xr)
-                    coord.point.y = float(yr)
-                    coord.point.z = float(zr)
-
+                        fitted = PointXYZ(float(xr), float(yr), float(zr))
         except Exception as exc:
-            QMessageBox.warning(self, "Refit failed", str(exc))
-            return
+            logging.exception("Point fit failed")
+            error, attempted = str(exc), True
 
+        if not attempted:
+            return None
+
+        status = PointFitResult.classify(initial, fitted, error=error)
+        return PointFitResult(
+            coordinate=coord,
+            method=method,
+            channel=channel,
+            initial=initial,
+            fitted=fitted,
+            status=status,
+            message=error,
+            figure=fig,
+        )
+
+    def _apply_fit_result(self, result: PointFitResult) -> None:
+        """Commit an accepted fit: move the coordinate and flag it as fitted."""
+        if result.fitted is None:
+            return
+        coord = result.coordinate
+        coord.point.x = result.fitted.x
+        coord.point.y = result.fitted.y
+        coord.point.z = result.fitted.z
+        coord.fitted = True
+        spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
         spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
-
-        if fig is not None and cl._show_diag_check.isChecked():
-            _show_figure_dialog(fig, title="Refit Diagnostic", parent=self)
 
 
 # ---------------------------------------------------------------------------

@@ -1300,3 +1300,271 @@ def test_load_coordinates_shows_a_warning_instead_of_crashing(qapp, tmp_path, mo
 
     w._on_load()  # must not raise
     assert shown, "expected a warning dialog rather than an exception"
+
+
+# ---------------------------------------------------------------------------
+# FIB-252: per-point fit confirmation
+# ---------------------------------------------------------------------------
+
+
+def test_coordinate_fitted_roundtrip():
+    c = Coordinate(PointXYZ(1.0, 2.0, 3.0), PointType.FIB, fitted=True)
+    d = c.to_dict()
+    assert d["fitted"] is True
+    assert Coordinate.from_dict(d).fitted is True
+    # back-compat: a legacy dict without "fitted" defaults to False
+    legacy = {"point": {"x": 1.0, "y": 2.0, "z": 3.0}, "point_type": "FIB"}
+    assert Coordinate.from_dict(legacy).fitted is False
+
+
+def test_point_fit_result_classify_and_delta():
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitStatus,
+        PointFitResult,
+    )
+
+    i = PointXYZ(100.0, 100.0, 5.0)
+    assert PointFitResult.classify(i, PointXYZ(103.0, 104.0, 5.0)) is FitStatus.OK
+    # exact fallback (fit returned the input) → no change
+    assert PointFitResult.classify(i, PointXYZ(100.0, 100.0, 5.0)) is FitStatus.UNCHANGED
+    # a 0.1 px refinement is a real move, not "no change"
+    assert PointFitResult.classify(i, PointXYZ(100.1, 100.0, 5.0)) is FitStatus.OK
+    assert PointFitResult.classify(i, PointXYZ(100.0, 100.0, 7.0)) is FitStatus.OK  # z move
+    assert PointFitResult.classify(i, None, error="boom") is FitStatus.ERROR
+    assert PointFitResult.classify(i, None) is FitStatus.ERROR
+
+    r = PointFitResult(
+        coordinate=_coord(), method="Hole", channel=None,
+        initial=i, fitted=PointXYZ(103.0, 104.0, 5.0), status=FitStatus.OK,
+    )
+    assert round(r.delta_px, 1) == 5.0  # 3-4-5 triangle
+    assert r.delta == (3.0, 4.0, 0.0)   # per-axis (dx, dy, dz)
+
+
+def test_subpixel_change_is_visible_and_flagged():
+    """A sub-pixel refinement must read as a real move at 3-decimal precision."""
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitStatus,
+        PointFitResult,
+        _fmt_delta,
+        _fmt_xyz,
+    )
+
+    initial = PointXYZ(803.300, 1111.900, 10.500)
+    fitted = PointXYZ(803.340, 1111.940, 10.530)
+    assert PointFitResult.classify(initial, fitted) is FitStatus.OK
+    assert _fmt_xyz(fitted) == "803.340, 1111.940, 10.530"
+    assert _fmt_delta(initial, fitted) == "+0.040, +0.040, +0.030"
+
+
+def test_run_point_fit_returns_none_without_image(qapp):
+    w = _widget(qapp)  # no FIB image loaded
+    assert w._run_point_fit(_coord(10.0, 10.0, 0.0, PointType.FIB)) is None
+
+
+def test_apply_fit_result_moves_and_flags(qapp):
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitStatus,
+        PointFitResult,
+    )
+
+    w = _widget(qapp)
+    coord = _coord(10.0, 20.0, 0.0, PointType.FIB)
+    w._coords_tab.fib_list.add_coordinate(coord)
+    result = PointFitResult(
+        coordinate=coord, method="Hole", channel=None,
+        initial=PointXYZ(10.0, 20.0, 0.0), fitted=PointXYZ(13.0, 24.0, 0.0),
+        status=FitStatus.OK,
+    )
+    emitted = []
+    w.data_changed.connect(lambda d: emitted.append(d))
+    w._apply_fit_result(result)
+
+    assert (coord.point.x, coord.point.y) == (13.0, 24.0)
+    assert coord.fitted is True
+    assert emitted  # data_changed fired
+
+
+def test_manual_move_clears_fitted_flag(qapp):
+    w = _widget(qapp)
+    coord = _coord(5.0, 5.0, 0.0, PointType.FIB)
+    coord.fitted = True
+    w._coords_tab.fib_list.add_coordinate(coord)
+
+    w._on_canvas_moved(coord)              # drag
+    assert coord.fitted is False
+
+    coord.fitted = True
+    w._on_list_changed(w._point_specs[PointType.FIB], coord, "x", 6.0)  # spinbox
+    assert coord.fitted is False
+
+
+def test_fit_confirmation_dialog_constructs(qapp):
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitConfirmationDialog,
+        FitStatus,
+        PointFitResult,
+    )
+
+    ok = PointFitResult(
+        coordinate=_coord(pt=PointType.FIB), method="Hole", channel=None,
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 0.0),
+        status=FitStatus.OK,
+    )
+    assert FitConfirmationDialog(ok, show_figure=False) is not None
+
+    err = PointFitResult(
+        coordinate=_coord(pt=PointType.FIB), method="Hole", channel=None,
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=None,
+        status=FitStatus.ERROR, message="boom",
+    )
+    assert FitConfirmationDialog(err, show_figure=False) is not None
+
+
+def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+    from matplotlib.figure import Figure
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitConfirmationDialog,
+        FitStatus,
+        PointFitResult,
+    )
+
+    fig = Figure(figsize=(20, 5))  # like hole_fitting_reflection's 1x3 strip
+    for i in range(3):
+        fig.add_subplot(1, 3, i + 1)
+    r = PointFitResult(
+        coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 3.0),
+        status=FitStatus.OK, figure=fig,
+    )
+    dialog = FitConfirmationDialog(r, show_figure=True)
+    canvases = dialog.findChildren(FigureCanvasQTAgg)
+    assert canvases, "diagnostic figure should be embedded"
+    canvas = canvases[0]
+    assert canvas.minimumWidth() > canvas.minimumHeight()  # wide, not squished
+    assert canvas.minimumWidth() <= 900                     # capped
+
+
+def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    import fibsem.correlation.util as util
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+
+    w = _widget(qapp)
+    w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
+    fig = object()
+    monkeypatch.setattr(
+        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, fig)
+    )
+
+    coord = _coord(20.0, 20.0, 0.0, PointType.FIB)  # FIB method defaults to "Hole"
+    result = w._run_point_fit(coord)
+
+    # The fit is only a proposal — the coordinate is untouched until accepted.
+    assert (coord.point.x, coord.point.y) == (20.0, 20.0)
+    assert coord.fitted is False
+    assert result.status is FitStatus.OK
+    assert (result.fitted.x, result.fitted.y) == (23.0, 24.0)
+    assert round(result.delta_px, 1) == 5.0
+    assert result.figure is fig
+
+
+def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
+    from types import SimpleNamespace
+
+    import numpy as np
+    from PyQt5.QtWidgets import QDialog
+
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.correlation.util as util
+
+    w = _widget(qapp)
+    w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
+    monkeypatch.setattr(
+        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, None)
+    )
+    coord = _coord(20.0, 20.0, 0.0, PointType.FIB)
+    w._coords_tab.fib_list.add_coordinate(coord)
+
+    # Reject → coordinate unchanged.
+    monkeypatch.setattr(ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Rejected)
+    w._on_refit_requested(coord)
+    assert (coord.point.x, coord.point.y) == (20.0, 20.0)
+    assert coord.fitted is False
+
+    # Accept → coordinate moved and flagged.
+    monkeypatch.setattr(ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Accepted)
+    w._on_refit_requested(coord)
+    assert (coord.point.x, coord.point.y) == (23.0, 24.0)
+    assert coord.fitted is True
+
+
+# ---------------------------------------------------------------------------
+# Seam between the fit confirmation (FIB-252) and the result-live state (#143)
+# ---------------------------------------------------------------------------
+
+
+def test_accepting_a_fit_invalidates_the_live_result(qapp):
+    """Applying a fit moves a fiducial, so the displayed result no longer
+    describes the current points and Continue must not stay armed."""
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitStatus,
+        PointFitResult,
+    )
+
+    w = _widget(qapp)
+    coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
+    w._on_canvas_add_requested(10.0, 10.0, PointType.FIB)
+    coord = w._coords_tab.fib_list.coordinates[0]
+
+    w._on_result_ready(
+        CorrelationResult(
+            poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
+            rms_error=1.5,
+        )
+    )
+    assert w._btn_continue.isEnabled() is True
+
+    w._apply_fit_result(
+        PointFitResult(
+            coordinate=coord,
+            method="Hole",
+            channel=None,
+            initial=PointXYZ(10.0, 10.0, 0.0),
+            fitted=PointXYZ(13.0, 14.0, 0.0),
+            status=FitStatus.OK,
+        )
+    )
+
+    assert coord.fitted is True
+    assert w._btn_continue.isEnabled() is False  # result is stale now
+    assert w._lbl_result.isHidden() is True
+
+
+def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
+    """_on_canvas_moved clears `fitted`, and before the phantom-move fix a plain
+    select-click reached it — so merely clicking a fitted point unflagged it."""
+    import numpy as np
+
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_image(np.zeros((100, 100)))
+    coord = _coord(50.0, 50.0, pt=PointType.FIB)
+    coord.fitted = True
+    canvas.set_coordinates([coord])
+
+    moved = []
+    canvas.point_moved.connect(moved.append)
+
+    _press_release(canvas, coord)  # click to select, no drag
+    assert moved == []
+    assert coord.fitted is True  # selection is not an edit
+
+    _press_release(canvas, coord, drag_to=(60.0, 70.0))  # a real drag
+    assert moved == [coord]
