@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import time
 
@@ -334,11 +335,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         dev_menu.addSeparator()
 
         action_load_fm_configuration = QAction("Load Fluorescence Configuration", self)
-        action_load_fm_configuration.triggered.connect(self._load_fm_configuration)
+        action_load_fm_configuration.triggered.connect(self._import_fm_configuration)
         dev_menu.addAction(action_load_fm_configuration)
 
         action_save_fm_configuration = QAction("Save Fluorescence Configuration", self)
-        action_save_fm_configuration.triggered.connect(self._save_fm_configuration)
+        action_save_fm_configuration.triggered.connect(self._export_fm_configuration)
         dev_menu.addAction(action_save_fm_configuration)
 
     def _create_test_menu(self):
@@ -592,15 +593,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is not None:
             self.autolamella_ui._open_fm_image_viewer()
 
-    def _load_fm_configuration(self):
+    def _import_fm_configuration(self):
         """Load a fluorescence microscope configuration."""
         if self.autolamella_ui is not None:
-            self.autolamella_ui.load_fm_configuration()
+            self.autolamella_ui.import_fm_configuration()
 
-    def _save_fm_configuration(self):
+    def _export_fm_configuration(self):
         """Save the current fluorescence microscope configuration."""
         if self.autolamella_ui is not None:
-            self.autolamella_ui.save_fm_configuration()
+            self.autolamella_ui.export_fm_configuration()
 
     def _open_coincidence_milling_viewer(self):
         """Open the Coincidence Milling Viewer dialog."""
@@ -1684,6 +1685,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
+        # persist the FM working state (channels / camera transform / objective)
+        if self.autolamella_ui is not None and self.autolamella_ui.fm_control_widget is not None:
+            try:
+                self.autolamella_ui.fm_control_widget.save_fm_configuration()
+            except Exception as e:
+                logging.warning(f"Could not save FM working state on close: {e}")
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service

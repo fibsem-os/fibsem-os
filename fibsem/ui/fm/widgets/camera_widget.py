@@ -2,6 +2,7 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -45,6 +46,8 @@ TRANSFORM_DISPLAY_NAMES = {
 
 class CameraWidget(QWidget):
     """Widget for camera control settings (gain, binning, transform)."""
+
+    settings_changed = pyqtSignal(CameraSettings)
 
     def __init__(self, fm: 'FluorescenceMicroscope', parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -114,16 +117,19 @@ class CameraWidget(QWidget):
     def _on_gain_changed(self, value: float):
         """Handle gain value change."""
         self.fm.set_gain(value / 100)  # Convert percentage to fraction
+        self.settings_changed.emit(self.camera_settings)
 
     def _on_binning_changed(self, idx: int):
         """Handle binning change."""
         binning = self.combobox_binning.itemData(idx)
         self.fm.set_binning(binning)
+        self.settings_changed.emit(self.camera_settings)
 
     def _on_transform_changed(self, idx: int):
         """Handle transform change."""
         transform = self.comboBox_transform.itemData(idx)
         self.fm.set_image_transform(transform)
+        self.settings_changed.emit(self.camera_settings)
 
     @property
     def camera_settings(self) -> CameraSettings:

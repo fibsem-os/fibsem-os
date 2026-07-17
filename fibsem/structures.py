@@ -1725,6 +1725,10 @@ class MicroscopeSettings:
         if fm_config_path is not None and isinstance(fm_config_path, str):
             from fibsem.fm.structures import FluorescenceConfiguration
             fm_config = FluorescenceConfiguration.load(fm_config_path)
+        else:
+            # fall back to the auto-persisted FM working state (survives restarts)
+            from fibsem.fm.config import load_fm_configuration
+            fm_config = load_fm_configuration()
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
