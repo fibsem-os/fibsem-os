@@ -95,6 +95,19 @@ from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveInde
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
 
+# Run-bar RMS quality cue (px). Placeholder thresholds — tune to the workflow.
+_RMS_GOOD_PX = 2.0
+_RMS_OK_PX = 5.0
+
+
+def _rms_color(rms: float) -> str:
+    """Colour for the run-bar RMS badge: green (good) / amber (ok) / red (poor)."""
+    if rms <= _RMS_GOOD_PX:
+        return "#4caf50"
+    if rms <= _RMS_OK_PX:
+        return "#ffb300"
+    return "#e53935"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -455,6 +468,11 @@ class _CoordinatesTab(QWidget):
         self._fit_panel = TitledPanel("Fit Settings", collapsible=True)
         self._fit_panel.set_content(fit_body)
         layout.addWidget(self._fit_panel)
+
+        # Advanced / set-once panels start collapsed to keep the tab compact.
+        self._surface_panel.collapse()
+        self._fm_surface_panel.collapse()
+        self._fit_panel.collapse()
 
         layout.addStretch(1)
         scroll.setWidget(container)
@@ -1160,6 +1178,14 @@ class CorrelationTabWidget(QWidget):
         self._btn_continue = QPushButton("Continue")
         self._btn_continue.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         btn_layout.addWidget(self._btn_continue)
+
+        # Compact result summary beside Continue (RMS quality-coloured + RI/POI),
+        # shown after a run — keeps the status line free for state only.
+        self._lbl_result = QLabel("")
+        self._lbl_result.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_result.setStyleSheet("color: #9aa0a6; font-size: 12px;")
+        self._lbl_result.setVisible(False)
+        btn_layout.addWidget(self._lbl_result)
         btn_layout.addStretch(1)
 
         run_layout.addWidget(btn_row)
@@ -1515,6 +1541,7 @@ class CorrelationTabWidget(QWidget):
             self._worker = None
         self._btn_run.setEnabled(False)
         self._lbl_status.setText("Running…")
+        self._lbl_result.setVisible(False)
         self._worker = _CorrelationWorker(copy.deepcopy(self.data))
         self._worker.result_ready.connect(self._on_result_ready)
         self._worker.errored.connect(self._on_run_error)
@@ -1531,17 +1558,23 @@ class CorrelationTabWidget(QWidget):
         self._btn_continue.setEnabled(True)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
         self._update_run_button()
+        # RMS beside Continue (quality-coloured); compact RI / POI note on status.
+        rms = result.rms_error
+        if rms is not None:
+            self._lbl_result.setText(
+                f'<span style="color:{_rms_color(rms)}">RMS {rms:.2f} px</span>'
+            )
+            self._lbl_result.setToolTip("Registration RMS error — lower is better")
+            self._lbl_result.setVisible(True)
         if (
             result.refractive_index_correction_mode == "pre"
             and result.refractive_index_correction_factor is not None
         ):
-            msg = (
-                f"Done — RI pre-correction ×{result.refractive_index_correction_factor:.3f} applied"
-            )
+            msg = f"Done — RI ×{result.refractive_index_correction_factor:.3f}"
             shift = self._poi_shift_px(result)
             if shift is not None:
-                msg += f", POI 1 shifted {shift:.1f} px"
-            self._lbl_status.setText(msg + ".")
+                msg += f", POI Δ{shift:.1f} px"
+            self._lbl_status.setText(msg)
         else:
             self._lbl_status.setText("Done.")
         self.result_changed.emit(result)

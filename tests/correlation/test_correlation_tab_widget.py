@@ -204,35 +204,38 @@ def test_apply_pre_without_rerun_only_stores(qapp):
 # ---------------------------------------------------------------------------
 
 
-def test_status_line_shows_pre_correction_after_run(qapp):
-    """The Done message must survive _update_run_button (it used to be
-    overwritten by 'Ready.' immediately)."""
+def test_status_short_and_result_summary_after_run(qapp):
+    """After a run: RMS shows beside Continue; the status line carries a compact
+    RI / POI note (or 'Done.') instead of the old verbose sentence — and it
+    survives _update_run_button."""
     w = _widget(qapp)
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=1.5,
         refractive_index_correction_factor=1.5,
         refractive_index_correction_mode="pre",
     )
     w._on_result_ready(result)
-    assert w._lbl_status.text() == "Done — RI pre-correction ×1.500 applied."
+    assert w._lbl_status.text() == "Done — RI ×1.500"
+    assert "RMS 1.50 px" in w._lbl_result.text()
 
     with_ghost = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=60.0))],
         poi_uncorrected=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=1.5,
         refractive_index_correction_factor=1.5,
         refractive_index_correction_mode="pre",
     )
     w._on_result_ready(with_ghost)
-    assert (
-        w._lbl_status.text()
-        == "Done — RI pre-correction ×1.500 applied, POI 1 shifted 40.0 px."
-    )
+    assert w._lbl_status.text() == "Done — RI ×1.500, POI Δ40.0 px"
 
     plain = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=0.8,
     )
     w._on_result_ready(plain)
     assert w._lbl_status.text() == "Done."
+    assert "RMS 0.80 px" in w._lbl_result.text()
 
 
 def test_apply_post_creates_ghost_and_status(qapp):
@@ -474,7 +477,7 @@ def test_load_result_keeps_status_message(qapp):
         refractive_index_correction_mode="pre",
     )
     w._load_result(result)
-    assert w._lbl_status.text() == "Done — RI pre-correction ×1.500 applied."
+    assert w._lbl_status.text() == "Done — RI ×1.500"
 
 
 def _legend_labels(ax):
@@ -894,3 +897,36 @@ def test_load_error_reverts_path_field(qapp, monkeypatch):
 
     assert tab._fib_path.text() == "/good/prev_ib.tif"
     assert tab._fib_loaded_path == "/good/prev_ib.tif"
+
+
+def test_rms_color_thresholds():
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_color
+
+    assert _rms_color(1.0) == "#4caf50"  # good → green
+    assert _rms_color(3.0) == "#ffb300"  # ok → amber
+    assert _rms_color(8.0) == "#e53935"  # poor → red
+
+
+def test_result_summary_hidden_until_run(qapp):
+    w = _widget(qapp)
+    assert w._lbl_result.isHidden() is True  # hidden until a run completes
+
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=1.5,
+    )
+    w._on_result_ready(result)
+    assert w._lbl_result.isHidden() is False
+    assert "RMS 1.50 px" in w._lbl_result.text()
+
+
+def test_advanced_panels_start_collapsed(qapp):
+    cl = _widget(qapp)._coords_tab
+    # Advanced / set-once panels collapse by default...
+    assert cl._surface_panel._btn_collapse.isChecked() is False
+    assert cl._fm_surface_panel._btn_collapse.isChecked() is False
+    assert cl._fit_panel._btn_collapse.isChecked() is False
+    # ...while the everyday fiducial/POI panels stay expanded.
+    assert cl._fib_panel._btn_collapse.isChecked() is True
+    assert cl._fm_panel._btn_collapse.isChecked() is True
+    assert cl._poi_panel._btn_collapse.isChecked() is True
