@@ -1040,7 +1040,8 @@ class FMControlWidget(QWidget):
         try:
             self.channelSettingsWidget.channel_settings = config.channel_settings
             self.zParametersWidget.z_parameters = config.z_parameters
-            self.cameraWidget.camera_settings = config.camera_settings
+            if config.camera_settings is not None:
+                self.cameraWidget.camera_settings = config.camera_settings
             if config.autofocus_settings is not None:
                 self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
             if config.focus_position is not None:

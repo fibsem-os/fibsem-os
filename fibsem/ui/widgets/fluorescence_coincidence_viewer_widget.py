@@ -1220,7 +1220,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Apply a FluorescenceConfiguration to the FM tab's sub-widgets."""
         if config.channel_settings:
             self.fm_channel_widget.channel_settings = config.channel_settings
-        self.fm_camera_widget.camera_settings = config.camera_settings
+        if config.camera_settings is not None:
+            self.fm_camera_widget.camera_settings = config.camera_settings
         if config.focus_position is not None:
             self.fm_objective_widget._set_focus_position(config.focus_position)
         if config.limit_position:
