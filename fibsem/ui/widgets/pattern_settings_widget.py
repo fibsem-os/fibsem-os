@@ -295,9 +295,16 @@ class FibsemPatternSettingsWidget(QWidget):
                 data = row.control.value()
                 if data is not None:
                     setattr(pattern, row.field, data)
-            elif isinstance(row.control, (ValueSpinBox, IntegerValueSpinBox)):
+            elif isinstance(row.control, ValueSpinBox):
                 val = row.control.value()
                 setattr(pattern, row.field, val / row.scale if row.scale else val)
+            elif isinstance(row.control, IntegerValueSpinBox):
+                val = row.control.value()
+                setattr(
+                    pattern,
+                    row.field,
+                    int(round(val / row.scale if row.scale else val)),
+                )
             elif isinstance(row.control, QCheckBox):
                 setattr(pattern, row.field, row.control.isChecked())
             elif isinstance(row.control, QFilePathLineEdit):
