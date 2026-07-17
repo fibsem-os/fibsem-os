@@ -818,9 +818,10 @@ def test_fm_display_z_step_clamps_and_mip_disables(qapp):
     assert w.current_z == frozen
 
 
-def test_run_bar_has_save_plot_and_test_menu_removed(qapp):
+def test_save_plot_in_view_menu_and_test_menu_removed(qapp):
     w = _widget(qapp)
-    assert w._btn_save_plot.text() == "Save Plot"
+    assert w._action_save_plot.text() == "Save Plot"  # View menu, not the run bar
+    assert not hasattr(w, "_btn_save_plot")
     assert not hasattr(w, "_action_test_save_plot")
     # The FM display opts its canvas into Shift+scroll Z stepping.
     assert w._fm_display.canvas._shift_z_enabled is True

@@ -1080,9 +1080,12 @@ class CorrelationTabWidget(QWidget):
         self._action_show_legend = QAction("Show Legend", self)
         self._action_show_legend.setCheckable(True)
         self._action_show_legend.setChecked(True)
+        self._action_save_plot = QAction("Save Plot", self)
         view_menu.addAction(self._action_reset_views)
         view_menu.addAction(self._action_show_scalebar)
         view_menu.addAction(self._action_show_legend)
+        view_menu.addSeparator()
+        view_menu.addAction(self._action_save_plot)
 
         layout.addWidget(menubar)
 
@@ -1158,11 +1161,6 @@ class CorrelationTabWidget(QWidget):
         self._btn_continue.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         btn_layout.addWidget(self._btn_continue)
         btn_layout.addStretch(1)
-
-        self._btn_save_plot = QPushButton("Save Plot")
-        self._btn_save_plot.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self._btn_save_plot.setToolTip("Save the FIB + FM canvases as a PNG")
-        btn_layout.addWidget(self._btn_save_plot)
 
         run_layout.addWidget(btn_row)
         right_layout.addWidget(run_bar)
@@ -1261,11 +1259,11 @@ class CorrelationTabWidget(QWidget):
         self._action_show_scalebar.toggled.connect(self._on_scalebar_toggled)
         self._on_scalebar_toggled(True)
         self._action_show_legend.toggled.connect(self._on_legend_toggled)
+        self._action_save_plot.triggered.connect(lambda _: self._on_save_plot_clicked())
 
         # Bottom bar run button
         self._btn_run.clicked.connect(self._run)
         self._btn_continue.clicked.connect(self._on_continue_pressed)
-        self._btn_save_plot.clicked.connect(self._on_save_plot_clicked)
         self.data_changed.connect(self._update_run_button)
         self.data_changed.connect(self._on_data_changed)
 
