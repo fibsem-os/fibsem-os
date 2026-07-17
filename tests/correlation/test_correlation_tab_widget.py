@@ -612,6 +612,76 @@ def test_render_to_axes_replicates_legend(qapp):
     assert _legend_labels(ax) == ["FIB", "POI (P)"]
 
 
+def test_canvas_toolbar_buttons_toggle_state(qapp):
+    """Each canvas gets reset/scalebar/legend buttons; checkable buttons drive
+    only their own canvas and stay in sync with the View-menu master toggle."""
+    w = _widget(qapp)
+    canvas = w._fib_canvas
+    assert len(canvas._overlay_buttons) == 3
+
+    # startup: the menu handler enabled the scalebar on both canvases
+    assert canvas._btn_scalebar.isChecked()
+    assert w._fm_display.canvas._btn_scalebar.isChecked()
+    assert canvas._btn_legend.isChecked()
+
+    # a button toggles only its own canvas
+    canvas._btn_scalebar.click()
+    assert canvas._show_scalebar is False
+    assert w._fm_display.canvas._show_scalebar is True
+
+    canvas._btn_legend.click()
+    assert canvas._legend_visible is False
+    canvas._btn_legend.click()
+    assert canvas._legend_visible is True
+
+    # the View menu still drives both canvases and re-syncs button state
+    w._on_scalebar_toggled(True)
+    assert canvas._show_scalebar is True
+    assert canvas._btn_scalebar.isChecked()
+
+
+def test_fm_scalebar_pixel_size_corrects_for_resize(qapp):
+    """pixel_size_x describes the acquisition resolution; when the displayed
+    data was resized without rewriting metadata, the scalebar pixel size must
+    scale to the displayed width (no-op when metadata matches the data)."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        CorrelationTabWidget,
+    )
+
+    def _fm(data_w, res_w, px):
+        return SimpleNamespace(
+            data=np.zeros((1, 3, data_w, data_w), dtype=np.uint8),
+            metadata=SimpleNamespace(pixel_size_x=px, resolution=(res_w, res_w)),
+        )
+
+    eff = CorrelationTabWidget._effective_fm_pixel_size
+    # matched: unchanged
+    assert eff(_fm(512, 512, 150e-9)) == pytest.approx(150e-9)
+    # displayed 512 from a 2048 acquisition → 4× larger pixel
+    assert eff(_fm(512, 2048, 150e-9)) == pytest.approx(600e-9)
+    # missing/zero pixel size → None (no scalebar rather than a wrong one)
+    assert eff(_fm(512, 512, None)) is None
+    # no resolution metadata → fall back to the raw value
+    raw = SimpleNamespace(
+        data=np.zeros((1, 1, 512, 512), dtype=np.uint8),
+        metadata=SimpleNamespace(pixel_size_x=150e-9, resolution=None),
+    )
+    assert eff(raw) == pytest.approx(150e-9)
+
+
+def test_canvas_toolbar_reset_button(qapp):
+    w = _widget(qapp)
+    canvas = w._fib_canvas
+    calls = []
+    canvas.reset_view = lambda: calls.append(True)
+    canvas._overlay_buttons[0].click()  # reset is the first-added (rightmost)
+    assert calls == [True]
+
+
 def test_ghost_export_preserves_hollow_style(qapp):
     from matplotlib.figure import Figure
 

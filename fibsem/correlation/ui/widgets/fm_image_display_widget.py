@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -49,6 +50,10 @@ _DEFAULT_COLORS = ["cyan", "magenta", "yellow", "green", "red", "blue", "gray"]
 
 _SWATCH_SIZE   = 14   # px
 _CTRL_HEIGHT   = 28   # compact control row height
+_CH_ROW_HEIGHT = 24   # one channel row (measured sizeHint)
+# Channel-controls pane floor: 3 rows + container/spacing/frame margin
+_CH_MIN_HEIGHT = 3 * _CH_ROW_HEIGHT + 16
+_CH_INIT_HEIGHT = _CH_MIN_HEIGHT + 48  # a bit taller by default; user-resizable
 
 
 def _normalize_clipped(arr: np.ndarray, lo_pct: float, hi_pct: float) -> np.ndarray:
@@ -247,14 +252,29 @@ class FMImageDisplayWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Canvas
+        # Vertical splitter: canvas (+Z row) on top, channel controls below,
+        # so the channel/contrast area can be dragged taller/shorter.
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: #3a3d42; }"
+            "QSplitter::handle:hover { background: #4a4d52; }"
+        )
+
+        # --- top pane: canvas + Z/MIP row ---
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
+
         self.canvas = ImagePointCanvas(allowed_point_types=self._allowed_point_types)
-        layout.addWidget(self.canvas, stretch=1)
+        top_layout.addWidget(self.canvas, stretch=1)
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.HLine)
         sep1.setStyleSheet("color: #3a3d42;")
-        layout.addWidget(sep1)
+        top_layout.addWidget(sep1)
 
         # Z / MIP row
         self._z_row = QWidget()
@@ -284,19 +304,15 @@ class FMImageDisplayWidget(QWidget):
         self._z_label.setFixedWidth(48)
         z_layout.addWidget(self._z_label)
 
-        layout.addWidget(self._z_row)
+        top_layout.addWidget(self._z_row)
+        splitter.addWidget(top)
 
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("color: #3a3d42;")
-        layout.addWidget(sep2)
-
-        # Channel rows (scrollable, vertical stack)
+        # --- bottom pane: channel rows (scrollable, resizable) ---
         self._ch_scroll = QScrollArea()
         self._ch_scroll.setWidgetResizable(True)
         self._ch_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._ch_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._ch_scroll.setMaximumHeight(120)
+        self._ch_scroll.setMinimumHeight(_CH_MIN_HEIGHT)  # ≥ 3 channel rows + margin
         self._ch_scroll.setStyleSheet("background: #1e2124; border: none;")
 
         self._ch_container = QWidget()
@@ -305,7 +321,13 @@ class FMImageDisplayWidget(QWidget):
         self._ch_layout.setContentsMargins(4, 2, 4, 2)
         self._ch_layout.setSpacing(2)
         self._ch_scroll.setWidget(self._ch_container)
-        layout.addWidget(self._ch_scroll)
+        splitter.addWidget(self._ch_scroll)
+
+        # Canvas absorbs extra space; channel pane keeps its size on resize.
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([600, _CH_INIT_HEIGHT])
+        layout.addWidget(splitter, stretch=1)
 
         # Connect controls
         self._z_slider.valueChanged.connect(self._on_z_changed)

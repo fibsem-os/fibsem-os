@@ -41,11 +41,12 @@ import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QAction, QMenu, QSizePolicy, QWidget
+from PyQt5.QtWidgets import QAction, QMenu, QPushButton, QSizePolicy, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.icon import fibsem_icon
 _logger = logging.getLogger(__name__)
 
 _POINT_COLORS: Dict[PointType, str] = {
@@ -115,9 +116,27 @@ def _marker_style(point_type: PointType, is_selected: bool) -> dict:
     )
 
 
-# Shared by the live canvas legend and the render_to_axes export
+# Overlay toolbar (top-right icon buttons, matching the shared-canvas look
+# from the PR #111 stack; the mechanism is replaced by that canvas's native
+# toolbar when the correlation canvases migrate onto it)
+_OVERLAY_BTN_SIZE = 26
+_OVERLAY_ICON_SIZE = QSize(18, 18)
+_OVERLAY_MARGIN = 6
+_OVERLAY_GAP = 4
+_OVERLAY_BTN_STYLE = (
+    "QPushButton { background: rgba(30, 33, 36, 180);"
+    " border: 1px solid #3a3d42; border-radius: 4px; }"
+    "QPushButton:hover { background: rgba(45, 63, 92, 220); }"
+    "QPushButton:checked { background: rgba(45, 63, 92, 220);"
+    " border: 1px solid #6aa1e0; }"
+)
+
+
+# Shared by the live canvas legend and the render_to_axes export.
+# Upper LEFT: the top-right corner belongs to the overlay toolbar buttons
+# (same convention as the PR #111 shared canvas).
 _LEGEND_KWARGS = dict(
-    loc="upper right",
+    loc="upper left",
     fontsize=8,
     framealpha=0.75,
     facecolor="#1e2124",
@@ -202,6 +221,12 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         # Dashed datum line across the canvas at the FIB surface y
         self._surface_line = None
         self._surface_line_coord: Optional[Coordinate] = None
+
+        # Overlay toolbar (top-right)
+        self._overlay_buttons: List[QPushButton] = []
+        self._btn_scalebar: Optional[QPushButton] = None
+        self._btn_legend: Optional[QPushButton] = None
+        self._create_toolbar_buttons()
 
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setSingleShot(True)
@@ -300,9 +325,71 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self._background = None
             self.draw()
 
+    # ------------------------------------------------------------------
+    # Overlay toolbar (top-right icon buttons)
+    # ------------------------------------------------------------------
+
+    def _create_toolbar_buttons(self) -> None:
+        """Standard buttons; first added stacks rightmost."""
+        self._add_overlay_button(
+            "mdi:fit-to-screen-outline", "Reset view", lambda _=False: self.reset_view()
+        )
+        self._btn_scalebar = self._add_overlay_button(
+            "mdi:arrow-expand-horizontal",
+            "Toggle scalebar",
+            self.set_scalebar_visible,
+            checkable=True,
+        )
+        self._btn_scalebar.setChecked(self._show_scalebar)
+        self._btn_legend = self._add_overlay_button(
+            "mdi:format-list-bulleted",
+            "Toggle legend",
+            self.set_legend_visible,
+            checkable=True,
+        )
+        self._btn_legend.setChecked(self._legend_visible)
+
+    def _add_overlay_button(
+        self,
+        icon_name: str,
+        tooltip: str,
+        callback,
+        checkable: bool = False,
+    ) -> QPushButton:
+        """Create a button parented to the canvas, stacked top-right.
+
+        Repositioned automatically on resize. ``clicked(bool)`` is connected to
+        ``callback`` (checkable buttons receive the new checked state).
+        """
+        btn = QPushButton(self)
+        btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
+        btn.setIconSize(_OVERLAY_ICON_SIZE)
+        btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(checkable)
+        btn.setStyleSheet(_OVERLAY_BTN_STYLE)
+        btn.clicked.connect(callback)
+        btn.raise_()
+        self._overlay_buttons.append(btn)
+        self._reposition_overlay_buttons()
+        return btn
+
+    def _reposition_overlay_buttons(self) -> None:
+        x = self.width() - _OVERLAY_MARGIN
+        for btn in self._overlay_buttons:
+            x -= btn.width()
+            btn.move(x, _OVERLAY_MARGIN)
+            x -= _OVERLAY_GAP
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._reposition_overlay_buttons()
+
     def set_scalebar_visible(self, visible: bool) -> None:
         """Show or hide the scale bar."""
         self._show_scalebar = visible
+        if self._btn_scalebar is not None:
+            self._btn_scalebar.setChecked(visible)
         self._refresh_scalebar()
         self._background = None
         self.draw()
@@ -332,6 +419,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def set_legend_visible(self, visible: bool) -> None:
         """Show or hide the point-type legend."""
         self._legend_visible = visible
+        if self._btn_legend is not None:
+            self._btn_legend.setChecked(visible)
         self._update_legend()
         self._background = None
         self.draw()

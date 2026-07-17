@@ -53,7 +53,6 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QMenuBar,
     QMessageBox,
     QPushButton,
@@ -82,7 +81,11 @@ from fibsem.correlation.ui.widgets.fm_image_display_widget import FMImageDisplay
 from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    QDirectoryLineEdit,
+    QFileLineEdit,
+    TitledPanel,
+)
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
@@ -152,6 +155,10 @@ class _ImagesTab(QWidget):
         super().__init__(parent)
         self._fib_image: Optional[FibsemImage] = None
         self._fm_image: Optional[FluorescenceImage] = None
+        # Last path successfully loaded / shown per field — suppresses reloads
+        # when the editable path widget re-emits editingFinished (focus-out).
+        self._fib_loaded_path: str = ""
+        self._fm_loaded_path: str = ""
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -164,13 +171,9 @@ class _ImagesTab(QWidget):
         proj_layout = QHBoxLayout(proj_body)
         proj_layout.setContentsMargins(8, 4, 8, 4)
         proj_layout.setSpacing(4)
-        self._btn_proj = QPushButton("Browse…")
-        self._btn_proj.setFixedWidth(80)
-        self._btn_proj.clicked.connect(self._browse_project_dir)
-        self._proj_path = QLineEdit()
-        self._proj_path.setReadOnly(True)
-        self._proj_path.setPlaceholderText("No project directory set")
-        proj_layout.addWidget(self._btn_proj)
+        self._proj_path = QDirectoryLineEdit()
+        self._proj_path.lineEdit.setPlaceholderText("No project directory set")
+        self._proj_path.editingFinished.connect(self._on_project_dir_edited)
         proj_layout.addWidget(self._proj_path, stretch=1)
         layout.addWidget(TitledPanel("Project", content=proj_body, collapsible=False))
 
@@ -180,19 +183,10 @@ class _ImagesTab(QWidget):
         fib_layout.setContentsMargins(8, 4, 8, 4)
         fib_layout.setSpacing(4)
 
-        fib_browse_row = QWidget()
-        fib_browse_layout = QHBoxLayout(fib_browse_row)
-        fib_browse_layout.setContentsMargins(0, 0, 0, 0)
-        fib_browse_layout.setSpacing(4)
-        self._btn_fib = QPushButton("Browse…")
-        self._btn_fib.setFixedWidth(80)
-        self._btn_fib.clicked.connect(self._browse_fib)
-        self._fib_path = QLineEdit()
-        self._fib_path.setReadOnly(True)
-        self._fib_path.setPlaceholderText("No file loaded")
-        fib_browse_layout.addWidget(self._btn_fib)
-        fib_browse_layout.addWidget(self._fib_path, stretch=1)
-        fib_layout.addWidget(fib_browse_row)
+        self._fib_path = QFileLineEdit(filter="TIFF (*.tif *.tiff);;All Files (*)")
+        self._fib_path.lineEdit.setPlaceholderText("No file loaded")
+        self._fib_path.editingFinished.connect(self._on_fib_path_edited)
+        fib_layout.addWidget(self._fib_path)
 
         fib_form = QFormLayout()
         fib_form.setContentsMargins(0, 0, 0, 0)
@@ -213,19 +207,12 @@ class _ImagesTab(QWidget):
         fm_layout.setContentsMargins(8, 4, 8, 4)
         fm_layout.setSpacing(4)
 
-        fm_browse_row = QWidget()
-        fm_browse_layout = QHBoxLayout(fm_browse_row)
-        fm_browse_layout.setContentsMargins(0, 0, 0, 0)
-        fm_browse_layout.setSpacing(4)
-        self._btn_fm = QPushButton("Browse…")
-        self._btn_fm.setFixedWidth(80)
-        self._btn_fm.clicked.connect(self._browse_fm)
-        self._fm_path = QLineEdit()
-        self._fm_path.setReadOnly(True)
-        self._fm_path.setPlaceholderText("No file loaded")
-        fm_browse_layout.addWidget(self._btn_fm)
-        fm_browse_layout.addWidget(self._fm_path, stretch=1)
-        fm_layout.addWidget(fm_browse_row)
+        self._fm_path = QFileLineEdit(
+            filter="OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)"
+        )
+        self._fm_path.lineEdit.setPlaceholderText("No file loaded")
+        self._fm_path.editingFinished.connect(self._on_fm_path_edited)
+        fm_layout.addWidget(self._fm_path)
 
         fm_form = QFormLayout()
         fm_form.setContentsMargins(0, 0, 0, 0)
@@ -234,6 +221,7 @@ class _ImagesTab(QWidget):
         self._lbl_fm_shape.setStyleSheet("color: #e0e0e0; font-size: 11px;")
         self._lbl_fm_ch = QLabel("—")
         self._lbl_fm_ch.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
         self._lbl_fm_z.setStyleSheet("color: #e0e0e0; font-size: 11px;")
         fm_form.addRow("Shape (C×Z×Y×X):", self._lbl_fm_shape)
@@ -248,10 +236,9 @@ class _ImagesTab(QWidget):
     # Browse / load
     # ------------------------------------------------------------------
 
-    def _browse_project_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+    def _on_project_dir_edited(self) -> None:
+        path = self._proj_path.text().strip()
         if path:
-            self._proj_path.setText(path)
             self.project_dir_changed.emit(path)
 
     @property
@@ -259,11 +246,10 @@ class _ImagesTab(QWidget):
         p = self._proj_path.text().strip()
         return p if p else None
 
-    def _browse_fib(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open FIB Image", "", "TIFF (*.tif *.tiff);;All Files (*)"
-        )
-        if path:
+    def _on_fib_path_edited(self) -> None:
+        # Fires on browse-pick and manual entry; skip programmatic/no-op sets
+        path = self._fib_path.text().strip()
+        if path and path != self._fib_loaded_path:
             self._load_fib(path)
 
     def _load_fib(self, path: str) -> None:
@@ -273,7 +259,8 @@ class _ImagesTab(QWidget):
             QMessageBox.warning(self, "Load error", str(exc))
             return
         self._fib_image = image
-        self._fib_path.setText(path)
+        self._fib_loaded_path = path
+        self._fib_path.setText(path)  # setText → textChanged only, no reload
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
         px = getattr(
@@ -282,14 +269,9 @@ class _ImagesTab(QWidget):
         self._lbl_fib_px.setText(f"{px * 1e9:.2f} nm" if px else "—")
         self.fib_image_changed.emit(image)
 
-    def _browse_fm(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open FM Image",
-            "",
-            "OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)",
-        )
-        if path:
+    def _on_fm_path_edited(self) -> None:
+        path = self._fm_path.text().strip()
+        if path and path != self._fm_loaded_path:
             self._load_fm(path)
 
     def _load_fm(self, path: str) -> None:
@@ -299,6 +281,7 @@ class _ImagesTab(QWidget):
             QMessageBox.warning(self, "Load error", str(exc))
             return
         self._fm_image = image
+        self._fm_loaded_path = path
         self._fm_path.setText(path)
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
@@ -324,6 +307,7 @@ class _ImagesTab(QWidget):
             )
             or ""
         )
+        self._fib_loaded_path = filename
         self._fib_path.setText(filename)
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
@@ -335,6 +319,7 @@ class _ImagesTab(QWidget):
     def set_fm_image(self, image: FluorescenceImage) -> None:
         self._fm_image = image
         filename = getattr(image.metadata, "filename", "") or ""
+        self._fm_loaded_path = filename
         self._fm_path.setText(filename)
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
@@ -1299,7 +1284,7 @@ class CorrelationTabWidget(QWidget):
         """Load FM image into canvas and update images tab."""
         self._fm_image = fm_image
         self._fm_display.set_fm_image(fm_image)
-        px = getattr(fm_image.metadata, "pixel_size_x", None)
+        px = self._effective_fm_pixel_size(fm_image)
         if px:
             self._fm_display.canvas.set_pixel_size(px)
         _, n_z, h, w = fm_image.data.shape
@@ -1310,6 +1295,34 @@ class CorrelationTabWidget(QWidget):
                 )
         self._coords_tab.rebuild_channel_combos(fm_image)
         self._images_tab.set_fm_image(fm_image)
+
+    @staticmethod
+    def _effective_fm_pixel_size(fm_image: FluorescenceImage) -> Optional[float]:
+        """Pixel size (m) for the FM scalebar, corrected for any display resize.
+
+        ``metadata.pixel_size_x`` describes one pixel at the acquisition
+        resolution (``metadata.resolution``). If the displayed data array was
+        resized (e.g. binned/downscaled) without rewriting the metadata, the
+        two disagree and the raw value over/under-scales the scalebar by the
+        resize ratio — so scale it to the displayed width. A no-op when the
+        metadata matches the data (the correctly-authored case).
+        """
+        meta = getattr(fm_image, "metadata", None)
+        px = getattr(meta, "pixel_size_x", None)
+        if not px:
+            return None
+        data_w = fm_image.data.shape[3]
+        res = getattr(meta, "resolution", None)
+        acq_w = res[0] if res else None
+        if acq_w and data_w and acq_w != data_w:
+            corrected = px * acq_w / data_w
+            logging.warning(
+                "FM scalebar: data width %d ≠ metadata resolution %d — pixel "
+                "size corrected %.1f→%.1f nm/px for the display resize.",
+                data_w, acq_w, px * 1e9, corrected * 1e9,
+            )
+            return corrected
+        return px
 
     def set_project_dir(self, path: str) -> None:
         """Set the project directory used for auto-save and export."""
