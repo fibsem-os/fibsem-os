@@ -620,7 +620,7 @@ def test_canvas_toolbar_buttons_toggle_state(qapp):
     only their own canvas and stay in sync with the View-menu master toggle."""
     w = _widget(qapp)
     canvas = w._fib_canvas
-    assert len(canvas._overlay_buttons) == 3
+    assert len(canvas._overlay_buttons) == 4
 
     # startup: the menu handler enabled the scalebar on both canvases
     assert canvas._btn_scalebar.isChecked()
@@ -930,3 +930,29 @@ def test_advanced_panels_start_collapsed(qapp):
     assert cl._fib_panel._btn_collapse.isChecked() is True
     assert cl._fm_panel._btn_collapse.isChecked() is True
     assert cl._poi_panel._btn_collapse.isChecked() is True
+
+
+def test_point_labels_have_outline(qapp):
+    """Coloured labels get a dark outline (path effect) so they stay legible on
+    any image background."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_coordinates([_coord(5.0, 5.0, 0.0, PointType.FIB)])
+    label = canvas._label_artists[0]
+    assert label.get_path_effects()  # dark outline applied
+    assert label.get_fontsize() == 9
+
+
+def test_labels_toggle_hides_labels(qapp):
+    w = _widget(qapp)
+    w._on_canvas_add_requested(5.0, 5.0, PointType.FIB)
+    fib = w._fib_canvas
+    assert fib._label_artists[0].get_visible() is True  # shown by default
+
+    w._on_labels_toggled(False)  # View → Show Labels off
+    assert fib._label_artists[0].get_visible() is False
+    assert fib._btn_labels.isChecked() is False
+
+    w._on_labels_toggled(True)
+    assert fib._label_artists[0].get_visible() is True

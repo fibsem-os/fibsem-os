@@ -1098,10 +1098,14 @@ class CorrelationTabWidget(QWidget):
         self._action_show_legend = QAction("Show Legend", self)
         self._action_show_legend.setCheckable(True)
         self._action_show_legend.setChecked(True)
+        self._action_show_labels = QAction("Show Labels", self)
+        self._action_show_labels.setCheckable(True)
+        self._action_show_labels.setChecked(True)
         self._action_save_plot = QAction("Save Plot", self)
         view_menu.addAction(self._action_reset_views)
         view_menu.addAction(self._action_show_scalebar)
         view_menu.addAction(self._action_show_legend)
+        view_menu.addAction(self._action_show_labels)
         view_menu.addSeparator()
         view_menu.addAction(self._action_save_plot)
 
@@ -1285,6 +1289,7 @@ class CorrelationTabWidget(QWidget):
         self._action_show_scalebar.toggled.connect(self._on_scalebar_toggled)
         self._on_scalebar_toggled(True)
         self._action_show_legend.toggled.connect(self._on_legend_toggled)
+        self._action_show_labels.toggled.connect(self._on_labels_toggled)
         self._action_save_plot.triggered.connect(lambda _: self._on_save_plot_clicked())
 
         # Bottom bar run button
@@ -1634,7 +1639,7 @@ class CorrelationTabWidget(QWidget):
                 error_pts,
                 color="#ff4444",
                 label_prefix="E",
-                size=7,
+                size=4,
                 marker="o",
                 legend_label="FM reprojected (E)",
             )
@@ -1647,7 +1652,7 @@ class CorrelationTabWidget(QWidget):
             self._fib_canvas.add_overlay_points(
                 ghost_pts,
                 color="#ff00ff",
-                size=13,
+                size=7,
                 marker="o",
                 alpha=0.7,
                 show_labels=False,
@@ -1662,7 +1667,7 @@ class CorrelationTabWidget(QWidget):
                 poi_pts,
                 color="#ff00ff",
                 label_prefix="P",
-                size=9,
+                size=5,
                 marker="o",
                 legend_label="POI (P)",
             )
@@ -1808,6 +1813,10 @@ class CorrelationTabWidget(QWidget):
     def _on_legend_toggled(self, visible: bool) -> None:
         self._fib_canvas.set_legend_visible(visible)
         self._fm_display.canvas.set_legend_visible(visible)
+
+    def _on_labels_toggled(self, visible: bool) -> None:
+        self._fib_canvas.set_labels_visible(visible)
+        self._fm_display.canvas.set_labels_visible(visible)
 
     def _on_save_plot_clicked(self) -> None:
         """Prompt for a path and save the side-by-side FIB + FM plot."""

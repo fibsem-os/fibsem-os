@@ -38,6 +38,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import matplotlib.patheffects as pe
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
@@ -70,12 +71,15 @@ _POINT_MARKERS: Dict[PointType, str] = {
     PointType.SURFACE:    "+",
     PointType.SURFACE_FM: "+",
 }
-_MARKER_SIZE     = 10
-_SELECTED_SIZE   = 14
+_MARKER_SIZE     = 5
+_SELECTED_SIZE   = 7
 _PICK_RADIUS_PX  = 15
 _ZOOM_FACTOR     = 1.15
 _MAX_DISPLAY_PX  = 2048
 _REDRAW_INTERVAL = 32     # ms (~60 fps cap for pan/zoom)
+_LABEL_FONTSIZE  = 9
+# Dark outline so coloured point labels stay legible on any image background.
+_LABEL_OUTLINE   = [pe.withStroke(linewidth=0.5, foreground="black")]
 
 
 def _downsample(image: np.ndarray, max_px: int) -> np.ndarray:
@@ -247,6 +251,9 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._legend_visible: bool = True
         self._overlay_legend: List[Tuple[str, dict]] = []  # (label, handle style)
 
+        # Point-name labels next to each marker — toggleable to declutter
+        self._labels_visible: bool = True
+
         # Dashed datum line across the canvas at the FIB surface y
         self._surface_line = None
         self._surface_line_coord: Optional[Coordinate] = None
@@ -258,6 +265,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._overlay_buttons: List[QPushButton] = []
         self._btn_scalebar: Optional[QPushButton] = None
         self._btn_legend: Optional[QPushButton] = None
+        self._btn_labels: Optional[QPushButton] = None
         self._create_toolbar_buttons()
 
         self._redraw_timer = QTimer(self)
@@ -380,6 +388,13 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             checkable=True,
         )
         self._btn_legend.setChecked(self._legend_visible)
+        self._btn_labels = self._add_overlay_button(
+            "mdi:label-outline",
+            "Toggle point labels",
+            self.set_labels_visible,
+            checkable=True,
+        )
+        self._btn_labels.setChecked(self._labels_visible)
 
     def _add_overlay_button(
         self,
@@ -454,6 +469,16 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         if self._btn_legend is not None:
             self._btn_legend.setChecked(visible)
         self._update_legend()
+        self._background = None
+        self.draw()
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide the point-name labels next to each marker."""
+        self._labels_visible = visible
+        if self._btn_labels is not None:
+            self._btn_labels.setChecked(visible)
+        for ann in self._label_artists + self._overlay_label_artists:
+            ann.set_visible(visible)
         self._background = None
         self.draw()
 
@@ -555,6 +580,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 fontsize=ann.get_fontsize(),
                 fontweight=ann.get_fontweight(),
                 zorder=ann.get_zorder(),
+                path_effects=_LABEL_OUTLINE,
             )
 
         if self._show_scalebar and self._pixel_size is not None:
@@ -623,11 +649,13 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 xytext=(7, 5),
                 textcoords="offset points",
                 color=color,
-                fontsize=8,
+                fontsize=_LABEL_FONTSIZE,
                 alpha=alpha,
                 animated=True,
                 zorder=9,
+                path_effects=_LABEL_OUTLINE,
             )
+            ann.set_visible(self._labels_visible)
             self._overlay_label_artists.append(ann)
 
         self._background = None
@@ -740,11 +768,13 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 xytext=(7, 5),
                 textcoords="offset points",
                 color=color,
-                fontsize=8,
+                fontsize=_LABEL_FONTSIZE,
                 fontweight="bold" if is_sel else "normal",
                 animated=True,
                 zorder=11 if is_sel else 6,
+                path_effects=_LABEL_OUTLINE,
             )
+            ann.set_visible(self._labels_visible)
             self._label_artists.append(ann)
 
         self._update_legend()
