@@ -262,6 +262,7 @@ class _ImagesTab(QWidget):
             image = FibsemImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
+            self._fib_path.setText(self._fib_loaded_path)  # revert to last-good path
             return
         self._fib_image = image
         self._fib_loaded_path = path
@@ -284,6 +285,7 @@ class _ImagesTab(QWidget):
             image = FluorescenceImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
+            self._fm_path.setText(self._fm_loaded_path)  # revert to last-good path
             return
         self._fm_image = image
         self._fm_loaded_path = path
@@ -1818,6 +1820,10 @@ class CorrelationTabWidget(QWidget):
         fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
         plt.close(fig)
 
+    def load_result(self, path: str) -> None:
+        """Load a correlation result from JSON and adopt it (mirrors load_data)."""
+        self._load_result(CorrelationResult.load(path))
+
     def _menu_load_result(self) -> None:
         start = self._project_dir or ""
         path, _ = QFileDialog.getOpenFileName(
@@ -2039,7 +2045,7 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
 
     if found["result"]:
         try:
-            widget._load_result(CorrelationResult.load(found["result"]))
+            widget.load_result(found["result"])
             logging.info("  result: %s", os.path.basename(found["result"]))
         except Exception:
             logging.exception("  failed to load result %s", found["result"])
