@@ -2098,7 +2098,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # convert to autoscript position
         autoscript_position = stage_position_to_autoscript(position, compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
-        if self.get_stage_orientation() == "FM": # or (self.fm is not None and self.fm.objective.state == "Inserted"): # ONLY when restrictions are on
+        if self.get_stage_orientation() == "FM" or (self.fm is not None and self.fm.objective.state == "Inserted"): # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 
