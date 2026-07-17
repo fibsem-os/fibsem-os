@@ -141,6 +141,7 @@ class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
     milling_progress_signal = Signal(dict)
     tiled_acquisition_signal = Signal(dict)
+    spot_burn_progress_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
     system: SystemSettings
     _patterns: List

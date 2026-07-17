@@ -96,9 +96,6 @@ class _MoveStub(QObject):
 class _SpotStub(QObject):
     """Just what ``FibsemSpotBurnWidget._run_spot_burn`` touches on ``self``."""
 
-    _spot_burn_finished_signal = pyqtSignal(object)
-    _spot_burn_errored_signal = pyqtSignal(object)
-
     def __init__(self, microscope):
         super().__init__()
         self.microscope = microscope
@@ -135,18 +132,19 @@ def test_spot_burn_worker_migrated():
 
     # The current widget builds the worker directly as ``FunctionWorker(self._run_spot_burn,
     # settings)`` (see ``run_spot_burn_worker``); the burn itself is ``settings.run(...)``, so a
-    # fake no-op settings keeps this about the worker plumbing, not a real burn.
+    # fake no-op settings keeps this about the worker plumbing, not a real burn. Completion is
+    # delivered by the FunctionWorker's own returned/errored signals (no widget-owned signal).
     class _FakeSettings:
         def run(self, **kwargs):
             return None
 
-    finished = []
-    stub._spot_burn_finished_signal.connect(lambda r: finished.append(r))
     worker = FunctionWorker(FibsemSpotBurnWidget._run_spot_burn, stub, _FakeSettings())
+    returned = []
+    worker.returned.connect(lambda r: returned.append(r))
     err, off_main = _drive(worker)
     assert err is None
     assert off_main is True  # body genuinely ran on the worker thread
-    assert finished == [None]  # the widget's own finished signal fired on success
+    assert returned == [None]  # FunctionWorker delivered completion on success
 
 
 if __name__ == "__main__":

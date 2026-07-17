@@ -605,6 +605,7 @@ class AutoLamellaUI(QMainWindow):
                 self.det_widget.deleteLater()
                 self.det_widget = None
             if self.spot_burn_widget is not None:
+                self.spot_burn_widget.disconnect_signals()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.spot_burn_widget))
                 self.spot_burn_widget.deleteLater()
                 self.spot_burn_widget = None
@@ -1605,7 +1606,7 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.setEnabled(neg is not None)
         self.pushButton_no.setVisible(neg is not None)
 
-        if pos == "Run Milling":
+        if pos in ("Run Milling", "Run Spot Burn"):
             self.pushButton_yes.setStyleSheet(
                 stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
             )
@@ -1646,6 +1647,8 @@ class AutoLamellaUI(QMainWindow):
             self._workflow_stop_event.set()
         if self.milling_task_config_widget is not None:
             self.milling_task_config_widget.milling_widget.stop_milling()
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.cancel_spot_burn()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
@@ -1668,6 +1671,13 @@ class AutoLamellaUI(QMainWindow):
             self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(
                 True
             )
+
+        # restore the spot burn widget: an aborted workflow skips the clear_spot_burn
+        # message that normally resets it, which would leave the Burn button hidden
+        # (no-op after a normal completion, where clear_spot_burn already ran)
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_workflow_mode(False)
+            self.spot_burn_widget.clear_points_layer()
 
         # clear detection layers
         if self.det_widget is not None:
@@ -1770,11 +1780,15 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
+            if self.spot_burn_widget is not None:
+                # hide the widget's own Burn button; the burn is run from the workflow control
+                self.spot_burn_widget.set_workflow_mode(True)
         spot_burn_settings = info.get("spot_burn_settings", None)
         if spot_burn_settings is not None and self.spot_burn_widget is not None:
             self.spot_burn_widget.set_settings(spot_burn_settings)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
+            self.spot_burn_widget.set_workflow_mode(False)
 
         milling_config = info.get("milling_config", None)
         if milling_config is not None:
