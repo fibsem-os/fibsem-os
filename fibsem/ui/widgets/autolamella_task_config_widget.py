@@ -21,7 +21,8 @@ from superqt import QCollapsible
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.custom_widgets import TitledPanel, WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 def resolve_field_types(config: Any) -> Dict[str, Any]:
     """Resolve a dataclass's field annotations to concrete types.
@@ -94,7 +95,7 @@ class IntParameterWidget(ParameterWidget):
         self.widget.setRange(-2147483648, 2147483647)  # 32-bit int range
         self.widget.setValue(int(round(self.value * self.scale)))
         self.widget.setKeyboardTracking(False)
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
 
         # Add units suffix if available (e.g. " s" for exposure time)
         suffix = get_si_prefix_suffix(self.scale, self.units)
@@ -141,7 +142,7 @@ class FloatParameterWidget(ParameterWidget):
         self.widget.setRange(-1e10, 1e10)
         self.widget.setDecimals(2)
         self.widget.setKeyboardTracking(False)
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
         
         # Apply scaling for display (multiply by scale to show user-friendly values)
         display_value = float(self.value) * self.scale
@@ -197,7 +198,7 @@ class EnumParameterWidget(ParameterWidget):
                 current_index = i
                 break
         self.widget.setCurrentIndex(current_index)
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
         
         return self.widget
         
@@ -226,7 +227,7 @@ class ComboParameterWidget(ParameterWidget):
             if self.widget.itemData(i) == self.value:
                 self.widget.setCurrentIndex(i)
                 break
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
         return self.widget
 
     def get_value(self) -> Any:

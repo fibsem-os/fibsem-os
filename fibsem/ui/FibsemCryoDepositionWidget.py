@@ -10,7 +10,7 @@ from fibsem import config as cfg
 from fibsem import gis, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemGasInjectionSettings
-from fibsem.ui.utils import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 
 
 class FibsemCryoDepositionWidget(QtWidgets.QDialog):
@@ -29,7 +29,6 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
 
     def _setup_ui(self):
         """Hand-built replacement for the former Qt Designer form."""
-        self.wheel_blocker = WheelBlocker()
         layout = QtWidgets.QGridLayout(self)
 
         self.label_title = QtWidgets.QLabel("Cryo Deposition")
@@ -72,7 +71,7 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
 
         # block accidental scroll-to-change on the input widgets
         for w in (self.comboBox_stage_position, self.comboBox_port, self.doubleSpinBox_duration):
-            w.installEventFilter(self.wheel_blocker)
+            install_wheel_blocker(w)
 
     def setup_connections(self):
 

@@ -25,7 +25,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.utils import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
@@ -247,13 +247,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_tilt.setSuffix(constants.DEGREE_SYMBOL)
 
         # Install wheel blocker on all double spin boxes
-        self.wheel_blocker = WheelBlocker()
-        self.doubleSpinBox_movement_stage_x.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_y.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_z.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_rotation.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_tilt.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_milling_angle.installEventFilter(self.wheel_blocker)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_x)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_y)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_z)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_rotation)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_tilt)
+        install_wheel_blocker(self.doubleSpinBox_milling_angle)
 
         if cfg.FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED:
             from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
