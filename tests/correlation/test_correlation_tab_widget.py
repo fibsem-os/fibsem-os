@@ -1018,6 +1018,54 @@ def test_canvas_click_selects_without_reporting_a_move(qapp):
     assert (coord.point.x, coord.point.y) == (60.0, 70.0)
 
 
+def _fit_combos(w):
+    cl = w._coords_tab
+    return [
+        cl._fib_method_combo,
+        cl._fm_fid_method_combo,
+        cl._fm_poi_method_combo,
+        cl._fm_fid_ch_combo,
+        cl._fm_poi_ch_combo,
+    ]
+
+
+def test_fit_combos_ignore_the_wheel(qapp):
+    """Scrolling past the Fit Settings panel must not silently change a fit
+    method or channel — the selection has to survive a wheel event."""
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtGui import QWheelEvent
+
+    w = _widget(qapp)
+    for combo in _fit_combos(w):
+        if combo.count() < 2:
+            combo.addItems(["a", "b"])  # channel combos start empty
+        combo.setCurrentIndex(0)
+        before = combo.currentIndex()
+        for _ in range(3):
+            qapp.sendEvent(
+                combo,
+                QWheelEvent(
+                    QPoint(5, 5),
+                    combo.mapToGlobal(QPoint(5, 5)),
+                    QPoint(0, -120),
+                    QPoint(0, -120),
+                    Qt.NoButton,
+                    Qt.NoModifier,
+                    Qt.ScrollUpdate,
+                    False,
+                ),
+            )
+        assert combo.currentIndex() == before, f"{combo} changed on scroll"
+
+
+def test_fit_method_combos_keep_their_defaults(qapp):
+    """The ValueComboBox swap must not disturb the defaults the fits rely on."""
+    cl = _widget(qapp)._coords_tab
+    assert cl._fib_method_combo.currentText() == "Hole"
+    assert cl._fm_fid_method_combo.currentText() == "None"
+    assert cl._fm_poi_method_combo.currentText() == "Gaussian"
+
+
 def test_z_slider_advertises_shift_scroll(qapp):
     """Shift+scroll-through-Z has no visible affordance, so the slider tooltip is
     the only place a user can discover it."""

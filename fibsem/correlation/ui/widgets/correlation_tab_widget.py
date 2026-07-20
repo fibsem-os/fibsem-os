@@ -46,7 +46,6 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QAction,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -90,6 +89,7 @@ from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     QFileLineEdit,
     TitledPanel,
+    ValueComboBox,
 )
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 
@@ -441,25 +441,23 @@ class _CoordinatesTab(QWidget):
         fit_form.setContentsMargins(8, 4, 8, 4)
         fit_form.setSpacing(4)
 
-        self._fib_method_combo = QComboBox()
-        self._fib_method_combo.addItems(_FIT_METHODS)
-        self._fib_method_combo.setCurrentText("Hole")
+        # ValueComboBox installs a WheelBlocker, so scrolling this panel can't
+        # silently change a fit setting on the way past. The channel combos start
+        # empty and are refilled by rebuild_channel_combos — the blocker lives on
+        # the widget, so it survives clear()/addItem().
+        self._fib_method_combo = ValueComboBox(_FIT_METHODS, value="Hole")
         fit_form.addRow("FIB method:", self._fib_method_combo)
 
-        self._fm_fid_method_combo = QComboBox()
-        self._fm_fid_method_combo.addItems(_FIT_METHODS)
-        self._fm_fid_method_combo.setCurrentText("None")
+        self._fm_fid_method_combo = ValueComboBox(_FIT_METHODS, value="None")
         fit_form.addRow("FM Fid. method:", self._fm_fid_method_combo)
 
-        self._fm_poi_method_combo = QComboBox()
-        self._fm_poi_method_combo.addItems(_FIT_METHODS)
-        self._fm_poi_method_combo.setCurrentText("Gaussian")
+        self._fm_poi_method_combo = ValueComboBox(_FIT_METHODS, value="Gaussian")
         fit_form.addRow("FM POI method:", self._fm_poi_method_combo)
 
-        self._fm_fid_ch_combo = QComboBox()
+        self._fm_fid_ch_combo = ValueComboBox([])
         fit_form.addRow("FM Fid. channel:", self._fm_fid_ch_combo)
 
-        self._fm_poi_ch_combo = QComboBox()
+        self._fm_poi_ch_combo = ValueComboBox([])
         fit_form.addRow("FM POI channel:", self._fm_poi_ch_combo)
 
         self._show_diag_check = QCheckBox()
