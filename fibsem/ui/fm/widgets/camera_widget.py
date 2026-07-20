@@ -12,6 +12,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import CameraImageTransform, CameraSettings
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
@@ -60,7 +64,7 @@ class CameraWidget(QWidget):
 
         # Gain
         self.label_gain = QLabel("Gain", self)
-        self.spinBox_gain = QDoubleSpinBox(self)
+        self.spinBox_gain = ValueSpinBox(parent=self)
         self.spinBox_gain.setRange(*CAMERA_CONFIG["gain"]["range"])
         self.spinBox_gain.setSingleStep(CAMERA_CONFIG["gain"]["step"])
         self.spinBox_gain.setSuffix(CAMERA_CONFIG["gain"]["suffix"])
@@ -70,7 +74,7 @@ class CameraWidget(QWidget):
 
         # Binning
         self.label_binning = QLabel("Binning", self)
-        self.combobox_binning = QComboBox(self)
+        self.combobox_binning = ValueComboBox(parent=self)
         for b in CAMERA_CONFIG["binning"]["available_values"]:
             self.combobox_binning.addItem(f"{b}x{b}", b)
         self.combobox_binning.setToolTip(CAMERA_CONFIG["binning"]["tooltip"])
@@ -84,7 +88,7 @@ class CameraWidget(QWidget):
 
         # Image Transform
         self.label_transform = QLabel("Image Transform", self)
-        self.comboBox_transform = QComboBox(self)
+        self.comboBox_transform = ValueComboBox(parent=self)
         self.comboBox_transform.setToolTip(CAMERA_CONFIG["transform"]["tooltip"])
 
         # Populate transform combobox with enum values
