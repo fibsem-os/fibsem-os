@@ -24,7 +24,10 @@ from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.structures import ReferenceImageParameters
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    TitledPanel,
+    ValueSpinBox,
+)
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
 
@@ -57,7 +60,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.label_milling_fov = QLabel("Field of View")
         self.label_milling_fov.setToolTip("Field of view for all milling tasks (in microns)")
 
-        self.spinbox_milling_fov = QDoubleSpinBox()
+        self.spinbox_milling_fov = ValueSpinBox()
         self.spinbox_milling_fov.setRange(0.001, 10000)
         self.spinbox_milling_fov.setDecimals(1)
         self.spinbox_milling_fov.setSingleStep(5.0)

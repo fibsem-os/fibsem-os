@@ -49,6 +49,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ContextMenuConfig,
     IconToolButton,
     TaskNameListWidget,
+    ValueComboBox,
 )
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
@@ -258,15 +259,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.listWidget_selected_task = TaskNameListWidget()
         self.listWidget_selected_task.set_buttons_visible(add=False, remove=False)
 
-        self.combobox_fm_filenames = QComboBox()
+        self.combobox_fm_filenames = ValueComboBox()
         self.combobox_fm_filenames_label = QLabel("FM Z-Stack")
         self.combobox_fm_filenames.currentIndexChanged.connect(self._on_image_selected)
 
-        self.combobox_fib_filenames = QComboBox()
+        self.combobox_fib_filenames = ValueComboBox()
         self.combobox_fib_filenames_label = QLabel("FIB Image")
         self.combobox_fib_filenames.currentIndexChanged.connect(self._on_image_selected)
 
-        self.combobox_sem_filenames = QComboBox()
+        self.combobox_sem_filenames = ValueComboBox()
         self.combobox_sem_filenames_label = QLabel("SEM Image")
         self.combobox_sem_filenames.currentIndexChanged.connect(self._on_image_selected)
         self.combobox_sem_filenames.setEnabled(self.show_sem_image)

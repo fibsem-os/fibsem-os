@@ -3,6 +3,9 @@ from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
 
 from fibsem.structures import MillingAlignment
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+)
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -74,7 +77,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         # Alignment steps
         self.steps_label = QLabel("Alignment Steps")
         layout.addWidget(self.steps_label, 2, 0)
-        self.steps_spinbox = QSpinBox()
+        self.steps_spinbox = IntegerValueSpinBox()
         steps_config = WIDGET_CONFIG["steps"]
         self.steps_spinbox.setRange(*steps_config["range"])
         self.steps_spinbox.setValue(steps_config["default"])
