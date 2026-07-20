@@ -1053,7 +1053,7 @@ class CorrelationTabWidget(QWidget):
 
         self._setup_ui()
         self._connect_signals()
-        self._btn_continue.setEnabled(False)
+        self._set_result_live(False)
 
         if fib_image is not None:
             self.set_fib_image(fib_image)
@@ -1298,7 +1298,32 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.connect(self._update_run_button)
         self.data_changed.connect(self._on_data_changed)
 
+    def _set_result_live(self, live: bool) -> None:
+        """Reflect whether the displayed result still describes the current points.
+
+        Continue commits ``result.poi[0].px_m`` to the protocol editor, so it must
+        not stay armed once an edit has invalidated the fit. The RMS badge and the
+        Run/Continue emphasis answer that same question, so they move together
+        here rather than drifting apart across handlers.
+        """
+        self._btn_continue.setEnabled(live)
+        self._btn_continue.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+            if live
+            else stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        self._btn_run.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+            if live
+            else stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
+        if not live:
+            self._lbl_result.setVisible(False)  # text is set again by a fresh run
+
     def _on_data_changed(self, data: CorrelationInputData) -> None:
+        # Any coordinate edit invalidates the last run: the transform no longer
+        # fits the points it is displayed against.
+        self._set_result_live(False)
         self._ri_tab.set_result(
             self._result,
             input_data=data,
@@ -1546,7 +1571,8 @@ class CorrelationTabWidget(QWidget):
             self._worker = None
         self._btn_run.setEnabled(False)
         self._lbl_status.setText("Running…")
-        self._lbl_result.setVisible(False)
+        # a run in flight has no live result yet; a failed run leaves it that way
+        self._set_result_live(False)
         self._worker = _CorrelationWorker(copy.deepcopy(self.data))
         self._worker.result_ready.connect(self._on_result_ready)
         self._worker.errored.connect(self._on_run_error)
@@ -1560,7 +1586,7 @@ class CorrelationTabWidget(QWidget):
         )
         self._tabs.setTabEnabled(3, True)
         self._overlay_result_on_fib(result)
-        self._btn_continue.setEnabled(True)
+        self._set_result_live(True)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
         self._update_run_button()
         # RMS beside Continue (quality-coloured); compact RI / POI note on status.

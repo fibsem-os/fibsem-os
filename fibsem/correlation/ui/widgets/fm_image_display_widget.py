@@ -328,6 +328,8 @@ class FMImageDisplayWidget(QWidget):
         self._z_slider.setMaximum(0)
         self._z_slider.setSingleStep(1)
         self._z_slider.setPageStep(1)
+        # Shift+scroll has no visible affordance — advertise it here
+        self._z_slider.setToolTip("Drag to change Z-slice, or Shift+scroll on the image")
         z_layout.addWidget(self._z_slider, stretch=1)
 
         self._z_next = QToolButton()

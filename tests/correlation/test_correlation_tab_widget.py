@@ -920,6 +920,111 @@ def test_result_summary_hidden_until_run(qapp):
     assert "RMS 1.50 px" in w._lbl_result.text()
 
 
+def test_result_summary_clears_on_edit(qapp):
+    """Editing a coordinate invalidates the reported RMS, so the badge must not
+    linger beside a status line that has already reset to "Ready."."""
+    w = _widget(qapp)
+    w._on_result_ready(
+        CorrelationResult(
+            poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+            rms_error=1.5,
+        )
+    )
+    assert w._lbl_result.isHidden() is False
+
+    # go through the real signal chain rather than calling the handler directly
+    w._on_canvas_moved(_coord())
+    assert w._lbl_result.isHidden() is True
+
+
+def _result(rms=1.5) -> CorrelationResult:
+    return CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=rms,
+    )
+
+
+def test_continue_gated_on_live_result(qapp):
+    """Continue commits result.poi[0].px_m to the protocol editor, so it must only
+    be armed while the result still describes the current points — otherwise an
+    edit after a run hands the editor a position from the old point set."""
+    w = _widget(qapp)
+    assert w._btn_continue.isEnabled() is False  # nothing to continue with yet
+
+    w._on_result_ready(_result())
+    assert w._btn_continue.isEnabled() is True
+
+    w._on_canvas_moved(_coord())
+    assert w._btn_continue.isEnabled() is False
+
+
+def test_run_continue_emphasis_follows_result(qapp):
+    """A successful run makes Continue the primary action; an edit that invalidates
+    the result hands primacy back to Run."""
+    from fibsem.ui import stylesheets
+
+    w = _widget(qapp)
+    assert w._btn_run.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
+    assert w._btn_continue.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
+
+    w._on_result_ready(_result())
+    assert w._btn_continue.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
+    assert w._btn_run.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
+
+    w._on_canvas_moved(_coord())
+    assert w._btn_run.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
+    assert w._btn_continue.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
+
+
+def _press_release(canvas, coord, *, drag_to=None):
+    """Drive a real press → (optional motion) → release cycle on the canvas."""
+    from types import SimpleNamespace
+
+    def _ev(x, y):
+        sx, sy = canvas._ax.transData.transform((x, y))
+        return SimpleNamespace(
+            inaxes=canvas._ax, button=1, x=sx, y=sy, xdata=x, ydata=y
+        )
+
+    canvas._on_press(_ev(coord.point.x, coord.point.y))
+    if drag_to is not None:
+        canvas._on_motion(_ev(*drag_to))
+    canvas._on_release(_ev(coord.point.x, coord.point.y))
+
+
+def test_canvas_click_selects_without_reporting_a_move(qapp):
+    """Clicking a point to select it must not emit point_moved — downstream that
+    counts as an edit and invalidates the correlation result."""
+    import numpy as np
+
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_image(np.zeros((100, 100)))
+    coord = _coord(x=50.0, y=50.0, pt=PointType.FIB)
+    canvas.set_coordinates([coord])
+
+    moved, selected = [], []
+    canvas.point_moved.connect(moved.append)
+    canvas.point_selected.connect(selected.append)
+
+    _press_release(canvas, coord)
+    assert selected == [coord]  # selection still reported...
+    assert moved == []  # ...but no phantom move
+
+    # an actual drag still reports, and the position follows the cursor
+    _press_release(canvas, coord, drag_to=(60.0, 70.0))
+    assert moved == [coord]
+    assert (coord.point.x, coord.point.y) == (60.0, 70.0)
+
+
+def test_z_slider_advertises_shift_scroll(qapp):
+    """Shift+scroll-through-Z has no visible affordance, so the slider tooltip is
+    the only place a user can discover it."""
+    tip = _widget(qapp)._fm_display._z_slider.toolTip()
+    assert "Shift" in tip and "scroll" in tip.lower()
+
+
 def test_advanced_panels_start_collapsed(qapp):
     cl = _widget(qapp)._coords_tab
     # Advanced / set-once panels collapse by default...

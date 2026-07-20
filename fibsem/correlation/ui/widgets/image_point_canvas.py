@@ -230,6 +230,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._coordinates: List[Coordinate] = []
         self._selected: Optional[Coordinate] = None
         self._dragging: Optional[Coordinate] = None
+        # Position at press, so release can tell a select-click from a real drag
+        self._drag_origin: Optional[Tuple[float, float]] = None
         self._pan_start: Optional[Tuple] = None
 
         # Image bounds for drag clamping (set in set_image)
@@ -850,6 +852,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 changed = nearest is not self._selected
                 self._selected = nearest
                 self._dragging = nearest
+                self._drag_origin = (nearest.point.x, nearest.point.y)
                 self._apply_styles()
                 self._blit_points()
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -897,8 +900,17 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def _on_release(self, event) -> None:
         if event.button == 1:
             if self._dragging is not None:
-                self.point_moved.emit(self._dragging)
+                # A click to select leaves the position untouched — only report a
+                # move if one actually happened, or every selection invalidates
+                # the correlation result downstream.
+                moved = (
+                    self._dragging.point.x,
+                    self._dragging.point.y,
+                ) != self._drag_origin
+                if moved:
+                    self.point_moved.emit(self._dragging)
                 self._dragging = None
+                self._drag_origin = None
             elif self._pan_start is not None:
                 sx0, sy0, *_ = self._pan_start
                 if ((event.x - sx0) ** 2 + (event.y - sy0) ** 2) ** 0.5 < 3:
