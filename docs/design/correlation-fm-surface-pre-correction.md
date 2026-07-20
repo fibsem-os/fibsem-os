@@ -64,8 +64,6 @@ and apply a refractive-index (RI) depth correction to the **correlated POI resul
     re-emits `result_changed`, re-draws FIB overlay.
 - Consumer: `fibsem/ui/widgets/autolamella_lamella_protocol_editor.py` opens
   `CorrelationTabDialog` and reads `result.poi[0].px_m` on accept.
-- `correlation_point_picker_widget.py` is an orphaned parallel prototype (referenced
-  only by its own test script) — out of scope, do not touch.
 
 ### Correction math (FM space, requested mode)
 
@@ -354,5 +352,6 @@ canonical alignment product, so the data-model boundary stays as-is.
   "looks pretty good"), incl. pre vs post comparison on the same dataset.
 - Optional: auto-fill the ζ-LUT `depth_um` spinbox from `|Δz| × pixel_size_z`.
 - Pre-existing, untouched: `run_correlation` crashes when `image_props is None`
-  (no images loaded — GUI always has them); `correlation_point_picker_widget.py`
-  remains an orphaned prototype and was not updated.
+  (no images loaded — GUI always has them).
+- Resolved: the orphaned `correlation_point_picker_widget.py` prototype (and its
+  test script) has since been deleted, along with `correlation_input_data_widget.py`.
