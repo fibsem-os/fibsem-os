@@ -18,6 +18,7 @@ class HookEvent(str, Enum):
     TASK_STARTED = "task_started"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
+    TASK_CANCELLED = "task_cancelled"
     WORKFLOW_STARTED = "workflow_started"
     WORKFLOW_COMPLETED = "workflow_completed"
 
