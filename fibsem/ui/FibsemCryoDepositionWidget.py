@@ -4,29 +4,75 @@ from typing import Dict, List, Optional, Union
 
 import napari
 from PyQt5 import QtWidgets
+from PyQt5.QtGui import QFont
 
 from fibsem import config as cfg
 from fibsem import gis, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemGasInjectionSettings
-from fibsem.ui.qtdesigner_files import (
-    FibsemCryoDepositionWidget as FibsemCryoDepositionWidgetUI,
-)
+from fibsem.ui.utils import WheelBlocker
 
 
-class FibsemCryoDepositionWidget(FibsemCryoDepositionWidgetUI.Ui_Dialog, QtWidgets.QDialog):
+class FibsemCryoDepositionWidget(QtWidgets.QDialog):
     def __init__(
         self,
         microscope: FibsemMicroscope,
         parent=None,
     ):
         super(FibsemCryoDepositionWidget, self).__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
         self.setWindowTitle("Cryo Deposition")
 
         self.microscope = microscope
 
         self.setup_connections()
+
+    def _setup_ui(self):
+        """Hand-built replacement for the former Qt Designer form."""
+        self.wheel_blocker = WheelBlocker()
+        layout = QtWidgets.QGridLayout(self)
+
+        self.label_title = QtWidgets.QLabel("Cryo Deposition")
+        title_font = QFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        title_font.setWeight(75)
+        self.label_title.setFont(title_font)
+        layout.addWidget(self.label_title, 0, 0, 1, 2)
+
+        self.label_stage_position = QtWidgets.QLabel("Stage Position")
+        self.comboBox_stage_position = QtWidgets.QComboBox()
+        layout.addWidget(self.label_stage_position, 1, 0)
+        layout.addWidget(self.comboBox_stage_position, 1, 1)
+
+        self.label_port = QtWidgets.QLabel("Port")
+        self.comboBox_port = QtWidgets.QComboBox()
+        layout.addWidget(self.label_port, 2, 0)
+        layout.addWidget(self.comboBox_port, 2, 1)
+
+        self.label_gas = QtWidgets.QLabel("Gas")
+        self.lineEdit_gas = QtWidgets.QLineEdit("Pt cryo")
+        layout.addWidget(self.label_gas, 3, 0)
+        layout.addWidget(self.lineEdit_gas, 3, 1)
+
+        self.label_insert_position = QtWidgets.QLabel("Insert Position")
+        self.lineEdit_insert_position = QtWidgets.QLineEdit("cryo")
+        layout.addWidget(self.label_insert_position, 4, 0)
+        layout.addWidget(self.lineEdit_insert_position, 4, 1)
+
+        self.label_duration = QtWidgets.QLabel("Duration (s)")
+        self.doubleSpinBox_duration = QtWidgets.QDoubleSpinBox()
+        self.doubleSpinBox_duration.setMaximum(1000.0)
+        self.doubleSpinBox_duration.setValue(30.0)
+        layout.addWidget(self.label_duration, 5, 0)
+        layout.addWidget(self.doubleSpinBox_duration, 5, 1)
+
+        self.pushButton_run_sputter = QtWidgets.QPushButton("Run Cryo Deposition")
+        layout.addWidget(self.pushButton_run_sputter, 6, 0, 1, 2)
+
+        # block accidental scroll-to-change on the input widgets
+        for w in (self.comboBox_stage_position, self.comboBox_port, self.doubleSpinBox_duration):
+            w.installEventFilter(self.wheel_blocker)
 
     def setup_connections(self):
 

@@ -14,6 +14,7 @@ from napari.layers import Points as NapariPointsLayer
 from napari.utils.events import Event
 from PIL import Image
 from PyQt5 import QtWidgets
+from PyQt5.QtGui import QFont
 
 import fibsem
 from fibsem.segmentation import utils as seg_utils
@@ -25,8 +26,11 @@ from fibsem.segmentation.config import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.FibsemSegmentationModelWidget import FibsemSegmentationModelWidget
-from fibsem.ui.qtdesigner_files import FibsemLabellingUI as FibsemLabellingDialog
-from fibsem.ui.utils import open_existing_directory_dialog, open_existing_file_dialog
+from fibsem.ui.utils import (
+    WheelBlocker,
+    open_existing_directory_dialog,
+    open_existing_file_dialog,
+)
 
 # setup a basic logger
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -149,10 +153,10 @@ CONFIGURATION = {
 # ref (other sam labelling tools):
 # https://github.com/JoOkuma/napari-segment-anything (Apache License 2.0)
 # https://github.com/MIC-DKFZ/napari-sam (Apache License 2.0)
-class FibsemLabellingUI(FibsemLabellingDialog.Ui_Dialog, QtWidgets.QDialog):
+class FibsemLabellingUI(QtWidgets.QDialog):
     def __init__(self, viewer: napari.Viewer, parent=None):
         super().__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
         self.viewer: napari.Viewer = viewer
         self.last_idx: int = 0
         self.model = None
@@ -179,6 +183,114 @@ class FibsemLabellingUI(FibsemLabellingDialog.Ui_Dialog, QtWidgets.QDialog):
             self.lineEdit_labels_path.setText("/home/patrick/github/fibsem/fibsem/log/labels2")
             self.model_widget.lineEdit_checkpoint.setText("autolamella-serial-liftout-20240107.pt")
     
+    def _setup_ui(self):
+        """Hand-built replacement for the former Qt Designer form.
+
+        Reproduces the dialog's widget object names and layout so ``setup_connections``
+        and the labelling logic work unchanged. The ``Model`` tab is added at runtime in
+        ``setup_connections`` (the segmentation model widget); this builds the ``Data`` tab.
+        """
+        self.wheel_blocker = WheelBlocker()
+        layout = QtWidgets.QGridLayout(self)
+
+        self.label_title = QtWidgets.QLabel("OpenFIBSEM Labelling")
+        title_font = QFont()
+        title_font.setPointSize(12)
+        self.label_title.setFont(title_font)
+        layout.addWidget(self.label_title, 0, 0, 1, 2)
+
+        # --- Data tab ---
+        self.tabWidget = QtWidgets.QTabWidget()
+        self.tab = QtWidgets.QWidget()
+        self.gridLayout_2 = QtWidgets.QGridLayout(self.tab)
+
+        self.label_data_path = QtWidgets.QLabel("Image Path")
+        self.lineEdit_data_path = QtWidgets.QLineEdit()
+        self.pushButton_data_path = QtWidgets.QToolButton()
+        self.pushButton_data_path.setText("...")
+        self.gridLayout_2.addWidget(self.label_data_path, 0, 0)
+        self.gridLayout_2.addWidget(self.lineEdit_data_path, 0, 1)
+        self.gridLayout_2.addWidget(self.pushButton_data_path, 0, 2)
+
+        self.label_labels_path = QtWidgets.QLabel("Label Path")
+        self.lineEdit_labels_path = QtWidgets.QLineEdit()
+        self.pushButton_labels_path = QtWidgets.QToolButton()
+        self.pushButton_labels_path.setText("...")
+        self.gridLayout_2.addWidget(self.label_labels_path, 1, 0)
+        self.gridLayout_2.addWidget(self.lineEdit_labels_path, 1, 1)
+        self.gridLayout_2.addWidget(self.pushButton_labels_path, 1, 2)
+
+        self.label_data_config = QtWidgets.QLabel("Class Config")
+        self.lineEdit_data_config = QtWidgets.QLineEdit()
+        self.pushButton_data_config = QtWidgets.QToolButton()
+        self.pushButton_data_config.setText("...")
+        self.gridLayout_2.addWidget(self.label_data_config, 2, 0)
+        self.gridLayout_2.addWidget(self.lineEdit_data_config, 2, 1)
+        self.gridLayout_2.addWidget(self.pushButton_data_config, 2, 2)
+
+        self.label_data_file_ext = QtWidgets.QLabel("File Extension")
+        self.comboBox_data_file_ext = QtWidgets.QComboBox()
+        self.gridLayout_2.addWidget(self.label_data_file_ext, 3, 0)
+        self.gridLayout_2.addWidget(self.comboBox_data_file_ext, 3, 1, 1, 2)
+
+        self.pushButton_load_data = QtWidgets.QPushButton("Load Data")
+        self.gridLayout_2.addWidget(self.pushButton_load_data, 4, 0, 1, 3)
+
+        tab_spacer = QtWidgets.QSpacerItem(
+            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+        )
+        self.gridLayout_2.addItem(tab_spacer, 5, 0, 1, 3)
+
+        self.checkBox_autosave = QtWidgets.QCheckBox("AutoSave")
+        self.checkBox_autosave.setChecked(True)
+        self.checkBox_save_rgb = QtWidgets.QCheckBox("Save RGB Masks")
+        self.checkBox_save_rgb.setChecked(False)
+        self.gridLayout_2.addWidget(self.checkBox_autosave, 6, 0)
+        self.gridLayout_2.addWidget(self.checkBox_save_rgb, 6, 1)
+
+        self.tabWidget.addTab(self.tab, "Data")
+        layout.addWidget(self.tabWidget, 1, 0, 1, 2)
+
+        # --- Model-assist controls ---
+        self.checkBox_model_assist = QtWidgets.QCheckBox("Model Assisted")
+        self.label_model_info = QtWidgets.QLabel("No Model")
+        layout.addWidget(self.checkBox_model_assist, 2, 0)
+        layout.addWidget(self.label_model_info, 2, 1)
+
+        self.label_model_class_index = QtWidgets.QLabel("Class Map")
+        self.comboBox_model_class_index = QtWidgets.QComboBox()
+        layout.addWidget(self.label_model_class_index, 4, 0)
+        layout.addWidget(self.comboBox_model_class_index, 4, 1)
+
+        self.pushButton_model_confirm = QtWidgets.QPushButton("Confirm")
+        self.pushButton_model_clear = QtWidgets.QPushButton("Clear")
+        layout.addWidget(self.pushButton_model_confirm, 5, 0)
+        layout.addWidget(self.pushButton_model_clear, 5, 1)
+
+        self.label_instructions = QtWidgets.QLabel("Instructions")
+        self.label_instructions.setWordWrap(True)
+        layout.addWidget(self.label_instructions, 11, 0, 1, 2)
+
+        spacer = QtWidgets.QSpacerItem(
+            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+        )
+        layout.addItem(spacer, 13, 0, 1, 2)
+
+        # keyboard tab order (matches the former .ui)
+        self.setTabOrder(self.tabWidget, self.lineEdit_data_path)
+        self.setTabOrder(self.lineEdit_data_path, self.pushButton_data_path)
+        self.setTabOrder(self.pushButton_data_path, self.lineEdit_labels_path)
+        self.setTabOrder(self.lineEdit_labels_path, self.pushButton_labels_path)
+        self.setTabOrder(self.pushButton_labels_path, self.pushButton_load_data)
+        self.setTabOrder(self.pushButton_load_data, self.checkBox_model_assist)
+        self.setTabOrder(self.checkBox_model_assist, self.comboBox_model_class_index)
+        self.setTabOrder(self.comboBox_model_class_index, self.pushButton_model_confirm)
+        self.setTabOrder(self.pushButton_model_confirm, self.pushButton_model_clear)
+
+        # block accidental scroll-to-change on the comboboxes
+        for w in (self.comboBox_data_file_ext, self.comboBox_model_class_index):
+            w.installEventFilter(self.wheel_blocker)
+
     def setup_connections(self):
         self.pushButton_load_data.clicked.connect(self.load_data)
 
