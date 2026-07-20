@@ -8,6 +8,10 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings, BeamType
 from fibsem.config import SQUARE_RESOLUTIONS_LIST
 from fibsem.ui.stylesheets import GREEN_PUSHBUTTON_STYLE
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -33,7 +37,7 @@ class SEMAcquisitionWidget(QWidget):
 
         # field of view, dwell time
         self.fov_label = QLabel("Field of View (FOV)")
-        self.fov_spinbox = QDoubleSpinBox()
+        self.fov_spinbox = ValueSpinBox()
         self.fov_spinbox.setRange(100.0, 2000.0)
         self.fov_spinbox.setValue(500.0)
         self.fov_spinbox.setSuffix(" μm")
@@ -41,7 +45,7 @@ class SEMAcquisitionWidget(QWidget):
         self.fov_spinbox.setDecimals(1)
 
         self.dwell_time_label = QLabel("Dwell Time")
-        self.dwell_time_spinbox = QDoubleSpinBox()
+        self.dwell_time_spinbox = ValueSpinBox()
         self.dwell_time_spinbox.setRange(0.2, 10.0)
         self.dwell_time_spinbox.setValue(1.0)
         self.dwell_time_spinbox.setSuffix(" μs")
@@ -49,7 +53,7 @@ class SEMAcquisitionWidget(QWidget):
         self.dwell_time_spinbox.setDecimals(1)
 
         self.label_resolution = QLabel("Resolution")
-        self.combobox_resolution = QComboBox()
+        self.combobox_resolution = ValueComboBox()
         for res in SQUARE_RESOLUTIONS_LIST:
             self.combobox_resolution.addItem(f"{res[0]}x{res[1]}", userData=res)
         self.combobox_resolution.setCurrentIndex(SQUARE_RESOLUTIONS_LIST.index([2048, 2048]))  # Default to 2048x2048
