@@ -82,7 +82,10 @@ from fibsem.correlation.ui.widgets.fm_image_display_widget import FMImageDisplay
 from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    TitledPanel,
+    ValueComboBox,
+)
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
@@ -436,25 +439,25 @@ class _CoordinatesTab(QWidget):
         fit_form.setContentsMargins(8, 4, 8, 4)
         fit_form.setSpacing(4)
 
-        self._fib_method_combo = QComboBox()
+        self._fib_method_combo = ValueComboBox()
         self._fib_method_combo.addItems(_FIT_METHODS)
         self._fib_method_combo.setCurrentText("Hole")
         fit_form.addRow("FIB method:", self._fib_method_combo)
 
-        self._fm_fid_method_combo = QComboBox()
+        self._fm_fid_method_combo = ValueComboBox()
         self._fm_fid_method_combo.addItems(_FIT_METHODS)
         self._fm_fid_method_combo.setCurrentText("None")
         fit_form.addRow("FM Fid. method:", self._fm_fid_method_combo)
 
-        self._fm_poi_method_combo = QComboBox()
+        self._fm_poi_method_combo = ValueComboBox()
         self._fm_poi_method_combo.addItems(_FIT_METHODS)
         self._fm_poi_method_combo.setCurrentText("Gaussian")
         fit_form.addRow("FM POI method:", self._fm_poi_method_combo)
 
-        self._fm_fid_ch_combo = QComboBox()
+        self._fm_fid_ch_combo = ValueComboBox()
         fit_form.addRow("FM Fid. channel:", self._fm_fid_ch_combo)
 
-        self._fm_poi_ch_combo = QComboBox()
+        self._fm_poi_ch_combo = ValueComboBox()
         fit_form.addRow("FM POI channel:", self._fm_poi_ch_combo)
 
         self._show_diag_check = QCheckBox()

@@ -51,7 +51,11 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueComboBox,
+)
 
 
 class FMControlWidget(QWidget):
@@ -163,7 +167,7 @@ class FMControlWidget(QWidget):
 
         # Default orientation for fluorescence pose when adding a lamella
         self.label_default_orientation = QLabel("Default Orientation", self)
-        self.comboBox_default_orientation = QComboBox(self)
+        self.comboBox_default_orientation = ValueComboBox(parent=self)
         self.comboBox_default_orientation.addItems(["SEM", "FM"])
         self.comboBox_default_orientation.setCurrentText(self.fm.default_orientation)
         self.comboBox_default_orientation.setToolTip(

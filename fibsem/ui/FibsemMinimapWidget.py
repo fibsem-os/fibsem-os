@@ -74,7 +74,14 @@ from fibsem.ui.napari.utilities import (
     is_inside_image_bounds,
     update_text_overlay,
 )
-from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    ContextMenu,
+    ContextMenuConfig,
+    LamellaNameListWidget,
+    TitledPanel,
+    ValueComboBox,
+    ValueSpinBox,
+)
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )
@@ -271,7 +278,7 @@ class FibsemMinimapWidget(QWidget):
         self.gridLayout_2.addWidget(self.label_pattern_overlay, 4, 0)
 
         self.checkBox_pattern_overlay = QCheckBox("Display Pattern")
-        self.comboBox_pattern_overlay = QComboBox()
+        self.comboBox_pattern_overlay = ValueComboBox()
         self.gridLayout_2.addWidget(self.checkBox_pattern_overlay, 5, 0)
         self.gridLayout_2.addWidget(self.comboBox_pattern_overlay, 5, 1)
 
@@ -285,7 +292,7 @@ class FibsemMinimapWidget(QWidget):
         self.gridLayout_4.setContentsMargins(4, 4, 4, 4)
 
         self.label_correlation_selected_layer = QLabel("Selected Layer")
-        self.comboBox_correlation_selected_layer = QComboBox()
+        self.comboBox_correlation_selected_layer = ValueComboBox()
         self.gridLayout_4.addWidget(self.label_correlation_selected_layer, 0, 0)
         self.gridLayout_4.addWidget(self.comboBox_correlation_selected_layer, 0, 1, 1, 2)
 
@@ -297,9 +304,9 @@ class FibsemMinimapWidget(QWidget):
         self.gridLayout_4.addWidget(self.label_gb_width, 2, 1)
         self.gridLayout_4.addWidget(self.label_gb_spacing, 2, 2)
 
-        self.doubleSpinBox_gb_width = QDoubleSpinBox()
+        self.doubleSpinBox_gb_width = ValueSpinBox()
         self.doubleSpinBox_gb_width.setMaximum(10000.0)
-        self.doubleSpinBox_gb_spacing = QDoubleSpinBox()
+        self.doubleSpinBox_gb_spacing = ValueSpinBox()
         self.doubleSpinBox_gb_spacing.setMaximum(10000.0)
         self.gridLayout_4.addWidget(self.doubleSpinBox_gb_width, 3, 1)
         self.gridLayout_4.addWidget(self.doubleSpinBox_gb_spacing, 3, 2)
