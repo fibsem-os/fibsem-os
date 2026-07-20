@@ -8,7 +8,17 @@ import napari.utils.notifications
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointsLayer
 from napari.qt.threading import FunctionWorker, thread_worker
-from PyQt5.QtWidgets import QLabel, QWidget
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QWidget,
+)
 from PyQt5.QtCore import Qt, pyqtSignal
 from superqt import ensure_main_thread
 
@@ -16,7 +26,7 @@ from fibsem.imaging.spot import run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 from fibsem.ui import stylesheets
-from fibsem.ui.qtdesigner_files import FibsemSpotBurnWidget as FibsemSpotBurnWidgetUI
+from fibsem.ui.utils import WheelBlocker
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.utils import format_value
 
@@ -42,13 +52,13 @@ def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
         message="Burning spots",
     )
 
-class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
+class FibsemSpotBurnWidget(QWidget):
     # emitted by the workflow task to trigger a burn (mirrors milling's start_milling_signal)
     start_spot_burn_signal = pyqtSignal()
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
 
         self.parent = parent
         self.viewer: napari.Viewer = parent.viewer
@@ -63,6 +73,45 @@ class FibsemSpotBurnWidget(FibsemSpotBurnWidgetUI.Ui_Form, QWidget):
         self.image_layer: Optional[NapariImageLayer] = None
 
         self.setup_connections()
+
+    def _setup_ui(self):
+        """Hand-built replacement for the former Qt Designer form.
+
+        ``setup_connections`` swaps ``progressBar`` for a ``FibsemProgressWidget`` and
+        drops ``label_workflow_hint`` into the run button's cell, so the grid, the
+        ``progressBar`` placeholder, and the widget object names are reproduced here.
+        """
+        self.wheel_blocker = WheelBlocker()
+        self.gridLayout_2 = QGridLayout(self)
+
+        self.label_title = QLabel("Spot Burn")
+        self.gridLayout_2.addWidget(self.label_title, 0, 0, 1, 2)
+
+        self.label_exposure_time = QLabel("Exposure Time")
+        self.doubleSpinBox_exposure_time = QDoubleSpinBox()
+        self.gridLayout_2.addWidget(self.label_exposure_time, 1, 0)
+        self.gridLayout_2.addWidget(self.doubleSpinBox_exposure_time, 1, 1)
+
+        self.label_beam_current = QLabel("Beam Current")
+        self.comboBox_beam_current = QComboBox()
+        self.gridLayout_2.addWidget(self.label_beam_current, 2, 0)
+        self.gridLayout_2.addWidget(self.comboBox_beam_current, 2, 1)
+
+        self.label_information = QLabel("")
+        self.gridLayout_2.addWidget(self.label_information, 3, 0, 1, 2)
+
+        self.progressBar = QProgressBar()
+        self.gridLayout_2.addWidget(self.progressBar, 4, 0, 1, 2)
+
+        self.pushButton_run_spot_burn = QPushButton("Run Spot Burn")
+        self.gridLayout_2.addWidget(self.pushButton_run_spot_burn, 5, 0, 1, 2)
+
+        spacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.gridLayout_2.addItem(spacer, 6, 0, 1, 2)
+
+        # block accidental scroll-to-change on the input widgets
+        for w in (self.comboBox_beam_current, self.doubleSpinBox_exposure_time):
+            w.installEventFilter(self.wheel_blocker)
 
     def setup_connections(self):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
