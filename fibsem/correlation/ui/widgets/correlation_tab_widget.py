@@ -1500,6 +1500,7 @@ class CorrelationTabWidget(QWidget):
 
     def load_data(self, path: str) -> None:
         """Load coordinates from JSON, preserving current images."""
+        logging.info("Loading correlation coordinates from %s", path)
         loaded = CorrelationInputData.load(path)
         loaded.fib_image = self._fib_image
         loaded.fm_image = self._fm_image
@@ -2011,6 +2012,7 @@ class CorrelationTabWidget(QWidget):
 
     def load_result(self, path: str) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
+        logging.info("Loading correlation result from %s", path)
         self._load_result(CorrelationResult.load(path))
 
     def _menu_load_result(self) -> None:
@@ -2041,8 +2043,15 @@ class CorrelationTabWidget(QWidget):
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Coordinates", start, "JSON (*.json);;All files (*)"
         )
-        if path:
+        if not path:
+            return
+        # Guarded like _menu_load_result: this dialog opens on the project dir,
+        # which holds both auto-saved JSONs, so picking the wrong one is easy.
+        try:
             self.load_data(path)
+        except Exception as exc:
+            logging.exception("Failed to load coordinates from %s", path)
+            QMessageBox.warning(self, "Load Error", f"Could not load coordinates:\n{exc}")
 
     def _on_save(self) -> None:
         start = self._project_dir or ""

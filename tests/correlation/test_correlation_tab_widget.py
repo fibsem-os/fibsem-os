@@ -1208,3 +1208,95 @@ def test_labels_toggle_hides_labels(qapp):
 
     w._on_labels_toggled(True)
     assert fib._label_artists[0].get_visible() is True
+
+
+# ---------------------------------------------------------------------------
+# FIB-263: Load Coordinates on a result file
+# ---------------------------------------------------------------------------
+
+
+def _project(tmp_path, w):
+    """A project dir with both auto-saved JSONs, as a real session leaves it."""
+    import json
+
+    w.set_project_dir(str(tmp_path))
+    data = CorrelationInputData(
+        fib_coordinates=[_coord(1.0, 2.0, pt=PointType.FIB)],
+        fm_coordinates=[_coord(3.0, 4.0, pt=PointType.FM)],
+        poi_coordinates=[_coord(5.0, 6.0, pt=PointType.POI)],
+    )
+    data_path = tmp_path / "correlation_data.json"
+    data_path.write_text(json.dumps(data.to_dict()))
+
+    result_path = tmp_path / "correlation_result.json"
+    result_path.write_text(
+        json.dumps(
+            CorrelationResult(
+                poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
+                rms_error=1.5,
+            ).to_dict()
+        )
+    )
+    return str(data_path), str(result_path)
+
+
+def test_load_coordinates_rejects_a_result_file(qapp, tmp_path):
+    """The reported crash: both JSONs sit in the project dir with near-identical
+    names, and Load Coordinates on the result one took the app down."""
+    w = _widget(qapp)
+    _, result_path = _project(tmp_path, w)
+
+    with pytest.raises(ValueError) as exc:
+        w.load_data(result_path)
+    assert "Load Correlation Result" in str(exc.value)  # says what to do instead
+
+
+def test_load_coordinates_does_not_wipe_points_on_a_result_file(qapp, tmp_path):
+    """Defaulting the missing key to [] instead of rejecting would turn the crash
+    into silent data loss: an empty input data is applied, and the auto-save then
+    overwrites correlation_data.json with the emptied set."""
+    import json
+
+    w = _widget(qapp)
+    data_path, result_path = _project(tmp_path, w)
+    w.load_data(data_path)
+    assert len(w.data.fib_coordinates) == 1
+
+    try:
+        w.load_data(result_path)
+    except ValueError:
+        pass  # rejected, as it should be
+
+    assert len(w.data.fib_coordinates) == 1  # still there, not cleared
+    on_disk = json.loads(open(data_path).read())
+    assert len(on_disk["fib_coordinates"]) == 1  # and not overwritten on disk
+
+
+def test_load_result_rejects_a_coordinates_file(qapp, tmp_path):
+    """The mirror mistake, which produced a plausible-looking empty result."""
+    w = _widget(qapp)
+    data_path, _ = _project(tmp_path, w)
+
+    with pytest.raises(ValueError) as exc:
+        w.load_result(data_path)
+    assert "Load Coordinates" in str(exc.value)
+
+
+def test_load_coordinates_shows_a_warning_instead_of_crashing(qapp, tmp_path, monkeypatch):
+    """_on_load had no try/except while _menu_load_result did — the same mistake
+    was a friendly warning in one direction and an unhandled KeyError in the other."""
+    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+
+    w = _widget(qapp)
+    _, result_path = _project(tmp_path, w)
+
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (result_path, ""))
+    )
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a))
+    )
+
+    w._on_load()  # must not raise
+    assert shown, "expected a warning dialog rather than an exception"

@@ -154,14 +154,31 @@ class CorrelationInputData:
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
+        # Reject rather than default. to_dict always writes "fib_coordinates",
+        # even when empty, so its absence means this is not a coordinates file —
+        # and defaulting to [] would quietly return an empty CorrelationInputData
+        # that the caller then applies, wiping the coordinates it replaced.
+        if "fib_coordinates" not in data:
+            hint = (
+                " This looks like a correlation result — load it with"
+                " Load Correlation Result instead."
+                if ("poi" in data or "input_data" in data)
+                else ""
+            )
+            raise ValueError(
+                "Not a correlation coordinates file: no 'fib_coordinates' key." + hint
+            )
+
         fib_coordinates = [
             Coordinate.from_dict(coord) for coord in data["fib_coordinates"]
         ]
+        # Sibling keys are written by the same writer, so tolerate their absence
+        # in a hand-edited file now that the file type itself is established.
         fm_coordinates = [
-            Coordinate.from_dict(coord) for coord in data["fm_coordinates"]
+            Coordinate.from_dict(coord) for coord in data.get("fm_coordinates", [])
         ]
         poi_coordinates = [
-            Coordinate.from_dict(coord) for coord in data["poi_coordinates"]
+            Coordinate.from_dict(coord) for coord in data.get("poi_coordinates", [])
         ]
         surface_coordinate = (
             Coordinate.from_dict(data["surface_coordinate"])
@@ -181,7 +198,9 @@ class CorrelationInputData:
             surface_coordinate=surface_coordinate,
             fm_surface_coordinate=fm_surface_coordinate,
             ri_pre_correction_factor=data.get("ri_pre_correction_factor"),
-            method=data["method"],
+            # Has a dataclass default and sits between two .get() calls; the hard
+            # subscript was the second key that could throw out of this function.
+            method=data.get("method", "multi-point"),
             stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
             stored_fib_image_pixel_size=data.get("fib_image_pixel_size"),
         )
@@ -280,6 +299,15 @@ class CorrelationResult:
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationResult:
+        # The mirror of CorrelationInputData.from_dict: the two auto-saved files
+        # sit side by side with near-identical names, so guard both directions.
+        # Loading coordinates here would otherwise yield a result with no POI and
+        # rms 0 — not a crash, but a convincing-looking empty one.
+        if "poi" not in data and "fib_coordinates" in data:
+            raise ValueError(
+                "Not a correlation result file: no 'poi' key. This looks like a"
+                " coordinates file — load it with Load Coordinates instead."
+            )
         return CorrelationResult(
             poi=[CorrelationPointOfInterest.from_dict(p) for p in data.get("poi", [])],
             poi_uncorrected=[
