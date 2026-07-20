@@ -54,6 +54,7 @@ class AutoLamellaTaskStatus(Enum):
     Completed = auto()
     Failed = auto()
     Skipped = auto()
+    Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
 
 
 @dataclass

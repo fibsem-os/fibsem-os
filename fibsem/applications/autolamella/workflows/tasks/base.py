@@ -28,6 +28,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
+from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -138,10 +139,21 @@ class AutoLamellaTask(ABC):
         try:
             self._run()
         except Exception as e:
-            self._fire_hook("task_failed", error=str(e))
+            # A user Stop is a cancellation, not a failure — fire the distinct hook so it
+            # notifies as "cancelled" (warning) rather than "FAILED" (error).
+            self._fire_hook("task_cancelled" if self._is_cancellation(e) else "task_failed",
+                            error=str(e))
             raise
         self.post_task()
         self._fire_hook("task_completed")
+
+    def _is_cancellation(self, exc: Exception) -> bool:
+        """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as
+        OperationCancelledError (milling / autofocus) or InterruptedError (_check_for_abort),
+        or the task manager's stop event is set."""
+        if isinstance(exc, (OperationCancelledError, InterruptedError)):
+            return True
+        return bool(getattr(getattr(self, "task_manager", None), "is_stopped", False))
 
     def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
         hook_manager = getattr(self.task_manager, "hook_manager", None)

@@ -33,6 +33,7 @@ STATUS_COLORS = {
     "Completed": "white",
     "Skipped": "gray",
     "InProgress": "cyan",
+    "Cancelled": "orange",
 }
 
 # Semantic badge colours (matching the fibsem.ui.stylesheets palette) used by
@@ -42,6 +43,7 @@ STATUS_BADGE_COLORS = {
     "Failed": ("#d04040", "#e08585"),
     "Skipped": ("#868e93", "#aeb4b9"),
     "InProgress": ("#50a6ff", "#9cc7f5"),
+    "Cancelled": ("#e0a030", "#e8c37f"),  # amber: user-aborted, not an error
 }
 
 # Status order for count chips (these three are always shown, even at zero)
