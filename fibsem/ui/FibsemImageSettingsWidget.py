@@ -6,7 +6,7 @@ import numpy as np
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointLayer
 from napari.layers import Shapes as NapariShapesLayer
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread

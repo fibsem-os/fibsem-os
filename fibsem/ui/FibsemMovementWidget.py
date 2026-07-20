@@ -4,7 +4,7 @@ from typing import Optional
 
 import napari
 import numpy as np
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
