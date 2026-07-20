@@ -1050,17 +1050,15 @@ class FMAcquisitionWidget(QWidget):
                 autofocus_settings = AutoFocusSettings(
                     channel_name=settings["overview_autofocus_channel_name"]
                 )
-                # If autofocus widget exists, get its settings
-                # if hasattr(self, 'autofocusWidget'):
-                # autofocus_settings = self.autofocusWidget.get_autofocus_settings()
 
-            # Create FM configuration
+            # Create FM configuration (incl. objective limit position)
             fm_config = FluorescenceConfiguration(
                 channel_settings=settings["channel_settings"],
                 z_parameters=settings["z_parameters"],
                 overview_parameters=settings["overview_parameters"],
                 autofocus_settings=autofocus_settings,
                 focus_position=self.fm.objective.focus_position,
+                limit_position=self.fm.objective.limit_position,
             )
 
             # Export configuration
@@ -1106,10 +1104,8 @@ class FMAcquisitionWidget(QWidget):
 
             if config.focus_position is not None:
                 self.objectiveControlWidget._set_focus_position(config.focus_position)
-
-            # Apply autofocus settings if available
-            # if config.autofocus_settings and hasattr(self.overviewParametersWidget, 'autofocusWidget'):
-            # self.overviewParametersWidget.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
+            if config.limit_position:
+                self.objectiveControlWidget._set_limit_position(config.limit_position)
 
             QMessageBox.information(
                 self,

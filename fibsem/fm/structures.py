@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -117,16 +118,17 @@ def safe_ome_from_tiff(filename: str) -> OMEMetadata:
         # Attempt to read OME metadata directly from the TIFF file
         ome = from_tiff(filename)
     except Exception as e:
-        if "Filter" in str(e):
-            # read xml description from the file
-            with tff.TiffFile(filename) as tif:
-                ome_xml = tif.pages[0].tags["ImageDescription"].value
-
-                # Filter should be FilterSetRef, drop for now
-                start = ome_xml.find("<Filter")
-                end = ome_xml.find("/>", start) + 2
-                ome_xml = ome_xml[:start] + ome_xml[end:]
-                ome = from_xml(ome_xml)
+        if "Filter" not in str(e):
+            raise
+        # Some microscopes emit <Channel><Filter .../></Channel>, which the OME
+        # schema rejects ("Unknown property Channel:Filter"). Strip every
+        # self-closing <Filter .../> element (there is one per channel — a naive
+        # single find() drops only the first and re-throws) then re-parse, so the
+        # real PhysicalSize/channel metadata is preserved instead of discarded.
+        with tff.TiffFile(filename) as tif:
+            ome_xml = tif.pages[0].tags["ImageDescription"].value
+        ome_xml = re.sub(r"<Filter\b[^>]*/>", "", ome_xml)
+        ome = from_xml(ome_xml)
     return ome
 
 @dataclass

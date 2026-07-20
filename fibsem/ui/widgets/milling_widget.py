@@ -29,6 +29,7 @@ class FibsemMillingWidget2(QWidget):
     """
 
     start_milling_signal = pyqtSignal()
+    finished_milling_signal = pyqtSignal()
 
     def __init__(
         self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget2"
@@ -200,6 +201,7 @@ class FibsemMillingWidget2(QWidget):
         finally:
             self._milling_thread = None
             self._update_button_states()
+            self.finished_milling_signal.emit()
 
     def stop_milling(self):
         if self.is_milling:

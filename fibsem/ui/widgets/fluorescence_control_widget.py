@@ -99,6 +99,9 @@ class FMControlWidget(QWidget):
         self._fm_canvas = None  # quad-view FM canvas we connect to (for teardown)
         self._fm_move_lock = threading.Lock()  # serialize canvas-driven stage moves
 
+        # guards the debounced working-state autosave while applying a config
+        self._loading_config = False
+
         self.initUI()
         self.connect_signals()
         self._update_acquisition_button_states()
@@ -294,7 +297,8 @@ class FMControlWidget(QWidget):
         )
 
         # Route FM canvas double-click (→ relative move) and Shift+scroll
-        # (→ objective) to the matplotlib canvas.
+        # (→ objective) to the matplotlib canvas. This replaces the napari
+        # viewer's mouse_double_click_callbacks hook.
         controller = self._view_controller()
         if controller is not None:
             # bound methods (not lambdas) so they can be disconnected on teardown;
@@ -305,6 +309,24 @@ class FMControlWidget(QWidget):
             self._fm_canvas.canvas_scrolled.connect(
                 self.objectiveControlWidget._on_canvas_scroll
             )
+
+        # Debounced auto-save of the FM working state on any settings change, so
+        # edits persist even if the app is force-killed before closeEvent runs.
+        from superqt.utils import qdebounced
+        self._autosave_fm_configuration = qdebounced(self.save_fm_configuration, timeout=1000)
+        self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.comboBox_default_orientation.currentTextChanged.connect(
+            self._on_fm_settings_changed
+        )
+        self.objectiveControlWidget.doubleSpinBox_focus_position.valueChanged.connect(
+            self._on_fm_settings_changed
+        )
+        self.objectiveControlWidget.doubleSpinBox_objective_limit.valueChanged.connect(
+            self._on_fm_settings_changed
+        )
 
         # Update checkbox text when lamella selection changes
         if self.parent_widget is not None and hasattr(
@@ -979,7 +1001,7 @@ class FMControlWidget(QWidget):
 
         event.accept()
 
-    def load_fm_configuration(self):
+    def import_fm_configuration(self):
         """Load FM configuration from a YAML file."""
         try:
             # Get filename from user
@@ -1000,18 +1022,55 @@ class FMControlWidget(QWidget):
         except Exception as e:
             logging.error(f"Failed to load FM configuration: {e}")
 
+    def _build_fluorescence_configuration(self) -> FluorescenceConfiguration:
+        """Build a complete FluorescenceConfiguration from the current UI settings."""
+        settings = self._get_current_settings()
+        return FluorescenceConfiguration(
+            channel_settings=settings["channel_settings"],
+            z_parameters=settings["z_parameters"],
+            overview_parameters=OverviewParameters(),
+            autofocus_settings=settings["autofocus_settings"],
+            camera_settings=settings["camera_settings"],
+            focus_position=self.fm.objective.focus_position,
+            limit_position=self.fm.objective.limit_position,
+            default_orientation=self.fm.default_orientation,
+        )
+
+    def save_fm_configuration(self) -> None:
+        """Persist the current FM configuration as the auto-loaded working state."""
+        if self.microscope.fm is None:
+            return
+        from fibsem.fm.config import save_fm_configuration
+        try:
+            save_fm_configuration(self._build_fluorescence_configuration())
+        except Exception as e:
+            logging.warning(f"Could not save FM working state: {e}")
+
+    def _on_fm_settings_changed(self, *args) -> None:
+        """Trigger a debounced working-state save when an FM setting changes."""
+        if self._loading_config:
+            return
+        self._autosave_fm_configuration()
+
     def _apply_fluorescence_configuration(self, config: FluorescenceConfiguration):
         """Apply a FluorescenceConfiguration to the widget settings."""
-        self.channelSettingsWidget.channel_settings = config.channel_settings
-        self.zParametersWidget.z_parameters = config.z_parameters
-        self.cameraWidget.camera_settings = config.camera_settings
-        if config.focus_position is not None:
-            self.objectiveControlWidget._set_focus_position(config.focus_position)
-        if config.limit_position:
-            self.objectiveControlWidget._set_limit_position(config.limit_position)
-        self.comboBox_default_orientation.setCurrentText(config.default_orientation)
+        self._loading_config = True
+        try:
+            self.channelSettingsWidget.channel_settings = config.channel_settings
+            self.zParametersWidget.z_parameters = config.z_parameters
+            if config.camera_settings is not None:
+                self.cameraWidget.camera_settings = config.camera_settings
+            if config.autofocus_settings is not None:
+                self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
+            if config.focus_position is not None:
+                self.objectiveControlWidget._set_focus_position(config.focus_position)
+            if config.limit_position:
+                self.objectiveControlWidget._set_limit_position(config.limit_position)
+            self.comboBox_default_orientation.setCurrentText(config.default_orientation)
+        finally:
+            self._loading_config = False
 
-    def save_fm_configuration(self):
+    def export_fm_configuration(self):
         """Save current FM configuration to a YAML file."""
         try:
             # Get filename from user
@@ -1025,22 +1084,8 @@ class FMControlWidget(QWidget):
             if not filename:
                 return
 
-            # Gather current settings from UI
-            settings = self._get_current_settings()
-
-            # Create FM configuration
-            fm_config = FluorescenceConfiguration(
-                channel_settings=settings["channel_settings"],
-                z_parameters=settings["z_parameters"],
-                overview_parameters=OverviewParameters(),
-                autofocus_settings=AutoFocusSettings(),
-                camera_settings=settings["camera_settings"],
-                focus_position=self.fm.objective.focus_position,
-                default_orientation=self.fm.default_orientation,
-            )
-
-            # Export configuration
-            fm_config.export(filename)
+            # Export configuration (incl. camera transform + objective limit position)
+            self._build_fluorescence_configuration().export(filename)
 
             QMessageBox.information(
                 self,

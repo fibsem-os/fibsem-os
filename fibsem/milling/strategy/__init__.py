@@ -12,6 +12,7 @@ DEFAULT_STRATEGY_NAME = DEFAULT_STRATEGY.name
 BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {
     StandardMillingStrategy.name: StandardMillingStrategy,
     OvertiltTrenchMillingStrategy.name: OvertiltTrenchMillingStrategy,
+    CoincidenceMillingStrategy.name: CoincidenceMillingStrategy,
 }
 REGISTERED_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {}
 
@@ -22,7 +23,7 @@ def get_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]
 
 
 def get_strategy_names() -> typing.List[str]:
-    return list(get_strategies().keys())
+    return [name for name, cls in get_strategies().items() if getattr(cls, "selectable", True)]
 
 
 def register_strategy(strategy_cls: typing.Type[MillingStrategy[typing.Any]]) -> None:

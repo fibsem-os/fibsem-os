@@ -628,7 +628,7 @@ class AutoLamellaUI(QMainWindow):
                 self.image_widget.deleteLater()
                 self.image_widget = None
 
-    def load_fm_configuration(self) -> None:
+    def import_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
         if self.fm_control_widget is None:
             msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
@@ -637,14 +637,14 @@ class AutoLamellaUI(QMainWindow):
             return
 
         try:
-            self.fm_control_widget.load_fm_configuration()
+            self.fm_control_widget.import_fm_configuration()
         except Exception:
             logging.exception("Failed to load FM configuration from AutoLamella UI.")
             notification_service.show_toast(
                 "Failed to load FM configuration. Check logs for details.", "error"
             )
 
-    def save_fm_configuration(self) -> None:
+    def export_fm_configuration(self) -> None:
         """Save the current fluorescence microscope configuration via the control widget."""
         if self.fm_control_widget is None:
             msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
@@ -653,7 +653,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         try:
-            self.fm_control_widget.save_fm_configuration()
+            self.fm_control_widget.export_fm_configuration()
         except Exception:
             logging.exception("Failed to save FM configuration from AutoLamella UI.")
             notification_service.show_toast(
@@ -770,14 +770,28 @@ class AutoLamellaUI(QMainWindow):
                 "Please connect a microscope and load an experiment first.", "warning"
             )
             return
+        if self.microscope.fm is None:
+            notification_service.show_toast(
+                "Coincidence milling requires a fluorescence microscope.", "warning"
+            )
+            return
         from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
-            open_coincidence_viewer_dialog,
+            open_coincidence_viewer_window,
         )
 
-        self._coincidence_viewer_dialog = open_coincidence_viewer_dialog(
+        # seed the viewer's FM tab from the live main-UI FM configuration
+        fm_config = None
+        if self.fm_control_widget is not None:
+            try:
+                fm_config = self.fm_control_widget._build_fluorescence_configuration()
+            except Exception as e:
+                logging.warning(f"Could not read current FM configuration: {e}")
+
+        self._coincidence_viewer_window = open_coincidence_viewer_window(
             microscope=self.microscope,
             experiment=self.experiment,
             parent=self,
+            fm_config=fm_config,
         )
 
     #### MINIMAP

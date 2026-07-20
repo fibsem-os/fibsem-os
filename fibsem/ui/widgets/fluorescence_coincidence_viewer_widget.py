@@ -25,6 +25,7 @@ and two progress bars driven by ``microscope.milling_progress_signal``.
 import datetime
 import logging
 import math
+import os
 import time
 from collections import deque
 from datetime import timedelta
@@ -34,17 +35,23 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAction,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QMenuBar,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
     QSlider,
+    QSpinBox,
     QSplitter,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -53,15 +60,17 @@ from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
 from fibsem.autofunctions.gamma import apply_gamma
+from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
-from fibsem.ui import stylesheets
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
+from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -70,6 +79,9 @@ if TYPE_CHECKING:
 
 _BG = "#262930"
 _HEADER_BG = "#1e2124"
+
+# name used for the coincidence entry in the lamella review panel / task history
+COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
 
 COINCIDENCE_BORDER_STYLESHEET = """
     QFrame#coincidence_border_frame[borderState="idle"]       { border: 4px solid #262930; }
@@ -291,9 +303,9 @@ class _FibImageCanvas(QWidget):
             self._position_histogram_panel()
 
     def set_image(self, image: FibsemImage):
-        self._raw_frame = image.data
+        self._raw_frame = image.filtered_data
         self.canvas.set_image(image)
-        processed = self._process_frame(image.data)
+        processed = self._process_frame(image.filtered_data)
         self.canvas.update_display(processed)
         imgs = self.canvas._ax.get_images()
         if imgs:
@@ -341,7 +353,7 @@ class _FmImageCanvas(QWidget):
 
         self.canvas = FibsemImageCanvas()
         self.rect_overlay = RectOverlay(
-            color="white",
+            color="yellow",  # yellow reads against bright/white reflection images
             facecolor=None,
             alpha=0.9,
             linewidth=2,
@@ -821,13 +833,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         experiment: "Experiment",
         viewer=None,
         parent=None,
+        fm_config: Optional["FluorescenceConfiguration"] = None,
     ):
         super().__init__(parent)
         self.microscope = microscope
         self.experiment = experiment
         self.viewer = viewer
+        # optional FM configuration to seed the FM tab (from the live main-UI widget)
+        self._seed_fm_config = fm_config
         self._selected_lamella: Optional["Lamella"] = None
         self._active_strategies: list["CoincidenceMillingStrategy"] = []
+        self._latest_fib_image: Optional["FibsemImage"] = None
         self.selected_view: int = 0  # 0 = FM, 1 = FIB
 
         # Timelapse accumulation state
@@ -847,6 +863,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.set_experiment(experiment)
 
+        if self.microscope is not None and self.microscope.fm is not None:
+            self._seed_fm_configuration()
+
     # ------------------------------------------------------------------
     # UI setup
     # ------------------------------------------------------------------
@@ -855,6 +874,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(4)
+
+        # ── Menu bar: export/load a named coincidence configuration (FM + milling) ──
+        menubar = QMenuBar(self)
+        config_menu = menubar.addMenu("Configuration")
+        act_load = QAction("Load Configuration…", self)
+        act_export = QAction("Export Configuration…", self)
+        act_load.triggered.connect(self._load_configuration)
+        act_export.triggered.connect(self._export_configuration)
+        config_menu.addAction(act_load)
+        config_menu.addAction(act_export)
+        outer.setMenuBar(menubar)
 
         # ── Border frame — wraps splitter content, driven by _set_border_state ──
         self._border_frame = QFrame()
@@ -951,6 +981,28 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.lamella_list_widget.enable_move_to_action(True)
         self.lamella_list_widget.enable_defect_button(True)
         layout.addWidget(self.lamella_list_widget)
+
+        # per-lamella objective position + poses for the selected lamella
+        self.selected_lamella_widget = SelectedLamellaWidget()
+        self.selected_lamella_widget.objective_position_changed.connect(
+            self._on_slw_objective_position_changed
+        )
+        self.selected_lamella_widget.use_current_objective_requested.connect(
+            self._on_slw_use_current_objective
+        )
+        self.selected_lamella_widget.apply_objective_to_all_requested.connect(
+            self._on_slw_apply_objective_to_all
+        )
+        self.selected_lamella_widget.move_objective_requested.connect(
+            self._on_slw_move_objective
+        )
+        self.selected_lamella_widget.pose_move_to_requested.connect(
+            self._on_slw_pose_move_to
+        )
+        self.selected_lamella_widget.pose_update_requested.connect(
+            self._on_slw_pose_update
+        )
+        layout.addWidget(self.selected_lamella_widget)
         layout.addStretch()
         return container
 
@@ -1008,20 +1060,58 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return self._placeholder("No microscope connected")
 
         from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-        from fibsem.ui.widgets.fluorescence_coincidence_widget import (
-            milling_task_config as DEFAULT_MILLING_TASK_CONFIG,
+        from fibsem.milling.base import FibsemMillingSettings, FibsemMillingStage
+        from fibsem.milling.patterning import RectanglePattern
+        from fibsem.milling.tasks import FibsemMillingTaskConfig
+        from fibsem.structures import CrossSectionPattern
+
+        # Default coincidence milling task config (previously defined in the
+        # removed fluorescence_coincidence_widget module).
+        DEFAULT_MILLING_TASK_CONFIG = FibsemMillingTaskConfig(
+            name="Coincidence Milling Task",
+            field_of_view=100e-6,
+            stages=[
+                FibsemMillingStage(
+                    name="Coincidence Milling Stage",
+                    milling=FibsemMillingSettings(hfw=100e-6, milling_current=0.1e-9),
+                    pattern=RectanglePattern(
+                        depth=2.0e-6,
+                        width=5e-6,
+                        height=8e-6,
+                        scan_direction="BottomToTop",
+                        cross_section=CrossSectionPattern.CleaningCrossSection,
+                    ),
+                    strategy=CoincidenceMillingStrategy(),
+                )
+            ],
         )
+        DEFAULT_MILLING_TASK_CONFIG.alignment.enabled = False
+        DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_fib = False
+        DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
+        DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.config.save_rate_limit = 0.0
+
+        milling_task_config = self._load_milling_config() or DEFAULT_MILLING_TASK_CONFIG
 
         self.milling_viewer_widget = MillingTaskViewerWidget(
             microscope=self.microscope,
             viewer=self.viewer,
-            milling_task_config=DEFAULT_MILLING_TASK_CONFIG,
+            milling_task_config=milling_task_config,
             milling_enabled=False,
             parent=self,
         )
         self.milling_viewer_widget.set_parameters_visible(False)
         self.milling_viewer_widget.set_alignment_visible(False)
         self.milling_viewer_widget.set_acquisition_visible(False)
+
+        # Debounced auto-save of the milling config on any change. The viewer is
+        # usually minimized (not closed) for the session, so the closeEvent save
+        # alone could go unsaved for hours and be lost on a force-kill.
+        # Connected after construction so the initial load doesn't trigger a save.
+        from superqt.utils import qdebounced
+        self._autosave_milling_config = qdebounced(self._save_milling_config, timeout=1000)
+        self.milling_viewer_widget.settings_changed.connect(
+            lambda *_: self._autosave_milling_config()
+        )
         return self.milling_viewer_widget
 
     def _build_fm_tab(self) -> QWidget:
@@ -1103,6 +1193,167 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         return lbl
 
     # ------------------------------------------------------------------
+    # FM configuration persistence
+    # ------------------------------------------------------------------
+
+    def _read_fm_configuration(self) -> "FluorescenceConfiguration":
+        """Build a FluorescenceConfiguration from the FM tab's sub-widgets."""
+        from fibsem.fm.structures import (
+            FluorescenceConfiguration,
+            OverviewParameters,
+            ZParameters,
+        )
+        fm = self.microscope.fm
+        return FluorescenceConfiguration(
+            channel_settings=self.fm_channel_widget.channel_settings,
+            z_parameters=ZParameters(),
+            overview_parameters=OverviewParameters(),
+            camera_settings=self.fm_camera_widget.camera_settings,
+            focus_position=fm.objective.focus_position,
+            limit_position=fm.objective.limit_position,
+        )
+
+    def _apply_fm_configuration(self, config: "FluorescenceConfiguration") -> None:
+        """Apply a FluorescenceConfiguration to the FM tab's sub-widgets."""
+        if config.channel_settings:
+            self.fm_channel_widget.channel_settings = config.channel_settings
+        if config.camera_settings is not None:
+            self.fm_camera_widget.camera_settings = config.camera_settings
+        if config.focus_position is not None:
+            self.fm_objective_widget._set_focus_position(config.focus_position)
+        if config.limit_position:
+            self.fm_objective_widget._set_limit_position(config.limit_position)
+
+    def _seed_fm_configuration(self) -> None:
+        """On open, apply the FM config: the live main-UI config if provided,
+        else the last-used working state as a fallback."""
+        from fibsem.fm.config import load_fm_configuration
+        config = self._seed_fm_config or load_fm_configuration()
+        if config is not None:
+            try:
+                self._apply_fm_configuration(config)
+            except Exception as e:
+                logging.warning(f"Could not apply saved FM configuration: {e}")
+
+    def _save_fm_configuration(self) -> None:
+        """Persist the current FM configuration as the working state."""
+        from fibsem.fm.config import save_fm_configuration
+        try:
+            save_fm_configuration(self._read_fm_configuration())
+        except Exception as e:
+            logging.warning(f"Could not save FM working state: {e}")
+
+    def _load_milling_config(self):
+        """Load the last-used coincidence milling config, or None."""
+        import os
+        from fibsem import config as cfg
+        from fibsem.milling.tasks import FibsemMillingTaskConfig
+        from fibsem.utils import load_yaml
+        if not os.path.exists(cfg.COINCIDENCE_MILLING_CONFIG_PATH):
+            return None
+        try:
+            return FibsemMillingTaskConfig.from_dict(
+                load_yaml(cfg.COINCIDENCE_MILLING_CONFIG_PATH)
+            )
+        except Exception as e:
+            logging.warning(f"Could not load coincidence milling config: {e}")
+            return None
+
+    def _save_milling_config(self) -> None:
+        """Persist the current coincidence milling config."""
+        if self.milling_viewer_widget is None:
+            return
+        from fibsem import config as cfg
+        from fibsem.utils import save_yaml
+        try:
+            save_yaml(
+                cfg.COINCIDENCE_MILLING_CONFIG_PATH,
+                self.milling_viewer_widget.get_config().to_dict(),
+            )
+        except Exception as e:
+            logging.warning(f"Could not save coincidence milling config: {e}")
+
+    # ------------------------------------------------------------------
+    # Export / load a named coincidence configuration (FM + milling)
+    # ------------------------------------------------------------------
+
+    def _default_config_dir(self) -> str:
+        """Default directory for the export/load dialogs (the experiment path)."""
+        if self.experiment is not None and getattr(self.experiment, "path", None):
+            return self.experiment.path
+        return ""
+
+    def _export_configuration(self) -> None:
+        """Export the current FM + milling configuration to a YAML file."""
+        from fibsem.utils import save_yaml
+        default_path = os.path.join(self._default_config_dir(), "coincidence-configuration.yaml")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Coincidence Configuration", default_path,
+            "YAML files (*.yaml *.yml);;All files (*.*)",
+        )
+        if not filename:
+            return
+
+        data = {}
+        if self.microscope is not None and self.microscope.fm is not None:
+            data["fm"] = self._read_fm_configuration().to_dict()
+        if self.milling_viewer_widget is not None:
+            data["milling"] = self.milling_viewer_widget.get_config().to_dict()
+
+        try:
+            save_yaml(filename, data)
+        except Exception as e:
+            logging.error(f"Failed to export coincidence configuration: {e}")
+            QMessageBox.warning(self, "Export Configuration", f"Failed to export:\n{e}")
+            return
+        QMessageBox.information(
+            self, "Export Configuration", f"Configuration saved to:\n{filename}"
+        )
+
+    def _load_configuration(self) -> None:
+        """Load an FM + milling configuration from a YAML file and apply it."""
+        from fibsem.utils import load_yaml
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Load Coincidence Configuration", self._default_config_dir(),
+            "YAML files (*.yaml *.yml);;All files (*.*)",
+        )
+        if not filename:
+            return
+
+        # Parse both halves before applying anything, so a malformed file fails
+        # here (UI untouched) rather than leaving a half-applied configuration.
+        try:
+            data = load_yaml(filename)
+            fm_config = None
+            if data.get("fm") is not None:
+                from fibsem.fm.structures import FluorescenceConfiguration
+                fm_config = FluorescenceConfiguration.from_dict(data["fm"])
+            milling_config = None
+            if data.get("milling") is not None:
+                from fibsem.milling.tasks import FibsemMillingTaskConfig
+                milling_config = FibsemMillingTaskConfig.from_dict(data["milling"])
+        except Exception as e:
+            logging.error(f"Failed to read coincidence configuration: {e}")
+            QMessageBox.warning(self, "Load Configuration", f"Failed to read:\n{e}")
+            return
+
+        try:
+            if fm_config is not None and self.microscope is not None and self.microscope.fm is not None:
+                self._apply_fm_configuration(fm_config)
+            if milling_config is not None and self.milling_viewer_widget is not None:
+                self.milling_viewer_widget.set_config(milling_config)
+        except Exception as e:
+            logging.error(f"Failed to apply coincidence configuration: {e}")
+            QMessageBox.warning(self, "Load Configuration", f"Failed to apply:\n{e}")
+
+    def closeEvent(self, event):  # noqa: N802 (Qt override)
+        """Persist the FM working state + milling config when the window closes."""
+        if self.microscope is not None and self.microscope.fm is not None:
+            self._save_fm_configuration()
+        self._save_milling_config()
+        super().closeEvent(event)
+
+    # ------------------------------------------------------------------
     # Bottom bar
     # ------------------------------------------------------------------
 
@@ -1140,30 +1391,81 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
 
-        self.btn_pause_milling = QPushButton("Pause Milling")
-        self.btn_pause_milling.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_pause_milling.setVisible(False)
+        # single pause control: tool button with milling/acquisition menu options
+        self._milling_paused = False
+        self.btn_pause = QToolButton()
+        self.btn_pause.setText("Pause")
+        self.btn_pause.setIcon(fibsem_icon("mdi:pause", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_pause.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # type: ignore[attr-defined]
+        self.btn_pause.setPopupMode(QToolButton.InstantPopup)
+        # SECONDARY_BUTTON_STYLESHEET targets QPushButton; a QToolButton needs its
+        # own selector or it falls back to the unstyled default (mismatched size/font)
+        self.btn_pause.setStyleSheet(
+            "QToolButton { background-color: #3d4251; color: #d6d6d6; border: none;"
+            " padding: 5px 12px; border-radius: 3px; }"
+            "QToolButton:hover { background-color: #4a5168; }"
+            "QToolButton:disabled { background-color: #2d313b; color: #6b6b6b; }"
+            "QToolButton::menu-indicator { image: none; }"
+        )
+        pause_menu = QMenu(self.btn_pause)
+        self._act_pause_milling = pause_menu.addAction("Pause Milling")
+        self._act_pause_milling.triggered.connect(self._on_pause_milling_action)
+        self._act_pause_acquisition = pause_menu.addAction("Pause Acquisition")
+        self._act_pause_acquisition.triggered.connect(self._on_pause_acquisition_action)
+        self.btn_pause.setMenu(pause_menu)
+        self.btn_pause.setVisible(False)
 
-        self.label_threshold_chip = QPushButton("Threshold Reached")
+        # intensity-drop chip: neutral while monitoring, attention style on a drop
+        self.label_threshold_chip = QPushButton("Intensity Drop: 0%")
         self.label_threshold_chip.setIcon(
             fibsem_icon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.label_threshold_chip.setStyleSheet(
-            stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
-        )
+        self.label_threshold_chip.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.label_threshold_chip.setVisible(False)
 
-        self.btn_pause_acquisition = QPushButton("Pause Acquisition")
-        self.btn_pause_acquisition.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.btn_pause_acquisition.setVisible(False)
+        # supervision toggle, styled like the main-UI supervised status button
+        self._supervised: bool = True
+        self.btn_supervised = QPushButton("Supervised")
+        self.btn_supervised.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
+        self.btn_supervised.clicked.connect(self._on_supervised_clicked)
+        self.btn_supervised.setVisible(False)
+        self._update_supervised_button()
 
-        layout.addWidget(self.label_threshold_chip)
+        self.spin_drop_threshold = QSpinBox()
+        self.spin_drop_threshold.setRange(5, 90)
+        self.spin_drop_threshold.setValue(40)  # % drop (40% == retained fraction 0.6)
+        self.spin_drop_threshold.setPrefix("Stop at ")
+        self.spin_drop_threshold.setSuffix("% drop")
+        self.spin_drop_threshold.setButtonSymbols(QSpinBox.NoButtons)  # no -/+ arrows
+        self.spin_drop_threshold.setMinimumWidth(140)  # fit the prefix + suffix text
+        self.spin_drop_threshold.setToolTip(
+            "Unsupervised auto-stop fires when the rolling mean drops by this "
+            "fraction below its peak."
+        )
+        self.spin_drop_threshold.setVisible(False)
+
+        # push live changes to any running strategies (not just at milling start)
+        self.spin_drop_threshold.valueChanged.connect(self._on_drop_threshold_changed)
+
+        # uniform height so every control-bar item aligns (buttons/spinbox/bars),
+        # independent of the per-stylesheet padding differences + state flips
+        for w in (
+            self.progressBar_stages,
+            self.progressBar_stage,
+            self.label_threshold_chip,
+            self.spin_drop_threshold,
+            self.btn_pause,
+            self.btn_supervised,
+            self.btn_milling,
+        ):
+            w.setFixedHeight(28)
+
         layout.addWidget(self.progressBar_stages)
         layout.addWidget(self.progressBar_stage)
-        layout.addWidget(self.btn_pause_milling)
-        layout.addWidget(self.btn_pause_acquisition)
+        layout.addWidget(self.label_threshold_chip)
+        layout.addWidget(self.spin_drop_threshold)
+        layout.addWidget(self.btn_pause)
+        layout.addWidget(self.btn_supervised)
         layout.addWidget(self.btn_milling)
 
         return bar
@@ -1225,12 +1527,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._on_channel_field_changed
         )
 
-        # Bottom bar buttons
+        # Bottom bar buttons (pause options are wired via the pause-menu actions)
         self.btn_milling.clicked.connect(self._toggle_milling)
-        self.btn_pause_acquisition.clicked.connect(self._toggle_fm_acquisition_pause)
         if self.milling_viewer_widget is not None:
-            self.btn_pause_milling.clicked.connect(
-                self.milling_viewer_widget.milling_widget.pause_resume_milling
+            # finalize the viewer only when milling is *fully* complete (after the
+            # post-stop final image) — the progress "finished" state fires too early
+            self.milling_viewer_widget.milling_widget.finished_milling_signal.connect(
+                self._finalize_milling_ui
             )
             # FIB rect ↔ milling pattern sync
             self.fib_canvas.rect_overlay.rect_changed.connect(self._on_fib_rect_changed)
@@ -1259,8 +1562,172 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._selected_lamella = lamella
         name = lamella.name if lamella is not None else "None"
         self.label_selected_lamella.setText(f"Lamella: {name}")
+        if getattr(self, "selected_lamella_widget", None) is not None:
+            self.selected_lamella_widget.set_lamella(lamella)
         self._reset_timelapse()
         self.lamella_selected_signal.emit(lamella)
+
+    # ------------------------------------------------------------------
+    # Selected-lamella widget handlers (objective + poses), self-contained
+    # ------------------------------------------------------------------
+
+    def _on_slw_objective_position_changed(self, value_um: float):
+        """Store the edited objective position on the selected lamella."""
+        lamella = self._selected_lamella
+        if lamella is None or lamella.fluorescence_pose is None:
+            return
+        lamella.fluorescence_pose.objective_position = value_um * MICRON_TO_METRE
+        if self.experiment is not None:
+            self.experiment.save()
+
+    def _on_slw_use_current_objective(self):
+        """Read the current FM objective position and store it on the lamella."""
+        if self.microscope is None or self.microscope.fm is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self._selected_lamella
+        if lamella is None or lamella.fluorescence_pose is None:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        obj = self.microscope.fm.objective
+        value_m = obj.position if obj.state == "Inserted" else obj.focus_position
+        if value_m is None:
+            notification_service.show_toast("Objective position unavailable.", "warning")
+            return
+        lamella.fluorescence_pose.objective_position = value_m
+        if self.experiment is not None:
+            self.experiment.save()
+        self.selected_lamella_widget.set_lamella(lamella)
+        notification_service.show_toast(
+            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm "
+            f"for {lamella.name}.",
+            "info",
+        )
+
+    def _on_slw_apply_objective_to_all(self):
+        """Copy the selected lamella's objective position to all lamella with an FM pose."""
+        if self.experiment is None:
+            return
+        value_um = self.selected_lamella_widget.objective_value_um()
+        value_m = value_um * MICRON_TO_METRE
+        count = 0
+        for lamella in self.experiment.positions:
+            if lamella.fluorescence_pose is not None:
+                lamella.fluorescence_pose.objective_position = value_m
+                count += 1
+        if count:
+            self.experiment.save()
+            notification_service.show_toast(
+                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
+                "info",
+            )
+
+    def _on_slw_move_objective(self):
+        """Move the FM objective to the selected lamella's stored objective position."""
+        if self.microscope is None or self.microscope.fm is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self._selected_lamella
+        if lamella is None or lamella.fluorescence_pose is None:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        objective_position = lamella.fluorescence_pose.objective_position
+        if objective_position is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no stored objective position.", "warning"
+            )
+            return
+        obj = self.microscope.fm.objective
+        if obj.state != "Inserted":
+            notification_service.show_toast(
+                "Insert the objective before moving to a stored position.", "warning"
+            )
+            return
+
+        ret = QMessageBox.question(
+            self,
+            "Move Objective",
+            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+            f"for {lamella.name}?",
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
+        )
+        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
+            return
+
+        def _move():
+            try:
+                obj.move_absolute(objective_position)
+            except Exception:
+                logging.exception("Error moving objective to stored position")
+
+        threading.Thread(target=_move, daemon=True).start()
+
+    def _on_slw_pose_move_to(self, pose_name: str):
+        """Move the stage to the given pose of the selected lamella."""
+        lamella = self._selected_lamella
+        if lamella is None or self.microscope is None:
+            return
+        pose = lamella.poses.get(pose_name)
+        if pose is None or pose.stage_position is None:
+            notification_service.show_toast(
+                f"Pose '{pose_name}' has no stage position.", "warning"
+            )
+            return
+
+        ret = QMessageBox.question(
+            self,
+            "Move to Pose",
+            f"Move to pose '{pose_name}' for {lamella.name}?\n{pose.stage_position.pretty}",
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
+        )
+        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
+            return
+
+        stage_position = pose.stage_position
+
+        def _move():
+            try:
+                self.microscope.safe_absolute_stage_movement(stage_position)
+            except Exception:
+                logging.exception("Error moving to pose position")
+
+        threading.Thread(target=_move, daemon=True).start()
+
+    def _on_slw_pose_update(self, pose_name: str):
+        """Set the current stage position as the given pose of the selected lamella."""
+        if self.microscope is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self._selected_lamella
+        if lamella is None or pose_name == "":
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        state = self.microscope.get_microscope_state()
+        if state is None or state.stage_position is None:
+            notification_service.show_toast("Failed to get microscope state.", "warning")
+            return
+
+        ret = QMessageBox.question(
+            self,
+            "Set Pose",
+            f"Set current position as pose '{pose_name}' for {lamella.name}?\n"
+            f"{state.stage_position.pretty}",
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
+        )
+        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
+            return
+
+        # preserve the existing pose's objective position (state does not capture it)
+        existing_pose = lamella.poses.get(pose_name)
+        if existing_pose is not None and existing_pose.objective_position is not None:
+            state.objective_position = existing_pose.objective_position
+
+        lamella.poses[pose_name] = state
+        if self.experiment is not None:
+            self.experiment.save()
+        self.selected_lamella_widget.refresh_pose(
+            pose_name, state.stage_position.pretty
+        )
 
     def _on_move_to_lamella(self, lamella: Optional["Lamella"]):
         if lamella is None or self.microscope is None:
@@ -1522,11 +1989,25 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self._info_widget.update_stats(stats)
         self._info_widget.update_run_metrics(stats)
+        # live intensity-drop chip: neutral while monitoring, orange the moment the
+        # configured drop threshold is reached (drop_fraction/threshold_fraction are
+        # retained fractions, so the threshold is hit when drop <= threshold).
+        drop_fraction = stats.get("drop_fraction", 1.0)
+        threshold_fraction = stats.get("threshold_fraction", 0.0)
+        drop_pct = (1.0 - drop_fraction) * 100
+        self.label_threshold_chip.setText(f"Intensity Drop: {drop_pct:.0f}%")
+        self.label_threshold_chip.setVisible(True)
+        threshold_hit = (
+            stats.get("warmup_complete", False) and drop_fraction <= threshold_fraction
+        )
+        self.label_threshold_chip.setStyleSheet(
+            stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
+            if threshold_hit
+            else stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        # border/auto-stop stay tied to the debounced drop_detected event
         if stats.get("drop_detected"):
             self._set_border_state("waiting")
-            drop_pct = (1.0 - stats.get("drop_fraction", 1.0)) * 100
-            self.label_threshold_chip.setText(f"Intensity Drop: {drop_pct:.0f}%")
-            self.label_threshold_chip.setVisible(True)
 
     def _on_fm_rect_changed(self, info: dict):
         """Push the current FM rectangle to any active coincidence strategies as a bbox."""
@@ -1577,9 +2058,78 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 pass
 
-        # Connect strategy signals
+        # Seed the status-bar controls FROM the strategy config (single source of
+        # truth), then connect the live stats signal. Live edits push back below.
+        self._seed_controls_from_strategy()
         for strategy in self._active_strategies:
             strategy.intensity_stats_signal.connect(self._on_intensity_stats)
+
+    def _seed_controls_from_strategy(self) -> None:
+        """Mirror the first active strategy's config into the status-bar controls.
+
+        Keeps ``strategy.config`` authoritative: the status bar reflects the value
+        set in the strategy section rather than overwriting it with its own default.
+        """
+        if not self._active_strategies:
+            return
+        config = self._active_strategies[0].config
+        self._supervised = bool(config.supervised)
+        self._update_supervised_button()
+        self.spin_drop_threshold.blockSignals(True)
+        self.spin_drop_threshold.setValue(
+            int(round(config.intensity_drop_fraction * 100))
+        )
+        self.spin_drop_threshold.blockSignals(False)
+
+    def _update_supervised_button(self) -> None:
+        """Style the supervision button to match the current mode (like the main UI)."""
+        if self._supervised:
+            self.btn_supervised.setText("Supervised")
+            self.btn_supervised.setIcon(
+                fibsem_icon("mdi:account-hard-hat", color="white")
+            )
+            self.btn_supervised.setStyleSheet(
+                stylesheets.SUPERVISION_STATUS_SUPERVISED_STYLESHEET
+            )
+            self.btn_supervised.setToolTip(
+                "Supervised: stop milling manually. Click to switch to unsupervised "
+                "(auto-stop on intensity drop)."
+            )
+        else:
+            self.btn_supervised.setText("Automated")
+            self.btn_supervised.setIcon(
+                fibsem_icon("mdi:lightning-bolt", color="white")
+            )
+            self.btn_supervised.setStyleSheet(
+                stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
+            )
+            self.btn_supervised.setToolTip(
+                "Unsupervised: automatically stops on an intensity drop. "
+                "Click to switch to supervised."
+            )
+
+    def _on_supervised_clicked(self) -> None:
+        """Toggle supervision mode from the button."""
+        self._set_supervised(not self._supervised)
+
+    def _set_supervised(self, supervised: bool) -> None:
+        """Apply the supervision mode to the button, active strategies, and border."""
+        self._supervised = supervised
+        self._update_supervised_button()
+        self._on_supervised_toggled(supervised)
+        if self._is_milling_active:
+            self._set_border_state("supervised" if supervised else "automated")
+
+    def _on_supervised_toggled(self, supervised: bool) -> None:
+        """Apply the supervision preference to any active strategies (live)."""
+        for strategy in self._active_strategies:
+            strategy.config.supervised = supervised
+
+    def _on_drop_threshold_changed(self, pct: int) -> None:
+        """Apply the drop-fraction threshold to any active strategies (live)."""
+        drop_fraction = pct / 100.0
+        for strategy in self._active_strategies:
+            strategy.config.intensity_drop_fraction = drop_fraction
 
     def _toggle_fm_acquisition(self):
         """Start or stop continuous FM acquisition, updating the FM canvas on each frame."""
@@ -1607,6 +2157,19 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET
             )
 
+    def _on_pause_milling_action(self):
+        """Pause/resume milling from the pause menu, toggling the action label."""
+        if self.milling_viewer_widget is not None:
+            self.milling_viewer_widget.milling_widget.pause_resume_milling()
+        self._milling_paused = not self._milling_paused
+        self._act_pause_milling.setText(
+            "Resume Milling" if self._milling_paused else "Pause Milling"
+        )
+
+    def _on_pause_acquisition_action(self):
+        """Pause/resume FM acquisition from the pause menu."""
+        self._toggle_fm_acquisition_pause()
+
     def _toggle_fm_acquisition_pause(self):
         """Pause or resume FM acquisition during milling."""
         if self.microscope is None or self.microscope.fm is None:
@@ -1614,16 +2177,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         fm = self.microscope.fm
         if fm.is_acquiring:
             fm.stop_acquisition()
-            self.btn_pause_acquisition.setText("Resume Acquisition")
-            self.btn_pause_acquisition.setStyleSheet(
-                stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET
-            )
+            self._act_pause_acquisition.setText("Resume Acquisition")
         else:
             fm.start_acquisition()
-            self.btn_pause_acquisition.setText("Pause Acquisition")
-            self.btn_pause_acquisition.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
-            )
+            self._act_pause_acquisition.setText("Pause Acquisition")
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single FM parameter live during acquisition (mirrors FMControlWidget)."""
@@ -1747,7 +2304,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         state = progress_info.get("state")
 
         if state == "start":
-            self._set_border_state("supervised")
+            self._set_border_state(
+                "supervised" if self._supervised else "automated"
+            )
             current_stage = progress_info.get("current_stage", 0)
             total_stages = progress_info.get("total_stages", 1)
             msg = progress.get("msg", "Preparing...")
@@ -1768,8 +2327,19 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 fibsem_icon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
-            self.btn_pause_milling.setVisible(True)
-            self.btn_pause_acquisition.setVisible(True)
+            # reveal the run-time controls (hidden until milling starts)
+            self.btn_pause.setVisible(True)
+            self.btn_supervised.setVisible(True)
+            self.spin_drop_threshold.setVisible(True)
+            self._milling_paused = False
+            self._act_pause_milling.setText("Pause Milling")
+            self._act_pause_acquisition.setText("Pause Acquisition")
+            # show the intensity-drop chip in a neutral state while monitoring
+            self.label_threshold_chip.setText("Intensity Drop: 0%")
+            self.label_threshold_chip.setStyleSheet(
+                stylesheets.SECONDARY_BUTTON_STYLESHEET
+            )
+            self.label_threshold_chip.setVisible(True)
 
         elif state == "update":
             remaining = progress_info.get("remaining_time")
@@ -1783,25 +2353,79 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                     f"{format_duration(remaining)} remaining"
                 )
 
-        elif state == "finished":
-            self._set_border_state("idle")
-            self.progressBar_stage.setVisible(False)
-            self.progressBar_stages.setVisible(False)
-            self.btn_milling.setText("Start Milling")
-            self.btn_milling.setIcon(
-                fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+        # NOTE: no "finished" handling here. The progress "finished" state fires
+        # before finish_milling + the post-stop final image, so the viewer is kept
+        # frozen until the milling widget reports true completion — see
+        # _finalize_milling_ui (wired to finished_milling_signal).
+
+    @ensure_main_thread
+    def _finalize_milling_ui(self) -> None:
+        """Reset the viewer once milling is fully complete (final image acquired).
+
+        Driven by ``FibsemMillingWidget.finished_milling_signal`` rather than the
+        progress "finished" state, so the stage/controls stay locked until the
+        post-stop final image has actually landed.
+        """
+        self._set_border_state("idle")
+        self.progressBar_stage.setVisible(False)
+        self.progressBar_stages.setVisible(False)
+        self.btn_milling.setText("Start Milling")
+        self.btn_milling.setIcon(
+            fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+        )
+        self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
+        # hide the run-time-only controls again
+        self.btn_pause.setVisible(False)
+        self.btn_supervised.setVisible(False)
+        self.spin_drop_threshold.setVisible(False)
+        self._is_milling_active = False
+        self._set_widgets_enabled(True)
+        self.label_threshold_chip.setVisible(False)
+        self._record_coincidence_result()
+        self.milling_finished_signal.emit()
+
+    def _record_coincidence_result(self) -> None:
+        """Record the latest coincidence run against the selected lamella.
+
+        Saves the post-milling FIB with the review-panel naming (overwriting, so
+        the panel shows the latest) and appends a 'Coincidence Milling' entry to
+        the lamella's task history so the Review tab picks it up. Every run is
+        recorded (the panel dedups by name); per-run images stay archived in the
+        strategy's own coincidence-images folders.
+        """
+        lamella = self._selected_lamella
+        image = self._latest_fib_image
+        if lamella is None or self.experiment is None or image is None:
+            return
+        from fibsem.applications.autolamella.structures import (
+            AutoLamellaTaskState,
+            AutoLamellaTaskStatus,
+        )
+
+        try:
+            filename = os.path.join(
+                lamella.path,
+                f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
-            self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
-            self.btn_pause_milling.setVisible(False)
-            self.btn_pause_acquisition.setVisible(False)
-            self.btn_pause_acquisition.setText("Pause Acquisition")
-            self.btn_pause_acquisition.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
+            image.save(filename)
+
+            now = datetime.datetime.now().timestamp()
+            lamella.task_history.append(
+                AutoLamellaTaskState(
+                    name=COINCIDENCE_REVIEW_TASK_NAME,
+                    task_type="MILL_COINCIDENT",
+                    lamella_id=lamella._id,
+                    end_timestamp=now,
+                    status=AutoLamellaTaskStatus.Completed,
+                    status_message="Coincidence milling (recorded from viewer)",
+                )
             )
-            self._is_milling_active = False
-            self._set_widgets_enabled(True)
-            self.label_threshold_chip.setVisible(False)
-            self.milling_finished_signal.emit()
+            self.experiment.save()
+            notification_service.show_toast(
+                f"Recorded coincidence result for {lamella.name}.", "info"
+            )
+        except Exception as e:
+            logging.error(f"Failed to record coincidence result: {e}", exc_info=e)
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -1999,6 +2623,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def set_fib_image(self, image: FibsemImage):
         """Display a FIB image in the FIB canvas."""
+        self._latest_fib_image = image  # remember the latest for review recording
         self.fib_canvas.set_image(image)
         if self.milling_viewer_widget is not None:
             self.milling_viewer_widget._fib_image = image
@@ -2030,27 +2655,29 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def open_coincidence_viewer_dialog(microscope, experiment, viewer=None, parent=None):
-    """Open FluorescenceCoincidenceViewerWidget in a non-modal QDialog.
+def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=None, fm_config=None):
+    """Open FluorescenceCoincidenceViewerWidget as a non-modal top-level window.
 
-    Returns the dialog (caller should keep a reference to prevent GC).
+    A plain top-level widget (not a QDialog): it never blocks, gets native
+    minimize/maximize/close on all platforms, and does not close on Esc — so the
+    operator can minimize it instead of closing (which would lose the FM setup).
+    ``parent`` is accepted for call-site compatibility but intentionally unused,
+    so the window is fully independent (minimizes on its own).
+
+    Returns the widget (caller should keep a reference to prevent GC).
     """
-    from PyQt5.QtWidgets import QDialog, QVBoxLayout
-
-    dlg = QDialog(parent)
-    dlg.setWindowTitle("Coincidence Milling Viewer")
-    dlg.setWindowFlags(dlg.windowFlags() | Qt.Window)  # type: ignore[attr-defined]
-    dlg.resize(1400, 800)
-
     widget = FluorescenceCoincidenceViewerWidget(
-        microscope=microscope, experiment=experiment, viewer=viewer, parent=dlg
+        microscope=microscope, experiment=experiment, viewer=viewer, parent=None,
+        fm_config=fm_config,
     )
-    layout = QVBoxLayout(dlg)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(widget)
+    widget.setWindowTitle("Coincidence Milling Viewer")
+    widget.resize(1400, 800)
+    widget.show()
+    return widget
 
-    dlg.show()
-    return dlg
+
+# Backwards-compatible alias (previously a QDialog)
+open_coincidence_viewer_dialog = open_coincidence_viewer_window
 
 
 # ---------------------------------------------------------------------------
