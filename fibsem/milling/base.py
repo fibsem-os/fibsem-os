@@ -1,3 +1,4 @@
+import threading
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, fields, field, asdict
@@ -94,7 +95,7 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         return "\n".join(lines)
 
     @abstractmethod
-    def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False, parent_ui = None) -> None:
+    def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False, parent_ui = None, stop_event: Optional[threading.Event] = None) -> None:
         pass
 
 
