@@ -1703,18 +1703,40 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             except Exception:
                 pass
         super().closeEvent(event)
+        # Force the event loop to exit even if another top-level window (e.g. a stray
+        # matplotlib pyplot figure) would otherwise keep the app alive once this window
+        # closes. quit() — not os._exit — so atexit / experiment autosave still run.
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
 
 def run_ui():
     """Run the AutoLamella embedded example."""
+    import faulthandler
+    import signal
+
     from fibsem.applications.autolamella.tools.bug_report import init_sentry
+
+    # Ctrl+C: PyQt never runs Python's SIGINT handler while blocked in the C++ event
+    # loop — and if the GUI thread wedges, no Python runs at all — so restore the OS
+    # default disposition: SIGINT then terminates the process at the kernel level,
+    # making the app always killable with Ctrl+C. (A hard stop, not a graceful one;
+    # use Cmd+Q / File→Exit for a clean shutdown when the loop is responsive.)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    # Diagnostics: dump every thread's Python stack on a fatal signal, and on demand
+    # via `kill -USR1 <pid>` — the fastest way to see *where* a frozen GUI thread is
+    # stuck (it does not terminate the process, so you can dump repeatedly).
+    faulthandler.enable()
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     init_sentry()  # inert unless crash reporting is enabled in preferences
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
     window = AutoLamellaSingleWindowUI()
     window.show()
-    app.exec_()
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":

@@ -74,6 +74,11 @@ class ToastNotification(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.container)
 
+        # Neutralise the app-global NAPARI_STYLE `QWidget { background-color: #262930 }`
+        # bleed: keep every surface transparent so it shows the #toast_container's #1e2027
+        # (the id selector wins over this type rule).
+        self.setStyleSheet("QWidget { background-color: transparent; }")
+
         # Opacity effect for fade animation
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacity_effect)
@@ -112,14 +117,14 @@ class ToastNotification(QWidget):
         """)
 
         self.close_btn.setStyleSheet("""
-            QPushButton {
+            QToolButton {
                 background-color: transparent;
                 color: #888;
                 border: none;
                 font-size: 16px;
                 font-weight: bold;
             }
-            QPushButton:hover {
+            QToolButton:hover {
                 color: #d6d6d6;
             }
         """)
@@ -277,6 +282,11 @@ class NotificationHistoryPopup(QWidget):
                 border-bottom: 1px solid #3d4251;
             }
         """)
+        # The app-global NAPARI_STYLE sets `QWidget { background-color: #262930 }`, which
+        # otherwise bleeds into every child surface (header / scroll area / rows). Force them
+        # transparent so they show the container's #1e2027; the container + item:hover keep
+        # their opaque colour via higher-specificity id selectors.
+        self.setStyleSheet("QWidget { background-color: transparent; }")
 
     def add_notification(self, message: str, notification_type: str, timestamp: str):
         """Add a notification to the history."""
