@@ -899,12 +899,111 @@ def test_load_error_reverts_path_field(qapp, monkeypatch):
     assert tab._fib_loaded_path == "/good/prev_ib.tif"
 
 
-def test_rms_color_thresholds():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_color
+def _fake_fib(pixel_size_m=52.1e-9):
+    """FIB image stub carrying just the pixel size the RMS badge needs."""
+    from types import SimpleNamespace
 
-    assert _rms_color(1.0) == "#4caf50"  # good → green
-    assert _rms_color(3.0) == "#ffb300"  # ok → amber
-    assert _rms_color(8.0) == "#e53935"  # poor → red
+    return SimpleNamespace(
+        metadata=SimpleNamespace(pixel_size=SimpleNamespace(x=pixel_size_m))
+    )
+
+
+def _result_fit(rms=1.82, n=6, worst=(3.0, 1.0)):
+    """A result with n fiducials, one of which is the worst by some margin."""
+    deltas = [Point(x=0.1, y=0.1) for _ in range(max(n - 1, 0))]
+    if n:
+        deltas.append(Point(x=worst[0], y=worst[1]))
+    return CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=rms,
+        reprojected_3d=[PointXYZ(x=0.0, y=0.0, z=0.0) for _ in range(n)],
+        delta_2d=deltas,
+    )
+
+
+def test_rms_never_certifies_a_good_fit():
+    """There is deliberately no "good" colour. A residual can show a fit is
+    wrong; it cannot show one is right, and green would read as that promise."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_concern
+
+    color, reason = _rms_concern(20.0, 8, 1.1)  # about as clean as it gets
+    assert color == "#9aa0a6" and reason is None  # neutral, no verdict either way
+
+
+def test_rms_flags_detectable_problems():
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_concern
+
+    # A minimum-pair fit: residual is small by construction, not by agreement.
+    color, reason = _rms_concern(20.0, 4, 1.1)
+    assert color == "#ffb300" and "no redundancy" in reason
+
+    # One correspondence dominating the error — the case an average hides.
+    color, reason = _rms_concern(20.0, 8, 3.4)
+    assert color == "#ffb300" and "3.4× the RMS" in reason
+
+    # Far enough out to be breakage rather than a judgement call.
+    color, reason = _rms_concern(1500.0, 8, 1.1)
+    assert color == "#e53935" and "not converged" in reason
+
+
+def test_rms_relative_checks_survive_a_missing_pixel_size():
+    """A result loaded from JSON restores no images, so nm is unavailable — but
+    pair counts and error ratios are unitless and still apply."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_concern
+
+    color, reason = _rms_concern(None, 4, 3.4)
+    assert color == "#ffb300"
+    assert "no redundancy" in reason and "3.4× the RMS" in reason
+
+    assert _rms_concern(None, 8, 1.1) == ("#9aa0a6", None)
+
+
+def test_rms_badge_reports_physical_distance(qapp):
+    """With a FIB pixel size the badge shows nm, so the number means something
+    independent of the HFW the image was taken at."""
+    w = _widget(qapp)
+    w._fib_image = _fake_fib(pixel_size_m=52.1e-9)
+    w._on_result_ready(_result_fit(rms=1.82))
+
+    # 1.82 px x 52.1 nm/px = 95 nm
+    assert "95 nm" in w._lbl_result.text()
+    assert "#9aa0a6" in w._lbl_result.text()  # nothing wrong detected → no verdict
+
+
+def test_rms_badge_falls_back_to_px_without_pixel_size(qapp):
+    """A result loaded from JSON restores no images, so nm is unavailable — show
+    px and stay neutral rather than colouring a figure we cannot interpret."""
+    w = _widget(qapp)  # no FIB image
+    w._on_result_ready(_result_fit(rms=1.82))
+
+    assert "1.82 px" in w._lbl_result.text()
+    assert "#9aa0a6" in w._lbl_result.text()
+    assert "pixel size unknown" in w._lbl_result.toolTip().lower()
+
+
+def test_rms_tooltip_explains_what_is_measured(qapp):
+    w = _widget(qapp)
+    w._fib_image = _fake_fib(pixel_size_m=52.1e-9)
+    w._on_result_ready(_result_fit(rms=1.82, n=6, worst=(3.0, 1.0)))
+    tip = w._lbl_result.toolTip()
+
+    assert "1.82 px" in tip and "52.1 nm/px" in tip  # the conversion is shown
+    assert "6 fiducial pairs" in tip
+    assert "3.16 px" in tip  # worst single fiducial, hypot(3, 1)
+    assert "not POI accuracy" in tip
+
+
+def test_rms_tooltip_flags_a_minimum_fiducial_fit(qapp):
+    """At 4 pairs the rigid fit has almost no redundancy, so a small residual is
+    structural rather than evidence of a good correlation."""
+    w = _widget(qapp)
+    w._fib_image = _fake_fib()
+
+    w._on_result_ready(_result_fit(n=4))
+    assert "no redundancy" in w._lbl_result.toolTip()
+
+    w._on_result_ready(_result_fit(n=8))
+    assert "no redundancy" not in w._lbl_result.toolTip()
 
 
 def test_result_summary_hidden_until_run(qapp):

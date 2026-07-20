@@ -37,7 +37,7 @@ import os
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 logging.basicConfig(level=logging.INFO)
 
@@ -95,18 +95,68 @@ from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveInde
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
 
-# Run-bar RMS quality cue (px). Placeholder thresholds — tune to the workflow.
-_RMS_GOOD_PX = 2.0
-_RMS_OK_PX = 5.0
+# Run-bar RMS cue. The badge FLAGS problems; it never certifies quality. The RMS
+# is a fit residual over the fiducials, so a low value cannot promise the POI —
+# which is extrapolated from that fit — lands where you want it. A green light
+# would read as exactly that promise, so there is no green: neutral means "no
+# detected problem", not "good".
+#
+# The two relative triggers need no calibration and hold at any HFW. Only the
+# absolute limits carry numbers, and they are set far enough out to be statements
+# of breakage rather than judgements of quality (500 nm is ~7.7 px at 100 µm HFW
+# on a 1536 px-wide image; 1 µm is ~15 px).
+_RMS_LARGE_NM = 500.0
+_RMS_BROKEN_NM = 1000.0
+_RMS_OUTLIER_RATIO = 2.0
+# Fewest fiducial pairs the run button accepts. The rigid 3D->2D transform has
+# ~7 degrees of freedom, so a fit on this many is barely over-determined and its
+# residual is small by construction rather than by agreement.
+_RMS_MIN_FIDUCIALS = 4
+
+_RMS_NEUTRAL = "#9aa0a6"
+_RMS_WARN = "#ffb300"
+_RMS_BAD = "#e53935"
 
 
-def _rms_color(rms: float) -> str:
-    """Colour for the run-bar RMS badge: green (good) / amber (ok) / red (poor)."""
-    if rms <= _RMS_GOOD_PX:
-        return "#4caf50"
-    if rms <= _RMS_OK_PX:
-        return "#ffb300"
-    return "#e53935"
+def _rms_concern(
+    rms_nm: Optional[float],
+    n_fiducials: Optional[int] = None,
+    worst_ratio: Optional[float] = None,
+) -> Tuple[str, Optional[str]]:
+    """Flag detectable problems with a fit. Returns (colour, reason or None).
+
+    A residual can demonstrate that a correlation is wrong; it can never
+    demonstrate that one is right. So this only ever reports suspicion — the
+    neutral case carries no verdict at all.
+
+    The relative checks still apply when ``rms_nm`` is None (a result loaded from
+    JSON has no pixel size): they are ratios and counts, not distances.
+    """
+    if rms_nm is not None and rms_nm > _RMS_BROKEN_NM:
+        return _RMS_BAD, (
+            f"RMS exceeds {_format_distance_nm(_RMS_BROKEN_NM)} — the fit has not "
+            "converged on anything usable."
+        )
+
+    reasons: List[str] = []
+    if rms_nm is not None and rms_nm > _RMS_LARGE_NM:
+        reasons.append(f"RMS is above {_format_distance_nm(_RMS_LARGE_NM)}.")
+    if n_fiducials and n_fiducials <= _RMS_MIN_FIDUCIALS:
+        reasons.append(
+            f"Only {n_fiducials} fiducial pairs — the fit has almost no redundancy, "
+            "so this residual understates the true error."
+        )
+    if worst_ratio is not None and worst_ratio > _RMS_OUTLIER_RATIO:
+        reasons.append(
+            f"One fiducial is {worst_ratio:.1f}× the RMS — more likely a misplaced "
+            "correspondence than general noise."
+        )
+    return (_RMS_WARN, " ".join(reasons)) if reasons else (_RMS_NEUTRAL, None)
+
+
+def _format_distance_nm(nm: float) -> str:
+    """Render a nanometre distance, switching to µm once it stops being readable."""
+    return f"{nm / 1000:.2f} µm" if nm >= 1000 else f"{nm:.0f} nm"
 
 
 # ---------------------------------------------------------------------------
@@ -1587,13 +1637,23 @@ class CorrelationTabWidget(QWidget):
         self._set_result_live(True)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
         self._update_run_button()
-        # RMS beside Continue (quality-coloured); compact RI / POI note on status.
+        # RMS beside Continue (coloured only if something looks wrong); compact
+        # RI / POI note on status.
         rms = result.rms_error
         if rms is not None:
-            self._lbl_result.setText(
-                f'<span style="color:{_rms_color(rms)}">RMS {rms:.2f} px</span>'
+            px_m = self._fib_pixel_size_m()
+            rms_nm = rms * px_m * 1e9 if px_m else None
+            shown = _format_distance_nm(rms_nm) if rms_nm is not None else f"{rms:.2f} px"
+            worst = self._worst_fiducial_px(result)
+            color, concern = _rms_concern(
+                rms_nm,
+                len(result.reprojected_3d),
+                worst / rms if worst is not None and rms > 0 else None,
             )
-            self._lbl_result.setToolTip("Registration RMS error — lower is better")
+            self._lbl_result.setText(
+                f'<span style="color:{color}">RMS {shown}</span>'
+            )
+            self._lbl_result.setToolTip(self._rms_tooltip(result, rms, px_m, concern))
             self._lbl_result.setVisible(True)
         if (
             result.refractive_index_correction_mode == "pre"
@@ -1607,6 +1667,71 @@ class CorrelationTabWidget(QWidget):
         else:
             self._lbl_status.setText("Done.")
         self.result_changed.emit(result)
+
+    def _fib_pixel_size_m(self) -> Optional[float]:
+        """FIB pixel size in metres, or None. A result loaded from JSON has no
+        images restored, so this is legitimately absent rather than an error."""
+        return getattr(
+            getattr(getattr(self._fib_image, "metadata", None), "pixel_size", None),
+            "x",
+            None,
+        )
+
+    @staticmethod
+    def _worst_fiducial_px(result: CorrelationResult) -> Optional[float]:
+        """Largest single-fiducial reprojection error, which the RMS averages away.
+
+        One badly-placed correspondence among several good ones barely moves the
+        RMS but can still ruin the fit, so it is worth reporting separately.
+        """
+        if not result.delta_2d:
+            return None
+        return max(float(np.hypot(d.x, d.y)) for d in result.delta_2d)
+
+    def _rms_tooltip(
+        self,
+        result: CorrelationResult,
+        rms_px: float,
+        px_m: Optional[float],
+        concern: Optional[str] = None,
+    ) -> str:
+        """Explain what the RMS badge is measuring, and what it is not."""
+        n = len(result.reprojected_3d)
+        lines = []
+
+        if px_m:
+            lines.append(
+                f"Registration RMS error — {_format_distance_nm(rms_px * px_m * 1e9)}"
+            )
+            lines.append(f"{rms_px:.2f} px × {px_m * 1e9:.1f} nm/px")
+        else:
+            lines.append(f"Registration RMS error — {rms_px:.2f} px")
+            lines.append("FIB pixel size unknown — load the FIB image to see this in nm.")
+
+        detail = (
+            "Root-mean-square residual of the rigid 3D→2D fit"
+            f"{f' across {n} fiducial pairs' if n else ''}."
+        )
+        worst = self._worst_fiducial_px(result)
+        if worst is not None:
+            shown = f"{worst:.2f} px"
+            if px_m:
+                shown += f" ({_format_distance_nm(worst * px_m * 1e9)})"
+            detail += f" Worst single fiducial: {shown}."
+        lines += ["", detail]
+
+        if concern:
+            lines += ["", f"⚠  {concern}"]
+
+        lines += [
+            "",
+            "Measures how well the FM fiducials land on their FIB counterparts — "
+            "not POI accuracy. The POI is extrapolated from this fit, so one "
+            "outside the fiducial spread can be worse than this suggests. A low "
+            "residual cannot confirm the correlation is right; only a high one "
+            "can show it is wrong.",
+        ]
+        return "\n".join(lines)
 
     @staticmethod
     def _poi_shift_px(result: CorrelationResult) -> Optional[float]:
