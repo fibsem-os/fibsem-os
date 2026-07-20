@@ -1,7 +1,7 @@
 
 import napari
 import napari.utils.notifications
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont

@@ -7,7 +7,7 @@ import napari
 import napari.utils.notifications
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Points as NapariPointsLayer
-from napari.qt.threading import FunctionWorker, thread_worker
+from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
