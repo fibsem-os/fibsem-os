@@ -15,6 +15,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     clear_spot_burn_ui,
     update_spot_burn_parameters,
 )
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
 
 
@@ -85,7 +86,6 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 
     def to_settings(self) -> SpotBurnSettings:
         """The run payload (coordinates + current + exposure) for this task."""
-        from fibsem.imaging.spot import SpotBurnSettings
         return SpotBurnSettings(
             coordinates=list(self.coordinates),
             milling_current=self.milling_current,
