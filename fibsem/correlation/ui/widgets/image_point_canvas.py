@@ -38,14 +38,23 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import matplotlib.patheffects as pe
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QAction, QMenu, QSizePolicy, QWidget
+from PyQt5.QtWidgets import (
+    QAction,
+    QApplication,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.icon import fibsem_icon
 _logger = logging.getLogger(__name__)
 
 _POINT_COLORS: Dict[PointType, str] = {
@@ -62,12 +71,15 @@ _POINT_MARKERS: Dict[PointType, str] = {
     PointType.SURFACE:    "+",
     PointType.SURFACE_FM: "+",
 }
-_MARKER_SIZE     = 10
-_SELECTED_SIZE   = 14
+_MARKER_SIZE     = 5
+_SELECTED_SIZE   = 7
 _PICK_RADIUS_PX  = 15
 _ZOOM_FACTOR     = 1.15
 _MAX_DISPLAY_PX  = 2048
 _REDRAW_INTERVAL = 32     # ms (~60 fps cap for pan/zoom)
+_LABEL_FONTSIZE  = 9
+# Dark outline so coloured point labels stay legible on any image background.
+_LABEL_OUTLINE   = [pe.withStroke(linewidth=0.5, foreground="black")]
 
 
 def _downsample(image: np.ndarray, max_px: int) -> np.ndarray:
@@ -115,9 +127,27 @@ def _marker_style(point_type: PointType, is_selected: bool) -> dict:
     )
 
 
-# Shared by the live canvas legend and the render_to_axes export
+# Overlay toolbar (top-right icon buttons, matching the shared-canvas look
+# from the PR #111 stack; the mechanism is replaced by that canvas's native
+# toolbar when the correlation canvases migrate onto it)
+_OVERLAY_BTN_SIZE = 26
+_OVERLAY_ICON_SIZE = QSize(18, 18)
+_OVERLAY_MARGIN = 6
+_OVERLAY_GAP = 4
+_OVERLAY_BTN_STYLE = (
+    "QPushButton { background: rgba(30, 33, 36, 180);"
+    " border: 1px solid #3a3d42; border-radius: 4px; }"
+    "QPushButton:hover { background: rgba(45, 63, 92, 220); }"
+    "QPushButton:checked { background: rgba(45, 63, 92, 220);"
+    " border: 1px solid #6aa1e0; }"
+)
+
+
+# Shared by the live canvas legend and the render_to_axes export.
+# Upper LEFT: the top-right corner belongs to the overlay toolbar buttons
+# (same convention as the PR #111 shared canvas).
 _LEGEND_KWARGS = dict(
-    loc="upper right",
+    loc="upper left",
     fontsize=8,
     framealpha=0.75,
     facecolor="#1e2124",
@@ -149,6 +179,27 @@ def _legend_handle(
     )
 
 
+_QT_MODIFIER_MAP = (
+    (Qt.AltModifier, "Alt"),
+    (Qt.ShiftModifier, "Shift"),
+    (Qt.ControlModifier, "Control"),
+    (Qt.MetaModifier, "Meta"),
+)
+
+
+def _modifiers_from_event(event) -> Tuple[str, ...]:
+    """Active keyboard modifiers for a matplotlib event, e.g. ``("Shift",)``.
+
+    Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
+    the reliable source in an embedded canvas, whereas matplotlib's
+    ``MouseEvent.key`` depends on canvas keyboard focus. Falls back to the
+    application-wide modifier state when no Qt event is attached.
+    """
+    gui = getattr(event, "guiEvent", None)
+    mods = gui.modifiers() if gui is not None else QApplication.keyboardModifiers()
+    return tuple(name for flag, name in _QT_MODIFIER_MAP if mods & flag)
+
+
 class ImagePointCanvas(FigureCanvasQTAgg):
     """Matplotlib canvas: image + draggable Coordinate markers."""
 
@@ -157,6 +208,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     point_removed       = pyqtSignal(object)               # Coordinate
     canvas_clicked      = pyqtSignal(float, float)         # x, y data coords
     point_add_requested = pyqtSignal(float, float, object) # x, y, PointType
+    z_scroll_requested  = pyqtSignal(int)                  # +1 / -1 (Shift+wheel)
 
     def __init__(
         self,
@@ -178,6 +230,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._coordinates: List[Coordinate] = []
         self._selected: Optional[Coordinate] = None
         self._dragging: Optional[Coordinate] = None
+        # Position at press, so release can tell a select-click from a real drag
+        self._drag_origin: Optional[Tuple[float, float]] = None
         self._pan_start: Optional[Tuple] = None
 
         # Image bounds for drag clamping (set in set_image)
@@ -199,9 +253,22 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._legend_visible: bool = True
         self._overlay_legend: List[Tuple[str, dict]] = []  # (label, handle style)
 
+        # Point-name labels next to each marker — toggleable to declutter
+        self._labels_visible: bool = True
+
         # Dashed datum line across the canvas at the FIB surface y
         self._surface_line = None
         self._surface_line_coord: Optional[Coordinate] = None
+
+        # Shift+wheel steps Z instead of zooming (enabled by the FM display)
+        self._shift_z_enabled: bool = False
+
+        # Overlay toolbar (top-right)
+        self._overlay_buttons: List[QPushButton] = []
+        self._btn_scalebar: Optional[QPushButton] = None
+        self._btn_legend: Optional[QPushButton] = None
+        self._btn_labels: Optional[QPushButton] = None
+        self._create_toolbar_buttons()
 
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setSingleShot(True)
@@ -300,9 +367,78 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self._background = None
             self.draw()
 
+    # ------------------------------------------------------------------
+    # Overlay toolbar (top-right icon buttons)
+    # ------------------------------------------------------------------
+
+    def _create_toolbar_buttons(self) -> None:
+        """Standard buttons; first added stacks rightmost."""
+        self._add_overlay_button(
+            "mdi:fit-to-screen-outline", "Reset view", lambda _=False: self.reset_view()
+        )
+        self._btn_scalebar = self._add_overlay_button(
+            "mdi:arrow-expand-horizontal",
+            "Toggle scalebar",
+            self.set_scalebar_visible,
+            checkable=True,
+        )
+        self._btn_scalebar.setChecked(self._show_scalebar)
+        self._btn_legend = self._add_overlay_button(
+            "mdi:format-list-bulleted",
+            "Toggle legend",
+            self.set_legend_visible,
+            checkable=True,
+        )
+        self._btn_legend.setChecked(self._legend_visible)
+        self._btn_labels = self._add_overlay_button(
+            "mdi:label-outline",
+            "Toggle point labels",
+            self.set_labels_visible,
+            checkable=True,
+        )
+        self._btn_labels.setChecked(self._labels_visible)
+
+    def _add_overlay_button(
+        self,
+        icon_name: str,
+        tooltip: str,
+        callback,
+        checkable: bool = False,
+    ) -> QPushButton:
+        """Create a button parented to the canvas, stacked top-right.
+
+        Repositioned automatically on resize. ``clicked(bool)`` is connected to
+        ``callback`` (checkable buttons receive the new checked state).
+        """
+        btn = QPushButton(self)
+        btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
+        btn.setIconSize(_OVERLAY_ICON_SIZE)
+        btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(checkable)
+        btn.setStyleSheet(_OVERLAY_BTN_STYLE)
+        btn.clicked.connect(callback)
+        btn.raise_()
+        self._overlay_buttons.append(btn)
+        self._reposition_overlay_buttons()
+        return btn
+
+    def _reposition_overlay_buttons(self) -> None:
+        x = self.width() - _OVERLAY_MARGIN
+        for btn in self._overlay_buttons:
+            x -= btn.width()
+            btn.move(x, _OVERLAY_MARGIN)
+            x -= _OVERLAY_GAP
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._reposition_overlay_buttons()
+
     def set_scalebar_visible(self, visible: bool) -> None:
         """Show or hide the scale bar."""
         self._show_scalebar = visible
+        if self._btn_scalebar is not None:
+            self._btn_scalebar.setChecked(visible)
         self._refresh_scalebar()
         self._background = None
         self.draw()
@@ -332,7 +468,19 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def set_legend_visible(self, visible: bool) -> None:
         """Show or hide the point-type legend."""
         self._legend_visible = visible
+        if self._btn_legend is not None:
+            self._btn_legend.setChecked(visible)
         self._update_legend()
+        self._background = None
+        self.draw()
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide the point-name labels next to each marker."""
+        self._labels_visible = visible
+        if self._btn_labels is not None:
+            self._btn_labels.setChecked(visible)
+        for ann in self._label_artists + self._overlay_label_artists:
+            ann.set_visible(visible)
         self._background = None
         self.draw()
 
@@ -434,6 +582,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 fontsize=ann.get_fontsize(),
                 fontweight=ann.get_fontweight(),
                 zorder=ann.get_zorder(),
+                path_effects=_LABEL_OUTLINE,
             )
 
         if self._show_scalebar and self._pixel_size is not None:
@@ -502,11 +651,13 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 xytext=(7, 5),
                 textcoords="offset points",
                 color=color,
-                fontsize=8,
+                fontsize=_LABEL_FONTSIZE,
                 alpha=alpha,
                 animated=True,
                 zorder=9,
+                path_effects=_LABEL_OUTLINE,
             )
+            ann.set_visible(self._labels_visible)
             self._overlay_label_artists.append(ann)
 
         self._background = None
@@ -619,11 +770,13 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 xytext=(7, 5),
                 textcoords="offset points",
                 color=color,
-                fontsize=8,
+                fontsize=_LABEL_FONTSIZE,
                 fontweight="bold" if is_sel else "normal",
                 animated=True,
                 zorder=11 if is_sel else 6,
+                path_effects=_LABEL_OUTLINE,
             )
+            ann.set_visible(self._labels_visible)
             self._label_artists.append(ann)
 
         self._update_legend()
@@ -699,6 +852,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 changed = nearest is not self._selected
                 self._selected = nearest
                 self._dragging = nearest
+                self._drag_origin = (nearest.point.x, nearest.point.y)
                 self._apply_styles()
                 self._blit_points()
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -746,8 +900,17 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def _on_release(self, event) -> None:
         if event.button == 1:
             if self._dragging is not None:
-                self.point_moved.emit(self._dragging)
+                # A click to select leaves the position untouched — only report a
+                # move if one actually happened, or every selection invalidates
+                # the correlation result downstream.
+                moved = (
+                    self._dragging.point.x,
+                    self._dragging.point.y,
+                ) != self._drag_origin
+                if moved:
+                    self.point_moved.emit(self._dragging)
                 self._dragging = None
+                self._drag_origin = None
             elif self._pan_start is not None:
                 sx0, sy0, *_ = self._pan_start
                 if ((event.x - sx0) ** 2 + (event.y - sy0) ** 2) ** 0.5 < 3:
@@ -760,8 +923,15 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
 
+    def set_shift_z_scroll_enabled(self, enabled: bool) -> None:
+        """When enabled, Shift+wheel emits z_scroll_requested instead of zooming."""
+        self._shift_z_enabled = bool(enabled)
+
     def _on_scroll(self, event) -> None:
         if event.inaxes is not self._ax or event.xdata is None:
+            return
+        if self._shift_z_enabled and "Shift" in _modifiers_from_event(event):
+            self.z_scroll_requested.emit(1 if event.button == "up" else -1)
             return
         factor = 1.0 / _ZOOM_FACTOR if event.button == "up" else _ZOOM_FACTOR
         cx, cy = event.xdata, event.ydata

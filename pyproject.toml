@@ -73,7 +73,7 @@ server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0"]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
 fibsem-generate-config = "fibsem.configuration:gen_config_cli"
-fibsem-config-ui = "fibsem.ui.FibsemMicroscopeConfigurationWidget:main"
+fibsem-config-ui = "fibsem.ui.widgets.microscope_config_widget:main"
 fibsem-autolamella-ui = "fibsem.applications.autolamella.ui.AutoLamellaMainUI:run_ui"
 fm-ui = "fibsem.ui.FMAcquisitionWidget:main"
 fm-image-viewer-ui = "fibsem.ui.fm.widgets.fm_image_viewer_widget:main"

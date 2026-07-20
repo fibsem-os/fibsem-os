@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 import numpy as np
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.ui import notification_service

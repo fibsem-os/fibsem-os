@@ -1,63 +1,57 @@
-"""Test script for CorrelationTabWidget.
+"""Manual launcher for CorrelationTabWidget, pre-loaded from a project directory.
+
+Quickstart: loads the FIB + FM images and the saved correlation result (or
+coordinate data) from a project directory — defaults to the worktree's ``tmp/``.
 
 Usage
 -----
-    python fibsem/correlation/ui/widgets/test_correlation_tab_widget.py
-"""
-import os
-from pprint import pprint
-import sys
+    # quickstart from tmp/ (FIB + FM images + correlation_result.json)
+    python -m fibsem.correlation.ui.widgets.test_correlation_tab_widget
 
-from PyQt5.QtGui import QColor, QPalette
+    # or point at any correlation project directory
+    python -m fibsem.correlation.ui.widgets.test_correlation_tab_widget /path/to/project
+"""
+import sys
+from pprint import pprint
+
 from PyQt5.QtWidgets import QApplication, QMainWindow
 
-from fibsem.correlation.ui.widgets.correlation_tab_widget import CorrelationTabWidget
-from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage
+from fibsem.correlation.structures import CorrelationResult
+from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    CorrelationTabWidget,
+    load_project,
+)
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.correlation.structures import CorrelationResult, CorrelationInputData
 
-_DEV_PATH = "/home/patrick/github/fibsem/fibsem/applications/test-data"
-_FIB_IMAGE = "ref_ReferenceImage-Spot-Burn-Fiducial-10-36-30_res_02_ib.tif"
-_FM_IMAGE  = "zstack-Feature-1-Active-002.ome.tiff"
+_DEFAULT_PROJECT = "tmp"
 
 
-class TestWindow(QMainWindow):
-    def __init__(self) -> None:
+class _LauncherWindow(QMainWindow):
+    def __init__(self, directory: str) -> None:
         super().__init__()
         self.setWindowTitle("CorrelationTabWidget — test")
         self.resize(1400, 900)
 
-        fib_image = fm_image = None
-        try:
-            fib_image = FibsemImage.load(os.path.join(_DEV_PATH, _FIB_IMAGE))
-            print("FIB image loaded.")
-        except Exception as exc:
-            print(f"Could not load FIB image: {exc}")
-        try:
-            fm_image = FluorescenceImage.load(os.path.join(_DEV_PATH, _FM_IMAGE))
-            print("FM image loaded.")
-        except Exception as exc:
-            print(f"Could not load FM image: {exc}")
-
-        self._widget = CorrelationTabWidget(fib_image=fib_image, fm_image=fm_image)
+        self._widget = CorrelationTabWidget()
+        load_project(self._widget, directory)
         self.setCentralWidget(self._widget)
-
 
         self._widget.continue_pressed_signal.connect(self._print_continue)
 
-    def _print_continue(self, result: CorrelationResult):
-        # print("Continue pressed! Result:", result)
-
+    def _print_continue(self, result: CorrelationResult) -> None:
         print(f"POI: {len(result.poi)}")
-        pprint(result.poi[0])
+        if result.poi:
+            pprint(result.poi[0])
+
 
 def main() -> None:
-    app = QApplication(sys.argv)
+    directory = sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_PROJECT
+
+    app = QApplication(sys.argv[:1])
     app.setStyle("Fusion")
     app.setStyleSheet(NAPARI_STYLE)
 
-    win = TestWindow()
+    win = _LauncherWindow(directory)
     win.show()
     sys.exit(app.exec_())
 

@@ -16,6 +16,7 @@ Usage
 """
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 import matplotlib.colors
@@ -32,6 +33,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -49,6 +51,25 @@ _DEFAULT_COLORS = ["cyan", "magenta", "yellow", "green", "red", "blue", "gray"]
 
 _SWATCH_SIZE   = 14   # px
 _CTRL_HEIGHT   = 28   # compact control row height
+_CH_ROW_HEIGHT = 24   # one channel row (measured sizeHint)
+_CH_NAME_WIDTH = 150  # channel-name label width (keeps sliders aligned)
+# Channel-controls pane floor: 3 rows + container/spacing/frame margin
+_CH_MIN_HEIGHT = 3 * _CH_ROW_HEIGHT + 16
+_CH_INIT_HEIGHT = _CH_MIN_HEIGHT + 48  # a bit taller by default; user-resizable
+
+# Compact step buttons flanking the Z slider
+_Z_BTN_STYLE = (
+    "QToolButton { color: #d0d0d0; background: #2b2d31; border: 1px solid #3a3d42; "
+    "border-radius: 3px; font-size: 13px; }"
+    "QToolButton:hover { background: #3a3d42; }"
+    "QToolButton:disabled { color: #5a5d62; }"
+)
+
+# Filename header shown above the FM (and FIB) image canvas
+IMAGE_HEADER_STYLE = (
+    "color: #d0d0d0; font-size: 11px; padding: 3px 8px; "
+    "background: #1e2124; border-bottom: 1px solid #3a3d42;"
+)
 
 
 def _normalize_clipped(arr: np.ndarray, lo_pct: float, hi_pct: float) -> np.ndarray:
@@ -159,21 +180,19 @@ class _ChannelRow(QWidget):
         # Channel name
         lbl = QLabel(name)
         lbl.setStyleSheet("color: #d0d0d0; font-size: 11px;")
-        lbl.setFixedWidth(180)
+        lbl.setFixedWidth(_CH_NAME_WIDTH)
         lbl.setToolTip(name)
         lbl.setTextFormat(Qt.TextFormat.PlainText)
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(lbl)
 
-        # Per-channel clip range slider
+        # Per-channel clip range slider — fills the remaining row width
         self._clip_slider = _ClipSlider(Qt.Orientation.Horizontal)
         self._clip_slider.setRange(0, 100)
         self._clip_slider.setValue((0, 100))
-        self._clip_slider.setMinimumWidth(40)
-        self._clip_slider.setMaximumWidth(150)
+        self._clip_slider.setMinimumWidth(80)
         self._clip_slider.valueChanged.connect(lambda _: self.clip_changed.emit())
-        layout.addWidget(self._clip_slider)
-        layout.addStretch()
+        layout.addWidget(self._clip_slider, stretch=1)
 
     @property
     def is_visible(self) -> bool:
@@ -247,14 +266,38 @@ class FMImageDisplayWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Canvas
+        # Header: FM image filename (hidden until an image is loaded)
+        self._name_label = QLabel("")
+        self._name_label.setStyleSheet(IMAGE_HEADER_STYLE)
+        self._name_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._name_label.setVisible(False)
+        layout.addWidget(self._name_label)
+
+        # Vertical splitter: canvas (+Z row) on top, channel controls below,
+        # so the channel/contrast area can be dragged taller/shorter.
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: #3a3d42; }"
+            "QSplitter::handle:hover { background: #4a4d52; }"
+        )
+
+        # --- top pane: canvas + Z/MIP row ---
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
+
         self.canvas = ImagePointCanvas(allowed_point_types=self._allowed_point_types)
-        layout.addWidget(self.canvas, stretch=1)
+        self.canvas.set_shift_z_scroll_enabled(True)
+        self.canvas.z_scroll_requested.connect(self._step_z)
+        top_layout.addWidget(self.canvas, stretch=1)
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.HLine)
         sep1.setStyleSheet("color: #3a3d42;")
-        layout.addWidget(sep1)
+        top_layout.addWidget(sep1)
 
         # Z / MIP row
         self._z_row = QWidget()
@@ -272,31 +315,45 @@ class FMImageDisplayWidget(QWidget):
 
         z_layout.addWidget(QLabel("Z:"))
 
+        self._z_prev = QToolButton()
+        self._z_prev.setText("‹")
+        self._z_prev.setFixedSize(20, 20)
+        self._z_prev.setToolTip("Previous Z-slice")
+        self._z_prev.setStyleSheet(_Z_BTN_STYLE)
+        self._z_prev.clicked.connect(lambda: self._step_z(-1))
+        z_layout.addWidget(self._z_prev)
+
         self._z_slider = QSlider(Qt.Orientation.Horizontal)
         self._z_slider.setMinimum(0)
         self._z_slider.setMaximum(0)
         self._z_slider.setSingleStep(1)
         self._z_slider.setPageStep(1)
+        # Shift+scroll has no visible affordance — advertise it here
+        self._z_slider.setToolTip("Drag to change Z-slice, or Shift+scroll on the image")
         z_layout.addWidget(self._z_slider, stretch=1)
+
+        self._z_next = QToolButton()
+        self._z_next.setText("›")
+        self._z_next.setFixedSize(20, 20)
+        self._z_next.setToolTip("Next Z-slice")
+        self._z_next.setStyleSheet(_Z_BTN_STYLE)
+        self._z_next.clicked.connect(lambda: self._step_z(1))
+        z_layout.addWidget(self._z_next)
 
         self._z_label = QLabel("1 / 1")
         self._z_label.setStyleSheet("color: #aaa; font-size: 11px;")
         self._z_label.setFixedWidth(48)
         z_layout.addWidget(self._z_label)
 
-        layout.addWidget(self._z_row)
+        top_layout.addWidget(self._z_row)
+        splitter.addWidget(top)
 
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("color: #3a3d42;")
-        layout.addWidget(sep2)
-
-        # Channel rows (scrollable, vertical stack)
+        # --- bottom pane: channel rows (scrollable, resizable) ---
         self._ch_scroll = QScrollArea()
         self._ch_scroll.setWidgetResizable(True)
         self._ch_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._ch_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._ch_scroll.setMaximumHeight(120)
+        self._ch_scroll.setMinimumHeight(_CH_MIN_HEIGHT)  # ≥ 3 channel rows + margin
         self._ch_scroll.setStyleSheet("background: #1e2124; border: none;")
 
         self._ch_container = QWidget()
@@ -305,7 +362,13 @@ class FMImageDisplayWidget(QWidget):
         self._ch_layout.setContentsMargins(4, 2, 4, 2)
         self._ch_layout.setSpacing(2)
         self._ch_scroll.setWidget(self._ch_container)
-        layout.addWidget(self._ch_scroll)
+        splitter.addWidget(self._ch_scroll)
+
+        # Canvas absorbs extra space; channel pane keeps its size on resize.
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([600, _CH_INIT_HEIGHT])
+        layout.addWidget(splitter, stretch=1)
 
         # Connect controls
         self._z_slider.valueChanged.connect(self._on_z_changed)
@@ -326,6 +389,7 @@ class FMImageDisplayWidget(QWidget):
         """Load an FM image, rebuild channel rows, render initial composite."""
         self._fm_image = fm_image
         self._first_render = True
+        self._update_name_label()
         self._build_channel_rows()
         self._update_z_controls()
         self._render()
@@ -346,6 +410,16 @@ class FMImageDisplayWidget(QWidget):
     def current_z(self) -> int:
         """Current z-slice index (0-based)."""
         return self._z_slider.value()
+
+    def _update_name_label(self) -> None:
+        """Show the loaded FM image's filename in the header."""
+        filename = ""
+        if self._fm_image is not None:
+            filename = getattr(self._fm_image.metadata, "filename", "") or ""
+        base = os.path.basename(filename) if filename else ""
+        self._name_label.setText(base)
+        self._name_label.setToolTip(filename)
+        self._name_label.setVisible(bool(base))
 
     # ------------------------------------------------------------------
     # Channel row management
@@ -455,6 +529,12 @@ class FMImageDisplayWidget(QWidget):
     # Slots
     # ------------------------------------------------------------------
 
+    def _step_z(self, delta: int) -> None:
+        """Advance the Z slider by ``delta`` slices (no-op while MIP is active)."""
+        if self._fm_image is None or self._mip_check.isChecked():
+            return
+        self._z_slider.setValue(self._z_slider.value() + int(delta))
+
     def _on_z_changed(self) -> None:
         self._update_z_label()
         if not self._mip_check.isChecked():
@@ -463,6 +543,8 @@ class FMImageDisplayWidget(QWidget):
     def _on_mip_changed(self) -> None:
         enabled = not self._mip_check.isChecked()
         self._z_slider.setEnabled(enabled)
+        self._z_prev.setEnabled(enabled)
+        self._z_next.setEnabled(enabled)
         self._render()
 
     def _on_visibility_changed(self, _index: int, _visible: bool) -> None:
