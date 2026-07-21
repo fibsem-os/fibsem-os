@@ -490,15 +490,15 @@ def hole_fitting_RL(img: np.ndarray,
     return xr, yr, zr, fig
 
 def hole_fitting_FIB(img: np.ndarray,
-    x: int,
-    y: int,
+    x: float,
+    y: float,
     cutout: int = 15,
     show: bool = False,
 ):
     """Refine selection of hole in FIB image.
     Args:
         img: 2D numpy array (Y,X)
-        x,y initial coordinates from the user click
+        x,y initial coordinates from the user click (may be sub-pixel)
         cutout: size of the cutout around the point in x,y
         show: show the diagnostic figure
     Returns:
@@ -507,8 +507,12 @@ def hole_fitting_FIB(img: np.ndarray,
     """
     import matplotlib.pyplot as plt
 
+    # The click may be sub-pixel; round for integer slicing but keep the
+    # fraction so the input marker is drawn exactly where the user clicked
+    # (otherwise a no-change fit shows the markers up to ~1px apart).
+    xi, yi = int(round(x)), int(round(y))
     # cut out a box around the point
-    roi = img[y-cutout:y+cutout, x-cutout:x+cutout]
+    roi = img[yi-cutout:yi+cutout, xi-cutout:xi+cutout]
     # fit a 2D gaussian to estimate the hole position
     err = None
     try:
@@ -524,8 +528,8 @@ def hole_fitting_FIB(img: np.ndarray,
         xopt, yopt = cutout, cutout
 
     # get the refined positions in the coordinates of the original image
-    xr = xopt + x - cutout
-    yr = yopt + y - cutout
+    xr = xopt + xi - cutout
+    yr = yopt + yi - cutout
 
     # clip the coordinates to the image bounds
     xr = np.clip(xr, cutout, img.shape[1] - cutout)
@@ -537,7 +541,8 @@ def hole_fitting_FIB(img: np.ndarray,
     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
     fig.suptitle("FIB hole fit")
     ax.imshow(roi, cmap="gray")
-    ax.plot(cutout, cutout, "+", color=C_IN, ms=16, mew=2, label="input")
+    ax.plot(cutout + (x - xi), cutout + (y - yi), "+", color=C_IN, ms=16, mew=2,
+            label="input")
     if err is None:
         ax.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
     else:
@@ -555,15 +560,15 @@ def hole_fitting_FIB(img: np.ndarray,
 
     return xr, yr, fig
 
-def target_fitting_fluorescence(img: np.ndarray, 
-                                x: int, y: int, z: int, 
-                                cutout: int = 5, 
-                                show: bool=False, 
+def target_fitting_fluorescence(img: np.ndarray,
+                                x: float, y: float, z: int,
+                                cutout: int = 5,
+                                show: bool=False,
                                 use_xy_fitting: bool = False) -> tuple[int, int, int, 'plt.Figure']:
     """Refine selection of target in fluorescence image.
     Args:
         img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
-        x,y,z initial coordinates from the user click
+        x,y,z initial coordinates from the user click (x, y may be sub-pixel)
         cutout: size of the cutout around the point in x,y. z uses 3x this value
         show: show the diagnostic figure
         use_xy_fitting: whether to use xy fitting or just return the input x, y
@@ -576,12 +581,15 @@ def target_fitting_fluorescence(img: np.ndarray,
     # input (red) / fitted (green) are the only saturated colours; rest greyscale
     C_IN, C_FIT = "#e53935", "#43a047"
 
-    roi = img[:, y - cutout:y + cutout, x - cutout:x + cutout]
+    # round the (possibly sub-pixel) click for slicing; keep the fraction for
+    # the input marker so it lands exactly where the user clicked (FIB-282).
+    xc, yc = int(round(x)), int(round(y))
+    roi = img[:, yc - cutout:yc + cutout, xc - cutout:xc + cutout]
     intensity = np.mean(roi, axis=(1, 2))
     popt_z, _ = fit_guass1d(intensity)
     zi = popt_z[1]
 
-    slc_init = img[int(zi), y - cutout:y + cutout, x - cutout:x + cutout]
+    slc_init = img[int(zi), yc - cutout:yc + cutout, xc - cutout:xc + cutout]
     n = slc_init.shape[0]
     err = None
     if use_xy_fitting:
@@ -597,8 +605,8 @@ def target_fitting_fluorescence(img: np.ndarray,
             logging.warning(f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}")
             xopt, yopt = cutout, cutout
 
-        xi = xopt + x - cutout
-        yi = yopt + y - cutout
+        xi = xopt + xc - cutout
+        yi = yopt + yc - cutout
     else:
         xi, yi = x, y
         xopt, yopt = cutout, cutout  # fit result is the cutout centre for plotting
@@ -622,7 +630,8 @@ def target_fitting_fluorescence(img: np.ndarray,
     ax_z.legend(fontsize=7, framealpha=0.6)
 
     ax_xy.imshow(slc_init, cmap="gray")
-    ax_xy.plot(cutout, cutout, "+", color=C_IN, ms=16, mew=2, label="input")
+    ax_xy.plot(cutout + (x - xc), cutout + (y - yc), "+", color=C_IN, ms=16,
+               mew=2, label="input")
     if err is not None:
         ax_xy.text(0.5, 0.08, "XY fit failed", transform=ax_xy.transAxes,
                    ha="center", va="center", color=C_IN, fontsize=10,
@@ -936,12 +945,15 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, '
     import matplotlib.pyplot as plt
     from scipy.ndimage import gaussian_filter
 
+    # round the (possibly sub-pixel) click for slicing; keep the fraction for
+    # the input marker so a no-change fit shows the markers coincident.
+    xi, yi = int(round(x)), int(round(y))
     zmin = 10
     zmax = 5
     zmin1 = int(z) - zmin
     zmax1 = int(z) + zmax
 
-    roi = da[zmin1:zmax1, y - cutout:y + cutout + 1, x - cutout:x + cutout + 1]
+    roi = da[zmin1:zmax1, yi - cutout:yi + cutout + 1, xi - cutout:xi + cutout + 1]
     intensity = np.mean(roi, axis=(1, 2))
     intensity = intensity.max() - intensity  # invert: the hole is dark
 
@@ -951,12 +963,12 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, '
 
     # xy fitting on the fitted z-slice
     xy_cutout = 15
-    roi_fitted = da[round(zreal), y - xy_cutout:y + xy_cutout + 1,
-                    x - xy_cutout:x + xy_cutout + 1]
+    roi_fitted = da[round(zreal), yi - xy_cutout:yi + xy_cutout + 1,
+                    xi - xy_cutout:xi + xy_cutout + 1]
     popt_xy, _ = fit_gauss_2d_mod(roi_fitted)
     xopt, yopt = popt_xy[1], popt_xy[2]
-    xopt_real = xopt + x - xy_cutout
-    yopt_real = yopt + y - xy_cutout
+    xopt_real = xopt + xi - xy_cutout
+    yopt_real = yopt + yi - xy_cutout
 
     # --- confirmation-friendly diagnostic ---
     # Lead with the "did it land on the feature?" view (ROI + input/fitted
@@ -992,7 +1004,8 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, '
 
     # XY: the hero — did it land on the feature?
     ax_xy.imshow(gaussian_filter(roi_fitted, sigma=1), cmap="gray")
-    ax_xy.plot(xy_cutout, xy_cutout, "+", color=C_IN, ms=16, mew=2, label="input")
+    ax_xy.plot(xy_cutout + (x - xi), xy_cutout + (y - yi), "+", color=C_IN, ms=16,
+               mew=2, label="input")
     if fit_in_roi:
         ax_xy.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
     else:
