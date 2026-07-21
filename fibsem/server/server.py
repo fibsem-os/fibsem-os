@@ -182,7 +182,7 @@ class FibsemServer:
 
         @app.post("/vertical_move", response_model=StagePositionResponse)
         def vertical_move(body: VerticalMoveRequest):
-            result = microscope.vertical_move(dy=body.dy, dx=body.dx, static_wd=body.static_wd)
+            result = microscope.vertical_move(dy=body.dy, dx=body.dx)
             return StagePositionResponse(position=result.to_dict())
 
         @app.post("/safe_absolute_stage_movement")

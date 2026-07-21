@@ -42,7 +42,6 @@ class ProjectStableMoveRequest(BaseModel):
 class VerticalMoveRequest(BaseModel):
     dy: float
     dx: float = 0.0
-    static_wd: bool = True
 
 
 class FlatToBeamRequest(BaseModel):

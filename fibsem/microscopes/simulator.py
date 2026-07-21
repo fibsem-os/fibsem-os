@@ -638,9 +638,9 @@ class DemoMicroscope(FibsemMicroscope):
     def stable_move(self, dx: float, dy:float, beam_type: BeamType, static_wd: bool=False) -> FibsemStagePosition:
         return ThermoMicroscope.stable_move(self, dx, dy, beam_type, static_wd)
 
-    def vertical_move(self, dy: float, dx:float = 0.0, static_wd: bool=True) -> FibsemStagePosition:
+    def vertical_move(self, dy: float, dx:float = 0.0) -> FibsemStagePosition:
         """Move the stage vertically by the specified amount."""
-        return ThermoMicroscope.vertical_move(self, dy, dx, static_wd)
+        return ThermoMicroscope.vertical_move(self, dy, dx)
 
     def _y_corrected_stage_movement(self, expected_y: float, beam_type: BeamType) -> FibsemStagePosition:
         """

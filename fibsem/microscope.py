@@ -294,7 +294,7 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def vertical_move(self, dy: float, dx: float = 0, static_wd: bool = True) -> FibsemStagePosition:
+    def vertical_move(self, dy: float, dx: float = 0) -> FibsemStagePosition:
         pass
 
     @abstractmethod
@@ -1459,7 +1459,7 @@ class ThermoMicroscope(FibsemMicroscope):
         stable_move(self, dx: float, dy: float, beam_type: BeamType,) -> None:
             Calculate the corrected stage movements based on the beam_type, and then move the stage relatively.
 
-        vertical_move(self,  dy: float, dx: float = 0, static_wd: bool = True) -> None:
+        vertical_move(self,  dy: float, dx: float = 0) -> None:
             Move the stage vertically to correct eucentric point
         
         get_manipulator_position(self) -> FibsemManipulatorPosition:
@@ -2183,14 +2183,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self,
         dy: float,
         dx: float = 0.0,
-        static_wd: bool = True,
     ) -> FibsemStagePosition:
         """ Move the stage vertically to correct coincidence point
 
         Args:
             dy (float): distance along the y-axis (image coordinates)
             dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
-            static_wd (bool, optional): whether to fix the working distance. Defaults to True.
         """
 
         # get current working distance, to be restored later
@@ -2223,17 +2221,20 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info(f"Vertical movement: {stage_position}")
         self.move_stage_relative(stage_position) # NOTE: this seems to be a bit less than previous... -> perspective correction?
 
-        # restore working distance to adjust for microscope compenstation
-        if static_wd and not self.stage_is_compustage:
-            self.set_working_distance(wd=self.system.electron.eucentric_height, beam_type=BeamType.ELECTRON)
+        # Vertical moves re-establish the coincidence plane. Always restore the
+        # pre-move SEM (electron) working distance so fine corrections keep their
+        # focus. For a large correction, snap the FIB (ion) WD to eucentric (the
+        # best estimate at the new coincidence plane); small corrections keep the
+        # current FIB focus.
+        EUCENTRIC_RESET_THRESHOLD = 100e-6  # m (stage-z travel)
+        self.set_working_distance(wd=wd, beam_type=BeamType.ELECTRON)
+        if abs(dz) > EUCENTRIC_RESET_THRESHOLD:
             self.set_working_distance(wd=self.system.ion.eucentric_height, beam_type=BeamType.ION)
-        else:
-            self.set_working_distance(wd=wd, beam_type=BeamType.ELECTRON)
 
         # logging
-        logging.debug({"msg": "vertical_move", "dy": dy, "dx": dx, 
-                "static_wd": static_wd, "wd": wd, 
-                "scan_rotation": scan_rotation, 
+        logging.debug({"msg": "vertical_move", "dy": dy, "dx": dx,
+                "wd": wd,
+                "scan_rotation": scan_rotation,
                 "position": stage_position.to_dict()})
 
         return self.get_stage_position()
