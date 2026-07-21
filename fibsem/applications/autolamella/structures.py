@@ -707,6 +707,7 @@ class Lamella:
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(default_factory=lambda: Point(0,0))  # point of interest within lamella area (milling coordinate system)
+    description: str = ""  # free-text note about the lamella
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -830,6 +831,7 @@ class Lamella:
             "defect": self.defect.to_dict(),
             "milling_angle": self.milling_angle,
             "poi": self.poi.to_dict(),
+            "description": self.description,
         }
 
     @property
@@ -875,6 +877,7 @@ class Lamella:
             defect=DefectState.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x":0,"y":0})),
+            description=data.get("description", ""),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:

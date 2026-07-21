@@ -17,7 +17,8 @@ from fibsem import constants, utils
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
-from fibsem.ui.widgets.custom_widgets import WheelBlocker, _create_combobox_control
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.custom_widgets import _create_combobox_control
 
 # Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
 WD_WHEEL_STEP_MM = 0.001
@@ -114,7 +115,7 @@ class FibsemBeamSettingsWidget(QWidget):
             if c["suffix"] is not None:
                 sb.setSuffix(c["suffix"])
             sb.setKeyboardTracking(False)
-            sb.installEventFilter(WheelBlocker(parent=sb))
+            install_wheel_blocker(sb)
             return sb
 
         # --- Field of View ---
@@ -132,25 +133,25 @@ class FibsemBeamSettingsWidget(QWidget):
         for res_str, res_data in cfg.STANDARD_RESOLUTIONS_ZIP:
             self.resolution_combo.addItem(res_str, tuple(res_data))
         self.resolution_combo.setCurrentText(cfg.DEFAULT_STANDARD_RESOLUTION)
-        self.resolution_combo.installEventFilter(WheelBlocker(parent=self.resolution_combo))
+        install_wheel_blocker(self.resolution_combo)
         self.resolution_label = QLabel(WIDGET_CONFIG["resolution"]["label"])
         layout.addRow(self.resolution_label, self.resolution_combo)
 
         # --- Beam Current ---
         self.beam_current_combo = QComboBox()
-        self.beam_current_combo.installEventFilter(WheelBlocker(parent=self.beam_current_combo))
+        install_wheel_blocker(self.beam_current_combo)
         self.beam_current_label = QLabel(WIDGET_CONFIG["beam_current"]["label"])
         layout.addRow(self.beam_current_label, self.beam_current_combo)
 
         # --- Beam Voltage ---
         self.beam_voltage_combo = QComboBox()
-        self.beam_voltage_combo.installEventFilter(WheelBlocker(parent=self.beam_voltage_combo))
+        install_wheel_blocker(self.beam_voltage_combo)
         self.beam_voltage_label = QLabel(WIDGET_CONFIG["beam_voltage"]["label"])
         layout.addRow(self.beam_voltage_label, self.beam_voltage_combo)
 
         # --- Preset ---
         self.preset_combo = QComboBox()
-        self.preset_combo.installEventFilter(WheelBlocker(parent=self.preset_combo))
+        install_wheel_blocker(self.preset_combo)
         self.preset_label = QLabel(WIDGET_CONFIG["preset"]["label"])
         layout.addRow(self.preset_label, self.preset_combo)
 

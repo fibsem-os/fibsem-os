@@ -166,6 +166,7 @@ class LamellaRowWidget(QWidget):
         lamella.task_state.events.name.connect(self.refresh)    # type: ignore[union-attr]
         lamella.task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
         lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
+        lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
 
         self.refresh()
 
@@ -227,6 +228,7 @@ class LamellaRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored Lamella."""
         self.name_label.setText(self.lamella.name)
+        self.setToolTip(self.lamella.description or "")
 
         icon_name, icon_color, tooltip = _defect_icon(self.lamella)
         self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))

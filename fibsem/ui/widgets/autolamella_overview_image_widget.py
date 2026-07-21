@@ -26,7 +26,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    TitledPanel,
+)
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 import glob
@@ -181,14 +184,14 @@ class OverviewImageWidget(QWidget):
         color_layout.addStretch()
 
         # Text size
-        self.text_size_spinbox = QSpinBox()
+        self.text_size_spinbox = IntegerValueSpinBox()
         self.text_size_spinbox.setStyleSheet(SPINBOX_STYLESHEET)
         self.text_size_spinbox.setRange(6, 48)
         self.text_size_spinbox.setValue(10)
         self.text_size_spinbox.setKeyboardTracking(False)
 
         # Marker size
-        self.markersize_spinbox = QSpinBox()
+        self.markersize_spinbox = IntegerValueSpinBox()
         self.markersize_spinbox.setStyleSheet(SPINBOX_STYLESHEET)
         self.markersize_spinbox.setRange(5, 100)
         self.markersize_spinbox.setValue(20)
@@ -198,6 +201,11 @@ class OverviewImageWidget(QWidget):
         self.show_names_checkbox = QCheckBox("")
         self.show_names_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
         self.show_names_checkbox.setChecked(True)
+
+        # Show descriptions checkbox (drawn as a subtitle under each name)
+        self.show_descriptions_checkbox = QCheckBox("")
+        self.show_descriptions_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
+        self.show_descriptions_checkbox.setChecked(False)
 
         # Show scalebar checkbox
         self.show_scalebar_checkbox = QCheckBox("")
@@ -210,6 +218,7 @@ class OverviewImageWidget(QWidget):
         display_layout.addRow("Text Size", self.text_size_spinbox)
         display_layout.addRow("Marker Size", self.markersize_spinbox)
         display_layout.addRow("Show Names", self.show_names_checkbox)
+        display_layout.addRow("Show Descriptions", self.show_descriptions_checkbox)
         display_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
 
         display_group = TitledPanel("Display Options", content=display_content, collapsible=False)
@@ -218,6 +227,7 @@ class OverviewImageWidget(QWidget):
         self.text_size_spinbox.valueChanged.connect(self._on_preview_clicked)
         self.markersize_spinbox.valueChanged.connect(self._on_preview_clicked)
         self.show_names_checkbox.stateChanged.connect(self._on_preview_clicked)
+        self.show_descriptions_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.show_scalebar_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.title_textbox.editingFinished.connect(self._on_preview_clicked)
 
@@ -558,10 +568,14 @@ class OverviewImageWidget(QWidget):
 
             # Get settings
             show_names = self.show_names_checkbox.isChecked()
+            show_descriptions = self.show_descriptions_checkbox.isChecked()
             show_scalebar = self.show_scalebar_checkbox.isChecked()
             color = self.marker_color.name()
             fontsize = self.text_size_spinbox.value()
             markersize = self.markersize_spinbox.value()
+
+            # lamella name -> free-text description, for the optional subtitle
+            descriptions = {lam.name: lam.description for lam in self.experiment.positions}
 
             if not self.stage_positions:
                 self.info_label.setText("Warning: No positions found for MILLING state")
@@ -579,6 +593,8 @@ class OverviewImageWidget(QWidget):
                 markersize=markersize,
                 show_scalebar=show_scalebar,
                 show_names=show_names,
+                show_descriptions=show_descriptions,
+                descriptions=descriptions,
                 figsize=(15, 15)
             )
 

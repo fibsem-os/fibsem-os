@@ -84,7 +84,7 @@ class MillingTaskConfigWidget2(QWidget):
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
 

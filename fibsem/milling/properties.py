@@ -54,7 +54,7 @@ DEFAULT_PASSES_METADATA = {
     "label": "Passes",
     "type": int,
     "minimum": 0,
-    "maximum": 100,
+    "maximum": 100000000,
     "step": 1,
     "advanced": True,
     "tooltip": "Number of passes for the pattern. Set to 0 for automatic calculation." 

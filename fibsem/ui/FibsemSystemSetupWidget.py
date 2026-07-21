@@ -15,6 +15,9 @@ from fibsem.structures import MicroscopeSettings, SystemSettings
 from fibsem.ui import stylesheets
 from fibsem.ui import notification_service
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+)
 
 
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
@@ -31,7 +34,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.gridLayout = QtWidgets.QGridLayout(self)
         self.pushButton_connect_to_microscope = QtWidgets.QPushButton("Connect To Microscope")
         self.pushButton_apply_configuration = QtWidgets.QPushButton("Apply Microscope Configuration")
-        self.comboBox_configuration = QtWidgets.QComboBox()
+        self.comboBox_configuration = ValueComboBox()
         self.toolButton_import_configuration = QtWidgets.QToolButton()
         self.label_connection_status = QtWidgets.QLabel("No Connected")
         self.label_connection_information = QtWidgets.QLabel("No Connected")

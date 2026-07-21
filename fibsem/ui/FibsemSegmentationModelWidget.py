@@ -9,7 +9,7 @@ from PyQt5.QtGui import QFont
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import SegmentationModel, load_model
 from fibsem.ui import stylesheets
-from fibsem.ui.utils import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 
 CHECKPOINT_PATH = "autolamella-mega-20240107.pt"
 SEGMENT_ANYTHING_AVAIABLE = False
@@ -44,7 +44,6 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
 
     def _setup_ui(self):
         """Hand-built replacement for the former Qt Designer form."""
-        self.wheel_blocker = WheelBlocker()
         layout = QtWidgets.QGridLayout(self)
 
         self.label_header_model = QtWidgets.QLabel("Segmentation Model")
@@ -76,7 +75,7 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
         layout.addItem(spacer, 4, 0, 1, 2)
 
         # block accidental scroll-to-change on the combobox
-        self.comboBox_model_type.installEventFilter(self.wheel_blocker)
+        install_wheel_blocker(self.comboBox_model_type)
 
     def setup_connections(self):
 

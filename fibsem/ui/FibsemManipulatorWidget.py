@@ -16,7 +16,7 @@ from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.qtdesigner_files import (
     FibsemManipulatorWidget as FibsemManipulatorWidgetUI,
 )
-from fibsem.ui.utils import message_box_ui
+from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui
 
 
 class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidget):
@@ -30,6 +30,8 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
     ):
         super().__init__(parent=parent)
         self.setupUi(self)
+        # generated form: guard its spinboxes/comboboxes against scroll-to-change
+        install_wheel_blocker_recursive(self)
 
         self.microscope = microscope
         self.settings = settings

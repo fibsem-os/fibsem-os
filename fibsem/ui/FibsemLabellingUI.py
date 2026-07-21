@@ -27,7 +27,7 @@ from fibsem.segmentation.config import (
 from fibsem.ui import stylesheets
 from fibsem.ui.FibsemSegmentationModelWidget import FibsemSegmentationModelWidget
 from fibsem.ui.utils import (
-    WheelBlocker,
+    install_wheel_blocker,
     open_existing_directory_dialog,
     open_existing_file_dialog,
 )
@@ -190,7 +190,6 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         and the labelling logic work unchanged. The ``Model`` tab is added at runtime in
         ``setup_connections`` (the segmentation model widget); this builds the ``Data`` tab.
         """
-        self.wheel_blocker = WheelBlocker()
         layout = QtWidgets.QGridLayout(self)
 
         self.label_title = QtWidgets.QLabel("OpenFIBSEM Labelling")
@@ -289,7 +288,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
 
         # block accidental scroll-to-change on the comboboxes
         for w in (self.comboBox_data_file_ext, self.comboBox_model_class_index):
-            w.installEventFilter(self.wheel_blocker)
+            install_wheel_blocker(w)
 
     def setup_connections(self):
         self.pushButton_load_data.clicked.connect(self.load_data)

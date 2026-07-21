@@ -383,6 +383,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._auto_function_error = None
         self._autofocus_stop_event.clear()
         self._autofocus_running = True
+        notification_service.show_toast(f"Running AutoFocus on {beam_type.name} beam...")
         self._toggle_interactions(enable=False)
         # keep the autofocus button live, morphed into a Cancel control
         self.pushButton_run_autofocus.setEnabled(True)
@@ -446,7 +447,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             return
         if name == "AutoFocus":
             wd = beam_widget.beam_settings_widget.working_distance_spinbox.value()
-            notification_service.show_toast(f"AutoFocus Complete. Best WD: {wd:.2f}mm")
+            notification_service.show_toast(f"AutoFocus Complete ({beam_type.name}). Best WD: {wd:.2f}mm")
         if name == "AutoContrast":
             notification_service.show_toast("AutoContrast Complete.")
 

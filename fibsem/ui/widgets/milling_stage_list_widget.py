@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -27,14 +28,32 @@ from fibsem.ui.napari.patterns import COLOURS
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
 _DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
-_NAME_MIN_WIDTH = 120
-_PATTERN_FIXED_WIDTH = 110
-_DEPTH_FIXED_WIDTH = 112
-_CURRENT_FIXED_WIDTH = 100
-_STRATEGY_FIXED_WIDTH = 110
+# Columns are flexible: each is (minimum_width, stretch). The header and every row
+# consume the SAME spec so their column boundaries stay aligned as the panel resizes,
+# while the whole row can shrink well below the old ~660px fixed-width floor.
+_COL_NAME = (90, 3)
+_COL_PATTERN = (70, 2)
+_COL_DEPTH = (70, 2)
+_COL_CURRENT = (60, 2)
+_COL_STRATEGY = (70, 2)
+_CHECKBOX_WIDTH = 24
+_DRAG_WIDTH = 10
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # color + remove
+
+
+def _add_flex_column(layout: QHBoxLayout, widget: QWidget, spec: tuple) -> None:
+    """Add ``widget`` as a flexible column: minimum width + horizontal stretch.
+
+    The header and rows share the same (min, stretch) spec so columns resize
+    together and stay aligned instead of pinning a fixed width.
+    """
+    min_w, stretch = spec
+    widget.setMinimumWidth(min_w)
+    sp = widget.sizePolicy()
+    sp.setHorizontalPolicy(QSizePolicy.Expanding)
+    widget.setSizePolicy(sp)
+    layout.addWidget(widget, stretch)
 
 
 _SI_TO_MICRO = 1e6
@@ -115,34 +134,34 @@ class MillingStageRowWidget(QWidget):
         self.checkbox.setChecked(enabled)
         self.checkbox.setToolTip("Enable/disable stage")
         self.checkbox.setStyleSheet("background: transparent;")
+        self.checkbox.setFixedWidth(_CHECKBOX_WIDTH)
         layout.addWidget(self.checkbox)
 
         self.name_edit = QLineEdit()
-        self.name_edit.setMinimumWidth(_NAME_MIN_WIDTH)
         self.name_edit.setStyleSheet(_NAME_EDIT_STYLE)
         self.name_edit.setToolTip("Stage name")
-        layout.addWidget(self.name_edit, 1)
+        _add_flex_column(layout, self.name_edit, _COL_NAME)
 
         self.pattern_combo = ValueComboBox(items=pattern_names)
-        self.pattern_combo.setFixedWidth(_PATTERN_FIXED_WIDTH)
         self.pattern_combo.setToolTip("Pattern type")
-        layout.addWidget(self.pattern_combo)
+        _add_flex_column(layout, self.pattern_combo, _COL_PATTERN)
 
         self.depth_spin = ValueSpinBox(suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1)
-        self.depth_spin.setFixedWidth(_DEPTH_FIXED_WIDTH)
         self.depth_spin.setToolTip("Depth (µm)")
-        layout.addWidget(self.depth_spin)
+        # keep the column slot when hidden (patterns without depth) so rows stay aligned
+        depth_sp = self.depth_spin.sizePolicy()
+        depth_sp.setRetainSizeWhenHidden(True)
+        self.depth_spin.setSizePolicy(depth_sp)
+        _add_flex_column(layout, self.depth_spin, _COL_DEPTH)
 
         _current_items = self._current_values if self._current_values else [stage.milling.milling_current]
         self.current_combo = ValueComboBox(items=_current_items, unit="A")
-        self.current_combo.setFixedWidth(_CURRENT_FIXED_WIDTH)
         self.current_combo.setToolTip("Milling current")
-        layout.addWidget(self.current_combo)
+        _add_flex_column(layout, self.current_combo, _COL_CURRENT)
 
         self.strategy_combo = ValueComboBox(items=strategy_names)
-        self.strategy_combo.setFixedWidth(_STRATEGY_FIXED_WIDTH)
         self.strategy_combo.setToolTip("Strategy")
-        layout.addWidget(self.strategy_combo)
+        _add_flex_column(layout, self.strategy_combo, _COL_STRATEGY)
 
         self.btn_color = QToolButton()
         self.btn_color.setFixedSize(_BTN_SIZE)
@@ -156,8 +175,8 @@ class MillingStageRowWidget(QWidget):
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(10, 16)
-        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(10, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        drag_icon.setFixedSize(_DRAG_WIDTH, 16)
+        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(_DRAG_WIDTH, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)
@@ -226,9 +245,15 @@ class MillingStageRowWidget(QWidget):
         self.name_edit.setText(self.stage.name)
         self.name_edit.setToolTip(self.stage.summary)
         self.pattern_combo.set_value(self.stage.pattern.name)
-        self.depth_spin.setValue(self.stage.pattern.depth * _SI_TO_MICRO)
+        depth = getattr(self.stage.pattern, "depth", None)
+        if depth is not None:
+            self.depth_spin.setValue(depth * _SI_TO_MICRO)
         self.current_combo.set_value(self.stage.milling.milling_current)
         self.strategy_combo.set_value(self.stage.strategy.name)
+        # tooltips reflect the current selection so elided (narrow) values stay readable
+        self.pattern_combo.setToolTip(f"Pattern: {self.pattern_combo.currentText()}")
+        self.current_combo.setToolTip(f"Current: {self.current_combo.currentText()}")
+        self.strategy_combo.setToolTip(f"Strategy: {self.strategy_combo.currentText()}")
         self._update_depth_visibility()
         color = COLOURS[self.index % len(COLOURS)]
         self.btn_color.setIcon(_make_color_icon(color))
@@ -302,30 +327,34 @@ class _MillingStageListHeader(QWidget):
         layout.setContentsMargins(6, 4, 6, 4)
         layout.setSpacing(4)
 
-        self.checkbox_all = QCheckBox("Stage")
+        # Header mirrors the row cell-for-cell so columns stay aligned: a no-text
+        # select-all checkbox (matches the row checkbox), then one flexible label
+        # per column using the SAME (min, stretch) spec as the rows.
+        self.checkbox_all = QCheckBox()
         self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("font-weight: bold; background: transparent;")
-        self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
-        layout.addWidget(self.checkbox_all, 1)
+        self.checkbox_all.setToolTip("Enable/disable all stages")
+        self.checkbox_all.setStyleSheet("background: transparent;")
+        self.checkbox_all.setFixedWidth(_CHECKBOX_WIDTH)
+        layout.addWidget(self.checkbox_all)
 
-        self.lbl_pattern = QLabel("Pattern")
-        self.lbl_pattern.setStyleSheet("font-weight: bold; background: transparent;")
-        self.lbl_pattern.setFixedWidth(_PATTERN_FIXED_WIDTH)
-        layout.addWidget(self.lbl_pattern)
-
-        for label_text, fixed_width in [
-            ("Depth", _DEPTH_FIXED_WIDTH),
-            ("Current", _CURRENT_FIXED_WIDTH),
-            ("Strategy", _STRATEGY_FIXED_WIDTH),
+        self.lbl_pattern: Optional[QLabel] = None
+        for label_text, spec in [
+            ("Stage", _COL_NAME),
+            ("Pattern", _COL_PATTERN),
+            ("Depth", _COL_DEPTH),
+            ("Current", _COL_CURRENT),
+            ("Strategy", _COL_STRATEGY),
         ]:
             lbl = QLabel(label_text)
             lbl.setStyleSheet("font-weight: bold; background: transparent;")
-            lbl.setFixedWidth(fixed_width)
-            layout.addWidget(lbl)
+            _add_flex_column(layout, lbl, spec)
+            if label_text == "Pattern":
+                self.lbl_pattern = lbl  # toggled with the pattern column (eye button)
 
-        # spacer covers color button; btn_add aligns with remove button
+        # trailing spacer matches the row's color+remove+drag vs the header's eye+add,
+        # so the strategy column's right edge lines up with the rows
         spacer = QWidget()
-        spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
+        spacer.setFixedWidth(_DRAG_WIDTH)
         spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
 

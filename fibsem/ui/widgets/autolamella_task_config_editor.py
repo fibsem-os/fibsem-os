@@ -31,7 +31,10 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 )
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
-from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
+from fibsem.ui.widgets.custom_widgets import (
+    TaskNameListWidget,
+    ValueComboBox,
+)
 from fibsem.ui.widgets.autolamella_protocol_information_widget import ProtocolInformationWidget
 from fibsem.ui.widgets.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
@@ -54,7 +57,7 @@ class AddTaskDialog(QDialog):
 
         # Create widgets
         self.label_task_type = QLabel("Task Type:")
-        self.comboBox_task_type = QComboBox()
+        self.comboBox_task_type = ValueComboBox()
 
         # Populate task types from registry (includes plugins and runtime registrations)
         for task_type, task_cls in get_tasks().items():

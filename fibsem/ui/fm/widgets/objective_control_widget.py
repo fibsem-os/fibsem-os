@@ -25,6 +25,9 @@ from fibsem.ui.stylesheets import (
 from superqt.utils import qdebounced
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.napari.utilities import update_text_overlay
+from fibsem.ui.widgets.custom_widgets import (
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -113,7 +116,7 @@ class ObjectiveControlWidget(QWidget):
 
         # add focus position controls
         self.label_focus_position = QLabel("Focus Position", self)
-        self.doubleSpinBox_focus_position = QDoubleSpinBox(self)
+        self.doubleSpinBox_focus_position = ValueSpinBox(parent=self)
         self.doubleSpinBox_focus_position.setRange(self.fm.objective.limits[0] * METRE_TO_MICRON,
                                                    self.fm.objective.limits[1] * METRE_TO_MICRON)
         # Set initial value from objective's focus position if available
@@ -134,7 +137,7 @@ class ObjectiveControlWidget(QWidget):
         # add double spin box for objective position
         self.label_objective_control = QLabel("Current Position", self)
         self.label_objective_step_size = QLabel("Step Size", self)
-        self.doubleSpinBox_objective_position = QDoubleSpinBox(self)
+        self.doubleSpinBox_objective_position = ValueSpinBox(parent=self)
         self.doubleSpinBox_objective_position.setRange(self.fm.objective.limits[0] * METRE_TO_MICRON,
                                                         self.fm.objective.limits[1] * METRE_TO_MICRON)
         self.doubleSpinBox_objective_position.setValue(self.fm.objective.position * METRE_TO_MICRON)  # Convert m to µm
@@ -143,7 +146,7 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setSuffix(OBJECTIVE_CONFIG["position"]["suffix"])
         self.doubleSpinBox_objective_position.setToolTip(OBJECTIVE_CONFIG["position"]["tooltip"])
         self.doubleSpinBox_objective_position.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
-        self.doubleSpinBox_objective_step_size = QDoubleSpinBox(self)
+        self.doubleSpinBox_objective_step_size = ValueSpinBox(parent=self)
         self.doubleSpinBox_objective_step_size.setRange(*OBJECTIVE_CONFIG["step_size_control"]["range"])
         self.doubleSpinBox_objective_step_size.setSingleStep(OBJECTIVE_CONFIG["step_size_control"]["step"])
         self.doubleSpinBox_objective_step_size.setValue(OBJECTIVE_CONFIG["step_size_control"]["default"])
@@ -154,7 +157,7 @@ class ObjectiveControlWidget(QWidget):
 
         # add user-defined limit controls
         self.label_objective_limit = QLabel("Limit Position", self)
-        self.doubleSpinBox_objective_limit = QDoubleSpinBox(self)
+        self.doubleSpinBox_objective_limit = ValueSpinBox(parent=self)
         self.doubleSpinBox_objective_limit.setRange(0.0, self.fm.objective.limits[1] * METRE_TO_MICRON)
         self.doubleSpinBox_objective_limit.setValue(self.fm.objective.limit_position * METRE_TO_MICRON)
         self.doubleSpinBox_objective_limit.setSingleStep(OBJECTIVE_CONFIG["position"]["step_size"])

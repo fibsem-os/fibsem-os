@@ -8,9 +8,13 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtCore import QEvent, QObject
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import QEvent, QObject, Qt
+from PyQt5.QtGui import QImage, QPixmap, QWheelEvent
 from PyQt5.QtWidgets import (
+    QAbstractScrollArea,
+    QAbstractSpinBox,
+    QApplication,
+    QComboBox,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -43,13 +47,97 @@ def open_path_in_file_explorer(path: str) -> bool:
         return False
 
 
+_WHEEL_GUARD_PROPERTY = "_fibsem_wheel_guarded"
+
+
 class WheelBlocker(QObject):
-    """Event filter that blocks wheel events"""
+    """Event filter that stops the mouse wheel from changing a widget's value.
+
+    Scrolling over a spinbox/combobox no longer changes it. The wheel event is
+    forwarded to the enclosing scroll area instead, so the panel keeps scrolling
+    rather than dead-zoning over every input.
+
+    Blocking is unconditional, deliberately. An earlier design allowed a *focused*
+    widget to still adjust, but Qt gives focus to the first focusable widget in a
+    form automatically — so the first field in every panel stayed vulnerable to
+    exactly the accidental-change bug this exists to prevent. Use the keyboard
+    (arrow keys, or type a value) to adjust a focused widget.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._forwarding = False
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Wheel:
-            return True  # Block the wheel event
-        return super().eventFilter(watched, event)
+        if event.type() != QEvent.Wheel:
+            return super().eventFilter(watched, event)
+        self._forward_to_scroll_area(watched, event)
+        return True
+
+    def _forward_to_scroll_area(self, watched, event) -> None:
+        """Re-send the wheel event to the nearest scrolling ancestor, if any."""
+        if self._forwarding:  # guard against re-entrancy
+            return
+
+        target = watched.parentWidget()
+        while target is not None and not isinstance(target, QAbstractScrollArea):
+            target = target.parentWidget()
+        if target is None:
+            return  # not inside a scroll area; simply swallow the event
+
+        self._forwarding = True
+        try:
+            QApplication.sendEvent(target.viewport(), _clone_wheel_event(event))
+        except Exception:
+            logging.debug("Failed to forward wheel event", exc_info=True)
+        finally:
+            self._forwarding = False
+
+
+def _clone_wheel_event(event: QWheelEvent) -> QWheelEvent:
+    """Copy a wheel event, preserving both scroll axes and modifiers.
+
+    The position stays in the source widget's coordinates; scroll areas key off the
+    delta, not the position, so this is fine for scrolling purposes.
+    """
+    return QWheelEvent(
+        event.pos(),
+        event.globalPos(),
+        event.pixelDelta(),
+        event.angleDelta(),
+        event.angleDelta().y(),
+        Qt.Vertical,
+        event.buttons(),
+        event.modifiers(),
+        event.phase(),
+        event.source(),
+        event.inverted(),
+    )
+
+
+def install_wheel_blocker(widget: QWidget) -> None:
+    """Guard *widget* against accidental scroll-to-change. Idempotent.
+
+    Also sets ``Qt.StrongFocus``: spinboxes and comboboxes default to
+    ``Qt.WheelFocus``, so a passing scroll would otherwise move keyboard focus into
+    the widget as well.
+    """
+    if widget.property(_WHEEL_GUARD_PROPERTY):
+        return  # already guarded; a second filter would double-forward the event
+    widget.setFocusPolicy(Qt.StrongFocus)
+    widget.installEventFilter(WheelBlocker(parent=widget))
+    widget.setProperty(_WHEEL_GUARD_PROPERTY, True)
+
+
+def install_wheel_blocker_recursive(root: QWidget) -> None:
+    """Guard every spinbox/combobox under *root*. Safe to call more than once.
+
+    Useful for forms whose inputs are built elsewhere (e.g. generated UI code).
+    Widgets added *after* this call are not covered — call it again if a form
+    populates itself dynamically.
+    """
+    for child in root.findChildren((QAbstractSpinBox, QComboBox)):
+        install_wheel_blocker(child)
 
 
 def set_arr_as_qlabel(
@@ -155,7 +243,10 @@ def create_combobox_message_box(text: str, title: str, options: list, parent = N
     msg.setStandardButtons(QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
 
     # create a combobox
+    # guarded directly rather than via ValueComboBox: custom_widgets imports from
+    # this module, so importing it back here would be circular.
     combobox = QtWidgets.QComboBox(msg)
+    install_wheel_blocker(combobox)
     combobox.addItems(options)
 
     # add combobox to message box

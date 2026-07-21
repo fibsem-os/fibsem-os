@@ -26,6 +26,9 @@ from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
 from fibsem.ui.widgets.workflow_config_widget import WorkflowConfigWidget
 from fibsem.ui.widgets.workflow_info_widget import WorkflowInfoWidget
 from fibsem.ui.widgets.workflow_task_editor_widget import WorkflowTaskEditorWidget
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+)
 
 _SECTION_LABEL_STYLE = (
     "font-size: 11px; font-weight: bold; color: #a0a0a0;"
@@ -58,7 +61,7 @@ class AddTaskDialog(QDialog):
         layout.addWidget(info_label)
 
         # Task selector
-        self.task_selector = QComboBox()
+        self.task_selector = ValueComboBox()
         self.task_selector.addItem("Select a task...", None)
 
         for name in sorted(available_tasks):

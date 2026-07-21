@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon, qta
 
 from fibsem.ui import stylesheets as stylesheets
-from fibsem.ui.utils import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 from fibsem.utils import format_value
 
 
@@ -189,7 +189,7 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
 
     if idx >= 0:
         control.setCurrentIndex(idx)
-    control.installEventFilter(WheelBlocker(parent=control))
+    install_wheel_blocker(control)
 
     return control
 
@@ -199,7 +199,7 @@ class ValueComboBox(QComboBox):
 
     def __init__(
         self,
-        items: list,
+        items: Optional[list] = None,
         value=None,
         unit: Optional[str] = None,
         format_fn: Optional[Callable] = None,
@@ -207,19 +207,53 @@ class ValueComboBox(QComboBox):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        for item in items:
-            if isinstance(item, (float, int)):
-                item_str = format_value(val=item, unit=unit, precision=decimals)
-            elif isinstance(item, Enum):
-                item_str = item.name
-            elif format_fn is not None:
-                item_str = format_fn(item)
-            else:
-                item_str = str(item)
-            self.addItem(item_str, item)
-        self.installEventFilter(WheelBlocker(parent=self))
+        self._unit = unit
+        self._format_fn = format_fn
+        self._decimals = decimals
+        if items:
+            self.add_values(items)
+        install_wheel_blocker(self)
         if value is not None:
             self.set_value(value)
+
+    def _format_item(self, item) -> str:
+        """Render an item for display, using the unit/format_fn given at construction."""
+        if isinstance(item, (float, int)):
+            return format_value(val=item, unit=self._unit, precision=self._decimals)
+        if isinstance(item, Enum):
+            return item.name
+        if self._format_fn is not None:
+            return self._format_fn(item)
+        return str(item)
+
+    def add_value(self, item) -> None:
+        """Append a single item, storing the raw value as item data."""
+        self.addItem(self._format_item(item), item)
+
+    def add_values(self, items) -> None:
+        """Append several items."""
+        for item in items:
+            self.add_value(item)
+
+    def set_values(self, items, value=None, keep_selection: bool = True) -> None:
+        """Replace all items.
+
+        By default the current selection is preserved if it survives the swap —
+        repopulating a combobox should not silently change what is selected.
+        Falls back to *value*, else leaves the default (first) item. Signals are
+        suppressed during the swap so listeners see one change at most.
+        """
+        previous = self.value() if keep_selection else None
+        blocked = self.blockSignals(True)
+        try:
+            self.clear()
+            self.add_values(items)
+        finally:
+            self.blockSignals(blocked)
+
+        target = value if value is not None else previous
+        if target is not None:
+            self.set_value(target)
 
     def set_value(self, value) -> None:
         """Select the item matching value; falls back to closest numeric match."""
@@ -263,7 +297,7 @@ class IntegerValueSpinBox(QSpinBox):
         if no_buttons:
             self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.setKeyboardTracking(False)
-        self.installEventFilter(WheelBlocker(parent=self))
+        install_wheel_blocker(self)
 
 
 class ValueSpinBox(QDoubleSpinBox):
@@ -291,7 +325,7 @@ class ValueSpinBox(QDoubleSpinBox):
         if no_buttons:
             self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.setKeyboardTracking(False)
-        self.installEventFilter(WheelBlocker(parent=self))
+        install_wheel_blocker(self)
 
 
 @dataclass
@@ -904,6 +938,10 @@ class _LamellaRow(QWidget):
         self.btn_remove.setVisible(False)
         layout.addWidget(self.btn_remove)
 
+        # live-update the description tooltip when it changes (e.g. edited in the
+        # Selected Lamella panel). type: ignore because @evented adds .events dynamically.
+        self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
+
         self.refresh()
 
     def _on_defect_clicked(self) -> None:
@@ -943,6 +981,7 @@ class _LamellaRow(QWidget):
 
     def refresh(self) -> None:
         self.name_label.setText(self.lamella.name)
+        self.setToolTip(self.lamella.description or "")
         text, style = _lamella_status_text(self.lamella)
         self.status_label.setText(text)
         self.status_label.setStyleSheet(style)
