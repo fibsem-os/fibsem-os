@@ -44,6 +44,8 @@ logging.basicConfig(level=logging.INFO)
 import numpy as np
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
     QCheckBox,
     QAction,
     QDialog,
@@ -52,6 +54,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMenuBar,
     QMessageBox,
     QPushButton,
@@ -79,6 +82,7 @@ from fibsem.correlation.structures import (
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
     FitConfirmationDialog,
+    FitStatus,
     PointFitResult,
     humanize_fit_error,
 )
@@ -99,6 +103,13 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
+
+# Auto-accept outlier fallback: a fit is a refinement of the user's click, so a
+# large jump usually means it locked onto the wrong feature. Beyond these, the
+# confirm dialog is shown even in auto-accept mode. Generous — the goal is to
+# catch gross mis-locks, not sub-pixel disagreement.
+_AUTO_ACCEPT_MAX_XY_PX = 25.0  # XY displacement (pixels)
+_AUTO_ACCEPT_MAX_Z = 5.0       # Z displacement (slices)
 
 # Run-bar RMS cue. The badge FLAGS problems; it never certifies quality. The RMS
 # is a fit residual over the fiducials, so a low value cannot promise the POI —
@@ -504,6 +515,25 @@ class _CoordinatesTab(QWidget):
 
         self._show_diag_check = QCheckBox()
         fit_form.addRow("Show diagnostic:", self._show_diag_check)
+
+        # Opt-in: apply fits without the confirm dialog. Off by default (the
+        # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
+        # fits still surface the dialog — see _on_refit_requested.
+        self._auto_accept_check = QCheckBox()
+        self._auto_accept_check.setToolTip(
+            "Apply fits immediately without the confirm dialog.\n"
+            "Failed or far-off fits still ask for confirmation."
+        )
+        fit_form.addRow("Auto-accept fits:", self._auto_accept_check)
+
+        fit_help = QLabel(
+            "Select a point and press <b>F</b> to fit it. Each fit opens a "
+            "confirmation to accept or reject — unless <b>Auto-accept</b> is on "
+            "(failed or far-off fits still ask)."
+        )
+        fit_help.setWordWrap(True)
+        fit_help.setStyleSheet("color: #8a8d93; font-size: 11px; padding-top: 4px;")
+        fit_form.addRow(fit_help)
 
         self._fit_panel = TitledPanel("Fit Settings", collapsible=True)
         self._fit_panel.set_content(fit_body)
@@ -1093,6 +1123,7 @@ class CorrelationTabWidget(QWidget):
 
         self._setup_ui()
         self._connect_signals()
+        self._setup_shortcuts()
         self._set_result_live(False)
 
         if fib_image is not None:
@@ -2060,11 +2091,43 @@ class CorrelationTabWidget(QWidget):
     # Refit
     # ------------------------------------------------------------------
 
+    def _setup_shortcuts(self) -> None:
+        """`F` fits the selected coordinate — same as the header refit button,
+        without hunting for it. Scoped to this widget and its children so it
+        only fires while the correlation UI has focus."""
+        self._fit_shortcut = QShortcut(QKeySequence("F"), self)
+        self._fit_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._fit_shortcut.activated.connect(self._fit_selected_coordinate)
+
+    def _selected_coordinate(self) -> Optional[Coordinate]:
+        """The single selected coordinate across the lists (``_select_only``
+        guarantees at most one), or None."""
+        for spec in self._point_specs.values():
+            coord = spec.list_widget.selected_coordinate
+            if coord is not None:
+                return coord
+        return None
+
+    def _fit_selected_coordinate(self) -> None:
+        """`F` hotkey: fit the currently-selected coordinate."""
+        # Don't hijack the key while a value is being edited in a field.
+        if isinstance(QApplication.focusWidget(), (QLineEdit, QAbstractSpinBox)):
+            return
+        coord = self._selected_coordinate()
+        if coord is not None:
+            self._on_refit_requested(coord)
+
     def _on_refit_requested(self, coord: Coordinate) -> None:
         """Auto-fit the coordinate, then confirm the result before applying it."""
         result = self._run_point_fit(coord)
         if result is None:
             return  # no applicable method / image — nothing to fit
+
+        if self._should_auto_accept(result):
+            self._auto_accept_fit(result)
+            return
 
         show_fig = self._coords_tab._show_diag_check.isChecked()
         dialog = FitConfirmationDialog(result, show_figure=show_fig, parent=self)
@@ -2077,6 +2140,37 @@ class CorrelationTabWidget(QWidget):
                 plt.close(result.figure)
         if accepted:
             self._apply_fit_result(result)
+
+    def _should_auto_accept(self, result: PointFitResult) -> bool:
+        """Auto-accept only when opted in, the fit succeeded, and it isn't a
+        far-off outlier — failures and surprising jumps still get the dialog."""
+        if not self._coords_tab._auto_accept_check.isChecked():
+            return False
+        if result.status is FitStatus.ERROR:
+            return False
+        return not self._is_surprising_fit(result)
+
+    @staticmethod
+    def _is_surprising_fit(result: PointFitResult) -> bool:
+        """A jump larger than a refinement should be — likely the wrong feature."""
+        return (
+            result.delta_px > _AUTO_ACCEPT_MAX_XY_PX
+            or abs(result.delta_z) > _AUTO_ACCEPT_MAX_Z
+        )
+
+    def _auto_accept_fit(self, result: PointFitResult) -> None:
+        """Apply a fit without the confirm dialog, with a status-bar note."""
+        self._apply_fit_result(result)
+        if result.figure is not None:
+            import matplotlib.pyplot as plt
+
+            plt.close(result.figure)
+        # Set the note AFTER applying (apply emits data_changed, which may
+        # refresh the status line) so this is the message that sticks.
+        name = result.coordinate.point_type.value
+        self._lbl_status.setText(
+            f"Auto-fit {name}: Δ {result.delta_px:.1f} px, {result.delta_z:+.1f} z"
+        )
 
     def _run_point_fit(self, coord: Coordinate) -> Optional[PointFitResult]:
         """Compute an auto-fit for ``coord`` WITHOUT mutating it.

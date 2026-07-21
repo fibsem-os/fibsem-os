@@ -320,24 +320,33 @@ class FitConfirmationDialog(QDialog):
 
         btn_row = QHBoxLayout()
         # Diagnostic toggle sits on the left, apart from the accept/reject cluster.
+        # It's added first, so opt it out of autoDefault or it would become the
+        # dialog's default button (Enter would toggle it instead of accepting).
         if self._canvas is not None:
             self._toggle_btn = QPushButton(self._diag_btn_text(self._diag_shown))
             self._toggle_btn.setToolTip("Show or hide the fit diagnostic plot")
+            self._toggle_btn.setAutoDefault(False)
+            self._toggle_btn.setDefault(False)
             self._toggle_btn.clicked.connect(self._on_toggle_diagnostic)
             btn_row.addWidget(self._toggle_btn)
         btn_row.addStretch(1)
         if result.status is FitStatus.ERROR:
             close_btn = QPushButton("Close")
+            close_btn.setDefault(True)
             close_btn.clicked.connect(self.reject)
             btn_row.addWidget(close_btn)
         else:
             reject_btn = QPushButton("Reject")
+            reject_btn.setAutoDefault(False)
             reject_btn.clicked.connect(self.reject)
             btn_row.addWidget(reject_btn)
             accept_btn = QPushButton("Accept")
             accept_btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+            accept_btn.setAutoDefault(True)
+            accept_btn.setDefault(True)  # Enter accepts the fit
             accept_btn.clicked.connect(self.accept)
             btn_row.addWidget(accept_btn)
+            accept_btn.setFocus()
         layout.addLayout(btn_row)
 
         # Fit the dialog to its contents so toggling the diagnostic grows and

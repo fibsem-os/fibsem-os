@@ -1596,6 +1596,31 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     assert shown._toggle_btn.text() == "Hide diagnostic"
 
 
+def test_accept_is_default_button_not_the_toggle(qapp):
+    from matplotlib.figure import Figure
+    from PyQt5.QtWidgets import QPushButton
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitConfirmationDialog,
+        FitStatus,
+        PointFitResult,
+    )
+
+    fig = Figure(figsize=(9, 4.5))
+    fig.add_subplot(1, 1, 1)
+    result = PointFitResult(
+        coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
+        status=FitStatus.OK, figure=fig,
+    )
+    dlg = FitConfirmationDialog(result, show_figure=True)
+    buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
+
+    assert buttons["Accept"].isDefault()          # Enter accepts the fit...
+    assert not dlg._toggle_btn.isDefault()         # ...not toggles the diagnostic
+    assert not dlg._toggle_btn.autoDefault()
+
+
 def test_fitted_icon_reflects_state(qapp):
     from fibsem.correlation.ui.widgets.coordinate_list_widget import (
         CoordinateRowWidget,
@@ -1645,6 +1670,126 @@ def test_name_col_width_is_compact_for_short_types(qapp):
     # at the former width, so surface lists don't regress.
     assert fm < 70 and poi < 70
     assert fm < surface <= _NAME_FIXED_WIDTH
+
+
+def test_f_hotkey_fits_selected_coordinate(qapp, monkeypatch):
+    w = _widget(qapp)
+    fitted = []
+    monkeypatch.setattr(w, "_on_refit_requested", lambda c: fitted.append(c))
+
+    coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
+    lw = w._point_specs[PointType.FIB].list_widget
+    lw.coordinates = [coord]
+    lw.select_coordinate_silent(coord)
+
+    w._fit_selected_coordinate()
+    assert fitted == [coord]
+
+
+def test_f_hotkey_noop_without_selection(qapp, monkeypatch):
+    w = _widget(qapp)
+    fitted = []
+    monkeypatch.setattr(w, "_on_refit_requested", lambda c: fitted.append(c))
+
+    w._fit_selected_coordinate()  # nothing selected
+    assert fitted == []
+
+
+def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
+    from PyQt5.QtWidgets import QApplication, QLineEdit
+
+    w = _widget(qapp)
+    fitted = []
+    monkeypatch.setattr(w, "_on_refit_requested", lambda c: fitted.append(c))
+
+    coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
+    lw = w._point_specs[PointType.FIB].list_widget
+    lw.coordinates = [coord]
+    lw.select_coordinate_silent(coord)
+
+    editing = QLineEdit()
+    monkeypatch.setattr(QApplication, "focusWidget", lambda: editing)
+    w._fit_selected_coordinate()
+    assert fitted == []  # don't hijack the key mid-edit
+
+
+def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, figure=None):
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import PointFitResult
+
+    initial = PointXYZ(100.0, 100.0, 10.0)
+    fitted = (
+        None
+        if status.name == "ERROR"
+        else PointXYZ(100.0 + dx, 100.0 + dy, 10.0 + dz)
+    )
+    return PointFitResult(
+        coordinate=_coord(100.0, 100.0, 10.0, PointType.FM),
+        method="Hole", channel=0, initial=initial, fitted=fitted,
+        status=status, figure=figure,
+    )
+
+
+def test_auto_accept_gating(qapp):
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+
+    w = _widget(qapp)
+    ok = _fit_result(FitStatus.OK, dx=2.0)
+    err = _fit_result(FitStatus.ERROR)
+    far = _fit_result(FitStatus.OK, dx=100.0)  # surprising jump
+
+    w._coords_tab._auto_accept_check.setChecked(False)
+    assert not w._should_auto_accept(ok)   # off -> always confirm
+
+    w._coords_tab._auto_accept_check.setChecked(True)
+    assert w._should_auto_accept(ok)        # good, small fit -> apply
+    assert not w._should_auto_accept(err)   # failures always surface
+    assert not w._should_auto_accept(far)   # outliers fall back to the dialog
+
+
+def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as mod
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+
+    w = _widget(qapp)
+    w._coords_tab._auto_accept_check.setChecked(True)
+
+    result = _fit_result(FitStatus.OK, dx=2.0)
+    monkeypatch.setattr(w, "_run_point_fit", lambda c: result)
+    applied = []
+    monkeypatch.setattr(w, "_apply_fit_result", lambda r: applied.append(r))
+
+    def _boom(*a, **k):
+        raise AssertionError("confirm dialog must not open in auto-accept")
+
+    monkeypatch.setattr(mod, "FitConfirmationDialog", _boom)
+
+    w._on_refit_requested(_coord(pt=PointType.FM))
+    assert applied == [result]
+
+
+def test_auto_accept_error_still_shows_dialog(qapp, monkeypatch):
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as mod
+    from PyQt5.QtWidgets import QDialog
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+
+    w = _widget(qapp)
+    w._coords_tab._auto_accept_check.setChecked(True)
+
+    monkeypatch.setattr(w, "_run_point_fit", lambda c: _fit_result(FitStatus.ERROR))
+    constructed = []
+
+    class _FakeDialog:
+        def __init__(self, *a, **k):
+            constructed.append(True)
+
+        def exec_(self):
+            return QDialog.Rejected
+
+    monkeypatch.setattr(mod, "FitConfirmationDialog", _FakeDialog)
+
+    w._on_refit_requested(_coord(pt=PointType.FM))
+    assert constructed == [True]  # error surfaced despite auto-accept
 
 
 def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):

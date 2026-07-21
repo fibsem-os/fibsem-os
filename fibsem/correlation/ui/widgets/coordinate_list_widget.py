@@ -165,7 +165,7 @@ class _CoordinateListHeader(QWidget):
         # Refit button — acts on selected coordinate; disabled when nothing selected
         self.btn_refit = IconToolButton(
             icon="mdi:refresh",
-            tooltip="Refit selected coordinate",
+            tooltip="Refit selected coordinate (F)",
             size=_BTN_SIZE.width(),
         )
         self.btn_refit.setEnabled(False)
