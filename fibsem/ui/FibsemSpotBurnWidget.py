@@ -26,7 +26,7 @@ from fibsem.imaging.spot import run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 from fibsem.ui import stylesheets
-from fibsem.ui.utils import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.utils import format_value
 
@@ -81,7 +81,6 @@ class FibsemSpotBurnWidget(QWidget):
         drops ``label_workflow_hint`` into the run button's cell, so the grid, the
         ``progressBar`` placeholder, and the widget object names are reproduced here.
         """
-        self.wheel_blocker = WheelBlocker()
         self.gridLayout_2 = QGridLayout(self)
 
         self.label_title = QLabel("Spot Burn")
@@ -111,7 +110,7 @@ class FibsemSpotBurnWidget(QWidget):
 
         # block accidental scroll-to-change on the input widgets
         for w in (self.comboBox_beam_current, self.doubleSpinBox_exposure_time):
-            w.installEventFilter(self.wheel_blocker)
+            install_wheel_blocker(w)
 
     def setup_connections(self):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
