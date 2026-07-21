@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QScrollArea,
     QVBoxLayout,
@@ -246,6 +247,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             "font-size: 14px; font-weight: bold; color: #e0e0e0; background: transparent;"
         )
 
+        # free-text lamella description (this editor is the source of truth for it)
+        self.label_description = QLabel("Description")
+        self.line_edit_description = QLineEdit()
+        self.line_edit_description.setPlaceholderText("Add a description…")
+        self.line_edit_description.setToolTip("Free-text note about this lamella")
+        self.line_edit_description.editingFinished.connect(self._on_description_edited)
+
         self.button_layout = QHBoxLayout()
         self.button_layout.addWidget(self.label_lamella_name)
         self.button_layout.addStretch()
@@ -294,6 +302,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.label_lamella_warning, 5, 0, 1, 2)
         self.grid_layout.addWidget(self.label_status, 6, 0, 1, 2)
         self.grid_layout.addWidget(self.label_warning, 7, 0, 1, 2)
+        self.grid_layout.addWidget(self.label_description, 8, 0, 1, 1)
+        self.grid_layout.addWidget(self.line_edit_description, 8, 1, 1, 1)
 
         # main layout
         self.main_layout = QVBoxLayout(self)
@@ -379,6 +389,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_lamella is None:
             return
         self.label_lamella_name.setText(selected_lamella.name)
+
+        # populate description without re-emitting editingFinished
+        self.line_edit_description.blockSignals(True)
+        self.line_edit_description.setText(selected_lamella.description)
+        self.line_edit_description.blockSignals(False)
 
         task_names = self._sort_task_names_by_workflow(
             list(selected_lamella.task_config.keys())
@@ -1066,6 +1081,17 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             msg += "\nBase protocol was also updated."
         QMessageBox.information(self, "Apply Complete", msg)
         logging.info(msg)
+
+    def _on_description_edited(self):
+        """Persist the free-text description for the selected lamella."""
+        lamella = self._selected_lamella
+        if lamella is None:
+            return
+        text = self.line_edit_description.text()
+        if lamella.description == text:
+            return
+        lamella.description = text  # fires events.description -> updates read-only mirrors
+        self._save_experiment()
 
     def _save_experiment(self):
         """Save the experiment."""

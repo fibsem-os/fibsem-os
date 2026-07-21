@@ -41,6 +41,15 @@ class SelectedLamellaWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
+        # --- description row (read-only mirror; edited in the Lamella editor) ---
+        self._lamella: Optional[Lamella] = None
+        self.description_label = QLabel()
+        self.description_label.setWordWrap(True)
+        self.description_label.setStyleSheet(
+            "color: #909090; font-style: italic; background: transparent;"
+        )
+        self.description_label.setToolTip("Free-text note (edit in the Lamella editor)")
+
         # --- objective position row ---
         self.label_objective_position = QLabel("Objective Position")
         self.spinbox_objective_position = ValueSpinBox(
@@ -77,9 +86,10 @@ class SelectedLamellaWidget(QWidget):
         obj_row_layout.setSpacing(2)
         obj_row_layout.addWidget(self.spinbox_objective_position)
         obj_row_layout.addWidget(self.btn_objective_actions)
-        content_layout.addWidget(self.label_objective_position, 0, 0)
-        content_layout.addWidget(obj_row, 0, 1)
-        content_layout.addWidget(self.pose_list, 1, 0, 1, 2)
+        content_layout.addWidget(self.description_label, 0, 0, 1, 2)
+        content_layout.addWidget(self.label_objective_position, 1, 0)
+        content_layout.addWidget(obj_row, 1, 1)
+        content_layout.addWidget(self.pose_list, 2, 0, 1, 2)
 
         self._panel = TitledPanel(
             "Selected Lamella", content=content, collapsible=False
@@ -111,13 +121,31 @@ class SelectedLamellaWidget(QWidget):
 
     def set_lamella(self, lamella: Optional[Lamella]) -> None:
         """Refresh the panel display from *lamella* (or clear it if None)."""
+        # re-point the live description mirror at the newly selected lamella
+        if self._lamella is not None:
+            try:
+                self._lamella.events.description.disconnect(self._refresh_description)  # type: ignore[union-attr]
+            except (TypeError, ValueError, RuntimeError):
+                pass
+        self._lamella = lamella
+
         if lamella is None:
+            self._panel.set_title("Selected Lamella")
+            self.description_label.setVisible(False)
             self.label_objective_position.setVisible(False)
             self.spinbox_objective_position.setVisible(False)
             self.btn_objective_actions.setVisible(False)
             self.pose_list.set_lamella(None)
             self.pose_list.setVisible(False)
             return
+
+        # show which lamella is selected in the panel title
+        self._panel.set_title(f"Selected Lamella — {lamella.name}")
+
+        # read-only description mirror; live-updates when edited in the Lamella editor
+        self.description_label.setVisible(True)
+        self._refresh_description()
+        lamella.events.description.connect(self._refresh_description)  # type: ignore[union-attr]
 
         # objective position (shown in µm). The controls are shown whenever the
         # lamella has a fluorescence pose, so the objective can still be set/restored
@@ -142,6 +170,14 @@ class SelectedLamellaWidget(QWidget):
         # poses
         self.pose_list.set_lamella(lamella)
         self.pose_list.setVisible(bool(lamella.poses))
+
+    def _refresh_description(self) -> None:
+        """Mirror the current lamella's description into the read-only label."""
+        if self._lamella is None:
+            return
+        text = self._lamella.description
+        self.description_label.setText(text or "No description")
+        self.description_label.setToolTip(text or "Free-text note (edit in the Lamella editor)")
 
     def refresh_pose(self, pose_name: str, pretty: str) -> None:
         """Update one pose row's position in place, without rebuilding the list."""

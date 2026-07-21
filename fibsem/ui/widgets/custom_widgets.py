@@ -938,6 +938,10 @@ class _LamellaRow(QWidget):
         self.btn_remove.setVisible(False)
         layout.addWidget(self.btn_remove)
 
+        # live-update the description tooltip when it changes (e.g. edited in the
+        # Selected Lamella panel). type: ignore because @evented adds .events dynamically.
+        self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
+
         self.refresh()
 
     def _on_defect_clicked(self) -> None:
@@ -977,6 +981,7 @@ class _LamellaRow(QWidget):
 
     def refresh(self) -> None:
         self.name_label.setText(self.lamella.name)
+        self.setToolTip(self.lamella.description or "")
         text, style = _lamella_status_text(self.lamella)
         self.status_label.setText(text)
         self.status_label.setStyleSheet(style)
