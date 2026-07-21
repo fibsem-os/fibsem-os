@@ -645,7 +645,6 @@ class TescanMicroscope(FibsemMicroscope):
         self,
         dy: float,
         dx: float = 0.0,
-        static_wd: bool = True,
     ) -> None:
         """
         Move the stage vertically to correct coincidence point

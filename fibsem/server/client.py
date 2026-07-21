@@ -119,8 +119,8 @@ class FibsemClient:
         })
         return FibsemStagePosition.from_dict(result["position"])
 
-    def vertical_move(self, dy: float, dx: float = 0.0, static_wd: bool = True) -> FibsemStagePosition:
-        result = self._post("vertical_move", {"dy": dy, "dx": dx, "static_wd": static_wd})
+    def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
+        result = self._post("vertical_move", {"dy": dy, "dx": dx})
         return FibsemStagePosition.from_dict(result["position"])
 
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
