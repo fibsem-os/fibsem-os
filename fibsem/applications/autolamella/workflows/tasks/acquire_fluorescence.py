@@ -136,7 +136,9 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
                 pos="Continue"
                 )
 
-        self.log_status_message("AUTOFOCUS", "Running Autofocus...")
+        af_display = (f"Autofocus: {autofocus_channel.name} "
+                      f"[{af_settings.method.value}], {len(af_settings.passes)} pass(es)")
+        self.log_status_message("AUTOFOCUS", af_display)
         self.microscope.fm.acquisition_progress_signal.emit({"state": "autofocusing", "task": f"{self.task_name}"}) # type: ignore
         # Query: pass in channel settings so we are certain the channel is correct
         result = run_coarse_fine_autofocus(
