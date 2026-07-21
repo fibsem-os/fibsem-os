@@ -35,6 +35,7 @@ ODEMIS_MODULE_NAMES = (
     "odemis.acq.stream",
     "odemis.util",
     "odemis.util.dataio",
+    "odemis.util.fluo",
 )
 
 # fibsem modules bound to the odemis import; must be re-imported against stubs
@@ -156,12 +157,14 @@ class FakeCamera:
         resolution: tuple = (2048, 2048),
         pixel_size: tuple = (1e-7, 1e-7),
         baseline: int = 100,
+        sensor_pixel_size: tuple = (6.5e-6, 6.5e-6),
     ):
         self.resolution = FakeVA(tuple(resolution))
         self.exposureTime = FakeVA(0.1, range=(1e-3, 10.0), unit="s")
         self.binning = FakeVA(
             (1, 1), range=((1, 1), (16, 16)), setter=self._on_binning
         )
+        self.pixelSize = FakeVA(tuple(sensor_pixel_size), unit="m")  # sensor
         self._metadata = {
             MD_PIXEL_SIZE: tuple(pixel_size),
             MD_BASELINE: baseline,
@@ -238,6 +241,29 @@ def fake_acquire(streams, settings_obs=None):
     return FakeFuture(([data], None))
 
 
+def _band_center(band) -> float:
+    """Centre of a 2-tuple (mean) or 5-tuple (index 2) band, like odemis fluo.get_center."""
+    if len(band) == 5:
+        return band[2]
+    return sum(band) / len(band)
+
+
+def fake_get_one_band_em(bands, ex_band):
+    """odemis.util.fluo.get_one_band_em stand-in.
+
+    Faithful to the real logic: pick the band whose centre is closest above
+    the excitation centre; fall back to the highest band if none is above.
+    """
+    if isinstance(bands, str):
+        return bands
+    ex_center = 1e9 if isinstance(ex_band, str) else _band_center(ex_band)
+    centers = {tuple(b): _band_center(b) for b in bands}
+    above = [b for b, c in centers.items() if c > ex_center]
+    if above:
+        return min(above, key=centers.get)
+    return max(centers, key=centers.get)
+
+
 def default_components() -> Dict[str, object]:
     """Fresh set of stub hardware components keyed by odemis role."""
     return {
@@ -300,12 +326,17 @@ def install_odemis_stubs() -> None:
     dataio_mod = types.ModuleType("odemis.util.dataio")
     dataio_mod.open_acquisition = lambda path: []
 
+    fluo_mod = types.ModuleType("odemis.util.fluo")
+    fluo_mod.get_one_band_em = fake_get_one_band_em
+    fluo_mod.get_center = _band_center
+
     odemis_pkg.model = model_mod
     odemis_pkg.acq = acq_pkg
     odemis_pkg.util = util_pkg
     acq_pkg.acqmng = acqmng_mod
     acq_pkg.stream = stream_mod
     util_pkg.dataio = dataio_mod
+    util_pkg.fluo = fluo_mod
 
     modules = {
         "odemis": odemis_pkg,
@@ -315,6 +346,7 @@ def install_odemis_stubs() -> None:
         "odemis.acq.stream": stream_mod,
         "odemis.util": util_pkg,
         "odemis.util.dataio": dataio_mod,
+        "odemis.util.fluo": fluo_mod,
     }
     sys.modules.update(modules)
 

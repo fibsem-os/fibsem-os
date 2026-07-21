@@ -17,6 +17,7 @@ add_odemis_path()
 from odemis import model
 from odemis.acq.acqmng import acquire
 from odemis.acq.stream import FluoStream
+from odemis.util import fluo
 
 # NOTES: needed to install shapely, pylibtiff, and odemis
 
@@ -50,7 +51,18 @@ class OdemisObjectiveLens(ObjectiveLens):
         # Cache metadata on initialization
         self._metadata_cache = {}
         self._cache_metadata()
-        self._focus_position = self.active_position["z"]
+
+        active_position = self.active_position
+        if active_position is not None:
+            self._focus_position = active_position["z"]
+        else:
+            self._focus_position = self.position
+            logging.warning(
+                "Focuser has no active-position metadata; using the current "
+                f"position ({self._focus_position * 1e3:.3f} mm) as the focus position."
+            )
+        # default user limit: no restriction beyond the hardware range
+        self._limit_position = self.limits[1]
 
     def _cache_metadata(self):
         """Cache frequently accessed metadata for improved performance.
@@ -180,17 +192,44 @@ class OdemisObjectiveLens(ObjectiveLens):
         f = self._focuser.moveRel({"z": delta})
         f.result()
 
+    @property
+    def limits(self) -> Tuple[float, float]:
+        """Get the z-axis position limits of the objective lens.
+
+        Returns:
+            A tuple of (minimum, maximum) positions in metres, from the
+            focuser axis range.
+        """
+        rng = self._focuser.axes["z"].range
+        return (rng[0], rng[1])
+
     def move_absolute(self, position: float):
         """Move the objective lens to an absolute focus position.
+
+        The position is clipped to the user-defined safety limit and
+        validated against the focuser axis range before moving (odemis
+        raises ValueError for out-of-range moves).
 
         Args:
             position: The target z-axis position in meters
 
         Raises:
             TypeError: If position is not a number
+            ValueError: If the position is outside the focuser axis range
         """
         if not isinstance(position, (int, float)):
             raise TypeError("Position must be an integer or float.")
+
+        # clip to the user-defined safety limit
+        if position > self._limit_position:
+            logging.warning(
+                f"Clipping position {position} to user-defined limit {self._limit_position}"
+            )
+            position = self._limit_position
+
+        limits = self.limits
+        if not limits[0] <= position <= limits[1]:
+            raise ValueError(f"Position {position} outside focuser range {limits}")
 
         f = self._focuser.moveAbs({"z": position})
         f.result()
@@ -199,23 +238,31 @@ class OdemisObjectiveLens(ObjectiveLens):
         """Move the objective lens to the active (inserted) position.
 
         Moves the objective lens to the predefined active position for imaging.
-        Uses cached position data when available for improved performance.
+        The favourite active position is calibrated (Delmic), so the user
+        safety limit is not applied here.
         """
         active_position = self.active_position
-        if active_position is not None:
-            f = self._focuser.moveAbs(active_position)
-            f.result()
+        if active_position is None:
+            logging.warning(
+                "Cannot insert objective: no active-position metadata available."
+            )
+            return
+        f = self._focuser.moveAbs(active_position)
+        f.result()
 
     def retract(self):
         """Move the objective lens to the deactive (retracted) position.
 
         Moves the objective lens to the predefined deactive position for safety.
-        Uses cached position data when available for improved performance.
         """
         deactive_position = self.deactive_position
-        if deactive_position is not None:
-            f = self._focuser.moveAbs(deactive_position)
-            f.result()
+        if deactive_position is None:
+            logging.warning(
+                "Cannot retract objective: no deactive-position metadata available."
+            )
+            return
+        f = self._focuser.moveAbs(deactive_position)
+        f.result()
 
     @property
     def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:
@@ -274,8 +321,20 @@ class OdemisCamera(Camera):
         camera_md = self._camera.getMetadata()
         # fallback values only: pixel_size/resolution are read live (see properties)
         self._resolution = tuple(self._camera.resolution.value)  # (width, height)
-        self._pixel_size = tuple(camera_md[model.MD_PIXEL_SIZE])  # (x, y) sample-plane
-        self._offset = camera_md[model.MD_BASELINE]  # offset for the camera
+
+        pixel_size = camera_md.get(model.MD_PIXEL_SIZE)  # (x, y) sample-plane
+        if pixel_size is None:
+            # no lens/magnification wiring in the microscope file
+            pixel_size = self._camera.pixelSize.value  # sensor pixel size
+            logging.warning(
+                "Camera metadata has no MD_PIXEL_SIZE; falling back to the "
+                f"sensor pixel size {pixel_size} - image scale will not "
+                "account for magnification."
+            )
+        self._pixel_size = tuple(pixel_size)
+
+        # not all cameras publish a baseline (only some drivers set MD_BASELINE)
+        self._offset = camera_md.get(model.MD_BASELINE, 0)
 
     # other attributes: depthOfField, readoutRate, pointSpreadFunctionSize
 
@@ -286,23 +345,24 @@ class OdemisCamera(Camera):
         the configured fluorescence stream with current camera settings.
 
         Returns:
-            A numpy array containing the image data, or None if acquisition fails
+            A numpy array containing the image data
+
+        Raises:
+            RuntimeError: If the acquisition fails or returns no data
 
         Note:
             May show timing warnings if rapid successive acquisitions are attempted.
             Consider checking if acquisition is already in progress before calling.
         """
         da: List[model.DataArray]
-        try:
-            # May show timing warnings for rapid successive acquisitions
-            # TODO: Check if acquisition is already in progress
-            f = acquire([self._stream])
-            da, err = f.result()
-            if err:
-                raise RuntimeError(f"Error acquiring image: {err}")
-        except Exception as e:
-            logging.warning(f"Error acquiring image: {e}")
-            return None
+        # May show timing warnings for rapid successive acquisitions
+        # TODO: Check if acquisition is already in progress
+        f = acquire([self._stream])
+        da, err = f.result()
+        if err:
+            raise RuntimeError(f"Error acquiring image: {err}")
+        if not da:
+            raise RuntimeError("Acquisition returned no data.")
         return da[0]  # model.DataArray -> np.ndarray
 
     # QUERY: migrate to using the camera dataflow interface?
@@ -366,12 +426,15 @@ class OdemisCamera(Camera):
         change, so no binning scaling is applied here (unlike the base class).
         """
         try:
-            return tuple(self._camera.getMetadata()[model.MD_PIXEL_SIZE])
+            pixel_size = self._camera.getMetadata().get(model.MD_PIXEL_SIZE)
         except Exception as e:
             logging.warning(
-                f"Failed to read pixel size from camera metadata, using cached value: {e}"
+                f"Failed to read camera metadata, using cached pixel size: {e}"
             )
             return tuple(self._pixel_size)
+        if pixel_size is None:
+            return tuple(self._pixel_size)  # missing key already warned at init
+        return tuple(pixel_size)
 
     @property
     def resolution(self) -> Tuple[int, int]:
@@ -637,10 +700,23 @@ class OdemisFilterSet(FilterSet):
             self._stream.emission.value = choices_by_nm[None]
             return
 
+        if isinstance(value, str):
+            # TFS-style channel settings use 'Fluorescence' for multi-band
+            # emission; pick the band matching the current excitation
+            bands = {c for nm, c in choices_by_nm.items() if nm is not None}
+            if not bands:
+                raise ValueError("No emission bands available for fluorescence mode.")
+            choice = fluo.get_one_band_em(bands, self._stream.excitation.value)
+            if self._stream.emission.value != choice:
+                logging.info(
+                    f"Mapping emission '{value}' to band {choice} for the "
+                    f"current excitation"
+                )
+                self._stream.emission.value = choice
+            return
+
         if not isinstance(value, (int, float)):
-            # str values (e.g. 'Fluorescence' from TFS channel files) are not
-            # supported yet -- see FIB-286 (map via fluo.get_one_band_em)
-            raise TypeError("Emission wavelength must be a number or None.")
+            raise TypeError("Emission wavelength must be a number, str, or None.")
 
         numeric = {nm: c for nm, c in choices_by_nm.items() if nm is not None}
         if not numeric:

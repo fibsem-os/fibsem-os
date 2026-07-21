@@ -4,12 +4,16 @@ Runs everywhere: odemis is replaced by the stub modules in _odemis_stubs.py,
 which mimic the verified odemis behaviour (SI units, binning-coupled camera
 geometry, favourite positions). See docs/design/odemis-fm-driver.md.
 
-Each test class covers a Phase 1 finding (FIB-285):
+Each test class covers a finding from Phase 1 (FIB-285) or Phase 2 (FIB-286):
 - F1  wavelength setters select the requested band (metres-vs-nm regression)
 - F2  objective.state is a property with the base Literal values
 - F3  camera geometry reads live, no binning double-count
 - F4  power is a fraction (0-1) of maximum, normalised to watts
+- F5/F6 objective limits from the focuser axis range + move clipping
+- F7  init tolerates missing metadata keys (baseline, FAV positions, pixel size)
 - F7b add_odemis_path is safe without /etc/odemis.conf
+- F8  acquire_image raises on failure instead of returning None
+- F9  'Fluorescence' emission maps to the band matching the excitation
 """
 
 import sys
@@ -112,10 +116,9 @@ class TestFilterSetWavelengths:
         assert fm.filter_set._stream.emission.value == stubs.BAND_PASS_THROUGH
         assert fm.filter_set.emission_wavelength is None
 
-    def test_emission_setter_rejects_str(self, fm):
-        # explicit TypeError until FIB-286 maps 'Fluorescence' to a band
+    def test_emission_setter_rejects_non_numeric_non_str(self, fm):
         with pytest.raises(TypeError):
-            fm.filter_set.emission_wavelength = "Fluorescence"
+            fm.filter_set.emission_wavelength = [500]
 
     def test_emission_setter_skips_when_unchanged(self, fm):
         fm.filter_set.emission_wavelength = 590
@@ -262,3 +265,128 @@ class TestChannelAndMetadata:
         assert isinstance(image, FluorescenceImage)
         assert image.data.shape == fm.camera.resolution[::-1]
         assert image.metadata is not None
+
+
+class TestObjectiveLimitsAndClipping:
+    """F5/F6: limits from the focuser axis range; move_absolute clips/validates."""
+
+    def test_limits_from_focuser_axis_range(self, fm):
+        assert fm.objective.limits == pytest.approx((-2.0e-3, 10.0e-3))
+
+    def test_default_user_limit_is_hardware_max(self, fm):
+        assert fm.objective.limit_position == pytest.approx(10.0e-3)
+
+    def test_move_absolute_clips_to_user_limit(self, fm):
+        fm.objective.limit_position = 5.0e-3
+        fm.objective.move_absolute(8.0e-3)
+        assert fm.objective.position == pytest.approx(5.0e-3)
+
+    def test_move_absolute_within_limit_is_unclipped(self, fm):
+        fm.objective.limit_position = 5.0e-3
+        fm.objective.move_absolute(3.0e-3)
+        assert fm.objective.position == pytest.approx(3.0e-3)
+
+    def test_move_absolute_raises_outside_axis_range(self, fm):
+        with pytest.raises(ValueError):
+            fm.objective.move_absolute(-5.0e-3)  # below focuser range minimum
+
+    def test_insert_uses_calibrated_position_despite_user_limit(self, fm):
+        # the favourite active position is calibrated, so insert() is not
+        # subject to the user focusing limit
+        fm.objective.limit_position = 5.0e-3
+        fm.objective.insert()
+        assert fm.objective.position == pytest.approx(8.0e-3)
+
+
+class TestInitFallbacks:
+    """F7: missing metadata keys must not disable the FM subsystem."""
+
+    def test_missing_baseline_defaults_to_zero(self, odemis_env):
+        components = stubs.default_components()
+        del components["ccd"]._metadata[stubs.MD_BASELINE]
+        stubs.use_components(components)
+        microscope = odemis_env.module.OdemisFluorescenceMicroscope(parent=None)
+        assert microscope.camera.offset == 0
+
+    def test_missing_pixel_size_falls_back_to_sensor(self, odemis_env):
+        components = stubs.default_components()
+        del components["ccd"]._metadata[stubs.MD_PIXEL_SIZE]
+        stubs.use_components(components)
+        microscope = odemis_env.module.OdemisFluorescenceMicroscope(parent=None)
+        assert microscope.camera.pixel_size == pytest.approx((6.5e-6, 6.5e-6))
+
+    def test_missing_fav_active_uses_current_position(self, odemis_env):
+        components = stubs.default_components()
+        del components["focus"]._metadata[stubs.MD_FAV_POS_ACTIVE]
+        stubs.use_components(components)
+        microscope = odemis_env.module.OdemisFluorescenceMicroscope(parent=None)
+        # falls back to the current (deactive) position instead of crashing
+        assert microscope.objective.focus_position == pytest.approx(-1.0e-3)
+        assert microscope.objective.state == "Other"
+
+    def test_insert_without_fav_active_warns_and_stays(self, odemis_env):
+        components = stubs.default_components()
+        del components["focus"]._metadata[stubs.MD_FAV_POS_ACTIVE]
+        stubs.use_components(components)
+        microscope = odemis_env.module.OdemisFluorescenceMicroscope(parent=None)
+        position_before = microscope.objective.position
+        microscope.objective.insert()  # must not raise
+        assert microscope.objective.position == pytest.approx(position_before)
+
+
+class TestAcquireImageErrors:
+    """F8: acquisition failures raise instead of returning None."""
+
+    def test_acquisition_error_raises(self, fm, odemis_env, monkeypatch):
+        monkeypatch.setattr(
+            odemis_env.module,
+            "acquire",
+            lambda streams: stubs.FakeFuture(([], Exception("camera timeout"))),
+        )
+        with pytest.raises(RuntimeError, match="camera timeout"):
+            fm.camera.acquire_image()
+
+    def test_empty_acquisition_raises(self, fm, odemis_env, monkeypatch):
+        monkeypatch.setattr(
+            odemis_env.module,
+            "acquire",
+            lambda streams: stubs.FakeFuture(([], None)),
+        )
+        with pytest.raises(RuntimeError, match="no data"):
+            fm.camera.acquire_image()
+
+
+class TestEmissionFluorescenceMapping:
+    """F9: TFS-style 'Fluorescence' maps to the band matching the excitation."""
+
+    @pytest.mark.parametrize(
+        "excitation_nm,expected_emission_nm",
+        [(365, 420), (450, 500), (550, 590), (635, 680)],
+    )
+    def test_fluorescence_follows_excitation(
+        self, fm, excitation_nm, expected_emission_nm
+    ):
+        fm.filter_set.excitation_wavelength = excitation_nm
+        fm.filter_set.emission_wavelength = "Fluorescence"
+        assert fm.filter_set.emission_wavelength == pytest.approx(
+            expected_emission_nm
+        )
+
+    def test_set_channel_with_tfs_style_settings(self, fm):
+        channel = ChannelSettings(
+            name="tfs-style",
+            excitation_wavelength=635,
+            emission_wavelength="Fluorescence",
+            power=0.1,
+            exposure_time=0.01,
+        )
+        fm.set_channel(channel)
+        assert fm.filter_set.emission_wavelength == pytest.approx(680)
+
+    def test_fluorescence_skips_write_when_unchanged(self, fm):
+        fm.filter_set.excitation_wavelength = 550
+        fm.filter_set.emission_wavelength = "Fluorescence"
+        emission_va = fm.filter_set._stream.emission
+        sets_before = emission_va.set_count
+        fm.filter_set.emission_wavelength = "Fluorescence"
+        assert emission_va.set_count == sets_before
