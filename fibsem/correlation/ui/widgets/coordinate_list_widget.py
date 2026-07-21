@@ -13,9 +13,10 @@ import os
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPixmap
+from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -27,6 +28,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 
 _DRAG_HANDLE_PATH = os.path.join(
@@ -40,6 +42,12 @@ _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 28
 # Spacer in header aligning with drag handle in rows (layout spacing handles the 4px gap)
 _ROW_RIGHT_WIDTH = 10
+
+# Fit-state indicator colours. A fitted point (unmodified auto-fit result) is
+# white so it reads as "lit up"; otherwise a muted grey — dimmer than the light
+# trash/edit icons — so it recedes to a placeholder.
+_FITTED_ICON_COLOR = "#ffffff"
+_UNFITTED_ICON_COLOR = "#6b6f76"
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
     PointType.FIB:        "lime",
@@ -64,6 +72,22 @@ def _generate_names(coordinates: List[Coordinate]) -> List[str]:
         counters[c.point_type] = counters.get(c.point_type, 0) + 1
         names.append(f"{c.point_type.value} {counters[c.point_type]}")
     return names
+
+
+def _name_col_width(point_type: Optional[PointType]) -> int:
+    """Width of the Name column, sized to the longest name this list can show.
+
+    Names are ``"{point_type} {n}"`` and each list holds a single point type, so
+    a fiducial list ("FM 8") needs far less room than a surface ("FM-SURFACE 1").
+    Sizing per list removes the wide empty gap that a fixed 100px left after the
+    short FIB/FM/POI names. Capped at that former width so surface lists — the
+    only ones that filled it — are unchanged.
+    """
+    label = f"{point_type.value if point_type else 'POINT'} 99"
+    font = QApplication.font()  # the app-default family the label inherits...
+    font.setPixelSize(11)       # ...at the row/name label font-size
+    text_w = QFontMetrics(font).horizontalAdvance(label)
+    return max(48, min(text_w + 14, _NAME_FIXED_WIDTH))  # +padding, clamped
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +127,12 @@ class _CoordinateListHeader(QWidget):
     """Sticky dark header with column labels, a color indicator for the
     selected coordinate's point type, and a shared refit button."""
 
-    def __init__(self, parent=None, default_color: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        parent=None,
+        default_color: Optional[str] = None,
+        name_width: int = _NAME_FIXED_WIDTH,
+    ) -> None:
         self._default_color = default_color
         super().__init__(parent)
         self.setStyleSheet("background: #1e2124;")
@@ -120,7 +149,7 @@ class _CoordinateListHeader(QWidget):
                 lbl.setFixedWidth(width)
             return lbl
 
-        layout.addWidget(_lbl("Name", _NAME_FIXED_WIDTH))
+        layout.addWidget(_lbl("Name", name_width))
         layout.addWidget(_lbl("X", _SPIN_FIXED_WIDTH))
         layout.addWidget(_lbl("Y", _SPIN_FIXED_WIDTH))
         layout.addWidget(_lbl("Z", _SPIN_FIXED_WIDTH))
@@ -186,6 +215,7 @@ class CoordinateRowWidget(QWidget):
         coord: Coordinate,
         name: str,
         parent: Optional[QWidget] = None,
+        name_width: int = _NAME_FIXED_WIDTH,
     ) -> None:
         super().__init__(parent)
         self.coord = coord
@@ -197,10 +227,10 @@ class CoordinateRowWidget(QWidget):
 
         # Name label (read-only)
         self.name_label = QLabel(name)
-        self.name_label.setFixedWidth(_NAME_FIXED_WIDTH)
-        self.name_label.setStyleSheet(
-            "color: #F0F1F2; background: transparent; font-size: 11px;"
-        )
+        self.name_label.setFixedWidth(name_width)
+        # Omit `background: transparent` — it's the QLabel default, and an
+        # unscoped rule bleeds into this label's QToolTip background.
+        self.name_label.setStyleSheet("color: #F0F1F2; font-size: 11px;")
         self.name_label.setToolTip("Auto-generated coordinate name")
         layout.addWidget(self.name_label)
 
@@ -225,6 +255,23 @@ class CoordinateRowWidget(QWidget):
             _spin.setStyleSheet("font-size: 11px; padding: 1px 6px;")
 
         layout.addStretch(1)
+
+        # Fit-state indicator — always visible so every row keeps an aligned
+        # status column; the colour encodes the state (white = auto-fit and
+        # confirmed, grey = manually placed). coord.fitted clears on a manual
+        # edit. Pixmaps are pre-rendered once and swapped on refresh.
+        self._icon_fitted = fibsem_icon(
+            "mdi:target", color=_FITTED_ICON_COLOR
+        ).pixmap(QSize(14, 14))
+        self._icon_unfitted = fibsem_icon(
+            "mdi:target", color=_UNFITTED_ICON_COLOR
+        ).pixmap(QSize(14, 14))
+        self.fitted_icon = QLabel()
+        self.fitted_icon.setFixedSize(16, 16)
+        # No `background: transparent` stylesheet: a QLabel is already
+        # background-less, and an unscoped rule here would bleed into this
+        # widget's QToolTip (making the tooltip background transparent too).
+        layout.addWidget(self.fitted_icon)
 
         # Remove button
         self.btn_remove = IconToolButton(
@@ -304,6 +351,17 @@ class CoordinateRowWidget(QWidget):
         self.z_spin.setValue(self.coord.point.z)
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.blockSignals(False)
+        self._update_fitted_icon()
+
+    def _update_fitted_icon(self) -> None:
+        """Colour the always-visible indicator by fit state (green vs grey)."""
+        fitted = bool(getattr(self.coord, "fitted", False))
+        self.fitted_icon.setPixmap(
+            self._icon_fitted if fitted else self._icon_unfitted
+        )
+        self.fitted_icon.setToolTip(
+            "Auto-fit and confirmed" if fitted else "Manually placed (not auto-fit)"
+        )
 
     # ------------------------------------------------------------------
     # Mutation handlers
@@ -369,6 +427,7 @@ class CoordinateListWidget(QWidget):
         self._y_max: Optional[float] = None
         self._z_max: Optional[float] = None
         self._default_header_color = _POINT_TYPE_COLORS.get(point_type) if point_type else None
+        self._name_width = _name_col_width(point_type)
 
         self._setup_ui()
         self._connect_signals()
@@ -381,7 +440,9 @@ class CoordinateListWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._header = _CoordinateListHeader(default_color=self._default_header_color)
+        self._header = _CoordinateListHeader(
+            default_color=self._default_header_color, name_width=self._name_width
+        )
         layout.addWidget(self._header)
 
         sep = QFrame()
@@ -455,7 +516,9 @@ class CoordinateListWidget(QWidget):
         self._empty_label.setVisible(len(self._coordinates) == 0)
 
     def _add_row(self, coord: Coordinate, name: str) -> None:
-        row_widget = CoordinateRowWidget(coord=coord, name=name)
+        row_widget = CoordinateRowWidget(
+            coord=coord, name=name, name_width=self._name_width
+        )
         if any(v is not None for v in (self._x_max, self._y_max, self._z_max)):
             row_widget.set_axis_maxima(self._x_max, self._y_max, self._z_max)
         self._connect_row(row_widget)

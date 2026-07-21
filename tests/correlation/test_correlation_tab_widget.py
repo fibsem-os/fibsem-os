@@ -1478,6 +1478,175 @@ def test_apply_dark_theme_darkens_chrome_keeps_data():
     assert marker.get_color() == "#e53935"                      # marker untouched
 
 
+def test_humanize_fit_error_maps_known_modes():
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        humanize_fit_error,
+    )
+
+    conv = humanize_fit_error(RuntimeError(
+        "Optimal parameters not found: Number of calls to function has reached "
+        "maxfev = 800."
+    ))
+    assert "converge" in conv and "maxfev" not in conv  # jargon dropped
+
+    edge = humanize_fit_error(IndexError("index 70 is out of bounds"))
+    assert "edge" in edge
+
+    generic = humanize_fit_error(TypeError("something odd"))
+    assert "unexpectedly" in generic
+
+
+def test_fit_dialog_shows_channel_for_fm_only(qapp):
+    from PyQt5.QtWidgets import QLabel
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitConfirmationDialog,
+        FitStatus,
+        PointFitResult,
+    )
+
+    def _labels(dialog):
+        return {lbl.text() for lbl in dialog.findChildren(QLabel)}
+
+    fm = PointFitResult(
+        coordinate=_coord(pt=PointType.FM), method="Hole", channel=1,
+        channel_name="reflection",
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 3.0),
+        status=FitStatus.OK,
+    )
+    fm_labels = _labels(FitConfirmationDialog(fm, show_figure=False))
+    assert "channel" in fm_labels and "reflection" in fm_labels
+
+    fib = PointFitResult(
+        coordinate=_coord(pt=PointType.FIB), method="Hole", channel=None,
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 0.0),
+        status=FitStatus.OK,
+    )
+    assert "channel" not in _labels(FitConfirmationDialog(fib, show_figure=False))
+
+
+def test_error_dialog_splits_title_and_wrapped_reason(qapp):
+    from PyQt5.QtWidgets import QLabel
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitConfirmationDialog,
+        FitStatus,
+        PointFitResult,
+    )
+
+    reason = (
+        "The fit didn't converge — the feature may be too faint, or not centred "
+        "in the search region. Try re-centring your click, or a different "
+        "channel / method."
+    )
+    r = PointFitResult(
+        coordinate=_coord(pt=PointType.FM), method="Hole", channel=2,
+        channel_name="Feature-2-Active-Reflection",
+        initial=PointXYZ(0.0, 0.0, 0.0), fitted=None,
+        status=FitStatus.ERROR, message=reason, detail="maxfev = 800",
+    )
+    dlg = FitConfirmationDialog(r, show_figure=False)
+    labels = dlg.findChildren(QLabel)
+    texts = [lbl.text() for lbl in labels]
+
+    # The chip is a short title — NOT the long message concatenated in.
+    assert "Fit failed" in texts
+    assert not any(t.startswith("Fit failed:") for t in texts)
+    # The reason lives on its own word-wrapped label (so it wraps, not stretches).
+    reason_lbls = [lbl for lbl in labels if lbl.text() == reason]
+    assert reason_lbls and reason_lbls[0].wordWrap()
+
+
+def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
+    from matplotlib.figure import Figure
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        FitConfirmationDialog,
+        FitStatus,
+        PointFitResult,
+    )
+
+    def _result():
+        fig = Figure(figsize=(9, 4.5))
+        fig.add_subplot(1, 1, 1)
+        return PointFitResult(
+            coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
+            initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
+            status=FitStatus.OK, figure=fig,
+        )
+
+    # Checkbox unchecked -> figure is still embedded, just hidden; the button
+    # offers to reveal it (we always have the diagnostic).
+    dlg = FitConfirmationDialog(_result(), show_figure=False)
+    assert dlg._canvas is not None
+    assert dlg._canvas.isHidden()
+    assert dlg._toggle_btn.text() == "Show diagnostic"
+
+    dlg._on_toggle_diagnostic()
+    assert not dlg._canvas.isHidden()
+    assert dlg._toggle_btn.text() == "Hide diagnostic"
+
+    dlg._on_toggle_diagnostic()
+    assert dlg._canvas.isHidden()
+    assert dlg._toggle_btn.text() == "Show diagnostic"
+
+    # Checkbox checked -> shown by default.
+    shown = FitConfirmationDialog(_result(), show_figure=True)
+    assert not shown._canvas.isHidden()
+    assert shown._toggle_btn.text() == "Hide diagnostic"
+
+
+def test_fitted_icon_reflects_state(qapp):
+    from fibsem.correlation.ui.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+    )
+
+    coord = _coord(pt=PointType.FIB)
+    coord.fitted = True
+    row = CoordinateRowWidget(coord, "FIB-0")
+    # Always visible (an aligned status column); state is encoded by colour.
+    assert not row.fitted_icon.isHidden()
+    assert "confirmed" in row.fitted_icon.toolTip()
+    fitted_key = row.fitted_icon.pixmap().cacheKey()
+
+    coord.fitted = False  # a manual edit supersedes the fit
+    row.refresh()
+    assert not row.fitted_icon.isHidden()          # still shown...
+    assert "Manually" in row.fitted_icon.toolTip()  # ...but recoloured
+    assert row.fitted_icon.pixmap().cacheKey() != fitted_key
+
+
+def test_tooltip_labels_have_no_unscoped_background(qapp):
+    # An unscoped `background: transparent` on a widget bleeds into its QToolTip
+    # (a QLabel), making the tooltip background transparent. The tooltip-bearing
+    # labels in a row must not carry a background rule in their own stylesheet.
+    from fibsem.correlation.ui.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+    )
+
+    row = CoordinateRowWidget(_coord(pt=PointType.FIB), "FIB-0")
+    assert row.fitted_icon.toolTip()               # it does have a tooltip
+    assert "background" not in row.fitted_icon.styleSheet()
+    assert "background" not in row.name_label.styleSheet()
+
+
+def test_name_col_width_is_compact_for_short_types(qapp):
+    from fibsem.correlation.ui.widgets.coordinate_list_widget import (
+        _NAME_FIXED_WIDTH,
+        _name_col_width,
+    )
+
+    fm = _name_col_width(PointType.FM)
+    poi = _name_col_width(PointType.POI)
+    surface = _name_col_width(PointType.SURFACE_FM)
+
+    # Short-name lists (FM 8, POI 1) collapse well under the old fixed 100px,
+    # killing the empty gap; a surface name needs more room but is still capped
+    # at the former width, so surface lists don't regress.
+    assert fm < 70 and poi < 70
+    assert fm < surface <= _NAME_FIXED_WIDTH
+
+
 def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     from types import SimpleNamespace
 

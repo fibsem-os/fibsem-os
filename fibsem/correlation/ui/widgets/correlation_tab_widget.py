@@ -80,6 +80,7 @@ from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListW
 from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
     FitConfirmationDialog,
     PointFitResult,
+    humanize_fit_error,
 )
 from fibsem.ui import stylesheets
 from fibsem.correlation.ui.widgets.fm_image_display_widget import (
@@ -1878,6 +1879,7 @@ class CorrelationTabWidget(QWidget):
     ) -> None:
         coord.fitted = False  # a manual edit supersedes any accepted fit
         spec.adapter.refresh_coordinate(coord)
+        spec.list_widget.refresh_coordinate(coord)  # drop the fitted indicator
         self.data_changed.emit(self.data)
 
     def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
@@ -2093,8 +2095,8 @@ class CorrelationTabWidget(QWidget):
         spec = self._point_specs[coord.point_type]
         x, y, z = coord.point.x, coord.point.y, coord.point.z
         initial = PointXYZ(x, y, z)
-        method, channel = "", None
-        fitted, fig, error, attempted = None, None, None, False
+        method, channel, channel_name = "", None, None
+        fitted, fig, error, error_detail, attempted = None, None, None, None, False
 
         try:
             if spec.adapter.side == "fib":
@@ -2112,9 +2114,9 @@ class CorrelationTabWidget(QWidget):
                 method = (
                     cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
                 ).currentText()
-                channel = (
-                    cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
-                ).currentIndex()
+                ch_combo = cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
+                channel = ch_combo.currentIndex()
+                channel_name = ch_combo.currentText()
                 if method != "None" and self._fm_image is not None and channel >= 0:
                     img = self._fm_image.data[channel]
                     if method == "Hole":
@@ -2131,7 +2133,9 @@ class CorrelationTabWidget(QWidget):
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
         except Exception as exc:
             logging.exception("Point fit failed")
-            error, attempted = str(exc), True
+            error_detail = str(exc)          # raw text -> log + tooltip
+            error = humanize_fit_error(exc)  # user-facing, actionable
+            attempted = True
 
         if not attempted:
             return None
@@ -2141,10 +2145,12 @@ class CorrelationTabWidget(QWidget):
             coordinate=coord,
             method=method,
             channel=channel,
+            channel_name=channel_name,
             initial=initial,
             fitted=fitted,
             status=status,
             message=error,
+            detail=error_detail,
             figure=fig,
         )
 

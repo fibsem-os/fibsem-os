@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -49,6 +50,8 @@ class PointFitResult:
     fitted: Optional[PointXYZ]
     status: FitStatus
     message: Optional[str] = None
+    channel_name: Optional[str] = None  # display label for `channel` (FM only)
+    detail: Optional[str] = None        # raw error, surfaced as a tooltip
     figure: object = None  # matplotlib Figure; not serialised
 
     @property
@@ -109,7 +112,31 @@ def _status_text(result: "PointFitResult") -> str:
         return "Fit ok"
     if result.status is FitStatus.UNCHANGED:
         return "No change — fit ≈ original"
-    return f"Fit failed: {result.message or 'no result'}"
+    return "Fit failed"  # the (long) reason goes in a separate wrapped line
+
+
+def humanize_fit_error(exc: Exception) -> str:
+    """Turn a raw fit exception into an actionable, non-jargon message.
+
+    scipy surfaces failures like *"Optimal parameters not found: Number of calls
+    to function has reached maxfev = 800"* — meaningless to a user. Map the known
+    modes to plain guidance; the raw text is still logged (and shown as a tooltip
+    via :attr:`PointFitResult.detail`) so debugging isn't lost.
+    """
+    msg = str(exc)
+    if "maxfev" in msg or "Optimal parameters not found" in msg:
+        return (
+            "The fit didn't converge — the feature may be too faint, or not "
+            "centred in the search region. Try re-centring your click, or a "
+            "different channel / method."
+        )
+    if isinstance(exc, IndexError) or "out of bounds" in msg or "too close" in msg:
+        return "The point is too close to the image edge to fit a region around it."
+    if isinstance(exc, (ValueError, ZeroDivisionError)) and (
+        "empty" in msg or "zero-size" in msg or "float division" in msg
+    ):
+        return "The search region is empty or featureless — nothing to fit."
+    return "The fit failed unexpectedly (see log for details)."
 
 
 def _fmt_xyz(p: PointXYZ) -> str:
@@ -223,12 +250,31 @@ class FitConfirmationDialog(QDialog):
             f"background: {bg}; color: {fg}; border-radius: 10px; "
             f"padding: 4px 12px; font-size: 12px;"
         )
+        if result.detail:  # raw error kept reachable without cluttering the chip
+            status.setToolTip(result.detail)
         layout.addWidget(status, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        # The humanized failure reason can be a couple of sentences — keep it out
+        # of the chip (which would force the whole dialog absurdly wide) and show
+        # it as a wrapped detail line, capped so it wraps instead of stretching.
+        if result.status is FitStatus.ERROR and result.message:
+            reason = QLabel(result.message)
+            reason.setWordWrap(True)
+            reason.setMaximumWidth(440)
+            reason.setStyleSheet("color: #d9b3b3; font-size: 12px;")
+            if result.detail:
+                reason.setToolTip(result.detail)
+            layout.addWidget(reason)
 
         body = QHBoxLayout()
         body.setSpacing(14)
 
-        if show_figure and result.figure is not None:
+        # The diagnostic figure is always built by the fit, so always embed it
+        # and toggle its visibility at runtime (see the "diagnostic" button).
+        # `show_figure` is only the INITIAL state — the pre-fit checkbox default.
+        self._canvas = None
+        self._diag_shown = False
+        if result.figure is not None:
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
             _apply_dark_theme(result.figure)
@@ -243,12 +289,19 @@ class FitConfirmationDialog(QDialog):
             disp_h = 340
             disp_w = int(min(disp_h * (w_in / h_in), 900)) if h_in else disp_h
             canvas.setMinimumSize(max(disp_w, 300), disp_h)
+            canvas.setVisible(show_figure)
+            self._canvas = canvas
+            self._diag_shown = show_figure
             body.addWidget(canvas, stretch=1)
 
         details = QVBoxLayout()
         details.setSpacing(4)
         details.addWidget(_kv("point", result.coordinate.point_type.value))
         details.addWidget(_kv("method", result.method or "—"))
+        if result.channel is not None:  # FM fits run on a specific channel
+            details.addWidget(
+                _kv("channel", result.channel_name or f"channel {result.channel}")
+            )
         details.addWidget(_kv("before", _fmt_xyz(result.initial)))
         if result.fitted is not None:
             details.addWidget(
@@ -266,6 +319,12 @@ class FitConfirmationDialog(QDialog):
         layout.addLayout(body)
 
         btn_row = QHBoxLayout()
+        # Diagnostic toggle sits on the left, apart from the accept/reject cluster.
+        if self._canvas is not None:
+            self._toggle_btn = QPushButton(self._diag_btn_text(self._diag_shown))
+            self._toggle_btn.setToolTip("Show or hide the fit diagnostic plot")
+            self._toggle_btn.clicked.connect(self._on_toggle_diagnostic)
+            btn_row.addWidget(self._toggle_btn)
         btn_row.addStretch(1)
         if result.status is FitStatus.ERROR:
             close_btn = QPushButton("Close")
@@ -280,3 +339,20 @@ class FitConfirmationDialog(QDialog):
             accept_btn.clicked.connect(self.accept)
             btn_row.addWidget(accept_btn)
         layout.addLayout(btn_row)
+
+        # Fit the dialog to its contents so toggling the diagnostic grows and
+        # shrinks it cleanly. Only when a figure is present — the error layout
+        # (a word-wrapped reason label) sizes better without a fixed constraint.
+        if self._canvas is not None:
+            layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+
+    @staticmethod
+    def _diag_btn_text(shown: bool) -> str:
+        return "Hide diagnostic" if shown else "Show diagnostic"
+
+    def _on_toggle_diagnostic(self) -> None:
+        """Reveal/collapse the embedded diagnostic figure and re-fit the dialog."""
+        self._diag_shown = not self._diag_shown
+        self._canvas.setVisible(self._diag_shown)
+        self._toggle_btn.setText(self._diag_btn_text(self._diag_shown))
+        self.adjustSize()  # immediate re-fit (SetFixedSize also keeps it snug)
