@@ -169,6 +169,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             # widget after reconnect (deleteLater fires neither closeEvent nor close).
             self.image_widget._teardown_connections()
             self.image_widget.deleteLater()
+            self.movement_widget._teardown_connections()
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()
             if self.manipulator_widget is not None:

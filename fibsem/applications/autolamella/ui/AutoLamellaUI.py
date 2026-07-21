@@ -616,6 +616,7 @@ class AutoLamellaUI(QMainWindow):
                 self.milling_task_config_widget.deleteLater()
                 self.milling_task_config_widget = None
             if self.movement_widget is not None:
+                self.movement_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
                 self.movement_widget.deleteLater()
                 self.movement_widget = None

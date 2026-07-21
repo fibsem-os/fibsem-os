@@ -16,7 +16,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
 # Create the QApplication before the napari/vispy-heavy fibsem imports below, or
 # importing + using those widgets can abort ("QWidget before QApplication").
@@ -64,6 +64,38 @@ def test_image_and_movement_build_viewer_less():
     assert state.image is None
 
 
+def test_movement_widget_disconnects_canvas_on_teardown():
+    """Regression: FibsemMovementWidget connects to the app-lifetime quad-view canvases.
+    It is torn down via removeTab + deleteLater (which fires neither closeEvent nor close),
+    so unless _teardown_connections disconnects those slots first, a later canvas
+    double-click fires on the deleted widget and PyQt calls qFatal -> the process aborts
+    (SIGABRT). This drives the real connect + teardown path; the emit after teardown must
+    be inert. Without the fix, that emit would SIGABRT this whole test process."""
+    _app()
+    microscope, settings = utils.setup_session(config_path=_CONFIG)
+    parent = _host(microscope)
+    parent.image_widget = FibsemImageSettingsWidget(
+        microscope=microscope, image_settings=settings.image, parent=parent
+    )
+    ctrl = parent.view_controller
+    mw = FibsemMovementWidget(microscope=microscope, parent=parent)
+
+    # the SEM + FIB canvas double-click slots were registered and tracked for teardown
+    assert len(mw._canvas_dbl_click_conns) == 2
+
+    # teardown mirrors the host order: _teardown_connections BEFORE deleteLater
+    mw._teardown_connections()
+    assert mw._canvas_dbl_click_conns == []
+    mw.deleteLater()
+    _QAPP.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+
+    # a double-click on the surviving canvas must not reach the deleted widget
+    ctrl.sem_canvas.canvas_double_clicked.emit(1.0, 2.0, None)
+    ctrl.fib_canvas.canvas_double_clicked.emit(1.0, 2.0, None)
+    # idempotent — safe to call again
+    mw._teardown_connections()
+
+
 def test_fm_widget_and_objective_build_viewer_less():
     _app()
     microscope, _ = utils.setup_session(config_path=_CONFIG)
@@ -85,6 +117,7 @@ def test_fm_widget_and_objective_build_viewer_less():
 def _run_all():
     tests = [
         test_image_and_movement_build_viewer_less,
+        test_movement_widget_disconnects_canvas_on_teardown,
         test_fm_widget_and_objective_build_viewer_less,
     ]
     for t in tests:

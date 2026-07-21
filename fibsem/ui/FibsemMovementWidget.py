@@ -1,5 +1,6 @@
 
 import logging
+from functools import partial
 from typing import Optional
 
 import numpy as np
@@ -163,15 +164,22 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_sem_orientation.clicked.connect(lambda: self.move_to_orientation("SEM"))
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
-        # register mouse callbacks — one canvas per beam (quad-view)
+        # register mouse callbacks — one canvas per beam (quad-view). The canvases are
+        # app-lifetime (owned by the controller), so store each (canvas, slot) pair and
+        # disconnect it in _teardown_connections: this widget is torn down via
+        # removeTab + deleteLater (which fires neither closeEvent nor close), and a stale
+        # double-click firing on the deleted widget makes PyQt call qFatal → the process
+        # aborts. partial (not lambda) so the exact slot object can be disconnected.
+        self._canvas_dbl_click_conns = []
         controller = self._view_controller()
         if controller is not None:
-            controller.sem_canvas.canvas_double_clicked.connect(
-                lambda x, y, m: self._on_canvas_double_click(BeamType.ELECTRON, x, y, m)
-            )
-            controller.fib_canvas.canvas_double_clicked.connect(
-                lambda x, y, m: self._on_canvas_double_click(BeamType.ION, x, y, m)
-            )
+            for canvas, beam in (
+                (controller.sem_canvas, BeamType.ELECTRON),
+                (controller.fib_canvas, BeamType.ION),
+            ):
+                slot = partial(self._on_canvas_double_click, beam)
+                canvas.canvas_double_clicked.connect(slot)
+                self._canvas_dbl_click_conns.append((canvas, slot))
 
         # disable ui elements
         self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
@@ -261,6 +269,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             self.gridLayout_2.addWidget(self.sample_holder_widget, 3, 0)
 
         self.update_ui()
+
+    def _teardown_connections(self) -> None:
+        """Disconnect from the app-lifetime quad-view canvases before this widget is
+        destroyed. The canvases outlive the per-connection movement widget; without this a
+        stale double-click after teardown fires on a deleted widget and PyQt aborts the
+        process. Idempotent — safe to call more than once."""
+        for canvas, slot in getattr(self, "_canvas_dbl_click_conns", []):
+            try:
+                canvas.canvas_double_clicked.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._canvas_dbl_click_conns = []
 
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
