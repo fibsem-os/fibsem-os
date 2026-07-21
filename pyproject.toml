@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fibsem"
-version = "0.5.1"
+version = "0.5.2.dev0"
 
 description = "a universal api for fibsem control"
 authors = [{ name = "Patrick Cleeve", email = "patrick@openfibsem.org" }]
