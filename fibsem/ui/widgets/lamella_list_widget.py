@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
@@ -140,7 +140,7 @@ class LamellaRowWidget(QWidget):
         layout.addWidget(self.status_label, 1)
 
         self.btn_defect = QToolButton()
-        self.btn_defect.setIcon(QIconifyIcon("mdi:circle", color=stylesheets.GREEN_COLOR))
+        self.btn_defect.setIcon(fibsem_icon("mdi:circle", color=stylesheets.GREEN_COLOR))
         self.btn_defect.setFixedSize(_BTN_SIZE)
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_defect)
@@ -166,19 +166,20 @@ class LamellaRowWidget(QWidget):
         lamella.task_state.events.name.connect(self.refresh)    # type: ignore[union-attr]
         lamella.task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
         lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
+        lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
 
         self.refresh()
 
     def _on_defect_clicked(self) -> None:
         menu = QMenu(self)
         action_none = menu.addAction(
-            QIconifyIcon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
+            fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            QIconifyIcon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
         )
         action_failure = menu.addAction(
-            QIconifyIcon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
         )
 
         chosen = menu.exec_(self.btn_defect.mapToGlobal(
@@ -227,9 +228,10 @@ class LamellaRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored Lamella."""
         self.name_label.setText(self.lamella.name)
+        self.setToolTip(self.lamella.description or "")
 
         icon_name, icon_color, tooltip = _defect_icon(self.lamella)
-        self.btn_defect.setIcon(QIconifyIcon(icon_name, color=icon_color))
+        self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_defect.setToolTip(tooltip)
 
         status_text, status_style = _status_text(self.lamella)

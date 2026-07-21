@@ -2,6 +2,7 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -11,6 +12,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import CameraImageTransform, CameraSettings
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
@@ -46,6 +51,8 @@ TRANSFORM_DISPLAY_NAMES = {
 class CameraWidget(QWidget):
     """Widget for camera control settings (gain, binning, transform)."""
 
+    settings_changed = pyqtSignal(CameraSettings)
+
     def __init__(self, fm: 'FluorescenceMicroscope', parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.fm = fm
@@ -57,7 +64,7 @@ class CameraWidget(QWidget):
 
         # Gain
         self.label_gain = QLabel("Gain", self)
-        self.spinBox_gain = QDoubleSpinBox(self)
+        self.spinBox_gain = ValueSpinBox(parent=self)
         self.spinBox_gain.setRange(*CAMERA_CONFIG["gain"]["range"])
         self.spinBox_gain.setSingleStep(CAMERA_CONFIG["gain"]["step"])
         self.spinBox_gain.setSuffix(CAMERA_CONFIG["gain"]["suffix"])
@@ -67,7 +74,7 @@ class CameraWidget(QWidget):
 
         # Binning
         self.label_binning = QLabel("Binning", self)
-        self.combobox_binning = QComboBox(self)
+        self.combobox_binning = ValueComboBox(parent=self)
         for b in CAMERA_CONFIG["binning"]["available_values"]:
             self.combobox_binning.addItem(f"{b}x{b}", b)
         self.combobox_binning.setToolTip(CAMERA_CONFIG["binning"]["tooltip"])
@@ -81,7 +88,7 @@ class CameraWidget(QWidget):
 
         # Image Transform
         self.label_transform = QLabel("Image Transform", self)
-        self.comboBox_transform = QComboBox(self)
+        self.comboBox_transform = ValueComboBox(parent=self)
         self.comboBox_transform.setToolTip(CAMERA_CONFIG["transform"]["tooltip"])
 
         # Populate transform combobox with enum values
@@ -114,16 +121,19 @@ class CameraWidget(QWidget):
     def _on_gain_changed(self, value: float):
         """Handle gain value change."""
         self.fm.set_gain(value / 100)  # Convert percentage to fraction
+        self.settings_changed.emit(self.camera_settings)
 
     def _on_binning_changed(self, idx: int):
         """Handle binning change."""
         binning = self.combobox_binning.itemData(idx)
         self.fm.set_binning(binning)
+        self.settings_changed.emit(self.camera_settings)
 
     def _on_transform_changed(self, idx: int):
         """Handle transform change."""
         transform = self.comboBox_transform.itemData(idx)
         self.fm.set_image_transform(transform)
+        self.settings_changed.emit(self.camera_settings)
 
     @property
     def camera_settings(self) -> CameraSettings:

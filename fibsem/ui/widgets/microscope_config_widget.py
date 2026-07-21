@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
+import sys
 from typing import Optional
 
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -512,3 +515,36 @@ def open_microscope_config_dialog(path: Optional[str] = None, parent=None) -> No
     layout.addWidget(btns)
 
     dlg.exec_()
+
+
+# ---------------------------------------------------------------------------
+# Entry point (fibsem-config-ui)
+# ---------------------------------------------------------------------------
+
+def main():
+    """Launch the microscope configuration UI standalone.
+
+    Backs the ``fibsem-config-ui`` console script. Keeps the ``--config`` flag of
+    the former napari-docked FibsemMicroscopeConfigurationWidget, but runs as a
+    plain Qt window since this widget is napari-free.
+    """
+    parser = argparse.ArgumentParser(description="Microscope Configuration UI")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=cfg.DEFAULT_CONFIGURATION_PATH,
+        help="Path to microscope configuration file",
+    )
+    args = parser.parse_args()
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyle("Fusion")
+    widget = MicroscopeConfigWidget(path=args.config)
+    widget.setWindowTitle("Microscope Configuration")
+    widget.resize(640, 720)
+    widget.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

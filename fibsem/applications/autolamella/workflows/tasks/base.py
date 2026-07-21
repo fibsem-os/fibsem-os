@@ -28,6 +28,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
+from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -138,10 +139,21 @@ class AutoLamellaTask(ABC):
         try:
             self._run()
         except Exception as e:
-            self._fire_hook("task_failed", error=str(e))
+            # A user Stop is a cancellation, not a failure — fire the distinct hook so it
+            # notifies as "cancelled" (warning) rather than "FAILED" (error).
+            self._fire_hook("task_cancelled" if self._is_cancellation(e) else "task_failed",
+                            error=str(e))
             raise
         self.post_task()
         self._fire_hook("task_completed")
+
+    def _is_cancellation(self, exc: Exception) -> bool:
+        """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as
+        OperationCancelledError (milling / autofocus) or InterruptedError (_check_for_abort),
+        or the task manager's stop event is set."""
+        if isinstance(exc, (OperationCancelledError, InterruptedError)):
+            return True
+        return bool(getattr(getattr(self, "task_manager", None), "is_stopped", False))
 
     def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
         hook_manager = getattr(self.task_manager, "hook_manager", None)
@@ -360,26 +372,38 @@ class AutoLamellaTask(ABC):
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD = False
-        if FEATURE_USE_ALIGNMENT_CONVERGENCE_METHOD:
-            alignment.align_until_converged(microscope=self.microscope, 
-                                            ref_image=ref_image, 
-                                    beam_type=BeamType.ION,
-                                    use_autocontrast=True,
-                                    max_steps=5, 
-                                    minimum_response=0.5,
-                                    stop_event=self._stop_event,
-                                    save_plot=True,
-                                    plot_title=f"{self.lamella.name} - {self.task_name}")
-            return
         alignment.multi_step_alignment_v2(microscope=self.microscope,
                                         ref_image=ref_image,
-                                        beam_type=BeamType.ION,
-                                        alignment_current=None,
                                         use_autocontrast=True,
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
                                         stop_event=self._stop_event,
-                                        plot_title=f"{self.lamella.name} - {self.task_name}")
+                                        run_name=f"{self.lamella.name} - {self.task_name}")
+
+    def _run_autofocus(self, beam_type, hfw: float = None) -> None:
+        """Run the image-based autofocus sweep, saving diagnostics to the lamella path."""
+        from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
+        settings = AutoFocusSettings(
+            method="tenengrad",
+            passes=[
+                FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                FocusSweepPass(search_range=100e-6, step_size=10e-6),
+            ],
+            reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
+            use_autocontrast=True)
+        self.log_status_message("AUTOFOCUS", f"Running autofocus ({beam_type.name})...")
+        result = run_auto_focus(
+            self.microscope,
+            beam_type=beam_type,
+            hfw=hfw or self.image_settings.hfw,
+            settings=settings,
+        )
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
+        self.log_status_message(
+            "AUTOFOCUS",
+            f"Autofocus (image-based): WD={result.working_distance*1e3:.3f}mm score={result.focus_score:.2f}",
+            f"Autofocus complete: WD={result.working_distance*1e3:.3f}mm",
+        )
 
     def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
         """Acquire a reference image with given field of view."""

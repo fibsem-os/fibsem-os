@@ -4,7 +4,7 @@ from typing import Optional
 
 import napari
 import numpy as np
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
@@ -25,7 +25,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.utils import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
@@ -247,13 +247,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_tilt.setSuffix(constants.DEGREE_SYMBOL)
 
         # Install wheel blocker on all double spin boxes
-        self.wheel_blocker = WheelBlocker()
-        self.doubleSpinBox_movement_stage_x.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_y.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_z.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_rotation.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_movement_stage_tilt.installEventFilter(self.wheel_blocker)
-        self.doubleSpinBox_milling_angle.installEventFilter(self.wheel_blocker)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_x)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_y)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_z)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_rotation)
+        install_wheel_blocker(self.doubleSpinBox_movement_stage_tilt)
+        install_wheel_blocker(self.doubleSpinBox_milling_angle)
 
         if cfg.FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED:
             from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
@@ -358,7 +357,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @thread_worker
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
         """Worker function to move the stage to the specified position"""
-        self.movement_progress_signal.emit({"msg": f"Moving to {stage_position}"})
+        self.movement_progress_signal.emit({"msg": f"Moving to {stage_position.pretty}"})
         self.microscope.safe_absolute_stage_movement(stage_position)
         self.movement_progress_signal.emit({"msg": "Move finished, taking new images"})
         self.update_ui_after_movement()

@@ -1725,6 +1725,10 @@ class MicroscopeSettings:
         if fm_config_path is not None and isinstance(fm_config_path, str):
             from fibsem.fm.structures import FluorescenceConfiguration
             fm_config = FluorescenceConfiguration.load(fm_config_path)
+        else:
+            # fall back to the auto-persisted FM working state (survives restarts)
+            from fibsem.fm.config import load_fm_configuration
+            fm_config = load_fm_configuration()
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
@@ -1887,6 +1891,38 @@ class FibsemImageMetadata:
             system=system_settings
         )
         return metadata
+
+
+@dataclass
+class ImageStats:
+    """Histogram statistics for a FibsemImage.
+
+    All intensity values are normalised to [0, 1] relative to the dtype maximum.
+    """
+    mean: float
+    std: float
+    p01: float              # 1st percentile
+    p99: float              # 99th percentile
+    saturation_lo: float    # fraction of pixels at dtype min
+    saturation_hi: float    # fraction of pixels at dtype max
+    contrast_ratio: float   # coefficient of variation: std / mean
+    range_utilisation: float  # p99 - p01
+    median: float           # normalised median (robust alternative to mean)
+    snr: float              # mean / std
+    entropy: float          # Shannon entropy of the normalised histogram (bits)
+
+    def __str__(self) -> str:
+        return (
+            f"mean={self.mean:.3f}, median={self.median:.3f}, std={self.std:.3f}, "
+            f"p01={self.p01:.3f}, p99={self.p99:.3f}, "
+            f"sat_lo={self.saturation_lo:.4f}, sat_hi={self.saturation_hi:.4f}, "
+            f"CV={self.contrast_ratio:.3f}, SNR={self.snr:.2f}, "
+            f"range={self.range_utilisation:.3f}, entropy={self.entropy:.2f}b"
+        )
+
+    def converged(self, mean_target: float, mean_tolerance: float, saturation_limit: float) -> bool:
+        """Return True when mean and saturation hard criteria are both satisfied."""
+        return abs(self.mean - mean_target) <= mean_tolerance and self.saturation_hi <= saturation_limit
 
 
 class FibsemImage:
@@ -2223,9 +2259,73 @@ class FibsemImage:
         Raises:
             ValueError: If gamma is not positive.
         """
-        from fibsem.imaging.autogamma import apply_gamma as _apply_gamma
+        from fibsem.autofunctions.gamma import apply_gamma as _apply_gamma
         from copy import deepcopy
         return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
+
+    def auto_contrast_brightness(
+        self,
+        clip_percentile_lo: float = 0.5,
+        clip_percentile_hi: float = 99.5,
+    ) -> "FibsemImage":
+        """Return a copy of the image with a percentile stretch applied.
+
+        Pixel values are clipped to [p_lo, p_hi] and linearly rescaled to fill
+        the full dtype range.
+
+        Args:
+            clip_percentile_lo: Lower clip percentile (default 0.5).
+            clip_percentile_hi: Upper clip percentile (default 99.5).
+
+        Returns:
+            FibsemImage: New image with stretched data and the same metadata.
+        """
+        from copy import deepcopy
+        from fibsem.imaging.utils import percentile_stretch
+        stretched = percentile_stretch(self.data, clip_percentile_lo, clip_percentile_hi)
+        return FibsemImage(data=stretched, metadata=deepcopy(self.metadata))
+
+    def compute_stats(self) -> "ImageStats":
+        """Compute histogram statistics for this image.
+
+        Returns:
+            ImageStats with all metrics normalised to [0, 1].
+        """
+        data = self.filtered_data.astype(np.float64)
+        if np.issubdtype(self.data.dtype, np.floating):
+            dtype_max = 1.0
+        else:
+            dtype_max = float(np.iinfo(self.data.dtype).max)
+
+        norm = data / dtype_max
+        mean = float(np.mean(norm))
+        std = float(np.std(norm))
+        p01 = float(np.percentile(norm, 1))
+        p99 = float(np.percentile(norm, 99))
+        sat_lo = float(np.mean(norm <= 0.0))
+        sat_hi = float(np.mean(norm >= 1.0))
+        cv = std / mean if mean > 0 else 0.0
+        median = float(np.median(norm))
+        snr = mean / std if std > 0 else 0.0
+
+        counts, _ = np.histogram(norm, bins=256, range=(0.0, 1.0))
+        probs = counts / counts.sum()
+        probs = probs[probs > 0]
+        entropy = float(-np.sum(probs * np.log2(probs)))
+
+        return ImageStats(
+            mean=mean,
+            std=std,
+            p01=p01,
+            p99=p99,
+            saturation_lo=sat_lo,
+            saturation_hi=sat_hi,
+            contrast_ratio=cv,
+            range_utilisation=p99 - p01,
+            median=median,
+            snr=snr,
+            entropy=entropy,
+        )
 
     @property
     def brightness(self) -> float:
@@ -2293,6 +2393,28 @@ def check_data_format(data: np.ndarray) -> bool:
     if data.ndim == 3 and data.shape[2] == 1:
         data = data[:, :, 0]
     return data.ndim == 2 and data.dtype in [np.uint8, np.uint16]
+
+
+def save_tiff(data: np.ndarray, path: Union[str, Path]) -> str:
+    """Write a raw image array to a TIFF file.
+
+    Args:
+        data: Image data to write.
+        path: Destination path (``.tif`` appended if no suffix given).
+
+    Returns:
+        The path written to, as a string.
+    """
+    path = str(path)
+    if not path.lower().endswith((".tif", ".tiff")):
+        path += ".tif"
+    tff.imwrite(path, data)
+    return path
+
+
+def load_tiff(path: Union[str, Path]) -> np.ndarray:
+    """Read a raw image array from a TIFF file."""
+    return tff.imread(str(path))
 
 @dataclass
 class FibsemGasInjectionSettings:

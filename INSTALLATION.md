@@ -8,8 +8,12 @@
 
 ### Python
 Python 3.9+ is required.
-The [Anaconda distribution](https://www.anaconda.com/distribution/)
-of python is recommended.
+We recommend installing Python via [Miniforge](https://conda-forge.org/download/),
+a minimal installer that uses the community-maintained
+[conda-forge](https://conda-forge.org/) channel by default. It provides the same
+`conda` (and `mamba`) commands as Anaconda/Miniconda while staying lightweight and
+avoiding the licensing terms that can apply to Anaconda's default channels for larger
+organizations.
 
 ## Setting up your python virtual environment
 It is also highly recommended to use virtual environments for development,
@@ -17,13 +21,16 @@ see [Managing Conda Environments](https://docs.conda.io/projects/conda/en/latest
 for more information.
 (Optionally, you could use `virtualenv` if you prefer.)
 
-Create a new virutal environment from the Anaconda Prompt terminal:
+Create a new virtual environment from your conda terminal (the Miniforge Prompt on
+Windows, or any terminal on macOS/Linux):
 ```
 cd fibsem
 conda env create -n fibsem python=3.11 pip
 conda activate fibsem
-pip install -e .
+python -m pip install -e ".[ui]"
 ```
+The `[ui]` extra installs the GUI dependencies (recommended). To install without the
+GUI, use `python -m pip install -e .` instead.
 
 ### Installation through Python virtualenv
 
@@ -40,8 +47,70 @@ fibsem\Scripts\activate.bat
 ```
 Once activated, move to the fibsem root directory and install fibsem like so
 ```
-pip install -e .
+python -m pip install -e ".[ui]"
 ```
+The `[ui]` extra installs the GUI dependencies (recommended). To install without the
+GUI, use `python -m pip install -e .` instead.
+
+### Installation with uv
+
+[uv](https://docs.astral.sh/uv/) is a fast, drop-in replacement for `pip`.
+
+First, install uv (see the [official install guide](https://docs.astral.sh/uv/getting-started/installation/)
+for all options):
+```
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+```
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+Alternatively, install it into an existing environment with `pip install uv`.
+
+uv can create and manage the virtual environment itself, so you don't need conda or
+`virtualenv`. From the fibsem root directory, create and activate an environment:
+```
+# macOS / Linux
+uv venv
+source .venv/bin/activate
+```
+```
+# Windows (PowerShell)
+uv venv
+.venv\Scripts\activate
+```
+uv also works inside a conda or `virtualenv` environment created above, with nothing
+extra to set up — just activate that environment instead.
+
+Once your environment is active, install fibsem with the GUI dependencies (recommended):
+```
+uv pip install -e ".[ui]"
+```
+To install without the GUI dependencies:
+```
+uv pip install -e .
+```
+This resolves the same dependencies from `pyproject.toml` as `pip`, just faster.
+No lockfile or additional configuration is required.
+
+### Create a desktop shortcut
+1. Create a script file:
+    Activate the environment then run the following command to create the script:
+    - **Windows**
+
+        Create AutoLamella.bat
+        ```cmd
+        echo @echo off > AutoLamella.bat & where fibsem-autolamella-ui >> AutoLamella.bat
+        ```
+
+    - **Linux**
+
+      Create AutoLamella.sh
+      ```bash
+      printf '#!/bin/bash\n%s' $(which fibsem-autolamella-ui) > AutoLamella.sh
+      ```
+2. Create a shortcut to your script file and place it on your desktop.
 
 ## Installing Microscope Hardware APIs
 
@@ -51,13 +120,13 @@ control of compatible FEI microscope systems.
 This is a commercial product by Thermo Fisher FEI, please visit their website
 at https://www.thermofisher.com/au/en/home/electron-microscopy.html for information on pricing and installation.
 
-We use Autoscript version 4.6.+
+We use Autoscript version 4.7.+
 
 The version numbers of the python packages Autoscript installs were:
 * autoscript-core 5.12.0
-* autoscript-sdb-microscope-client 4.6.0
-* autoscript-sdb-microscope-client-tests 4.6.0
-* autoscript-toolkit 4.6.0
+* autoscript-sdb-microscope-client 4.7.0
+* autoscript-sdb-microscope-client-tests 4.7.0
+* autoscript-toolkit 4.7.0
 * thermoscientific-logging 5.12.0
 
 #### Add the autoscript python packages to your `site-packages`
@@ -93,10 +162,10 @@ You will need to copy:
 * autoscript_core-5.12.0.dist-info
 * autoscript_sdb_microscope_client
 * autoscript_sdb_microscope_client_tests
-* autoscript_sdb_microscope_client_tests-4.6.0.dist-info
-* autoscript_sdb_microscope_client-4.6.0.dist-info
+* autoscript_sdb_microscope_client_tests-4.7.0.dist-info
+* autoscript_sdb_microscope_client-4.7.0.dist-info
 * autoscript_toolkit
-* autoscript_toolkit-4.6.0.dist-info
+* autoscript_toolkit-4.7.0.dist-info
 * thermoscientific_logging
 * thermoscientific_logging-5.12.1.dist-info
 

@@ -1,354 +1,397 @@
-from typing import TYPE_CHECKING, List, Optional
+"""AutofocusWidget — dynamic multi-pass autofocus settings widget.
 
-from PyQt5.QtCore import pyqtSignal
+Each sweep pass is a row of [enabled checkbox, range spinbox, step spinbox,
+remove button]. A ``+`` header button adds passes. Add/remove controls are
+hidden by default and revealed via :meth:`set_pass_editing_enabled`.
+
+Backed directly by ``AutoFocusSettings.passes`` (list of ``FocusSweepPass``).
+"""
+from __future__ import annotations
+
+from typing import List, Optional, TYPE_CHECKING
+
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
-    QGridLayout,
+    QFrame,
+    QHBoxLayout,
     QLabel,
+    QVBoxLayout,
     QWidget,
 )
-from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusMethod
 
-AUTOFOCUS_CONFIG = {
-    "coarse_range": {
-        "range": (1.0, 2000.0),  # 1 to 2000 µm range
-        "step": 1.0,
-        "decimals": 1,
-        "suffix": " µm",
-        "default": 20.0,
-        "tooltip": "Range for coarse autofocus search (±range/2)",
-    },
-    "coarse_step": {
-        "range": (0.1, 500.0),  # 0.1 to 500 µm step
-        "step": 0.1,
-        "decimals": 1,
-        "suffix": " µm",
-        "default": 5.0,
-        "tooltip": "Step size for coarse autofocus search",
-    },
-    "fine_range": {
-        "range": (1.0, 2000.0),  # 1 to 2000 µm range
-        "step": 0.5,
-        "decimals": 1,
-        "suffix": " µm",
-        "default": 10.0,
-        "tooltip": "Range for fine autofocus search (±range/2)",
-    },
-    "fine_step": {
-        "range": (0.1, 500.0),  # 0.1 to 500 µm step
-        "step": 0.1,
-        "decimals": 2,
-        "suffix": " µm",
-        "default": 1.0,
-        "tooltip": "Step size for fine autofocus search",
-    },
-}
+from fibsem.autofunctions.autofocus import FocusSweepPass
+from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusMethod
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
+_M_TO_UM = 1e6
+_UM_TO_M = 1e-6
+_BTN_SIZE = 28
+
+# fixed widths for column alignment between the pass rows and the
+# method/channel controls below.
+_CHECK_W = 28      # enabled checkbox column
+_STEPS_W = 56      # right-hand "Steps" count column
+_LABEL_W = 110     # "Focus Method" / "Focus Channel" label column
+
+# spinbox configuration (values shown in µm, stored in metres)
+_RANGE_CFG = dict(suffix="µm", minimum=1.0, maximum=2000.0, step=1.0, decimals=1)
+_STEP_CFG = dict(suffix="µm", minimum=0.1, maximum=500.0, step=0.1, decimals=2)
+
+# defaults for a freshly added / default coarse+fine pair (metres)
+_DEFAULT_COARSE = dict(search_range=20e-6, step_size=5e-6)
+_DEFAULT_FINE = dict(search_range=10e-6, step_size=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Pass row
+# ---------------------------------------------------------------------------
+
+class _PassRowWidget(QWidget):
+    """One sweep pass: enabled checkbox + range + step + remove button."""
+
+    changed = pyqtSignal()
+    remove_clicked = pyqtSignal(object)  # _PassRowWidget
+
+    def __init__(self, sweep_pass: FocusSweepPass, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.sweep_pass = sweep_pass
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.checkbox = QCheckBox()
+        self.checkbox.setFixedWidth(_CHECK_W)
+        self.checkbox.setChecked(sweep_pass.enabled)
+        self.checkbox.setToolTip("Enable this pass")
+        layout.addWidget(self.checkbox)
+
+        self.range_spin = ValueSpinBox(tooltip="Search range (±range/2)", **_RANGE_CFG)
+        self.range_spin.setValue(sweep_pass.search_range * _M_TO_UM)
+        layout.addWidget(self.range_spin, 1)
+
+        self.step_spin = ValueSpinBox(tooltip="Step size between positions", **_STEP_CFG)
+        self.step_spin.setValue(sweep_pass.step_size * _M_TO_UM)
+        layout.addWidget(self.step_spin, 1)
+
+        self.steps_label = QLabel()
+        self.steps_label.setFixedWidth(_STEPS_W)
+        self.steps_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.steps_label.setStyleSheet("color: #888;")
+        self.steps_label.setToolTip("Number of positions sampled in this pass")
+        layout.addWidget(self.steps_label)
+
+        self.btn_remove = IconToolButton(
+            icon="mdi:trash-can-outline", tooltip="Remove pass", size=_BTN_SIZE
+        )
+        self.btn_remove.setVisible(False)
+        layout.addWidget(self.btn_remove)
+
+        self._update_summary()
+        self._apply_enabled_state()
+
+        # values are set above before connecting, so no spurious emissions
+        self.checkbox.stateChanged.connect(self._on_changed)
+        self.range_spin.valueChanged.connect(self._on_changed)
+        self.step_spin.valueChanged.connect(self._on_changed)
+        self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self))
+
+    def _update_summary(self) -> None:
+        self.steps_label.setText(str(self.sweep_pass.n_steps))
+
+    def _apply_enabled_state(self) -> None:
+        """Grey out the range/step spinboxes and step count when the pass is off."""
+        enabled = self.checkbox.isChecked()
+        self.range_spin.setEnabled(enabled)
+        self.step_spin.setEnabled(enabled)
+        self.steps_label.setEnabled(enabled)
+
+    def _on_changed(self, *_) -> None:
+        self.sweep_pass.enabled = self.checkbox.isChecked()
+        self.sweep_pass.search_range = self.range_spin.value() * _UM_TO_M
+        self.sweep_pass.step_size = self.step_spin.value() * _UM_TO_M
+        self._apply_enabled_state()
+        self._update_summary()
+        self.changed.emit()
+
+    def set_remove_visible(self, visible: bool) -> None:
+        self.btn_remove.setVisible(visible)
+
+
+# ---------------------------------------------------------------------------
+# Header
+# ---------------------------------------------------------------------------
+
+class _PassListHeader(QWidget):
+    add_clicked = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        lbl_enabled = QLabel("On")
+        lbl_enabled.setFixedWidth(_CHECK_W)
+        lbl_enabled.setStyleSheet("font-weight: bold;")
+        lbl_enabled.setToolTip("Enable/disable each pass")
+        layout.addWidget(lbl_enabled)
+
+        lbl_range = QLabel("Range")
+        lbl_range.setStyleSheet("font-weight: bold;")
+        layout.addWidget(lbl_range, 1)
+
+        lbl_step = QLabel("Step")
+        lbl_step.setStyleSheet("font-weight: bold;")
+        layout.addWidget(lbl_step, 1)
+
+        lbl_steps = QLabel("Steps")
+        lbl_steps.setFixedWidth(_STEPS_W)
+        lbl_steps.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_steps.setStyleSheet("font-weight: bold;")
+        lbl_steps.setToolTip("Number of positions sampled per pass")
+        layout.addWidget(lbl_steps)
+
+        self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add pass", size=_BTN_SIZE)
+        self.btn_add.setVisible(False)
+        layout.addWidget(self.btn_add)
+
+        self.btn_add.clicked.connect(self.add_clicked)
+
+    def set_add_visible(self, visible: bool) -> None:
+        self.btn_add.setVisible(visible)
+
+
+# ---------------------------------------------------------------------------
+# Main widget
+# ---------------------------------------------------------------------------
 
 class AutofocusWidget(QWidget):
+    """Dynamic multi-pass autofocus settings widget.
+
+    Two passes (coarse + fine) by default. Add/remove controls are hidden until
+    :meth:`set_pass_editing_enabled(True)` is called.
+    """
 
     settings_changed = pyqtSignal(AutoFocusSettings)
 
-    def __init__(self, channel_settings: List[ChannelSettings], parent: Optional['FMAcquisitionWidget'] = None):
+    MAX_PASSES = 5
+
+    def __init__(
+        self,
+        channel_settings: List[ChannelSettings],
+        parent: Optional["FMAcquisitionWidget"] = None,
+    ) -> None:
         super().__init__(parent)
         self.channel_settings = channel_settings
         self.parent_widget = parent
-        
-        # Initialize with default AutoFocusSettings
-        self.autofocus_settings = AutoFocusSettings(
-            coarse_range=AUTOFOCUS_CONFIG["coarse_range"]["default"] * 1e-6,  # Convert µm to m
-            coarse_step=AUTOFOCUS_CONFIG["coarse_step"]["default"] * 1e-6,
-            fine_range=AUTOFOCUS_CONFIG["fine_range"]["default"] * 1e-6,
-            fine_step=AUTOFOCUS_CONFIG["fine_step"]["default"] * 1e-6,
-            method=FocusMethod.LAPLACIAN,
-            channel_name=channel_settings[0].name if channel_settings else None
-        )
-        
-        self.initUI()
+        self._editing_enabled = False
+        self._rows: List[_PassRowWidget] = []
 
-    def initUI(self):
-        
-        # Coarse search enabled
-        self.checkBox_coarse_enabled = QCheckBox("Coarse Search", self)
-        self.checkBox_coarse_enabled.setChecked(self.autofocus_settings.coarse_enabled)
-        self.checkBox_coarse_enabled.setToolTip("Enable coarse autofocus search phase")
-        self.checkBox_coarse_enabled.toggled.connect(self._on_coarse_enabled_changed)
-        
-        # Coarse Range
-        self.label_coarse_range = QLabel("Coarse Range", self)
-        self.doubleSpinBox_coarse_range = QDoubleSpinBox(self)
-        self._setup_spinbox(
-            self.doubleSpinBox_coarse_range,
-            AUTOFOCUS_CONFIG["coarse_range"],
-            self.autofocus_settings.coarse_range * 1e6,  # Convert m to µm for display
-            self._on_coarse_range_changed
+        self.autofocus_settings = AutoFocusSettings(
+            passes=[
+                FocusSweepPass(**_DEFAULT_COARSE),
+                FocusSweepPass(**_DEFAULT_FINE),
+            ],
+            method=FocusMethod.TENENGRAD,
+            channel_name=channel_settings[0].name if channel_settings else None,
         )
-        
-        # Coarse Step
-        self.label_coarse_step = QLabel("Coarse Step", self)
-        self.doubleSpinBox_coarse_step = QDoubleSpinBox(self)
-        self._setup_spinbox(
-            self.doubleSpinBox_coarse_step,
-            AUTOFOCUS_CONFIG["coarse_step"],
-            self.autofocus_settings.coarse_step * 1e6,
-            self._on_coarse_step_changed
-        )
-        
-        # Fine search enabled
-        self.checkBox_fine_enabled = QCheckBox("Fine Search", self)
-        self.checkBox_fine_enabled.setChecked(self.autofocus_settings.fine_enabled)
-        self.checkBox_fine_enabled.setToolTip("Enable fine autofocus search phase")
-        self.checkBox_fine_enabled.toggled.connect(self._on_fine_enabled_changed)
-        
-        # Fine Range
-        self.label_fine_range = QLabel("Fine Range", self)
-        self.doubleSpinBox_fine_range = QDoubleSpinBox(self)
-        self._setup_spinbox(
-            self.doubleSpinBox_fine_range,
-            AUTOFOCUS_CONFIG["fine_range"],
-            self.autofocus_settings.fine_range * 1e6,
-            self._on_fine_range_changed
-        )
-        
-        # Fine Step
-        self.label_fine_step = QLabel("Fine Step", self)
-        self.doubleSpinBox_fine_step = QDoubleSpinBox(self)
-        self._setup_spinbox(
-            self.doubleSpinBox_fine_step,
-            AUTOFOCUS_CONFIG["fine_step"],
-            self.autofocus_settings.fine_step * 1e6,
-            self._on_fine_step_changed
-        )
-        
-        # Focus Method Selection
-        self.label_method = QLabel("Focus Method", self)
-        self.comboBox_method = QComboBox(self)
+
+        self.initUI()
+        self._rebuild_rows()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def initUI(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._header = _PassListHeader()
+        self._header.add_clicked.connect(self._on_add_pass)
+        layout.addWidget(self._header)
+
+        self._rows_container = QVBoxLayout()
+        self._rows_container.setContentsMargins(0, 0, 0, 0)
+        self._rows_container.setSpacing(2)
+        layout.addLayout(self._rows_container)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #3a3d42;")
+        layout.addWidget(sep)
+
+        self.comboBox_method = ValueComboBox()
         self.comboBox_method.setToolTip("Focus measurement method to use")
         for method in FocusMethod:
             self.comboBox_method.addItem(method.value.title(), method)
-        # Set current method
-        for i in range(self.comboBox_method.count()):
-            if self.comboBox_method.itemData(i) == self.autofocus_settings.method:
-                self.comboBox_method.setCurrentIndex(i)
-                break
+        self._sync_method_combo()
         self.comboBox_method.currentIndexChanged.connect(self._on_method_changed)
-        
-        # Channel Selection
-        self.label_channel = QLabel("Focus Channel", self)
-        self.comboBox_channel = QComboBox(self)
+        layout.addLayout(self._aligned_control_row("Focus Method", self.comboBox_method))
+
+        self.comboBox_channel = ValueComboBox()
         self.comboBox_channel.setToolTip("Channel to use for autofocus")
         self._update_channel_list()
         self.comboBox_channel.currentIndexChanged.connect(self._on_channel_changed)
-        
-        # Create the layout
-        layout = QGridLayout()
-        row = 0
-        layout.addWidget(self.checkBox_coarse_enabled, row, 0, 1, 2)  # Span 2 columns
-        row += 1
-        layout.addWidget(self.label_coarse_range, row, 0)
-        layout.addWidget(self.doubleSpinBox_coarse_range, row, 1)
-        row += 1
-        layout.addWidget(self.label_coarse_step, row, 0)
-        layout.addWidget(self.doubleSpinBox_coarse_step, row, 1)
-        row += 1
-        layout.addWidget(self.checkBox_fine_enabled, row, 0, 1, 2)  # Span 2 columns
-        row += 1
-        layout.addWidget(self.label_fine_range, row, 0)
-        layout.addWidget(self.doubleSpinBox_fine_range, row, 1)
-        row += 1
-        layout.addWidget(self.label_fine_step, row, 0)
-        layout.addWidget(self.doubleSpinBox_fine_step, row, 1)
-        row += 1
-        layout.addWidget(self.label_method, row, 0)
-        layout.addWidget(self.comboBox_method, row, 1)
-        row += 1
-        layout.addWidget(self.label_channel, row, 0)
-        layout.addWidget(self.comboBox_channel, row, 1)
-        
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the grid layout
-        self.setLayout(layout)
+        layout.addLayout(self._aligned_control_row("Focus Channel", self.comboBox_channel))
 
-    def _setup_spinbox(self, spinbox: QDoubleSpinBox, config: dict, value: float, callback):
-        """Setup a spinbox with the given configuration."""
-        spinbox.setRange(config["range"][0], config["range"][1])
-        spinbox.setValue(value)
-        spinbox.setSingleStep(config["step"])
-        spinbox.setDecimals(config["decimals"])
-        spinbox.setSuffix(config["suffix"])
-        spinbox.setToolTip(config["tooltip"])
-        spinbox.setKeyboardTracking(False)
-        spinbox.valueChanged.connect(callback)
+    def _aligned_control_row(self, label_text: str, control: QWidget) -> QHBoxLayout:
+        """Build a labelled control row: a fixed-width label followed by the
+        control stretching to the full right edge of the widget."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
 
-    def _update_channel_list(self):
-        """Update the channel selection combobox."""
-        self.comboBox_channel.clear()
-        for i, channel in enumerate(self.channel_settings):
-            self.comboBox_channel.addItem(channel.name, i)
-        
-        # Select the current channel based on settings
-        if self.autofocus_settings.channel_name:
-            for i, channel in enumerate(self.channel_settings):
-                if channel.name == self.autofocus_settings.channel_name:
-                    self.comboBox_channel.setCurrentIndex(i)
-                    break
+        label = QLabel(label_text)
+        label.setFixedWidth(_LABEL_W)
+        row.addWidget(label)
 
-    def _on_coarse_enabled_changed(self, enabled: bool):
-        """Handle coarse enabled checkbox change."""
-        self.autofocus_settings.coarse_enabled = enabled
-        self._emit_settings_changed()
+        row.addWidget(control, 1)
+        return row
 
-    def _on_coarse_range_changed(self, value: float):
-        """Handle coarse range value change."""
-        self.autofocus_settings.coarse_range = value * 1e-6  # Convert µm to m
-        self._emit_settings_changed()
+    # ------------------------------------------------------------------
+    # Row management
+    # ------------------------------------------------------------------
 
-    def _on_coarse_step_changed(self, value: float):
-        """Handle coarse step value change."""
-        self.autofocus_settings.coarse_step = value * 1e-6  # Convert µm to m
-        self._emit_settings_changed()
+    def _clear_rows(self) -> None:
+        for row in self._rows:
+            self._rows_container.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
+        self._rows = []
 
-    def _on_fine_enabled_changed(self, enabled: bool):
-        """Handle fine enabled checkbox change."""
-        self.autofocus_settings.fine_enabled = enabled
-        self._emit_settings_changed()
+    def _rebuild_rows(self) -> None:
+        self._clear_rows()
+        for sweep_pass in self.autofocus_settings.passes:
+            row = _PassRowWidget(sweep_pass)
+            row.changed.connect(self._on_row_changed)
+            row.remove_clicked.connect(self._on_remove_pass)
+            row.set_remove_visible(self._editing_enabled)
+            self._rows_container.addWidget(row)
+            self._rows.append(row)
 
-    def _on_fine_range_changed(self, value: float):
-        """Handle fine range value change."""
-        self.autofocus_settings.fine_range = value * 1e-6  # Convert µm to m
-        self._emit_settings_changed()
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-    def _on_fine_step_changed(self, value: float):
-        """Handle fine step value change."""
-        self.autofocus_settings.fine_step = value * 1e-6  # Convert µm to m
-        self._emit_settings_changed()
-
-    def _on_method_changed(self, index: int):
-        """Handle focus method selection change."""
-        method = self.comboBox_method.itemData(index)
-        if method:
-            self.autofocus_settings.method = method
-            self._emit_settings_changed()
-
-    def _on_channel_changed(self, index: int):
-        """Handle channel selection change."""
-        if 0 <= index < len(self.channel_settings):
-            self.autofocus_settings.channel_name = self.channel_settings[index].name
-            self._emit_settings_changed()
+    def set_pass_editing_enabled(self, enabled: bool) -> None:
+        """Show or hide the add (+) and per-row remove controls (hidden by default)."""
+        self._editing_enabled = enabled
+        self._header.set_add_visible(enabled)
+        for row in self._rows:
+            row.set_remove_visible(enabled)
 
     def get_autofocus_settings(self) -> AutoFocusSettings:
-        """Get the current autofocus settings."""
         return self.autofocus_settings
 
+    def set_autofocus_settings(self, settings: AutoFocusSettings) -> None:
+        self.autofocus_settings = settings
+        self._rebuild_rows()
+        self._sync_method_combo()
+        if settings.channel_name:
+            self.set_selected_channel_by_name(settings.channel_name)
+
     def get_selected_channel(self) -> Optional[ChannelSettings]:
-        """Get the currently selected channel."""
         if self.autofocus_settings.channel_name:
             for channel in self.channel_settings:
                 if channel.name == self.autofocus_settings.channel_name:
                     return channel
         return None
 
-    def update_channels(self, channel_settings: List[ChannelSettings]):
-        """Update the available channels."""
-        # Store current selection
-        current_selection = self.autofocus_settings.channel_name
-        
-        # Update channel settings
+    def set_selected_channel_by_name(self, channel_name: str) -> None:
+        for i, channel in enumerate(self.channel_settings):
+            if channel.name == channel_name:
+                self.comboBox_channel.blockSignals(True)
+                self.comboBox_channel.setCurrentIndex(i)
+                self.comboBox_channel.blockSignals(False)
+                self.autofocus_settings.channel_name = channel_name
+                return
+
+    def update_channels(self, channel_settings: List[ChannelSettings]) -> None:
+        """Update the available channels, preserving the current selection if possible."""
+        current = self.autofocus_settings.channel_name
         self.channel_settings = channel_settings
-        
-        # Update the UI
         self._update_channel_list()
-        
-        # Try to restore previous selection
-        if current_selection and self.channel_settings:
-            for i, channel in enumerate(self.channel_settings):
-                if channel.name == current_selection:
-                    self.comboBox_channel.setCurrentIndex(i)
-                    return
-        
-        # If we couldn't restore, select first channel
-        if self.channel_settings:
-            self.comboBox_channel.setCurrentIndex(0)
-            self.autofocus_settings.channel_name = self.channel_settings[0].name
+
+        names = [c.name for c in channel_settings]
+        if current in names:
+            self.set_selected_channel_by_name(current)
+        elif channel_settings:
+            self.set_selected_channel_by_name(channel_settings[0].name)
+            self._emit_settings_changed()
         else:
             self.autofocus_settings.channel_name = None
 
-        if current_selection != self.autofocus_settings.channel_name:
-            self._emit_settings_changed()
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-    def set_autofocus_settings(self, settings: AutoFocusSettings):
-        """Set autofocus settings from AutoFocusSettings object."""
-        self.autofocus_settings = settings
-        self._update_ui_from_settings()
+    def _update_channel_list(self) -> None:
+        self.comboBox_channel.blockSignals(True)
+        self.comboBox_channel.clear()
+        for channel in self.channel_settings:
+            self.comboBox_channel.addItem(channel.name)
+        if self.autofocus_settings.channel_name:
+            idx = self.comboBox_channel.findText(self.autofocus_settings.channel_name)
+            if idx >= 0:
+                self.comboBox_channel.setCurrentIndex(idx)
+        self.comboBox_channel.blockSignals(False)
 
-    def show_coarse_settings(self, show: bool):
-        """Show or hide coarse settings."""
-        self.checkBox_coarse_enabled.setVisible(show)
-        self.label_coarse_range.setVisible(show)
-        self.doubleSpinBox_coarse_range.setVisible(show)
-        self.label_coarse_step.setVisible(show)
-        self.doubleSpinBox_coarse_step.setVisible(show)
-
-    def show_fine_settings(self, show: bool):
-        """Show or hide fine settings."""
-        self.checkBox_fine_enabled.setVisible(show)
-        self.label_fine_range.setVisible(show)
-        self.doubleSpinBox_fine_range.setVisible(show)
-        self.label_fine_step.setVisible(show)
-        self.doubleSpinBox_fine_step.setVisible(show)
-
-    def single_fine_search_mode(self):
-        self.checkBox_fine_enabled.setText("Enable Autofocus")
-        self.label_fine_step.setText("Step Size")
-        self.label_fine_range.setText("Search Range")
-        self.show_coarse_settings(False)
-
-    def set_selected_channel_by_name(self, channel_name: str):
-        """Set the selected channel by name."""
-        for i, channel in enumerate(self.channel_settings):
-            if channel.name == channel_name:
-                self.comboBox_channel.setCurrentIndex(i)
-                self.autofocus_settings.channel_name = channel_name
-                return
-    
-    def _update_ui_from_settings(self):
-        """Update all UI elements from the current autofocus settings."""
-        # Update checkboxes
-        self.checkBox_coarse_enabled.setChecked(self.autofocus_settings.coarse_enabled)
-        self.checkBox_fine_enabled.setChecked(self.autofocus_settings.fine_enabled)
-        
-        # Update spin boxes (convert m to µm for display)
-        self.doubleSpinBox_coarse_range.setValue(self.autofocus_settings.coarse_range * 1e6)
-        self.doubleSpinBox_coarse_step.setValue(self.autofocus_settings.coarse_step * 1e6)
-        self.doubleSpinBox_fine_range.setValue(self.autofocus_settings.fine_range * 1e6)
-        self.doubleSpinBox_fine_step.setValue(self.autofocus_settings.fine_step * 1e6)
-        
-        # Update method selection
+    def _sync_method_combo(self) -> None:
+        self.comboBox_method.blockSignals(True)
         for i in range(self.comboBox_method.count()):
             if self.comboBox_method.itemData(i) == self.autofocus_settings.method:
                 self.comboBox_method.setCurrentIndex(i)
                 break
-        
-        # Update channel selection
-        if self.autofocus_settings.channel_name:
-            self.set_selected_channel_by_name(self.autofocus_settings.channel_name)
+        self.comboBox_method.blockSignals(False)
 
-    def _update_channel_names_from_parent(self):
-        """Update channel settings from the parent widget's channel settings."""
-        try:
-            if (self.parent_widget and 
-                hasattr(self.parent_widget, 'channelSettingsWidget') and 
-                self.parent_widget.channelSettingsWidget):
-                channel_settings = self.parent_widget.channelSettingsWidget.channel_settings
-                self.update_channels(channel_settings)
-        except Exception as e:
-            import logging
-            logging.warning(f"Error updating channels from parent: {e}")
-
-    def _emit_settings_changed(self):
-        """Emit the current autofocus settings."""
+    def _emit_settings_changed(self) -> None:
         self.settings_changed.emit(self.autofocus_settings)
+
+    # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
+
+    def _on_row_changed(self) -> None:
+        self._emit_settings_changed()
+
+    def _on_add_pass(self) -> None:
+        if len(self.autofocus_settings.passes) >= self.MAX_PASSES:
+            return
+        # copy the last pass as a sensible starting point
+        src = self.autofocus_settings.passes[-1] if self.autofocus_settings.passes else FocusSweepPass(**_DEFAULT_FINE)
+        self.autofocus_settings.passes.append(
+            FocusSweepPass(search_range=src.search_range, step_size=src.step_size, enabled=True)
+        )
+        self._rebuild_rows()
+        self._emit_settings_changed()
+
+    def _on_remove_pass(self, row: _PassRowWidget) -> None:
+        if len(self.autofocus_settings.passes) <= 1:
+            return
+        if row.sweep_pass in self.autofocus_settings.passes:
+            self.autofocus_settings.passes.remove(row.sweep_pass)
+        self._rebuild_rows()
+        self._emit_settings_changed()
+
+    def _on_method_changed(self, index: int) -> None:
+        method = self.comboBox_method.itemData(index)
+        if method is not None:
+            self.autofocus_settings.method = method
+            self._emit_settings_changed()
+
+    def _on_channel_changed(self, index: int) -> None:
+        if 0 <= index < len(self.channel_settings):
+            self.autofocus_settings.channel_name = self.channel_settings[index].name
+            self._emit_settings_changed()

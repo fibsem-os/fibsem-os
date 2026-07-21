@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
@@ -84,7 +84,7 @@ class MillingTaskConfigWidget2(QWidget):
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
 
@@ -218,7 +218,7 @@ class MillingTaskConfigWidget2(QWidget):
 
     def _update_stage_count_icon(self, n: int) -> None:
         icon_name = "mdi:numeric-9-plus-box-outline" if n > 9 else f"mdi:numeric-{n}-box-outline"
-        self._btn_stage_count.setIcon(QIconifyIcon(icon_name, color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_stage_count.setIcon(fibsem_icon(icon_name, color=stylesheets.GRAY_ICON_COLOR))
         self._btn_stage_count.setToolTip(f"{n} stage{'s' if n != 1 else ''}")
 
     def _emit_settings_changed(self) -> None:

@@ -67,7 +67,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         # acquire an image at the milling position
         if self.config.use_autofocus:
-            self.microscope.auto_focus(beam_type=BeamType.ION)
+            self._run_autofocus(beam_type=BeamType.ELECTRON)
+            self._run_autofocus(beam_type=BeamType.ION)
         self._acquire_reference_image(image_settings=self.image_settings,
                                       filename=f"ref_{self.task_name}_start",
                                       field_of_view=self.config.reference_imaging.field_of_view1)
@@ -96,7 +97,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 self.microscope.move_to_milling_angle(milling_angle=np.radians(milling_angle))
 
             if self.config.use_autofocus:
-                self.microscope.auto_focus(beam_type=BeamType.ION)
+                self._run_autofocus(beam_type=BeamType.ION)
 
             # reacquire image at milling angle
             self._acquire_reference_image(image_settings=self.image_settings,
@@ -135,6 +136,6 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # reference images
         self._acquire_set_of_reference_images(self.image_settings)
 
-        # store milling angle and pose
-        self.lamella.milling_angle = self.microscope.get_current_milling_angle()
+        # store milling pose and angle
         self.lamella.milling_pose = self.microscope.get_microscope_state()
+        self.lamella.update_milling_angle(self.microscope)

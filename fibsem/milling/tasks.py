@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from fibsem import acquire
 from fibsem import config as fcfg
 from fibsem.microscope import FibsemMicroscope
+from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import BeamType, FibsemImage, ImageSettings, MillingAlignment, Point
 from fibsem.utils import current_timestamp_v3
@@ -175,6 +176,10 @@ class FibsemMillingTask:
         self.parent_ui = parent_ui
         self.task_id = str(uuid.uuid4())
         self.initial_beam_shift: Optional[Point] = None
+        # Imaging current/voltage captured before milling starts, so cleanup restores the
+        # exact pre-milling state (not a config default) even if the task is cancelled.
+        self.initial_imaging_current: Optional[float] = None
+        self.initial_imaging_voltage: Optional[float] = None
         self._stop_event: Optional[threading.Event] = None
         if self.parent_ui and hasattr(self.parent_ui, "_milling_stop_event"):
             self._stop_event = self.parent_ui._milling_stop_event
@@ -207,6 +212,10 @@ class FibsemMillingTask:
 
         try:
             self.initial_beam_shift = self.microscope.get_beam_shift(beam_type=self.config.channel)
+            # Capture the live imaging current/voltage BEFORE setup_milling switches to the
+            # milling current, so cleanup restores exactly what the user was imaging at.
+            self.initial_imaging_current = self.microscope.get_beam_current(self.config.channel)
+            self.initial_imaging_voltage = self.microscope.get_beam_voltage(self.config.channel)
 
             # configure acquisition filepaths
             self._configure_path()
@@ -222,6 +231,8 @@ class FibsemMillingTask:
             for idx, stage in enumerate(self.stages):
                 self._mill_stage(stage, idx)
 
+        except OperationCancelledError as e:
+            logging.info(f"Milling task '{self.name}' cancelled by user: {e}")
         except Exception as e:
             logging.error(e)
         finally:
@@ -229,9 +240,15 @@ class FibsemMillingTask:
                 "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
                 "progress": {"state": "finished", "task_id": self.task_id, "task_name": self.name}
             })
+            # restore the captured pre-milling imaging current/voltage (falling back to the
+            # system defaults if we never got to capture them, e.g. an early failure).
             self.microscope.finish_milling(
-                imaging_current=self.microscope.system.ion.beam.beam_current,
-                imaging_voltage=self.microscope.system.ion.beam.voltage,
+                imaging_current=(self.initial_imaging_current
+                                 if self.initial_imaging_current is not None
+                                 else self.microscope.system.ion.beam.beam_current),
+                imaging_voltage=(self.initial_imaging_voltage
+                                 if self.initial_imaging_voltage is not None
+                                 else self.microscope.system.ion.beam.voltage),
             )
             # restore initial beam shift
             if self.initial_beam_shift is not None:
@@ -258,8 +275,7 @@ class FibsemMillingTask:
         """
 
         start_time = time.time()
-        if self._stop_event and self._stop_event.is_set():
-                raise Exception("Milling stopped by user.")
+        raise_if_cancelled(self._stop_event)
 
         msgd =  {"msg": f"Preparing: {stage.name}",
                 "progress": {"state": "start", 
@@ -289,6 +305,7 @@ class FibsemMillingTask:
                 stage=stage,
                 asynch=False,
                 parent_ui=self.parent_ui,
+                stop_event=self._stop_event,
             )
             # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
             # performance logging
@@ -306,6 +323,8 @@ class FibsemMillingTask:
             if self.config.acquisition.enabled:
                 self._acquire_milling_task_images(stage_name=f"{self.name}-{stage.name}", tag="finished")
 
+        except OperationCancelledError:
+            raise  # unwind to run() so the whole task aborts + restores conditions
         except Exception as e:
             logging.error(f"Error running milling stage: {stage.name}, {e}", exc_info=True)
 

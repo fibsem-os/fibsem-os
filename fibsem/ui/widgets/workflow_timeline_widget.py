@@ -27,6 +27,7 @@ _DOT_ACTIVE     = "#ff9800"
 _DOT_PENDING    = "#606060"
 _DOT_FAILED     = "#99121F"
 _DOT_SKIPPED    = "#9e9e9e"
+_DOT_CANCELLED  = "#e0a030"  # amber: user-aborted, not an error
 
 _LINE_COLOR     = "#3a3d42"
 
@@ -56,7 +57,8 @@ def _queue_status_to_step_status(s) -> "StepStatus":
         AutoLamellaTaskStatus.Completed:  StepStatus.COMPLETED,
         AutoLamellaTaskStatus.Failed:     StepStatus.FAILED,
         AutoLamellaTaskStatus.Skipped:    StepStatus.SKIPPED,
-    }[s]
+        AutoLamellaTaskStatus.Cancelled:  StepStatus.CANCELLED,
+    }.get(s, StepStatus.PENDING)  # unknown status must never crash the timeline
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ class StepStatus(Enum):
     COMPLETED = auto()
     FAILED    = auto()
     SKIPPED   = auto()
+    CANCELLED = auto()
 
 
 @dataclass
@@ -83,7 +86,8 @@ def _status_color(status: StepStatus) -> str:
         StepStatus.PENDING:   _DOT_PENDING,
         StepStatus.FAILED:    _DOT_FAILED,
         StepStatus.SKIPPED:   _DOT_SKIPPED,
-    }[status]
+        StepStatus.CANCELLED: _DOT_CANCELLED,
+    }.get(status, _DOT_PENDING)
 
 
 # ── _DotWidget ────────────────────────────────────────────────────────────────
@@ -441,8 +445,9 @@ class WorkflowProgressWidget(QWidget):
                     self._outer._rows[active_idx]
                 )
 
-        # Completion/failure — set subtitle, hide inner, resolve last inner step
-        if task_status in (AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Failed):
+        # Completion/failure/cancel — set subtitle, hide inner, resolve last inner step
+        if task_status in (AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Failed,
+                           AutoLamellaTaskStatus.Cancelled):
             self._elapsed_timer.stop()
             self._active_start_time = None
             idx = self._outer_index

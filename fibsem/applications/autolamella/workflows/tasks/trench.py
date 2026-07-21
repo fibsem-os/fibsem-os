@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import alignment, calibration
+from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -17,6 +18,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
     MAX_ALIGNMENT_ATTEMPTS,
 )
+from fibsem.alignment import AlignmentSubsystem
 from fibsem.structures import BeamType, FibsemImage
 
 
@@ -68,9 +70,7 @@ class MillTrenchTask(AutoLamellaTask):
             ref_image = FibsemImage.load(reference_image_path)
             alignment.multi_step_alignment_v2(microscope=self.microscope,
                                             ref_image=ref_image,
-                                            beam_type=BeamType.ION,
-                                            alignment_current=None,
-                                            steps=1, subsystem="stage")
+                                            steps=1, subsystem=AlignmentSubsystem.STAGE)
 
         # get trench milling stages
         milling_task_config = self.config.milling[TRENCH_KEY]
@@ -91,7 +91,7 @@ class MillTrenchTask(AutoLamellaTask):
         if self.config.charge_neutralisation:
             self.log_status_message("CHARGE_NEUTRALISATION", "Neutralising Sample Charge...")
             image_settings.beam_type = BeamType.ELECTRON
-            calibration.auto_charge_neutralisation(self.microscope, image_settings)
+            auto_charge_neutralisation(self.microscope, image_settings)
 
         # reference images
         self._acquire_set_of_reference_images(image_settings)

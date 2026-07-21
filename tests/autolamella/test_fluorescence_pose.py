@@ -112,8 +112,8 @@ def test_update_fluorescence_pose_without_existing_pose_does_not_crash(
 def test_acquire_fluorescence_persists_autofocus_result(
     fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch
 ) -> None:
-    """When autofocus runs, its refined objective (best_z) is saved to the pose,
-    overriding the pre-run configured value (and surviving the pose refresh)."""
+    """When autofocus runs, its refined objective (working_distance) is saved to the
+    pose, overriding the pre-run configured value (and surviving the pose refresh)."""
     import fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence as af
 
     refined = 0.0055  # differs from the configured value
@@ -121,10 +121,11 @@ def test_acquire_fluorescence_persists_autofocus_result(
 
     lamella = _make_lamella(tmp_path, CONFIGURED_OBJECTIVE)
     task = _acquire_task(fm_microscope, lamella)
-    assert task.config.autofocus_settings.fine_enabled  # default; drives the autofocus branch
+    assert task.config.autofocus_settings.enabled  # default; drives the autofocus branch
 
-    # stub the heavy work: autofocus returns a known best_z, image acquisition is a no-op
-    monkeypatch.setattr(task, "_run_autofocus", lambda: types.SimpleNamespace(best_z=refined))
+    # stub the heavy work: autofocus returns a known result, image acquisition is a no-op.
+    # working_distance mirrors the real AutoFocusResult field the task reads.
+    monkeypatch.setattr(task, "_run_autofocus", lambda: types.SimpleNamespace(working_distance=refined))
     monkeypatch.setattr(af, "acquire_image", lambda **kwargs: None)
 
     task._run()

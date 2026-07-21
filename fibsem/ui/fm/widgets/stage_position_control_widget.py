@@ -15,6 +15,9 @@ from fibsem.ui.stylesheets import (
     BLUE_PUSHBUTTON_STYLE,
     GRAY_PUSHBUTTON_STYLE,
 )
+from fibsem.ui.widgets.custom_widgets import (
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -40,7 +43,7 @@ class StagePositionControlWidget(QWidget):
         self.button_fm_orientation.clicked.connect(self.move_to_fm_orientation)
 
         # Milling angle controls    
-        self.milling_angle_spinbox = QDoubleSpinBox(self)
+        self.milling_angle_spinbox = ValueSpinBox(parent=self)
         self.milling_angle_spinbox.setRange(0, 45)
         self.milling_angle_spinbox.setValue(self.microscope.system.stage.milling_angle)
         self.milling_angle_spinbox.setSuffix("°")

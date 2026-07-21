@@ -26,7 +26,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    TitledPanel,
+)
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 import glob
@@ -181,14 +184,14 @@ class OverviewImageWidget(QWidget):
         color_layout.addStretch()
 
         # Text size
-        self.text_size_spinbox = QSpinBox()
+        self.text_size_spinbox = IntegerValueSpinBox()
         self.text_size_spinbox.setStyleSheet(SPINBOX_STYLESHEET)
         self.text_size_spinbox.setRange(6, 48)
         self.text_size_spinbox.setValue(10)
         self.text_size_spinbox.setKeyboardTracking(False)
 
         # Marker size
-        self.markersize_spinbox = QSpinBox()
+        self.markersize_spinbox = IntegerValueSpinBox()
         self.markersize_spinbox.setStyleSheet(SPINBOX_STYLESHEET)
         self.markersize_spinbox.setRange(5, 100)
         self.markersize_spinbox.setValue(20)

@@ -12,7 +12,7 @@ from superqt import QDoubleSlider
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemDetectorSettings
-from fibsem.ui.widgets.custom_widgets import WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
 
 WIDGET_CONFIG = {
     "brightness": {
@@ -50,7 +50,7 @@ class _LabeledSlider(QWidget):
 
         self._slider = QDoubleSlider(Qt.Orientation.Horizontal, parent=self)  # type: ignore[attr-defined]
         self._slider.setRange(min_val, max_val)
-        self._slider.installEventFilter(WheelBlocker(parent=self._slider))
+        install_wheel_blocker(self._slider)
 
         self._value_label = QLabel(self._format(min_val), self)
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # type: ignore[attr-defined]
@@ -114,13 +114,13 @@ class FibsemDetectorSettingsWidget(QWidget):
 
         # --- Detector Type ---
         self.type_combo = QComboBox()
-        self.type_combo.installEventFilter(WheelBlocker(parent=self.type_combo))
+        install_wheel_blocker(self.type_combo)
         self.type_label = QLabel(WIDGET_CONFIG["type"]["label"])
         layout.addRow(self.type_label, self.type_combo)
 
         # --- Detector Mode ---
         self.mode_combo = QComboBox()
-        self.mode_combo.installEventFilter(WheelBlocker(parent=self.mode_combo))
+        install_wheel_blocker(self.mode_combo)
         self.mode_label = QLabel(WIDGET_CONFIG["mode"]["label"])
         layout.addRow(self.mode_label, self.mode_combo)
 

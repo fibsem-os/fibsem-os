@@ -10,7 +10,6 @@ except Exception:
     pass
 import logging
 import os
-import subprocess
 import threading
 from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
@@ -346,6 +345,9 @@ class AutoLamellaUI(QMainWindow):
         )
         self.selected_lamella_widget.apply_objective_to_all_requested.connect(
             self._apply_objective_position_to_all
+        )
+        self.selected_lamella_widget.move_objective_requested.connect(
+            self._move_objective_to_lamella_position
         )
         self.selected_lamella_widget.pose_update_requested.connect(
             self._set_current_position_as_pose
@@ -721,6 +723,7 @@ class AutoLamellaUI(QMainWindow):
                 self.det_widget.deleteLater()
                 self.det_widget = None
             if self.spot_burn_widget is not None:
+                self.spot_burn_widget.disconnect_signals()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.spot_burn_widget))
                 self.spot_burn_widget.deleteLater()
                 self.spot_burn_widget = None
@@ -743,7 +746,7 @@ class AutoLamellaUI(QMainWindow):
                 self.image_widget.deleteLater()
                 self.image_widget = None
 
-    def load_fm_configuration(self) -> None:
+    def import_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
         if self.fm_control_widget is None:
             msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
@@ -752,14 +755,14 @@ class AutoLamellaUI(QMainWindow):
             return
 
         try:
-            self.fm_control_widget.load_fm_configuration()
+            self.fm_control_widget.import_fm_configuration()
         except Exception:
             logging.exception("Failed to load FM configuration from AutoLamella UI.")
             notification_service.show_toast(
                 "Failed to load FM configuration. Check logs for details.", "error"
             )
 
-    def save_fm_configuration(self) -> None:
+    def export_fm_configuration(self) -> None:
         """Save the current fluorescence microscope configuration via the control widget."""
         if self.fm_control_widget is None:
             msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
@@ -768,7 +771,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         try:
-            self.fm_control_widget.save_fm_configuration()
+            self.fm_control_widget.export_fm_configuration()
         except Exception:
             logging.exception("Failed to save FM configuration from AutoLamella UI.")
             notification_service.show_toast(
@@ -826,15 +829,7 @@ class AutoLamellaUI(QMainWindow):
             )
             return
 
-        try:
-            if sys.platform.startswith("darwin"):
-                subprocess.Popen(["open", experiment_path])
-            elif os.name == "nt":
-                os.startfile(experiment_path)  # type: ignore[attr-defined]
-            else:
-                subprocess.Popen(["xdg-open", experiment_path])
-        except Exception:
-            logging.exception("Failed to open experiment directory.")
+        if not fui.open_path_in_file_explorer(experiment_path):
             notification_service.show_toast(
                 "Failed to open experiment directory.", "error"
             )
@@ -893,14 +888,28 @@ class AutoLamellaUI(QMainWindow):
                 "Please connect a microscope and load an experiment first.", "warning"
             )
             return
+        if self.microscope.fm is None:
+            notification_service.show_toast(
+                "Coincidence milling requires a fluorescence microscope.", "warning"
+            )
+            return
         from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
-            open_coincidence_viewer_dialog,
+            open_coincidence_viewer_window,
         )
 
-        self._coincidence_viewer_dialog = open_coincidence_viewer_dialog(
+        # seed the viewer's FM tab from the live main-UI FM configuration
+        fm_config = None
+        if self.fm_control_widget is not None:
+            try:
+                fm_config = self.fm_control_widget._build_fluorescence_configuration()
+            except Exception as e:
+                logging.warning(f"Could not read current FM configuration: {e}")
+
+        self._coincidence_viewer_window = open_coincidence_viewer_window(
             microscope=self.microscope,
             experiment=self.experiment,
             parent=self,
+            fm_config=fm_config,
         )
 
     #### MINIMAP
@@ -996,6 +1005,10 @@ class AutoLamellaUI(QMainWindow):
                 parent_ui=self,
                 hook_manager=self.setup_hooks(),
             )
+            # Honor a stop requested before the manager existed (e.g. clicked
+            # during beam-on, while _task_manager was still None).
+            if self._workflow_stop_event.is_set():
+                self._task_manager.stop()
             self._task_manager.run(
                 task_names=task_names, required_lamella=lamella_names
             )
@@ -1030,6 +1043,7 @@ class AutoLamellaUI(QMainWindow):
                     HookEvent.TASK_STARTED,
                     HookEvent.TASK_COMPLETED,
                     HookEvent.TASK_FAILED,
+                    HookEvent.TASK_CANCELLED,
                 ],
             )
         )
@@ -1047,6 +1061,14 @@ class AutoLamellaUI(QMainWindow):
                 events=[HookEvent.TASK_FAILED],
                 notification_type="error",
                 message_template="Task {task_name} FAILED: {error}",
+            )
+        )
+        manager.register(
+            NotificationHook(
+                name="cancellation_toast",
+                events=[HookEvent.TASK_CANCELLED],
+                notification_type="warning",
+                message_template="Task {task_name} cancelled for {lamella_name}",
             )
         )
         manager.wire(self)
@@ -1274,6 +1296,9 @@ class AutoLamellaUI(QMainWindow):
         )
         lamella = self.experiment.positions[-1]
 
+        # derive the milling angle from the milling-pose stage tilt
+        lamella.update_milling_angle(self.microscope)
+
         # if the objective position is not provided, use the 'focus' position from the microscope
         if self.microscope.fm is not None:
             # convert the fluorescence pose to the configured orientation
@@ -1392,6 +1417,9 @@ class AutoLamellaUI(QMainWindow):
 
         lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
 
+        # keep the milling angle consistent with the updated milling pose
+        lamella.update_milling_angle(self.microscope)
+
         self.update_lamella_combobox()
         self.update_ui()
         self.experiment.save()
@@ -1440,6 +1468,11 @@ class AutoLamellaUI(QMainWindow):
             state.objective_position = existing_pose.objective_position
 
         lamella.poses[pose_name] = state
+
+        # if the milling pose changed, keep the milling angle consistent with it
+        if pose_name == "MILLING":
+            lamella.update_milling_angle(self.microscope)
+
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
         notification_service.show_toast(
@@ -1518,6 +1551,57 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
         )
+
+    def _move_objective_to_lamella_position(self):
+        """Move the FM objective to the selected lamella's stored objective position.
+
+        Independent of the stage move-to: this only drives the objective.
+        """
+        if self.microscope is None or self.microscope.fm is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self.get_selected_lamella()
+        if lamella is None or lamella.fluorescence_pose is None:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        objective_position = lamella.fluorescence_pose.objective_position
+        if objective_position is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no stored objective position.", "warning"
+            )
+            return
+        obj = self.microscope.fm.objective
+        if obj.state != "Inserted":
+            notification_service.show_toast(
+                "Insert the objective before moving to a stored position.", "warning"
+            )
+            return
+
+        # confirmation dialog
+        ret = QMessageBox.question(
+            self,
+            "Move Objective",
+            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+            f"for {lamella.name}?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+
+        try:
+            logging.info(
+                f"Moving objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+                f"for {lamella.name}."
+            )
+            obj.move_absolute(objective_position)
+            notification_service.show_toast(
+                f"Moved objective to {objective_position * METRE_TO_MICRON:.1f} µm "
+                f"for {lamella.name}.",
+                "info",
+            )
+        except Exception as e:
+            logging.error(f"Failed to move objective: {e}", exc_info=e)
+            notification_service.show_toast(f"Failed to move objective: {e}", "warning")
 
     def update_lamella_objective_position(self, value: float):
         """Update the objective position of the current lamella."""
@@ -1657,7 +1741,7 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.setEnabled(neg is not None)
         self.pushButton_no.setVisible(neg is not None)
 
-        if pos == "Run Milling":
+        if pos in ("Run Milling", "Run Spot Burn"):
             self.pushButton_yes.setStyleSheet(
                 stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
             )
@@ -1698,6 +1782,8 @@ class AutoLamellaUI(QMainWindow):
             self._workflow_stop_event.set()
         if self.milling_task_config_widget is not None:
             self.milling_task_config_widget.milling_widget.stop_milling()
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.cancel_spot_burn()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
@@ -1720,6 +1806,13 @@ class AutoLamellaUI(QMainWindow):
             self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(
                 True
             )
+
+        # restore the spot burn widget: an aborted workflow skips the clear_spot_burn
+        # message that normally resets it, which would leave the Burn button hidden
+        # (no-op after a normal completion, where clear_spot_burn already ran)
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_workflow_mode(False)
+            self.spot_burn_widget.clear_points_layer()
 
         # clear detection layers
         if self.det_widget is not None:
@@ -1823,11 +1916,15 @@ class AutoLamellaUI(QMainWindow):
         spot_burn = info.get("spot_burn", None)
         if spot_burn:
             self.set_spot_burn_widget_active(True)
+            if self.spot_burn_widget is not None:
+                # hide the widget's own Burn button; the burn is run from the workflow control
+                self.spot_burn_widget.set_workflow_mode(True)
         spot_burn_parameters = info.get("spot_burn_parameters", None)
         if spot_burn_parameters is not None and self.spot_burn_widget is not None:
             self.spot_burn_widget.update_parameters(spot_burn_parameters)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
+            self.spot_burn_widget.set_workflow_mode(False)
 
         milling_config = info.get("milling_config", None)
         if milling_config is not None:

@@ -531,15 +531,24 @@ def hole_fitting_FIB(img: np.ndarray,
     xr = np.clip(xr, cutout, img.shape[1] - cutout)
     yr = np.clip(yr, cutout, img.shape[0] - cutout)
 
-    # --- Diagnostic figure ---
+    # --- Diagnostic figure (XY only — no z for the FIB image) ---
+    C_IN, C_FIT = "#e53935", "#43a047"
+    n = roi.shape[0]
     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-    title = "FIB Hole Fit (XY)" if err is None else "FIB Hole Fit Failed, using input XY"
-    ax.set_title(title)
-    im = ax.imshow(roi, cmap='gray')
-    ax.scatter(cutout, cutout, color='c', label='Input')
-    ax.scatter(xopt, yopt, color='r', label='Fit')
-    fig.colorbar(im, ax=ax, label='Intensity')
-    ax.legend()
+    fig.suptitle("FIB hole fit")
+    ax.imshow(roi, cmap="gray")
+    ax.plot(cutout, cutout, "+", color=C_IN, ms=16, mew=2, label="input")
+    if err is None:
+        ax.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
+    else:
+        ax.text(0.5, 0.08, "fit failed — using input", transform=ax.transAxes,
+                ha="center", va="center", color=C_IN, fontsize=10,
+                bbox=dict(boxstyle="round", fc="black", ec=C_IN, alpha=0.65))
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(n - 0.5, -0.5)
+    ax.set_title("XY")
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.6)
+    ax.axis("off")
 
     if show:
         plt.show()
@@ -564,20 +573,16 @@ def target_fitting_fluorescence(img: np.ndarray,
     """
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 2)#, figsize=(10, 5))
-    fig.suptitle("Target Fitting Fluorescence")
+    # input (red) / fitted (green) are the only saturated colours; rest greyscale
+    C_IN, C_FIT = "#e53935", "#43a047"
 
-    roi = img[:, y-cutout:y+cutout, x-cutout:x+cutout]
+    roi = img[:, y - cutout:y + cutout, x - cutout:x + cutout]
     intensity = np.mean(roi, axis=(1, 2))
-    popt_z, _ = fit_guass1d(intensity, ax=axes[0])
-
+    popt_z, _ = fit_guass1d(intensity)
     zi = popt_z[1]
-    axes[0].set_title("Initial Z fit")
-    axes[0].axvline(zi, color='r', label='Fit')
-    axes[0].axvline(z, color='k', linestyle='--', label=f'Input Z: {z}')
-    axes[0].legend()
 
-    slc_init = img[int(zi), y-cutout:y+cutout, x-cutout:x+cutout]
+    slc_init = img[int(zi), y - cutout:y + cutout, x - cutout:x + cutout]
+    n = slc_init.shape[0]
     err = None
     if use_xy_fitting:
         try:
@@ -585,7 +590,7 @@ def target_fitting_fluorescence(img: np.ndarray,
             xopt, yopt = popt_xy[1], popt_xy[2]
         except Exception as e:
             logging.warning(f"Error in initial XY fit: {e}")
-            xopt, yopt = cutout, cutout # fallback to center of cutout if fit fails
+            xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
             err = e
 
         if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
@@ -596,22 +601,41 @@ def target_fitting_fluorescence(img: np.ndarray,
         yi = yopt + y - cutout
     else:
         xi, yi = x, y
-        xopt, yopt = cutout, cutout # for plotting the fit result as the center of the cutout
+        xopt, yopt = cutout, cutout  # fit result is the cutout centre for plotting
 
-    
-    title = "Initial XY fit" if use_xy_fitting else "Input XY position"
+    # --- confirmation-friendly diagnostic: z (left) + XY hero (right) ---
+    fig, (ax_z, ax_xy) = plt.subplots(
+        1, 2, figsize=(9, 4.5), gridspec_kw={"width_ratios": [1, 1.4]}
+    )
+    fig.suptitle("Fluorescence target fit")
 
-    axes[1].set_title(f"{title} (z={zi:.2f})")
-    im = axes[1].imshow(slc_init, cmap='gray')
-    axes[1].scatter(cutout, cutout, color='yellow', label='Input')
-    if err:
-        axes[1].text(0.5, 0.5, f"XY fit failed: {err}", ha='center', va='center', transform=axes[1].transAxes, color='red')
-    else:
-        axes[1].scatter(xopt, yopt, color='r', label='Fit')
+    z_axis = np.arange(len(intensity))
+    ax_z.plot(z_axis, intensity, color="0.55", lw=1.3)
+    ax_z.plot(z_axis, gauss1d(z_axis, *popt_z) + intensity.min(),
+              color="0.15", ls="--", lw=1.2)
+    ax_z.axvline(z, color=C_IN, ls="--", lw=1.6, label=f"input {z}")
+    ax_z.axvline(zi, color=C_FIT, ls="--", lw=1.6, label=f"fitted {zi:.1f}")
+    ax_z.set_title("z", fontsize=10)
+    ax_z.set_xlabel("z slice", fontsize=8)
+    ax_z.set_yticks([])
+    ax_z.tick_params(labelsize=8)
+    ax_z.legend(fontsize=7, framealpha=0.6)
 
-    fig.colorbar(im, ax=axes[1], label='Intensity')
-    axes[1].legend()
+    ax_xy.imshow(slc_init, cmap="gray")
+    ax_xy.plot(cutout, cutout, "+", color=C_IN, ms=16, mew=2, label="input")
+    if err is not None:
+        ax_xy.text(0.5, 0.08, "XY fit failed", transform=ax_xy.transAxes,
+                   ha="center", va="center", color=C_IN, fontsize=10,
+                   bbox=dict(boxstyle="round", fc="black", ec=C_IN, alpha=0.65))
+    elif use_xy_fitting:
+        ax_xy.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
+    ax_xy.set_xlim(-0.5, n - 0.5)
+    ax_xy.set_ylim(n - 0.5, -0.5)
+    ax_xy.set_title(f"XY  @ z = {zi:.1f}")
+    ax_xy.legend(loc="upper right", fontsize=8, framealpha=0.6)
+    ax_xy.axis("off")
 
+    fig.tight_layout()
     if show:
         plt.show()
 
@@ -781,17 +805,15 @@ def apply_refractive_index_correction(
     Returns:
         corrected_poi: corrected point of interest coordinates (x, y)"""
 
-    # apply correction factor to poi
-    depth = initial_poi[1] - surface_coord[1]  # assume poi always below surface, y-axis
+    from fibsem.correlation.structures import scale_about_surface
 
-    corrected_depth = depth * correction_factor
+    corrected_y = scale_about_surface(initial_poi[1], surface_coord[1], correction_factor)
     logging.info(
-        f"Correction Factor: {correction_factor}, Depth: {depth}, Corrected Depth: {corrected_depth}"
+        f"Correction Factor: {correction_factor}, "
+        f"Depth: {initial_poi[1] - surface_coord[1]}, "
+        f"Corrected Depth: {corrected_y - surface_coord[1]}"
     )
-
-    # update the poi coordinate in poi
-    corrected_poi = (initial_poi[0], surface_coord[1] + corrected_depth)
-    return corrected_poi
+    return (initial_poi[0], corrected_y)
 
 
 
@@ -914,72 +936,79 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, '
     import matplotlib.pyplot as plt
     from scipy.ndimage import gaussian_filter
 
-    fig, axes = plt.subplots(1, 3, figsize=(20, 5))
-
     zmin = 10
     zmax = 5
     zmin1 = int(z) - zmin
     zmax1 = int(z) + zmax
 
-    # query: use the argmin/argmax to set the z-window?
-    zmin_arg=  np.argmin(da[:, y, x])
-    zmax_arg = np.argmax(da[:, y, x])
-    # zmin1 = zmax_arg
-
-    roi = da[zmin1:zmax1, 
-                            y-cutout:y+cutout+1, 
-                            x-cutout:x+cutout+1]
+    roi = da[zmin1:zmax1, y - cutout:y + cutout + 1, x - cutout:x + cutout + 1]
     intensity = np.mean(roi, axis=(1, 2))
+    intensity = intensity.max() - intensity  # invert: the hole is dark
 
-    # invert intensity for hole fitting
-    intensity = intensity.max() - intensity
-    popt, pcov = fit_guass1d(intensity, ax=axes[1] )
+    popt, _ = fit_guass1d(intensity)
     zopt = popt[1]
-    zreal = zopt + zmin1 # convert back to original z coordinate
+    zreal = zopt + zmin1  # back to absolute z
 
-    # xy fitting
+    # xy fitting on the fitted z-slice
     xy_cutout = 15
-    roi_fitted = da[round(zreal), y-xy_cutout:y+xy_cutout+1, x-xy_cutout:x+xy_cutout+1]
-
+    roi_fitted = da[round(zreal), y - xy_cutout:y + xy_cutout + 1,
+                    x - xy_cutout:x + xy_cutout + 1]
     popt_xy, _ = fit_gauss_2d_mod(roi_fitted)
     xopt, yopt = popt_xy[1], popt_xy[2]
-
-    # transform back to original image coordinates
     xopt_real = xopt + x - xy_cutout
     yopt_real = yopt + y - xy_cutout
 
-    # # print(zmin1, zmax1)
-    # # print(xopt, yopt)
-    # print(f"Fitted Z: {zopt}, Input Z: {z}, Z Fitted (Real) {zreal:.2f}")
-    # print(f"Fitted XY: ({xopt_real:.2f}, {yopt_real:.2f}), Input XY: ({x}, {y})")
+    # --- confirmation-friendly diagnostic ---
+    # Lead with the "did it land on the feature?" view (ROI + input/fitted
+    # markers); a compact z panel answers "did z land right?". The old figure
+    # had a raw-profile panel with six reference lines and a second z panel in a
+    # different (cutout-relative) frame with the same labels — dropped.
+    n = roi_fitted.shape[0]
+    fit_in_roi = 0 <= xopt < n and 0 <= yopt < n
 
-    # fig, axes = plt.subplots(1, 3, figsize=(20, 5))
-    fig.suptitle("Hole Fitting (Reflection)")
+    # Palette kept deliberately minimal: only input (red) and fitted (green) are
+    # saturated; signal / fit are greyscale so the eye goes to the two markers.
+    C_IN, C_FIT = "#e53935", "#43a047"
 
-    axes[0].plot(da[:, y, x])
-    axes[0].set_title(f"Original Z Profile at (x={x}, y={y})")
-    axes[0].axvline(z, color='r', linestyle='--', label=f'Input Z: {z:.2f}')
-    axes[0].axvline(zreal, color='g', linestyle='--', label=f'Fitted Z: {zreal:.2f}')
-    axes[0].axvline(zmin1, color='orange', linestyle='--', label=f'Cutout Start: {zmin1}')
-    axes[0].axvline(zmax1, color='orange', linestyle='--', label=f'Cutout End: {zmax1}')
-    axes[0].set_xlabel("Z Slice")
-    axes[0].set_ylabel("Intensity")
-    axes[0].axvline(zmin_arg, color="purple", linestyle='--', label="Min Z Value")
-    axes[0].axvline(zmax_arg, color="magenta", linestyle='--', label="Max Z Value")
-    axes[0].legend()
+    fig, (ax_z, ax_xy) = plt.subplots(
+        1, 2, figsize=(9, 4.5), gridspec_kw={"width_ratios": [1, 1.4]}
+    )
+    fig.suptitle("Reflection hole fit")
 
-    axes[1].set_title(f"Mean Intensity Profile Along Z Axis (Cutout: {cutout})")
-    axes[1].set_xlabel("Z Slice")
-    axes[1].set_ylabel("Mean Intensity")
-    axes[1].axvline(zopt, color='g', linestyle='--', label=f'Fitted Z: {zopt:.2f}')
-    axes[1].axvline(zmin, color='r', linestyle='--', label=f'Input Z: {zmin}')
-    axes[1].legend()
+    # z: signal + gaussian fit (grey), with input / fitted z the only labels
+    z_axis = np.arange(zmin1, zmin1 + len(intensity))
+    gauss_curve = gauss1d(np.arange(len(intensity)), *popt) + intensity.min()
+    ax_z.plot(z_axis, intensity, color="0.55", lw=1.3)
+    ax_z.plot(z_axis, gauss_curve, color="0.15", ls="--", lw=1.2)
+    ax_z.axvline(z, color=C_IN, ls="--", lw=1.6, label=f"input {z:.1f}")
+    ax_z.axvline(zreal, color=C_FIT, ls="--", lw=1.6, label=f"fitted {zreal:.1f}")
+    ax_z.set_title("z", fontsize=10)
+    ax_z.set_xlabel("z slice", fontsize=8)
+    # the hole is dark, so the signal is inverted — the peak is the hole
+    ax_z.set_ylabel("signal (inverted)", fontsize=8)
+    ax_z.set_yticks([])
+    ax_z.tick_params(labelsize=8)
+    ax_z.legend(fontsize=7, framealpha=0.6)
 
-    im = axes[2].imshow(gaussian_filter(roi_fitted, sigma=1), cmap='gray')
-    axes[2].set_title(f"Z Projection of ROI (Cutout: {cutout}, z={zreal:.2f})")
-    axes[2].plot(15, 15, "r+", label=f'Initial Point (x={x:.2f}, y={y:.2f})')
-    axes[2].plot(xopt, yopt, "g+", label=f'Fitted Point (x={xopt_real:.2f}, y={yopt_real:.2f})')
-    fig.colorbar(im, ax=axes[2])
-    axes[2].legend()
+    # XY: the hero — did it land on the feature?
+    ax_xy.imshow(gaussian_filter(roi_fitted, sigma=1), cmap="gray")
+    ax_xy.plot(xy_cutout, xy_cutout, "+", color=C_IN, ms=16, mew=2, label="input")
+    if fit_in_roi:
+        ax_xy.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
+    else:
+        # A failed 2D fit lands outside the ROI; make that explicit instead of
+        # letting matplotlib silently expand the axes to chase the marker.
+        ax_xy.text(
+            0.5, 0.5, "fit fell outside\nthe search region",
+            transform=ax_xy.transAxes, ha="center", va="center",
+            color=C_IN, fontsize=11,
+            bbox=dict(boxstyle="round", fc="black", ec=C_IN, alpha=0.65),
+        )
+    ax_xy.set_xlim(-0.5, n - 0.5)
+    ax_xy.set_ylim(n - 0.5, -0.5)
+    ax_xy.set_title(f"XY  @ z = {zreal:.1f}")
+    ax_xy.legend(loc="upper right", fontsize=8, framealpha=0.6)
+    ax_xy.axis("off")
 
+    fig.tight_layout()
     return xopt_real, yopt_real, zreal, fig

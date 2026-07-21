@@ -2,7 +2,7 @@ import inspect
 import logging
 from dataclasses import fields
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, get_type_hints
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
@@ -21,7 +21,28 @@ from superqt import QCollapsible
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.custom_widgets import TitledPanel, WheelBlocker
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.custom_widgets import TitledPanel
+
+def resolve_field_types(config: Any) -> Dict[str, Any]:
+    """Resolve a dataclass's field annotations to concrete types.
+
+    Task configs that use ``from __future__ import annotations`` store their field
+    annotations as strings (e.g. ``'float'``), so ``dataclasses.fields(...).type`` is a
+    string, not a type. The identity-based dispatch in ``_create_parameter_widget``
+    (``annotation is float`` etc.) then never matches and silently falls back to a
+    string ``QLineEdit`` — which stores numeric values (e.g. a milling current) as raw
+    strings. Resolving the real types up front keeps numeric fields on spinboxes.
+    """
+    try:
+        return get_type_hints(type(config))
+    except Exception as exc:
+        logging.warning(
+            f"Could not resolve type hints for {type(config).__name__}: {exc}. "
+            "Falling back to raw field annotations."
+        )
+        return {}
+
 
 class ParameterWidget:
     """Base class for parameter editing widgets."""
@@ -61,21 +82,32 @@ class BoolParameterWidget(ParameterWidget):
 
 
 class IntParameterWidget(ParameterWidget):
-    """Widget for integer parameters."""
-    
+    """Widget for integer parameters with optional units suffix."""
+
+    def __init__(self, name: str, value: Any, annotation: type, metadata: Optional[dict] = None):
+        super().__init__(name, value, annotation)
+        self.metadata = metadata or {}
+        self.scale = self.metadata.get('scale', 1.0)
+        self.units = self.metadata.get('units', '')
+
     def create_widget(self) -> QWidget:
         self.widget = QSpinBox()
         self.widget.setRange(-2147483648, 2147483647)  # 32-bit int range
-        self.widget.setValue(int(self.value))
+        self.widget.setValue(int(round(self.value * self.scale)))
         self.widget.setKeyboardTracking(False)
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
+
+        # Add units suffix if available (e.g. " s" for exposure time)
+        suffix = get_si_prefix_suffix(self.scale, self.units)
+        if suffix:
+            self.widget.setSuffix(suffix)
         return self.widget
 
     def get_value(self) -> int:
-        return self.widget.value()
+        return int(round(self.widget.value() / self.scale))
 
     def set_value(self, value: int) -> None:
-        self.widget.setValue(int(value))
+        self.widget.setValue(int(round(value * self.scale)))
 
 
 def get_si_prefix_suffix(scale: float, units: str) -> str:
@@ -110,7 +142,7 @@ class FloatParameterWidget(ParameterWidget):
         self.widget.setRange(-1e10, 1e10)
         self.widget.setDecimals(2)
         self.widget.setKeyboardTracking(False)
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
         
         # Apply scaling for display (multiply by scale to show user-friendly values)
         display_value = float(self.value) * self.scale
@@ -166,7 +198,7 @@ class EnumParameterWidget(ParameterWidget):
                 current_index = i
                 break
         self.widget.setCurrentIndex(current_index)
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
         
         return self.widget
         
@@ -195,7 +227,7 @@ class ComboParameterWidget(ParameterWidget):
             if self.widget.itemData(i) == self.value:
                 self.widget.setCurrentIndex(i)
                 break
-        self.widget.installEventFilter(WheelBlocker(parent=self.widget))
+        install_wheel_blocker(self.widget)
         return self.widget
 
     def get_value(self) -> Any:
@@ -325,14 +357,19 @@ class AutoLamellaTaskConfigWidget(QWidget):
         
         # Show/hide task parameters section
         if self.task_config.parameters:
+            # Resolve annotations to concrete types (see resolve_field_types) so that
+            # `from __future__ import annotations` configs don't fall back to QLineEdit.
+            type_hints = resolve_field_types(self.task_config)
+
             # Get all configurable parameters using the parameters property
             for param_name in self.task_config.parameters:
                 # Get field info and current value
                 field = next(f for f in fields(self.task_config) if f.name == param_name)
                 value = getattr(self.task_config, param_name)
-                
+                annotation = type_hints.get(param_name, field.type)
+
                 # Create parameter widget
-                param_widget = self._create_parameter_widget(param_name, value, field.type, field.metadata)
+                param_widget = self._create_parameter_widget(param_name, value, annotation, field.metadata)
                 if param_widget:
                     self.parameter_widgets[param_name] = param_widget
                     
@@ -387,7 +424,7 @@ class AutoLamellaTaskConfigWidget(QWidget):
         if annotation is bool:
             return BoolParameterWidget(name, value, annotation)
         elif annotation is int:
-            return IntParameterWidget(name, value, annotation)
+            return IntParameterWidget(name, value, annotation, metadata)
         elif annotation is float:
             return FloatParameterWidget(name, value, annotation, metadata)
         elif annotation is str:
@@ -501,16 +538,21 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
             self.hide()
             return
 
+        # Resolve annotations to concrete types (see resolve_field_types) so that
+        # `from __future__ import annotations` configs don't fall back to QLineEdit.
+        type_hints = resolve_field_types(self.task_config)
+
         # Get all configurable parameters using the parameters property
         for param_name in self.task_config.parameters:
             # Get field info and current value
             field = next(f for f in fields(self.task_config) if f.name == param_name)
             value = getattr(self.task_config, param_name)
+            annotation = type_hints.get(param_name, field.type)
 
             # Create parameter widget
-            param_widget = self._create_parameter_widget(name = param_name, 
-                                                         value = value, 
-                                                         annotation = field.type, 
+            param_widget = self._create_parameter_widget(name = param_name,
+                                                         value = value,
+                                                         annotation = annotation,
                                                          metadata = field.metadata)
             if param_widget:
                 self.parameter_widgets[param_name] = param_widget
@@ -558,7 +600,7 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
         if annotation == bool:
             return BoolParameterWidget(name, value, annotation)
         elif annotation == int:
-            return IntParameterWidget(name, value, annotation)
+            return IntParameterWidget(name, value, annotation, metadata)
         elif annotation == float:
             return FloatParameterWidget(name, value, annotation, metadata)
         elif annotation == str:

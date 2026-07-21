@@ -16,6 +16,11 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.acquisition import AutoFocusMode, calculate_grid_coverage_area
 from fibsem.fm.structures import OverviewParameters
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -58,7 +63,7 @@ class OverviewParametersWidget(QWidget):
 
         # Number of rows
         self.label_rows = QLabel("Rows", self)
-        self.spinBox_rows = QSpinBox(self)
+        self.spinBox_rows = IntegerValueSpinBox(parent=self)
         self.spinBox_rows.setRange(OVERVIEW_PARAMETERS_CONFIG["min_grid_size"], 
                                    OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
         self.spinBox_rows.setValue(self.rows)
@@ -66,7 +71,7 @@ class OverviewParametersWidget(QWidget):
 
         # Number of columns
         self.label_cols = QLabel("Columns", self)
-        self.spinBox_cols = QSpinBox(self)
+        self.spinBox_cols = IntegerValueSpinBox(parent=self)
         self.spinBox_cols.setRange(OVERVIEW_PARAMETERS_CONFIG["min_grid_size"], 
                                    OVERVIEW_PARAMETERS_CONFIG["max_grid_size"])
         self.spinBox_cols.setValue(self.cols)
@@ -74,7 +79,7 @@ class OverviewParametersWidget(QWidget):
 
         # Tile overlap
         self.label_overlap = QLabel("Overlap", self)
-        self.doubleSpinBox_overlap = QDoubleSpinBox(self)
+        self.doubleSpinBox_overlap = ValueSpinBox(parent=self)
         self.doubleSpinBox_overlap.setRange(*OVERVIEW_PARAMETERS_CONFIG["overlap_range"])
         self.doubleSpinBox_overlap.setValue(self.overlap)
         self.doubleSpinBox_overlap.setSingleStep(OVERVIEW_PARAMETERS_CONFIG["overlap_step"])
@@ -94,7 +99,7 @@ class OverviewParametersWidget(QWidget):
         
         # Auto-focus mode selection
         self.label_autofocus_mode = QLabel("Auto-Focus Mode", self)
-        self.comboBox_autofocus_mode = QComboBox(self)
+        self.comboBox_autofocus_mode = ValueComboBox(parent=self)
         self.comboBox_autofocus_mode.addItem("Don't Auto-Focus", AutoFocusMode.NONE)
         self.comboBox_autofocus_mode.addItem("Auto-Focus Once", AutoFocusMode.ONCE)
         self.comboBox_autofocus_mode.addItem("Auto-Focus Each Row", AutoFocusMode.EACH_ROW)
@@ -110,7 +115,7 @@ class OverviewParametersWidget(QWidget):
 
         # Auto-focus channel selection
         self.label_autofocus_channel = QLabel("Auto-Focus Channel", self)
-        self.comboBox_autofocus_channel = QComboBox(self)
+        self.comboBox_autofocus_channel = ValueComboBox(parent=self)
         self.comboBox_autofocus_channel.setToolTip(OVERVIEW_PARAMETERS_CONFIG["tooltips"]["autofocus_channel"])
         self.autofocus_channel_name = None
 

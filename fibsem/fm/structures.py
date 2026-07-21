@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -48,13 +49,14 @@ class AutoFocusMode(Enum):
     EACH_TILE = "each_tile"
 
 
-class FocusMethod(Enum):
-    """Focus measurement methods for autofocus algorithms."""
-
-    LAPLACIAN = "laplacian"
-    SOBEL = "sobel"
-    VARIANCE = "variance"
-    TENENGRAD = "tenengrad"
+# Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
+# so existing `from fibsem.fm.structures import ...` imports keep working.
+from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
+    AutoFocusResult,
+    AutoFocusSettings,
+    FocusMethod,
+    FocusSweepPass,
+)
 
 
 class CameraImageTransform(Enum):
@@ -116,16 +118,17 @@ def safe_ome_from_tiff(filename: str) -> OMEMetadata:
         # Attempt to read OME metadata directly from the TIFF file
         ome = from_tiff(filename)
     except Exception as e:
-        if "Filter" in str(e):
-            # read xml description from the file
-            with tff.TiffFile(filename) as tif:
-                ome_xml = tif.pages[0].tags["ImageDescription"].value
-
-                # Filter should be FilterSetRef, drop for now
-                start = ome_xml.find("<Filter")
-                end = ome_xml.find("/>", start) + 2
-                ome_xml = ome_xml[:start] + ome_xml[end:]
-                ome = from_xml(ome_xml)
+        if "Filter" not in str(e):
+            raise
+        # Some microscopes emit <Channel><Filter .../></Channel>, which the OME
+        # schema rejects ("Unknown property Channel:Filter"). Strip every
+        # self-closing <Filter .../> element (there is one per channel — a naive
+        # single find() drops only the first and re-throws) then re-parse, so the
+        # real PhysicalSize/channel metadata is preserved instead of discarded.
+        with tff.TiffFile(filename) as tif:
+            ome_xml = tif.pages[0].tags["ImageDescription"].value
+        ome_xml = re.sub(r"<Filter\b[^>]*/>", "", ome_xml)
+        ome = from_xml(ome_xml)
     return ome
 
 @dataclass
@@ -264,6 +267,12 @@ class ZParameters:
         ddict["order"] = ZStackOrder(ddict.get("order", "channel"))
         return cls(**ddict)
 
+    @classmethod
+    def from_focus_pass(cls, sweep_pass: "FocusSweepPass") -> "ZParameters":
+        """Build a relative sweep centred on zero, spanning ±search_range/2 at step_size."""
+        half = sweep_pass.search_range / 2
+        return cls(zmin=-half, zmax=half, zstep=sweep_pass.step_size)
+
     def generate_positions(self, z_init: float) -> List[float]:
         """Generate a list of z positions based on the current z init and relative z parameters.
         Args:
@@ -309,33 +318,6 @@ class ZParameters:
 
         order_str = "channel-wise" if self.order == ZStackOrder.CHANNEL else "z-level-wise"
         return f"Z-Stack: {num_planes} planes ({self.zmin * 1e6:.1f}μm to {self.zmax * 1e6:.1f}μm, step {self.zstep * 1e6:.1f}μm, {order_str})"
-
-
-@dataclass
-class AutoFocusResult:
-    """Result of an autofocus run, containing all acquired data."""
-    best_z: float
-    best_idx: int
-    best_score: float
-    z_positions: List[float]
-    scores: List[float]
-    images: List[np.ndarray]
-    method: str
-    roi: Optional[FibsemRectangle] = None
-    channel_settings: Optional[Any] = None
-    iterations: "List[AutoFocusResult]" = field(default_factory=list)
-
-    @property
-    def n_positions(self) -> int:
-        return len(self.z_positions)
-
-    @property
-    def z_range_m(self) -> float:
-        return max(self.z_positions) - min(self.z_positions)
-
-    def plot(self, save_path: Optional[str] = None) -> None:
-        from fibsem.fm.calibration import plot_autofocus
-        plot_autofocus(self, save_path=save_path)
 
 
 @dataclass
@@ -1527,46 +1509,6 @@ class OverviewParameters:
             autofocus_mode=AutoFocusMode(ddict.get("autofocus_mode", AutoFocusMode.NONE.value)),
         )
 
-
-@dataclass
-class AutoFocusSettings:
-    """Settings for autofocus operations with coarse and fine search phases."""
-    
-    coarse_range: float = 50e-6  # meters
-    coarse_step: float = 5e-6    # meters
-    coarse_enabled: bool = True
-    fine_range: float = 10e-6    # meters
-    fine_step: float = 1e-6      # meters
-    fine_enabled: bool = True
-    method: FocusMethod = FocusMethod.LAPLACIAN
-    channel_name: Optional[str] = None
-    
-    def to_dict(self) -> dict:
-        """Convert to dictionary representation."""
-        return {
-            "coarse_range": self.coarse_range,
-            "coarse_step": self.coarse_step,
-            "coarse_enabled": self.coarse_enabled,
-            "fine_range": self.fine_range,
-            "fine_step": self.fine_step,
-            "fine_enabled": self.fine_enabled,
-            "method": self.method.value,
-            "channel_name": self.channel_name,
-        }
-    
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "AutoFocusSettings":
-        """Create AutoFocusSettings from dictionary."""
-        return cls(
-            coarse_range=ddict.get("coarse_range", 50e-6),
-            coarse_step=ddict.get("coarse_step", 5e-6),
-            coarse_enabled=ddict.get("coarse_enabled", True),
-            fine_range=ddict.get("fine_range", 10e-6),
-            fine_step=ddict.get("fine_step", 1e-6),
-            fine_enabled=ddict.get("fine_enabled", True),
-            method=FocusMethod(ddict.get("method", FocusMethod.LAPLACIAN.value)),
-            channel_name=ddict.get("channel_name"),
-        )
 
 @dataclass
 class CameraSettings:

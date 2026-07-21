@@ -65,3 +65,25 @@ def cosine_stretch(img: FibsemImage, tilt_degrees: float):
 def apply_image_mask(img: FibsemImage, mask: np.ndarray) -> np.ndarray:
 
     return normalise_image(img) * mask
+
+
+def percentile_stretch(data: np.ndarray, clip_lo: float = 0.5, clip_hi: float = 99.5) -> np.ndarray:
+    """Linearly stretch *data* so the [clip_lo, clip_hi] percentile range fills the full dtype range.
+
+    Args:
+        data: Input array (integer dtype).
+        clip_lo: Lower clip percentile (default 0.5).
+        clip_hi: Upper clip percentile (default 99.5).
+
+    Returns:
+        Stretched array with the same dtype as *data*, or an unchanged copy if
+        the histogram is degenerate (p_hi <= p_lo).
+    """
+    dtype = data.dtype
+    dtype_max = np.iinfo(dtype).max
+    p_lo = np.percentile(data, clip_lo)
+    p_hi = np.percentile(data, clip_hi)
+    if p_hi <= p_lo:
+        return data.copy()
+    clipped = np.clip(data.astype(np.float64), p_lo, p_hi)
+    return ((clipped - p_lo) / (p_hi - p_lo) * dtype_max).astype(dtype)

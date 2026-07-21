@@ -51,7 +51,11 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueComboBox,
+)
 
 
 class FMControlWidget(QWidget):
@@ -91,6 +95,9 @@ class FMControlWidget(QWidget):
         self._acquisition_thread: Optional[threading.Thread] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
+
+        # guards the debounced working-state autosave while applying a config
+        self._loading_config = False
 
         self.initUI()
         self.connect_signals()
@@ -140,7 +147,6 @@ class FMControlWidget(QWidget):
         self.autofocusWidget = AutofocusWidget(
             channel_settings=self.channelSettingsWidget.channel_settings, parent=self
         )
-        self.autofocusWidget.single_fine_search_mode()
         self.autofocusPanel = TitledPanel(
             "Autofocus Settings", content=self.autofocusWidget, collapsible=True
         )
@@ -161,7 +167,7 @@ class FMControlWidget(QWidget):
 
         # Default orientation for fluorescence pose when adding a lamella
         self.label_default_orientation = QLabel("Default Orientation", self)
-        self.comboBox_default_orientation = QComboBox(self)
+        self.comboBox_default_orientation = ValueComboBox(parent=self)
         self.comboBox_default_orientation.addItems(["SEM", "FM"])
         self.comboBox_default_orientation.setCurrentText(self.fm.default_orientation)
         self.comboBox_default_orientation.setToolTip(
@@ -287,6 +293,24 @@ class FMControlWidget(QWidget):
         # live parameter updates from channel list
         self.channelSettingsWidget.channel_field_changed.connect(
             self._on_channel_field_changed
+        )
+
+        # Debounced auto-save of the FM working state on any settings change, so
+        # edits persist even if the app is force-killed before closeEvent runs.
+        from superqt.utils import qdebounced
+        self._autosave_fm_configuration = qdebounced(self.save_fm_configuration, timeout=1000)
+        self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
+        self.comboBox_default_orientation.currentTextChanged.connect(
+            self._on_fm_settings_changed
+        )
+        self.objectiveControlWidget.doubleSpinBox_focus_position.valueChanged.connect(
+            self._on_fm_settings_changed
+        )
+        self.objectiveControlWidget.doubleSpinBox_objective_limit.valueChanged.connect(
+            self._on_fm_settings_changed
         )
 
         self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
@@ -904,30 +928,33 @@ class FMControlWidget(QWidget):
     ):
         """Worker thread for auto-focus."""
         try:
-            z_parameters = ZParameters(
-                zmin=-autofocus_settings.fine_range / 2,
-                zmax=autofocus_settings.fine_range / 2,
-                zstep=autofocus_settings.fine_step,
+            ranges = ", ".join(
+                f"{p.search_range*1e6:.1f}µm/{p.step_size*1e6:.1f}µm"
+                for p in autofocus_settings.passes if p.enabled
             )
             logging.info(
-                f"Running auto-focus: range={autofocus_settings.fine_range*1e6:.1f} µm, "
-                f"step={autofocus_settings.fine_step*1e6:.1f} µm, method={autofocus_settings.method.value}"
+                f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
+                f"method={autofocus_settings.method.value}"
             )
 
-            best_z = run_autofocus(
-                microscope=self.fm,
+            from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
+
+            result = run_coarse_fine_autofocus(
+                self.fm,
+                autofocus_settings=autofocus_settings,
                 channel_settings=channel_settings,
-                z_parameters=z_parameters,
-                method=autofocus_settings.method.value,
                 stop_event=self._acquisition_stop_event,
             )
 
-            if best_z is None or self._acquisition_stop_event.is_set():
+            if result is not None:
+                plot_autofocus(result)
+
+            if result is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {best_z * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result.working_distance * 1e6:.1f} μm"
             )
 
         except Exception as e:
@@ -960,7 +987,7 @@ class FMControlWidget(QWidget):
 
         event.accept()
 
-    def load_fm_configuration(self):
+    def import_fm_configuration(self):
         """Load FM configuration from a YAML file."""
         try:
             # Get filename from user
@@ -981,18 +1008,55 @@ class FMControlWidget(QWidget):
         except Exception as e:
             logging.error(f"Failed to load FM configuration: {e}")
 
+    def _build_fluorescence_configuration(self) -> FluorescenceConfiguration:
+        """Build a complete FluorescenceConfiguration from the current UI settings."""
+        settings = self._get_current_settings()
+        return FluorescenceConfiguration(
+            channel_settings=settings["channel_settings"],
+            z_parameters=settings["z_parameters"],
+            overview_parameters=OverviewParameters(),
+            autofocus_settings=settings["autofocus_settings"],
+            camera_settings=settings["camera_settings"],
+            focus_position=self.fm.objective.focus_position,
+            limit_position=self.fm.objective.limit_position,
+            default_orientation=self.fm.default_orientation,
+        )
+
+    def save_fm_configuration(self) -> None:
+        """Persist the current FM configuration as the auto-loaded working state."""
+        if self.microscope.fm is None:
+            return
+        from fibsem.fm.config import save_fm_configuration
+        try:
+            save_fm_configuration(self._build_fluorescence_configuration())
+        except Exception as e:
+            logging.warning(f"Could not save FM working state: {e}")
+
+    def _on_fm_settings_changed(self, *args) -> None:
+        """Trigger a debounced working-state save when an FM setting changes."""
+        if self._loading_config:
+            return
+        self._autosave_fm_configuration()
+
     def _apply_fluorescence_configuration(self, config: FluorescenceConfiguration):
         """Apply a FluorescenceConfiguration to the widget settings."""
-        self.channelSettingsWidget.channel_settings = config.channel_settings
-        self.zParametersWidget.z_parameters = config.z_parameters
-        self.cameraWidget.camera_settings = config.camera_settings
-        if config.focus_position is not None:
-            self.objectiveControlWidget._set_focus_position(config.focus_position)
-        if config.limit_position:
-            self.objectiveControlWidget._set_limit_position(config.limit_position)
-        self.comboBox_default_orientation.setCurrentText(config.default_orientation)
+        self._loading_config = True
+        try:
+            self.channelSettingsWidget.channel_settings = config.channel_settings
+            self.zParametersWidget.z_parameters = config.z_parameters
+            if config.camera_settings is not None:
+                self.cameraWidget.camera_settings = config.camera_settings
+            if config.autofocus_settings is not None:
+                self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
+            if config.focus_position is not None:
+                self.objectiveControlWidget._set_focus_position(config.focus_position)
+            if config.limit_position:
+                self.objectiveControlWidget._set_limit_position(config.limit_position)
+            self.comboBox_default_orientation.setCurrentText(config.default_orientation)
+        finally:
+            self._loading_config = False
 
-    def save_fm_configuration(self):
+    def export_fm_configuration(self):
         """Save current FM configuration to a YAML file."""
         try:
             # Get filename from user
@@ -1006,22 +1070,8 @@ class FMControlWidget(QWidget):
             if not filename:
                 return
 
-            # Gather current settings from UI
-            settings = self._get_current_settings()
-
-            # Create FM configuration
-            fm_config = FluorescenceConfiguration(
-                channel_settings=settings["channel_settings"],
-                z_parameters=settings["z_parameters"],
-                overview_parameters=OverviewParameters(),
-                autofocus_settings=AutoFocusSettings(),
-                camera_settings=settings["camera_settings"],
-                focus_position=self.fm.objective.focus_position,
-                default_orientation=self.fm.default_orientation,
-            )
-
-            # Export configuration
-            fm_config.export(filename)
+            # Export configuration (incl. camera transform + objective limit position)
+            self._build_fluorescence_configuration().export(filename)
 
             QMessageBox.information(
                 self,

@@ -1,4 +1,4 @@
-"""Test script for SVG spinner icons using superqt's QIconifyIcon + QTimer rotation."""
+"""Test script for spinner icons using fibsem_icon (qtawesome) + QTimer rotation."""
 from __future__ import annotations
 
 import sys
@@ -8,16 +8,16 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTransform
-from superqt import QIconifyIcon
+from fibsem.ui.icon import fibsem_icon
 
 
 class SpinnerLabel(QLabel):
-    """A QLabel that spins a QIconifyIcon at a given speed."""
+    """A QLabel that spins an icon at a given speed."""
 
     def __init__(self, icon_name: str, color: str = "#d6d6d6", size: int = 32,
                  step_deg: int = 15, interval_ms: int = 50, parent=None):
         super().__init__(parent)
-        self._pixmap = QIconifyIcon(icon_name, color=color).pixmap(size, size)
+        self._pixmap = fibsem_icon(icon_name, color=color).pixmap(size, size)
         self._angle = 0
         self._step = step_deg
         self._timer = QTimer(self)

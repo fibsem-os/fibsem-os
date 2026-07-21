@@ -36,16 +36,17 @@ _DRAG_HANDLE_PATH = os.path.join(
 
 _NAME_FIXED_WIDTH = 100
 _SPIN_FIXED_WIDTH = 75
-_BTN_SIZE = QSize(32, 32)
-_ROW_HEIGHT = 40
+_BTN_SIZE = QSize(24, 24)
+_ROW_HEIGHT = 28
 # Spacer in header aligning with drag handle in rows (layout spacing handles the 4px gap)
 _ROW_RIGHT_WIDTH = 10
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
-    PointType.FIB:     "lime",
-    PointType.FM:      "cyan",
-    PointType.POI:     "magenta",
-    PointType.SURFACE: "red",
+    PointType.FIB:        "lime",
+    PointType.FM:         "cyan",
+    PointType.POI:        "magenta",
+    PointType.SURFACE:    "red",
+    PointType.SURFACE_FM: "yellow",
 }
 
 
@@ -114,7 +115,7 @@ class _CoordinateListHeader(QWidget):
 
         def _lbl(text: str, width: Optional[int] = None) -> QLabel:
             lbl = QLabel(text)
-            lbl.setStyleSheet("color: #aaa; font-size: 11px; background: transparent;")
+            lbl.setStyleSheet("color: #aaa; font-size: 10px; background: transparent;")
             if width is not None:
                 lbl.setFixedWidth(width)
             return lbl
@@ -191,14 +192,14 @@ class CoordinateRowWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(6, 1, 6, 1)
         layout.setSpacing(4)
 
         # Name label (read-only)
         self.name_label = QLabel(name)
         self.name_label.setFixedWidth(_NAME_FIXED_WIDTH)
         self.name_label.setStyleSheet(
-            "color: #F0F1F2; background: transparent; font-size: 12px;"
+            "color: #F0F1F2; background: transparent; font-size: 11px;"
         )
         self.name_label.setToolTip("Auto-generated coordinate name")
         layout.addWidget(self.name_label)
@@ -218,6 +219,10 @@ class CoordinateRowWidget(QWidget):
         self.z_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
         self.z_spin.setToolTip("Z coordinate")
         layout.addWidget(self.z_spin)
+
+        # Compact number font + padding so the rows stay short
+        for _spin in (self.x_spin, self.y_spin, self.z_spin):
+            _spin.setStyleSheet("font-size: 11px; padding: 1px 6px;")
 
         layout.addStretch(1)
 

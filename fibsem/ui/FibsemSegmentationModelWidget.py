@@ -1,16 +1,15 @@
 
 import napari
 import napari.utils.notifications
-from napari.qt.threading import thread_worker
+from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QFont
 
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import SegmentationModel, load_model
 from fibsem.ui import stylesheets
-from fibsem.ui.qtdesigner_files import (
-    FibsemSegmentationModelWidget as SegmentationUIWidget,
-)
+from fibsem.ui.utils import install_wheel_blocker
 
 CHECKPOINT_PATH = "autolamella-mega-20240107.pt"
 SEGMENT_ANYTHING_AVAIABLE = False
@@ -27,7 +26,7 @@ if SEGMENT_ANYTHING_AVAIABLE:
     AVAILABLE_MODELS.append("SegmentAnythingModel")
 RECOMMENDED_SAM_CHECKPOINTS = ["facebook/sam-vit-base", "Zigeng/SlimSAM-uniform-50"]
 
-class FibsemSegmentationModelWidget(SegmentationUIWidget.Ui_Form, QtWidgets.QDialog):
+class FibsemSegmentationModelWidget(QtWidgets.QDialog):
     continue_signal = pyqtSignal(DetectedFeatures)
     model_loaded = pyqtSignal()
 
@@ -37,11 +36,46 @@ class FibsemSegmentationModelWidget(SegmentationUIWidget.Ui_Form, QtWidgets.QDia
         parent=None,
     ):
         super().__init__(parent=parent)
-        self.setupUi(self)
+        self._setup_ui()
 
         self.model = model
         self.model_type = None
         self.setup_connections()
+
+    def _setup_ui(self):
+        """Hand-built replacement for the former Qt Designer form."""
+        layout = QtWidgets.QGridLayout(self)
+
+        self.label_header_model = QtWidgets.QLabel("Segmentation Model")
+        header_font = QFont()
+        header_font.setBold(True)
+        header_font.setWeight(75)
+        self.label_header_model.setFont(header_font)
+        layout.addWidget(self.label_header_model, 0, 0, 1, 2)
+
+        self.label_model_type = QtWidgets.QLabel("Model")
+        self.comboBox_model_type = QtWidgets.QComboBox()
+        layout.addWidget(self.label_model_type, 1, 0)
+        layout.addWidget(self.comboBox_model_type, 1, 1)
+
+        self.label_checkpoint = QtWidgets.QLabel("Checkpoint")
+        self.lineEdit_checkpoint = QtWidgets.QLineEdit()
+        self.checkpoint_seg_button = QtWidgets.QToolButton()
+        self.checkpoint_seg_button.setText("...")
+        layout.addWidget(self.label_checkpoint, 2, 0)
+        layout.addWidget(self.lineEdit_checkpoint, 2, 1)
+        layout.addWidget(self.checkpoint_seg_button, 2, 2)
+
+        self.pushButton_load_model = QtWidgets.QPushButton("Load Model")
+        layout.addWidget(self.pushButton_load_model, 3, 0, 1, 2)
+
+        spacer = QtWidgets.QSpacerItem(
+            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+        )
+        layout.addItem(spacer, 4, 0, 1, 2)
+
+        # block accidental scroll-to-change on the combobox
+        install_wheel_blocker(self.comboBox_model_type)
 
     def setup_connections(self):
 

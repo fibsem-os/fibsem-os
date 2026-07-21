@@ -3,14 +3,8 @@
 #   fibsem/ui/FibsemUI.py
 #   fibsem/ui/FibsemEmbeddedDetectionWidget.py
 #   fibsem/ui/FibsemManipulatorWidget.py
-#   fibsem/ui/FibsemMicroscopeConfigurationWidget.py
-#   fibsem/ui/FibsemMicroscopeConfigurationWidgetBase.py
 #   fibsem/ui/FibsemLabellingUI.py          (standalone — needs listener registration)
 #   fibsem/ui/FibsemSegmentationModelWidget.py
-#   fibsem/ui/FibsemModelTrainingWidget.py   (standalone — needs listener registration)
-#   fibsem/ui/FibsemFeatureLabellingUI.py    (standalone — needs listener registration)
-#   fibsem/correlation/app.py               (standalone — needs listener registration)
-#   fibsem/correlation/ui/fm_import_wizard.py
 
 from __future__ import annotations
 

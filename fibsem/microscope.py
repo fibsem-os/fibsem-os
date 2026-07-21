@@ -141,6 +141,7 @@ class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
     milling_progress_signal = Signal(dict)
     tiled_acquisition_signal = Signal(dict)
+    spot_burn_progress_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
     system: SystemSettings
     _patterns: List
@@ -1689,7 +1690,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self.set_field_of_view(hfw=image_settings.hfw, beam_type=image_settings.beam_type)
 
         logging.info(f"acquiring new {image_settings.beam_type.name} image.")
-        self.set_channel(image_settings.beam_type)
 
         # set the imaging frame settings
         frame_settings = GrabFrameSettings(
@@ -1702,6 +1702,7 @@ class ThermoMicroscope(FibsemMicroscope):
             drift_correction=image_settings.drift_correction,
         )
 
+        self.set_channel(image_settings.beam_type)
         image = self.connection.imaging.grab_frame(frame_settings)
 
         # restore to full frame imaging
@@ -2097,7 +2098,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # convert to autoscript position
         autoscript_position = stage_position_to_autoscript(position, compustage=self.stage_is_compustage) # TODO: apply compucentric/raw coordinate offset here?
 
-        if self.get_stage_orientation() == "FM":
+        if self.get_stage_orientation() == "FM" or (self.fm is not None and self.fm.objective.state == "Inserted"): # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 
@@ -3023,6 +3024,10 @@ class ThermoMicroscope(FibsemMicroscope):
             self.set_application_file("Si-ccs", strict=False)
         else:
             create_pattern_function = patterning_api.create_rectangle
+            # ensure a rectangle-compatible application file is set; the stage's
+            # application file may be a cross-section-only file (e.g. Si-ccs) that
+            # AutoScript rejects for a plain Rectangle pattern.
+            self.set_application_file("Si", strict=False)
 
         # create pattern
         pattern = create_pattern_function(

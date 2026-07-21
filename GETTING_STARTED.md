@@ -10,7 +10,8 @@ This walkthrough assumes you have installed the application, and configured your
 
 ### Running the Application
 
-Open Anaconda Prompt:
+Run the shortcut set up in [INSTALLATION.md](INSTALLATION.md#create-a-desktop-shortcut) or open Anaconda Prompt and run:
+
 ```bash
 conda activate fibsem
 fibsem-autolamella-ui

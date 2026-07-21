@@ -38,33 +38,48 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import matplotlib.patheffects as pe
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from matplotlib.lines import Line2D
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QAction, QMenu, QSizePolicy, QWidget
+from PyQt5.QtWidgets import (
+    QAction,
+    QApplication,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.icon import fibsem_icon
 _logger = logging.getLogger(__name__)
 
 _POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:     "#00ff00",
-    PointType.FM:      "#00e5ff",
-    PointType.POI:     "#ff00ff",
-    PointType.SURFACE: "#ff9800",
+    PointType.FIB:        "#00ff00",
+    PointType.FM:         "#00e5ff",
+    PointType.POI:        "#ff00ff",
+    PointType.SURFACE:    "#ff9800",
+    PointType.SURFACE_FM: "#ffea00",
 }
 _POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:     "o",
-    PointType.FM:      "o",
-    PointType.POI:     "o",
-    PointType.SURFACE: "+",
+    PointType.FIB:        "o",
+    PointType.FM:         "o",
+    PointType.POI:        "o",
+    PointType.SURFACE:    "+",
+    PointType.SURFACE_FM: "+",
 }
-_MARKER_SIZE     = 10
-_SELECTED_SIZE   = 14
+_MARKER_SIZE     = 5
+_SELECTED_SIZE   = 7
 _PICK_RADIUS_PX  = 15
 _ZOOM_FACTOR     = 1.15
 _MAX_DISPLAY_PX  = 2048
 _REDRAW_INTERVAL = 32     # ms (~60 fps cap for pan/zoom)
+_LABEL_FONTSIZE  = 9
+# Dark outline so coloured point labels stay legible on any image background.
+_LABEL_OUTLINE   = [pe.withStroke(linewidth=0.5, foreground="black")]
 
 
 def _downsample(image: np.ndarray, max_px: int) -> np.ndarray:
@@ -86,6 +101,105 @@ def _generate_names(coordinates: List[Coordinate]) -> List[str]:
     return names
 
 
+def _marker_style(point_type: PointType, is_selected: bool) -> dict:
+    """Marker style for a coordinate point, shared by rebuild and restyle paths.
+
+    Filled markers (circles) show selection as a white rim. Unfilled markers
+    ("+" crosshairs) are drawn entirely by their edge — a white edge would
+    replace the type colour and "none" would erase the marker — so they keep
+    their own colour and show selection via size and stroke weight instead.
+    """
+    color = _POINT_COLORS.get(point_type, "white")
+    marker = _POINT_MARKERS.get(point_type, "o")
+    unfilled = marker not in Line2D.filled_markers
+    if unfilled:
+        edge_color = color
+        edge_width = 3.0 if is_selected else 2.0
+    else:
+        edge_color = "white" if is_selected else "none"
+        edge_width = 2.0
+    return dict(
+        marker=marker,
+        markersize=_SELECTED_SIZE if is_selected else _MARKER_SIZE,
+        color=color,
+        markeredgecolor=edge_color,
+        markeredgewidth=edge_width,
+    )
+
+
+# Overlay toolbar (top-right icon buttons, matching the shared-canvas look
+# from the PR #111 stack; the mechanism is replaced by that canvas's native
+# toolbar when the correlation canvases migrate onto it)
+_OVERLAY_BTN_SIZE = 26
+_OVERLAY_ICON_SIZE = QSize(18, 18)
+_OVERLAY_MARGIN = 6
+_OVERLAY_GAP = 4
+_OVERLAY_BTN_STYLE = (
+    "QPushButton { background: rgba(30, 33, 36, 180);"
+    " border: 1px solid #3a3d42; border-radius: 4px; }"
+    "QPushButton:hover { background: rgba(45, 63, 92, 220); }"
+    "QPushButton:checked { background: rgba(45, 63, 92, 220);"
+    " border: 1px solid #6aa1e0; }"
+)
+
+
+# Shared by the live canvas legend and the render_to_axes export.
+# Upper LEFT: the top-right corner belongs to the overlay toolbar buttons
+# (same convention as the PR #111 shared canvas).
+_LEGEND_KWARGS = dict(
+    loc="upper left",
+    fontsize=8,
+    framealpha=0.75,
+    facecolor="#1e2124",
+    edgecolor="#3a3d42",
+    labelcolor="#e0e0e0",
+    handletextpad=0.4,
+    borderpad=0.5,
+    labelspacing=0.35,
+)
+
+
+def _legend_handle(
+    color: str, marker: str = "o", hollow: bool = False, alpha: float = 1.0
+) -> Line2D:
+    """Proxy artist for a legend entry, matching the on-canvas marker style."""
+    # For unfilled markers (e.g. "+") the edge IS the marker — a white edge
+    # would swallow the colour, so those keep their own colour as the edge.
+    unfilled = marker not in Line2D.filled_markers
+    return Line2D(
+        [], [],
+        marker=marker,
+        markersize=7,
+        color=color,
+        markerfacecolor="none" if hollow else color,
+        markeredgecolor=color if (hollow or unfilled) else "white",
+        markeredgewidth=1.5 if (hollow or unfilled) else 0.8,
+        alpha=alpha,
+        linestyle="none",
+    )
+
+
+_QT_MODIFIER_MAP = (
+    (Qt.AltModifier, "Alt"),
+    (Qt.ShiftModifier, "Shift"),
+    (Qt.ControlModifier, "Control"),
+    (Qt.MetaModifier, "Meta"),
+)
+
+
+def _modifiers_from_event(event) -> Tuple[str, ...]:
+    """Active keyboard modifiers for a matplotlib event, e.g. ``("Shift",)``.
+
+    Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
+    the reliable source in an embedded canvas, whereas matplotlib's
+    ``MouseEvent.key`` depends on canvas keyboard focus. Falls back to the
+    application-wide modifier state when no Qt event is attached.
+    """
+    gui = getattr(event, "guiEvent", None)
+    mods = gui.modifiers() if gui is not None else QApplication.keyboardModifiers()
+    return tuple(name for flag, name in _QT_MODIFIER_MAP if mods & flag)
+
+
 class ImagePointCanvas(FigureCanvasQTAgg):
     """Matplotlib canvas: image + draggable Coordinate markers."""
 
@@ -94,6 +208,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     point_removed       = pyqtSignal(object)               # Coordinate
     canvas_clicked      = pyqtSignal(float, float)         # x, y data coords
     point_add_requested = pyqtSignal(float, float, object) # x, y, PointType
+    z_scroll_requested  = pyqtSignal(int)                  # +1 / -1 (Shift+wheel)
 
     def __init__(
         self,
@@ -115,6 +230,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._coordinates: List[Coordinate] = []
         self._selected: Optional[Coordinate] = None
         self._dragging: Optional[Coordinate] = None
+        # Position at press, so release can tell a select-click from a real drag
+        self._drag_origin: Optional[Tuple[float, float]] = None
         self._pan_start: Optional[Tuple] = None
 
         # Image bounds for drag clamping (set in set_image)
@@ -131,6 +248,27 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._pixel_size: Optional[float] = None   # metres
         self._show_scalebar: bool = False
         self._scalebar_artist = None
+
+        # Legend (point types present + labeled overlay groups)
+        self._legend_visible: bool = True
+        self._overlay_legend: List[Tuple[str, dict]] = []  # (label, handle style)
+
+        # Point-name labels next to each marker — toggleable to declutter
+        self._labels_visible: bool = True
+
+        # Dashed datum line across the canvas at the FIB surface y
+        self._surface_line = None
+        self._surface_line_coord: Optional[Coordinate] = None
+
+        # Shift+wheel steps Z instead of zooming (enabled by the FM display)
+        self._shift_z_enabled: bool = False
+
+        # Overlay toolbar (top-right)
+        self._overlay_buttons: List[QPushButton] = []
+        self._btn_scalebar: Optional[QPushButton] = None
+        self._btn_legend: Optional[QPushButton] = None
+        self._btn_labels: Optional[QPushButton] = None
+        self._create_toolbar_buttons()
 
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setSingleShot(True)
@@ -229,9 +367,78 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self._background = None
             self.draw()
 
+    # ------------------------------------------------------------------
+    # Overlay toolbar (top-right icon buttons)
+    # ------------------------------------------------------------------
+
+    def _create_toolbar_buttons(self) -> None:
+        """Standard buttons; first added stacks rightmost."""
+        self._add_overlay_button(
+            "mdi:fit-to-screen-outline", "Reset view", lambda _=False: self.reset_view()
+        )
+        self._btn_scalebar = self._add_overlay_button(
+            "mdi:arrow-expand-horizontal",
+            "Toggle scalebar",
+            self.set_scalebar_visible,
+            checkable=True,
+        )
+        self._btn_scalebar.setChecked(self._show_scalebar)
+        self._btn_legend = self._add_overlay_button(
+            "mdi:format-list-bulleted",
+            "Toggle legend",
+            self.set_legend_visible,
+            checkable=True,
+        )
+        self._btn_legend.setChecked(self._legend_visible)
+        self._btn_labels = self._add_overlay_button(
+            "mdi:label-outline",
+            "Toggle point labels",
+            self.set_labels_visible,
+            checkable=True,
+        )
+        self._btn_labels.setChecked(self._labels_visible)
+
+    def _add_overlay_button(
+        self,
+        icon_name: str,
+        tooltip: str,
+        callback,
+        checkable: bool = False,
+    ) -> QPushButton:
+        """Create a button parented to the canvas, stacked top-right.
+
+        Repositioned automatically on resize. ``clicked(bool)`` is connected to
+        ``callback`` (checkable buttons receive the new checked state).
+        """
+        btn = QPushButton(self)
+        btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
+        btn.setIconSize(_OVERLAY_ICON_SIZE)
+        btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(checkable)
+        btn.setStyleSheet(_OVERLAY_BTN_STYLE)
+        btn.clicked.connect(callback)
+        btn.raise_()
+        self._overlay_buttons.append(btn)
+        self._reposition_overlay_buttons()
+        return btn
+
+    def _reposition_overlay_buttons(self) -> None:
+        x = self.width() - _OVERLAY_MARGIN
+        for btn in self._overlay_buttons:
+            x -= btn.width()
+            btn.move(x, _OVERLAY_MARGIN)
+            x -= _OVERLAY_GAP
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._reposition_overlay_buttons()
+
     def set_scalebar_visible(self, visible: bool) -> None:
         """Show or hide the scale bar."""
         self._show_scalebar = visible
+        if self._btn_scalebar is not None:
+            self._btn_scalebar.setChecked(visible)
         self._refresh_scalebar()
         self._background = None
         self.draw()
@@ -257,6 +464,54 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 self._ax.add_artist(self._scalebar_artist)
             except Exception:
                 pass
+
+    def set_legend_visible(self, visible: bool) -> None:
+        """Show or hide the point-type legend."""
+        self._legend_visible = visible
+        if self._btn_legend is not None:
+            self._btn_legend.setChecked(visible)
+        self._update_legend()
+        self._background = None
+        self.draw()
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide the point-name labels next to each marker."""
+        self._labels_visible = visible
+        if self._btn_labels is not None:
+            self._btn_labels.setChecked(visible)
+        for ann in self._label_artists + self._overlay_label_artists:
+            ann.set_visible(visible)
+        self._background = None
+        self.draw()
+
+    def _build_legend_entries(self) -> Tuple[List[Line2D], List[str]]:
+        """Proxy handles + labels for the point types on screen and labeled overlays."""
+        handles: List[Line2D] = []
+        labels: List[str] = []
+        for pt in PointType:
+            if any(c.point_type is pt for c in self._coordinates):
+                handles.append(
+                    _legend_handle(
+                        _POINT_COLORS.get(pt, "white"), _POINT_MARKERS.get(pt, "o")
+                    )
+                )
+                labels.append(pt.value)
+        for label, style in self._overlay_legend:
+            handles.append(_legend_handle(**style))
+            labels.append(label)
+        return handles, labels
+
+    def _update_legend(self) -> None:
+        """Rebuild the legend from current contents (removed when empty/hidden)."""
+        legend = self._ax.get_legend()
+        if legend is not None:
+            legend.remove()
+        if not self._legend_visible:
+            return
+        handles, labels = self._build_legend_entries()
+        if not handles:
+            return
+        self._ax.legend(handles, labels, **_LEGEND_KWARGS)
 
     def reset_view(self) -> None:
         """Fit the view to the full image extent."""
@@ -288,17 +543,34 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             ax.set_xlim(self._ax.get_xlim())
             ax.set_ylim(self._ax.get_ylim())
 
+        if self._surface_line is not None and self._surface_line_coord is not None:
+            ax.axhline(
+                self._surface_line_coord.point.y,
+                color=_POINT_COLORS[PointType.SURFACE],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.6,
+                zorder=4,
+            )
+
         for line in self._point_artists + self._overlay_point_artists:
             ax.plot(
                 line.get_xdata(), line.get_ydata(),
                 marker=line.get_marker(),
                 markersize=line.get_markersize(),
                 color=line.get_color(),
+                markerfacecolor=line.get_markerfacecolor(),
                 markeredgecolor=line.get_markeredgecolor(),
                 markeredgewidth=line.get_markeredgewidth(),
+                alpha=line.get_alpha(),
                 linestyle="none",
                 zorder=line.get_zorder(),
             )
+
+        if self._legend_visible:
+            handles, labels = self._build_legend_entries()
+            if handles:
+                ax.legend(handles, labels, **_LEGEND_KWARGS)
 
         for ann in self._label_artists + self._overlay_label_artists:
             ax.annotate(
@@ -310,6 +582,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 fontsize=ann.get_fontsize(),
                 fontweight=ann.get_fontweight(),
                 zorder=ann.get_zorder(),
+                path_effects=_LABEL_OUTLINE,
             )
 
         if self._show_scalebar and self._pixel_size is not None:
@@ -335,26 +608,42 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         label_prefix: str = "",
         size: int = 7,
         marker: str = "o",
+        alpha: float = 1.0,
+        show_labels: bool = True,
+        hollow: bool = False,
+        legend_label: Optional[str] = None,
     ) -> None:
         """Append a group of non-interactive overlay markers (e.g. correlation result).
 
         Call clear_overlay() before the first add_overlay_points() when replacing
         a previous result set.  Multiple add_overlay_points() calls accumulate.
+        ``hollow`` draws an unfilled ring (edge in ``color``), so the marker stays
+        visible when another marker sits on top of it. ``legend_label`` adds a
+        matching entry to the canvas legend for this group.
         """
+        if legend_label:
+            self._overlay_legend.append(
+                (legend_label, dict(color=color, marker=marker, hollow=hollow, alpha=alpha))
+            )
+            self._update_legend()
         for i, (x, y) in enumerate(points, start=1):
             (line,) = self._ax.plot(
                 x, y,
                 marker=marker,
                 markersize=size,
                 color=color,
-                markeredgecolor="white",
-                markeredgewidth=0.8,
+                markerfacecolor="none" if hollow else color,
+                markeredgecolor=color if hollow else "white",
+                markeredgewidth=1.5 if hollow else 0.8,
                 linestyle="none",
+                alpha=alpha,
                 zorder=8,
                 animated=True,
             )
             self._overlay_point_artists.append(line)
 
+            if not show_labels:
+                continue
             label = f"{label_prefix}{i}" if label_prefix else str(i)
             ann = self._ax.annotate(
                 label,
@@ -362,10 +651,13 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 xytext=(7, 5),
                 textcoords="offset points",
                 color=color,
-                fontsize=8,
+                fontsize=_LABEL_FONTSIZE,
+                alpha=alpha,
                 animated=True,
                 zorder=9,
+                path_effects=_LABEL_OUTLINE,
             )
+            ann.set_visible(self._labels_visible)
             self._overlay_label_artists.append(ann)
 
         self._background = None
@@ -377,6 +669,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             a.remove()
         self._overlay_point_artists.clear()
         self._overlay_label_artists.clear()
+        self._overlay_legend.clear()
+        self._update_legend()
         self._background = None
         self.draw_idle()
 
@@ -384,10 +678,18 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     # Blitting
     # ------------------------------------------------------------------
 
+    def _animated_artists(self) -> list:
+        """All animated artists in draw order (surface line at the bottom)."""
+        artists: list = []
+        if self._surface_line is not None:
+            artists.append(self._surface_line)
+        artists += (self._point_artists + self._label_artists
+                    + self._overlay_point_artists + self._overlay_label_artists)
+        return artists
+
     def _on_draw_event(self, _) -> None:
         self._background = self.copy_from_bbox(self._ax.bbox)
-        for a in (self._point_artists + self._label_artists
-                  + self._overlay_point_artists + self._overlay_label_artists):
+        for a in self._animated_artists():
             self._ax.draw_artist(a)
         self.update()
 
@@ -396,8 +698,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self.draw_idle()
             return
         self.restore_region(self._background)
-        for a in (self._point_artists + self._label_artists
-                  + self._overlay_point_artists + self._overlay_label_artists):
+        for a in self._animated_artists():
             self._ax.draw_artist(a)
         self.blit(self._ax.bbox)
 
@@ -423,6 +724,32 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._point_artists.clear()
         self._label_artists.clear()
 
+        if self._surface_line is not None:
+            try:
+                self._surface_line.remove()
+            except ValueError:
+                pass
+            self._surface_line = None
+        self._surface_line_coord = None
+
+        # The FIB surface is a datum row: anchor it with a dashed line across
+        # the full canvas width at the surface y (FM surfaces are z-planes —
+        # no in-plane line applies)
+        surf = next(
+            (c for c in self._coordinates if c.point_type is PointType.SURFACE), None
+        )
+        if surf is not None:
+            self._surface_line = self._ax.axhline(
+                surf.point.y,
+                color=_POINT_COLORS[PointType.SURFACE],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.6,
+                zorder=4,
+                animated=True,
+            )
+            self._surface_line_coord = surf
+
         names = _generate_names(self._coordinates)
         for coord, name in zip(self._coordinates, names):
             color = _POINT_COLORS.get(coord.point_type, "white")
@@ -430,14 +757,10 @@ class ImagePointCanvas(FigureCanvasQTAgg):
 
             (line,) = self._ax.plot(
                 coord.point.x, coord.point.y,
-                marker=_POINT_MARKERS.get(coord.point_type, "o"),
-                markersize=_SELECTED_SIZE if is_sel else _MARKER_SIZE,
-                color=color,
-                markeredgecolor="white" if is_sel else "none",
-                markeredgewidth=2.0,
                 linestyle="none",
                 zorder=10 if is_sel else 5,
                 animated=True,
+                **_marker_style(coord.point_type, is_sel),
             )
             self._point_artists.append(line)
 
@@ -447,13 +770,16 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 xytext=(7, 5),
                 textcoords="offset points",
                 color=color,
-                fontsize=8,
+                fontsize=_LABEL_FONTSIZE,
                 fontweight="bold" if is_sel else "normal",
                 animated=True,
                 zorder=11 if is_sel else 6,
+                path_effects=_LABEL_OUTLINE,
             )
+            ann.set_visible(self._labels_visible)
             self._label_artists.append(ann)
 
+        self._update_legend()
         self.draw_idle()
 
     def _apply_styles(self) -> None:
@@ -461,17 +787,26 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             self._coordinates, self._point_artists, self._label_artists
         ):
             is_sel = coord is self._selected
-            marker.set_markersize(_SELECTED_SIZE if is_sel else _MARKER_SIZE)
-            marker.set_markeredgecolor("white" if is_sel else "none")
+            style = _marker_style(coord.point_type, is_sel)
+            marker.set_markersize(style["markersize"])
+            marker.set_markeredgecolor(style["markeredgecolor"])
+            marker.set_markeredgewidth(style["markeredgewidth"])
             marker.set_zorder(10 if is_sel else 5)
             label.set_fontweight("bold" if is_sel else "normal")
             label.set_zorder(11 if is_sel else 6)
+
+        if self._surface_line is not None:
+            sel = self._surface_line_coord is self._selected
+            self._surface_line.set_linewidth(1.5 if sel else 1.0)
+            self._surface_line.set_alpha(0.9 if sel else 0.6)
 
     def _sync_artist_position(self, idx: int) -> None:
         coord = self._coordinates[idx]
         self._point_artists[idx].set_xdata([coord.point.x])
         self._point_artists[idx].set_ydata([coord.point.y])
         self._label_artists[idx].xy = (coord.point.x, coord.point.y)
+        if coord is self._surface_line_coord and self._surface_line is not None:
+            self._surface_line.set_ydata([coord.point.y, coord.point.y])
 
     # ------------------------------------------------------------------
     # Cursor
@@ -517,6 +852,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
                 changed = nearest is not self._selected
                 self._selected = nearest
                 self._dragging = nearest
+                self._drag_origin = (nearest.point.x, nearest.point.y)
                 self._apply_styles()
                 self._blit_points()
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -564,8 +900,17 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def _on_release(self, event) -> None:
         if event.button == 1:
             if self._dragging is not None:
-                self.point_moved.emit(self._dragging)
+                # A click to select leaves the position untouched — only report a
+                # move if one actually happened, or every selection invalidates
+                # the correlation result downstream.
+                moved = (
+                    self._dragging.point.x,
+                    self._dragging.point.y,
+                ) != self._drag_origin
+                if moved:
+                    self.point_moved.emit(self._dragging)
                 self._dragging = None
+                self._drag_origin = None
             elif self._pan_start is not None:
                 sx0, sy0, *_ = self._pan_start
                 if ((event.x - sx0) ** 2 + (event.y - sy0) ** 2) ** 0.5 < 3:
@@ -578,8 +923,15 @@ class ImagePointCanvas(FigureCanvasQTAgg):
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
 
+    def set_shift_z_scroll_enabled(self, enabled: bool) -> None:
+        """When enabled, Shift+wheel emits z_scroll_requested instead of zooming."""
+        self._shift_z_enabled = bool(enabled)
+
     def _on_scroll(self, event) -> None:
         if event.inaxes is not self._ax or event.xdata is None:
+            return
+        if self._shift_z_enabled and "Shift" in _modifiers_from_event(event):
+            self.z_scroll_requested.emit(1 if event.button == "up" else -1)
             return
         factor = 1.0 / _ZOOM_FACTOR if event.button == "up" else _ZOOM_FACTOR
         cx, cy = event.xdata, event.ydata

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import pandas as pd
 import petname
@@ -42,6 +42,9 @@ from fibsem.structures import (
 )
 from fibsem.utils import configure_logging, format_duration
 
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+
 
 
 
@@ -51,6 +54,7 @@ class AutoLamellaTaskStatus(Enum):
     Completed = auto()
     Failed = auto()
     Skipped = auto()
+    Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
 
 
 @dataclass
@@ -337,6 +341,13 @@ class AutoLamellaWorkflowConfig:
             if task.name == task_name:
                 return task.supervise
         return False
+
+    def get_scheduled_at(self, task_name: str) -> Optional[datetime]:
+        """Get the scheduled start time for a task, or None if not scheduled."""
+        for task in self.tasks:
+            if task.name == task_name:
+                return task.scheduled_at
+        return None
 
     def add_task(self, task: AutoLamellaTaskConfig) -> None:
         """Add a task to the workflow configuration."""
@@ -696,6 +707,7 @@ class Lamella:
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(default_factory=lambda: Point(0,0))  # point of interest within lamella area (milling coordinate system)
+    description: str = ""  # free-text note about the lamella
 
     def __post_init__(self):
         # only make the dir, if the base path is actually set, 
@@ -789,6 +801,22 @@ class Lamella:
     def fluorescence_selected(self) -> bool:
         return self.fluorescence_pose is not None and self.fluorescence_pose.objective_position is not None
 
+    def update_milling_angle(self, microscope: "FibsemMicroscope") -> None:
+        """Recompute milling_angle from the milling-pose stage tilt.
+
+        The milling angle is derived from the stage tilt (plus the microscope pretilt /
+        column-tilt configuration), so it is kept consistent with the stored milling pose.
+        Leaves the existing value unchanged if the stage tilt/rotation is unavailable.
+        """
+        if microscope is None or self.milling_pose is None or self.milling_pose.stage_position is None:
+            return
+        try:
+            self.milling_angle = microscope.get_current_milling_angle(
+                stage_position=self.milling_pose.stage_position
+            )
+        except ValueError:
+            logging.debug(f"Could not compute milling angle for {self.name}: stage tilt/rotation unavailable")
+
     def to_dict(self):
         return {
             "petname": self.petname,
@@ -803,6 +831,7 @@ class Lamella:
             "defect": self.defect.to_dict(),
             "milling_angle": self.milling_angle,
             "poi": self.poi.to_dict(),
+            "description": self.description,
         }
 
     @property
@@ -848,6 +877,7 @@ class Lamella:
             defect=DefectState.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x":0,"y":0})),
+            description=data.get("description", ""),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
