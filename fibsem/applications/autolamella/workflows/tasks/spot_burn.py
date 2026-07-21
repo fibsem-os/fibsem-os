@@ -6,11 +6,14 @@ import logging
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Optional, Type
+from typing import ClassVar, Optional, Type
 
 from fibsem import config as fcfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.applications.autolamella.workflows.tasks.base import (
+    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
+    AutoLamellaTask,
+)
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     clear_spot_burn_ui,
@@ -40,11 +43,6 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             'scale': 1
         }
     )
-    orientation: Literal["SEM", "FIB", "FM", "MILLING"] = field(
-        default="MILLING",
-        metadata={"help": "The orientation to perform spot burning in", 
-                  "items": ["SEM", "FIB", "FM", "MILLING"]},
-    )
     coordinates: list[Point] = field(
         default_factory=list,
         metadata={"help": "Spot burn positions in normalised image coordinates (0-1)"},
@@ -60,7 +58,6 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         ddict["parameters"] = {
             "milling_current": self.milling_current,
             "exposure_time": self.exposure_time,
-            "orientation": self.orientation,
         }
         ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
         if self.reference_imaging is not None:
@@ -80,7 +77,6 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             # coerce numeric params: older protocols may have stored these as strings
             milling_current=float(params.get("milling_current", 60.0e-12)),
             exposure_time=int(float(params.get("exposure_time", 10))),
-            orientation=params.get("orientation", "MILLING"),
             coordinates=coordinates,
         )
 
@@ -95,12 +91,10 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         image_settings = self.config.imaging
         image_settings.path = self.lamella.path
 
-        # move to the target position at the FIB orientation
-        self.log_status_message("MOVE_TO_SPOT_BURN", "Moving to Spot Burn Position...")
-        stage_position = self.lamella.stage_position
-        target_position = self._get_stage_position_for_orientation(stage_position,
-                                                                   self.config.orientation)
-        self.microscope.safe_absolute_stage_movement(target_position)
+        # restore the full milling-pose state, then align to the stored reference so
+        # the burn coordinates land on target (mirrors rough/polishing)
+        self._move_to_milling_pose()
+        self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         self.config.exposure_time = float(self.config.exposure_time)
 
