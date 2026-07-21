@@ -1447,6 +1447,37 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     assert canvas.minimumWidth() <= 900                     # capped
 
 
+def test_apply_dark_theme_darkens_chrome_keeps_data():
+    # The fit figures are authored light; the dialog re-themes them to the dark
+    # palette at embed time. Lock the contract: chrome (figure/axes bg) goes
+    # dark, the near-black gaussian-fit line is lifted so it stays visible, and
+    # the saturated markers / mid-grey signal are left untouched (they read on
+    # dark already, and the marker colours carry meaning).
+    from matplotlib.colors import to_hex
+    from matplotlib.figure import Figure
+
+    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+        _AXES_BG,
+        _FIG_BG,
+        _apply_dark_theme,
+        _luminance,
+    )
+
+    fig = Figure()
+    ax = fig.add_subplot(1, 1, 1)
+    (signal,) = ax.plot([0, 1], [0, 1], color="0.55")           # mid-grey
+    (fit,) = ax.plot([0, 1], [1, 0], color="0.15", ls="--")     # near-black
+    (marker,) = ax.plot([0.5], [0.5], "+", color="#e53935")     # input red
+
+    _apply_dark_theme(fig)
+
+    assert to_hex(fig.get_facecolor()) == _FIG_BG
+    assert to_hex(ax.get_facecolor()) == _AXES_BG
+    assert _luminance(fit.get_color()) > _luminance("0.15")     # lifted off black
+    assert signal.get_color() == "0.55"                         # signal untouched
+    assert marker.get_color() == "#e53935"                      # marker untouched
+
+
 def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     from types import SimpleNamespace
 

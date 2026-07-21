@@ -139,6 +139,61 @@ def _kv(key: str, value: str, value_color: str = "#d0d0d0") -> QWidget:
     return w
 
 
+# --- dark theming for the embedded diagnostic figure ---------------------
+# The fit figures (fibsem.correlation.util) are authored light — black text,
+# a near-black gaussian-fit line — for standalone/saved use. This dialog is
+# napari-dark, so a white figure glares against it. Re-theme the figure to the
+# dialog palette at embed time; done here (not in util.py, which lives on main)
+# so the change stays wholly within this dialog.
+_FIG_BG = "#1e2124"    # == the dialog background: figure margins blend in
+_AXES_BG = "#262930"   # a subtle lift so the z line-plot reads as a panel
+_FG = "#d0d0d0"        # dialog foreground (labels, ticks, legend text)
+_FG_TITLE = "#e0e0e0"  # titles / suptitle, a touch brighter
+_SPINE = "#4a4d53"
+# A line darker than this is invisible on the dark panel; the only such artist
+# is the gaussian-fit overlay (authored at 0.15 grey). Lift it to a light grey
+# that still sits below the 0.55 signal line, preserving the fit-vs-signal read.
+_DARK_LINE_LUM = 0.25
+_DARK_LINE_TARGET = "0.8"
+
+
+def _luminance(color) -> float:
+    from matplotlib.colors import to_rgb
+
+    r, g, b = to_rgb(color)
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _apply_dark_theme(fig) -> None:
+    """Re-theme a light-authored fit figure onto the napari-dark palette.
+
+    Only theme-agnostic chrome is touched — figure/axes background, text,
+    ticks, spines, legend frame, and any near-black line. The saturated
+    input(red)/fitted(green) markers and the grayscale image data are left
+    exactly as authored (they already read correctly on dark).
+    """
+    fig.set_facecolor(_FIG_BG)
+    for txt in fig.texts:  # figure-level text == the suptitle
+        txt.set_color(_FG_TITLE)
+    for ax in fig.axes:
+        ax.set_facecolor(_AXES_BG)
+        ax.title.set_color(_FG_TITLE)
+        ax.xaxis.label.set_color(_FG)
+        ax.yaxis.label.set_color(_FG)
+        ax.tick_params(colors=_FG)
+        for spine in ax.spines.values():
+            spine.set_color(_SPINE)
+        for line in ax.get_lines():
+            if _luminance(line.get_color()) < _DARK_LINE_LUM:
+                line.set_color(_DARK_LINE_TARGET)
+        legend = ax.get_legend()
+        if legend is not None:
+            legend.get_frame().set_facecolor(_AXES_BG)
+            legend.get_frame().set_edgecolor(_SPINE)
+            for text in legend.get_texts():
+                text.set_color(_FG)
+
+
 class FitConfirmationDialog(QDialog):
     """Modal accept/reject for a single :class:`PointFitResult`.
 
@@ -176,13 +231,14 @@ class FitConfirmationDialog(QDialog):
         if show_figure and result.figure is not None:
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
+            _apply_dark_theme(result.figure)
             try:
                 result.figure.tight_layout()
             except Exception:
                 pass
             canvas = FigureCanvasQTAgg(result.figure)
-            # Size to the figure's aspect so wide multi-subplot FM figs
-            # (hole_fitting_reflection is 1x3 at 20x5) aren't squished square.
+            # Size to the figure's aspect so the wide FM figs (z + XY panels
+            # at 9x4.5) aren't squished square.
             w_in, h_in = result.figure.get_size_inches()
             disp_h = 340
             disp_w = int(min(disp_h * (w_in / h_in), 900)) if h_in else disp_h
