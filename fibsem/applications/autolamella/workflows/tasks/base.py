@@ -390,6 +390,7 @@ class AutoLamellaTask(ABC):
             ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True)
+        self.log_status_message("AUTOFOCUS", f"Running autofocus ({beam_type.name})...")
         result = run_auto_focus(
             self.microscope,
             beam_type=beam_type,

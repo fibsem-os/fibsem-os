@@ -358,7 +358,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @thread_worker
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
         """Worker function to move the stage to the specified position"""
-        self.movement_progress_signal.emit({"msg": f"Moving to {stage_position}"})
+        self.movement_progress_signal.emit({"msg": f"Moving to {stage_position.pretty}"})
         self.microscope.safe_absolute_stage_movement(stage_position)
         self.movement_progress_signal.emit({"msg": "Move finished, taking new images"})
         self.update_ui_after_movement()

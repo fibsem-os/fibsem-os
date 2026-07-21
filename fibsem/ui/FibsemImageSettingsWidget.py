@@ -433,6 +433,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     def run_autofocus(self) -> None:
         """Run autofocus for the selected beam type."""
         beam_type = self.dual_beam_widget.beam_type
+        notification_service.show_toast(f"Running AutoFocus on {beam_type.name} beam...")
         self._toggle_interactions(enable=False)
         worker = self._autofocus_worker(beam_type)
         worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type))
@@ -466,7 +467,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         beam_widget.sync_from_microscope()
         if name == "AutoFocus":
             wd = beam_widget.beam_settings_widget.working_distance_spinbox.value()
-            notification_service.show_toast(f"AutoFocus Complete. Best WD: {wd:.2f}mm")
+            notification_service.show_toast(f"AutoFocus Complete ({beam_type.name}). Best WD: {wd:.2f}mm")
         if name == "AutoContrast":
             notification_service.show_toast("AutoContrast Complete.")
 
