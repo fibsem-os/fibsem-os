@@ -2,7 +2,7 @@ import numpy as np
 import logging
 import time
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, Union
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -19,6 +19,9 @@ from odemis.acq.acqmng import acquire
 from odemis.acq.stream import FluoStream
 
 # NOTES: needed to install shapely, pylibtiff, and odemis
+
+# position tolerance for deciding the objective is at the active/deactive position
+OBJECTIVE_POSITION_ATOL = 100e-6  # m
 
 
 class OdemisObjectiveLens(ObjectiveLens):
@@ -214,36 +217,36 @@ class OdemisObjectiveLens(ObjectiveLens):
             f = self._focuser.moveAbs(deactive_position)
             f.result()
 
-    def state(self) -> str:
+    @property
+    def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:
         """Get the current state of the objective lens.
 
-        Determines the lens state by comparing the current position with
-        the cached active and deactive positions.
+        Determines the lens state by comparing the current position with the
+        favourite active/deactive positions (within OBJECTIVE_POSITION_ATOL).
 
         Returns:
-            The lens state: 'INSERTED', 'RETRACTED', or 'UNKNOWN'
-
-        Note:
-            Returns 'UNKNOWN' if position data is unavailable or if the
-            lens is between the active and deactive positions.
+            'Inserted' or 'Retracted' when at the corresponding favourite
+            position, 'Other' when in between or if the favourite positions
+            are unavailable, and 'Error' if the state cannot be read.
+            Values match the FluorescenceMicroscope base contract
+            (consumers compare against 'Inserted'/'Retracted').
         """
         try:
-            position = self._focuser.position.value
+            position = self._focuser.position.value["z"]
             active_position = self.active_position
             deactive_position = self.deactive_position
 
             if active_position is None or deactive_position is None:
-                return "UNKNOWN"
+                return "Other"
 
-            if position["z"] > active_position["z"] - 100e-6:
-                return "INSERTED"
-            elif position["z"] < deactive_position["z"]:
-                return "RETRACTED"
-            else:
-                return "UNKNOWN"
+            if position > active_position["z"] - OBJECTIVE_POSITION_ATOL:
+                return "Inserted"
+            if position < deactive_position["z"] + OBJECTIVE_POSITION_ATOL:
+                return "Retracted"
+            return "Other"
         except Exception as e:
             logging.error(f"Failed to get objective lens state: {e}")
-            return "UNKNOWN"
+            return "Error"
 
 
 class OdemisCamera(Camera):
@@ -269,8 +272,9 @@ class OdemisCamera(Camera):
             camera: model.DigitalCamera = model.getComponent(role="ccd")
         self._camera = camera
         camera_md = self._camera.getMetadata()
-        self._resolution = self._camera.resolution.value  # (width, height)
-        self._pixel_size = camera_md[model.MD_PIXEL_SIZE]  # (x, y) sensor pixel size
+        # fallback values only: pixel_size/resolution are read live (see properties)
+        self._resolution = tuple(self._camera.resolution.value)  # (width, height)
+        self._pixel_size = tuple(camera_md[model.MD_PIXEL_SIZE])  # (x, y) sample-plane
         self._offset = camera_md[model.MD_BASELINE]  # offset for the camera
 
     # other attributes: depthOfField, readoutRate, pointSpreadFunctionSize
@@ -354,6 +358,31 @@ class OdemisCamera(Camera):
         self._camera.binning.value = (value, value)
 
     @property
+    def pixel_size(self) -> Tuple[float, float]:
+        """Get the sample-plane pixel size in metres, read live from camera metadata.
+
+        The odemis backend computes MD_PIXEL_SIZE = sensor pixel size x binning
+        / magnification and republishes it whenever binning or magnification
+        change, so no binning scaling is applied here (unlike the base class).
+        """
+        try:
+            return tuple(self._camera.getMetadata()[model.MD_PIXEL_SIZE])
+        except Exception as e:
+            logging.warning(
+                f"Failed to read pixel size from camera metadata, using cached value: {e}"
+            )
+            return tuple(self._pixel_size)
+
+    @property
+    def resolution(self) -> Tuple[int, int]:
+        """Get the current readout resolution in pixels, read live from the camera.
+
+        The odemis resolution VA already accounts for binning, so no binning
+        scaling is applied here (unlike the base class).
+        """
+        return tuple(self._camera.resolution.value)
+
+    @property
     def offset(self) -> float:
         """Get the baseline offset of the camera.
 
@@ -390,26 +419,38 @@ class OdemisLightSource(LightSource):
 
     @property
     def power(self) -> float:
-        """Get the current power of the light source.
+        """Get the current power of the light source as a fraction (0-1) of maximum.
+
+        The odemis stream power is in watts; it is normalised against the
+        stream power range so ChannelSettings.power keeps identical semantics
+        across drivers (fraction of maximum power, displayed as % in the UI).
 
         Returns:
-            The power level as a float (units depend on light source configuration)
+            The power level as a fraction of maximum power (0.0-1.0)
         """
-        return self._stream.power.value
+        max_power = self._stream.power.range[1]
+        if max_power <= 0:
+            return 0.0
+        return self._stream.power.value / max_power
 
     @power.setter
     def power(self, value: float):
-        """Set the power of the light source.
+        """Set the power of the light source as a fraction (0-1) of maximum.
 
         Args:
-            value: The power level to set (must be numeric)
+            value: The power level as a fraction of maximum power (0.0-1.0).
+                   Values outside [0, 1] are clipped with a warning.
 
         Raises:
             TypeError: If the value is not a number
         """
         if not isinstance(value, (int, float)):
             raise TypeError("Power must be an integer or float.")
-        self._stream.power.value = value
+        if not 0.0 <= value <= 1.0:
+            logging.warning(f"Power fraction {value} outside [0, 1], clipping.")
+            value = min(max(value, 0.0), 1.0)
+        max_power = self._stream.power.range[1]
+        self._stream.power.value = value * max_power
 
     def power_limits(self) -> Tuple[float, float]:
         """Get the valid power range for the light source.
@@ -463,19 +504,42 @@ class OdemisFilterSet(FilterSet):
     # None -> reflection
 
     @property
+    def _excitation_choices_by_nm(self) -> Dict[float, tuple]:
+        """Map centre wavelength (nm) -> excitation choice (5-tuple, in metres).
+
+        Built in a single pass over the stream choices so selection and
+        assignment always refer to the same choice object (the underlying
+        VA choices are an unordered set).
+        """
+        return {c[2] * 1e9: c for c in self._stream.excitation.choices}
+
+    @property
+    def _emission_choices_by_nm(self) -> Dict[Optional[float], Union[tuple, str]]:
+        """Map bottom wavelength (nm) -> emission choice (2-tuple, in metres).
+
+        The pass-through (reflection) choice is keyed as None.
+        """
+        mapping: Dict[Optional[float], Union[tuple, str]] = {}
+        for c in self._stream.emission.choices:
+            # special case for pass-through (reflection -> None)
+            if isinstance(c, str) and c == model.BAND_PASS_THROUGH:
+                mapping[None] = c
+                continue
+            mapping[c[0] * 1e9] = c  # convert from m to nm
+        return mapping
+
+    @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         """Get the available excitation wavelengths for the filter set.
 
         Returns:
-            A tuple of available excitation wavelengths in nanometers
-            (converted from Odemis internal meter units)
+            A tuple of available centre excitation wavelengths in nanometers
+            (converted from Odemis internal metre units)
         """
-        return [
-            c[2] * 1e9 for c in self._stream.excitation.choices
-        ]  # centre wavelengths
+        return tuple(self._excitation_choices_by_nm.keys())
 
     @property
-    def available_emission_wavelengths(self) -> Tuple[float, ...]:
+    def available_emission_wavelengths(self) -> Tuple[Optional[float], ...]:
         """Get the available emission wavelengths for the filter set.
 
         Returns:
@@ -485,15 +549,7 @@ class OdemisFilterSet(FilterSet):
         Note:
             Returns the bottom wavelength of each emission filter range.
         """
-        choices = []
-        # return the bottom wavelength of each emission choice
-        for c in self._stream.emission.choices:
-            # special case for pass-through (reflection -> None)
-            if isinstance(c, str) and c == model.BAND_PASS_THROUGH:
-                choices.append(None)
-                continue
-            choices.append(c[0] * 1e9)  # convert from m to nm
-        return choices
+        return tuple(self._emission_choices_by_nm.keys())
 
     @property
     def excitation_wavelength(self) -> float:
@@ -514,7 +570,7 @@ class OdemisFilterSet(FilterSet):
 
         Raises:
             TypeError: If the value is not a number
-            ValueError: If no suitable wavelength is available
+            ValueError: If no excitation wavelengths are available
 
         Note:
             Automatically selects the closest available wavelength if an
@@ -523,23 +579,17 @@ class OdemisFilterSet(FilterSet):
         if not isinstance(value, (int, float)):
             raise TypeError("Excitation wavelength must be an integer or float.")
 
-        value *= 1e-9
-        closest_excitation = min(
-            self.available_excitation_wavelengths, key=lambda x: abs(x - value)
-        )
-        if closest_excitation is None:
-            raise ValueError(
-                f"Excitation wavelength {value} is not available. Available wavelengths: {self.available_excitation_wavelengths}"
-            )
+        choices_by_nm = self._excitation_choices_by_nm
+        if not choices_by_nm:
+            raise ValueError("No excitation wavelengths available.")
 
-        # find the index of the closest excitation wavelength
-        idx = self.available_excitation_wavelengths.index(closest_excitation)
-        choices = tuple(self._stream.excitation.choices)
-
+        closest_nm = min(choices_by_nm, key=lambda nm: abs(nm - value))
+        choice = choices_by_nm[closest_nm]
         logging.info(
-            f"Setting excitation wavelength to index: {idx}, value: {choices[idx]}, requested: {value}"
+            f"Setting excitation wavelength to {closest_nm:.0f} nm "
+            f"(requested: {value} nm, band: {choice})"
         )
-        self._stream.excitation.value = choices[idx]
+        self._stream.excitation.value = choice
 
     @property
     def emission_wavelength(self) -> Optional[float]:
@@ -566,6 +616,7 @@ class OdemisFilterSet(FilterSet):
                   for reflection/pass-through mode
 
         Raises:
+            TypeError: If the value is not a number or None
             ValueError: If the requested wavelength or pass-through mode
                        is not available
 
@@ -574,37 +625,36 @@ class OdemisFilterSet(FilterSet):
             Automatically selects the closest available wavelength.
             Performance note: Setting emission wavelength can be slow.
         """
+        choices_by_nm = self._emission_choices_by_nm
 
         # None means reflection, so we set the emission to pass-through (reflection)
         if value is None:
-            choices = tuple(self._stream.emission.choices)
-            if model.BAND_PASS_THROUGH not in choices:
+            if None not in choices_by_nm:
                 raise ValueError(
-                    f"Pass-through (reflection) is not available in the current filter set. Available choices: {choices}"
+                    f"Pass-through (reflection) is not available in the current "
+                    f"filter set. Available: {tuple(choices_by_nm.keys())}"
                 )
-            self._stream.emission.value = model.BAND_PASS_THROUGH
+            self._stream.emission.value = choices_by_nm[None]
             return
 
-        # filter out None values from available wavelengths
-        value *= 1e-9  # convert from nm to m
-        available_wavelengths = [
-            wl for wl in self.available_emission_wavelengths if wl is not None
-        ]
-        closest_emission = min(available_wavelengths, key=lambda x: abs(x - value))
-        if closest_emission is None:
-            raise ValueError(
-                f"Emission wavelength {value} is not available. Available wavelengths: {self.available_emission_wavelengths}"
-            )
+        if not isinstance(value, (int, float)):
+            # str values (e.g. 'Fluorescence' from TFS channel files) are not
+            # supported yet -- see FIB-286 (map via fluo.get_one_band_em)
+            raise TypeError("Emission wavelength must be a number or None.")
 
-        # TODO: only set the emission wavelength if it is different from the current value, it's slow to set it
+        numeric = {nm: c for nm, c in choices_by_nm.items() if nm is not None}
+        if not numeric:
+            raise ValueError("No emission wavelengths available.")
 
-        # find the index of the closest emission wavelength
-        idx = self.available_emission_wavelengths.index(closest_emission)
-        choices = tuple(self._stream.emission.choices)
+        closest_nm = min(numeric, key=lambda nm: abs(nm - value))
+        choice = numeric[closest_nm]
+        if self._stream.emission.value == choice:
+            return  # setting the emission filter is slow, skip if unchanged
         logging.info(
-            f"Setting emission wavelength to index: {idx}, value: {choices[idx]}, requested: {value}"
+            f"Setting emission wavelength to {closest_nm:.0f} nm "
+            f"(requested: {value} nm, band: {choice})"
         )
-        self._stream.emission.value = choices[idx]
+        self._stream.emission.value = choice
 
 
 class OdemisFluorescenceMicroscope(FluorescenceMicroscope):
