@@ -27,7 +27,10 @@ from fibsem.applications.autolamella.tools import bug_report
 from fibsem.applications.autolamella.tools.bug_report import BugReportContent
 from fibsem.ui import stylesheets
 from fibsem.ui.utils import open_path_in_file_explorer
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    TitledPanel,
+    ValueComboBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -76,7 +79,7 @@ class BugReportDialog(QDialog):
         self.lineEdit_title = QLineEdit()
         self.lineEdit_title.setPlaceholderText("Short summary of the issue")
 
-        self.combo_severity = QComboBox()
+        self.combo_severity = ValueComboBox()
         self.combo_severity.addItems(SEVERITY_OPTIONS)
         self.combo_severity.setCurrentText("Crash" if traceback_text else "Normal")
 

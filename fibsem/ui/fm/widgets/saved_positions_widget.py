@@ -22,6 +22,9 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.utils import message_box_ui
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -37,7 +40,7 @@ class SavedPositionsWidget(QWidget):
     def initUI(self):
         # Combobox for selecting saved positions
         self.label_positions = QLabel("Select Position", self)
-        self.comboBox_positions = QComboBox(self)
+        self.comboBox_positions = ValueComboBox(parent=self)
         self.comboBox_positions.setToolTip("Select a saved position from the list")
 
         # Checkbox list for selecting multiple positions
@@ -53,7 +56,7 @@ class SavedPositionsWidget(QWidget):
         self.pushButton_delete_position.setToolTip("Delete the selected position")
 
         # Controls for updating objective position
-        self.comboBox_objective_source = QComboBox(self)
+        self.comboBox_objective_source = ValueComboBox(parent=self)
         self.comboBox_objective_source.addItem("Current Position")
         self.comboBox_objective_source.addItem("Focus Position")
         self.comboBox_objective_source.setToolTip("Select which objective position to use")

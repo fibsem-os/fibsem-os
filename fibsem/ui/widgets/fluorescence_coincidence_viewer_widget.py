@@ -67,7 +67,11 @@ from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
-from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    LamellaNameListWidget,
+    TitledPanel,
+)
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 from fibsem.ui.widgets.image_canvas import (
     FibsemImageCanvas,
@@ -1434,7 +1438,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.btn_supervised.setVisible(False)
         self._update_supervised_button()
 
-        self.spin_drop_threshold = QSpinBox()
+        self.spin_drop_threshold = IntegerValueSpinBox()
         self.spin_drop_threshold.setRange(5, 90)
         self.spin_drop_threshold.setValue(40)  # % drop (40% == retained fraction 0.6)
         self.spin_drop_threshold.setPrefix("Stop at ")

@@ -10,6 +10,10 @@ from PyQt5.QtWidgets import (
 )
 from fibsem.fm.structures import ZParameters, ZStackOrder
 from PyQt5.QtCore import pyqtSignal
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 Z_PARAMETERS_CONFIG = {
     "step_size": 0.1,  # µm
@@ -44,7 +48,7 @@ class ZParametersWidget(QWidget):
 
         # Z minimum
         self.label_zmin = QLabel("Z Min", self)
-        self.doubleSpinBox_zmin = QDoubleSpinBox(self)
+        self.doubleSpinBox_zmin = ValueSpinBox(parent=self)
         self.doubleSpinBox_zmin.setRange(*Z_PARAMETERS_CONFIG["range"]["zmin"])  # ±100 µm range
         self.doubleSpinBox_zmin.setValue(self.z_parameters.zmin * 1e6)  # Convert m to µm
         self.doubleSpinBox_zmin.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
@@ -55,7 +59,7 @@ class ZParametersWidget(QWidget):
 
         # Z maximum
         self.label_zmax = QLabel("Z Max", self)
-        self.doubleSpinBox_zmax = QDoubleSpinBox(self)
+        self.doubleSpinBox_zmax = ValueSpinBox(parent=self)
         self.doubleSpinBox_zmax.setRange(*Z_PARAMETERS_CONFIG["range"]["zmax"])  # ±100 µm range
         self.doubleSpinBox_zmax.setValue(self.z_parameters.zmax * 1e6)  # Convert m to µm
         self.doubleSpinBox_zmax.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
@@ -66,7 +70,7 @@ class ZParametersWidget(QWidget):
 
         # Z step
         self.label_zstep = QLabel("Z Step", self)
-        self.doubleSpinBox_zstep = QDoubleSpinBox(self)
+        self.doubleSpinBox_zstep = ValueSpinBox(parent=self)
         self.doubleSpinBox_zstep.setRange(*Z_PARAMETERS_CONFIG["range"]["zstep"])  # 0.1 to 10 µm range
         self.doubleSpinBox_zstep.setValue(self.z_parameters.zstep * 1e6)  # Convert m to µm
         self.doubleSpinBox_zstep.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
@@ -82,7 +86,7 @@ class ZParametersWidget(QWidget):
 
         # Acquisition order
         self.label_order = QLabel("Order", self)
-        self.combo_order = QComboBox(self)
+        self.combo_order = ValueComboBox(parent=self)
         self.combo_order.addItem("Channel-wise", ZStackOrder.CHANNEL)
         self.combo_order.addItem("Z-level-wise", ZStackOrder.Z_LEVEL)
         self.combo_order.setCurrentIndex(

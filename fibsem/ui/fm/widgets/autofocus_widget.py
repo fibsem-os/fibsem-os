@@ -23,7 +23,11 @@ from PyQt5.QtWidgets import (
 
 from fibsem.autofunctions.autofocus import FocusSweepPass
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusMethod
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    ValueComboBox,
+    ValueSpinBox,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -228,7 +232,7 @@ class AutofocusWidget(QWidget):
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
-        self.comboBox_method = QComboBox()
+        self.comboBox_method = ValueComboBox()
         self.comboBox_method.setToolTip("Focus measurement method to use")
         for method in FocusMethod:
             self.comboBox_method.addItem(method.value.title(), method)
@@ -236,7 +240,7 @@ class AutofocusWidget(QWidget):
         self.comboBox_method.currentIndexChanged.connect(self._on_method_changed)
         layout.addLayout(self._aligned_control_row("Focus Method", self.comboBox_method))
 
-        self.comboBox_channel = QComboBox()
+        self.comboBox_channel = ValueComboBox()
         self.comboBox_channel.setToolTip("Channel to use for autofocus")
         self._update_channel_list()
         self.comboBox_channel.currentIndexChanged.connect(self._on_channel_changed)

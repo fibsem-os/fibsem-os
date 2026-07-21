@@ -243,7 +243,10 @@ def create_combobox_message_box(text: str, title: str, options: list, parent = N
     msg.setStandardButtons(QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
 
     # create a combobox
+    # guarded directly rather than via ValueComboBox: custom_widgets imports from
+    # this module, so importing it back here would be circular.
     combobox = QtWidgets.QComboBox(msg)
+    install_wheel_blocker(combobox)
     combobox.addItems(options)
 
     # add combobox to message box

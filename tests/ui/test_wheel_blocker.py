@@ -160,6 +160,29 @@ def test_all_value_widgets_are_guarded(qapp, factory):
     area.close()
 
 
+def test_recursive_guard_protects_raw_widgets(qapp):
+    """Covers forms built elsewhere, e.g. generated Qt Designer code.
+
+    Those declare plain QSpinBox/QComboBox that we cannot swap for Value* classes,
+    so the consuming widget calls install_wheel_blocker_recursive() after setupUi().
+    """
+    area, widgets = _scroll_area(
+        lambda: (lambda w: (w.setRange(0, 1000), w.setValue(50), w)[-1])(QDoubleSpinBox())
+    )
+    install_wheel_blocker_recursive(area)
+
+    w = widgets[3]
+    value_before = w.value()
+    scroll_before = area.verticalScrollBar().value()
+
+    QApplication.sendEvent(w, _wheel(w))
+    QApplication.processEvents()
+
+    assert w.value() == value_before, "recursive guard must stop the value changing"
+    assert area.verticalScrollBar().value() > scroll_before, "panel must still scroll"
+    area.close()
+
+
 def test_guard_outside_scroll_area_still_blocks(qapp):
     """With no scrolling ancestor there is nothing to forward to; still must not change."""
     w = _spin()
