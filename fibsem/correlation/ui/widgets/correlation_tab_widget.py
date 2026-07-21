@@ -2197,8 +2197,10 @@ class CorrelationTabWidget(QWidget):
                 method = cl._fib_method_combo.currentText()
                 if method == "Hole" and self._fib_image is not None:
                     attempted = True
+                    # pass the sub-pixel click (not int) so the diagnostic's
+                    # input marker lands where the user clicked — FIB-282.
                     xr, yr, fig = hole_fitting_FIB(
-                        self._fib_image.filtered_data, int(x), int(y)
+                        self._fib_image.filtered_data, x, y
                     )
                     fitted = PointXYZ(float(xr), float(yr), z)
             else:
@@ -2216,13 +2218,13 @@ class CorrelationTabWidget(QWidget):
                     if method == "Hole":
                         attempted = True
                         xr, yr, zr, fig = hole_fitting_reflection(
-                            img, int(x), int(y), z=int(z), cutout=2
+                            img, x, y, z=int(z), cutout=2  # sub-pixel x/y (FIB-282)
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":
                         attempted = True
                         xr, yr, zr, fig = target_fitting_fluorescence(
-                            img, int(x), int(y), int(z), cutout=5
+                            img, x, y, int(z), cutout=5  # sub-pixel x/y (FIB-282)
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
         except Exception as exc:
