@@ -112,6 +112,11 @@ class FakeDataflow:
         res = self._camera.resolution.value
         return np.zeros(res[::-1], dtype=np.uint16)
 
+    def push(self, data):
+        """Deliver a frame to all subscribers, like the camera driver would."""
+        for listener in list(self.listeners):
+            listener(self, data)
+
 
 class FakeFocuser:
     """Focus actuator with favourite positions and a z axis."""

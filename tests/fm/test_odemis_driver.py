@@ -14,9 +14,12 @@ Each test class covers a finding from Phase 1 (FIB-285) or Phase 2 (FIB-286):
 - F7b add_odemis_path is safe without /etc/odemis.conf
 - F8  acquire_image raises on failure instead of returning None
 - F9  'Fluorescence' emission maps to the band matching the excitation
+- F10 live acquisition via dataflow subscription (stream active once,
+      frames pushed, light off on stop in all paths)
 """
 
 import sys
+import time
 import types
 
 import numpy as np
@@ -24,6 +27,16 @@ import pytest
 
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 from tests.fm import _odemis_stubs as stubs
+
+
+def wait_until(condition, timeout: float = 2.0, interval: float = 0.01) -> bool:
+    """Poll condition until true or timeout; returns whether it became true."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(interval)
+    return condition()
 
 
 @pytest.fixture(scope="module")
@@ -390,3 +403,91 @@ class TestEmissionFluorescenceMapping:
         sets_before = emission_va.set_count
         fm.filter_set.emission_wavelength = "Fluorescence"
         assert emission_va.set_count == sets_before
+
+
+class TestFastAcquisition:
+    """F10: live acquisition activates the stream once and subscribes to
+    the dataflow; the stream is deactivated (light off) in all stop paths."""
+
+    def _start_live(self, fm):
+        """Start live acquisition and wait until the stream owns the hardware."""
+        fm.set_rate_limit(0)  # emit every frame in tests
+        fm.start_acquisition()
+        stream = fm.camera._stream
+        dataflow = fm.components["ccd"].data
+        assert wait_until(lambda: stream.is_active.value), "stream never activated"
+        assert wait_until(lambda: dataflow.listeners), "listener never subscribed"
+        return stream, dataflow
+
+    def test_frames_are_pushed_and_emitted(self, fm):
+        received = []
+        fm.acquisition_signal.connect(received.append)
+        try:
+            stream, dataflow = self._start_live(fm)
+            frame = np.full((2048, 2048), 42, dtype=np.uint16)
+            dataflow.push(frame)
+            assert wait_until(lambda: len(received) >= 1), "no frame emitted"
+            assert received[0].data[0, 0] == 42
+        finally:
+            fm.stop_acquisition()
+            fm.acquisition_signal.disconnect(received.append)
+
+    def test_stop_deactivates_stream_and_unsubscribes(self, fm):
+        try:
+            stream, dataflow = self._start_live(fm)
+        finally:
+            fm.stop_acquisition()
+        assert wait_until(lambda: not fm.is_acquiring), "worker did not stop"
+        assert stream.is_active.value is False
+        assert dataflow.listeners == []
+
+    def test_frame_handler_error_does_not_kill_live_view(self, fm, monkeypatch):
+        try:
+            stream, dataflow = self._start_live(fm)
+            monkeypatch.setattr(
+                fm, "_construct_image", lambda data: (_ for _ in ()).throw(RuntimeError("boom"))
+            )
+            dataflow.push(np.zeros((8, 8), dtype=np.uint16))  # handled, not raised
+            assert stream.is_active.value is True
+            assert dataflow.listeners  # still subscribed
+        finally:
+            fm.stop_acquisition()
+        assert stream.is_active.value is False
+
+    def test_light_off_even_if_unsubscribe_fails(self, fm, monkeypatch):
+        try:
+            stream, dataflow = self._start_live(fm)
+            monkeypatch.setattr(
+                dataflow,
+                "unsubscribe",
+                lambda listener: (_ for _ in ()).throw(RuntimeError("ipc lost")),
+            )
+        finally:
+            fm.stop_acquisition()
+        assert wait_until(lambda: not fm.is_acquiring)
+        assert stream.is_active.value is False  # deactivation must still happen
+
+    def test_acquire_image_during_live_uses_dataflow(self, fm, odemis_env, monkeypatch):
+        # snapshot during live must not run a full acqmng acquisition
+        def _fail(streams, settings_obs=None):
+            raise AssertionError("acqmng.acquire must not be called during live view")
+
+        try:
+            self._start_live(fm)
+            monkeypatch.setattr(odemis_env.module, "acquire", _fail)
+            image = fm.acquire_image()
+            assert isinstance(image, FluorescenceImage)
+            assert image.data.shape == fm.camera.resolution[::-1]
+        finally:
+            fm.stop_acquisition()
+
+    def test_acquire_image_when_idle_uses_acqmng(self, fm, monkeypatch):
+        # the dataflow snapshot path must only be used while the stream is active
+        dataflow = fm.components["ccd"].data
+        monkeypatch.setattr(
+            dataflow,
+            "get",
+            lambda asap=True: (_ for _ in ()).throw(AssertionError("dataflow.get in idle mode")),
+        )
+        image = fm.acquire_image()
+        assert isinstance(image, FluorescenceImage)

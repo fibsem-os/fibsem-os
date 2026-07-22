@@ -341,22 +341,22 @@ class OdemisCamera(Camera):
     def acquire_image(self) -> np.ndarray:
         """Acquire a single image from the camera.
 
-        Uses the Odemis acquisition manager to capture an image through
-        the configured fluorescence stream with current camera settings.
+        While live acquisition is running (the stream is active), a fresh
+        frame is taken from the camera dataflow without stopping the stream
+        (the light stays on). Otherwise a full acquisition is run through
+        the Odemis acquisition manager.
 
         Returns:
             A numpy array containing the image data
 
         Raises:
             RuntimeError: If the acquisition fails or returns no data
-
-        Note:
-            May show timing warnings if rapid successive acquisitions are attempted.
-            Consider checking if acquisition is already in progress before calling.
         """
+        if self._stream.is_active.value:
+            # asap=False guarantees the frame is acquired after this call
+            return self._camera.data.get(asap=False)
+
         da: List[model.DataArray]
-        # May show timing warnings for rapid successive acquisitions
-        # TODO: Check if acquisition is already in progress
         f = acquire([self._stream])
         da, err = f.result()
         if err:
@@ -365,8 +365,41 @@ class OdemisCamera(Camera):
             raise RuntimeError("Acquisition returned no data.")
         return da[0]  # model.DataArray -> np.ndarray
 
-    # QUERY: migrate to using the camera dataflow interface?
-    # .camera._camera.data.get()
+    def _start_fast_acquisition(self):
+        """Continuous live acquisition via the odemis camera dataflow.
+
+        Activates the fluorescence stream once (light on, filters set,
+        camera in continuous mode) and subscribes a listener to the camera
+        dataflow, so frames are pushed at the exposure-limited rate instead
+        of paying a full acquisition round-trip (with light toggling) per
+        frame. Blocks until stop_acquisition() sets the stop event; called
+        by the base _acquisition_worker from the acquisition thread.
+
+        The stream is always deactivated (light off) on exit, even if the
+        frame handler or unsubscribe fails.
+        """
+
+        def on_frame(dataflow, data):
+            try:
+                # emits acquisition_signal, rate-limited by the base class
+                self.parent._construct_image(data)
+            except Exception as e:
+                logging.error(f"Error handling live frame: {e}")
+
+        stream = self._stream
+        try:
+            stream.is_active.value = True  # light on, filters set, streaming
+            self._camera.data.subscribe(on_frame)
+            self.parent._stop_acquisition_event.wait()
+        finally:
+            try:
+                self._camera.data.unsubscribe(on_frame)
+            except Exception as e:
+                logging.warning(f"Failed to unsubscribe live-view listener: {e}")
+            try:
+                stream.is_active.value = False  # light off, camera stopped
+            except Exception as e:
+                logging.error(f"Failed to deactivate stream after live view: {e}")
 
     @property
     def exposure_time(self) -> float:
