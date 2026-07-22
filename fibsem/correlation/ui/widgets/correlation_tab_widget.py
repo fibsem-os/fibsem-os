@@ -44,6 +44,8 @@ logging.basicConfig(level=logging.INFO)
 import numpy as np
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
     QCheckBox,
     QAction,
     QDialog,
@@ -52,6 +54,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMenuBar,
     QMessageBox,
     QPushButton,
@@ -77,6 +80,12 @@ from fibsem.correlation.structures import (
     scale_about_surface,
 )
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
+from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    FitConfirmationDialog,
+    FitStatus,
+    PointFitResult,
+    humanize_fit_error,
+)
 from fibsem.ui import stylesheets
 from fibsem.correlation.ui.widgets.fm_image_display_widget import (
     IMAGE_HEADER_STYLE,
@@ -94,6 +103,13 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
+
+# Auto-accept outlier fallback: a fit is a refinement of the user's click, so a
+# large jump usually means it locked onto the wrong feature. Beyond these, the
+# confirm dialog is shown even in auto-accept mode. Generous — the goal is to
+# catch gross mis-locks, not sub-pixel disagreement.
+_AUTO_ACCEPT_MAX_XY_PX = 25.0  # XY displacement (pixels)
+_AUTO_ACCEPT_MAX_Z = 5.0       # Z displacement (slices)
 
 # Run-bar RMS cue. The badge FLAGS problems; it never certifies quality. The RMS
 # is a fit residual over the fiducials, so a low value cannot promise the POI —
@@ -169,19 +185,6 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     return item
-
-
-def _show_figure_dialog(fig, title: str = "Diagnostic", parent=None) -> None:
-    """Show a matplotlib figure in a non-modal QDialog."""
-    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-
-    dlg = QDialog(parent)
-    dlg.setWindowTitle(title)
-    dlg.resize(600, 400)
-    layout = QVBoxLayout(dlg)
-    canvas = FigureCanvasQTAgg(fig)
-    layout.addWidget(canvas)
-    dlg.show()
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +515,25 @@ class _CoordinatesTab(QWidget):
 
         self._show_diag_check = QCheckBox()
         fit_form.addRow("Show diagnostic:", self._show_diag_check)
+
+        # Opt-in: apply fits without the confirm dialog. Off by default (the
+        # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
+        # fits still surface the dialog — see _on_refit_requested.
+        self._auto_accept_check = QCheckBox()
+        self._auto_accept_check.setToolTip(
+            "Apply fits immediately without the confirm dialog.\n"
+            "Failed or far-off fits still ask for confirmation."
+        )
+        fit_form.addRow("Auto-accept fits:", self._auto_accept_check)
+
+        fit_help = QLabel(
+            "Select a point and press <b>F</b> to fit it. Each fit opens a "
+            "confirmation to accept or reject — unless <b>Auto-accept</b> is on "
+            "(failed or far-off fits still ask)."
+        )
+        fit_help.setWordWrap(True)
+        fit_help.setStyleSheet("color: #8a8d93; font-size: 11px; padding-top: 4px;")
+        fit_form.addRow(fit_help)
 
         self._fit_panel = TitledPanel("Fit Settings", collapsible=True)
         self._fit_panel.set_content(fit_body)
@@ -1101,6 +1123,7 @@ class CorrelationTabWidget(QWidget):
 
         self._setup_ui()
         self._connect_signals()
+        self._setup_shortcuts()
         self._set_result_live(False)
 
         if fib_image is not None:
@@ -1832,6 +1855,7 @@ class CorrelationTabWidget(QWidget):
         self._select_only(spec, coord)
 
     def _on_canvas_moved(self, coord: Coordinate) -> None:
+        coord.fitted = False  # a manual drag supersedes any accepted fit
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
@@ -1884,7 +1908,9 @@ class CorrelationTabWidget(QWidget):
     def _on_list_changed(
         self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
     ) -> None:
+        coord.fitted = False  # a manual edit supersedes any accepted fit
         spec.adapter.refresh_coordinate(coord)
+        spec.list_widget.refresh_coordinate(coord)  # drop the fitted indicator
         self.data_changed.emit(self.data)
 
     def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
@@ -2065,8 +2091,87 @@ class CorrelationTabWidget(QWidget):
     # Refit
     # ------------------------------------------------------------------
 
+    def _setup_shortcuts(self) -> None:
+        """`F` fits the selected coordinate — same as the header refit button,
+        without hunting for it. Scoped to this widget and its children so it
+        only fires while the correlation UI has focus."""
+        self._fit_shortcut = QShortcut(QKeySequence("F"), self)
+        self._fit_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._fit_shortcut.activated.connect(self._fit_selected_coordinate)
+
+    def _selected_coordinate(self) -> Optional[Coordinate]:
+        """The single selected coordinate across the lists (``_select_only``
+        guarantees at most one), or None."""
+        for spec in self._point_specs.values():
+            coord = spec.list_widget.selected_coordinate
+            if coord is not None:
+                return coord
+        return None
+
+    def _fit_selected_coordinate(self) -> None:
+        """`F` hotkey: fit the currently-selected coordinate."""
+        # Don't hijack the key while a value is being edited in a field.
+        if isinstance(QApplication.focusWidget(), (QLineEdit, QAbstractSpinBox)):
+            return
+        coord = self._selected_coordinate()
+        if coord is not None:
+            self._on_refit_requested(coord)
+
     def _on_refit_requested(self, coord: Coordinate) -> None:
-        """Run auto-centroid fitting on the selected coordinate."""
+        """Auto-fit the coordinate, then confirm the result before applying it."""
+        result = self._run_point_fit(coord)
+        if result is None:
+            return  # no applicable method / image — nothing to fit
+
+        if self._should_auto_accept(result):
+            self._auto_accept_fit(result)
+            return
+
+        show_fig = self._coords_tab._show_diag_check.isChecked()
+        dialog = FitConfirmationDialog(result, show_figure=show_fig, parent=self)
+        # The dialog renders its own figure (OO API, no pyplot) and frees it with
+        # its canvas, so there's nothing to plt.close here anymore.
+        if dialog.exec_() == QDialog.Accepted:
+            self._apply_fit_result(result)
+
+    def _should_auto_accept(self, result: PointFitResult) -> bool:
+        """Auto-accept only when opted in, the fit succeeded, and it isn't a
+        far-off outlier — failures and surprising jumps still get the dialog."""
+        if not self._coords_tab._auto_accept_check.isChecked():
+            return False
+        if result.status is FitStatus.ERROR:
+            return False
+        return not self._is_surprising_fit(result)
+
+    @staticmethod
+    def _is_surprising_fit(result: PointFitResult) -> bool:
+        """A jump larger than a refinement should be — likely the wrong feature."""
+        return (
+            result.delta_px > _AUTO_ACCEPT_MAX_XY_PX
+            or abs(result.delta_z) > _AUTO_ACCEPT_MAX_Z
+        )
+
+    def _auto_accept_fit(self, result: PointFitResult) -> None:
+        """Apply a fit without the confirm dialog, with a status-bar note."""
+        self._apply_fit_result(result)
+        # No figure is built on the auto-accept path (the diagnostic is just
+        # data), so there's nothing to close.
+        # Set the note AFTER applying (apply emits data_changed, which may
+        # refresh the status line) so this is the message that sticks.
+        name = result.coordinate.point_type.value
+        self._lbl_status.setText(
+            f"Auto-fit {name}: Δ {result.delta_px:.1f} px, {result.delta_z:+.1f} z"
+        )
+
+    def _run_point_fit(self, coord: Coordinate) -> Optional[PointFitResult]:
+        """Compute an auto-fit for ``coord`` WITHOUT mutating it.
+
+        Returns None when no fit is applicable (method "None" / image missing);
+        otherwise a PointFitResult carrying the proposed position, coarse status,
+        and the diagnostic figure.
+        """
         from fibsem.correlation.util import (
             hole_fitting_FIB,
             hole_fitting_reflection,
@@ -2076,16 +2181,21 @@ class CorrelationTabWidget(QWidget):
         cl = self._coords_tab
         spec = self._point_specs[coord.point_type]
         x, y, z = coord.point.x, coord.point.y, coord.point.z
-        fig = None
+        initial = PointXYZ(x, y, z)
+        method, channel, channel_name = "", None, None
+        fitted, diag, error, error_detail, attempted = None, None, None, None, False
 
         try:
             if spec.adapter.side == "fib":
                 method = cl._fib_method_combo.currentText()
                 if method == "Hole" and self._fib_image is not None:
-                    xr, yr, fig = hole_fitting_FIB(
-                        self._fib_image.filtered_data, int(x), int(y)
+                    attempted = True
+                    # pass the sub-pixel click (not int) so the diagnostic's
+                    # input marker lands where the user clicked — FIB-282.
+                    xr, yr, diag = hole_fitting_FIB(
+                        self._fib_image.filtered_data, x, y
                     )
-                    coord.point.x, coord.point.y = float(xr), float(yr)
+                    fitted = PointXYZ(float(xr), float(yr), z)
             else:
                 # The FM surface is typically picked in the reflection channel,
                 # so it shares the fiducial method/channel settings.
@@ -2093,33 +2203,59 @@ class CorrelationTabWidget(QWidget):
                 method = (
                     cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
                 ).currentText()
-                ch = (
-                    cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
-                ).currentIndex()
-                if method != "None" and self._fm_image is not None and ch >= 0:
-                    img = self._fm_image.data[ch]
+                ch_combo = cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
+                channel = ch_combo.currentIndex()
+                channel_name = ch_combo.currentText()
+                if method != "None" and self._fm_image is not None and channel >= 0:
+                    img = self._fm_image.data[channel]
                     if method == "Hole":
-                        xr, yr, zr, fig = hole_fitting_reflection(
-                            img, int(x), int(y), z=int(z), cutout=2
+                        attempted = True
+                        xr, yr, zr, diag = hole_fitting_reflection(
+                            img, x, y, z=int(z), cutout=2  # sub-pixel x/y (FIB-282)
                         )
+                        fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":
-                        xr, yr, zr, fig = target_fitting_fluorescence(
-                            img, int(x), int(y), int(z), cutout=5
+                        attempted = True
+                        xr, yr, zr, diag = target_fitting_fluorescence(
+                            img, x, y, int(z), cutout=5  # sub-pixel x/y (FIB-282)
                         )
-                    coord.point.x = float(xr)
-                    coord.point.y = float(yr)
-                    coord.point.z = float(zr)
-
+                        fitted = PointXYZ(float(xr), float(yr), float(zr))
         except Exception as exc:
-            QMessageBox.warning(self, "Refit failed", str(exc))
-            return
+            logging.exception("Point fit failed")
+            error_detail = str(exc)          # raw text -> log + tooltip
+            error = humanize_fit_error(exc)  # user-facing, actionable
+            attempted = True
 
+        if not attempted:
+            return None
+
+        status = PointFitResult.classify(initial, fitted, error=error)
+        return PointFitResult(
+            coordinate=coord,
+            method=method,
+            channel=channel,
+            channel_name=channel_name,
+            initial=initial,
+            fitted=fitted,
+            status=status,
+            message=error,
+            detail=error_detail,
+            diagnostic=diag,
+        )
+
+    def _apply_fit_result(self, result: PointFitResult) -> None:
+        """Commit an accepted fit: move the coordinate and flag it as fitted."""
+        if result.fitted is None:
+            return
+        coord = result.coordinate
+        coord.point.x = result.fitted.x
+        coord.point.y = result.fitted.y
+        coord.point.z = result.fitted.z
+        coord.fitted = True
+        spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
         spec.adapter.refresh_coordinate(coord)
         self.data_changed.emit(self.data)
-
-        if fig is not None and cl._show_diag_check.isChecked():
-            _show_figure_dialog(fig, title="Refit Diagnostic", parent=self)
 
 
 # ---------------------------------------------------------------------------

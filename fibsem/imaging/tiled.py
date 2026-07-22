@@ -5,7 +5,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -837,6 +837,8 @@ def plot_minimap(
         color: str = "cyan",
         show_scalebar: bool = False,
         show_names: bool = True,
+        show_descriptions: bool = False,
+        descriptions: Optional[Dict[str, str]] = None,
         show_grid_radius: bool = False,
         fontsize: int = 12,
         markersize: int = 20,
@@ -898,6 +900,7 @@ def plot_minimap(
                 "point": (pt.x, pt.y),
                 "color": c,
                 "label": pt.name,
+                "description": descriptions.get(pt.name, "") if descriptions else "",
             }
         )
 
@@ -931,6 +934,19 @@ def plot_minimap(
                     alpha=0.75,
                     clip_on=True,
                 )
+                # description as a smaller subtitle just below the name
+                if show_descriptions and entry["description"]:
+                    ax.annotate(
+                        entry["description"],
+                        xy=(x + 10, y - 10),
+                        xytext=(0, -(fontsize + 2)),
+                        textcoords="offset points",
+                        fontsize=max(6, int(round(fontsize * 0.7))),
+                        color=entry["color"],
+                        alpha=0.6,
+                        va="top",
+                        annotation_clip=True,
+                    )
 
     if show_scalebar:
         try:

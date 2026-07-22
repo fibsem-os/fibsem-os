@@ -202,6 +202,11 @@ class OverviewImageWidget(QWidget):
         self.show_names_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
         self.show_names_checkbox.setChecked(True)
 
+        # Show descriptions checkbox (drawn as a subtitle under each name)
+        self.show_descriptions_checkbox = QCheckBox("")
+        self.show_descriptions_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
+        self.show_descriptions_checkbox.setChecked(False)
+
         # Show scalebar checkbox
         self.show_scalebar_checkbox = QCheckBox("")
         self.show_scalebar_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
@@ -213,6 +218,7 @@ class OverviewImageWidget(QWidget):
         display_layout.addRow("Text Size", self.text_size_spinbox)
         display_layout.addRow("Marker Size", self.markersize_spinbox)
         display_layout.addRow("Show Names", self.show_names_checkbox)
+        display_layout.addRow("Show Descriptions", self.show_descriptions_checkbox)
         display_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
 
         display_group = TitledPanel("Display Options", content=display_content, collapsible=False)
@@ -221,6 +227,7 @@ class OverviewImageWidget(QWidget):
         self.text_size_spinbox.valueChanged.connect(self._on_preview_clicked)
         self.markersize_spinbox.valueChanged.connect(self._on_preview_clicked)
         self.show_names_checkbox.stateChanged.connect(self._on_preview_clicked)
+        self.show_descriptions_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.show_scalebar_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.title_textbox.editingFinished.connect(self._on_preview_clicked)
 
@@ -561,10 +568,14 @@ class OverviewImageWidget(QWidget):
 
             # Get settings
             show_names = self.show_names_checkbox.isChecked()
+            show_descriptions = self.show_descriptions_checkbox.isChecked()
             show_scalebar = self.show_scalebar_checkbox.isChecked()
             color = self.marker_color.name()
             fontsize = self.text_size_spinbox.value()
             markersize = self.markersize_spinbox.value()
+
+            # lamella name -> free-text description, for the optional subtitle
+            descriptions = {lam.name: lam.description for lam in self.experiment.positions}
 
             if not self.stage_positions:
                 self.info_label.setText("Warning: No positions found for MILLING state")
@@ -582,6 +593,8 @@ class OverviewImageWidget(QWidget):
                 markersize=markersize,
                 show_scalebar=show_scalebar,
                 show_names=show_names,
+                show_descriptions=show_descriptions,
+                descriptions=descriptions,
                 figsize=(15, 15)
             )
 
