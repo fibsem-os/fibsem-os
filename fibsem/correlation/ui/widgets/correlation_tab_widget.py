@@ -2131,14 +2131,9 @@ class CorrelationTabWidget(QWidget):
 
         show_fig = self._coords_tab._show_diag_check.isChecked()
         dialog = FitConfirmationDialog(result, show_figure=show_fig, parent=self)
-        try:
-            accepted = dialog.exec_() == QDialog.Accepted
-        finally:
-            if result.figure is not None:
-                import matplotlib.pyplot as plt
-
-                plt.close(result.figure)
-        if accepted:
+        # The dialog renders its own figure (OO API, no pyplot) and frees it with
+        # its canvas, so there's nothing to plt.close here anymore.
+        if dialog.exec_() == QDialog.Accepted:
             self._apply_fit_result(result)
 
     def _should_auto_accept(self, result: PointFitResult) -> bool:
@@ -2161,10 +2156,8 @@ class CorrelationTabWidget(QWidget):
     def _auto_accept_fit(self, result: PointFitResult) -> None:
         """Apply a fit without the confirm dialog, with a status-bar note."""
         self._apply_fit_result(result)
-        if result.figure is not None:
-            import matplotlib.pyplot as plt
-
-            plt.close(result.figure)
+        # No figure is built on the auto-accept path (the diagnostic is just
+        # data), so there's nothing to close.
         # Set the note AFTER applying (apply emits data_changed, which may
         # refresh the status line) so this is the message that sticks.
         name = result.coordinate.point_type.value
@@ -2190,7 +2183,7 @@ class CorrelationTabWidget(QWidget):
         x, y, z = coord.point.x, coord.point.y, coord.point.z
         initial = PointXYZ(x, y, z)
         method, channel, channel_name = "", None, None
-        fitted, fig, error, error_detail, attempted = None, None, None, None, False
+        fitted, diag, error, error_detail, attempted = None, None, None, None, False
 
         try:
             if spec.adapter.side == "fib":
@@ -2199,7 +2192,7 @@ class CorrelationTabWidget(QWidget):
                     attempted = True
                     # pass the sub-pixel click (not int) so the diagnostic's
                     # input marker lands where the user clicked — FIB-282.
-                    xr, yr, fig = hole_fitting_FIB(
+                    xr, yr, diag = hole_fitting_FIB(
                         self._fib_image.filtered_data, x, y
                     )
                     fitted = PointXYZ(float(xr), float(yr), z)
@@ -2217,13 +2210,13 @@ class CorrelationTabWidget(QWidget):
                     img = self._fm_image.data[channel]
                     if method == "Hole":
                         attempted = True
-                        xr, yr, zr, fig = hole_fitting_reflection(
+                        xr, yr, zr, diag = hole_fitting_reflection(
                             img, x, y, z=int(z), cutout=2  # sub-pixel x/y (FIB-282)
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":
                         attempted = True
-                        xr, yr, zr, fig = target_fitting_fluorescence(
+                        xr, yr, zr, diag = target_fitting_fluorescence(
                             img, x, y, int(z), cutout=5  # sub-pixel x/y (FIB-282)
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
@@ -2247,7 +2240,7 @@ class CorrelationTabWidget(QWidget):
             status=status,
             message=error,
             detail=error_detail,
-            figure=fig,
+            diagnostic=diag,
         )
 
     def _apply_fit_result(self, result: PointFitResult) -> None:

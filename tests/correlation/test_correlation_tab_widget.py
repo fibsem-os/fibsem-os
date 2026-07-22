@@ -1422,22 +1422,26 @@ def test_fit_confirmation_dialog_constructs(qapp):
 
 
 def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
+    import numpy as np
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-    from matplotlib.figure import Figure
 
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
     )
 
-    fig = Figure(figsize=(20, 5))  # like hole_fitting_reflection's 1x3 strip
-    for i in range(3):
-        fig.add_subplot(1, 3, i + 1)
+    # a z + XY diagnostic renders wide (9x4.5), like the FM fits
+    diag = FitDiagnostic(
+        title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0),
+        z_axis=np.arange(5), z_signal=np.arange(5.0), z_fit=np.arange(5.0),
+        z_input=2.0, z_fitted=2.5,
+    )
     r = PointFitResult(
         coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
         initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 3.0),
-        status=FitStatus.OK, figure=fig,
+        status=FitStatus.OK, diagnostic=diag,
     )
     dialog = FitConfirmationDialog(r, show_figure=True)
     canvases = dialog.findChildren(FigureCanvasQTAgg)
@@ -1445,37 +1449,6 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     canvas = canvases[0]
     assert canvas.minimumWidth() > canvas.minimumHeight()  # wide, not squished
     assert canvas.minimumWidth() <= 900                     # capped
-
-
-def test_apply_dark_theme_darkens_chrome_keeps_data():
-    # The fit figures are authored light; the dialog re-themes them to the dark
-    # palette at embed time. Lock the contract: chrome (figure/axes bg) goes
-    # dark, the near-black gaussian-fit line is lifted so it stays visible, and
-    # the saturated markers / mid-grey signal are left untouched (they read on
-    # dark already, and the marker colours carry meaning).
-    from matplotlib.colors import to_hex
-    from matplotlib.figure import Figure
-
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
-        _AXES_BG,
-        _FIG_BG,
-        _apply_dark_theme,
-        _luminance,
-    )
-
-    fig = Figure()
-    ax = fig.add_subplot(1, 1, 1)
-    (signal,) = ax.plot([0, 1], [0, 1], color="0.55")           # mid-grey
-    (fit,) = ax.plot([0, 1], [1, 0], color="0.15", ls="--")     # near-black
-    (marker,) = ax.plot([0.5], [0.5], "+", color="#e53935")     # input red
-
-    _apply_dark_theme(fig)
-
-    assert to_hex(fig.get_facecolor()) == _FIG_BG
-    assert to_hex(ax.get_facecolor()) == _AXES_BG
-    assert _luminance(fit.get_color()) > _luminance("0.15")     # lifted off black
-    assert signal.get_color() == "0.55"                         # signal untouched
-    assert marker.get_color() == "#e53935"                      # marker untouched
 
 
 def test_humanize_fit_error_maps_known_modes():
@@ -1558,8 +1531,9 @@ def test_error_dialog_splits_title_and_wrapped_reason(qapp):
 
 
 def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
-    from matplotlib.figure import Figure
+    import numpy as np
 
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1567,12 +1541,11 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     )
 
     def _result():
-        fig = Figure(figsize=(9, 4.5))
-        fig.add_subplot(1, 1, 1)
+        diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
         return PointFitResult(
             coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
             initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
-            status=FitStatus.OK, figure=fig,
+            status=FitStatus.OK, diagnostic=diag,
         )
 
     # Checkbox unchecked -> figure is still embedded, just hidden; the button
@@ -1597,21 +1570,21 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
 
 
 def test_accept_is_default_button_not_the_toggle(qapp):
-    from matplotlib.figure import Figure
+    import numpy as np
     from PyQt5.QtWidgets import QPushButton
 
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
     )
 
-    fig = Figure(figsize=(9, 4.5))
-    fig.add_subplot(1, 1, 1)
+    diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
     result = PointFitResult(
         coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
         initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
-        status=FitStatus.OK, figure=fig,
+        status=FitStatus.OK, diagnostic=diag,
     )
     dlg = FitConfirmationDialog(result, show_figure=True)
     buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
@@ -1713,7 +1686,7 @@ def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
     assert fitted == []  # don't hijack the key mid-edit
 
 
-def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, figure=None):
+def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, diagnostic=None):
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import PointFitResult
 
     initial = PointXYZ(100.0, 100.0, 10.0)
@@ -1725,7 +1698,7 @@ def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, figure=None):
     return PointFitResult(
         coordinate=_coord(100.0, 100.0, 10.0, PointType.FM),
         method="Hole", channel=0, initial=initial, fitted=fitted,
-        status=status, figure=figure,
+        status=status, diagnostic=diagnostic,
     )
 
 
@@ -1802,9 +1775,9 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
-    fig = object()
+    diag = object()  # stand-in FitDiagnostic
     monkeypatch.setattr(
-        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, fig)
+        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
     )
 
     coord = _coord(20.0, 20.0, 0.0, PointType.FIB)  # FIB method defaults to "Hole"
@@ -1816,7 +1789,7 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     assert result.status is FitStatus.OK
     assert (result.fitted.x, result.fitted.y) == (23.0, 24.0)
     assert round(result.delta_px, 1) == 5.0
-    assert result.figure is fig
+    assert result.diagnostic is diag
 
 
 def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
