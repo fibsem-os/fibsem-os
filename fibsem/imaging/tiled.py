@@ -699,7 +699,10 @@ def calculate_reprojected_stage_position2(image: FibsemImage, pos: FibsemStagePo
 
     # tescan stage x is inverted wrt image coordinates (see TescanMicroscope.stable_move);
     # the y inversion is handled inside _inverse_y_corrected_stage_movement_tescan
-    if image.metadata.system is not None and image.metadata.system.info.manufacturer == "Tescan":
+    # NOTE: match case-insensitively — a live scope reports "TESCAN", the config/saved
+    # images report "Tescan"; an exact check silently fell back to Thermo math and
+    # placed added positions at the opposite corner.
+    if image.metadata.system is not None and image.metadata.system.info.manufacturer.upper() == "TESCAN":
         dx = -dx
 
     # dy = microscope._inverse_y_corrected_stage_movement(dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
@@ -1091,7 +1094,8 @@ def _inverse_y_corrected_stage_movement(
             raise ValueError("Image metadata or system metadata is not set. Cannot calculate inverse y corrected stage movement.")
 
         # tescan stages have a different geometry (z below the tilt axis)
-        if image.metadata.system.info.manufacturer == "Tescan":
+        # match case-insensitively: live scope reports "TESCAN", config/saved "Tescan"
+        if image.metadata.system.info.manufacturer.upper() == "TESCAN":
             return _inverse_y_corrected_stage_movement_tescan(image, dy=dy, dz=dz, beam_type=beam_type)
 
         # all angles in radians

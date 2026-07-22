@@ -66,7 +66,8 @@ def make_microscope(
     microscope._test_stage_position = stage_position
     microscope._recorded_moves = []
     microscope.get_stage_position = lambda: microscope._test_stage_position
-    microscope.get_scan_rotation = lambda beam_type: scan_rotation_deg  # degrees on tescan
+    # get_scan_rotation returns radians (codebase convention); the test param is degrees
+    microscope.get_scan_rotation = lambda beam_type: np.deg2rad(scan_rotation_deg)
     microscope.move_stage_relative = lambda position: microscope._recorded_moves.append(position)
     return microscope
 
@@ -77,12 +78,17 @@ def make_image(
     beam_type: BeamType = BeamType.ELECTRON,
     pixel_size: float = 1e-7,
     shape=(1024, 1536),
+    scan_rotation: float = 0.0,
 ) -> FibsemImage:
-    """Create a FibsemImage with the metadata needed for reprojection."""
+    """Create a FibsemImage with the metadata needed for reprojection.
+
+    scan_rotation is in radians (codebase convention), matching what
+    get_beam_settings stores in the image metadata.
+    """
     state = MicroscopeState(
         stage_position=stage_position,
-        electron_beam=BeamSettings(beam_type=BeamType.ELECTRON, scan_rotation=0.0),
-        ion_beam=BeamSettings(beam_type=BeamType.ION, scan_rotation=0.0),
+        electron_beam=BeamSettings(beam_type=BeamType.ELECTRON, scan_rotation=scan_rotation),
+        ion_beam=BeamSettings(beam_type=BeamType.ION, scan_rotation=scan_rotation),
     )
     md = FibsemImageMetadata(
         image_settings=ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
@@ -269,12 +275,17 @@ def test_standalone_inverse_matches_microscope(beam_type, tilt_deg):
     assert from_metadata == pytest.approx(from_microscope)
 
 
-def test_inverse_dispatches_on_manufacturer():
-    """The generic tiled.py inverse routes Tescan images to the tescan version."""
+@pytest.mark.parametrize("manufacturer", ["Tescan", "TESCAN"])
+def test_inverse_dispatches_on_manufacturer(manufacturer):
+    """The generic tiled.py inverse routes Tescan images to the tescan version.
+
+    A live scope reports "TESCAN" (all caps) while the config reports "Tescan";
+    both must dispatch to the tescan inverse. An exact "Tescan" check fell back to
+    the Thermo inverse for live images, flipping added minimap positions."""
     stage_position = stage_at(17.0)
     m = make_microscope(pretilt_deg=35.0, stage_position=stage_position)
     image = make_image(m.system, stage_position)
-    assert image.metadata.system.info.manufacturer == "Tescan"
+    image.metadata.system.info.manufacturer = manufacturer
     dy_raw, dz_raw = -1.5e-6, 0.5e-6
 
     generic = _inverse_y_corrected_stage_movement(image, dy=dy_raw, dz=dz_raw, beam_type=BeamType.ELECTRON)
@@ -284,13 +295,43 @@ def test_inverse_dispatches_on_manufacturer():
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
-def test_reprojection_round_trip(beam_type):
+@pytest.mark.parametrize("manufacturer", ["Tescan", "TESCAN"])
+def test_reprojection_round_trip(beam_type, manufacturer):
     """End-to-end: a position projected with project_stable_move reprojects back
-    onto the image at the original (dx, dy) offset."""
+    onto the image at the original (dx, dy) offset. Covers both manufacturer
+    casings ("TESCAN" live, "Tescan" config) — a mismatch reprojects the added
+    position to the opposite corner."""
     base = stage_at(17.0)
     m = make_microscope(pretilt_deg=35.0, stage_position=base)
     pixel_size = 1e-7
     image = make_image(m.system, base, beam_type=beam_type, pixel_size=pixel_size)
+    image.metadata.system.info.manufacturer = manufacturer
+    dx, dy = 1e-6, 2e-6
+
+    pos = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)
+    point = calculate_reprojected_stage_position2(image, pos)
+
+    centre_x = image.data.shape[1] / 2
+    centre_y = image.data.shape[0] / 2
+    dx_recovered = (point.x - centre_x) * pixel_size
+    dy_recovered = -(point.y - centre_y) * pixel_size
+
+    assert dx_recovered == pytest.approx(dx)
+    assert dy_recovered == pytest.approx(dy)
+
+
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_reprojection_round_trip_scan_rotation_180(beam_type):
+    """Regression: at 180 deg scan rotation the click projection (project_stable_move,
+    which flips dx/dy) and the reprojection (calculate_reprojected_stage_position2,
+    which flips px_delta) must agree. If the stored scan_rotation units disagree with
+    the microscope's get_scan_rotation, the marker lands at the opposite corner."""
+    base = stage_at(17.0)
+    m = make_microscope(pretilt_deg=35.0, stage_position=base, scan_rotation_deg=180.0)
+    pixel_size = 1e-7
+    # image metadata stores scan_rotation in radians (as get_beam_settings does)
+    image = make_image(m.system, base, beam_type=beam_type,
+                       pixel_size=pixel_size, scan_rotation=np.pi)
     dx, dy = 1e-6, 2e-6
 
     pos = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)

@@ -396,7 +396,7 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _update_visibility(self):
         """Apply visibility based on manufacturer and advanced-mode state."""
-        is_tescan = self.microscope.manufacturer == "TESCAN"
+        is_tescan = self.microscope.manufacturer.upper() == "TESCAN"
         adv = self._advanced_visible
 
         for w in self._adv_widgets:

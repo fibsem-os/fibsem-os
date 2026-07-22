@@ -160,8 +160,15 @@ And in `fibsem/imaging/tiled.py`:
 | `_inverse_y_corrected_stage_movement_tescan` | New: standalone Tescan inverse computed from image metadata (mirror of the microscope method). |
 | `calculate_reprojected_stage_position2` | Applies the Tescan x-axis inversion to `delta.x`. |
 
-Note: Tescan `get_scan_rotation` returns **degrees** (Thermo uses radians), so
-the `isclose(scan_rotation, 180)` checks are correct as-is.
+Note: `get_scan_rotation`/`set_scan_rotation` use **radians** (codebase-wide
+convention, matching Thermo and the image-metadata parser), converting at the
+Tescan API boundary, which is in degrees. All `isclose(scan_rotation, np.pi)`
+checks are therefore consistent with the value stored in image metadata by
+`get_beam_settings`. (Historically `get_scan_rotation` returned degrees while
+`get_beam_settings` persisted that degrees value into metadata consumed as
+radians by `calculate_reprojected_stage_position2` — at 180° scan rotation the
+click projection flipped but the reprojection did not, placing added minimap
+positions at the opposite corner.)
 
 ## Hardware verification required
 

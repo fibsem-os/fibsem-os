@@ -258,7 +258,14 @@ class TescanMicroscope(FibsemMicroscope):
             raise ImportError("The TESCAN Automation API is not available. Please see the user guide for installation instructions.")
 
         # create microscope client
-        self.connection: Automation 
+        self.connection: Automation
+
+        # The Tescan SharkSEM connection is a single socket and is NOT thread-safe.
+        # UI signal callbacks (e.g. stage_position_changed -> update_ui) run on the
+        # main thread while worker threads drive movements/acquisition, so two threads
+        # can hit the socket at once and corrupt the byte stream (empty strings ->
+        # ValueError, or None -> TypeError). Serialise all socket transactions.
+        self._connection_lock = threading.RLock()
 
         # initialise system settings
         self.system: SystemSettings = system_settings
@@ -518,7 +525,7 @@ class TescanMicroscope(FibsemMicroscope):
             dy (float): the relative y term
         """
         # invert direction for scan rotated images...
-        if np.isclose(self.get_scan_rotation(beam_type), 180):
+        if np.isclose(self.get_scan_rotation(beam_type), np.pi):
             dx *= -1.0
             dy *= -1.0
 
@@ -543,9 +550,9 @@ class TescanMicroscope(FibsemMicroscope):
         """Project an image-space displacement into a stage position, without moving.
         Pure-math equivalent of stable_move (see docs/design/tescan-stable-move.md)."""
 
-        # adjust for scan rotation (tescan scan rotation is in degrees)
+        # adjust for scan rotation (radians, codebase convention)
         scan_rotation = self.get_scan_rotation(beam_type)
-        if np.isclose(scan_rotation, 180):
+        if np.isclose(scan_rotation, np.pi):
             dx *= -1.0
             dy *= -1.0
 
@@ -581,7 +588,8 @@ class TescanMicroscope(FibsemMicroscope):
         logging.info(f"Moving stage to {position}.")
         # convert to tescan position
         x, y, z, r, t = to_tescan_stage_position(position=position)
-        self.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
+        with self._connection_lock:
+            self.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
 
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
@@ -622,9 +630,9 @@ class TescanMicroscope(FibsemMicroscope):
             static_wd (bool, optional): unused on tescan (working distance is not stage-linked).
         """
 
-        # adjust for scan rotation (tescan scan rotation is in degrees)
+        # adjust for scan rotation (radians, codebase convention)
         scan_rotation = self.get_scan_rotation(beam_type)
-        if np.isclose(scan_rotation, 180):
+        if np.isclose(scan_rotation, np.pi):
             dx *= -1.0
             dy *= -1.0
 
@@ -666,9 +674,9 @@ class TescanMicroscope(FibsemMicroscope):
             dy (float): distance in y-axis (image coordinates)
             dx (float, optional): distance in x-axis (image coordinates)
         """
-        # adjust for scan rotation (tescan scan rotation is in degrees)
+        # adjust for scan rotation (radians, codebase convention)
         scan_rotation = self.get_scan_rotation(BeamType.ION)
-        if np.isclose(scan_rotation, 180):
+        if np.isclose(scan_rotation, np.pi):
             dx *= -1.0
             dy *= -1.0
 
@@ -1539,7 +1547,18 @@ class TescanMicroscope(FibsemMicroscope):
                                                                   List[str],
                                                                   Tuple[int, int],
                                                                   Point,
-                                                                  FibsemStagePosition, 
+                                                                  FibsemStagePosition,
+                                                                  None]:
+        """Get a property of the microscope (serialised on the connection lock)."""
+        with self._connection_lock:
+            return self._get_impl(key, beam_type)
+
+    def _get_impl(self, key: str, beam_type: Optional[BeamType] = None) -> Union[float,
+                                                                  str,
+                                                                  List[str],
+                                                                  Tuple[int, int],
+                                                                  Point,
+                                                                  FibsemStagePosition,
                                                                   None]:
         """Get a property of the microscope."""
         if beam_type is not None:
@@ -1566,10 +1585,12 @@ class TescanMicroscope(FibsemMicroscope):
         if key == "stigmation":
             return self._beam_parameters[beam_type].stigmation
         if key == "scan_rotation":
-            scan_rotation = beam.Optics.GetImageRotation()  # can be nan on simulator
+            scan_rotation = beam.Optics.GetImageRotation()  # DEGREES, can be nan on simulator
             if np.isnan(scan_rotation):
                 scan_rotation = 0.0
-            return scan_rotation # DEGREES
+            # return radians to match the codebase-wide convention (Thermo, image
+            # metadata, reprojection). The Tescan API works in degrees.
+            return scan_rotation * constants.DEGREES_TO_RADIANS
         if key == "shift":
             values = beam.Optics.GetImageShift()
             shift = Point(
@@ -1667,6 +1688,11 @@ class TescanMicroscope(FibsemMicroscope):
         return None   
 
     def _set(self, key: str, value, beam_type: BeamType = None) -> None:
+        """Set a property of the microscope (serialised on the connection lock)."""
+        with self._connection_lock:
+            self._set_impl(key, value, beam_type)
+
+    def _set_impl(self, key: str, value, beam_type: BeamType = None) -> None:
         """Set a property of the microscope."""
         if beam_type is not None:
             beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
@@ -1704,8 +1730,9 @@ class TescanMicroscope(FibsemMicroscope):
             logging.info(f"{beam_type.name} HFW set to {value} m.")
             return
         if key == "scan_rotation":
-            beam.Optics.SetImageRotation(value)
-            logging.info(f"{beam_type.name} scan rotation set to {value} degrees.")
+            # value is in radians (codebase convention); the Tescan API is in degrees
+            beam.Optics.SetImageRotation(value * constants.RADIANS_TO_DEGREES)
+            logging.info(f"{beam_type.name} scan rotation set to {value} radians.")
             return
 
         # beam control

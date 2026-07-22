@@ -384,7 +384,9 @@ class AutoLamellaUI(QMainWindow):
         if self.minimap_widget is not None and self.minimap_widget.is_acquiring:
             return
         if self.movement_widget is not None:
-            self.movement_widget.update_ui()
+            # pass the position from the signal; re-querying the microscope here races
+            # with the worker thread driving the move (see TescanMicroscope socket lock)
+            self.movement_widget.update_ui(stage_position=stage_position)
 
         self._update_minimap_data(stage_position=stage_position)
         self._update_lamella_display()
