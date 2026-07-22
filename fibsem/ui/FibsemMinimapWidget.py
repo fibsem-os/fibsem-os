@@ -1070,6 +1070,9 @@ class FibsemMinimapWidget(QWidget):
             self._hide_overlay_layers()
             return
 
+        if self.parent_widget.is_workflow_running:
+            return
+
         if stage_position is None:
             stage_position = self.microscope._stage_position
 
