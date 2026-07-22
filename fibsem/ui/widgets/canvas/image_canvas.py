@@ -179,9 +179,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._legend_loc: str = "upper right"
 
         # Drag-to-measure ruler (lazily created on first toggle; see toggle_ruler).
-        # _ruler_prev_active restores whatever overlay owned input before measuring.
         self._ruler_overlay: Optional["RulerOverlay"] = None
-        self._ruler_prev_active = None
 
         # Contrast / gamma (display-only; applied to the downsampled grayscale frame)
         self._display_base: Optional[np.ndarray] = None
@@ -789,8 +787,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         """Toggle the drag-to-measure ruler (a generic canvas tool).
 
         While on, the ruler owns input (so a stray double-click/right-click
-        doesn't move the stage or open the milling menu); the previously active
-        overlay, if any, is restored when the ruler is turned off.
+        doesn't move the stage or open the milling menu); when turned off, input
+        returns to whatever the current overlay *mode* dictates.
         """
         if self.btn_toggle_ruler.isChecked():
             if self._ruler_overlay is None:
@@ -798,15 +796,18 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
 
                 self._ruler_overlay = RulerOverlay()
                 self.add_overlay(self._ruler_overlay)
-            self._ruler_prev_active = self._active_overlay
             self._ruler_overlay.set_visible(True)
             self.set_active_overlay(self._ruler_overlay)
             self.btn_toggle_ruler.setToolTip("Hide ruler")
         else:
             if self._ruler_overlay is not None:
                 self._ruler_overlay.set_visible(False)
-            self.set_active_overlay(self._ruler_prev_active)
-            self._ruler_prev_active = None
+            # Derive the restore target from the live mode state rather than a snapshot
+            # taken when the ruler was switched on: that snapshot goes stale if an overlay
+            # is armed / exited / removed while measuring — restoring it could undo a new
+            # arm, or re-activate a now-detached overlay and suppress input permanently.
+            restore = self._mode_overlay if self.btn_mode.isChecked() else None
+            self.set_active_overlay(restore)
             self.btn_toggle_ruler.setToolTip("Measure (ruler)")
 
     # ── contrast / gamma ──────────────────────────────────────────────────

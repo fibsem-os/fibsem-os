@@ -125,18 +125,60 @@ def test_screen_space_hit_testing():
     assert r._hit(_ev(x=sx1, y=sy1 + 200)) is None
 
 
-def test_toggle_off_restores_prior_active_overlay():
+def test_ruler_off_restores_active_mode():
+    """Ruler off returns input to the overlay MODE that is active, derived from the live
+    mode state (not a snapshot taken when the ruler was switched on)."""
     c = _canvas()
-    sentinel = object()
-    c.set_active_overlay(sentinel)
+    mode_ov = RulerOverlay()  # stands in for a workflow overlay (POI / spot burn)
+    c.add_overlay(mode_ov)
+    c.enter_overlay_mode(mode_ov, "Edit")
+    assert c.active_overlay is mode_ov
     r = _ruler_on(c)
-    assert c._ruler_prev_active is sentinel
     assert c.active_overlay is r
     c.btn_toggle_ruler.setChecked(False)
     c.toggle_ruler()
-    assert r._line is None
-    assert r._visible is False
-    assert c.active_overlay is sentinel
+    assert r._line is None and r._visible is False
+    assert c.active_overlay is mode_ov  # mode restored, not a stale snapshot
+
+
+def test_ruler_off_after_mode_exit_returns_to_move():
+    """Regression: a mode exited while measuring must not leave a stale overlay owning input
+    (with no toolbar affordance) when the ruler is switched off — it returns to Move."""
+    c = _canvas()
+    mode_ov = RulerOverlay()
+    c.add_overlay(mode_ov)
+    c.enter_overlay_mode(mode_ov, "Edit")
+    _ruler_on(c)
+    c.exit_overlay_mode(mode_ov)  # the workflow ends the step while measuring
+    c.btn_toggle_ruler.setChecked(False)
+    c.toggle_ruler()
+    assert c.active_overlay is None  # Move, not the stale mode_ov
+
+
+def test_ruler_off_after_mode_overlay_removed_returns_to_move():
+    """Regression: if the mode overlay is removed while measuring (the reducer drops its
+    spec), switching the ruler off must not re-activate the now-detached overlay — that
+    would suppress every semantic click permanently. It returns to Move."""
+    c = _canvas()
+    mode_ov = RulerOverlay()
+    c.add_overlay(mode_ov)
+    c.enter_overlay_mode(mode_ov, "Edit")
+    _ruler_on(c)
+    c.remove_overlay(mode_ov)  # e.g. controller.remove_overlay / clear()
+    c.btn_toggle_ruler.setChecked(False)
+    c.toggle_ruler()
+    assert c.active_overlay is None
+    assert mode_ov not in c._overlays
+
+
+def test_ruler_off_with_no_mode_returns_to_move():
+    """No overlay mode active: ruler off returns to Move (None)."""
+    c = _canvas()
+    r = _ruler_on(c)
+    assert c.active_overlay is r
+    c.btn_toggle_ruler.setChecked(False)
+    c.toggle_ruler()
+    assert c.active_overlay is None
 
 
 def test_inert_while_hidden():
@@ -167,7 +209,10 @@ def _run_all():
         test_drag_clamps_to_bounds,
         test_move_line_preserves_length_and_clamps,
         test_screen_space_hit_testing,
-        test_toggle_off_restores_prior_active_overlay,
+        test_ruler_off_restores_active_mode,
+        test_ruler_off_after_mode_exit_returns_to_move,
+        test_ruler_off_after_mode_overlay_removed_returns_to_move,
+        test_ruler_off_with_no_mode_returns_to_move,
         test_inert_while_hidden,
         test_pixel_size_refreshes_on_image_change,
     ]
