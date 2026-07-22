@@ -54,6 +54,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._auto_function_error: Optional[Exception] = None
         self._autofocus_stop_event = threading.Event()  # cancel signal for a running autofocus
         self._autofocus_running: bool = False  # drives the Run <-> Cancel button morph
+        # True while EITHER auto-function (contrast/focus) runs. The disabled buttons don't
+        # guard the hotkey path (F9/F11 call run_* directly), so both entry points check
+        # this to stay mutually exclusive — they share the beam and _auto_function_error.
+        self._auto_function_running: bool = False
 
         self._setup_ui()
         self.setup_connections()
@@ -360,8 +364,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def run_autocontrast(self) -> None:
         """Run autocontrast for the selected beam type."""
+        if self._auto_function_running:
+            notification_service.show_toast("An auto-function is already running.", "warning")
+            return
         self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
+        self._auto_function_running = True
         self._toggle_interactions(enable=False)
         self._auto_function_error = None
         worker = self._autocontrast_worker(beam_type)
@@ -378,10 +386,16 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.pushButton_run_autofocus.setEnabled(False)
             self.pushButton_run_autofocus.setText("Cancelling…")
             return
+        if self._auto_function_running:
+            # a non-cancellable auto-function (autocontrast) is running — refuse to start,
+            # or F9-then-F11 would run two workers on the same beam and desync the state
+            notification_service.show_toast("An auto-function is already running.", "warning")
+            return
         self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
         self._auto_function_error = None
         self._autofocus_stop_event.clear()
+        self._auto_function_running = True
         self._autofocus_running = True
         notification_service.show_toast(f"Running AutoFocus on {beam_type.name} beam...")
         self._toggle_interactions(enable=False)
@@ -434,6 +448,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
         self._autofocus_running = False
+        self._auto_function_running = False
         self._toggle_interactions(enable=True)
         self._restore_autofocus_button()  # un-morph if it was showing "Cancel"
         beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget

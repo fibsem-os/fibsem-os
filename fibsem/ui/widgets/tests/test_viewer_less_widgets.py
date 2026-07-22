@@ -13,6 +13,7 @@ Run directly (headless):
 from __future__ import annotations
 
 import os
+from unittest.mock import MagicMock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -96,6 +97,41 @@ def test_movement_widget_disconnects_canvas_on_teardown():
     mw._teardown_connections()
 
 
+def test_auto_functions_are_mutually_exclusive():
+    """Regression: the F9/F11 hotkeys call run_autocontrast/run_autofocus directly, so the
+    disabled buttons don't guard them. Each must refuse to start while another auto-function
+    is running (they share the beam + _auto_function_error); otherwise F11-then-F9 races two
+    workers and leaves the autofocus sweep uncancellable."""
+    _app()
+    microscope, settings = utils.setup_session(config_path=_CONFIG)
+    parent = _host(microscope)
+    iw = FibsemImageSettingsWidget(
+        microscope=microscope, image_settings=settings.image, parent=parent
+    )
+    # never launch real hardware workers in this test; _toggle_interactions cascades into
+    # sibling widgets (parent.movement_widget) that this bare host doesn't have — stub it,
+    # it's UI enable/disable, not part of the mutual-exclusion logic under test.
+    iw._autocontrast_worker = MagicMock()
+    iw._autofocus_worker = MagicMock()
+    iw._toggle_interactions = MagicMock()
+
+    # from idle, autocontrast starts and marks the widget busy
+    iw.run_autocontrast()
+    assert iw._auto_function_running is True
+    iw._autocontrast_worker.assert_called_once()
+
+    # busy with autocontrast -> F11 (run_autofocus) is refused, no sweep starts
+    iw.run_autofocus()
+    assert iw._autofocus_running is False
+    iw._autofocus_worker.assert_not_called()
+
+    # busy with autofocus -> F9 (run_autocontrast) is refused
+    iw._autofocus_running = True  # (still _auto_function_running)
+    iw._autocontrast_worker.reset_mock()
+    iw.run_autocontrast()
+    iw._autocontrast_worker.assert_not_called()
+
+
 def test_fm_widget_and_objective_build_viewer_less():
     _app()
     microscope, _ = utils.setup_session(config_path=_CONFIG)
@@ -118,6 +154,7 @@ def _run_all():
     tests = [
         test_image_and_movement_build_viewer_less,
         test_movement_widget_disconnects_canvas_on_teardown,
+        test_auto_functions_are_mutually_exclusive,
         test_fm_widget_and_objective_build_viewer_less,
     ]
     for t in tests:
