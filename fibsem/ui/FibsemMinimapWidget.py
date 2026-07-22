@@ -54,7 +54,14 @@ from fibsem.structures import (
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig, LamellaNameListWidget, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    ContextMenu,
+    ContextMenuConfig,
+    LamellaNameListWidget,
+    TitledPanel,
+    ValueComboBox,
+    ValueSpinBox,
+)
 from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import MinimapShapesOverlay, ShapeSpec
