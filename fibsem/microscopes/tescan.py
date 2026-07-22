@@ -14,7 +14,8 @@ import fibsem.constants as constants
 from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
-TESCAN_BEAM_READY_TIMEOUT = 60        # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
+TESCAN_BEAM_READY_TIMEOUT = 60                     # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
+TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE = True   # Restore rotation/FOV/shift across preset changes, if false, use the values stored in the preset
 
 try:
     import tescanautomation
@@ -264,6 +265,7 @@ class TescanMicroscope(FibsemMicroscope):
         self.system: SystemSettings = system_settings
         self.milling_channel: BeamType = BeamType.ION
         self.stage_is_compustage: bool = False
+        self._preserve_settings_on_preset_change: bool = TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE
         self._last_imaging_settings: ImageSettings = ImageSettings()
 
         # user, experiment metadata
@@ -1532,12 +1534,14 @@ class TescanMicroscope(FibsemMicroscope):
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None   
 
-    def _activate_preset(self, beam: Union['Automation.SEM', 'Automation.FIB'], beam_type: BeamType, preset_name: str, preserve_settings: bool) -> None:
-        """Activate a preset and optionally preserve beam settings."""
+    def _activate_preset(self, beam: Union['Automation.SEM', 'Automation.FIB'], beam_type: BeamType, preset_name: str) -> None:
+        """Activate a preset, preserving rotation/FOV/shift when self._preserve_settings_on_preset_change is set."""
         # Check if preset is available
         if not beam.Preset.IsAvailable(preset_name):
             logging.warning(f"Preset {preset_name} not available for {beam_type}.")
             return
+        
+        preserve_settings = self._preserve_settings_on_preset_change
         
         # Save current settings if they should be preserved
         image_rotation = None
@@ -1581,31 +1585,8 @@ class TescanMicroscope(FibsemMicroscope):
                 except Exception as restore_error:
                     logging.error(f"Failed to restore beam settings: {restore_error}")
 
-    def _set(self, key: str, value, beam_type: BeamType = None, **kwargs) -> None:
-        """
-        Set a property of the microscope.
-        
-        Special handling for preset changes:
-            When key="preset", you can use the preserve_settings keyword argument:
-            
-        Args:
-            key: The property key to set.
-            value: The value to set.
-            beam_type: The beam type (ELECTRON or ION).
-            **kwargs: Additional keyword arguments.
-                preserve_settings (bool): For preset changes, whether to preserve
-                    rotation, FOV, and shift. Defaults to True.
-            
-        Examples:
-            # Preserve settings (default behavior)
-            microscope.set("preset", "30 keV; 10 pA", BeamType.ION)
-            
-            # Don't preserve settings - let preset fully control all parameters
-            microscope.set("preset", "30 keV; 10 pA", BeamType.ION, preserve_settings=False)
-            
-            # Explicitly preserve settings
-            microscope.set("preset", "30 keV; 10 pA", BeamType.ION, preserve_settings=True)
-        """
+    def _set(self, key: str, value, beam_type: BeamType = None) -> None:
+        """Set a property of the microscope."""
         if beam_type is not None:
             beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
             self._prepare_beam(beam_type)
@@ -1700,9 +1681,7 @@ class TescanMicroscope(FibsemMicroscope):
             return
 
         if key == "preset":
-            # Get preserve_settings from kwargs, defaults to True
-            preserve_settings = kwargs.get("preserve_settings", True)
-            self._activate_preset(beam, beam_type, value, preserve_settings)
+            self._activate_preset(beam, beam_type, value)
             return
 
         if key in ["resolution", "dwell_time", "stigmation"]:
