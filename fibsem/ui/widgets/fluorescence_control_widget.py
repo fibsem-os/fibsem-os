@@ -24,6 +24,7 @@ from fibsem import conversions, utils
 from fibsem import config as fcfg
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_autofocus
+from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
     CameraImageTransform,
@@ -603,6 +604,7 @@ class FMControlWidget(QWidget):
         logging.info(
             f"Starting acquisition with channel settings: {selected_channel_settings}"
         )
+        record_recent_channels(selected_channel_settings)
         self.fm.start_acquisition(channel_settings=selected_channel_settings)
         self._update_acquisition_button_states()
 
@@ -803,6 +805,8 @@ class FMControlWidget(QWidget):
             self._current_acquisition_type = None
             self._update_acquisition_button_states()
             return
+
+        record_recent_channels(channel_settings)
 
         # Start acquisition thread
         self._acquisition_thread = threading.Thread(

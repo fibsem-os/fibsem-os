@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.fm.config import load_recent_channels
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
@@ -764,7 +765,48 @@ class ChannelListWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_add_channel(self) -> None:
-        self.add_channel()
+        recents = load_recent_channels()
+        if not recents:
+            self.add_channel()
+            return
+
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        act_new = menu.addAction("New channel")
+        menu.addSeparator()
+        for recent in recents:
+            action = QAction(_make_color_icon(recent.color), recent.name, menu)
+            action.setData(recent)
+            tooltip = recent.pretty_name
+            if not self._channel_available(recent):
+                action.setEnabled(False)
+                tooltip += "\nWavelength not available on current filter set"
+            action.setToolTip(tooltip)
+            menu.addAction(action)
+
+        btn = self._header.btn_add
+        chosen = menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+        if chosen is None:
+            return
+        if chosen is act_new:
+            self.add_channel()
+            return
+        channel = deepcopy(chosen.data())
+        existing = {self._row(i).channel.name for i in range(self._list.count())}
+        channel.name = _unique_name(channel.name, existing)
+        self.add_channel(channel)
+
+    def _channel_available(self, channel: ChannelSettings) -> bool:
+        """Whether the channel's wavelengths exist on the current filter set."""
+        if self._excitation_items and channel.excitation_wavelength not in self._excitation_items:
+            return False
+        if (
+            channel.emission_wavelength is not None
+            and self._emission_items
+            and channel.emission_wavelength not in self._emission_items
+        ):
+            return False
+        return True
 
     def _on_remove_clicked(self, channel: ChannelSettings) -> None:
         if self.fm is not None and self.fm.is_acquiring and channel is self._selected_channel:
