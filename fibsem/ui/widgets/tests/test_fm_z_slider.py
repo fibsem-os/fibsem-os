@@ -100,6 +100,38 @@ def test_fm_z_slider_and_max_projection():
     assert "live" not in fmw._stacks
 
 
+def test_manual_contrast_survives_live_frames():
+    """Regression: the live FM feed pushes each frame through set_fm_image as a single-plane
+    stack. _apply_z_mode must not force a channel back to auto-contrast when the user has set
+    a manual contrast, or the live feed reverts the user's clim on every frame."""
+    h = w = 16
+    fmw = FMCanvasWidget()
+    fmw.set_fm_image(_fake_fm(np.full((1, 1, h, w), 3, dtype=np.uint16), ["green"]))
+    _QAPP.processEvents()
+
+    # user turns Auto off and dials in a manual contrast (mirrors _on_autocontrast(False))
+    layer = _layer(fmw, "ch0")
+    layer.autocontrast = False
+    layer.manual = True
+    layer.clim = (100.0, 4000.0)
+
+    # the next live frame arrives (another single-plane set_fm_image)
+    fmw.set_fm_image(_fake_fm(np.full((1, 1, h, w), 7, dtype=np.uint16), ["green"]))
+    _QAPP.processEvents()
+
+    layer = _layer(fmw, "ch0")
+    assert layer.autocontrast is False, "live frame reverted the channel to auto-contrast"
+    assert layer.clim == (100.0, 4000.0), "live frame clobbered the manual clim"
+
+    # user turns Auto back on: the next frame re-derives the clim (fix doesn't over-preserve)
+    layer.autocontrast = True
+    layer.manual = False
+    fmw.set_fm_image(_fake_fm(np.full((1, 1, h, w), 9, dtype=np.uint16), ["green"]))
+    _QAPP.processEvents()
+    assert _layer(fmw, "ch0").clim is None, "auto channel should re-derive its clim"
+
+
 if __name__ == "__main__":
     test_fm_z_slider_and_max_projection()
+    test_manual_contrast_survives_live_frames()
     print("PASS")

@@ -33,6 +33,11 @@ class FMLayer:
     clim: Optional[Tuple[float, float]] = None  # manual limits (used when not auto)
     visible: bool = True
     autocontrast: bool = True                 # recompute clim from data each composite
+    # The user explicitly chose manual contrast (turned Auto off). Distinct from
+    # ``autocontrast``, which the z-scrub display path also toggles internally: the
+    # single-plane / MIP display path keeps a manual channel's clim across live frames /
+    # MIP toggles, but still restores auto for a channel the user left on Auto.
+    manual: bool = False
     gamma: float = 1.0                        # display = norm ** gamma (1 = linear)
     # cached auto clim, keyed on the data array identity so it's recomputed only
     # when the channel's data actually changes (not on every unrelated recomposite,

@@ -367,8 +367,14 @@ class FMCanvasWidget(QWidget):
             if stack is None:
                 continue
             if self._max_projection or stack.shape[0] <= 1:
-                layer.autocontrast = True
-                layer.clim = None
+                # single plane (incl. every live frame) or an explicit MIP: default to
+                # auto-contrast UNLESS the user chose manual. Keying off layer.manual (an
+                # explicit user choice) rather than layer.autocontrast (which the z-scrub
+                # branch below also toggles) is what lets a MIP toggle restore auto while a
+                # live feed — every frame lands here — keeps the user's manual contrast.
+                if not layer.manual:
+                    layer.autocontrast = True
+                    layer.clim = None
             else:
                 clim = self._mip_clim.get(layer.name)
                 if clim is None:
@@ -652,6 +658,7 @@ class FMLayersPanel(QFrame):
         if self._updating or layer is None:
             return
         layer.autocontrast = checked
+        layer.manual = not checked  # explicit user choice — survives live frames / MIP toggles
         if not checked and layer.clim is None and layer.data is not None:
             # seed manual limits from the current auto values so the image doesn't jump
             layer.clim = auto_clim(np.asarray(layer.data, dtype=np.float32))
