@@ -339,6 +339,45 @@ def test_set_points_partial_keeps_config():
     print("ok: set_points updates points, keeps config/visibility")
 
 
+def test_canvas_selection_survives_unrelated_reconcile():
+    """Regression: a reconcile runs on ANY change to a canvas (e.g. the info bar ticking on
+    a stage move). set_points is destructive — it nulls the selection — so re-driving
+    UNCHANGED points would silently clear a canvas-made selection, breaking Delete. The
+    reducer must skip the rebuild when the point data is unchanged."""
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0), (9.0, 9.0)]))
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["spot"]
+
+    ov.set_selected(1)  # user selects a point on the canvas (overlay-side; not in the spec)
+    assert ov._selected == 1
+
+    ctl._reconcile(fib)  # unrelated reconcile (same points) — must not touch the selection
+    assert ov._selected == 1, "unrelated reconcile wiped the canvas selection"
+    print("ok: canvas selection survives an unrelated reconcile")
+
+
+def test_in_progress_drag_survives_unrelated_reconcile():
+    """Regression: during a drag the overlay's live points move but the spec is not updated
+    until release (point_moved). An unrelated reconcile mid-drag must not re-drive the
+    unchanged spec — set_points would snap the point back to its pre-drag position."""
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)]))
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["spot"]
+
+    ov._points = [[25.0, 30.0]]  # mid-drag live position (spec still holds (5, 5))
+    ctl._reconcile(fib)          # unrelated reconcile while dragging
+    assert ov.get_points() == [(25.0, 30.0)], "reconcile snapped the in-progress drag back"
+    print("ok: in-progress drag survives an unrelated reconcile")
+
+
 def test_mask_overlay_displays_and_removes():
     app = _app()
     ctl = MicroscopeViewController()

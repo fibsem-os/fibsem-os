@@ -792,11 +792,29 @@ class MicroscopeViewController(QObject):
             obj.set_editable(spec.editing)
             obj.set_visible(spec.editing or spec.display)
         elif isinstance(spec, PointsSpec):
-            obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
+            # Rebuild the markers only when the point data actually changed. A reconcile
+            # runs on ANY change to this canvas (the info bar ticking on a stage move, a
+            # sibling overlay, a new frame), and set_points() is destructive — it nulls the
+            # selection and rebuilds the artists. Re-driving unchanged points would wipe a
+            # canvas-made selection (so Delete stops removing points) and snap an
+            # in-progress drag back to its pre-drag position. set_visible is cheap and
+            # non-destructive, so it always runs.
+            sig = self._points_signature(spec)
+            if getattr(obj, "_reducer_pts_sig", None) != sig:
+                obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
+                obj.set_selected(spec.selected)  # set_points nulls the selection; re-apply
+                obj._reducer_pts_sig = sig
             obj.set_visible(spec.visible)
-            obj.set_selected(spec.selected)  # re-apply: set_points nulls the selection
         elif isinstance(spec, MaskSpec):
             obj.set_mask(spec.mask, colors=spec.colors)
+
+    @staticmethod
+    def _points_signature(spec: PointsSpec) -> str:
+        """A value signature of the fields ``set_points`` / ``set_selected`` render, used to
+        skip a redundant (destructive) rebuild when a reconcile is driven by unrelated
+        state. ``repr`` so it is robust to numpy/Point element types and compares by value."""
+        pts = [(float(p[0]), float(p[1])) for p in spec.points]
+        return repr((pts, spec.colors, spec.labels, spec.selected))
 
     def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
         """Make the model's armed overlay the canvas's active input mode (single
@@ -825,6 +843,11 @@ class MicroscopeViewController(QObject):
                 spec.rect = value
             elif isinstance(spec, PointsSpec):
                 spec.points = value
+                # keep the driven signature in sync so the next unrelated reconcile does
+                # not rebuild these markers (and wipe the selection) after a canvas edit
+                obj = self._overlay_objs[canvas].get(overlay_id)
+                if obj is not None:
+                    obj._reducer_pts_sig = self._points_signature(spec)
         self.overlay_edited.emit(beam, overlay_id, value)
 
     def clear(self) -> None:
