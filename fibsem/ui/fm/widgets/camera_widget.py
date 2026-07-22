@@ -70,7 +70,13 @@ class CameraWidget(QWidget):
         self.spinBox_gain.setSuffix(CAMERA_CONFIG["gain"]["suffix"])
         self.spinBox_gain.setToolTip(CAMERA_CONFIG["gain"]["tooltip"])
         self.spinBox_gain.setKeyboardTracking(False)
-        self.spinBox_gain.setValue(self.fm.camera.gain * 100)  # Convert to percentage
+        gain = self.fm.camera.gain
+        if gain is None:
+            # camera has no gain control (e.g. odemis camera without a gain VA)
+            self.spinBox_gain.setEnabled(False)
+            self.spinBox_gain.setToolTip("Camera gain is not supported on this system")
+        else:
+            self.spinBox_gain.setValue(gain * 100)  # Convert to percentage
 
         # Binning
         self.label_binning = QLabel("Binning", self)

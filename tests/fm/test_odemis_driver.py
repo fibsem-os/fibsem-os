@@ -16,11 +16,14 @@ Each test class covers a finding from Phase 1 (FIB-285) or Phase 2 (FIB-286):
 - F9  'Fluorescence' emission maps to the band matching the excitation
 - F10 live acquisition via dataflow subscription (stream active once,
       frames pushed, light off on stop in all paths)
+- F11-F13 gain wiring via hasVA, binning/exposure limits from the VAs
+- F20 per-frame DataArray metadata overrides the state snapshot
 """
 
 import sys
 import time
 import types
+from datetime import datetime
 
 import numpy as np
 import pytest
@@ -403,6 +406,101 @@ class TestEmissionFluorescenceMapping:
         sets_before = emission_va.set_count
         fm.filter_set.emission_wavelength = "Fluorescence"
         assert emission_va.set_count == sets_before
+
+
+class TestGainWiring:
+    """F11: gain maps to the camera gain VA when present; honest otherwise."""
+
+    def test_gain_none_without_hardware_va(self, fm):
+        assert fm.camera.gain is None
+
+    def test_set_gain_without_va_is_warn_once_noop(self, fm, caplog):
+        fm.set_gain(0.5)
+        fm.set_gain(0.7)
+        warnings = [r for r in caplog.records if "no gain control" in r.message]
+        assert len(warnings) == 1
+        assert fm.camera.gain is None  # never echoes back a software value
+
+    def test_metadata_gain_none_without_va(self, fm):
+        metadata = fm.get_metadata()
+        assert metadata.channels[0].gain is None
+
+    def test_gain_wired_when_va_present(self, odemis_env):
+        components = stubs.default_components()
+        components["ccd"].gain = stubs.FakeVA(1.0, range=(1.0, 30.0))
+        stubs.use_components(components)
+        microscope = odemis_env.module.OdemisFluorescenceMicroscope(parent=None)
+        microscope.set_gain(2.5)
+        assert components["ccd"].gain.value == pytest.approx(2.5)
+        assert microscope.camera.gain == pytest.approx(2.5)
+        assert microscope.get_metadata().channels[0].gain == pytest.approx(2.5)
+
+
+class TestCameraLimitsFromHardware:
+    """F12/F13: binning and exposure limits come from the camera VAs."""
+
+    def test_available_binnings_from_range(self, fm):
+        assert fm.camera.available_binnings == (1, 2, 4, 8, 16)
+
+    def test_binning_setter_accepts_hardware_supported_value(self, fm):
+        fm.set_binning(16)
+        assert fm.camera.binning == 16
+
+    def test_binning_setter_rejects_unsupported_value(self, fm):
+        with pytest.raises(ValueError):
+            fm.set_binning(3)
+
+    def test_available_binnings_from_choices(self, odemis_env):
+        components = stubs.default_components()
+        components["ccd"].binning.choices = {(1, 1), (2, 2), (4, 4)}
+        stubs.use_components(components)
+        microscope = odemis_env.module.OdemisFluorescenceMicroscope(parent=None)
+        assert microscope.camera.available_binnings == (1, 2, 4)
+
+    def test_exposure_time_limits_from_va(self, fm):
+        assert fm.camera.exposure_time_limits == (1e-3, 10.0)
+
+    def test_power_limits_is_a_fraction_property(self, fm):
+        assert fm.light_source.power_limits == (0.0, 1.0)
+
+
+class TestFrameMetadata:
+    """F20: per-frame DataArray metadata overrides the state snapshot."""
+
+    def test_single_shot_uses_frame_metadata(self, fm):
+        image = fm.acquire_image()
+        # fake_acquire stamps a fixed acquisition date + the VA exposure time
+        expected_date = datetime.fromtimestamp(1_780_000_000.0).isoformat()
+        assert image.metadata.acquisition_date == expected_date
+        assert image.metadata.channels[0].exposure_time == pytest.approx(
+            fm.components["ccd"].exposureTime.value
+        )
+
+    def test_live_frame_metadata_overrides_state(self, fm):
+        received = []
+        fm.acquisition_signal.connect(received.append)
+        try:
+            fm.set_rate_limit(0)
+            fm.start_acquisition()
+            stream = fm.camera._stream
+            dataflow = fm.components["ccd"].data
+            assert wait_until(lambda: stream.is_active.value)
+            assert wait_until(lambda: dataflow.listeners)
+            frame = stubs.FakeDataArray(
+                np.zeros((16, 16), dtype=np.uint16),
+                metadata={stubs.MD_PIXEL_SIZE: (9e-8, 9e-8)},
+            )
+            dataflow.push(frame)
+            assert wait_until(lambda: len(received) >= 1)
+            # the frame's own pixel size wins over the current camera state
+            assert received[0].metadata.pixel_size_x == pytest.approx(9e-8)
+        finally:
+            fm.stop_acquisition()
+            fm.acquisition_signal.disconnect(received.append)
+
+    def test_plain_ndarray_frames_fall_back_to_state(self, fm):
+        image = fm._construct_image(np.zeros((8, 8), dtype=np.uint16))
+        assert image.metadata.pixel_size_x == pytest.approx(1e-7)
 
 
 class TestFastAcquisition:

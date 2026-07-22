@@ -1146,7 +1146,7 @@ class FluorescenceChannelMetadata:
 
     # Camera settings
     exposure_time: float  # seconds
-    gain: float  # camera gain
+    gain: Optional[float]  # camera gain (None when the camera has no gain control)
     offset: float  # camera offset
 
     # Fields with defaults must come after required fields

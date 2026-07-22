@@ -141,11 +141,13 @@ Ordered so each phase is a small, independently reviewable PR; P0s first. F7b la
 3. Optional: snapshot-during-live helper using `data.get(asap=False)`.
 - *Acceptance:* live view on the sim backend streams at exposure-limited rate (not seconds/frame); start/stop leaves light off and stream inactive, including on exceptions.
 
-**Phase 4 — parity & typing (P2/P3): F11–F19**
-1. Gain wiring via `model.hasVA(camera, "gain")` (per D4).
-2. `available_binnings` + `exposure_time_limits` from VA ranges; binning validation against `binning.range`.
-3. Promote `power_limits` / `exposure_time_limits` / `available_binnings` / `state` into the base ABCs with sim defaults; align TFS + Odemis (per D5).
-4. Annotation sweep (F15–F18), remove dead attributes (F19).
+**Phase 4 — parity & typing (P2/P3): F11–F19 (+ carried items)**
+1. Gain wiring via `model.hasVA(camera, "gain")` (per D4): getter returns None without a hardware VA (metadata stays honest — `FluorescenceChannelMetadata.gain` becomes `Optional[float]`, camera widget disables the spinbox); setter is a warn-once no-op.
+2. `available_binnings` + `exposure_time_limits` from the camera VAs (choices when enumerated, powers of two within range otherwise); binning validation against them.
+3. Promote `power_limits` / `exposure_time_limits` / `available_binnings` into the base ABCs with sim defaults; the base binning setter validates against `available_binnings` (replacing the old `raise Warning`); TFS already conforms (no autoscript changes needed — the promotion formalizes its existing surface).
+4. Annotation sweep (F15–F18), remove dead attributes (F19); `offset` stays a read-only property by intent (documented).
+5. Per-instance acquisition state: `_stop_acquisition_event` / `_acquisition_thread` move from shared class attributes into `__init__`. (The same pattern exists on `FibsemMicroscope` in `fibsem/microscope.py:154` — out of FM scope, tracked separately.)
+6. F20 (carried from Phase 3): `_construct_image(data, frame_metadata=None)` — per-frame values (`pixel_size`, `acquisition_date`, `exposure_time`) override the state snapshot; the odemis microscope overrides `_construct_image` to auto-extract them from `DataArray.metadata`, so both single-shot and live paths stay correctly stamped even when settings change mid-stream.
 
 ## Testing
 
