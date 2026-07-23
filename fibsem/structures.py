@@ -1300,7 +1300,11 @@ class FibsemMillingSettings:
                                   "microscope_parameter": "preset",
                                   "tooltip": "The preset used for milling. Presets define the beam settings for different milling conditions.",
                                   "manufacturer": "Tescan"})
-    spot_size: float = field(default=5.0e-8, 
+    # 1 µm is the value the cryo lamella milling was validated at on hardware
+    # (2026-07-22). Protocols do not set spot_size, so this default is what every
+    # milling stage actually uses -- the `milling:` block in the system config is
+    # not consulted for it (only milling_current is read from there).
+    spot_size: float = field(default=1.0e-6,
                             metadata={
                                     "label": "Spot Size",
                                     "type": float,
