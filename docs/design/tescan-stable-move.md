@@ -156,7 +156,7 @@ All in `fibsem/microscopes/tescan.py` (`TescanMicroscope`):
 | `_y_corrected_stage_movement` | Rewritten with the chamber-frame decomposition above. Returns the physical chamber-frame move, before any stage-axis inversion. |
 | `stable_move` | Uses `_y_corrected_stage_movement`; keeps the pre-existing empirical `x=-dx, y=-…` stage-axis inversion, applied after the trig so z stays independent. |
 | `project_stable_move` | Implemented as the pure-math equivalent of `stable_move` (mirrors Thermo). |
-| `vertical_move` | Adds the `1/sin(η)` FIB perspective factor. |
+| `vertical_move` | Adds the `1/sin(η)` FIB perspective factor, and negates z. Confirmed on hardware 2026-07-22. |
 | `_inverse_y_corrected_stage_movement` | Implemented as the inverse above (raw stage deltas in, image dy out). |
 
 And in `fibsem/imaging/tiled.py`:
@@ -202,5 +202,11 @@ code with `TODO(hardware-verify)` comments:
 `stable_move` on a feature in the SEM. The feature must stay centered **and in
 focus**. A wrong z sign shows up as a focus/eucentric error of `2·dy·tan(φ)`;
 a wrong y inversion moves the feature the wrong way. Repeat in the FIB view to
-check the perspective factor, and run `vertical_move` from the FIB view to
-verify the coincidence factor and z sign.
+check the perspective factor.
+
+`vertical_move` has already been through this: run from the FIB view on
+2026-07-22, it corrects coincidence with the negated z and the `1/sin(η)`
+factor. Items 2 and 3 above are what remains — and note that `stable_move` on
+the **FIB** path is still unconfirmed, with the session reporting it
+over-travels. Measure commanded `dy` against achieved `Δy`/`Δz` rather than
+judging by eye; the ratio identifies the missing factor directly.

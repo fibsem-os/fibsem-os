@@ -689,11 +689,11 @@ class TescanMicroscope(FibsemMicroscope):
         fib_column_tilt = np.deg2rad(self.system.ion.column_tilt)
         dz = dy / np.sin(fib_column_tilt)
 
-        # z is negated because Tescan +z increases downward (verified on hardware
-        # 2026-07-23, see _y_corrected_stage_movement).
-        # TODO(hardware-verify): the x inversion still assumes it matches stable_move,
-        # and the 1/sin(column_tilt) perspective factor has not been checked against
-        # the previous 1:1 dy->dz mapping, which was reported as working well.
+        # Verified on hardware 2026-07-22: this move (negated z + the 1/sin(column_tilt)
+        # perspective factor above) corrects coincidence from the FIB view. z is negated
+        # because Tescan +z increases downward, see _y_corrected_stage_movement.
+        # TODO(hardware-verify): the x inversion still assumes it matches stable_move;
+        # dx is currently always passed as 0 by the only caller, so it is unexercised.
         z_move = FibsemStagePosition(x=-dx, y=0, z=-dz, r=0, t=0)
         logging.info(f"vertical movement: {z_move}")
         self.move_stage_relative(z_move)
