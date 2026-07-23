@@ -2021,3 +2021,18 @@ def test_load_project_adopts_the_snapshot_when_there_is_no_data_file(qapp, tmp_p
     kept = w._coords_tab.fib_list.coordinates
     assert [(c.point.x, c.point.y) for c in kept] == [(1.0, 2.0)]
     assert w._btn_continue.isEnabled() is True  # consistent, so still usable
+
+
+def test_stale_status_outranks_the_ri_note(qapp):
+    """The status line is the only thing explaining why Continue is greyed out,
+    so a stale result must not report 'Done — RI ×1.500'."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    stale = _result_from(_input(fib=(1.0, 2.0)))
+    stale.refractive_index_correction_mode = "pre"
+    stale.refractive_index_correction_factor = 1.5
+    w._load_result(stale, adopt_inputs=False)
+
+    assert "changed since this run" in w._lbl_status.text()
+    assert "Done" not in w._lbl_status.text()

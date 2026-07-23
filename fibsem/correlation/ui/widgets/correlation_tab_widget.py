@@ -1765,7 +1765,13 @@ class CorrelationTabWidget(QWidget):
             )
             self._lbl_result.setToolTip(self._rms_tooltip(result, rms, px_m, concern))
             self._lbl_result.setVisible(True)
-        if (
+        # Staleness outranks the RI note: this is the only line explaining why
+        # Continue is greyed out, so "Done — RI ×1.500" must not mask it.
+        if not live:
+            self._lbl_status.setText(
+                "Loaded result — the points have changed since this run. Re-run to update."
+            )
+        elif (
             result.refractive_index_correction_mode == "pre"
             and result.refractive_index_correction_factor is not None
         ):
@@ -1774,10 +1780,6 @@ class CorrelationTabWidget(QWidget):
             if shift is not None:
                 msg += f", POI Δ{shift:.1f} px"
             self._lbl_status.setText(msg)
-        elif not live:
-            self._lbl_status.setText(
-                "Loaded result — the points have changed since this run. Re-run to update."
-            )
         else:
             self._lbl_status.setText("Done.")
         self.result_changed.emit(result)
