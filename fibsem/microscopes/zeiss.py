@@ -349,6 +349,13 @@ class ZeissMicroscope(FibsemMicroscope):
         # from system settings; used to map a requested current onto a probe.
         self._probe_table_path: Optional[str] = None
 
+        # last ion probe label read from the instrument, e.g. "30kV:50pA", with the
+        # current it parsed to. SmartFIB only accepts labels it knows, and the exact
+        # spelling varies per instrument, so re-use the instrument's own string when
+        # restoring the same current (e.g. set_microscope_state after an overview).
+        self._ion_probe_label: Optional[str] = None
+        self._ion_probe_current: Optional[float] = None
+
         # milling pattern buffer + configured .ely layout (see run_milling)
         self._patterns: List = []
         self._milling_settings: Optional[FibsemMillingSettings] = None
@@ -913,6 +920,29 @@ class ZeissMicroscope(FibsemMicroscope):
             logging.debug(f"GetValue({ap_name}) failed: {e}; using default {default}")
             return default
 
+    def _safe_set_value(self, ap_name: str, value) -> bool:
+        """Write an analogue SmartSEM value, warning instead of raising on failure.
+
+        SmartSEM rejects out-of-range or unavailable parameters with an API error.
+        Those must not propagate: a single failed write while restoring state
+        would otherwise abort the caller's whole operation.
+        """
+        try:
+            self.connection.SetValue(ap_name, value)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"Could not set {ap_name} to {value}: {e}")
+            return False
+
+    def _safe_execute(self, cmd_name: str) -> bool:
+        """Execute a SmartSEM command, warning instead of raising on failure."""
+        try:
+            self.connection.Execute(cmd_name)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"Could not execute {cmd_name}: {e}")
+            return False
+
     def _get(self, key: str, beam_type: Optional[BeamType] = None):
         """Translate a fibsem-os key into a SmartSEM parameter read."""
         conn = self.connection
@@ -947,6 +977,9 @@ class ZeissMicroscope(FibsemMicroscope):
                 probe = conn.GetState("DP_FIB_IMAGE_PROBE")  # EVIDENCED
                 current = parse_probe_current(probe)
                 if current is not None:
+                    # remember the instrument's exact label so we can set it back verbatim
+                    self._ion_probe_label = probe
+                    self._ion_probe_current = current
                     return current
             except Exception as e:  # noqa: BLE001
                 logging.debug(f"Could not read DP_FIB_IMAGE_PROBE: {e}")
@@ -1022,14 +1055,14 @@ class ZeissMicroscope(FibsemMicroscope):
 
         if key == "shift":
             if beam_type == BeamType.ION:
-                conn.SetValue("AP_FIB_BEAM_SHIFT_X", value.x)  # EVIDENCED
-                conn.SetValue("AP_FIB_BEAM_SHIFT_Y", value.y)  # EVIDENCED
+                self._safe_set_value("AP_FIB_BEAM_SHIFT_X", value.x)  # EVIDENCED
+                self._safe_set_value("AP_FIB_BEAM_SHIFT_Y", value.y)  # EVIDENCED
             else:
-                conn.SetValue("AP_BEAMSHIFT_X", value.x)  # EVIDENCED
-                conn.SetValue("AP_BEAMSHIFT_Y", value.y)  # EVIDENCED
+                self._safe_set_value("AP_BEAMSHIFT_X", value.x)  # EVIDENCED
+                self._safe_set_value("AP_BEAMSHIFT_Y", value.y)  # EVIDENCED
             return
         if key == "working_distance":
-            conn.SetValue("AP_WD", value)  # VERIFY (metres)
+            self._safe_set_value("AP_WD", value)  # VERIFY (metres)
             return
         if key == "current":
             if beam_type == BeamType.ION:
@@ -1037,6 +1070,13 @@ class ZeissMicroscope(FibsemMicroscope):
                 if isinstance(value, str):
                     probe_name = value
                     current_val = parse_probe_current(value)
+                elif (self._ion_probe_label is not None
+                      and self._ion_probe_current is not None
+                      and np.isclose(value, self._ion_probe_current, rtol=1e-3)):
+                    # restoring the current we last read: re-use the instrument's own
+                    # label verbatim, since SmartFIB only accepts labels it knows
+                    probe_name = self._ion_probe_label
+                    current_val = float(value)
                 elif self._probe_table_path:
                     probe = getProbe(value, self._probe_table_path)  # nearest from XML table
                     probe_name = probe["name"]
@@ -1044,25 +1084,34 @@ class ZeissMicroscope(FibsemMicroscope):
                 else:
                     probe_name = self._nearest_probe_string(value)
                     current_val = float(value)
-                conn.SetState("DP_FIB_IMAGE_PROBE", probe_name)  # EVIDENCED
-                self._beam_parameters[BeamType.ION].beam_current = current_val
-                logging.info(f"Set ion beam probe to {probe_name}.")
+                # a probe label SmartFIB does not know fails with API_E_SET_STATE_FAIL;
+                # warn rather than raise, so a failed restore cannot abort the caller
+                # (this previously discarded a completed tiled overview).
+                try:
+                    conn.SetState("DP_FIB_IMAGE_PROBE", probe_name)  # EVIDENCED
+                    self._beam_parameters[BeamType.ION].beam_current = current_val
+                    logging.info(f"Set ion beam probe to {probe_name}.")
+                except Exception as e:  # noqa: BLE001
+                    logging.warning(
+                        f"Could not set ion beam probe to '{probe_name}' "
+                        f"({value} A): {e}. Leaving the current probe selected."
+                    )
             else:
-                conn.SetValue("AP_IPROBE", value)  # VERIFY (amps)
+                self._safe_set_value("AP_IPROBE", value)  # VERIFY (amps)
             return
         if key == "voltage":
-            conn.SetValue("AP_MANUALKV", value)  # VERIFY (volts)
+            self._safe_set_value("AP_MANUALKV", value)  # VERIFY (volts)
             return
         if key == "hfw":
             limits = LIMITS.get(beam_type, SEM_LIMITS)["hfw"]
             value = float(np.clip(value, limits[0], limits[1]))
-            conn.SetValue("AP_WIDTH", value)  # VERIFY (metres)
+            self._safe_set_value("AP_WIDTH", value)  # VERIFY (metres)
             return
         if key == "scan_rotation":
-            conn.SetValue("AP_SCANROTATION", value)  # VERIFY (degrees)
+            self._safe_set_value("AP_SCANROTATION", value)  # VERIFY (degrees)
             return
         if key == "on":
-            conn.Execute("CMD_BEAM_ON" if value else "CMD_BEAM_OFF")  # EVIDENCED (SEM)
+            self._safe_execute("CMD_BEAM_ON" if value else "CMD_BEAM_OFF")  # EVIDENCED (SEM)
             return
         if key == "detector_type":
             try:
