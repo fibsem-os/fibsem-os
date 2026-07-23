@@ -1313,14 +1313,19 @@ class FibsemMillingSettings:
                                     "decimals": 2,
                                     "tooltip": "The spot size for the ion beam during milling.",
                                     "manufacturer": "Tescan"})
-    rate: float = field(default=3.0e-10, 
+    rate: float = field(default=1.3e-8,
                         metadata={
                                     "label": "Rate",
                                     "type": float,
-                                    "unit": "m³/s",
+                                    # unit must stay a BASE unit: the display suffix is built by
+                                    # prefixing it from `scale` (1e3 -> "m"), giving "mm³/A/s".
+                                    # mm³/A/s and TESCAN's own µm³/nA/s are numerically identical.
+                                    "unit": "m³/A/s",
                                     "scale": 1e3,
                                     "dimensions": 3,
-                                    "tooltip": "The milling rate (mm³/s).",
+                                    "tooltip": "Ion etching rate — how much material one amp removes per "
+                                               "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
+                                               "it. Default is the cryo lamella value; silicon is 0.3.",
                                     "manufacturer": "Tescan"
                                     })
     dwell_time: float = field(default=1.0e-6, 
@@ -1331,13 +1336,17 @@ class FibsemMillingSettings:
                                     "scale": 1e6,
                                     "tooltip": "The dwell time for the ion beam during milling (µs).",
                                     "manufacturer": "Tescan"})
-    spacing: float = field(default=1.0, 
+    spacing: float = field(default=0.005,
                            metadata={
                                     "label": "Spacing",
                                     "type": float,
-                                    "unit": "m",
-                                    "scale": 1e6,
-                                    "tooltip": "The spacing between milling points.",
+                                    "minimum": 0.0,
+                                    "maximum": 100.0,
+                                    "step": 0.001,
+                                    "decimals": 4,
+                                    "tooltip": "Exposition mesh spacing — how finely the pattern is filled "
+                                               "with exposure points. Dimensionless; the TESCAN default is "
+                                               "1.0 and smaller values mill more finely and take longer.",
                                     "manufacturer": "Tescan"})
     milling_channel: BeamType = field(default=BeamType.ION, 
                                       metadata={
@@ -1405,19 +1414,22 @@ class FibsemMillingSettings:
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemMillingSettings":
+        # fall back to the dataclass field defaults rather than repeating them here,
+        # so there is a single source of truth for every default
+        defaults = FibsemMillingSettings()
         milling_settings = FibsemMillingSettings(
-            milling_current=settings.get("milling_current", 20.0e-12),
-            spot_size=settings.get("spot_size", 5.0e-8),
-            rate=settings.get("rate", 3.0e-11),
-            dwell_time=settings.get("dwell_time", 1.0e-6),
-            hfw=float(settings.get("hfw", 150e-6)),
-            patterning_mode=settings.get("patterning_mode", "Serial"),
-            application_file=settings.get("application_file", "Si"),
-            preset=settings.get("preset", "30 keV; 1nA"),
-            spacing=settings.get("spacing", 1.0),
-            milling_voltage=settings.get("milling_voltage", 30e3),
-            milling_channel=BeamType[settings.get("milling_channel", "ION")],
-            acquire_images=settings.get("acquire_images", False),
+            milling_current=settings.get("milling_current", defaults.milling_current),
+            spot_size=settings.get("spot_size", defaults.spot_size),
+            rate=settings.get("rate", defaults.rate),
+            dwell_time=settings.get("dwell_time", defaults.dwell_time),
+            hfw=float(settings.get("hfw", defaults.hfw)),
+            patterning_mode=settings.get("patterning_mode", defaults.patterning_mode),
+            application_file=settings.get("application_file", defaults.application_file),
+            preset=settings.get("preset", defaults.preset),
+            spacing=settings.get("spacing", defaults.spacing),
+            milling_voltage=settings.get("milling_voltage", defaults.milling_voltage),
+            milling_channel=BeamType[settings.get("milling_channel", defaults.milling_channel.name)],
+            acquire_images=settings.get("acquire_images", defaults.acquire_images),
         )
 
         return milling_settings
