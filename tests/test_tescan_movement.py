@@ -5,9 +5,13 @@ axes), so stable_move decomposes the sample-plane move using the full chamber-fr
 sample inclination. See docs/design/tescan-stable-move.md for the derivation.
 
 These tests lock in the derived math and the internal sign contracts
-(stable_move <-> inverse round trips). The absolute hardware sign conventions
-(tilt sense, +z direction, stage x/y inversion) are flagged with
-TODO(hardware-verify) in code and can only be confirmed on an instrument.
+(stable_move <-> inverse round trips).
+
+Tescan +z increases DOWNWARD (away from the SEM column), opposite to Thermo RAW,
+so the forward decomposition is y = d*cos(incl), z = -d*sin(incl). Verified on
+hardware 2026-07-23. The remaining hardware sign conventions (tilt sense, stage
+x/y inversion) are flagged with TODO(hardware-verify) in code and can only be
+confirmed on an instrument.
 
 No hardware or Tescan SDK required: the microscope object is created without
 __init__ and the stage state is stubbed.
@@ -113,7 +117,7 @@ def stage_at(tilt_deg: float, rotation: float = ROTATION_FLAT_TO_EB) -> FibsemSt
 @pytest.mark.parametrize("pretilt_deg", [0.0, 20.0, 35.0])
 def test_sem_y_move_equals_expected_y(tilt_deg, pretilt_deg):
     """For the vertical SEM beam the y stage move equals the image dy exactly
-    (chamber-fixed y axis), and z compensates with dy * tan(sample_inclination)."""
+    (chamber-fixed y axis), and z compensates with -dy * tan(sample_inclination)."""
     m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_at(tilt_deg))
     dy = 2e-6
 
@@ -121,7 +125,7 @@ def test_sem_y_move_equals_expected_y(tilt_deg, pretilt_deg):
 
     inclination = np.deg2rad(tilt_deg) - np.deg2rad(pretilt_deg)
     assert move.y == pytest.approx(dy)
-    assert move.z == pytest.approx(dy * np.tan(inclination))
+    assert move.z == pytest.approx(-dy * np.tan(inclination))
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
@@ -143,7 +147,7 @@ def test_flat_sample_has_no_z_move(beam_type):
 
 def test_fib_move_explicit_values():
     """Explicit numeric check of the FIB case against the derivation:
-    d = dy / cos(incl - column_tilt); y = d*cos(incl); z = d*sin(incl)."""
+    d = dy / cos(incl - column_tilt); y = d*cos(incl); z = -d*sin(incl)."""
     tilt_deg, pretilt_deg = 17.0, 35.0
     m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_at(tilt_deg))
     dy = 2e-6
@@ -153,7 +157,7 @@ def test_fib_move_explicit_values():
     inclination = np.deg2rad(tilt_deg - pretilt_deg)  # -18 deg
     d = dy / np.cos(inclination - FIB_COLUMN_TILT)
     assert move.y == pytest.approx(d * np.cos(inclination))
-    assert move.z == pytest.approx(d * np.sin(inclination))
+    assert move.z == pytest.approx(-d * np.sin(inclination))
 
 
 def test_move_magnitude_equals_sample_plane_distance():
@@ -180,8 +184,8 @@ def test_pretilt_sign_flips_when_facing_ion():
     move_eb = m_eb._y_corrected_stage_movement(dy, BeamType.ELECTRON)
     move_ion = m_ion._y_corrected_stage_movement(dy, BeamType.ELECTRON)
 
-    assert move_eb.z == pytest.approx(dy * np.tan(np.deg2rad(tilt_deg - pretilt_deg)))
-    assert move_ion.z == pytest.approx(dy * np.tan(np.deg2rad(tilt_deg + pretilt_deg)))
+    assert move_eb.z == pytest.approx(-dy * np.tan(np.deg2rad(tilt_deg - pretilt_deg)))
+    assert move_ion.z == pytest.approx(-dy * np.tan(np.deg2rad(tilt_deg + pretilt_deg)))
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +205,7 @@ def test_stable_move_applies_axis_inversion():
     inclination = np.deg2rad(17.0 - 35.0)
     assert move.x == pytest.approx(-dx)
     assert move.y == pytest.approx(-dy)  # SEM: y_chamber == dy, inverted
-    assert move.z == pytest.approx(dy * np.tan(inclination))  # z not inverted
+    assert move.z == pytest.approx(-dy * np.tan(inclination))  # z not inverted
 
 
 def test_stable_move_scan_rotation_180_flips_xy():
@@ -217,7 +221,7 @@ def test_stable_move_scan_rotation_180_flips_xy():
     inclination = np.deg2rad(17.0 - 35.0)
     assert move.x == pytest.approx(dx)
     assert move.y == pytest.approx(dy)
-    assert move.z == pytest.approx(-dy * np.tan(inclination))
+    assert move.z == pytest.approx(dy * np.tan(inclination))
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
@@ -254,6 +258,32 @@ def test_microscope_inverse_round_trip(beam_type, rotation, tilt_deg, pretilt_de
     dy_raw, dz_raw = -chamber.y, chamber.z  # as applied by stable_move
 
     recovered = m._inverse_y_corrected_stage_movement(dy=dy_raw, dz=dz_raw, beam_type=beam_type)
+
+    assert recovered == pytest.approx(dy)
+
+
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_inverse_uses_sin_branch_past_45_degrees(beam_type):
+    """Round trip through the |sin| > |cos| branch of the inverse.
+
+    The inverse picks whichever of dy/dz is the larger component, so the sin
+    branch only runs once |sample_inclination| > 45 deg. Facing the ion beam
+    flips the pre-tilt sign, making the inclination (tilt + pretilt) — 50 deg
+    here. That branch encodes the z sign independently of the cos branch, so
+    without this case a z-convention change can pass every other test while
+    silently inverting the recovered dy.
+    """
+    tilt_deg, pretilt_deg = 30.0, 20.0
+    m = make_microscope(pretilt_deg, stage_at(tilt_deg, ROTATION_FLAT_TO_ION))
+    dy = 2e-6
+
+    chamber = m._y_corrected_stage_movement(expected_y=dy, beam_type=beam_type)
+    inclination = np.deg2rad(tilt_deg + pretilt_deg)
+    assert abs(np.sin(inclination)) > abs(np.cos(inclination)), "fixture must hit the sin branch"
+
+    recovered = m._inverse_y_corrected_stage_movement(
+        dy=-chamber.y, dz=chamber.z, beam_type=beam_type
+    )
 
     assert recovered == pytest.approx(dy)
 

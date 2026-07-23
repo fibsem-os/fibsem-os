@@ -689,9 +689,11 @@ class TescanMicroscope(FibsemMicroscope):
         fib_column_tilt = np.deg2rad(self.system.ion.column_tilt)
         dz = dy / np.sin(fib_column_tilt)
 
-        # TODO(hardware-verify): z sign assumes +z is up (toward the SEM column)
-        # and the x inversion matches stable_move. Verify with a coincidence
-        # correction from the FIB view.
+        # z is negated because Tescan +z increases downward (verified on hardware
+        # 2026-07-23, see _y_corrected_stage_movement).
+        # TODO(hardware-verify): the x inversion still assumes it matches stable_move,
+        # and the 1/sin(column_tilt) perspective factor has not been checked against
+        # the previous 1:1 dy->dz mapping, which was reported as working well.
         z_move = FibsemStagePosition(x=-dx, y=0, z=-dz, r=0, t=0)
         logging.info(f"vertical movement: {z_move}")
         self.move_stage_relative(z_move)
@@ -766,8 +768,10 @@ class TescanMicroscope(FibsemMicroscope):
 
         # decompose the sample-plane move into the chamber-fixed stage axes
         y_move = y_sample_move * np.cos(sample_inclination)
-        # TODO(hardware-verify): assumes Tescan +z is up (toward the SEM column),
-        # matching Thermo RAW. If Tescan z increases downward, negate z_move.
+        # Tescan +z increases DOWNWARD (away from the SEM column), opposite to Thermo
+        # RAW — hence the negation. Verified on hardware 2026-07-23: flipping the z
+        # sign alone corrected the coincidence move, while the tilt sense was already
+        # right. Keep _inverse_y_corrected_stage_movement's sin branch in sync.
         z_move = -y_sample_move * np.sin(sample_inclination)
 
         logging.debug({"msg": "_y_corrected_stage_movement",
@@ -833,14 +837,14 @@ class TescanMicroscope(FibsemMicroscope):
 
         beam_tilt = sem_column_tilt if beam_type is BeamType.ELECTRON else fib_column_tilt
 
-        # invert: forward is y = d*cos(incl), z = d*sin(incl);
+        # invert: forward is y = d*cos(incl), z = -d*sin(incl);
         # recover d from the larger component for numerical stability
         cos_incl = np.cos(sample_inclination)
         sin_incl = np.sin(sample_inclination)
         if abs(cos_incl) > abs(sin_incl):
             y_sample_move = dy / cos_incl
         else:
-            y_sample_move = dz / sin_incl
+            y_sample_move = -dz / sin_incl
 
         # re-project the sample-plane distance into the image plane
         expected_y = y_sample_move * np.cos(sample_inclination - beam_tilt)
