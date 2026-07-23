@@ -470,6 +470,31 @@ class TescanMicroscope(FibsemMicroscope):
 
         return fibsem_image
 
+    def _acquisition_worker(self, beam_type: BeamType) -> None:
+        """Worker thread for live image acquisition.
+
+        Acquires frames in a loop and emits each one on the beam's acquisition signal until
+        stop_acquisition() sets the stop event. TESCAN has no dedicated continuous/streaming
+        API (SEM.Scan/FIB.Scan expose single AcquireImage calls), so this simply re-acquires
+        with the current beam settings -- the same shape as the simulator worker.
+
+        acquire_image already serialises its SharkSEM traffic through the connection lock, so
+        the loop is safe against the UI thread's own socket use.
+        """
+        try:
+            while not self._stop_acquisition_event.is_set():
+                image = self.acquire_image(beam_type=beam_type)
+
+                if self._stop_acquisition_event.is_set():
+                    break
+
+                if beam_type is BeamType.ELECTRON:
+                    self.sem_acquisition_signal.emit(image)
+                elif beam_type is BeamType.ION:
+                    self.fib_acquisition_signal.emit(image)
+        except Exception as e:
+            logging.error(f"Error in TESCAN acquisition worker: {e}")
+
     def last_image(self, beam_type: BeamType) -> FibsemImage:
         """    
         Returns the last acquired image for the specified beam type.
