@@ -17,6 +17,7 @@ TESCAN_API_AVAILABLE = False
 TESCAN_BEAM_READY_TIMEOUT = 60        # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 SPOT_BURN_POLL_INTERVAL = 1           # Seconds between DrawBeam status polls while a spot is exposing
 SPOT_BURN_PRESET = "30 keV; 100 pA"   # Beam conditions used for spot burning
+DEFAULT_IMAGING_PRESET = "30 keV; 50 pA"  # Fallback for finish_milling when no preset was snapshotted
 
 try:
     import tescanautomation
@@ -274,6 +275,8 @@ class TescanMicroscope(FibsemMicroscope):
         self.milling_channel: BeamType = BeamType.ION
         self.stage_is_compustage: bool = False
         self._last_imaging_settings: ImageSettings = ImageSettings()
+        # preset active before milling started, restored by finish_milling
+        self._preset_before_milling: Optional[str] = None
 
         # user, experiment metadata
         # TODO: remove once db integrated
@@ -1092,12 +1095,17 @@ class TescanMicroscope(FibsemMicroscope):
         
         self._prepare_beam(mill_settings.milling_channel)
 
-        try: # TODO: check if the layer is loaded?
-            self.connection.DrawBeam.UnloadLayer()
-        except Exception as e:
-            logging.debug(f"Error unloading layer: {e}")
+        self.clear_patterns()
 
         self.milling_channel = mill_settings.milling_channel
+
+        # Snapshot the imaging preset so finish_milling can put the column back where the
+        # user left it. Only snapshot when one isn't already held: setup_milling sets the
+        # milling preset itself, so calling it twice without an intervening finish_milling
+        # would otherwise overwrite the snapshot with the milling preset.
+        if getattr(self, "_preset_before_milling", None) is None:
+            self._preset_before_milling = self.get("preset", BeamType.ION)
+            logging.debug(f"Snapshot preset before milling: {self._preset_before_milling}")
 
         self.set("preset", mill_settings.preset, BeamType.ION)  # QUERY: do we need to set this here as it is also set in IEtching?
 
@@ -1182,7 +1190,7 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Progress.Hide()
             if err:
                 self.connection.DrawBeam.Stop()
-                self.connection.DrawBeam.UnloadLayer()
+                self.clear_patterns()
 
     # def run_milling_drift_corrected(self, milling_current: float,  
     #     image_settings: ImageSettings, 
@@ -1262,14 +1270,22 @@ class TescanMicroscope(FibsemMicroscope):
         Args:
             imaging_current (float): The current to use for imaging in amps.
         # """
+        # Restore the preset that was active before milling, so the column goes back to the
+        # imaging conditions the user was working at. Falls back to the module default when
+        # no snapshot was taken (get("preset") can be None if no image has been acquired and
+        # no preset set this session).
+        preset = self._preset_before_milling or DEFAULT_IMAGING_PRESET
+        self._preset_before_milling = None
+
+        # Each cleanup step gets its own try: the preset activation is the fragile one, and
+        # a failure there must not skip the (cheap, always-wanted) layer unload.
         try:
-            default_preset = "30 keV; 50 pA"
-            self.connection.FIB.Preset.Activate(default_preset) # TODO: restore the default preset?
-            self.connection.DrawBeam.UnloadLayer()
-            logging.debug(f"Finished milling, restored preset to {default_preset}")
+            self.connection.FIB.Preset.Activate(preset)
+            logging.debug(f"Finished milling, restored preset to {preset}")
         except Exception as e:
-            logging.debug(f"Error in finish_milling: {e}")
-            pass
+            logging.warning(f"Error restoring preset {preset!r} in finish_milling: {e}")
+
+        self.clear_patterns()
 
     def stop_milling(self):
 
@@ -1285,7 +1301,16 @@ class TescanMicroscope(FibsemMicroscope):
             del thread_connection
 
     def clear_patterns(self) -> None:
-        pass
+        """Unload the current DrawBeam layer, discarding any patterns it holds.
+
+        Safe to call unconditionally: DrawBeam.UnloadLayer raises when no layer is loaded
+        (and when an exposition is still active), which is swallowed here so callers can
+        clear patterns without first tracking whether a layer exists.
+        """
+        try:
+            self.connection.DrawBeam.UnloadLayer()
+        except Exception as e:
+            logging.debug(f"Error unloading layer: {e}")
 
     def start_milling(self) -> None:
         self.connection.DrawBeam.Start()
@@ -1425,10 +1450,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         self._prepare_beam(beam_type)
 
-        try:
-            self.connection.DrawBeam.UnloadLayer()
-        except Exception as e:
-            logging.debug(f"Error unloading layer: {e}")
+        self.clear_patterns()
 
         hfw = self.get("hfw", beam_type)
         resolution = self.get("resolution", beam_type)
@@ -1471,10 +1493,7 @@ class TescanMicroscope(FibsemMicroscope):
             logging.error(f"Error in run_spot_burn: {e}")
             raise
         finally:
-            try:
-                self.connection.DrawBeam.UnloadLayer()
-            except Exception as e:
-                logging.debug(f"Error unloading spot burn layer: {e}")
+            self.clear_patterns()
 
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings):
         pass
