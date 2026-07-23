@@ -16,6 +16,7 @@ from fibsem.microscope import FibsemMicroscope
 TESCAN_API_AVAILABLE = False
 TESCAN_BEAM_READY_TIMEOUT = 60        # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 SPOT_BURN_POLL_INTERVAL = 1           # Seconds between DrawBeam status polls while a spot is exposing
+SPOT_BURN_PRESET = "30 keV; 100 pA"   # Beam conditions used for spot burning
 
 try:
     import tescanautomation
@@ -1335,9 +1336,8 @@ class TescanMicroscope(FibsemMicroscope):
     ) -> 'Automation.DrawBeam.Layer':
         """Build a DrawBeam layer holding one timed dot per coordinate.
 
-        preset is left as None so DrawBeam uses the beam's current conditions rather than
-        forcing a preset that may not exist on the machine. The remaining IEtching fields are
-        mandatory, so they come from the configured defaults.
+        The layer runs at SPOT_BURN_PRESET; the remaining IEtching fields are mandatory, so
+        they come from the configured milling defaults.
         """
         defaults = FibsemMillingSettings()
         layer_settings = IEtching(
@@ -1348,7 +1348,7 @@ class TescanMicroscope(FibsemMicroscope):
             rate=defaults.rate,
             dwellTime=defaults.dwell_time,
             parallel=False,
-            preset=None,
+            preset=SPOT_BURN_PRESET,
             spacing=defaults.spacing,
         )
         layer = self.connection.DrawBeam.Layer("SpotBurn", layer_settings)
@@ -1392,7 +1392,7 @@ class TescanMicroscope(FibsemMicroscope):
             coordinates: points to burn, normalised image coordinates (0-1).
             exposure_time: seconds to expose each point.
             milling_current: ignored on TESCAN, accepted for cross-backend signature parity;
-                the beam conditions are whatever the FIB is currently set to.
+                the beam conditions come from SPOT_BURN_PRESET.
             beam_type: must be BeamType.ION.
             stop_event: set to cancel the exposition.
         """
@@ -1405,8 +1405,8 @@ class TescanMicroscope(FibsemMicroscope):
 
         if milling_current is not None:
             logging.info(
-                "Spot burn milling_current is ignored on TESCAN; the exposition uses the "
-                f"current FIB beam conditions. (requested: {milling_current})"
+                f"Spot burn milling_current is ignored on TESCAN; using preset "
+                f"{SPOT_BURN_PRESET!r}. (requested: {milling_current})"
             )
 
         # drop points outside the image bounds, matching the shared implementation

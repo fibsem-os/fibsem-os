@@ -220,8 +220,7 @@ def test_nothing_runs_when_every_coordinate_is_out_of_bounds(monkeypatch):
     assert m.connection.DrawBeam.calls == []
 
 
-def test_layer_settings_use_configured_defaults_and_no_preset(monkeypatch):
-    """preset is left unset so DrawBeam uses the beam's current conditions."""
+def test_layer_settings_use_the_spot_burn_preset_and_configured_defaults(monkeypatch):
     from fibsem.structures import FibsemMillingSettings
 
     m = make_microscope(monkeypatch)
@@ -230,7 +229,8 @@ def test_layer_settings_use_configured_defaults_and_no_preset(monkeypatch):
     m.run_spot_burn(coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
 
     layer_settings = m.connection.DrawBeam.layers[0].settings
-    assert layer_settings["preset"] is None
+    assert layer_settings["preset"] == "30 keV; 100 pA"
+    assert layer_settings["preset"] == tescan_module.SPOT_BURN_PRESET
     assert layer_settings["spotSize"] == defaults.spot_size
     assert layer_settings["spacing"] == defaults.spacing
     assert layer_settings["rate"] == defaults.rate
