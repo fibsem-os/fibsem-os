@@ -224,6 +224,33 @@ class CorrelationInputData:
             return CorrelationInputData.from_dict(data)
 
 
+def _transform_inputs(data: CorrelationInputData) -> dict:
+    """The subset of the inputs that can change the fitted transform.
+
+    Used to decide whether a result still describes the current points. Scoping
+    matters both ways: too narrow and a real change slips through; too broad and
+    an edit that cannot move the answer marks a good result stale, at which point
+    the signal stops meaning anything and users learn to ignore it.
+    """
+
+    def positions(coords: list[Coordinate]) -> list:
+        return [c.point.to_dict() for c in coords]
+
+    def position(coord: Optional[Coordinate]) -> Optional[dict]:
+        return coord.point.to_dict() if coord is not None else None
+
+    return {
+        "fib": positions(data.fib_coordinates),
+        "fm": positions(data.fm_coordinates),
+        "poi": positions(data.poi_coordinates),
+        "surface": position(data.surface_coordinate),
+        "fm_surface": position(data.fm_surface_coordinate),
+        # scales POI z about the FM surface *before* the fit, so a change here
+        # genuinely changes the answer (see run_correlation_from_data).
+        "ri_pre_correction_factor": data.ri_pre_correction_factor,
+    }
+
+
 @dataclass
 class CorrelationPointOfInterest:
     """A single POI reprojected into the FIB image, in multiple coordinate systems."""
@@ -481,6 +508,26 @@ class CorrelationResult:
             df_input.to_csv(f, index=False)
             f.write("\n# Marker Reprojection Error\n")
             df_result.to_csv(f, index=False)
+
+    def matches_inputs(self, current: CorrelationInputData) -> bool:
+        """Whether this result was computed from ``current``'s coordinates.
+
+        ``input_data`` is a snapshot of the points the transform was fitted to,
+        which makes staleness *derivable* — no flag anyone has to remember to
+        set. Compares only what the transform consumes (see
+        :func:`_transform_inputs`); notably **excluded**:
+
+          * ``fitted`` — provenance on a Coordinate, not a position;
+          * ``method`` — not read by ``run_correlation_from_data``;
+          * anything image-derived — a deserialized result carries no images, so
+            e.g. ``fm_image_shape`` is None on this side and populated on the
+            live side, which would report every reloaded result as stale.
+
+        A result with no snapshot can't be shown to match, so it reports False.
+        """
+        if self.input_data is None:
+            return False
+        return _transform_inputs(self.input_data) == _transform_inputs(current)
 
     def save(self, filename: str) -> None:
         with open(filename, "w") as f:
