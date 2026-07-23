@@ -692,7 +692,7 @@ class TescanMicroscope(FibsemMicroscope):
         # TODO(hardware-verify): z sign assumes +z is up (toward the SEM column)
         # and the x inversion matches stable_move. Verify with a coincidence
         # correction from the FIB view.
-        z_move = FibsemStagePosition(x=-dx, y=0, z=dz, r=0, t=0)
+        z_move = FibsemStagePosition(x=-dx, y=0, z=-dz, r=0, t=0)
         logging.info(f"vertical movement: {z_move}")
         self.move_stage_relative(z_move)
 
@@ -768,7 +768,7 @@ class TescanMicroscope(FibsemMicroscope):
         y_move = y_sample_move * np.cos(sample_inclination)
         # TODO(hardware-verify): assumes Tescan +z is up (toward the SEM column),
         # matching Thermo RAW. If Tescan z increases downward, negate z_move.
-        z_move = y_sample_move * np.sin(sample_inclination)
+        z_move = -y_sample_move * np.sin(sample_inclination)
 
         logging.debug({"msg": "_y_corrected_stage_movement",
                        "stage_tilt": stage_tilt,
@@ -1257,7 +1257,7 @@ class TescanMicroscope(FibsemMicroscope):
             imaging_current (float): The current to use for imaging in amps.
         # """
         try:
-            default_preset = "30 keV; 150 pA"
+            default_preset = "30 keV; 50 pA"
             self.connection.FIB.Preset.Activate(default_preset) # TODO: restore the default preset?
             self.connection.DrawBeam.UnloadLayer()
             logging.debug(f"Finished milling, restored preset to {default_preset}")
