@@ -2,6 +2,7 @@ import numpy as np
 import logging
 import time
 
+from datetime import datetime
 from typing import Dict, List, Literal, Optional, Tuple, Union
 from fibsem.fm.microscope import (
     Camera,
@@ -10,6 +11,7 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscopes.odemis_microscope import add_odemis_path
 
 add_odemis_path()
@@ -25,6 +27,33 @@ from odemis.util import fluo
 OBJECTIVE_POSITION_ATOL = 100e-6  # m
 
 
+def _frame_metadata_from_data(data) -> Optional[dict]:
+    """Translate odemis DataArray metadata to the neutral frame-metadata keys
+    consumed by FluorescenceMicroscope._construct_image.
+
+    Odemis DataArrays carry metadata captured at exposure time (pixel size,
+    acquisition date, exposure time), which is authoritative over a state
+    snapshot taken when the frame is processed.
+    """
+    md = getattr(data, "metadata", None)
+    if not md:
+        return None
+
+    frame_metadata = {}
+    pixel_size = md.get(model.MD_PIXEL_SIZE)
+    if pixel_size is not None:
+        frame_metadata["pixel_size"] = tuple(pixel_size)
+    acquisition_date = md.get(model.MD_ACQ_DATE)
+    if acquisition_date is not None:
+        frame_metadata["acquisition_date"] = datetime.fromtimestamp(
+            acquisition_date
+        ).isoformat()
+    exposure_time = md.get(model.MD_EXP_TIME)
+    if exposure_time is not None:
+        frame_metadata["exposure_time"] = exposure_time
+    return frame_metadata or None
+
+
 class OdemisObjectiveLens(ObjectiveLens):
     """Odemis objective lens implementation for fluorescence microscopy.
 
@@ -33,11 +62,15 @@ class OdemisObjectiveLens(ObjectiveLens):
     for improved performance when accessing frequently used position values.
     """
 
-    def __init__(self, parent: "Client", focuser: model.Actuator = None):
+    def __init__(
+        self,
+        parent: "OdemisFluorescenceMicroscope",
+        focuser: Optional[model.Actuator] = None,
+    ):
         """Initialize the objective lens with optional focuser component.
 
         Args:
-            parent: The parent client instance
+            parent: The parent fluorescence microscope instance
             focuser: Optional focuser actuator component. If None, will be
                     automatically detected using the 'focus' role.
         """
@@ -107,7 +140,7 @@ class OdemisObjectiveLens(ObjectiveLens):
                 return None
 
     @property
-    def deactive_position(self):
+    def deactive_position(self) -> Optional[dict]:
         """Get the deactive (retracted) position of the objective lens.
 
         Uses cached metadata when available for improved performance,
@@ -304,11 +337,15 @@ class OdemisCamera(Camera):
     through the Odemis streaming interface.
     """
 
-    def __init__(self, parent: "Client", camera: Optional[model.DigitalCamera] = None):
+    def __init__(
+        self,
+        parent: "OdemisFluorescenceMicroscope",
+        camera: Optional[model.DigitalCamera] = None,
+    ):
         """Initialize the camera with optional camera component.
 
         Args:
-            parent: The parent client instance
+            parent: The parent fluorescence microscope instance
             camera: Optional camera component. If None, will be automatically
                    detected using the 'ccd' role.
         """
@@ -335,6 +372,7 @@ class OdemisCamera(Camera):
 
         # not all cameras publish a baseline (only some drivers set MD_BASELINE)
         self._offset = camera_md.get(model.MD_BASELINE, 0)
+        self._gain_warning_logged = False
 
     # other attributes: depthOfField, readoutRate, pointSpreadFunctionSize
 
@@ -446,9 +484,68 @@ class OdemisCamera(Camera):
         Note:
             Sets symmetric binning (same value for both x and y axes)
         """
-        if value not in [1, 2, 4, 8]:
-            raise ValueError(f"Binning must be one of [1, 2, 4, 8], got {value}")
+        if value not in self.available_binnings:
+            raise ValueError(
+                f"Binning must be one of {self.available_binnings}, got {value}"
+            )
         self._camera.binning.value = (value, value)
+
+    @property
+    def available_binnings(self) -> Tuple[int, ...]:
+        """Get the supported binning values from the camera binning VA.
+
+        Uses the VA choices when enumerated; otherwise powers of two within
+        the VA range.
+        """
+        binning_va = self._camera.binning
+        choices = getattr(binning_va, "choices", None)
+        if choices:
+            return tuple(sorted({int(c[0]) for c in choices}))
+        min_binning = binning_va.range[0][0]
+        max_binning = binning_va.range[1][0]
+        binnings = []
+        b = 1
+        while b <= max_binning:
+            if b >= min_binning:
+                binnings.append(b)
+            b *= 2
+        return tuple(binnings)
+
+    @property
+    def exposure_time_limits(self) -> Tuple[float, float]:
+        """Get the valid exposure time range from the camera VA.
+
+        Returns:
+            A tuple of (minimum, maximum) exposure times in seconds
+        """
+        rng = self._camera.exposureTime.range
+        return (rng[0], rng[1])
+
+    @property
+    def gain(self) -> Optional[float]:
+        """Get the camera gain, or None when the camera has no gain control.
+
+        Only reports values that reflect hardware state: if the camera
+        exposes no gain VA, None is returned (and recorded in metadata)
+        rather than echoing back a software-only value.
+        """
+        if model.hasVA(self._camera, "gain"):
+            return self._camera.gain.value
+        return None
+
+    @gain.setter
+    def gain(self, value: float) -> None:
+        """Set the camera gain when the camera supports it.
+
+        Ignored (with a one-time warning) on cameras without a gain VA, so
+        applying a saved channel with a gain value does not fail.
+        """
+        if model.hasVA(self._camera, "gain"):
+            self._camera.gain.value = value
+            return
+        if not self._gain_warning_logged:
+            logging.warning("Camera has no gain control; ignoring gain settings.")
+            self._gain_warning_logged = True
 
     @property
     def pixel_size(self) -> Tuple[float, float]:
@@ -482,6 +579,9 @@ class OdemisCamera(Camera):
     def offset(self) -> float:
         """Get the baseline offset of the camera.
 
+        Read-only: the offset comes from the camera MD_BASELINE metadata;
+        the base-class setter is intentionally not supported here.
+
         Returns:
             The camera's baseline offset value from metadata
         """
@@ -497,7 +597,9 @@ class OdemisLightSource(LightSource):
     """
 
     def __init__(
-        self, parent: "OdemisFluorescenceMicroscope", light_source: model.Emitter = None
+        self,
+        parent: "OdemisFluorescenceMicroscope",
+        light_source: Optional[model.Emitter] = None,
     ):
         """Initialize the light source with optional emitter component.
 
@@ -548,13 +650,18 @@ class OdemisLightSource(LightSource):
         max_power = self._stream.power.range[1]
         self._stream.power.value = value * max_power
 
+    @property
     def power_limits(self) -> Tuple[float, float]:
         """Get the valid power range for the light source.
 
+        Power is normalised to a fraction of maximum across all drivers;
+        the underlying watt range remains available on the stream power VA
+        for diagnostics.
+
         Returns:
-            A tuple of (minimum, maximum) power levels
+            A tuple of (minimum, maximum) power fractions (0.0, 1.0)
         """
-        return self._stream.power.range
+        return (0.0, 1.0)
 
     # spectra property?
 
@@ -576,7 +683,7 @@ class OdemisFilterSet(FilterSet):
         for user convenience. None values represent reflection/pass-through mode.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional["OdemisFluorescenceMicroscope"] = None):
         """Initialize the filter set with parent microscope.
 
         Args:
@@ -585,8 +692,6 @@ class OdemisFilterSet(FilterSet):
         super().__init__(parent)
         self.parent = parent
         self._stream: FluoStream = self.parent._stream
-        self._excitation_wavelength = None
-        self._emission_wavelength = None
 
     # NOTE on internal representation:
     # images are acquired via the public stream interface, as it contains the necessary components
@@ -820,3 +925,17 @@ class OdemisFluorescenceMicroscope(FluorescenceMicroscope):
         self.camera = OdemisCamera(self, camera=camera)
         self.light_source = OdemisLightSource(self, light_source=light_source)
         self.filter_set = OdemisFilterSet(self)
+
+    def _construct_image(
+        self, data: np.ndarray, frame_metadata: Optional[dict] = None
+    ) -> FluorescenceImage:
+        """Construct a FluorescenceImage, preferring per-frame odemis metadata.
+
+        Odemis DataArrays carry authoritative metadata captured at exposure
+        time (pixel size, acquisition date, exposure time); when present it
+        overrides the state snapshot, so frames stay correctly stamped even
+        if settings change during live view.
+        """
+        if frame_metadata is None:
+            frame_metadata = _frame_metadata_from_data(data)
+        return super()._construct_image(data, frame_metadata=frame_metadata)
