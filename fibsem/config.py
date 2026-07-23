@@ -109,7 +109,7 @@ def load_yaml(fname):
 
     return config
 
-AVAILABLE_MANUFACTURERS = ["Thermo", "Tescan", "Demo"]
+AVAILABLE_MANUFACTURERS = ["Thermo", "Tescan", "Demo", "Zeiss"]
 DEFAULT_MANUFACTURER = "Thermo"
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
@@ -201,6 +201,10 @@ DEFAULT_CONFIGURATION_VALUES = {
     },
     "Demo": {
         "ion-column-tilt": 52,
+        "electron-column-tilt": 0,
+    },
+    "Zeiss": {
+        "ion-column-tilt": 54,      # ZEISS Crossbeam FIB-SEM column angle
         "electron-column-tilt": 0,
     },
 }

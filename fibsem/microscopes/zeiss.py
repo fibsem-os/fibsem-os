@@ -1,31 +1,52 @@
+"""ZEISS FIB-SEM microscope backend for fibsem-os.
+
+ZEISS instruments do not provide a direct Python API. Control is done through the
+SmartSEM/SmartFIB COM automation interface (``CZ.EMApiCtrl.1``), which is wrapped
+into Python by the modules under :mod:`fibsem.microscopes.zeiss_api`.
+
+Those driver modules (``SEM_API.py``, ``read_probe_table.py``) are vendored from
+the SerialFIB project; see :mod:`fibsem.microscopes.zeiss_api` for attribution.
+
+This module adapts that layer to the :class:`~fibsem.microscope.FibsemMicroscope`
+abstract interface, so ZEISS hardware can be driven with the same structured
+dataclasses (``FibsemStagePosition``, ``ImageSettings``, ``FibsemImage``,
+``BeamType`` ...) as the Thermo and Tescan backends.
+
+Notes on the logic difference vs. SerialFIB
+--------------------------------------------
+SerialFIB drives ZEISS through raw SmartSEM parameter strings (``AP_*`` analogue,
+``DP_*`` digital, ``CMD_*`` commands) and does patterning by writing ``.ely``
+files to disk and firing ``CMD_SMARTFIB_LOAD_ELY``. fibsem-os instead expects the
+structured abstract interface. The bridge is :meth:`ZeissMicroscope._get` /
+:meth:`ZeissMicroscope._set`, which translate fibsem-os keys into SmartSEM
+parameter operations on the vendored :class:`SEM_API`.
+
+Parameter-name provenance
+-------------------------
+Names marked ``# EVIDENCED`` are used by SerialFIB and are known-good. Names
+marked ``# VERIFY`` are the conventional SmartSEM names but were not exercised by
+SerialFIB; confirm them against the SmartSEM parameter database on the target
+instrument before relying on them on hardware.
 """
-ZeissMicroscope — fibsem-os wrapper for the Zeiss SmartSEM / CrossBeam system.
 
-Migrated from SerialFIB's CrossbeamDriver (Klumpe, Goetz, Fung et al.,
-Max-Planck-Institute for Biochemistry / EMBL Heidelberg).
-
-The Zeiss SDK (crossbeam_client / SEM_API) is vendored under
-fibsem/microscopes/zeiss_api/ and requires:
-  - Windows OS
-  - SmartSEM installed with COM server CZ.EMApiCtrl.1 registered
-  - (optional) SmartFIB for patterning
-"""
-
-from __future__ import annotations
-
+import datetime
 import logging
+import os
+import re
 import time
-from typing import Dict, List, Optional, Union
+import xml.etree.ElementTree as ET
+from copy import deepcopy
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+import fibsem.constants as constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemDetectorSettings,
     FibsemExperiment,
     FibsemGasInjectionSettings,
     FibsemImage,
@@ -39,537 +60,944 @@ from fibsem.structures import (
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
-    MillingState,
     MicroscopeState,
+    MillingState,
     Point,
     SystemSettings,
 )
 
-# ---------------------------------------------------------------------------
-# Optional import guard — allows fibsem-os to load on non-Zeiss machines
-# ---------------------------------------------------------------------------
-
+# The vendored SEM_API wrapper performs COM setup at import time (pywin32 +
+# the ZEISS type library), so importing it will fail on any machine that is not
+# a ZEISS control PC. Guard it exactly like TESCAN_API_AVAILABLE in tescan.py.
 ZEISS_API_AVAILABLE = False
 try:
-    from fibsem.microscopes.zeiss_api import (  # noqa: F401
-        MicroscopeClient,
-        GrabFrameSettings,
-        ZeissPoint,
-    )
-    from fibsem.microscopes.zeiss_api.tiff_handle import read_tiff
+    from fibsem.microscopes.zeiss_api.SEM_API import SEM_API
+    from fibsem.microscopes.zeiss_api.read_probe_table import getProbe, readProbeTable
 
     ZEISS_API_AVAILABLE = True
-except Exception as exc:
-    logging.debug(f"zeiss_api not available — Zeiss microscope support disabled. ({exc})")
-
-# ---------------------------------------------------------------------------
-# Conversion helpers
-# ---------------------------------------------------------------------------
+except Exception as e:  # noqa: BLE001 - COM/pywin32/type-lib may raise many things
+    logging.debug(f"SmartSEM API (ZEISS) not available. {e}")
 
 
-def _zeiss_stage_to_fibsem(pos_tuple) -> FibsemStagePosition:
-    """Convert Zeiss stage position tuple (x, y, z, t, r) to FibsemStagePosition.
+# SmartSEM API grab target. SEM_API.grab_full_image writes the frame to disk and
+# SerialFIB reads it back from here (C:/api/Grab.tif). Keep the same convention.
+ZEISS_API_GRAB_PATH = r"C:/api/Grab.tif"
 
-    Zeiss reports positions in metres and degrees; fibsem uses metres and
-    degrees consistently (the base class converts to radians where needed).
+# Field-of-view limits (metres). Placeholder values, refine per instrument.
+SEM_LIMITS: Dict[str, Tuple[float, float]] = {"hfw": (1.0e-6, 3.0e-3)}
+FIB_LIMITS: Dict[str, Tuple[float, float]] = {"hfw": (1.0e-6, 1.0e-3)}
+LIMITS = {BeamType.ELECTRON: SEM_LIMITS, BeamType.ION: FIB_LIMITS}
+
+# Fallback available-value lists, used by get_available_values when a live source
+# (e.g. the SmartFIB probe table) is not configured. Refine per instrument.
+ZEISS_FIB_CURRENTS = [1.0e-12, 10.0e-12, 30.0e-12, 50.0e-12, 100.0e-12, 300.0e-12,
+                      700.0e-12, 1.0e-9, 3.0e-9, 7.0e-9, 15.0e-9, 30.0e-9]  # Ga LMIS probes
+ZEISS_SEM_CURRENTS = [1.0e-12, 10.0e-12, 50.0e-12, 100.0e-12, 200.0e-12, 400.0e-12,
+                      1.0e-9, 2.0e-9, 4.0e-9, 10.0e-9]
+ZEISS_SEM_VOLTAGES = [1000.0, 2000.0, 3000.0, 5000.0, 10000.0, 15000.0, 20000.0, 30000.0]
+ZEISS_FIB_VOLTAGE = 30000.0  # Ga FIB is fixed at 30 kV
+ZEISS_SCAN_DIRECTIONS = ["TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft"]
+
+# ZEISS FIB imaging probes are selected by a STRING (SmartSEM DP_FIB_IMAGE_PROBE),
+# e.g. "30kV:50pA" -- the accelerating voltage and the beam current. fibsem-os
+# represents beam current as a float everywhere, so we convert between the two.
+ZEISS_FIB_PROBE_STRINGS = [
+    "30kV:1pA", "30kV:10pA", "30kV:30pA", "30kV:50pA", "30kV:100pA", "30kV:300pA",
+    "30kV:700pA", "30kV:1nA", "30kV:3nA", "30kV:7nA", "30kV:15nA", "30kV:30nA",
+]
+_PROBE_CURRENT_UNITS = {"pa": 1e-12, "na": 1e-9, "ua": 1e-6, "a": 1.0}
+
+
+def parse_probe_current(probe: str) -> Optional[float]:
+    """Extract the beam current (amps) from a SmartFIB probe string, e.g. "30kV:50pA" -> 50e-12."""
+    if not isinstance(probe, str):
+        return None
+    m = re.search(r"([\d.]+)\s*(pA|nA|uA|µA|A)", probe, re.IGNORECASE)
+    if not m:
+        return None
+    unit = m.group(2).lower().replace("µ", "u")
+    return float(m.group(1)) * _PROBE_CURRENT_UNITS.get(unit, 1.0)
+
+
+def format_probe_current(current: float, kv: int = 30) -> str:
+    """Format a current (amps) as a SmartFIB probe string, e.g. 50e-12 -> "30kV:50pA"."""
+    if current < 1e-9:
+        val, unit = current * 1e12, "pA"
+    elif current < 1e-6:
+        val, unit = current * 1e9, "nA"
+    else:
+        val, unit = current * 1e6, "uA"
+    return f"{kv}kV:{val:g}{unit}"
+
+
+# SmartFIB milling geometry/dose. Defaults mirror the SerialFIB .ely templates.
+ZEISS_MILL_CYCLES = 6125            # SmartFIB cycle count used in the dose model
+ZEISS_MILL_PIXEL_SPACING = 0.5      # fraction (== "50 %")
+ZEISS_MILL_TRACK_SPACING = 0.5      # fraction (== "50 %")
+ZEISS_DEFAULT_PROBE_DIAMETER = 4.5e-8  # m, fallback Ga probe diameter (from SerialFIB refs)
+ZEISS_DEFAULT_MILL_TIME = 60.0      # s, fallback per-pattern mill time when unspecified
+# SmartFIB Drop folder: dropping an .ely here and firing CMD_SMARTFIB_LOAD_ELY loads it.
+ZEISS_SMARTFIB_DROP_PATH = r"C:/ProgramData/Carl Zeiss/SmartFIB/API/Drop/ApiLayout.ely"
+
+
+def calculate_dose_area(probe_current: float, probe_size: float, pixel_spacing: float,
+                        track_spacing: float, cycle: int, mill_time: float,
+                        width: float, height: float) -> float:
+    """Compute the SmartFIB area dose (C/m^2) that yields ``mill_time`` seconds.
+
+    Ported from SerialFIB ``calculate_dwell_time`` (caculate_mill_time_fct.py):
+    given the desired total mill time, derive the per-pixel dwell and hence the
+    area dose that SmartFIB's "by purpose" exposure will apply.
     """
-    x, y, z, t, r = float(pos_tuple[0]), float(pos_tuple[1]), float(pos_tuple[2]), float(pos_tuple[3]), float(pos_tuple[4])
-    return FibsemStagePosition(x=x, y=y, z=z, t=t, r=r)
+    area = height * width
+    spot_area = probe_size ** 2 * pixel_spacing * track_spacing
+    if spot_area <= 0 or area <= 0:
+        return 0.0
+    n_pixel = area / spot_area
+    dwell_time = mill_time / (n_pixel * cycle)
+    dose = dwell_time * cycle * probe_current / spot_area
+    return abs(dose)
 
 
-def _fibsem_to_zeiss_stage(pos: FibsemStagePosition) -> tuple:
-    """Convert FibsemStagePosition to Zeiss (x, y, z, t, r) tuple."""
-    return (pos.x, pos.y, pos.z, pos.t, pos.r)
+def build_ely_xml(rectangles: List["FibsemRectangleSettings"], probe_name: str,
+                  probe_current: float, probe_diameter: float,
+                  dose_area_fn, layout_name: str = "fibsem_layout") -> bytes:
+    """Build a SmartFIB ``.ely`` layout (XML bytes) for a list of rectangle patterns.
 
+    Mirrors the SerialFIB template (``TemplatePatterns/Zeiss/layout001.ely``):
+    one ``RECT`` per pattern with geometry in micrometres, an ``EXPOSURE`` with a
+    computed ``dose_area``, and a ``PROBE`` selecting the FIB current.
+    ``dose_area_fn(rect) -> float`` returns the area dose (C/m^2) per rectangle.
+    """
+    ts = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    root = ET.Element("ELAYOUT", version="2.0", locked="false", name=layout_name)
+    ET.SubElement(root, "VERSION", created=ts, modified=ts, number="1.0")
+    ET.SubElement(root, "AXES", show="true")
+    ET.SubElement(root, "GRID", horizontal="1", show="true", snap_to="false", vertical="1")
+    layer_list = ET.SubElement(root, "LAYER_LIST")
+    ET.SubElement(layer_list, "LAYER", fill_color="#00FF00", fill_opacity="0.5",
+                  hidden="false", locked="false", name="Layer")
+    structure_list = ET.SubElement(root, "STRUCTURE_LIST")
+    structure = ET.SubElement(structure_list, "STRUCTURE", locked="false", name="Structure")
+    ET.SubElement(structure, "VERSION", created=ts, modified=ts, number="1.0")
+    ET.SubElement(structure, "INSTANCE_LIST")
+    layer_ref = ET.SubElement(structure, "LAYER_REFERENCE",
+                              frame_cx="0", frame_cy="0", frame_size="100", ref="Layer")
 
-def _zeiss_image_to_fibsem(
-    img_array: np.ndarray,
-    pixel_size_m: float,
-    image_settings: Optional[ImageSettings],
-    beam_type: BeamType,
-    state: Optional[MicroscopeState] = None,
-) -> FibsemImage:
-    """Wrap a numpy array read from a Zeiss TIFF into a FibsemImage."""
-
-    h, w = img_array.shape[:2]
-    hfw = pixel_size_m * w if pixel_size_m else 100e-6
-
-    if image_settings is None:
-        image_settings = ImageSettings(
-            resolution=(w, h),
-            dwell_time=100e-9,
-            hfw=hfw,
-            beam_type=beam_type,
+    for rect in rectangles:
+        dose = dose_area_fn(rect)
+        rect_el = ET.SubElement(
+            layer_ref, "RECT",
+            edge_sel_auto_scan_angle="true",
+            height=f"{rect.height * 1e6:g}", width=f"{rect.width * 1e6:g}",
+            angle="0 deg", x=f"{rect.centre_x * 1e6:g}", y=f"{rect.centre_y * 1e6:g}",
+            imaging="false",
         )
+        exposure = ET.SubElement(
+            rect_el, "EXPOSURE",
+            version="2.1", column_type="FIB", purpose="FIB milling",
+            computed_parameter="by purpose",
+            dwell_times_point="1e-006 s", dwell_times_line="1e-006 s",
+            dwell_times_area="1e-006 s", dwell_times_image="1e-006 s",
+            delay="none", cycle_delay="0 s",
+            dose_image="0 C/m²", dose_area=f"{dose:g} C/m²",
+            dose_line="0 C/m", dose_point="0 C", pause="false",
+            scanning_mode_fast="by purpose", scanning_mode_cycle_mode="by purpose",
+            pixel_spacing_image="0 m", pixel_spacing_area="50 %",
+            pixel_spacing_line="50 %", track_spacing="50 %", description="",
+        )
+        ET.SubElement(exposure, "PROBE", name=probe_name, type="specific",
+                      current=f"{probe_current:g} A", diameter=f"{probe_diameter:g} m")
+        ET.SubElement(exposure, "GIS", name="unchanged", channel="0", category="0",
+                      type="unchanged", ack="false", autopark="false",
+                      offset="false", usegas="false")
 
-    pixel_size = Point(x=pixel_size_m or 1e-9, y=pixel_size_m or 1e-9)
+    return ET.tostring(root, encoding="UTF-8", xml_declaration=True)
 
-    metadata = FibsemImageMetadata(
-        image_settings=image_settings,
-        pixel_size=pixel_size,
-        microscope_state=state or MicroscopeState(),
+# SmartSEM active-beam command per beam type (EVIDENCED, SEM_API.set_active_beam).
+_ACTIVE_BEAM_ARG = {BeamType.ELECTRON: "ELECTRON", BeamType.ION: "ION"}
+
+
+# ----------------------------------------------------------------------------
+# Conversion helpers (raw SmartSEM tuples <-> fibsem-os dataclasses)
+# ----------------------------------------------------------------------------
+# IMPORTANT: SEM_API stage tuples are ordered (x, y, z, t, r, m) -- tilt BEFORE
+# rotation -- with x/y/z in metres and t/r in DEGREES. fibsem-os
+# FibsemStagePosition is (x, y, z, r, t) with lengths in metres and angles in
+# radians. Keep the axis swap + unit conversion in one place.
+
+def from_zeiss_stage_position(position: Tuple[float, ...]) -> FibsemStagePosition:
+    """Convert a raw SmartSEM stage tuple (x, y, z, t, r, [m]) to FibsemStagePosition."""
+    x, y, z, t, r = position[:5]
+    return FibsemStagePosition(
+        x=float(x),
+        y=float(y),
+        z=float(z),
+        r=float(r) * constants.DEGREES_TO_RADIANS,
+        t=float(t) * constants.DEGREES_TO_RADIANS,
+        coordinate_system="RAW",
     )
 
-    # Zeiss images can be RGB; take first channel / convert to 2-D
-    if img_array.ndim == 3:
-        img_array = img_array[:, :, 0]
 
-    return FibsemImage(data=img_array, metadata=metadata)
+def to_zeiss_stage_position(position: FibsemStagePosition) -> Tuple[float, float, float, float, float]:
+    """Convert a FibsemStagePosition to the SmartSEM absolute-move tuple (x, y, z, t, r).
 
-
-# ---------------------------------------------------------------------------
-# Resolutions available on Zeiss CrossBeam
-# ---------------------------------------------------------------------------
-
-ZEISS_RESOLUTIONS = [
-    "512x384",
-    "768x512",
-    "1024x768",
-    "2048x1536",
-    "3072x2304",
-    "4096x3072",
-]
-
-ZEISS_DEFAULT_RESOLUTION = "1024x768"
+    ``SEM_API.move_stage_absolute`` expects exactly this 5-tuple ordering and
+    fills the 6th axis (m) from the current position itself.
+    """
+    x = position.x if position.x is not None else 0.0
+    y = position.y if position.y is not None else 0.0
+    z = position.z if position.z is not None else 0.0
+    r = position.r * constants.RADIANS_TO_DEGREES if position.r is not None else 0.0
+    t = position.t * constants.RADIANS_TO_DEGREES if position.t is not None else 0.0
+    return (x, y, z, t, r)
 
 
-# ---------------------------------------------------------------------------
-# ZeissMicroscope
-# ---------------------------------------------------------------------------
+def _read_image_file(path: str) -> np.ndarray:
+    """Read a grabbed image file back into a 2D grayscale numpy array.
+
+    ``SEM_API.grab_full_image`` writes the frame to disk. Note SmartSEM's Grab
+    writes a BMP even when the filename ends in ``.tif``, and grayscale SEM/FIB
+    frames come back as 3-channel RGB, so:
+      - use a format-agnostic reader (auto-detects BMP/TIFF/PNG), and
+      - collapse any RGB(A) result to a single channel (the channels are equal
+        for grayscale images), returning 2D uint8/uint16 as FibsemImage requires.
+    """
+    img = None
+    try:
+        import imageio.v2 as imageio
+        img = np.asarray(imageio.imread(path))
+    except Exception:  # noqa: BLE001
+        from skimage.io import imread
+        img = np.asarray(imread(path))
+
+    # collapse multi-channel (RGB/RGBA) grayscale frames to 2D
+    if img.ndim == 3:
+        img = img[:, :, 0]
+    return img
 
 
 class ZeissMicroscope(FibsemMicroscope):
-    """fibsem-os adapter for the Zeiss SmartSEM / CrossBeam microscope.
+    """A ZEISS FIB-SEM microscope, driven through the SmartSEM/SmartFIB COM API.
 
-    This is an initial thin-wrapper release that exposes the operations
-    implemented in SerialFIB's CrossbeamDriver.  Methods without a Zeiss
-    equivalent raise ``NotImplementedError``.
+    Backed by the vendored :class:`SEM_API` wrapper (migrated from SerialFIB).
+    Implements the :class:`~fibsem.microscope.FibsemMicroscope` contract.
+
+    Coverage (first pass):
+      - fully wired: connect, stage get/move, image acquisition, beam shift,
+        auto-focus / auto contrast-brightness, beam on/off, ion beam current.
+      - partial: milling (``.ely`` file flow), sputter/GIS, manipulator -- these
+        are either unsupported on ZEISS or need additional development
+        (pattern -> ``.ely`` generation).
     """
 
     def __init__(self, system_settings: SystemSettings):
         if not ZEISS_API_AVAILABLE:
             raise ImportError(
-                "zeiss_api is not available. "
-                "Ensure the Zeiss SDK (crossbeam_client/SEM_API) is installed and "
-                "that fibsem/microscopes/zeiss_api/ is present."
+                "The ZEISS SmartSEM API is not available. This requires pywin32 and "
+                "the SmartSEM Remote API registered so that CZ.EMApiCtrl.1 resolves "
+                "(on a Crossbeam this is provided by the ZEISS RRemote Client, which "
+                "registers an x64 CZEMApi.ocx), on a ZEISS control PC with SmartSEM "
+                "running."
             )
 
-        self.connection: "MicroscopeClient" = MicroscopeClient()
+        # microscope client (created on connect)
+        self.connection: Optional[SEM_API] = None
+
+        # system settings
         self.system: SystemSettings = system_settings
+        self.milling_channel: BeamType = BeamType.ION
+        self.stage_is_compustage: bool = False
+        self._last_imaging_settings: ImageSettings = ImageSettings()
 
-        # Path where grab_frame() saves the TIFF on disk (SmartSEM default)
-        self._api_grab_path: str = "C:/api/Grab.tif"
+        # currently active SmartSEM column (FIB vs SEM). None until first switch.
+        self._active_beam_type: Optional[BeamType] = None
 
-        # In-memory cache of the last acquired image per beam
-        self._last_image: Dict[BeamType, FibsemImage] = {}
+        # ion beam current lookup table (SmartFIB probe table). Set on connect
+        # from system settings; used to map a requested current onto a probe.
+        self._probe_table_path: Optional[str] = None
 
-        # Minimal beam-state caches (populated on connect)
-        self._beam_current: Dict[BeamType, float] = {
-            BeamType.ELECTRON: 1e-9,
-            BeamType.ION: 1e-10,
+        # milling pattern buffer + configured .ely layout (see run_milling)
+        self._patterns: List = []
+        self._milling_settings: Optional[FibsemMillingSettings] = None
+
+        # user / experiment metadata
+        self.user = FibsemUser.from_environment()
+        self.experiment = FibsemExperiment()
+
+        # last images
+        self.last_image_eb: Optional[FibsemImage] = None
+        self.last_image_ib: Optional[FibsemImage] = None
+
+        # fluorescence microscope (not available on ZEISS)
+        self.fm = None
+
+        # cached beam parameters (not everything is queryable live)
+        self._beam_parameters: Dict[BeamType, BeamSettings] = {
+            BeamType.ELECTRON: BeamSettings(BeamType.ELECTRON),
+            BeamType.ION: BeamSettings(BeamType.ION),
         }
 
-        logging.info("ZeissMicroscope created. Call connect_to_microscope() to connect.")
+        logging.debug({"msg": "create_microscope_client", "system_settings": system_settings.to_dict()})
 
     # ------------------------------------------------------------------
-    # Connection
+    # connection
     # ------------------------------------------------------------------
+    def connect_to_microscope(self, ip_address: str = "localhost", port: int = 0, reset_beam_shift: bool = True) -> None:
+        """Connect to the ZEISS EM server.
 
-    def connect_to_microscope(self, ip_address: str, port: int = 8080) -> None:
-        """Connect to the Zeiss SmartSEM COM server.
-
-        ``ip_address`` is accepted for API compatibility but the Zeiss
-        SmartSEM COM interface (CZ.EMApiCtrl.1) connects to the locally
-        running server, so the address is not used directly.
+        The SmartSEM remoting interface is configured on the control PC (via
+        RConfigure) rather than by IP/port here; ``ip_address``/``port`` are
+        accepted for interface compatibility. ``state='remote'`` vs ``'local'``
+        only affects the real-time image memory-map, which we don't use.
         """
-        logging.info(f"Connecting to Zeiss microscope (ip_address={ip_address!r} ignored for COM connection).")
-        self.connection.connect()
-        logging.info("Zeiss microscope connected.")
+        logging.info("Connecting to ZEISS SmartSEM API...")
+        self.connection = SEM_API(state="remote")
+        logging.info("Connected to ZEISS SmartSEM API.")
 
-    def disconnect(self) -> None:
-        self.connection.disconnect()
-        logging.info("Zeiss microscope disconnected.")
+        # system info
+        self.system.info.manufacturer = "ZEISS"
+        try:
+            self.system.info.serial_number = self.connection.GetState("SV_SERIAL_NUMBER")  # EVIDENCED
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"Could not read serial number: {e}")
 
-    # ------------------------------------------------------------------
-    # Imaging
-    # ------------------------------------------------------------------
+        # probe table for ion-beam current selection
+        self._probe_table_path = getattr(self.system.ion, "probe_table_path", None)
 
-    def acquire_image(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-
-        if beam_type is None:
-            beam_type = image_settings.beam_type if image_settings is not None else BeamType.ELECTRON
-
-        beam_str = "ION" if beam_type == BeamType.ION else "ELECTRON"
-        self.connection.beams.change_beam(beam_str)
-
-        # Build GrabFrameSettings from ImageSettings (or use defaults)
-        if image_settings is not None:
-            res_w, res_h = image_settings.resolution
-            res_str = f"{res_w}x{res_h}"
-            dwell = image_settings.dwell_time
-        else:
-            res_str = ZEISS_DEFAULT_RESOLUTION
-            dwell = 100e-9
-
-        grab_settings = GrabFrameSettings(
-            dwell_time=dwell,
-            resolution=res_str,
-            line_integration=1,
+        info = self.system.info
+        logging.info(
+            f"Connected to ZEISS model {info.model} (SN {info.serial_number}, SW {info.software_version})."
         )
 
-        self.connection.imaging.grab_frame(grab_settings)
+        if reset_beam_shift:
+            try:
+                self.reset_beam_shifts()
+            except Exception as e:  # noqa: BLE001
+                logging.warning(f"Could not reset beam shifts: {e}")
 
-        # Read the TIFF that SmartSEM wrote to disk
-        img_array, pixel_size = read_tiff(self._api_grab_path)
-        if pixel_size is None:
-            logging.warning("Could not read pixel size from TIFF; using 1 nm fallback.")
-            pixel_size = 1e-9
+        # sample stage holder (needed by UI widgets)
+        try:
+            self._create_sample_stage()
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"Could not create sample stage: {e}")
 
-        state = self._get_microscope_state()
-        image = _zeiss_image_to_fibsem(img_array, pixel_size, image_settings, beam_type, state)
-        image.metadata.system = self.system
+    def disconnect(self) -> None:
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except Exception as e:  # noqa: BLE001
+                logging.warning(f"Error while disconnecting: {e}")
+        self.connection = None
 
-        self._last_image[beam_type] = image
-        logging.info(f"Acquired image: beam_type={beam_type.name}, shape={img_array.shape}, pixel_size={pixel_size:.3e} m")
-        return image
+    @property
+    def manufacturer(self) -> str:
+        return "Zeiss"
+
+    # ------------------------------------------------------------------
+    # beam helpers
+    # ------------------------------------------------------------------
+    def _prepare_beam(self, beam_type: BeamType) -> None:
+        """Switch the SmartSEM active column to ``beam_type`` if needed."""
+        if self._active_beam_type != beam_type:
+            self.connection.set_active_beam(_ACTIVE_BEAM_ARG[beam_type])  # EVIDENCED
+            self._active_beam_type = beam_type
+            time.sleep(0.5)  # allow the column switch to settle
+
+    # ------------------------------------------------------------------
+    # imaging
+    # ------------------------------------------------------------------
+    def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
+        """Acquire an image for the given settings/beam type.
+
+        Grabs a full frame via ``SEM_API.grab_full_image`` (which writes a TIFF
+        to disk) and reads it back into a :class:`FibsemImage`.
+        """
+        if image_settings is None and beam_type is None:
+            raise ValueError("Must provide either image_settings or beam_type.")
+        elif image_settings is not None:
+            effective_beam_type = image_settings.beam_type
+            effective_image_settings = image_settings
+        else:
+            effective_beam_type = beam_type
+            effective_image_settings = self.get_imaging_settings(beam_type=beam_type)
+
+        logging.info(f"acquiring new {effective_beam_type.name} image.")
+
+        # switch column + apply field of view
+        self._prepare_beam(effective_beam_type)
+        if image_settings is not None and effective_image_settings.hfw is not None:
+            try:
+                self.set_field_of_view(effective_image_settings.hfw, effective_beam_type)
+            except Exception as e:  # noqa: BLE001
+                logging.debug(f"Could not set field of view: {e}")
+
+        # grab a full frame. SEM_API.grab_full_image writes the TIFF to disk
+        # (C:/api/Grab.tif by convention); read it back from there.
+        fname = ZEISS_API_GRAB_PATH
+        os.makedirs(os.path.dirname(fname), exist_ok=True)
+        self.connection.grab_full_image(fname)
+        image_data = _read_image_file(fname)
+
+        # build metadata (best-effort, live from the API)
+        try:
+            microscope_state = self.get_microscope_state(beam_type=effective_beam_type)
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"Could not read microscope state for image metadata: {e}")
+            microscope_state = MicroscopeState()
+
+        pixel_size = self._get_pixel_size(image_data.shape, effective_beam_type, effective_image_settings)
+
+        md = FibsemImageMetadata(
+            image_settings=effective_image_settings,
+            microscope_state=microscope_state,
+            pixel_size=pixel_size,
+        )
+        md.image_settings.beam_type = deepcopy(effective_beam_type)
+        md.user = self.user
+        md.experiment = self.experiment
+        md.system = self.system
+
+        fibsem_image = FibsemImage(data=image_data, metadata=deepcopy(md))
+
+        if effective_beam_type == BeamType.ELECTRON:
+            self.last_image_eb = fibsem_image
+        else:
+            self.last_image_ib = fibsem_image
+
+        if image_settings is not None:
+            self._last_imaging_settings = image_settings
+
+        return fibsem_image
+
+    def _get_pixel_size(self, image_shape: Tuple[int, ...], beam_type: BeamType, image_settings: ImageSettings) -> Point:
+        """Determine pixel size (metres). Prefer the live SmartSEM value, else derive from hfw."""
+        try:
+            ps = self.connection.GetValue("AP_IMAGE_PIXEL_SIZE")  # EVIDENCED (metres)
+            if ps and ps > 0:
+                return Point(x=float(ps), y=float(ps))
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"Could not read AP_IMAGE_PIXEL_SIZE: {e}")
+        # fall back: hfw / width
+        width_px = image_shape[1] if len(image_shape) >= 2 else 1024
+        hfw = image_settings.hfw or 0.0
+        ps = hfw / width_px if width_px else 0.0
+        return Point(x=ps, y=ps)
 
     def last_image(self, beam_type: BeamType) -> FibsemImage:
-        if beam_type not in self._last_image:
-            raise RuntimeError(f"No image cached for {beam_type.name}. Call acquire_image() first.")
-        return self._last_image[beam_type]
+        return self.last_image_eb if beam_type == BeamType.ELECTRON else self.last_image_ib
 
     def acquire_chamber_image(self) -> FibsemImage:
-        raise NotImplementedError("acquire_chamber_image is not implemented for ZeissMicroscope.")
-
-    # ------------------------------------------------------------------
-    # Beam auto-functions
-    # ------------------------------------------------------------------
+        logging.warning("Chamber (navigation camera) image is not supported on ZEISS via this API.")
+        raise NotImplementedError("acquire_chamber_image is not supported on ZEISS.")
 
     def autocontrast(self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None) -> None:
-        logging.info(f"autocontrast: beam_type={beam_type.name}")
-        self.connection.auto_functions.run_auto_cb()
+        """Run SmartSEM auto contrast-brightness (Quick BC)."""
+        self._prepare_beam(beam_type)
+        self.connection.Execute("CMD_QUICK_BC")  # EVIDENCED
+        time.sleep(0.5)
+        while self.connection.GetState("DP_AUTO_FUNCTION") != "Idle":  # EVIDENCED
+            time.sleep(0.5)
 
     def auto_focus(self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None) -> None:
-        logging.info(f"auto_focus: beam_type={beam_type.name}")
-        self.connection.auto_functions.run_auto_focus()
-
-    def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> Point:
-        logging.info(f"beam_shift: dx={dx}, dy={dy}, beam_type={beam_type.name}")
-        z_point = ZeissPoint(dx, dy)
-        if beam_type == BeamType.ION:
-            self.connection.beams.ion_beam.beam_shift.value = z_point
-        else:
-            self.connection.beams.electron_beam.beam_shift.value = z_point
-        return Point(x=dx, y=dy)
+        """Run SmartSEM fine autofocus."""
+        self._prepare_beam(beam_type)
+        self.connection.do_autofocus()  # EVIDENCED (CMD_AUTO_FOCUS_FINE + DP_AUTO_FN_STATUS)
 
     # ------------------------------------------------------------------
-    # Stage movement
+    # beam shift
     # ------------------------------------------------------------------
+    def beam_shift(self, dx: float, dy: float, beam_type: BeamType = BeamType.ION) -> None:
+        """Apply a relative beam shift (metres)."""
+        current = self._get("shift", beam_type)
+        new_shift = Point(x=current.x + dx, y=current.y + dy)
+        self._set("shift", new_shift, beam_type)
 
+    # ------------------------------------------------------------------
+    # stage movement
+    # ------------------------------------------------------------------
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        logging.info(f"move_stage_absolute: {position}")
-        stage_tuple = _fibsem_to_zeiss_stage(position)
-        self.connection.specimen.stage.absolute_move(stage_tuple)
+        logging.info(f"Moving stage (absolute) to {position}.")
+        self.connection.move_stage_absolute(to_zeiss_stage_position(position))
+        self.connection.wait_for_stage_idle()
         return self.get_stage_position()
 
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        logging.info(f"move_stage_relative: {position}")
-        stage_tuple = _fibsem_to_zeiss_stage(position)
-        self.connection.specimen.stage.relative_move(stage_tuple)
+        logging.info(f"Moving stage (relative) by {position}.")
+        # SEM_API.move_stage_relative expects (dx, dy, dz, dt, dr)
+        dx = position.x or 0.0
+        dy = position.y or 0.0
+        dz = position.z or 0.0
+        dr = (position.r or 0.0) * constants.RADIANS_TO_DEGREES
+        dt = (position.t or 0.0) * constants.RADIANS_TO_DEGREES
+        self.connection.move_stage_relative((dx, dy, dz, dt, dr))
+        self.connection.wait_for_stage_idle()
         return self.get_stage_position()
 
-    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
-        raise NotImplementedError("stable_move is not yet implemented for ZeissMicroscope.")
-
-    def vertical_move(self, dy: float, dx: float = 0, static_wd: bool = True) -> FibsemStagePosition:
-        raise NotImplementedError("vertical_move is not yet implemented for ZeissMicroscope.")
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        raise NotImplementedError("project_stable_move is not yet implemented for ZeissMicroscope.")
-
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
-        """Move to an absolute position.
-
-        Safety sequencing (tilt-to-zero before large XY moves etc.) is not
-        yet implemented — this delegates directly to move_stage_absolute.
-        """
-        logging.warning("safe_absolute_stage_movement: safety sequencing not implemented, delegating to move_stage_absolute.")
+        # No safety/collision model wired yet; direct move.
         self.move_stage_absolute(position)
 
-    # ------------------------------------------------------------------
-    # Manipulator — not available on Zeiss CrossBeam
-    # ------------------------------------------------------------------
+    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
+        """Move the stage in the sample plane, compensating for stage tilt in y."""
+        base = self.get_stage_position()
+        yz = self._y_corrected_stage_movement(dy, beam_type)
+        new_position = FibsemStagePosition(x=base.x + dx, y=base.y + yz[0], z=base.z + yz[1], r=base.r, t=base.t, coordinate_system="RAW")
+        return self.move_stage_absolute(new_position)
 
-    def insert_manipulator(self, name: str) -> None:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    def retract_manipulator(self) -> None:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    def move_manipulator_relative(self, position: FibsemManipulatorPosition) -> None:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    def move_manipulator_absolute(self, position: FibsemManipulatorPosition) -> None:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    def move_manipulator_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str) -> None:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    def _get_saved_manipulator_position(self, name: str) -> FibsemManipulatorPosition:
-        raise NotImplementedError("Manipulator not available on ZeissMicroscope.")
-
-    # ------------------------------------------------------------------
-    # Milling
-    # ------------------------------------------------------------------
-
-    def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
-        """Prepare for milling by setting the ion beam current."""
-        logging.info(f"setup_milling: current={mill_settings.milling_current:.3e} A")
-        self.connection.beams.ion_beam.beam_current.value = mill_settings.milling_current
-        self._beam_current[BeamType.ION] = mill_settings.milling_current
-
-    def run_milling(self, milling_current: float, milling_voltage: float, asynch: bool = False) -> None:
-        """Start milling.
-
-        Pattern drawing (draw_rectangle, draw_line etc.) is not yet
-        implemented — patterns must be pre-loaded via the SmartFIB / SEM UI,
-        or via ``patterning.load_pattern()`` directly.
-        """
-        logging.info(f"run_milling: current={milling_current:.3e} A, asynch={asynch}")
-        self.connection.beams.ion_beam.beam_current.value = milling_current
-        self.connection.beams.change_beam("ION")
-        self.start_milling()
-        if not asynch:
-            self._wait_for_milling_complete()
-
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Restore ion beam to imaging current after milling."""
-        logging.info(f"finish_milling: restoring current to {imaging_current:.3e} A")
-        self.connection.beams.ion_beam.beam_current.value = imaging_current
-        self._beam_current[BeamType.ION] = imaging_current
-
-    def clear_patterns(self) -> None:
-        self.connection._patterning.clear_patterns()
-
-    def start_milling(self) -> None:
-        self.connection._patterning.start()
-
-    def stop_milling(self) -> None:
-        self.connection._patterning.stop()
-
-    def pause_milling(self) -> None:
-        raise NotImplementedError("pause_milling is not yet implemented for ZeissMicroscope.")
-
-    def resume_milling(self) -> None:
-        raise NotImplementedError("resume_milling is not yet implemented for ZeissMicroscope.")
-
-    def get_milling_state(self) -> MillingState:
-        is_idle = self.connection._patterning.is_idle
-        return MillingState.IDLE if is_idle else MillingState.RUNNING
-
-    def estimate_milling_time(self) -> float:
-        raise NotImplementedError("estimate_milling_time is not yet implemented for ZeissMicroscope.")
-
-    def _wait_for_milling_complete(self, poll_interval: float = 0.5) -> None:
-        """Block until patterning reports idle."""
-        logging.info("Waiting for milling to complete...")
-        while not self.connection._patterning.is_idle:
-            time.sleep(poll_interval)
-        logging.info("Milling complete.")
-
-    # ------------------------------------------------------------------
-    # Pattern drawing — not yet implemented
-    # The Zeiss patterning API uses ELY/PTF files (SmartFIB format).
-    # Conversion from FibsemPatternSettings to ELY format is deferred.
-    # ------------------------------------------------------------------
-
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
-        raise NotImplementedError(
-            "draw_rectangle is not yet implemented for ZeissMicroscope. "
-            "Zeiss uses ELY/PTF pattern files — conversion from FibsemRectangleSettings is deferred."
+    def project_stable_move(self, dx: float, dy: float, beam_type: BeamType, base_position: FibsemStagePosition) -> FibsemStagePosition:
+        yz = self._y_corrected_stage_movement(dy, beam_type)
+        return FibsemStagePosition(
+            x=base_position.x + dx,
+            y=base_position.y + yz[0],
+            z=base_position.z + yz[1],
+            r=base_position.r,
+            t=base_position.t,
+            coordinate_system="RAW",
         )
 
+    def vertical_move(self, dy: float, dx: float = 0.0, static_wd: bool = True) -> FibsemStagePosition:
+        """Move vertically (perpendicular to the electron beam)."""
+        base = self.get_stage_position()
+        new_position = FibsemStagePosition(x=base.x + dx, y=base.y, z=base.z + dy, r=base.r, t=base.t, coordinate_system="RAW")
+        return self.move_stage_absolute(new_position)
+
+    def _y_corrected_stage_movement(self, expected_y: float, beam_type: BeamType) -> Tuple[float, float]:
+        """Split an in-plane y movement into (y, z) given the stage/column tilt.
+
+        Placeholder: pending the ZEISS pretilt/column-tilt geometry, treat the
+        movement as pure y. Refine with the same trig as tescan/thermo backends.
+        """
+        return expected_y, 0.0
+
+    # ------------------------------------------------------------------
+    # manipulator (not supported on ZEISS / SerialFIB)
+    # ------------------------------------------------------------------
+    def insert_manipulator(self, name: str = "PARK") -> None:
+        logging.warning("Manipulator is not supported on ZEISS.")
+
+    def retract_manipulator(self) -> None:
+        logging.warning("Manipulator is not supported on ZEISS.")
+
+    def move_manipulator_relative(self, position: FibsemManipulatorPosition, name: str = None) -> None:
+        logging.warning("Manipulator is not supported on ZEISS.")
+
+    def move_manipulator_absolute(self, position: FibsemManipulatorPosition, name: str = None) -> None:
+        logging.warning("Manipulator is not supported on ZEISS.")
+
+    def move_manipulator_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
+        logging.warning("Manipulator is not supported on ZEISS.")
+
+    def move_manipulator_to_position_offset(self, offset: FibsemManipulatorPosition, name: str = None) -> None:
+        logging.warning("Manipulator is not supported on ZEISS.")
+
+    def _get_saved_manipulator_position(self, name: str = None) -> Optional[FibsemManipulatorPosition]:
+        logging.warning("Manipulator is not supported on ZEISS.")
+        return None
+
+    # ------------------------------------------------------------------
+    # milling (partial: SmartFIB .ely file flow)
+    # ------------------------------------------------------------------
+    def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
+        """Prepare for milling: switch to the ion column and reset the buffer."""
+        self._milling_settings = mill_settings
+        self.milling_channel = getattr(mill_settings, "milling_channel", None) or BeamType.ION
+        self._prepare_beam(self.milling_channel)
+        self.clear_patterns()
+
+    def _estimate_pattern_mill_time(self, rect: FibsemRectangleSettings, milling_current: float) -> float:
+        """Per-pattern mill time (s): the pattern's own time if set, else derived
+        from the milling settings sputter rate, else a default."""
+        if getattr(rect, "time", 0) and rect.time > 0:
+            return float(rect.time)
+        rate = getattr(self._milling_settings, "rate", 0) if self._milling_settings else 0
+        if rate and milling_current:
+            try:
+                t = (rect.width * rect.height * rect.depth) / (rate * milling_current)
+                if t > 0:
+                    return float(t)
+            except Exception:  # noqa: BLE001
+                pass
+        return ZEISS_DEFAULT_MILL_TIME
+
+    def _generate_ely(self, milling_current: float) -> bytes:
+        """Build a SmartFIB ``.ely`` layout from the buffered rectangle patterns."""
+        rectangles = [p for p in self._patterns if isinstance(p, FibsemRectangleSettings)]
+        skipped = len(self._patterns) - len(rectangles)
+        if skipped:
+            logging.warning(f"{skipped} non-rectangle pattern(s) skipped: only rectangles "
+                            "are supported for ZEISS milling so far.")
+        if not rectangles:
+            raise ValueError("No rectangle patterns to mill.")
+
+        probe_name = self._nearest_probe_string(milling_current)
+        probe_diameter = getattr(self._milling_settings, "spot_size", None) or ZEISS_DEFAULT_PROBE_DIAMETER
+
+        def dose_area_fn(rect: FibsemRectangleSettings) -> float:
+            mill_time = self._estimate_pattern_mill_time(rect, milling_current)
+            return calculate_dose_area(
+                probe_current=milling_current, probe_size=probe_diameter,
+                pixel_spacing=ZEISS_MILL_PIXEL_SPACING, track_spacing=ZEISS_MILL_TRACK_SPACING,
+                cycle=ZEISS_MILL_CYCLES, mill_time=mill_time,
+                width=rect.width, height=rect.height,
+            )
+
+        return build_ely_xml(rectangles, probe_name, milling_current, probe_diameter, dose_area_fn)
+
+    def run_milling(self, milling_current: float, milling_voltage: float, asynch: bool = False) -> None:
+        """Generate a SmartFIB ``.ely`` from the buffered patterns and run it.
+
+        Mirrors the SerialFIB flow: write the layout, drop it into the SmartFIB
+        Drop folder, then fire LOAD -> PREPARE -> START and poll ``DP_FIB_MODE``
+        until milling completes.
+        """
+        ely_bytes = self._generate_ely(milling_current)
+
+        os.makedirs(os.path.dirname(ZEISS_SMARTFIB_DROP_PATH), exist_ok=True)
+        with open(ZEISS_SMARTFIB_DROP_PATH, "wb") as f:
+            f.write(ely_bytes)
+        logging.info(f"Wrote SmartFIB layout ({len(self._patterns)} pattern(s)) to {ZEISS_SMARTFIB_DROP_PATH}")
+
+        self._prepare_beam(BeamType.ION)
+        self.connection.Execute("CMD_SMARTFIB_LOAD_ELY")  # EVIDENCED
+        time.sleep(1)
+        self.connection.Execute("CMD_SMARTFIB_PREPARE_EXPOSURE")  # EVIDENCED
+        time.sleep(1)
+        self.connection.Execute("CMD_FIB_START_MILLING")  # EVIDENCED
+        self.connection.SetState("DP_PATTERNING_MODE", "FIB")  # EVIDENCED
+        if asynch:
+            return
+        t0 = time.time()
+        while self.connection.GetState("DP_FIB_MODE") != "Milling" and time.time() - t0 < 30:
+            time.sleep(0.3)
+        while self.connection.GetState("DP_FIB_MODE") == "Milling":  # EVIDENCED
+            time.sleep(0.3)
+        logging.info("SmartFIB milling finished.")
+
+    def finish_milling(self, imaging_current: float = None, imaging_voltage: float = None) -> None:
+        self.clear_patterns()
+        self._prepare_beam(BeamType.ELECTRON)
+
+    def stop_milling(self) -> None:
+        logging.warning("stop_milling: no direct SmartFIB stop wired; use native UI to abort.")
+
+    def clear_patterns(self) -> None:
+        self._patterns = []
+
+    def start_milling(self) -> None:
+        self.connection.Execute("CMD_FIB_START_MILLING")  # EVIDENCED
+
+    def pause_milling(self) -> None:
+        logging.warning("pause_milling is not implemented for ZEISS.")
+
+    def resume_milling(self) -> None:
+        logging.warning("resume_milling is not implemented for ZEISS.")
+
+    def get_milling_state(self) -> MillingState:
+        try:
+            mode = self.connection.GetState("DP_FIB_MODE")  # EVIDENCED
+        except Exception:  # noqa: BLE001
+            return MillingState.IDLE
+        return MillingState.RUNNING if mode == "Milling" else MillingState.IDLE
+
+    def estimate_milling_time(self) -> float:
+        """Estimate total mill time (s) for the buffered rectangle patterns."""
+        current = self._milling_settings.milling_current if self._milling_settings else 50e-12
+        return sum(
+            self._estimate_pattern_mill_time(p, current)
+            for p in self._patterns if isinstance(p, FibsemRectangleSettings)
+        )
+
+    # ------------------------------------------------------------------
+    # pattern drawing (buffered, then emitted as an .ely by run_milling)
+    # ------------------------------------------------------------------
+    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
+        self._patterns.append(pattern_settings)
+        return pattern_settings
+
     def draw_line(self, pattern_settings: FibsemLineSettings):
-        raise NotImplementedError("draw_line is not yet implemented for ZeissMicroscope.")
+        self._patterns.append(pattern_settings)
+        return pattern_settings
 
     def draw_circle(self, pattern_settings: FibsemCircleSettings):
-        raise NotImplementedError("draw_circle is not yet implemented for ZeissMicroscope.")
+        self._patterns.append(pattern_settings)
+        return pattern_settings
 
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        raise NotImplementedError("draw_bitmap_pattern is not yet implemented for ZeissMicroscope.")
+    def draw_annulus(self, pattern_settings: FibsemCircleSettings):
+        self._patterns.append(pattern_settings)
+        return pattern_settings
 
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        raise NotImplementedError("draw_polygon is not yet implemented for ZeissMicroscope.")
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
+        self._patterns.append(pattern_settings)
+        return pattern_settings
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
+        self._patterns.append(pattern_settings)
+        return pattern_settings
 
     # ------------------------------------------------------------------
-    # GIS / Sputter — not available
+    # gas injection / sputter (not supported)
     # ------------------------------------------------------------------
-
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        raise NotImplementedError("cryo_deposition_v2 is not available on ZeissMicroscope.")
+        logging.warning("Gas injection (cryo deposition) is not supported on ZEISS via this API.")
 
     def setup_sputter(self, *args, **kwargs):
-        raise NotImplementedError("setup_sputter is not available on ZeissMicroscope.")
+        logging.warning("Sputtering is not supported on ZEISS via this API.")
 
     def draw_sputter_pattern(self, *args, **kwargs) -> None:
-        raise NotImplementedError("draw_sputter_pattern is not available on ZeissMicroscope.")
+        logging.warning("Sputtering is not supported on ZEISS via this API.")
 
     def run_sputter(self, *args, **kwargs):
-        raise NotImplementedError("run_sputter is not available on ZeissMicroscope.")
+        logging.warning("Sputtering is not supported on ZEISS via this API.")
 
-    def finish_sputter(self):
-        raise NotImplementedError("finish_sputter is not available on ZeissMicroscope.")
+    def finish_sputter(self, *args, **kwargs):
+        logging.warning("Sputtering is not supported on ZEISS via this API.")
 
     # ------------------------------------------------------------------
-    # Property get/set dispatch
+    # available values
     # ------------------------------------------------------------------
+    def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float]]:
+        """Return the list of available values for a given key.
 
-    def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> List[Union[str, float, int]]:
-        if key == "resolution":
-            return ZEISS_RESOLUTIONS
+        The UI caches several of these on connect (current, voltage, preset,
+        application_file, scan_direction) and some widgets index/min() over the
+        result, so keys that feed those widgets must return a non-empty list.
+        """
+        if key == "current":
+            if beam_type == BeamType.ION:
+                return self._get_ion_beam_currents()
+            return list(ZEISS_SEM_CURRENTS)
+        if key == "voltage":
+            if beam_type == BeamType.ION:
+                return [ZEISS_FIB_VOLTAGE]
+            return list(ZEISS_SEM_VOLTAGES)
+        if key == "scan_direction":
+            return list(ZEISS_SCAN_DIRECTIONS)
+        if key == "application_file":
+            # ZEISS SmartFIB has no Thermo-style application files; placeholder
+            return ["Si"]
+        if key == "plasma_gas":
+            return []
+        if key == "preset":
+            return []
         if key == "detector_type":
-            return []  # dynamic, requires querying SEM_API.get_detector_list()
-        if key == "detector_mode":
             return []
         return []
 
-    def check_available_values(self, key: str, values, beam_type: Optional[BeamType] = None) -> bool:
-        available = self.get_available_values(key, beam_type)
-        if not available:
-            return True  # unknown key — allow
-        return all(v in available for v in (values if isinstance(values, list) else [values]))
+    def _get_ion_beam_currents(self) -> List[float]:
+        """Available ion beam currents (amps).
 
-    def _get_beam_obj(self, beam_type: BeamType):
-        if beam_type == BeamType.ION:
-            return self.connection.beams.ion_beam
-        return self.connection.beams.electron_beam
+        ZEISS FIB probes are strings like "30kV:50pA"; return the parsed float
+        currents so the numeric UI works. Prefer the SmartFIB probe table if
+        configured, else the parsed default probe-string list.
+        """
+        if self._probe_table_path and os.path.exists(self._probe_table_path):
+            try:
+                table = readProbeTable(self._probe_table_path)
+                currents = sorted(float(c) for c in table.keys())
+                if currents:
+                    return currents
+            except Exception as e:  # noqa: BLE001
+                logging.debug(f"Could not read ion probe table {self._probe_table_path}: {e}")
+        return [c for c in (parse_probe_current(p) for p in ZEISS_FIB_PROBE_STRINGS) if c is not None]
 
-    def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Union[float, int, bool, str, list, FibsemStagePosition]:
-        """Read a property from the microscope."""
+    def _nearest_probe_string(self, current: float) -> str:
+        """Return the SmartFIB probe string whose current is closest to ``current`` (amps)."""
+        return min(
+            ZEISS_FIB_PROBE_STRINGS,
+            key=lambda p: abs((parse_probe_current(p) or 0.0) - current),
+        )
 
-        # Stage
+    def check_available_values(self, key: str, values=None, beam_type: Optional[BeamType] = None) -> bool:
+        return False
+
+    # ------------------------------------------------------------------
+    # get / set: the SmartSEM parameter bridge
+    # ------------------------------------------------------------------
+    def _read_value(self, ap_name: str, default: float) -> float:
+        """Read an analogue SmartSEM value, returning ``default`` on failure.
+
+        Beam-parameter reads must never return None (the UI does numeric
+        comparisons/min() over them), and several AP names are not yet verified
+        on every instrument, so failures degrade to a sensible default.
+        """
+        try:
+            value = self.connection.GetValue(ap_name)
+            return float(value) if value is not None else default
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"GetValue({ap_name}) failed: {e}; using default {default}")
+            return default
+
+    def _get(self, key: str, beam_type: Optional[BeamType] = None):
+        """Translate a fibsem-os key into a SmartSEM parameter read."""
+        conn = self.connection
+
+        # stage
         if key == "stage_position":
-            pos_tuple = self.connection.specimen.stage.current_position
-            return _zeiss_stage_to_fibsem(pos_tuple)
+            raw = conn.GetStagePosition()  # (x, y, z, t, r, m)
+            return from_zeiss_stage_position(raw)
+        if key == "stage_calibrated":
+            return True
 
-        if beam_type is None:
-            raise ValueError(f"beam_type is required for key '{key}'")
-
-        beam = self._get_beam_obj(beam_type)
-
-        if key == "current":
-            return beam.beam_current.value
-        if key == "hfw":
-            return beam.horizontal_field_width.value
-        if key == "resolution":
-            return beam.scanning.resolution.value
-        if key == "dwell_time":
-            return beam.scanning.dwell_time.value
-        if key == "scan_rotation":
-            return beam.scanning.rotation.value
+        # beam / optics (all reads fall back to numeric defaults, never None)
         if key == "shift":
-            bs = beam.beam_shift.value
-            return Point(x=bs.x, y=bs.y)
+            try:
+                if beam_type == BeamType.ION:
+                    x = conn.GetValue("AP_FIB_BEAM_SHIFT_X")  # EVIDENCED
+                    y = conn.GetValue("AP_FIB_BEAM_SHIFT_Y")  # EVIDENCED
+                else:
+                    x = conn.GetValue("AP_BEAMSHIFT_X")  # EVIDENCED
+                    y = conn.GetValue("AP_BEAMSHIFT_Y")  # EVIDENCED
+                return Point(x=float(x), y=float(y))
+            except Exception as e:  # noqa: BLE001
+                logging.debug(f"Could not read beam shift: {e}")
+                return Point(0.0, 0.0)
+        if key == "working_distance":
+            return self._read_value("AP_WD", 5.0e-3)  # VERIFY (metres)
+        if key == "current":
+            if beam_type == BeamType.ELECTRON:
+                return self._read_value("AP_IPROBE", ZEISS_SEM_CURRENTS[0])  # VERIFY (amps)
+            # ion current == the selected SmartFIB probe string, e.g. "30kV:50pA"
+            try:
+                probe = conn.GetState("DP_FIB_IMAGE_PROBE")  # EVIDENCED
+                current = parse_probe_current(probe)
+                if current is not None:
+                    return current
+            except Exception as e:  # noqa: BLE001
+                logging.debug(f"Could not read DP_FIB_IMAGE_PROBE: {e}")
+            cached = self._beam_parameters[BeamType.ION].beam_current
+            return cached if cached is not None else parse_probe_current(ZEISS_FIB_PROBE_STRINGS[0])
+        if key == "voltage":
+            default_v = ZEISS_FIB_VOLTAGE if beam_type == BeamType.ION else 2000.0
+            return self._read_value("AP_ACTUALKV", default_v)  # VERIFY (volts)
+        if key == "hfw":
+            return self._read_value("AP_WIDTH", 150.0e-6)  # VERIFY (metres, field width)
+        if key == "scan_rotation":
+            return self._read_value("AP_SCANROTATION", 0.0)  # VERIFY (degrees)
 
-        # Properties not exposed by crossbeam_client — return None for read
-        if key in ("working_distance", "voltage", "stigmation"):
-            logging.debug(f"_get: key '{key}' is not exposed by the Zeiss crossbeam_client API; returning None.")
+        # cached-only parameters (not directly queryable)
+        if key == "resolution":
+            res = self._beam_parameters[beam_type].resolution if beam_type else None
+            return res if res is not None else (1536, 1024)
+        if key == "dwell_time":
+            dt = self._beam_parameters[beam_type].dwell_time if beam_type else None
+            return dt if dt is not None else 1.0e-6
+        if key == "stigmation":
+            return Point(0, 0)
+        if key == "preset":
             return None
-
-        # Detector — not wired up in crossbeam_client
-        if key in ("detector_type", "detector_mode", "detector_brightness", "detector_contrast"):
-            logging.debug(f"_get: detector key '{key}' is not exposed by the Zeiss crossbeam_client API; returning None.")
-            return None
-
-        # Beam on/blanked state
         if key == "on":
-            return True  # crossbeam_client has no read-back for beam on/off
-        if key == "blanked":
-            return beam.is_blanked
+            return True
 
-        raise ValueError(f"Unknown key for ZeissMicroscope._get: '{key}'")
+        # system properties
+        if key == "eucentric_height":
+            if beam_type is BeamType.ELECTRON:
+                return self.system.electron.eucentric_height
+            if beam_type is BeamType.ION:
+                return self.system.ion.eucentric_height
+        if key == "column_tilt":
+            if beam_type is BeamType.ELECTRON:
+                return self.system.electron.column_tilt
+            if beam_type is BeamType.ION:
+                return self.system.ion.column_tilt
+        if key == "beam_enabled":
+            return True
+        if key == "plasma":
+            return self.system.ion.plasma if beam_type is BeamType.ION else False
+        if key == "plasma_gas":
+            return self.system.ion.plasma_gas if beam_type is BeamType.ION else None
+
+        # detector
+        if key == "detector_type":
+            try:
+                return conn.GetState("DP_DETECTOR_CHANNEL")  # EVIDENCED
+            except Exception:  # noqa: BLE001
+                return None
+        if key in ("detector_brightness", "detector_contrast", "detector_mode"):
+            return None
+
+        # manufacturer
+        if key == "manufacturer":
+            return self.system.info.manufacturer
+        if key == "model":
+            return self.system.info.model
+        if key == "serial_number":
+            return self.system.info.serial_number
+        if key == "software_version":
+            return self.system.info.software_version
+        if key == "hardware_version":
+            return self.system.info.hardware_version
+
+        logging.warning(f"Unknown/unsupported get key: {key} ({beam_type})")
+        return None
 
     def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        """Write a property to the microscope."""
+        """Translate a fibsem-os key/value into a SmartSEM parameter write."""
+        conn = self.connection
 
-        if beam_type is None and key != "stage_position":
-            raise ValueError(f"beam_type is required for key '{key}'")
-
-        if key == "stage_position":
-            self.move_stage_absolute(value)
+        if key == "shift":
+            if beam_type == BeamType.ION:
+                conn.SetValue("AP_FIB_BEAM_SHIFT_X", value.x)  # EVIDENCED
+                conn.SetValue("AP_FIB_BEAM_SHIFT_Y", value.y)  # EVIDENCED
+            else:
+                conn.SetValue("AP_BEAMSHIFT_X", value.x)  # EVIDENCED
+                conn.SetValue("AP_BEAMSHIFT_Y", value.y)  # EVIDENCED
             return
-
-        beam = self._get_beam_obj(beam_type)
-
+        if key == "working_distance":
+            conn.SetValue("AP_WD", value)  # VERIFY (metres)
+            return
         if key == "current":
-            beam.beam_current.value = value
-            self._beam_current[beam_type] = value
+            if beam_type == BeamType.ION:
+                # ion current is selected by a SmartFIB probe string ("30kV:50pA").
+                if isinstance(value, str):
+                    probe_name = value
+                    current_val = parse_probe_current(value)
+                elif self._probe_table_path:
+                    probe = getProbe(value, self._probe_table_path)  # nearest from XML table
+                    probe_name = probe["name"]
+                    current_val = float(value)
+                else:
+                    probe_name = self._nearest_probe_string(value)
+                    current_val = float(value)
+                conn.SetState("DP_FIB_IMAGE_PROBE", probe_name)  # EVIDENCED
+                self._beam_parameters[BeamType.ION].beam_current = current_val
+                logging.info(f"Set ion beam probe to {probe_name}.")
+            else:
+                conn.SetValue("AP_IPROBE", value)  # VERIFY (amps)
+            return
+        if key == "voltage":
+            conn.SetValue("AP_MANUALKV", value)  # VERIFY (volts)
             return
         if key == "hfw":
-            self.connection.imaging.set_field_width(value)
-            return
-        if key == "resolution":
-            beam.scanning.resolution.value = value
-            return
-        if key == "dwell_time":
-            beam.scanning.dwell_time.value = value
+            limits = LIMITS.get(beam_type, SEM_LIMITS)["hfw"]
+            value = float(np.clip(value, limits[0], limits[1]))
+            conn.SetValue("AP_WIDTH", value)  # VERIFY (metres)
             return
         if key == "scan_rotation":
-            beam.scanning.rotation.value = value
+            conn.SetValue("AP_SCANROTATION", value)  # VERIFY (degrees)
             return
-        if key == "shift":
-            z_point = ZeissPoint(value.x, value.y)
-            beam.beam_shift.value = z_point
+        if key == "on":
+            conn.Execute("CMD_BEAM_ON" if value else "CMD_BEAM_OFF")  # EVIDENCED (SEM)
             return
-        if key == "blanked":
-            beam.is_blanked = value
-            return
-
-        # Not wired in crossbeam_client
-        if key in ("working_distance", "voltage", "stigmation",
-                   "detector_type", "detector_mode", "detector_brightness", "detector_contrast",
-                   "on"):
-            logging.warning(f"_set: key '{key}' is not exposed by the Zeiss crossbeam_client API; ignored.")
+        if key == "detector_type":
+            try:
+                conn.SetState("DP_DETECTOR_CHANNEL", value)  # EVIDENCED
+            except Exception as e:  # noqa: BLE001
+                logging.warning(f"Could not set detector channel: {e}")
             return
 
-        raise ValueError(f"Unknown key for ZeissMicroscope._set: '{key}'")
+        # cached-only / unsupported
+        if key in ("resolution", "dwell_time", "stigmation", "preset",
+                   "detector_mode", "detector_brightness", "detector_contrast",
+                   "beam_enabled", "eucentric_height", "column_tilt",
+                   "plasma", "plasma_gas"):
+            logging.debug(f"Setting {key} is not supported directly on ZEISS; ignored.")
+            return
+
+        logging.warning(f"Unknown/unsupported set key: {key}, value: {value} ({beam_type})")
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # misc
     # ------------------------------------------------------------------
-
-    def _get_microscope_state(self) -> MicroscopeState:
-        """Snapshot the current microscope state for image metadata."""
-        try:
-            pos_tuple = self.connection.specimen.stage.current_position
-            stage_pos = _zeiss_stage_to_fibsem(pos_tuple)
-        except Exception:
-            stage_pos = FibsemStagePosition()
-
-        electron_beam = BeamSettings(
-            beam_type=BeamType.ELECTRON,
-            beam_current=self._beam_current[BeamType.ELECTRON],
-        )
-        ion_beam = BeamSettings(
-            beam_type=BeamType.ION,
-            beam_current=self._beam_current[BeamType.ION],
-        )
-
-        return MicroscopeState(
-            stage_position=stage_pos,
-            electron_beam=electron_beam,
-            ion_beam=ion_beam,
-        )
+    def home(self) -> None:
+        logging.warning("No homing available via API; please use the native SmartSEM UI.")

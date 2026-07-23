@@ -245,6 +245,7 @@ def create_gif(path: Path, search: str, gif_fname: str, loop: int = 0) -> None:
 
 VALID_THERMO_FISHER = ["Thermo", "Thermo Fisher Scientific", "Thermo Fisher Scientific"]
 VALID_TESCAN = ["Tescan", "TESCAN" ]
+VALID_ZEISS = ["Zeiss", "ZEISS", "Carl Zeiss"]
 
 def setup_session(
     session_path: Path = None,
@@ -307,6 +308,12 @@ def setup_session(
         microscope = TescanMicroscope(settings.system)
         microscope.connect_to_microscope(
             ip_address=ip_address, port=8300
+        )
+    elif manufacturer in VALID_ZEISS:
+        from fibsem.microscopes.zeiss import ZeissMicroscope
+        microscope = ZeissMicroscope(settings.system)
+        microscope.connect_to_microscope(
+            ip_address=ip_address, port=0
         )
     elif manufacturer in ["Odemis"]:
         from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
