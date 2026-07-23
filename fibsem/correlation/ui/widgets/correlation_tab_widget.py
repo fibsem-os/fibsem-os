@@ -1733,7 +1733,9 @@ class CorrelationTabWidget(QWidget):
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
 
-    def _on_result_ready(self, result: CorrelationResult) -> None:
+    def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
+        """Adopt a result. ``live`` is False for a *loaded* result that no longer
+        describes the current points (FIB-295) — a fresh run is always live."""
         self._result = result
         self._results_tab.set_result(result)
         self._ri_tab.set_result(
@@ -1741,13 +1743,14 @@ class CorrelationTabWidget(QWidget):
         )
         self._tabs.setTabEnabled(3, True)
         self._overlay_result_on_fib(result)
-        self._set_result_live(True)
+        self._set_result_live(live)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
         self._update_run_button()
         # RMS beside Continue (coloured only if something looks wrong); compact
-        # RI / POI note on status.
+        # RI / POI note on status. Suppressed for a stale result — an RMS is a
+        # statement about points these no longer are.
         rms = result.rms_error
-        if rms is not None:
+        if rms is not None and live:
             px_m = self._fib_pixel_size_m()
             rms_nm = rms * px_m * 1e9 if px_m else None
             shown = _format_distance_nm(rms_nm) if rms_nm is not None else f"{rms:.2f} px"
@@ -1771,6 +1774,10 @@ class CorrelationTabWidget(QWidget):
             if shift is not None:
                 msg += f", POI Δ{shift:.1f} px"
             self._lbl_status.setText(msg)
+        elif not live:
+            self._lbl_status.setText(
+                "Loaded result — the points have changed since this run. Re-run to update."
+            )
         else:
             self._lbl_status.setText("Done.")
         self.result_changed.emit(result)
@@ -2119,10 +2126,10 @@ class CorrelationTabWidget(QWidget):
         fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
         plt.close(fig)
 
-    def load_result(self, path: str) -> None:
+    def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
         logging.info("Loading correlation result from %s", path)
-        self._load_result(CorrelationResult.load(path))
+        self._load_result(CorrelationResult.load(path), adopt_inputs=adopt_inputs)
 
     def _menu_load_result(self) -> None:
         start = self._project_dir or ""
@@ -2138,14 +2145,24 @@ class CorrelationTabWidget(QWidget):
             return
         self._load_result(result)
 
-    def _load_result(self, result: CorrelationResult) -> None:
-        """Adopt a loaded correlation result (and its input data, if any)."""
+    def _load_result(
+        self, result: CorrelationResult, *, adopt_inputs: bool = True
+    ) -> None:
+        """Adopt a loaded correlation result (and its input data, if any).
+
+        ``adopt_inputs=False`` when the caller has already loaded fresher
+        coordinates: ``result.input_data`` is a record of what the transform was
+        fitted to, not the current truth, so applying it would silently discard
+        every edit made after that run (FIB-295).
+        """
         # Populate the lists first so the RI tab sees the loaded surface points.
         # _on_result_ready refreshes the run button and sets the final status
         # text itself — no trailing update here, it would overwrite the status.
-        if result.input_data:
+        if adopt_inputs and result.input_data:
             self.set_data(result.input_data)
-        self._on_result_ready(result)
+        # Continue commits result.poi[0].px_m to the protocol editor, so a result
+        # that predates the current points must not arm it.
+        self._on_result_ready(result, live=result.matches_inputs(self.data))
 
     def _on_load(self) -> None:
         start = self._project_dir or ""
@@ -2556,18 +2573,28 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     else:
         logging.warning("  no FM image (*.ome.tiff) found in %s", directory)
 
-    if found["result"]:
-        try:
-            widget.load_result(found["result"])
-            logging.info("  result: %s", os.path.basename(found["result"]))
-        except Exception:
-            logging.exception("  failed to load result %s", found["result"])
-    elif found["data"]:
+    # Coordinates first. correlation_data.json is rewritten on every edit, so it
+    # is the freshest record of the points; correlation_result.json is only
+    # rewritten by a run, and the input_data embedded in it is a snapshot from
+    # that run. Loading the result first (as this did) let that snapshot
+    # overwrite edits made afterwards — FIB-295.
+    loaded_data = False
+    if found["data"]:
         try:
             widget.load_data(found["data"])
+            loaded_data = True
             logging.info("  data: %s", os.path.basename(found["data"]))
         except Exception:
             logging.exception("  failed to load data %s", found["data"])
+
+    if found["result"]:
+        try:
+            # With no data file the result's snapshot is the only record of the
+            # points, so adopt it; otherwise keep the coordinates just loaded.
+            widget.load_result(found["result"], adopt_inputs=not loaded_data)
+            logging.info("  result: %s", os.path.basename(found["result"]))
+        except Exception:
+            logging.exception("  failed to load result %s", found["result"])
 
 
 def main() -> None:
