@@ -135,6 +135,9 @@ _RMS_NEUTRAL = "#9aa0a6"
 _RMS_WARN = "#ffb300"
 _RMS_BAD = "#e53935"
 
+# Form-row labels: muted and one step below the value they describe.
+_FORM_LABEL_COLOR = "#9aa0a6"
+
 
 def _rms_concern(
     rms_nm: Optional[float],
@@ -187,6 +190,18 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     return item
+
+
+def _form_label(text: str) -> QLabel:
+    """A form-row label: small and muted, so the value reads louder than its name.
+
+    ``QFormLayout.addRow("Name:", w)`` builds the label at the default app font
+    size, which renders *larger* than the 11-12px values in these panels — the
+    field name ends up shouting over its own data. Pass this instead.
+    """
+    lbl = QLabel(text)
+    lbl.setStyleSheet(f"color: {_FORM_LABEL_COLOR}; font-size: 11px;")
+    return lbl
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +298,8 @@ class _ImagesTab(QWidget):
         self._lbl_fib_shape.setStyleSheet("color: #e0e0e0; font-size: 11px;")
         self._lbl_fib_px = QLabel("—")
         self._lbl_fib_px.setStyleSheet("color: #e0e0e0; font-size: 11px;")
-        fib_form.addRow("Shape:", self._lbl_fib_shape)
-        fib_form.addRow("Pixel size:", self._lbl_fib_px)
+        fib_form.addRow(_form_label("Shape:"), self._lbl_fib_shape)
+        fib_form.addRow(_form_label("Pixel size:"), self._lbl_fib_px)
         fib_layout.addLayout(fib_form)
 
         layout.addWidget(TitledPanel("FIB Image", content=fib_body, collapsible=False))
@@ -312,8 +327,8 @@ class _ImagesTab(QWidget):
         self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
         self._lbl_fm_z.setStyleSheet("color: #e0e0e0; font-size: 11px;")
-        fm_form.addRow("Shape (C×Z×Y×X):", self._lbl_fm_shape)
-        fm_form.addRow("Channels:", self._lbl_fm_ch)
+        fm_form.addRow(_form_label("Shape (C×Z×Y×X):"), self._lbl_fm_shape)
+        fm_form.addRow(_form_label("Channels:"), self._lbl_fm_ch)
 
         # The interpolate action rides the Z-slices row — it acts on the z axis,
         # so it reads as the action on that number rather than a stray button.
@@ -334,7 +349,7 @@ class _ImagesTab(QWidget):
             lambda: self.interpolate_requested.emit()
         )
         z_row_layout.addWidget(self._btn_interpolate)
-        fm_form.addRow("Z-slices:", z_row)
+        fm_form.addRow(_form_label("Z-slices:"), z_row)
 
         fm_layout.addLayout(fm_form)
 
@@ -561,22 +576,22 @@ class _CoordinatesTab(QWidget):
         # empty and are refilled by rebuild_channel_combos — the blocker lives on
         # the widget, so it survives clear()/addItem().
         self._fib_method_combo = ValueComboBox(_FIT_METHODS, value="Hole")
-        fit_form.addRow("FIB method:", self._fib_method_combo)
+        fit_form.addRow(_form_label("FIB method:"), self._fib_method_combo)
 
         self._fm_fid_method_combo = ValueComboBox(_FIT_METHODS, value="None")
-        fit_form.addRow("FM Fid. method:", self._fm_fid_method_combo)
+        fit_form.addRow(_form_label("FM Fid. method:"), self._fm_fid_method_combo)
 
         self._fm_poi_method_combo = ValueComboBox(_FIT_METHODS, value="Gaussian")
-        fit_form.addRow("FM POI method:", self._fm_poi_method_combo)
+        fit_form.addRow(_form_label("FM POI method:"), self._fm_poi_method_combo)
 
         self._fm_fid_ch_combo = ValueComboBox([])
-        fit_form.addRow("FM Fid. channel:", self._fm_fid_ch_combo)
+        fit_form.addRow(_form_label("FM Fid. channel:"), self._fm_fid_ch_combo)
 
         self._fm_poi_ch_combo = ValueComboBox([])
-        fit_form.addRow("FM POI channel:", self._fm_poi_ch_combo)
+        fit_form.addRow(_form_label("FM POI channel:"), self._fm_poi_ch_combo)
 
         self._show_diag_check = QCheckBox()
-        fit_form.addRow("Show diagnostic:", self._show_diag_check)
+        fit_form.addRow(_form_label("Show diagnostic:"), self._show_diag_check)
 
         # Opt-in: apply fits without the confirm dialog. Off by default (the
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
@@ -586,7 +601,7 @@ class _CoordinatesTab(QWidget):
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
         )
-        fit_form.addRow("Auto-accept fits:", self._auto_accept_check)
+        fit_form.addRow(_form_label("Auto-accept fits:"), self._auto_accept_check)
 
         fit_help = QLabel(
             "Select a point and press <b>F</b> to fit it. Each fit opens a "
@@ -664,11 +679,11 @@ class _ResultsTab(QWidget):
         self._lbl_mae = self._val("—")
         self._lbl_rotation = self._val("—")
         self._lbl_trans = self._val("—")
-        summary_form.addRow("Scale:", self._lbl_scale)
-        summary_form.addRow("RMS Error:", self._lbl_rms)
-        summary_form.addRow("Mean Abs Error:", self._lbl_mae)
-        summary_form.addRow("Rotation:", self._lbl_rotation)
-        summary_form.addRow("Translation:", self._lbl_trans)
+        summary_form.addRow(_form_label("Scale:"), self._lbl_scale)
+        summary_form.addRow(_form_label("RMS Error:"), self._lbl_rms)
+        summary_form.addRow(_form_label("Mean Abs Error:"), self._lbl_mae)
+        summary_form.addRow(_form_label("Rotation:"), self._lbl_rotation)
+        summary_form.addRow(_form_label("Translation:"), self._lbl_trans)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
         # Per-marker error table

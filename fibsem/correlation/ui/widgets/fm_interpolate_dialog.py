@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -22,7 +23,11 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.util import INTERPOLATION_METHODS
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
+
+_WARN_COLOR = "#d6b57a"
 
 
 def _estimate_slices(nz: int, z_step_m: float, target_m: float) -> int:
@@ -42,6 +47,10 @@ class InterpolateZDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Interpolate z-stack")
         self.setModal(True)
+        # The label/chip colours below are picked for a dark surface, so don't
+        # rely on the app-level napari stylesheet being installed — state it
+        # here, as FitConfirmationDialog does.
+        self.setStyleSheet("background: #1e2124; color: #d0d0d0;")
 
         meta = fm_image.metadata
         self._nc, self._nz, self._ny, self._nx = fm_image.data.shape
@@ -96,20 +105,33 @@ class InterpolateZDialog(QDialog):
         root.addWidget(self._preview)
 
         if fm_point_count:
+            warn_row = QWidget()
+            warn_layout = QHBoxLayout(warn_row)
+            warn_layout.setContentsMargins(0, 0, 0, 0)
+            warn_layout.setSpacing(6)
+
+            warn_icon = QLabel()
+            warn_icon.setPixmap(
+                fibsem_icon("mdi:alert-circle-outline", color=_WARN_COLOR).pixmap(14, 14)
+            )
+            warn_layout.addWidget(warn_icon, 0, Qt.AlignmentFlag.AlignTop)
+
             warn = QLabel(
-                f"⚠  {fm_point_count} FM point"
+                f"{fm_point_count} FM point"
                 f"{'s' if fm_point_count != 1 else ''} carry a z-index — "
                 "they'll be rescaled to the new slice count."
             )
             warn.setWordWrap(True)
-            warn.setStyleSheet("color: #d6b57a; font-size: 12px;")
-            root.addWidget(warn)
+            warn.setStyleSheet(f"color: {_WARN_COLOR}; font-size: 12px;")
+            warn_layout.addWidget(warn, 1)
+            root.addWidget(warn_row)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
         ok_btn.setText("Interpolate")
+        ok_btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         # No default button: Enter while editing a field should commit that field,
         # not fire off a tens-of-seconds interpolation. Require a real click.
         for btn in (ok_btn, buttons.button(QDialogButtonBox.StandardButton.Cancel)):
