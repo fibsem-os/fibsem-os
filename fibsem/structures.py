@@ -1306,11 +1306,13 @@ class FibsemMillingSettings:
                                     "type": float,
                                     "unit": "m",
                                     "scale": 1e6,
-                                    # "default": 10.0,
-                                    "minimum": 1.0,
+                                    # bounds are in the DISPLAY unit (µm). Real spot sizes are
+                                    # tens of nm -- the TESCAN default is 50 nm -- so a 1.0 µm
+                                    # minimum silently clamped every real value up to 1 µm.
+                                    "minimum": 0.001,
                                     "maximum": 100.0,
-                                    "step": 1.0,
-                                    "decimals": 2,
+                                    "step": 0.01,
+                                    "decimals": 3,
                                     "tooltip": "The spot size for the ion beam during milling.",
                                     "manufacturer": "Tescan"})
     rate: float = field(default=1.3e-8,
