@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 from scipy import ndimage
@@ -312,24 +312,31 @@ def multi_channel_interpolation(
     image: np.ndarray,
     pixelsize_in: float,
     pixelsize_out: float,
-    method: str = "cubic",
-    parent_ui=None,
+    method: str = "linear",
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> np.ndarray:
-    """Interpolate a multi-channel z-stack (CZYX) along the z-axis
+    """Interpolate a multi-channel z-stack (CZYX) along the z-axis.
+
     Args:
         image: 4D numpy array (CZYX)
         pixelsize_in: original pixel size in z-axis
         pixelsize_out: desired pixel size in z-axis
+        method: one of ``INTERPOLATION_METHODS``
+        progress_callback: optional ``fn(channels_done, channels_total)`` invoked
+            before the first channel and after each one. Kept UI-agnostic (a plain
+            callable, not a Qt object) so the algorithm stays testable; a worker
+            passes a callback that emits its own progress signal.
+
     Returns:
         interpolated: 4D numpy array (CZYX) with adjusted z-axis resolution
     """
-    if parent_ui:
-        parent_ui.progress_update.emit({"value": 0, "max": image.shape[0]})
+    n = image.shape[0]
+    if progress_callback is not None:
+        progress_callback(0, n)
 
-    # QUERY: how to speed up?
     ch_interpolated = []
     for i, channel in enumerate(image):
-        logging.info(f"Interpolating channel {i+1}/{image.shape[0]}")
+        logging.info(f"Interpolating channel {i + 1}/{n}")
         ch_interpolated.append(
             interpolate_z_stack(
                 image=channel,
@@ -338,9 +345,94 @@ def multi_channel_interpolation(
                 method=method,
             )
         )
-        if parent_ui:
-            parent_ui.progress_update.emit({"value": i + 1, "max": image.shape[0]})
+        if progress_callback is not None:
+            progress_callback(i + 1, n)
     return np.array(ch_interpolated)
+
+
+def interpolate_fm_volume(
+    fm_image,
+    target_z_size_m: float,
+    method: str = "linear",
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+):
+    """Resample an FM volume along z, returning a NEW ``FluorescenceImage``.
+
+    Only the z-axis is resampled (XY is untouched). The returned image carries
+    metadata consistent with the resampled data: ``pixel_size_z`` and
+    ``z_positions`` are recomputed for the new slice count.
+
+    scipy's ``zoom`` rounds the output slice count to an integer, so the achieved
+    z-scale is ``new_nz / old_nz`` — not the nominal ``pixel_size_z / target``.
+    The effective z pixel size is derived from that actual ratio, keeping data,
+    metadata, and any caller-side coordinate rescale exactly consistent. Callers
+    that must move z-bearing coordinates should scale by ``new_nz / old_nz``,
+    read from the returned image's shape versus the input's.
+
+    Args:
+        fm_image: source ``FluorescenceImage`` (CZYX, with ``pixel_size_z`` set)
+        target_z_size_m: desired z pixel size in metres (e.g. ``pixel_size_x`` for
+            an isotropic volume)
+        method: one of ``INTERPOLATION_METHODS``
+        progress_callback: forwarded to :func:`multi_channel_interpolation`
+
+    Raises:
+        ValueError: for a single-plane volume (no ``pixel_size_z``), a
+            non-positive target, or a non-CZYX array.
+    """
+    import copy
+
+    from fibsem.fm.structures import FluorescenceImage  # lazy: correlation -> fm
+
+    data = fm_image.data
+    if data.ndim != 4:
+        raise ValueError(f"expected a CZYX volume, got shape {data.shape}")
+
+    meta = fm_image.metadata
+    z_in = getattr(meta, "pixel_size_z", None)
+    if not z_in:
+        raise ValueError(
+            "volume has no z step (single plane) — nothing to interpolate"
+        )
+    if not target_z_size_m or target_z_size_m <= 0:
+        raise ValueError(
+            f"target z pixel size must be positive, got {target_z_size_m}"
+        )
+
+    old_nz = data.shape[1]
+    interpolated = multi_channel_interpolation(
+        data,
+        pixelsize_in=z_in,
+        pixelsize_out=target_z_size_m,
+        method=method,
+        progress_callback=progress_callback,
+    )
+    new_nz = interpolated.shape[1]
+    if new_nz < 1:
+        raise ValueError("interpolation produced an empty volume")
+
+    # Effective z pixel size from the ACTUAL resampled slice count, not the
+    # nominal target — so physical depth (z_index * pixel_size_z) is preserved
+    # when the caller rescales coordinates by new_nz / old_nz.
+    new_meta = copy.deepcopy(meta)
+    new_meta.pixel_size_z = z_in * old_nz / new_nz
+
+    # z_positions is a per-plane objective ramp; resample it to the new count so
+    # its length scales with the volume (convention-agnostic — np.interp on the
+    # existing ramp preserves whatever ordering it had).
+    positions = getattr(meta, "z_positions", None)
+    if positions:
+        old = np.asarray(positions, dtype=float)
+        new_len = max(1, round(len(old) * new_nz / old_nz))
+        if new_len == 1 or len(old) == 1:
+            new_meta.z_positions = [float(old[0])] * new_len
+        else:
+            src = np.linspace(0.0, len(old) - 1, new_len)
+            new_meta.z_positions = np.interp(
+                src, np.arange(len(old)), old
+            ).tolist()
+
+    return FluorescenceImage(data=interpolated, metadata=new_meta)
 
 
 def multi_channel_get_z_guass(image: np.ndarray, x: int, y: int, show: bool = False) -> List[float]:
