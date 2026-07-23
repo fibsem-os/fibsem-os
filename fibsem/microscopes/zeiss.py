@@ -560,12 +560,16 @@ class ZeissMicroscope(FibsemMicroscope):
         nat_h, nat_w = (native_shape[0], native_shape[1]) if native_shape else (out_h, out_w)
 
         native_ps: Optional[float] = None
-        try:
-            ps = self.connection.GetValue("AP_IMAGE_PIXEL_SIZE")  # EVIDENCED (metres)
-            if ps and ps > 0:
-                native_ps = float(ps)
-        except Exception as e:  # noqa: BLE001
-            logging.debug(f"Could not read AP_IMAGE_PIXEL_SIZE: {e}")
+        if beam_type == BeamType.ION:
+            # AP_IMAGE_PIXEL_SIZE describes the electron column only
+            native_ps = self._get_fib_pixel_size()
+        if native_ps is None:
+            try:
+                ps = self.connection.GetValue("AP_IMAGE_PIXEL_SIZE")  # EVIDENCED (metres)
+                if ps and ps > 0:
+                    native_ps = float(ps)
+            except Exception as e:  # noqa: BLE001
+                logging.debug(f"Could not read AP_IMAGE_PIXEL_SIZE: {e}")
 
         if native_ps is not None:
             return Point(x=native_ps * nat_w / out_w, y=native_ps * nat_h / out_h)
@@ -943,6 +947,29 @@ class ZeissMicroscope(FibsemMicroscope):
             logging.warning(f"Could not execute {cmd_name}: {e}")
             return False
 
+    def _get_store_size(self) -> Tuple[int, int]:
+        """Current SmartSEM image store as (width, height) pixels."""
+        try:
+            store = self.connection.GetState("DP_IMAGE_STORE")  # EVIDENCED, "1024 * 768"
+            width, height = (int(p.strip()) for p in store.split("*"))
+            return width, height
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"Could not read DP_IMAGE_STORE: {e}")
+            return (1024, 768)
+
+    def _get_fib_pixel_size(self) -> Optional[float]:
+        """FIB pixel size (metres), which tracks AP_FIB_MAGNIFICATION.
+
+        Note AP_IMAGE_PIXEL_SIZE / AP_WIDTH describe the *electron* column and do
+        not follow the FIB at all, so the ion field of view must come from here.
+        """
+        try:
+            ps = self.connection.GetValue("AP_FIB_PIXEL_SIZE")  # EVIDENCED
+            return float(ps) if ps and ps > 0 else None
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"Could not read AP_FIB_PIXEL_SIZE: {e}")
+            return None
+
     def _get(self, key: str, beam_type: Optional[BeamType] = None):
         """Translate a fibsem-os key into a SmartSEM parameter read."""
         conn = self.connection
@@ -972,23 +999,36 @@ class ZeissMicroscope(FibsemMicroscope):
         if key == "current":
             if beam_type == BeamType.ELECTRON:
                 return self._read_value("AP_IPROBE", ZEISS_SEM_CURRENTS[0])  # VERIFY (amps)
-            # ion current == the selected SmartFIB probe string, e.g. "30kV:50pA"
+            # remember the instrument's exact probe label so it can be set back verbatim
             try:
                 probe = conn.GetState("DP_FIB_IMAGE_PROBE")  # EVIDENCED
-                current = parse_probe_current(probe)
-                if current is not None:
-                    # remember the instrument's exact label so we can set it back verbatim
+                parsed = parse_probe_current(probe)
+                if parsed is not None:
                     self._ion_probe_label = probe
-                    self._ion_probe_current = current
-                    return current
+                    self._ion_probe_current = parsed
             except Exception as e:  # noqa: BLE001
                 logging.debug(f"Could not read DP_FIB_IMAGE_PROBE: {e}")
+            # the measured probe current is authoritative; fall back to the label
+            try:
+                current = conn.GetValue("AP_FIB_PROBE_CURRENT")  # EVIDENCED (amps)
+                if current and current > 0:
+                    return float(current)
+            except Exception as e:  # noqa: BLE001
+                logging.debug(f"Could not read AP_FIB_PROBE_CURRENT: {e}")
+            if self._ion_probe_current is not None:
+                return self._ion_probe_current
             cached = self._beam_parameters[BeamType.ION].beam_current
             return cached if cached is not None else parse_probe_current(ZEISS_FIB_PROBE_STRINGS[0])
         if key == "voltage":
-            default_v = ZEISS_FIB_VOLTAGE if beam_type == BeamType.ION else 2000.0
-            return self._read_value("AP_ACTUALKV", default_v)  # VERIFY (volts)
+            if beam_type == BeamType.ION:
+                return self._read_value("AP_FIB_EHT_TARGET", ZEISS_FIB_VOLTAGE)  # EVIDENCED
+            return self._read_value("AP_ACTUALKV", 2000.0)  # VERIFY (volts)
         if key == "hfw":
+            if beam_type == BeamType.ION:
+                # the ion field of view follows AP_FIB_PIXEL_SIZE, not AP_WIDTH
+                ps = self._get_fib_pixel_size()
+                if ps is not None:
+                    return ps * self._get_store_size()[0]
             return self._read_value("AP_WIDTH", 150.0e-6)  # VERIFY (metres, field width)
         if key == "scan_rotation":
             return self._read_value("AP_SCANROTATION", 0.0)  # VERIFY (degrees)
@@ -1105,6 +1145,21 @@ class ZeissMicroscope(FibsemMicroscope):
         if key == "hfw":
             limits = LIMITS.get(beam_type, SEM_LIMITS)["hfw"]
             value = float(np.clip(value, limits[0], limits[1]))
+            if beam_type == BeamType.ION:
+                # AP_WIDTH is the electron column and is not writable in practice;
+                # the ion field of view is set through the FIB magnification.
+                # Scale from the current state so no reference constant is needed.
+                current_fov = self._get("hfw", BeamType.ION)
+                current_mag = self._read_value("AP_FIB_MAGNIFICATION", 0.0)  # EVIDENCED
+                if current_mag > 0 and current_fov and current_fov > 0:
+                    self._safe_set_value("AP_FIB_MAGNIFICATION", current_mag * (current_fov / value))
+                    logging.debug(f"ION hfw {value} m via AP_FIB_MAGNIFICATION.")
+                else:
+                    logging.warning(
+                        f"Could not set ION hfw to {value} m: FIB magnification/field "
+                        f"of view unavailable (mag={current_mag}, fov={current_fov})."
+                    )
+                return
             self._safe_set_value("AP_WIDTH", value)  # VERIFY (metres)
             return
         if key == "scan_rotation":
