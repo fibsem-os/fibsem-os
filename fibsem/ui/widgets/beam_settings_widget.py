@@ -318,6 +318,10 @@ class FibsemBeamSettingsWidget(QWidget):
                     self.preset_combo.setCurrentIndex(idx)
         self.preset_combo.blockSignals(False)
 
+        # whether this beam has presets is only known once they are populated
+        # (Tescan exposes them on the FIB but not the SEM), so re-apply visibility
+        self._update_visibility()
+
     def get_settings(self) -> BeamSettings:
         """Return a BeamSettings built from the current widget values."""
         return BeamSettings(
@@ -415,9 +419,20 @@ class FibsemBeamSettingsWidget(QWidget):
         for w in [self.beam_current_label, self.beam_current_combo]:
             w.setVisible(not is_tescan)
 
-        # Preset: TESCAN only
+        # Preset: TESCAN only, and only where the beam actually has presets.
+        # Tescan exposes them on the FIB but not the SEM, and an empty combo
+        # reads as a control the user simply failed to set.
+        has_presets = self.preset_combo.count() > 0
         for w in [self.preset_label, self.preset_combo]:
-            w.setVisible(is_tescan)
+            w.setVisible(is_tescan and has_presets)
+
+        # Working distance: not settable on the TESCAN FIB -- _set("working_distance")
+        # is a no-op there -- so show it read-only rather than as a live control.
+        wd_settable = not (is_tescan and self.beam_type is BeamType.ION)
+        self.working_distance_spinbox.setEnabled(wd_settable)
+        self.working_distance_spinbox.setToolTip(
+            "" if wd_settable else "Not settable on the TESCAN FIB (use the TESCAN autofocus)"
+        )
 
     @staticmethod
     def _set_combo_closest(combo, value: float):
