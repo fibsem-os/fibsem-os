@@ -15,12 +15,13 @@ from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
 TESCAN_BEAM_READY_TIMEOUT = 60        # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
+SPOT_BURN_POLL_INTERVAL = 1           # Seconds between DrawBeam status polls while a spot is exposing
 
 try:
     import tescanautomation
     from tescanautomation import Automation
     from tescanautomation.Common import Document, Bpp, Detector
-    from tescanautomation.DrawBeam import IEtching, Status as DBStatus
+    from tescanautomation.DrawBeam import DepthUnit, IEtching, Status as DBStatus
     from tescanautomation.SEM import HVBeamStatus as SEMStatus
 
     sys.modules.pop("tescanautomation.GUI")
@@ -1297,6 +1298,183 @@ class TescanMicroscope(FibsemMicroscope):
     def get_milling_state(self):
         state = self.connection.DrawBeam.GetStatus()[0]
         return DrawBeamStatusToPatterningState[state]
+
+    @staticmethod
+    def _spot_burn_point_to_metres(point: Point, hfw: float, resolution: Tuple[int, int]) -> Point:
+        """Convert a normalised (0-1, top-left origin) image coordinate to DrawBeam coordinates.
+
+        DrawBeam objects are positioned in metres from the image centre with +y up, the same
+        convention the draw_* pattern methods already use.
+
+        Args:
+            point: normalised image coordinate, (0, 0) top-left to (1, 1) bottom-right.
+            hfw: horizontal field width in metres.
+            resolution: image resolution as (width, height) in pixels.
+
+        Returns:
+            Point: position in metres relative to the image centre.
+        """
+        from fibsem import conversions
+
+        width, height = resolution
+        pixelsize = hfw / width
+        pixel_coordinate = Point(x=point.x * width, y=point.y * height)
+        return conversions.image_to_microscope_image_coordinates2(
+            coord=pixel_coordinate,
+            image_shape=(height, width),
+            pixelsize=pixelsize,
+            subpixel_precision=True,  # spot coordinates are fractional, don't round to a pixel
+        )
+
+    def _create_spot_burn_layer(
+        self,
+        coordinates: List[Point],
+        exposure_time: float,
+        hfw: float,
+        resolution: Tuple[int, int],
+    ) -> 'Automation.DrawBeam.Layer':
+        """Build a DrawBeam layer holding one timed dot per coordinate.
+
+        preset is left as None so DrawBeam uses the beam's current conditions rather than
+        forcing a preset that may not exist on the machine. The remaining IEtching fields are
+        mandatory, so they come from the configured defaults.
+        """
+        defaults = FibsemMillingSettings()
+        layer_settings = IEtching(
+            syncWriteField=False,
+            writeFieldSize=hfw,
+            beamCurrent=self.get("current", BeamType.ION),
+            spotSize=defaults.spot_size,
+            rate=defaults.rate,
+            dwellTime=defaults.dwell_time,
+            parallel=False,
+            preset=None,
+            spacing=defaults.spacing,
+        )
+        layer = self.connection.DrawBeam.Layer("SpotBurn", layer_settings)
+
+        # DepthUnit.Second makes Depth an exposure time rather than a depth, which is
+        # exactly a spot burn -- park on the point and expose for this long.
+        for point in coordinates:
+            centre = self._spot_burn_point_to_metres(point, hfw=hfw, resolution=resolution)
+            logging.info(
+                f"spot burn point: {point} -> ({centre.x:.3e}, {centre.y:.3e}) m, "
+                f"exposure time: {exposure_time}s"
+            )
+            layer.addDot(
+                CenterX=centre.x,
+                CenterY=centre.y,
+                Depth=exposure_time,
+                DepthUnit=DepthUnit.Second,
+            )
+        return layer
+
+    def run_spot_burn(
+        self,
+        coordinates: List[Point],
+        exposure_time: float,
+        milling_current: Optional[float] = None,
+        beam_type: BeamType = BeamType.ION,
+        stop_event: Optional[threading.Event] = None,
+    ) -> None:
+        """Expose each coordinate with the ion beam for exposure_time seconds.
+
+        TESCAN cannot implement the blank -> park -> unblank sequence the other backends use
+        for spot burning: FIB.Scan is a strict subset of SEM.Scan, missing exactly SetBlanker,
+        GetBlanker and SetBeamPosition, and no FIB blanker exists anywhere in the SDK. This
+        instead uses DrawBeam, which does the same job natively -- a Dot object with
+        DepthUnit.Second is a timed exposure at a point.
+
+        All points go into a single layer, so this runs as one DrawBeam exposition and reports
+        progress the same way run_milling does, via milling_progress_signal.
+
+        Args:
+            coordinates: points to burn, normalised image coordinates (0-1).
+            exposure_time: seconds to expose each point.
+            milling_current: ignored on TESCAN, accepted for cross-backend signature parity;
+                the beam conditions are whatever the FIB is currently set to.
+            beam_type: must be BeamType.ION.
+            stop_event: set to cancel the exposition.
+        """
+        if beam_type is not BeamType.ION:
+            raise ValueError(f"Spot burn is only supported on the ion beam, got {beam_type.name}.")
+
+        exposure_time = float(exposure_time)
+        if exposure_time <= 0:
+            raise ValueError(f"exposure_time must be positive, got {exposure_time}.")
+
+        if milling_current is not None:
+            logging.info(
+                "Spot burn milling_current is ignored on TESCAN; the exposition uses the "
+                f"current FIB beam conditions. (requested: {milling_current})"
+            )
+
+        # drop points outside the image bounds, matching the shared implementation
+        in_bounds, dropped = [], []
+        for pt in coordinates:
+            (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
+        if dropped:
+            logging.warning(
+                f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds (0-1): {dropped}"
+            )
+        coordinates = in_bounds
+
+        if not coordinates:
+            logging.warning("No spot burn coordinates to burn.")
+            return
+
+        self._prepare_beam(beam_type)
+
+        try:
+            self.connection.DrawBeam.UnloadLayer()
+        except Exception as e:
+            logging.debug(f"Error unloading layer: {e}")
+
+        hfw = self.get("hfw", beam_type)
+        resolution = self.get("resolution", beam_type)
+        layer = self._create_spot_burn_layer(
+            coordinates=coordinates,
+            exposure_time=exposure_time,
+            hfw=hfw,
+            resolution=resolution,
+        )
+
+        start_time = time.time()
+        estimated_time = len(coordinates) * exposure_time
+        remaining_time = estimated_time
+
+        self.connection.DrawBeam.LoadLayer(layer)
+        logging.info(
+            f"running spot burn now: {len(coordinates)} point(s), "
+            f"{exposure_time}s each, {estimated_time}s total..."
+        )
+        self.connection.DrawBeam.Start()
+
+        try:
+            while self.get_milling_state() in ACTIVE_MILLING_STATES:
+                if stop_event is not None and stop_event.is_set():
+                    logging.info("Spot burn cancelled.")
+                    self.stop_milling()
+                    break
+
+                time.sleep(SPOT_BURN_POLL_INTERVAL)
+                remaining_time = max(0.0, estimated_time - (time.time() - start_time))
+
+                self.milling_progress_signal.emit({"progress": {
+                        "state": "update",
+                        "milling_state": self.get_milling_state(),
+                        "start_time": start_time,
+                        "estimated_time": estimated_time,
+                        "remaining_time": remaining_time}
+                        })
+        except Exception as e:
+            logging.error(f"Error in run_spot_burn: {e}")
+            raise
+        finally:
+            try:
+                self.connection.DrawBeam.UnloadLayer()
+            except Exception as e:
+                logging.debug(f"Error unloading spot burn layer: {e}")
 
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings):
         pass
