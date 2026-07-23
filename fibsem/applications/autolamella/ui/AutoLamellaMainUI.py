@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, La
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
     NAPARI_STYLE,
@@ -1734,6 +1735,10 @@ def run_ui():
     init_sentry()  # inert unless crash reporting is enabled in preferences
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
+    # Cyclic garbage must only ever be collected on this thread: worker-thread GC
+    # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
+    # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.
+    gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
     window = AutoLamellaSingleWindowUI()
     window.show()
     sys.exit(app.exec_())
