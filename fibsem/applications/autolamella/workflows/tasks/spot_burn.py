@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
@@ -19,6 +18,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     clear_spot_burn_ui,
     update_spot_burn_parameters,
 )
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
 
 
@@ -80,6 +80,21 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             coordinates=coordinates,
         )
 
+    def to_settings(self) -> SpotBurnSettings:
+        """The run payload (coordinates + current + exposure) for this task."""
+        return SpotBurnSettings(
+            coordinates=list(self.coordinates),
+            milling_current=self.milling_current,
+            exposure_time=float(self.exposure_time),
+        )
+
+    def apply_settings(self, settings: SpotBurnSettings) -> None:
+        """Apply a run payload back onto this task config (coordinates + current + exposure)."""
+        self.coordinates = list(settings.coordinates)
+        self.milling_current = settings.milling_current
+        self.exposure_time = settings.exposure_time
+
+
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
     config: SpotBurnFiducialTaskConfig
@@ -115,20 +130,20 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         Supervised runs let the user place/adjust points and run the burn in the spot
         burn widget; unsupervised/headless runs burn the stored coordinates directly.
         """
-        # automatic path: no user in the loop (unsupervised or headless)
+        # automatic path: no user in the loop (unsupervised or headless). Skip (rather than
+        # block on the interactive prompt) when there are no coordinates to burn.
         if not self.validate or self.parent_ui is None:
             if not self.config.coordinates:
                 logging.warning(
                     f"No spot burn coordinates set for {self.lamella.name}; skipping spot burn."
                 )
                 return
-            from fibsem.imaging.spot import run_spot_burn
-            run_spot_burn(microscope=self.microscope,
-                          coordinates=self.config.coordinates,
-                          exposure_time=self.config.exposure_time,
-                          milling_current=self.config.milling_current,
-                          beam_type=BeamType.ION,
-                          stop_event=self._stop_event)
+            # burn the stored coordinates directly (progress via the microscope signal)
+            self.config.to_settings().run(
+                microscope=self.microscope,
+                beam_type=BeamType.ION,
+                stop_event=self._stop_event,
+            )
             return
 
         # supervised path: task-orchestrated run/wait/re-prompt loop (mirrors milling).
@@ -138,11 +153,13 @@ class SpotBurnFiducialTask(AutoLamellaTask):
             logging.warning("Spot burn widget not available in UI.")
             return
 
-        parameters = deepcopy({"milling_current": self.config.milling_current,
-                    "exposure_time": self.config.exposure_time,
-                    "coordinates": self.config.coordinates})
-        update_spot_burn_parameters(parent_ui=self.parent_ui, parameters=parameters)
+        update_spot_burn_parameters(
+            parent_ui=self.parent_ui, settings=self.config.to_settings()
+        )
 
+        # supervised run/wait/re-prompt loop (mirrors milling): the user runs each burn
+        # via the workflow "Run Spot Burn" control, and the task waits for it to finish
+        # before continuing so the workflow can't advance mid-burn.
         spot_burn_widget = self.parent_ui.spot_burn_widget
         msg = f"Place points and run the spot burn for {self.lamella.name}. Press Continue when finished."
         response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
@@ -165,8 +182,8 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                 raise
             response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
 
-        # store the coordinates from the UI back to the config
-        self.config.coordinates = spot_burn_widget.get_coordinates()
+        # store the user's settings (coordinates + current/exposure) back to the config
+        self.config.apply_settings(spot_burn_widget.get_settings())
 
-        # clear the spot burn parameters from the UI
+        # clear the spot burn UI
         clear_spot_burn_ui(self.parent_ui)

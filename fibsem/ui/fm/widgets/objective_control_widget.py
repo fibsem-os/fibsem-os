@@ -213,7 +213,8 @@ class ObjectiveControlWidget(QWidget):
         self._wheel_target_um: float = 0.0
         self._execute_wheel_move = qdebounced(self._execute_wheel_move_impl, timeout=150)
 
-        if self.parent_widget is not None and hasattr(self.parent_widget, "viewer"):
+        if (self.parent_widget is not None
+                and getattr(self.parent_widget, "viewer", None) is not None):
             self.parent_widget.viewer.mouse_wheel_callbacks.append(self._on_mouse_wheel)
 
     def _set_objective_actions_enabled(self, enabled: bool) -> None:
@@ -333,10 +334,20 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setValue(objective_position * METRE_TO_MICRON)  # Convert m to µm
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
 
-        if self.parent_widget is not None and hasattr(self.parent_widget, "viewer"):
-            update_text_overlay(self.parent_widget.viewer,
-                                self.parent_widget.microscope,
-                                objective_position=objective_position)  # TODO: migrate to objective_position_changed signal
+        if self.parent_widget is not None:
+            if getattr(self.parent_widget, "viewer", None) is not None:
+                update_text_overlay(self.parent_widget.viewer,
+                                    self.parent_widget.microscope,
+                                    objective_position=objective_position)  # TODO: migrate to objective_position_changed signal
+            # quad-view info bar (OBJECTIVE on the FM canvas), via the controller
+            controller = None
+            try:
+                controller = self.parent_widget._view_controller()
+            except Exception:
+                controller = None
+            if controller is not None:
+                controller.update_info(self.parent_widget.microscope,
+                                       objective_position=objective_position)
 
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
@@ -514,6 +525,36 @@ class ObjectiveControlWidget(QWidget):
 
         event.handled = True
 
+    def _on_canvas_scroll(self, x, y, direction, modifiers):
+        """Quad-view equivalent of :meth:`_on_mouse_wheel`: Shift + scroll on the
+        FM canvas steps the objective by the step size. Plain scroll is left to the
+        canvas (zoom). ``direction`` is +1/-1 per notch; ``modifiers`` is a tuple
+        like ``("Shift",)``. The hardware move is debounced via _execute_wheel_move
+        so rapid scroll events coalesce into a single move.
+        """
+        if "Shift" not in modifiers:
+            return  # plain scroll → canvas zoom
+
+        if self.parent_widget is None or self.parent_widget.is_acquisition_active:
+            return
+
+        step_um = float(
+            np.clip(
+                self.doubleSpinBox_objective_step_size.value() * direction,
+                -MAX_OBJECTIVE_STEP_SIZE_UM,
+                MAX_OBJECTIVE_STEP_SIZE_UM,
+            )
+        )
+        new_pos_um = self.doubleSpinBox_objective_position.value() + step_um
+
+        # update spinbox immediately for visual feedback (no hardware call)
+        self.doubleSpinBox_objective_position.blockSignals(True)
+        self.doubleSpinBox_objective_position.setValue(new_pos_um)
+        self.doubleSpinBox_objective_position.blockSignals(False)
+
+        self._wheel_target_um = new_pos_um
+        self._execute_wheel_move()
+
     def _execute_wheel_move_impl(self):
         """Execute the actual hardware move after scrolling settles."""
         position_um = self._wheel_target_um
@@ -526,3 +567,20 @@ class ObjectiveControlWidget(QWidget):
             logging.error(f"Objective wheel move failed: {e}", exc_info=e)
             notification_service.show_toast(f"Objective move failed: {e}", "warning")
             self.update_objective_position_labels()  # re-sync to actual position
+
+    def cleanup(self):
+        """Remove the napari mouse-wheel callback. Call on widget teardown so the
+        callback (and the dead widget it binds) doesn't leak on the persistent
+        napari viewer across microscope reconnects."""
+        # cancel a pending debounced wheel-move so it can't drive a hardware move or
+        # touch spinboxes after the widget is torn down
+        try:
+            self._execute_wheel_move.cancel()
+        except Exception:
+            pass
+        if (self.parent_widget is not None
+                and getattr(self.parent_widget, "viewer", None) is not None):
+            try:
+                self.parent_widget.viewer.mouse_wheel_callbacks.remove(self._on_mouse_wheel)
+            except (ValueError, RuntimeError):
+                pass

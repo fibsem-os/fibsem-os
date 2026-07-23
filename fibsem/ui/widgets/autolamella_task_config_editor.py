@@ -29,9 +29,6 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.ui.widgets.autolamella_spot_burn_coordinates_widget import (
-    AutoLamellaSpotBurnCoordinatesWidget,
-)
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
 from fibsem.ui.widgets.custom_widgets import (

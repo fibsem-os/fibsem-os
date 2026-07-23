@@ -616,6 +616,10 @@ ORANGE_COLOR = " #ff9800"
 DEFECT_ORANGE_COLOR = "#e8a020"
 DEFECT_RED_COLOR = "#d04040"
 
+# Shared canvas colours (image canvas / overlays / quad-view selection border)
+CANVAS_BG = "#1e2124"
+PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
+
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }
     QFrame#workflow_border_frame[borderState="automated"]  { border: 4px solid #4caf50; }

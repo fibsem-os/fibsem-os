@@ -33,8 +33,6 @@ _LBL_DEV_MODE      = "Enable Development Mode"
 _TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
 
 # Features
-_LBL_LAMELLA_LIVE  = "Show Lamella Position on Live View"
-_TIP_LAMELLA_LIVE  = "Overlay lamella target positions on the live SEM/FIB image during acquisition."
 _LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
 _TIP_COINCIDENCE   = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
@@ -123,8 +121,6 @@ class PreferencesDialog(QDialog):
         # --- Feature Flags ---
         features_page = QWidget()
         features_form = QFormLayout(features_page)
-        self._chk_lamella_live = QCheckBox()
-        self._chk_lamella_live.setToolTip(_TIP_LAMELLA_LIVE)
         self._chk_coincidence_milling = QCheckBox()
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
         self._chk_sample_holder = QCheckBox()
@@ -133,7 +129,6 @@ class PreferencesDialog(QDialog):
         self._chk_scheduled_tasks.setToolTip(_TIP_SCHEDULED)
         self._chk_bug_report = QCheckBox()
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
-        features_form.addRow(_LBL_LAMELLA_LIVE, self._chk_lamella_live)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
@@ -194,7 +189,6 @@ class PreferencesDialog(QDialog):
         self._chk_dev_mode.setChecked(d.dev_mode)
 
         f = prefs.features
-        self._chk_lamella_live.setChecked(f.lamella_position_on_live_view)
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
@@ -250,7 +244,6 @@ class PreferencesDialog(QDialog):
                 dev_mode=self._chk_dev_mode.isChecked(),
             ),
             features=FeatureFlags(
-                lamella_position_on_live_view=self._chk_lamella_live.isChecked(),
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
                 scheduled_tasks=self._chk_scheduled_tasks.isChecked(),

@@ -1,8 +1,6 @@
 import logging
 import os
 
-import napari
-import napari.utils.notifications
 import numpy as np
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMessageBox
@@ -13,7 +11,7 @@ from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
-from fibsem.ui import stylesheets
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.qtdesigner_files import (
     FibsemManipulatorWidget as FibsemManipulatorWidgetUI,
@@ -26,8 +24,8 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self,
         microscope: FibsemMicroscope = None,
         settings: MicroscopeSettings = None,
-        viewer: napari.Viewer = None,
-        image_widget: FibsemImageSettingsWidget = None, 
+        viewer=None,  # unused; retained for call-site compatibility
+        image_widget: FibsemImageSettingsWidget = None,
         parent=None,
     ):
         super().__init__(parent=parent)
@@ -56,7 +54,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
                 self.savedPosition_combobox.addItems(["PARK", "EUCENTRIC"])
              
             except Exception as e:
-                napari.utils.notifications.show_warning(f"Error loading PARK and EUCENTRIC positions, calibration of manipulator is possibly needed. {e}")
+                notification_service.show_toast(f"Error loading PARK and EUCENTRIC positions, calibration of manipulator is possibly needed. {e}", "warning")
                             
             self.move_type_comboBox.currentIndexChanged.connect(self.change_move_type)
             self.move_type_comboBox.setCurrentIndex(0)
@@ -223,7 +221,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             except Exception as e:
                 error_message = f"Error moving manipulator (Relative): {str(e)}"
                 logging.error(error_message)
-                napari.utils.notifications.show_error(error_message)
+                notification_service.show_toast(error_message, "error")
             
         else:
             try:
@@ -231,7 +229,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             except Exception as e:
                 error_message = f"Error moving manipulator (Corrected): {str(e)}"
                 logging.error(error_message)
-                napari.utils.notifications.show_error(error_message)
+                notification_service.show_toast(error_message, "error")
 
         self.update_ui()      
   
@@ -314,12 +312,10 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
 
 def main():
 
-    viewer = napari.Viewer(ndisplay=2)
+    app = QtWidgets.QApplication([])
     manipulator_widget = FibsemManipulatorWidget()
-    viewer.window.add_dock_widget(
-        manipulator_widget, area="right", add_vertical_stretch=False
-    )
-    napari.run()
+    manipulator_widget.show()
+    app.exec_()
 
 
 if __name__ == "__main__":

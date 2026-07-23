@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem import config as fcfg
 from fibsem.fm.acquisition import acquire_image
@@ -46,7 +45,8 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
     ZParametersWidget,
 )
-from fibsem.ui.napari.utilities import is_position_inside_layer, update_text_overlay
+from fibsem.ui import notification_service
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -66,7 +66,7 @@ class FMControlWidget(QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope,
-        viewer: napari.Viewer,
+        viewer=None,  # optional: quad-view hosts may run viewer-less
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -92,9 +92,16 @@ class FMControlWidget(QWidget):
         self.channel_settings = ChannelSettings()
 
         # Consolidated acquisition threading
-        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
+
+        # FM canvas click context (quad-view): retained from the latest image so a
+        # double-click can convert pixel → stage without napari layer metadata
+        self._fm_pixelsize: Optional[float] = None
+        self._fm_image_shape: Optional[tuple] = None
+        self._fm_canvas = None  # quad-view FM canvas we connect to (for teardown)
+        self._fm_move_lock = threading.Lock()  # serialize canvas-driven stage moves
 
         # guards the debounced working-state autosave while applying a config
         self._loading_config = False
@@ -102,8 +109,6 @@ class FMControlWidget(QWidget):
         self.initUI()
         self.connect_signals()
         self._update_acquisition_button_states()
-
-        update_text_overlay(self.viewer, self.microscope)
 
     def initUI(self):
         """Initialize the user interface."""
@@ -295,6 +300,20 @@ class FMControlWidget(QWidget):
             self._on_channel_field_changed
         )
 
+        # Route FM canvas double-click (→ relative move) and Shift+scroll
+        # (→ objective) to the matplotlib canvas. This replaces the napari
+        # viewer's mouse_double_click_callbacks hook.
+        controller = self._view_controller()
+        if controller is not None:
+            # bound methods (not lambdas) so they can be disconnected on teardown;
+            # the canvas outlives this widget, so a leaked connection would fire a
+            # stale stage move after the widget is destroyed
+            self._fm_canvas = controller.fm_canvas
+            self._fm_canvas.canvas_double_clicked.connect(self._on_canvas_fm_double_click)
+            self._fm_canvas.canvas_scrolled.connect(
+                self.objectiveControlWidget._on_canvas_scroll
+            )
+
         # Debounced auto-save of the FM working state on any settings change, so
         # edits persist even if the app is force-killed before closeEvent runs.
         from superqt.utils import qdebounced
@@ -313,8 +332,6 @@ class FMControlWidget(QWidget):
             self._on_fm_settings_changed
         )
 
-        self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
-
         # Update checkbox text when lamella selection changes
         if self.parent_widget is not None and hasattr(
             self.parent_widget, "lamella_list"
@@ -326,14 +343,32 @@ class FMControlWidget(QWidget):
         # Initialize checkbox text
         self._update_checkbox_text()
 
-    def close_widget(self):
-        """Close the widget."""
+    def _teardown_connections(self):
+        """Disconnect every external signal/callback wired in connect_signals.
 
-        # disconnect signals
-        self.fm.acquisition_signal.disconnect(self.update_image)
-        self.viewer.mouse_double_click_callbacks.remove(self.on_mouse_double_click)
+        Idempotent and fully guarded so it can be called both from closeEvent and
+        from the parent's teardown (the ``deleteLater`` path, where closeEvent
+        never fires). The quad-view ``fm_canvas`` outlives this widget, so its
+        connections MUST be torn down or a stale double-click/scroll would drive
+        the stage/objective through a destroyed widget.
+        """
+        try:
+            self.fm.acquisition_signal.disconnect(self.update_image)
+        except (TypeError, RuntimeError):
+            pass
 
-        # Disconnect lamella list signal if connected
+        if self._fm_canvas is not None:
+            for signal, slot in (
+                (self._fm_canvas.canvas_double_clicked, self._on_canvas_fm_double_click),
+                (self._fm_canvas.canvas_scrolled, self.objectiveControlWidget._on_canvas_scroll),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+            self._fm_canvas = None
+        self.objectiveControlWidget.cleanup()
+
         if self.parent_widget is not None and hasattr(
             self.parent_widget, "lamella_list"
         ):
@@ -341,91 +376,90 @@ class FMControlWidget(QWidget):
                 self.parent_widget.lamella_list.lamella_selected.disconnect(
                     self._update_checkbox_text
                 )
-            except Exception:
+            except (TypeError, RuntimeError):
                 pass
 
+    def close_widget(self):
+        """Disconnect external signals and close the widget."""
+        self._teardown_connections()
         self.close()
 
-    def on_mouse_double_click(self, viewer, event):
-        # only left clicks
-        if event.button != 1:
-            return
-
-        # Prevent stage movement during acquisitions
-        if self.is_acquisition_active:
-            logging.info("Stage movement disabled during acquisition")
-            event.handled = True
-            return
-
-        logging.info(f"-" * 50)
-
-        selected_layer: Optional[NapariImageLayer] = None
-        movement_type = None
-        ALT_MODIFIER = "Alt" in event.modifiers
-
-        fm_image_layers = []
-        for layer in self.viewer.layers:
-            if isinstance(layer, NapariImageLayer) and "FM Image" in layer.name:
-                fm_image_layers.append(layer.name)
-
-        for fm_layer in fm_image_layers:
-            if is_position_inside_layer(event.position, self.viewer.layers[fm_layer]):
-                selected_layer = self.viewer.layers[fm_layer]
-                pixelsize = selected_layer.metadata.get("pixel_size_x", None)
-                image_shape = selected_layer.data.shape[-2:]
-                movement_type = "FM"
-                break
-
-        if selected_layer is None:
-            logging.info(f"Position {event.position} is not in any valid layer")
-            return
-
-        if pixelsize is None:
-            logging.info("Pixelsize is None")
-            return
-
-        if not self.microscope.fm.has_valid_orientation():
-            logging.info(f"Stage must be in a valid FM orientation to move stage via FM (current: {self.microscope.get_stage_orientation()})")
-            event.handled = True
-            return
-
-        # convert from image coordinates to microscope coordinates
-        coords = selected_layer.world_to_data(event.position)
-        if len(coords) in [3, 4]:
-            coords = coords[-2:]
-
+    def _fm_relative_move_from_pixel(self, x, y, image_shape, pixelsize):
+        """Convert an FM-image pixel (x=col, y=row) into a relative stage move that
+        recenters that point — applying the Y-inversion and the FM camera-image
+        transform compensation — then move the stage. Shared by the napari
+        double-click path and the quad-view canvas path.
+        """
         point_clicked = conversions.image_to_microscope_image_coordinates2(
-            coord=Point(x=coords[1], y=coords[0]),  # yx required
+            coord=Point(x=x, y=y),
             image_shape=image_shape,
             pixelsize=pixelsize,
         )
-
-        logging.info(
-            f"Coordinates: {coords} - {point_clicked} - Movement Type {movement_type} - Alt Modifier {ALT_MODIFIER}"
+        point_clicked = (
+            point_clicked[0],
+            -point_clicked[1],
+        )  # Y-inverse when t=0, need to make this more robust
+        point_clicked = self._apply_fm_camera_transform(point_clicked)
+        logging.info(f"FM relative move: {point_clicked}")
+        self.microscope.move_stage_relative(
+            FibsemStagePosition(x=point_clicked[0], y=point_clicked[1])
         )
-        if movement_type == "FM":
-            point_clicked = (
-                point_clicked[0],
-                -point_clicked[1],
-            )  # Y-inverse when t=0, need to make this more robust
-            # Apply inverse transform to account for image transformation
-            if self.fm._transform is CameraImageTransform.FLIP_X:
-                point_clicked = (-point_clicked[0], point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.FLIP_Y:
-                point_clicked = (point_clicked[0], -point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.FLIP_XY:
-                point_clicked = (-point_clicked[0], -point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.ROTATE_90_CW:
-                point_clicked = (point_clicked[1], -point_clicked[0])
-            elif self.fm._transform is CameraImageTransform.ROTATE_90_CCW:
-                point_clicked = (-point_clicked[1], point_clicked[0])
-            elif self.fm._transform is CameraImageTransform.ROTATE_180:
-                point_clicked = (-point_clicked[0], -point_clicked[1])
 
-            self.microscope.move_stage_relative(
-                FibsemStagePosition(x=point_clicked[0], y=point_clicked[1])
+    def _apply_fm_camera_transform(self, pt):
+        """Compensate a relative (x, y) move for the FM camera image transform."""
+        transform = self.fm._transform
+        if transform is CameraImageTransform.FLIP_X:
+            return (-pt[0], pt[1])
+        if transform is CameraImageTransform.FLIP_Y:
+            return (pt[0], -pt[1])
+        if transform is CameraImageTransform.FLIP_XY:
+            return (-pt[0], -pt[1])
+        if transform is CameraImageTransform.ROTATE_90_CW:
+            return (pt[1], -pt[0])
+        if transform is CameraImageTransform.ROTATE_90_CCW:
+            return (-pt[1], pt[0])
+        if transform is CameraImageTransform.ROTATE_180:
+            return (-pt[0], -pt[1])
+        return pt
+
+    def _on_canvas_fm_double_click(self, x, y, modifiers):
+        """Quad-view FM canvas double-click → relative stage move that recenters
+        the clicked point. Guards run here on the UI thread (so a rejected click
+        never starts a thread); the move itself runs off-thread. Modifiers ignored.
+        """
+        if self.is_acquisition_active:
+            logging.info("Stage movement disabled during acquisition")
+            return
+        if not self.microscope.fm.has_valid_orientation():
+            logging.info(
+                "Stage must be in a valid FM orientation to move via FM "
+                f"(current: {self.microscope.get_stage_orientation()})"
             )
-        logging.info(f"-" * 50)
+            return
+        shape, pixelsize = self._fm_image_shape, self._fm_pixelsize
+        if shape is None or pixelsize is None:
+            logging.info("No FM image available to move from")
+            return
+        if not (0 <= x < shape[1] and 0 <= y < shape[0]):
+            return  # click landed outside the image area
+        # serialize: drop the click if a stage move is already running
+        if not self._fm_move_lock.acquire(blocking=False):
+            logging.info("FM stage move already in progress; ignoring click")
+            return
+        FunctionWorker(
+            self._canvas_fm_move_worker, x, y, shape, pixelsize
+        ).start()
+
+    def _canvas_fm_move_worker(self, x, y, shape, pixelsize):
+        try:
+            self._fm_relative_move_from_pixel(x, y, shape, pixelsize)
+        except Exception as exc:
+            logging.exception("FM stage move failed")
+            notification_service.show_toast(
+                f"FM stage move failed: {exc}", notification_type="error"
+            )
+        finally:
+            self._fm_move_lock.release()
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single microscope parameter during live acquisition."""
@@ -541,45 +575,33 @@ class FMControlWidget(QWidget):
             self.progressBar_acquisition_task.setValue(percentage)
             self.progressBar_acquisition_task.setFormat(msg)
 
+    def _view_controller(self):
+        """The quad-view ``MicroscopeViewController`` on the main microscope tab,
+        or ``None`` otherwise. Chain: this widget's ``parent_widget`` is the
+        ``AutoLamellaUI``, whose ``parent_widget`` is the main UI that owns the
+        ``view_controller``."""
+        autolamella_ui = self.parent_widget
+        main_ui = getattr(autolamella_ui, "parent_widget", None)
+        return getattr(main_ui, "view_controller", None)
+
     @ensure_main_thread
     def update_image(self, image: FluorescenceImage):
 
         if not isinstance(image, FluorescenceImage):
             return
 
-        # Add to napari viewer
-        layer_name = f"FM Image {image.metadata.channels[0].name}"
-        colormap = (
-            image.metadata.channels[0].color if image.metadata.channels else "gray"
-        )
-        translation = (0, 0)
         data = image.data
         if data.ndim == 4 and data.shape[0] == 1 and data.shape[1] == 1:
-            data = data.squeeze(
-                axis=(0, 1)
-            )  # squish to 2D (required by napari for now)
+            data = data.squeeze(axis=(0, 1))  # squish to 2D
 
-        # get translation from eb_image layer if it exists
-        if "ELECTRON" in self.viewer.layers:
-            eb_layer = self.viewer.layers["ELECTRON"]
-            translation = (eb_layer.data.shape[0], 0)  # move it below the SEM image...
+        # retain click context for the quad-view FM canvas double-click → move
+        self._fm_pixelsize = getattr(image.metadata, "pixel_size_x", None)
+        self._fm_image_shape = data.shape[-2:]
 
-        if layer_name in self.viewer.layers:
-            self.viewer.layers[layer_name].data = data
-            self.viewer.layers[layer_name].metadata = image.metadata.to_dict()
-            self.viewer.layers[layer_name].translate = translation
-            self.viewer.layers[layer_name].colormap = colormap
-            self.viewer.layers[layer_name].blending = "additive"
-        else:
-            self.viewer.add_image(
-                data,
-                name=layer_name,
-                metadata=image.metadata.to_dict(),
-                colormap=colormap,
-                translate=translation,
-                blending="additive",
-            )
-            self.viewer.reset_view()
+        # Composite the acquired image onto the FM canvas via the controller.
+        controller = self._view_controller()
+        if controller is not None:
+            controller.set_fm_image(image)
 
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
@@ -805,10 +827,8 @@ class FMControlWidget(QWidget):
             return
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._image_acquistion_worker,
-            args=(channel_settings, z_parameters, filename),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._image_acquistion_worker, channel_settings, z_parameters, filename
         )
         self._acquisition_thread.start()
 
@@ -916,10 +936,8 @@ class FMControlWidget(QWidget):
         autofocus_settings = settings["autofocus_settings"]
 
         # Start auto-focus thread
-        self._acquisition_thread = threading.Thread(
-            target=self._autofocus_worker,
-            args=(channel_settings, autofocus_settings),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._autofocus_worker, channel_settings, autofocus_settings
         )
         self._acquisition_thread.start()
 
@@ -972,8 +990,8 @@ class FMControlWidget(QWidget):
             event.accept()
             return
 
-        # Stop live acquisition
-        self.microscope.fm.acquisition_signal.disconnect(self.update_image)
+        # Disconnect all external signals/callbacks (idempotent)
+        self._teardown_connections()
         if self.microscope.fm.is_acquiring:
             try:
                 self.microscope.fm.stop_acquisition()

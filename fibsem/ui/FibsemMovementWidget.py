@@ -1,10 +1,9 @@
 
 import logging
+from functools import partial
 from typing import Optional
 
-import napari
 import numpy as np
-from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
@@ -18,7 +17,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
-from fibsem.ui.napari.utilities import update_text_overlay
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.stylesheets import (
     DISABLED_PUSHBUTTON_STYLE,
     LABEL_INSTRUCTIONS_STYLE,
@@ -45,11 +44,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         if not hasattr(parent, 'image_widget') or not isinstance(parent.image_widget, FibsemImageSettingsWidget):
             raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
-        if not hasattr(parent, "viewer") or not isinstance(parent.viewer, napari.Viewer):
-            raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.microscope = microscope
-        self.viewer = parent.viewer
+        # Optional: quad-view hosts may run viewer-less (info bar via the controller).
+        self.viewer = getattr(parent, "viewer", None)
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
         self.setup_connections()
 
@@ -166,12 +164,22 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_sem_orientation.clicked.connect(lambda: self.move_to_orientation("SEM"))
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
-        # register mouse callbacks
-        if cfg.FEATURE_VIEWER_MOVEMENT_EVENTS:
-            self.viewer.mouse_double_click_callbacks.append(self._viewer_double_click)
-        else:
-            self.image_widget.eb_layer.mouse_double_click_callbacks.append(self._double_click)
-            self.image_widget.ib_layer.mouse_double_click_callbacks.append(self._double_click)
+        # register mouse callbacks — one canvas per beam (quad-view). The canvases are
+        # app-lifetime (owned by the controller), so store each (canvas, slot) pair and
+        # disconnect it in _teardown_connections: this widget is torn down via
+        # removeTab + deleteLater (which fires neither closeEvent nor close), and a stale
+        # double-click firing on the deleted widget makes PyQt call qFatal → the process
+        # aborts. partial (not lambda) so the exact slot object can be disconnected.
+        self._canvas_dbl_click_conns = []
+        controller = self._view_controller()
+        if controller is not None:
+            for canvas, beam in (
+                (controller.sem_canvas, BeamType.ELECTRON),
+                (controller.fib_canvas, BeamType.ION),
+            ):
+                slot = partial(self._on_canvas_double_click, beam)
+                canvas.canvas_double_clicked.connect(slot)
+                self._canvas_dbl_click_conns.append((canvas, slot))
 
         # disable ui elements
         self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
@@ -262,6 +270,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         self.update_ui()
 
+    def _teardown_connections(self) -> None:
+        """Disconnect from the app-lifetime quad-view canvases before this widget is
+        destroyed. The canvases outlive the per-connection movement widget; without this a
+        stale double-click after teardown fires on a deleted widget and PyQt aborts the
+        process. Idempotent — safe to call more than once."""
+        for canvas, slot in getattr(self, "_canvas_dbl_click_conns", []):
+            try:
+                canvas.canvas_double_clicked.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._canvas_dbl_click_conns = []
+
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
         for btn in self._move_buttons:
@@ -283,10 +303,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             logging.debug(msg)
             notification_service.show_toast(msg)
 
-        is_finished = ddict.get("finished", False)
-        if is_finished:
-            update_text_overlay(self.viewer, self.microscope)
-
     def handle_acquisition_update(self, ddict: dict):
         """Handle acquisition updates from the image widget"""
         is_finished = ddict.get("finished", False)
@@ -305,8 +321,22 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation.setValue(np.degrees(stage_position.r))
         self.doubleSpinBox_movement_stage_tilt.setValue(np.degrees(stage_position.t))
 
-        # update the current position label
-        update_text_overlay(self.viewer, self.microscope, stage_position=stage_position)
+        # update the current position label (quad-view info bar; debounced render)
+        controller = self._view_controller()
+        if controller is not None:
+            controller.update_info(self.microscope, stage_position=stage_position)
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None if unavailable.
+
+        Resolved like the image widget: the direct parent (standalone ``FibsemUI``)
+        or parent → ``parent_widget`` (AutoLamella) holds ``view_controller``.
+        """
+        controller = getattr(self.parent, "view_controller", None)
+        if controller is not None:
+            return controller
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
 
     @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
@@ -337,7 +367,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # refresh tooltip and overlay
         milling = self.microscope.get_orientation("MILLING")
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
-        update_text_overlay(self.viewer, self.microscope)
+        controller = self._view_controller()
+        if controller is not None:
+            controller.update_info(self.microscope)
 
 #### MOVEMENT
 
@@ -352,6 +384,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self._toggle_interactions(enable=False)
         worker = self.absolute_movement_worker(stage_position=stage_position)
         worker.finished.connect(self.move_stage_finished)
+        worker.errored.connect(self._on_movement_error)
         worker.start()
     
     @thread_worker
@@ -369,6 +402,17 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             return
         self._toggle_interactions(enable=True)
 
+    def _on_movement_error(self, exc: Exception) -> None:
+        """Surface a background stage-movement failure to the user.
+
+        The napari ``thread_worker`` this widget migrated off used to reraise
+        unhandled worker errors onto the GUI thread (visible notification); the
+        napari-free ``FunctionWorker`` only logs them, so surface a toast here.
+        Interaction state is still re-enabled by ``move_stage_finished`` (wired to
+        ``finished``, which fires on error too).
+        """
+        notification_service.show_toast(f"Stage movement failed: {exc}", "error")
+
     def get_position_from_ui(self):
         """Get the stage position from the UI"""
 
@@ -383,86 +427,74 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         return stage_position
 
-    def _viewer_double_click(self, viewer, event):
-        """Viewer-level double-click callback (FEATURE_VIEWER_MOVEMENT_EVENTS).
-        Determines which image layer was clicked and delegates to _double_click."""
-        for layer in [self.image_widget.eb_layer, self.image_widget.ib_layer]:
-            coords = layer.world_to_data(event.position)
-            _, beam_type, _ = self.image_widget.get_data_from_coord(coords)
-            if beam_type is not None:
-                self._double_click(layer, event)
-                return
+    def _execute_stage_move(self, beam_type, point, vertical_move: bool) -> None:
+        """Dispatch a stage move from a microscope-space delta (worker thread).
 
-    def _double_click(self, layer, event):
-        """Callback for double-click mouse events on the image widget"""
-        self._toggle_interactions(enable= False)
-
-        worker = self._double_click_worker(layer, event)
-        worker.finished.connect(self.move_stage_finished)
-        worker.start()
-
-    @thread_worker
-    def _double_click_worker(self, layer, event):
-        """Thread worker for double-click mouse events on the image widget"""
-        if event.button != 1 or "Shift" in event.modifiers:
-            return
-
-        if hasattr(self.parent, "milling_widget") and self.parent.milling_widget.is_milling:
-            notification_service.show_toast("Cannot move stage while milling is in progress.")
-            return
-
-        # get coords
-        coords = layer.world_to_data(event.position)
-
-        # TODO: dimensions are mixed which makes this confusing to interpret... resolve
-        coords, beam_type, image = self.image_widget.get_data_from_coord(coords)
-        self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
-
-        if beam_type is None:
-            notification_service.show_toast(
-                "Clicked outside image dimensions. Please click inside the image to move."
-            )
-            return
-        if image.metadata is None:
-            notification_service.show_toast(
-                "Image metadata is not set. Please set the image metadata before moving."
-            )
-            return
-
-        point = conversions.image_to_microscope_image_coordinates(
-            coord=Point(x=coords[1], y=coords[0]), 
-            image=image.data, 
-            pixelsize=image.metadata.pixel_size.x,
+        Shared by the napari and quad-view double-click paths.
+        """
+        logging.info(
+            f"_execute_stage_move: beam_type={beam_type.name}, "
+            f"point={point.to_dict()}, vertical_move={vertical_move}"
         )
-
-        # move
-        vertical_move = True if "Alt" in event.modifiers else False
         movement_mode = "Vertical" if vertical_move else "Stable"
-
         logging.debug({
-            "msg": "stage_movement",                    # message type
-            "movement_mode": movement_mode,             # movement mode
-            "beam_type": beam_type.name,                # beam type
-            "dm": point.to_dict(),                      # shift in microscope coordinates
-            "coords": {"x": coords[1], "y": coords[0]}, # coords in image coordinates
+            "msg": "stage_movement",
+            "movement_mode": movement_mode,
+            "beam_type": beam_type.name,
+            "dm": point.to_dict(),
         })
-
         self.movement_progress_signal.emit({"msg": "Moving stage..."})
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
             self.microscope.vertical_move(dx=point.x, dy=point.y)
         elif beam_type is BeamType.ELECTRON and vertical_move and hasattr(self.microscope, "move_coincident_from_sem"):
             # move coincident from SEM
-            self.microscope.move_coincident_from_sem(dx=0, dy=point.y) # TMP: disable dx for now
+            self.microscope.move_coincident_from_sem(dx=0, dy=point.y)  # TMP: disable dx for now
         else:
             # corrected stage movement
-            self.microscope.stable_move(
-                dx=point.x,
-                dy=point.y,
-                beam_type=beam_type,
-            )
+            self.microscope.stable_move(dx=point.x, dy=point.y, beam_type=beam_type)
         self.movement_progress_signal.emit({"msg": "Move finished, updating UI"})
         self.update_ui_after_movement()
+
+    def _on_canvas_double_click(self, beam_type, x: float, y: float, modifiers) -> None:
+        """Quad-view canvas double-click → move stage (mirrors ``_double_click``)."""
+        self._toggle_interactions(enable=False)
+        worker = self._canvas_double_click_worker(beam_type, x, y, modifiers)
+        worker.finished.connect(self.move_stage_finished)
+        worker.errored.connect(self._on_movement_error)
+        worker.start()
+
+    @thread_worker
+    def _canvas_double_click_worker(self, beam_type, x: float, y: float, modifiers):
+        """Thread worker for quad-view double-clicks (one image per canvas).
+
+        ``x, y`` are already beam-local, full-resolution image pixels (the canvas
+        emits data coords), so no napari ``world_to_data`` / side-by-side offset
+        handling is needed — unlike ``_double_click_worker``.
+        """
+        if "Shift" in modifiers:
+            return
+        if hasattr(self.parent, "milling_widget") and self.parent.milling_widget.is_milling:
+            notification_service.show_toast("Cannot move stage while milling is in progress.")
+            return
+        image = (
+            self.image_widget.eb_image
+            if beam_type is BeamType.ELECTRON
+            else self.image_widget.ib_image
+        )
+        if image is None or image.metadata is None:
+            notification_service.show_toast("No image available to move from.")
+            return
+        h, w = image.data.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            return  # click landed outside the image area
+        self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
+        point = conversions.image_to_microscope_image_coordinates(
+            coord=Point(x=x, y=y),
+            image=image.data,
+            pixelsize=image.metadata.pixel_size.x,
+        )
+        self._execute_stage_move(beam_type, point, "Alt" in modifiers)
 
     def move_to_orientation(self, orientation: str)-> None:
         """Move to the specifed orientation"""
@@ -471,6 +503,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self._toggle_interactions(False)
         worker = self.move_to_orientation_worker(orientation)
         worker.finished.connect(self.move_stage_finished)
+        worker.errored.connect(self._on_movement_error)
         worker.start()
 
     @thread_worker

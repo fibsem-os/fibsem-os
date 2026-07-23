@@ -1,29 +1,49 @@
-import napari
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
-import napari.utils.notifications
+from PyQt5.QtCore import Qt, pyqtSignal
 import fibsem
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.qtdesigner_files import FibsemUI as FibsemUIMainWindow
+from fibsem.ui.stylesheets import NAPARI_STYLE
 
 
 class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
-    def __init__(self, viewer: napari.Viewer):
+    def __init__(self, viewer=None):
         super().__init__()
         self.setupUi(self)
 
-        self.label_title.setText(f"fibsemOS v{fibsem.__version__}")
+        # napari-style dark theme, matching AutoLamellaMainUI (the napari window
+        # previously supplied this; a standalone window must set it itself).
+        self.setStyleSheet(NAPARI_STYLE)
 
+        # Title now lives in the window titlebar; drop the in-panel label.
+        self.setWindowTitle(f"fibsemOS v{fibsem.__version__}")
+        self.gridLayout.removeWidget(self.label_title)
+        self.label_title.deleteLater()
+
+        # Viewer-less: the image/movement widgets display through the controller
+        # (None propagates to them via parent.viewer). The minimap still spins up
+        # its own napari viewer on demand (open_minimap_widget).
         self.viewer = viewer
-        self.viewer.title = f"fibsemOS v{fibsem.__version__}"
+
+        # Quad-view display: the controller's SEM/FIB canvases are the left pane;
+        # the existing tab panel (title + tabs) becomes the right pane.
+        self.view_controller = MicroscopeViewController(parent=self)
+        splitter = QtWidgets.QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.view_controller.widget)
+        splitter.addWidget(self.centralwidget)
+        splitter.setSizes([720, 460])
+        self.setCentralWidget(splitter)
 
         self.microscope: FibsemMicroscope = None
         self.settings: MicroscopeSettings = None
@@ -47,22 +67,23 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
     def open_minimap_widget(self):
         if self.microscope is None:
-            napari.utils.notifications.show_warning("Please connect to a microscope first... [No Microscope Connected]")
+            notification_service.show_toast("Please connect to a microscope first... [No Microscope Connected]", "warning")
             return
 
         if self.movement_widget is None:
-            napari.utils.notifications.show_warning("Please connect to a microscope first... [No Movement Widget]")
+            notification_service.show_toast("Please connect to a microscope first... [No Movement Widget]", "warning")
             return
 
-        self.viewer_minimap = napari.Viewer(ndisplay=2)
-        self.minimap_widget = FibsemMinimapWidget(viewer=self.viewer_minimap, parent=self)
-        self.viewer_minimap.window.add_dock_widget(
-            widget=self.minimap_widget, 
-            area="right", 
-            add_vertical_stretch=True, 
-            name="fibsemOS Minimap"
-        )
-        napari.run(max_loop_level=2)
+        # The minimap widget owns its matplotlib canvas + controls; host it in a
+        # plain window (the app already runs a Qt event loop — no napari.run).
+        self.minimap_widget = FibsemMinimapWidget(parent=self)
+        window = QtWidgets.QMainWindow(self)
+        window.setWindowTitle("fibsemOS Minimap")
+        window.setStyleSheet(NAPARI_STYLE)
+        window.setCentralWidget(self.minimap_widget)
+        window.resize(1200, 800)
+        self._minimap_window = window
+        window.show()
 
     def update_ui(self):
 
@@ -107,6 +128,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
                 microscope=self.microscope,
                 parent=self,
                 viewer=self.viewer,
+                image_widget=self.image_widget,  # lets it resolve the quad controller
             )
             if self.microscope.system.manipulator.enabled:
                 self.manipulator_widget = FibsemManipulatorWidget(
@@ -141,8 +163,13 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.tabWidget.removeTab(3)
             self.tabWidget.removeTab(2)
             self.tabWidget.removeTab(1)
-            self.image_widget.clear_viewer()
+            self.view_controller.clear()  # reset the quad-view canvases on disconnect
+            # drop the image widget's controller/canvas connections (WD scroll, overlay edits)
+            # before deleteLater — the canvases persist, so a leaked slot would fire on a dead
+            # widget after reconnect (deleteLater fires neither closeEvent nor close).
+            self.image_widget._teardown_connections()
             self.image_widget.deleteLater()
+            self.movement_widget._teardown_connections()
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()
             if self.manipulator_widget is not None:
@@ -152,13 +179,13 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
 
 def main():
 
-    viewer = napari.Viewer(ndisplay=2)
-    fibsem_ui = FibsemUI(viewer=viewer)
-    viewer.window.add_dock_widget(fibsem_ui, 
-                                  area="right", 
-                                  add_vertical_stretch=False, 
-                                  name=f"fibsemOS v{fibsem.__version__}")
-    napari.run()
+    # Fully viewer-less: the quad-view controller is the display; no napari main
+    # viewer. (The minimap still opens its own napari viewer on demand.)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    app.setStyle("Fusion")
+    fibsem_ui = FibsemUI()
+    fibsem_ui.show()
+    app.exec_()
 
 
 if __name__ == "__main__":

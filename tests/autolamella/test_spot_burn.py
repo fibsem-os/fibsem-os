@@ -275,7 +275,8 @@ def test_supervised_spot_burn_runs_then_continues(monkeypatch, tmp_path):
     task.update_spot_burn_parameters_ui()
 
     widget.start_spot_burn_signal.emit.assert_called_once()
-    widget.get_coordinates.assert_called_once()
+    # the task reads the full payload back (coordinates + current/exposure) via get_settings
+    widget.get_settings.assert_called_once()
     assert cleared  # spot burn UI was cleared afterwards
 
 
@@ -288,7 +289,7 @@ def test_supervised_spot_burn_continue_without_running(monkeypatch, tmp_path):
     task.update_spot_burn_parameters_ui()
 
     widget.start_spot_burn_signal.emit.assert_not_called()
-    widget.get_coordinates.assert_called_once()
+    widget.get_settings.assert_called_once()
     assert cleared
 
 

@@ -7,7 +7,6 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-import napari
 import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -30,18 +29,14 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
+    BeamType,
     FibsemImage,
     FibsemRectangle,
     Point,
     ReferenceImageParameters,
 )
-from fibsem.ui.napari.patterns import (
-    MILLING_ALIGNMENT_AREA_LAYER_NAME,
-    MILLING_PATTERN_LAYER_NAME,
-    setup_editable_alignment_layer,
-)
-from napari.layers import Shapes as NapariShapesLayer
-from fibsem.ui.napari.utilities import add_points_layer
+from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
+from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
 from fibsem.ui.widgets.autolamella_apply_protocol_dialog import ApplyLamellaConfigDialog
 from fibsem.ui.widgets.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
@@ -64,30 +59,31 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.ui.widgets.autolamella_spot_burn_coordinates_widget import (
-    AutoLamellaSpotBurnCoordinatesWidget,
-    SPOT_BURN_EDITOR_POINTS_LAYER,
+from fibsem.ui.widgets.spot_burn_coordinates_widget import (
+    SpotBurnCoordinatesWidget,
 )
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
     from fibsem.correlation.structures import CorrelationResult
+    from fibsem.imaging.spot import SpotBurnSettings
 
-REFERENCE_IMAGE_LAYER_NAME = "Reference Image (FIB)"
-REFERENCE_IMAGE_SEM_LAYER_NAME = "Reference Image (SEM)"
-POINT_OF_INTEREST_LAYER_NAME = "Point of Interest"
+# Reducer overlay ids on the FIB (ION) canvas
+POI_OVERLAY_ID = "poi"
+ALIGNMENT_OVERLAY_ID = "alignment_area"
 
 
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
-    def __init__(self, viewer: napari.Viewer, parent: "AutoLamellaUI"):
+    def __init__(self, parent: "AutoLamellaUI"):
         super().__init__(parent)
         self.parent_widget = parent
-        self.viewer = viewer
 
-        # add placeholder image layer to prevent napari help screen showing
-        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
+        # Canvas display: own a controller driving a task-driven stacked view (FIB +
+        # SEM beside it + FM page). Created eagerly (no microscope needed) so the host
+        # tab can embed ``view_controller.widget`` before the microscope connects.
+        self.view_controller = MicroscopeViewController(view=LamellaEditorView())
 
         self.image: FibsemImage
         self.fm_image: Optional[FluorescenceImage] = None
@@ -98,6 +94,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._active_lamella_name: Optional[str] = None
         self._active_task_name: Optional[str] = None
         self._selected_lamella: Optional[Lamella] = None
+        self._overlay_wired = False  # subscribed to controller.overlay_edited
 
         if self.parent_widget.microscope is None:
             return
@@ -154,11 +151,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.milling_task_editor = MillingTaskViewerWidget(
             microscope=self.microscope,
-            viewer=self.viewer,
+            viewer=None,
             milling_enabled=False,
             parent=self,
         )
         self.milling_task_editor.setMinimumHeight(550)
+        # drive patterns/reposition on the FIB canvas (not napari)
+        self.milling_task_editor.set_controller(self.view_controller)
         self.milling_task_editor.set_alignment_area_visible(False)
 
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(
@@ -173,8 +172,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             )
         )
 
-        self.spot_burn_coordinates_widget = AutoLamellaSpotBurnCoordinatesWidget(
-            viewer=self.viewer, config=None, parent=self
+        self.spot_burn_coordinates_widget = SpotBurnCoordinatesWidget(
+            controller=self.view_controller,
+            beam=BeamType.ION,
+            parent=self,
         )
 
         self.pushButton_refresh_positions = IconToolButton(
@@ -352,6 +353,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.spot_burn_coordinates_widget.settings_changed.connect(
             self._on_spot_burn_coordinates_changed
         )
+        if not self._overlay_wired:
+            self.view_controller.overlay_edited.connect(
+                self._on_controller_overlay_edited
+            )
+            self._overlay_wired = True
 
         if (
             self.parent_widget.experiment is not None
@@ -531,7 +537,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._on_selected_task_changed()
 
     def _on_image_selected(self, index):
-        """Callback when an image is selected."""
+        """Callback when an image is selected — load the images and push them to the canvases."""
         p = self._selected_lamella
         if p is None:
             return
@@ -561,65 +567,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if fm_image_path and os.path.exists(fm_image_path):
             self.fm_image = FluorescenceImage.load(fm_image_path)
 
-        # clear existing layers, except images to maintain the layer parameters (e.g. gamma, contrast limits)
-        for layer in list(self.viewer.layers):  # type: ignore
-            if layer.name not in [
-                REFERENCE_IMAGE_LAYER_NAME,
-                REFERENCE_IMAGE_SEM_LAYER_NAME,
-            ]:
-                self.viewer.layers.remove(layer)  # type: ignore
+        # push the FIB image to the ION canvas (patterns / POI / alignment / spot-burn host)
+        self.view_controller.set_image(BeamType.ION, self.image)
+        # keep the spot-burn editor's 0-1 <-> pixel conversion in step with the FIB image
+        self.spot_burn_coordinates_widget.set_image_shape(self.image.data.shape[:2])
 
-        self._update_fib_image_layer()
-        self._update_sem_image_layer(sem_image)
+        # SEM reference: shown beside FIB when toggled on and available
+        self._update_sem_display(sem_image)
 
         self._on_selected_task_changed()
-        self.viewer.reset_view()
 
-    def _update_fm_image_layer(self):
-        if self.fm_image is not None:
-            for ch in range(self.fm_image.data.shape[0]):
-                fm_data = np.array([d for d in self.fm_image.data[ch]])
-                name = f"{self.fm_image.metadata.channels[ch].name}"
-                self.viewer.add_image(
-                    fm_data,
-                    name=name,
-                    colormap=self.fm_image.metadata.channels[ch].color,
-                    blending="additive",
-                )
-
-    def _update_fib_image_layer(self):
-        """Update the FIB reference image layer with the currently selected image, or create it if it doesn't exist."""
-        if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[
-                REFERENCE_IMAGE_LAYER_NAME
-            ].data = self.image.filtered_data  # type: ignore
-        else:
-            self.viewer.add_image(
-                data=self.image.filtered_data,
-                name=REFERENCE_IMAGE_LAYER_NAME,
-                colormap="gray",
-                blending="additive",
-            )
-
-    def _update_sem_image_layer(self, sem_image: Optional[FibsemImage]):
-        """Add or update the SEM reference image layer, or remove it if no SEM image is provided."""
-        if sem_image is None:
-            if REFERENCE_IMAGE_SEM_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(REFERENCE_IMAGE_SEM_LAYER_NAME)  # type: ignore
-            return
-
-        if REFERENCE_IMAGE_SEM_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[
-                REFERENCE_IMAGE_SEM_LAYER_NAME
-            ].data = sem_image.filtered_data  # type: ignore
-        else:
-            self.viewer.add_image(
-                data=sem_image.filtered_data,
-                name=REFERENCE_IMAGE_SEM_LAYER_NAME,
-                colormap="gray",
-                blending="additive",
-                translate=(0, -sem_image.data.shape[1]),
-            )
+    def _update_sem_display(self, sem_image: Optional[FibsemImage]) -> None:
+        """Show/hide the SEM canvas beside FIB and feed it the reference image."""
+        show = sem_image is not None
+        self.view_controller.widget.set_sem_visible(show)
+        if show:
+            self.view_controller.set_image(BeamType.ELECTRON, sem_image)
 
     # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:
@@ -676,12 +639,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if milling_task_config:
             self._current_milling_key = next(iter(milling_task_config))
-            image_layer = (
-                self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME]
-                if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers
-                else None
-            )
-            self.milling_task_editor.set_fib_image(self.image, image_layer)
+            # image_layer is unused on the canvas path (patterns render via the reducer)
+            self.milling_task_editor.set_fib_image(self.image, None)
             self.milling_task_editor.set_config(
                 milling_task_config[self._current_milling_key]
             )
@@ -692,10 +651,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.milling_task_editor.setVisible(True)
         else:
             self._current_milling_key = None
-            self.milling_task_editor.clear()
+            self.milling_task_editor.clear()  # drops the milling overlay via the reducer
             self.milling_task_editor.setVisible(False)
-            if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_PATTERN_LAYER_NAME)  # type: ignore
         self.milling_task_editor.setEnabled(bool(task_config.milling))
 
         # Re-apply lock if this lamella/task is currently being processed
@@ -726,41 +683,27 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.fluorescence_acquisition_task_config_widget.set_task_config(
                 task_config
             )
-            # add FM layers if not already present (they're cleared on image reload)
-            if self.fm_image is not None and not any(
-                layer.name
-                not in (
-                    REFERENCE_IMAGE_LAYER_NAME,
-                    REFERENCE_IMAGE_SEM_LAYER_NAME,
-                    POINT_OF_INTEREST_LAYER_NAME,
-                )
-                for layer in self.viewer.layers
-            ):
-                self._update_fm_image_layer()
+            # drop the previous lamella/task's FM channels before compositing this one
+            # (set_fm_image upserts by name and never removes stale channels)
+            self.view_controller.clear_fm()
+            if self.fm_image is not None:
+                self.view_controller.set_fm_image(self.fm_image)
 
         # special handling for spot burn fiducial task
         is_spot_burn_task = isinstance(task_config, SpotBurnFiducialTaskConfig)
         self.spot_burn_coordinates_widget.setVisible(is_spot_burn_task)
         if is_spot_burn_task:
-            self.spot_burn_coordinates_widget.set_task_config(task_config)
+            self.spot_burn_coordinates_widget.set_settings(task_config.to_settings())
 
         self._draw_point_of_interest(selected_lamella.poi)
         self._draw_alignment_area()
 
-        # toggle napari image layer visibility based on task type
-        _fib_sem_layers = (
-            REFERENCE_IMAGE_LAYER_NAME,
-            REFERENCE_IMAGE_SEM_LAYER_NAME,
-            POINT_OF_INTEREST_LAYER_NAME,
-            MILLING_ALIGNMENT_AREA_LAYER_NAME,
-            MILLING_PATTERN_LAYER_NAME,
-            SPOT_BURN_EDITOR_POINTS_LAYER,
-        )
-        for layer in self.viewer.layers:
-            if layer.name in _fib_sem_layers:
-                layer.visible = not is_fluorescence_task
-            else:
-                layer.visible = is_fluorescence_task
+        # task type drives which canvas page is visible (mirrors the old per-task napari
+        # layer-visibility toggle): the FM composite for fluorescence, else FIB (+ SEM)
+        if is_fluorescence_task:
+            self.view_controller.widget.show_fluorescence()
+        else:
+            self.view_controller.widget.show_beams()
 
     def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
         """Display a warning if the milling FoV does not match the image FoV."""
@@ -856,13 +799,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Save the experiment
         self._save_experiment()
 
-    def _on_spot_burn_coordinates_changed(self, config: "SpotBurnFiducialTaskConfig"):
-        """Callback when the spot burn coordinates are changed."""
+    def _on_spot_burn_coordinates_changed(self, settings: SpotBurnSettings):
+        """Callback when the spot burn coordinates are edited on the canvas.
+
+        Only the coordinates are taken from the editor's settings — milling current and
+        exposure stay owned by the generic task-parameters widget.
+        """
         selected_task_name = self.listWidget_selected_task.selected_task
         selected_lamella = self._selected_lamella
         if selected_lamella is None or selected_task_name is None:
             return
-        selected_lamella.task_config[selected_task_name] = config
+        task_config = selected_lamella.task_config.get(selected_task_name)
+        if isinstance(task_config, SpotBurnFiducialTaskConfig):
+            task_config.coordinates = list(settings.coordinates)
         logging.info(
             f"Updated {selected_lamella.name}, {selected_task_name} Spot Burn Coordinates"
         )
@@ -889,31 +838,33 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._save_experiment()
 
     def _draw_point_of_interest(self, point: Point):
-        """Draw the point of interest on the viewer."""
+        """Draw the point-of-interest marker on the FIB canvas.
 
+        Display-only (``modal`` + never armed → inert): the POI is moved via the milling
+        editor's right-click "Move Point of Interest Here", not by dragging.
+        """
+        if getattr(self, "image", None) is None or self.image.metadata is None:
+            return
         image_coords = conversions.microscope_image_to_image_coordinates(
             point=point,
             image_shape=self.image.data.shape,
             pixel_size=self.image.metadata.pixel_size.x,
         )
-
-        if POINT_OF_INTEREST_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[POINT_OF_INTEREST_LAYER_NAME].data = np.array(
-                [[image_coords.y, image_coords.x]]
-            )  # yx format
-        else:
-            add_points_layer(
-                viewer=self.viewer,
-                data=np.array([[image_coords.y, image_coords.x]]),  # yx format
-                name=POINT_OF_INTEREST_LAYER_NAME,
-                size=20,
-                face_color="magenta",
-                border_color="white",
-                symbol="cross",
-                blending="additive",
-                border_width=None,
-                border_width_is_relative=False,
-            )
+        self.view_controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id=POI_OVERLAY_ID,
+                points=[(image_coords.x, image_coords.y)],
+                color="magenta",
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                add_on_right_click=False,
+                removable=False,
+                modal=True,
+                legend_label="Point of Interest",
+            ),
+        )
 
     def _on_toggle_alignment_area(self, checked: bool):
         self.show_alignment_area = checked
@@ -924,41 +875,45 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.pushButton_edit_alignment_area.blockSignals(False)
         self.pushButton_edit_alignment_area.setEnabled(checked)
         self._draw_alignment_area()
+        if not checked:
+            self.view_controller.arm_overlay(BeamType.ION, None)
 
     def _on_toggle_alignment_area_editable(self, checked: bool):
         self.alignment_area_editable = checked
-        layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
-        if layer_name not in self.viewer.layers:
-            return
-        layer: NapariShapesLayer = self.viewer.layers[layer_name]  # type: ignore
-        if checked:
-            self.viewer.layers.selection.active = layer
-            layer.mode = "select"
-            layer.selected_data.clear()
-        else:
-            layer.mode = "pan_zoom"
+        self._draw_alignment_area()
+        # arming is an explicit user action here (redraws never touch arming, so they
+        # can't steal input focus from the spot-burn overlay)
+        self.view_controller.arm_overlay(
+            BeamType.ION,
+            ALIGNMENT_OVERLAY_ID if checked else None,
+            label="Alignment",
+            icon="mdi:vector-rectangle",
+        )
 
     def _draw_alignment_area(self):
-        """Draw (or remove) the alignment area rectangle on the viewer."""
+        """Draw (or remove) the editable alignment-area rectangle on the FIB canvas.
+
+        Overlay only — arming is handled by the edit toggle so a task-change redraw
+        never disarms another overlay. A separate id (not the milling widget's shared
+        ``alignment``) keeps the milling read-only display from clobbering it.
+        """
         if not self.show_alignment_area or self._selected_lamella is None:
-            if MILLING_ALIGNMENT_AREA_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_ALIGNMENT_AREA_LAYER_NAME)  # type: ignore
+            self.view_controller.remove_overlay(BeamType.ION, ALIGNMENT_OVERLAY_ID)
             return
-
-        translate = (
-            tuple(self.viewer.layers[REFERENCE_IMAGE_LAYER_NAME].translate)
-            if REFERENCE_IMAGE_LAYER_NAME in self.viewer.layers
-            else (0, 0)
+        self.view_controller.set_overlay(
+            BeamType.ION,
+            AlignmentSpec(
+                id=ALIGNMENT_OVERLAY_ID,
+                rect=self._selected_lamella.alignment_area,
+                display=True,
+                editing=self.alignment_area_editable,
+            ),
         )
 
-        setup_editable_alignment_layer(
-            viewer=self.viewer,
-            reduced_area=self._selected_lamella.alignment_area,
-            image_shape=self.image.data.shape,
-            translate=translate,
-            on_change=self._on_alignment_area_updated,
-            editable=self.alignment_area_editable,
-        )
+    def _on_controller_overlay_edited(self, beam, overlay_id: str, value) -> None:
+        """Fold a committed alignment-area edit on the FIB canvas back to the lamella."""
+        if beam == BeamType.ION and overlay_id == ALIGNMENT_OVERLAY_ID:
+            self._on_alignment_area_updated(value)
 
     def _on_alignment_area_updated(self, rect: FibsemRectangle):
         """Callback when the user drags/resizes the alignment area."""
