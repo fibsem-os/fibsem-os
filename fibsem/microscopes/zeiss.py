@@ -79,6 +79,13 @@ except Exception as e:  # noqa: BLE001 - COM/pywin32/type-lib may raise many thi
     logging.debug(f"SmartSEM API (ZEISS) not available. {e}")
 
 
+# SmartSEM image stores (DP_IMAGE_STORE, "W * H"). Only these fixed 4:3 sizes are
+# available; other requested resolutions are served by resizing after the grab.
+ZEISS_IMAGE_STORES = [
+    (512, 384), (1024, 768), (2048, 1536), (3072, 2304),
+    (4096, 3072), (6144, 4608), (8192, 6144),
+]
+
 # SmartSEM API grab target. SEM_API.grab_full_image writes the frame to disk and
 # SerialFIB reads it back from here (C:/api/Grab.tif). Keep the same convention.
 ZEISS_API_GRAB_PATH = r"C:/api/Grab.tif"
@@ -277,6 +284,31 @@ def _read_image_file(path: str) -> np.ndarray:
     return img
 
 
+def _resize_image(img: np.ndarray, resolution: Optional[Tuple[int, int]]) -> np.ndarray:
+    """Resize ``img`` to ``resolution`` (width, height), preserving dtype.
+
+    SmartSEM only provides a fixed set of image stores, so a grabbed frame may
+    not match the resolution the caller asked for. Callers rely on
+    ``acquire_image`` returning exactly ``image_settings.resolution``.
+    """
+    if resolution is None:
+        return img
+    width, height = int(resolution[0]), int(resolution[1])
+    if img.shape[0] == height and img.shape[1] == width:
+        return img
+
+    dtype = img.dtype
+    try:
+        import cv2
+        # INTER_AREA is the better choice when downsampling
+        interp = cv2.INTER_AREA if (width < img.shape[1] or height < img.shape[0]) else cv2.INTER_LINEAR
+        resized = cv2.resize(img, (width, height), interpolation=interp)
+    except Exception:  # noqa: BLE001
+        from skimage.transform import resize as sk_resize
+        resized = sk_resize(img, (height, width), preserve_range=True, anti_aliasing=True)
+    return resized.astype(dtype)
+
+
 class ZeissMicroscope(FibsemMicroscope):
     """A ZEISS FIB-SEM microscope, driven through the SmartSEM/SmartFIB COM API.
 
@@ -424,20 +456,30 @@ class ZeissMicroscope(FibsemMicroscope):
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
 
-        # switch column + apply field of view
+        # switch column + apply field of view / resolution
         self._prepare_beam(effective_beam_type)
-        if image_settings is not None and effective_image_settings.hfw is not None:
-            try:
-                self.set_field_of_view(effective_image_settings.hfw, effective_beam_type)
-            except Exception as e:  # noqa: BLE001
-                logging.debug(f"Could not set field of view: {e}")
+        if image_settings is not None:
+            if effective_image_settings.hfw is not None:
+                try:
+                    self.set_field_of_view(effective_image_settings.hfw, effective_beam_type)
+                except Exception as e:  # noqa: BLE001
+                    logging.debug(f"Could not set field of view: {e}")
+            if effective_image_settings.resolution is not None:
+                self._set_image_store(effective_image_settings.resolution)
 
-        # grab a full frame. SEM_API.grab_full_image writes the TIFF to disk
+        # grab a full frame. SEM_API.grab_full_image writes the frame to disk
         # (C:/api/Grab.tif by convention); read it back from there.
         fname = ZEISS_API_GRAB_PATH
         os.makedirs(os.path.dirname(fname), exist_ok=True)
         self.connection.grab_full_image(fname)
         image_data = _read_image_file(fname)
+        native_shape = image_data.shape
+
+        # SmartSEM only offers a fixed set of (4:3) image stores, so the grabbed
+        # frame may not match the requested resolution. Callers rely on getting
+        # exactly image_settings.resolution back (e.g. tiled acquisition
+        # pre-allocates from it), so resize to the requested shape.
+        image_data = _resize_image(image_data, effective_image_settings.resolution)
 
         # build metadata (best-effort, live from the API)
         try:
@@ -446,7 +488,9 @@ class ZeissMicroscope(FibsemMicroscope):
             logging.debug(f"Could not read microscope state for image metadata: {e}")
             microscope_state = MicroscopeState()
 
-        pixel_size = self._get_pixel_size(image_data.shape, effective_beam_type, effective_image_settings)
+        pixel_size = self._get_pixel_size(
+            image_data.shape, effective_beam_type, effective_image_settings, native_shape
+        )
 
         md = FibsemImageMetadata(
             image_settings=effective_image_settings,
@@ -470,19 +514,60 @@ class ZeissMicroscope(FibsemMicroscope):
 
         return fibsem_image
 
-    def _get_pixel_size(self, image_shape: Tuple[int, ...], beam_type: BeamType, image_settings: ImageSettings) -> Point:
-        """Determine pixel size (metres). Prefer the live SmartSEM value, else derive from hfw."""
+    def _set_image_store(self, resolution: Tuple[int, int]) -> None:
+        """Set the SmartSEM image store, when the request matches one it offers.
+
+        ``DP_IMAGE_STORE`` takes "W * H" strings and only the fixed 4:3 stores in
+        :data:`ZEISS_IMAGE_STORES` exist. Anything else (e.g. a square overview
+        resolution) is left to the resize in :meth:`acquire_image`; attempting it
+        here would just make SmartSEM complain.
+        """
+        try:
+            width, height = int(resolution[0]), int(resolution[1])
+        except (TypeError, ValueError):
+            return
+        if (width, height) not in ZEISS_IMAGE_STORES:
+            logging.debug(
+                f"{width}x{height} is not a SmartSEM image store; grabbing at the "
+                "current store and resizing to the requested resolution."
+            )
+            return
+        try:
+            target = f"{width} * {height}"
+            if self.connection.GetState("DP_IMAGE_STORE") != target:  # EVIDENCED
+                self.connection.SetState("DP_IMAGE_STORE", target)
+        except Exception as e:  # noqa: BLE001
+            logging.debug(f"Could not set image store to {resolution}: {e}")
+
+    def _get_pixel_size(self, image_shape: Tuple[int, ...], beam_type: BeamType,
+                        image_settings: ImageSettings,
+                        native_shape: Optional[Tuple[int, ...]] = None) -> Point:
+        """Pixel size (metres) of the returned image.
+
+        ``AP_IMAGE_PIXEL_SIZE`` describes the native store, so when the frame has
+        been resized to the requested resolution the pixel size is scaled per
+        axis. That keeps the physical field of view correct and reports the
+        anisotropy honestly if the requested aspect ratio differs from SmartSEM's.
+        """
+        out_h, out_w = image_shape[0], image_shape[1]
+        nat_h, nat_w = (native_shape[0], native_shape[1]) if native_shape else (out_h, out_w)
+
+        native_ps: Optional[float] = None
         try:
             ps = self.connection.GetValue("AP_IMAGE_PIXEL_SIZE")  # EVIDENCED (metres)
             if ps and ps > 0:
-                return Point(x=float(ps), y=float(ps))
+                native_ps = float(ps)
         except Exception as e:  # noqa: BLE001
             logging.debug(f"Could not read AP_IMAGE_PIXEL_SIZE: {e}")
-        # fall back: hfw / width
-        width_px = image_shape[1] if len(image_shape) >= 2 else 1024
+
+        if native_ps is not None:
+            return Point(x=native_ps * nat_w / out_w, y=native_ps * nat_h / out_h)
+
+        # fall back: derive from hfw, with the vertical extent following the native aspect
         hfw = image_settings.hfw or 0.0
-        ps = hfw / width_px if width_px else 0.0
-        return Point(x=ps, y=ps)
+        px = hfw / out_w if out_w else 0.0
+        py = (hfw * (nat_h / nat_w)) / out_h if (nat_w and out_h) else px
+        return Point(x=px, y=py)
 
     def last_image(self, beam_type: BeamType) -> FibsemImage:
         return self.last_image_eb if beam_type == BeamType.ELECTRON else self.last_image_ib
@@ -987,7 +1072,15 @@ class ZeissMicroscope(FibsemMicroscope):
             return
 
         # cached-only / unsupported
-        if key in ("resolution", "dwell_time", "stigmation", "preset",
+        if key == "resolution":
+            # SmartSEM exposes fixed image stores; set the closest it accepts and
+            # cache the request (acquire_image resizes to it if needed).
+            self._set_image_store(value)
+            if beam_type is not None:
+                self._beam_parameters[beam_type].resolution = tuple(value)
+            return
+
+        if key in ("dwell_time", "stigmation", "preset",
                    "detector_mode", "detector_brightness", "detector_contrast",
                    "beam_enabled", "eucentric_height", "column_tilt",
                    "plasma", "plasma_gas"):
