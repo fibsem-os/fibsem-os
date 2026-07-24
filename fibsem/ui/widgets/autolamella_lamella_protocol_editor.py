@@ -986,14 +986,26 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
 
         from fibsem.correlation.history import LamellaCorrelation
+        from fibsem.correlation.ui.widgets.correlation_history_dialog import (
+            CorrelationHistoryDialog,
+        )
         from fibsem.correlation.ui.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 
         correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        # Discover the newest previous run to seed from, BEFORE minting this run's
-        # folder (so this open isn't its own "previous"). FIB-299.
-        previous = LamellaCorrelation.discover(correlation_root).latest()
+        # Discover previous runs to seed from, BEFORE minting this run's folder
+        # (so this open isn't its own "previous"). FIB-299.
+        history = LamellaCorrelation.discover(correlation_root)
+
+        # Which run to seed from. 0/1 runs: nothing to choose, keep the silent
+        # default (newest, or none). 2+: let the user pick, or start fresh (FIB-257).
+        seed_run = history.latest()
+        if len(history.runs) >= 2:
+            picker = CorrelationHistoryDialog(history, parent=self)
+            if picker.exec_() != QDialog.Accepted:
+                return  # user cancelled opening the correlation tool
+            seed_run = picker.selected_run  # a run, or None for "start fresh"
 
         project_path = os.path.join(
             correlation_root,
@@ -1018,10 +1030,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if fm_image is not None:
             dialog.set_fm_image(fm_image)
 
-        # Seed the coordinates from the previous run (after the current images are
+        # Seed the coordinates from the chosen run (after the current images are
         # set, so FM z can be rescaled to this volume's z-sampling). FIB-299.
-        if previous is not None and previous.state.input_data is not None:
-            dialog.seed_coordinates(previous.state.input_data)
+        if seed_run is not None and seed_run.state.input_data is not None:
+            dialog.seed_coordinates(seed_run.state.input_data)
 
         if dialog.exec_() != QDialog.Accepted:
             return
