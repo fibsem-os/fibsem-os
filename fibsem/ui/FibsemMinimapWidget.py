@@ -489,10 +489,10 @@ class FibsemMinimapWidget(QWidget):
         DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path
         self.overview_acquisition_widget.update_from_settings(DEFAULT_OVERVIEW_ACQUISITION_SETTINGS)
         try:
-            self.parent_widget.experiment.events.disconnect(self._on_experiment_position_changed) # type: ignore
+            self.parent_widget.experiment.positions.events.disconnect(self._on_experiment_position_changed) # type: ignore
         except Exception:
             pass
-        self.parent_widget.experiment.events.connect(self._on_experiment_position_changed) # type: ignore
+        self.parent_widget.experiment.positions.events.connect(self._on_experiment_position_changed) # type: ignore
 
         available_task_names = []
         if self.protocol is not None:
@@ -561,7 +561,7 @@ class FibsemMinimapWidget(QWidget):
             self._update_position_display()
         except Exception as e:
             logging.error(f"Error logging experiment position change: {e}")
-            self.parent_widget.experiment.events.disconnect(self._on_experiment_position_changed) # type: ignore
+            self.parent_widget.experiment.positions.events.disconnect(self._on_experiment_position_changed) # type: ignore
 
     def get_overview_settings(self) -> OverviewAcquisitionSettings:
         """Get the current overview acquisition settings from the UI."""
@@ -1068,6 +1068,9 @@ class FibsemMinimapWidget(QWidget):
 
         if self.is_acquiring:
             self._hide_overlay_layers()
+            return
+
+        if self.parent_widget.is_workflow_running:
             return
 
         if stage_position is None:

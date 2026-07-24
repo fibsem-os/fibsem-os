@@ -57,9 +57,16 @@ class FibsemMillingStagesWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Stage list
+        # Stage list. Tescan mills by preset — milling_current is a no-op on that backend —
+        # so it gets a Preset column where every other backend gets Current.
+        _show_preset = self.microscope.manufacturer.upper() == "TESCAN"
         _current_values = self.microscope.get_available_values_cached("current", BeamType.ION)
-        self._list = MillingStageListWidget(current_values=_current_values)
+        _preset_values = self.microscope.get_available_values_cached("preset", BeamType.ION)
+        self._list = MillingStageListWidget(
+            current_values=_current_values,
+            preset_values=_preset_values,
+            show_preset=_show_preset,
+        )
         layout.addWidget(self._list)
 
         # Detail panel (hidden until a stage is selected)

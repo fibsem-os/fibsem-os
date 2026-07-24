@@ -103,7 +103,7 @@ def take_reference_images(
 
     # acquire ion image
     image_settings.beam_type = BeamType.ION
-    if microscope.manufacturer == "TESCAN":
+    if microscope.manufacturer.upper() == "TESCAN":
         import time
 
         time.sleep(1)
