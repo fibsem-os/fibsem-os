@@ -11,6 +11,20 @@ import pytest
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    """Run every test from its own tmp dir.
+
+    Some code paths write next to the current working directory — e.g. alignment
+    plotting creates an ``Alignment/`` directory under the reference image's path
+    and falls back to the cwd when it is unset (as it is for the demo images used
+    across the alignment and milling tests). Chdir into the test's tmp_path so
+    those artifacts land there (auto-cleaned) instead of the repo root, and never
+    collide between workers under ``pytest -n``.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture(scope="module")
 def qapp():
     """Shared offscreen QApplication for widget tests.

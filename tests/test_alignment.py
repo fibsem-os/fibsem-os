@@ -335,18 +335,6 @@ def test_alignment_differential_to_dict_structure():
 # multi_step_alignment_v2 with validate=True
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(autouse=True)
-def _isolate_cwd(tmp_path, monkeypatch):
-    """Run each test from its own tmp dir.
-
-    Alignment plotting writes an ``Alignment/`` directory under the reference
-    image's path, falling back to the cwd when that path is unset (as it is for
-    the demo images used here). Chdir into the test's tmp_path so those artifacts
-    land there instead of the repo root, and don't collide under ``pytest -n``.
-    """
-    monkeypatch.chdir(tmp_path)
-
-
 @pytest.fixture(scope="module")
 def demo_session():
     """Single Demo session shared across all multi_step tests in this module."""
