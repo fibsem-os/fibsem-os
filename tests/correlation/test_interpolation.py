@@ -154,13 +154,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
-
 
 def _real_fm(crop=64):
     """A concrete FluorescenceImage the dialog/widget can consume, or skip.
