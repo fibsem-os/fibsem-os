@@ -105,10 +105,12 @@ markers = [
 # entries here for third-party warnings we can't fix at the source.
 filterwarnings = [
     "error",
-    # pyparsing (pulled in by matplotlib) calls its own deprecated oneOf() on
+    # pyparsing (pulled in by matplotlib) still calls several of its own
+    # renamed-and-deprecated methods (oneOf, parseString, ...) at import time on
     # some Python versions' dependency resolutions — third-party, not ours to fix.
-    # Match by message + the built-in DeprecationWarning category, NOT by
-    # pyparsing.warnings.PyparsingDeprecationWarning: older pyparsing (Python 3.8)
-    # lacks that class, and referencing it would break the filter at startup.
-    "ignore:'oneOf' deprecated:DeprecationWarning",
+    # Match pyparsing's "'<name>' deprecated - use ..." message family + the
+    # built-in DeprecationWarning category. Do NOT reference pyparsing's own
+    # warning class: it isn't importable on every version and breaks the filter
+    # at startup.
+    "ignore:'[^']*' deprecated - use:DeprecationWarning",
 ]
