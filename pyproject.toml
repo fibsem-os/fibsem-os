@@ -107,5 +107,8 @@ filterwarnings = [
     "error",
     # pyparsing (pulled in by matplotlib) calls its own deprecated oneOf() on
     # some Python versions' dependency resolutions — third-party, not ours to fix.
-    "ignore::pyparsing.warnings.PyparsingDeprecationWarning",
+    # Match by message + the built-in DeprecationWarning category, NOT by
+    # pyparsing.warnings.PyparsingDeprecationWarning: older pyparsing (Python 3.8)
+    # lacks that class, and referencing it would break the filter at startup.
+    "ignore:'oneOf' deprecated:DeprecationWarning",
 ]
