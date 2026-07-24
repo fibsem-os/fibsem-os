@@ -27,7 +27,6 @@ dependencies = [
     "scikit-image>=0.19.3",
     "matplotlib>=3.7.0",
     "tqdm>=4.65.0",
-    "pytest>=7.2.2",
     "petname>=2.6",
     "pandas>=2.0.0",
     "pyyaml>=6.0",
@@ -69,10 +68,10 @@ reporting = [
 
 server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0"]
 
-# Test tooling. `pytest` itself is still listed under [project.dependencies] so
-# CI's `pip install .` keeps working; move it here once CI installs `.[test]`.
+# Test tooling. Install with `pip install .[test]` (CI does this).
 test = [
-    "pytest-xdist>=3.0",   # parallel execution (-n auto)
+    "pytest>=7.2.2",
+    "pytest-xdist>=3.0",   # parallel execution (-n auto --dist worksteal)
     "pytest-timeout>=2.1", # fail a hung test instead of blocking the whole run
 ]
 
