@@ -2209,3 +2209,125 @@ def test_load_correlation_file_dispatches_on_every_shape(tmp_path):
     jpath.write_text(json.dumps({"foo": 1}))
     with pytest.raises(ValueError):
         load_correlation_file(str(jpath))
+
+
+# ---------------------------------------------------------------------------
+# FIB-298 — CorrelationConfig passed in on open, read back on close
+# ---------------------------------------------------------------------------
+
+
+def test_widget_config_round_trips(qapp):
+    """set_correlation_config -> combos + RI widget -> correlation_config back."""
+    from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+
+    w = _widget(qapp)
+    cfg = CorrelationConfig(
+        fit=FitSettings(fib_method="None", fm_poi_method="Hole", reflection_cutout=4),
+        ri=RISettings(na=0.9, wavelength_um=0.488, n2=1.33),
+        load_spot_burns=False,
+    )
+    w.set_correlation_config(cfg)
+
+    cl = w._coords_tab
+    assert cl._fib_method_combo.currentText() == "None"
+    assert cl._fm_poi_method_combo.currentText() == "Hole"
+    p = w._ri_tab._ri_widget.get_params()
+    assert (p.NA, p.n2) == (pytest.approx(0.9), pytest.approx(1.33))
+    assert p.wavelength_um == pytest.approx(0.488)
+
+    out = w.correlation_config
+    assert out.fit.fib_method == "None"
+    assert out.fit.reflection_cutout == 4      # UI-less field carried through
+    assert out.ri.na == pytest.approx(0.9)
+    assert out.load_spot_burns is False        # UI-less field carried through
+
+
+def test_widget_config_reflects_a_combo_edit(qapp):
+    from fibsem.correlation.config import CorrelationConfig
+
+    w = _widget(qapp)
+    w.set_correlation_config(CorrelationConfig())
+    w._coords_tab._fib_method_combo.setCurrentText("Gaussian")
+    assert w.correlation_config.fit.fib_method == "Gaussian"
+
+
+def test_config_default_matches_current_behaviour(qapp):
+    """A widget that was never given a config reports today's defaults."""
+    w = _widget(qapp)
+    fit = w.correlation_config.fit
+    assert (fit.fib_method, fit.fm_fiducial_method, fit.fm_poi_method) == \
+        ("Hole", "None", "Gaussian")
+
+
+def test_channel_by_name_lands_once_the_channel_exists(qapp):
+    """A config naming a POI channel applies after the FM image populates the
+    combos — stored by name, resolved against the image (not a pinned index)."""
+    from fibsem.correlation.config import CorrelationConfig, FitSettings
+
+    w = _widget(qapp)
+    # config set before any FM image: channel combo is still empty, no-op
+    w.set_correlation_config(
+        CorrelationConfig(fit=FitSettings(fm_poi_channel="CH1"))
+    )
+    assert w._coords_tab._fm_poi_ch_combo.currentText() == ""
+
+    # channels populate; re-apply lands the named selection (as set_fm_image does)
+    w._coords_tab.rebuild_channel_combos(_fake_fm(n_c=3))
+    w._apply_fit_config()
+    assert w._coords_tab._fm_poi_ch_combo.currentText() == "CH1"
+    assert w.correlation_config.fit.fm_poi_channel == "CH1"
+
+
+def _fake_fm_with_optics(names=("Reflection", "GFP"), wl_nm=(488, 520), na=0.85):
+    """FM whose channels carry the ζ-seedable metadata (λ, NA)."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    chans = [
+        SimpleNamespace(name=n, color=None, excitation_wavelength=w,
+                        objective_numerical_aperture=na)
+        for n, w in zip(names, wl_nm)
+    ]
+    return SimpleNamespace(
+        data=np.zeros((len(chans), 5, 8, 8), dtype=np.float32),
+        metadata=SimpleNamespace(filename="/data/fm.ome.tiff", channels=chans),
+    )
+
+
+def test_ri_seeds_wavelength_and_na_from_poi_channel(qapp):
+    """FIB-277: λ comes from the *POI* channel's excitation wavelength, NA from
+    the objective — both read from metadata, not left at the generic default."""
+    from fibsem.correlation.config import CorrelationConfig, FitSettings
+
+    w = _widget(qapp)
+    fm = _fake_fm_with_optics(names=("Reflection", "GFP"), wl_nm=(488, 520), na=0.85)
+    w._coords_tab.rebuild_channel_combos(fm)
+    # POI channel = GFP (520 nm)
+    w.set_correlation_config(CorrelationConfig(fit=FitSettings(fm_poi_channel="GFP")))
+    w._apply_fit_config()
+
+    w._seed_ri_from_fm_metadata(fm)
+
+    p = w._ri_tab._ri_widget.get_params()
+    assert p.wavelength_um == pytest.approx(0.520)   # GFP, not Reflection
+    assert p.NA == pytest.approx(0.85)
+
+
+def test_ri_seed_respects_a_manual_edit(qapp):
+    """A wavelength the user typed is not clobbered by metadata on FM load."""
+    w = _widget(qapp)
+    ri = w._ri_tab._ri_widget
+    ri._spin_wl.setValue(600.0)
+    ri._spin_wl.editingFinished.emit()   # marks it user-edited
+
+    w._seed_ri_from_fm_metadata(_fake_fm_with_optics(wl_nm=(488, 520)))
+    assert ri.get_params().wavelength_um == pytest.approx(0.600)  # kept
+
+
+def test_ri_seed_skips_when_metadata_absent(qapp):
+    """A channel with no optics metadata leaves the RI params at their default."""
+    w = _widget(qapp)
+    before = w._ri_tab._ri_widget.get_params()
+    w._seed_ri_from_fm_metadata(_fake_fm(n_c=2))  # plain channels, no λ/NA
+    assert w._ri_tab._ri_widget.get_params() == before

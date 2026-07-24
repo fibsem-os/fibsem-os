@@ -71,6 +71,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QKeySequence
 from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
+from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+from fibsem.correlation.refractive_index import ZetaParams
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -1208,6 +1210,8 @@ class CorrelationTabWidget(QWidget):
         self._project_dir: Optional[str] = None
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
+        # Experiment-global config; passed in on open, read back on close (FIB-298).
+        self._correlation_config = CorrelationConfig()
 
         self._setup_ui()
         self._connect_signals()
@@ -1539,6 +1543,9 @@ class CorrelationTabWidget(QWidget):
                     x_max=w - 1, y_max=h - 1, z_max=n_z - 1
                 )
         self._coords_tab.rebuild_channel_combos(fm_image)
+        # Channels now exist — re-apply the config's channel-by-name selection.
+        self._apply_fit_config()
+        self._seed_ri_from_fm_metadata(fm_image)
         self._images_tab.set_fm_image(fm_image)
 
     @staticmethod
@@ -1672,6 +1679,84 @@ class CorrelationTabWidget(QWidget):
     @property
     def result(self) -> Optional[CorrelationResult]:
         return self._result
+
+    # ------------------------------------------------------------------
+    # Correlation config (FIB-298) — passed in on open, read back on close
+    # ------------------------------------------------------------------
+
+    def set_correlation_config(self, config: CorrelationConfig) -> None:
+        """Apply an experiment-global config as the fit + RI defaults."""
+        self._correlation_config = config
+        self._apply_fit_config()
+        ri = config.ri
+        self._ri_tab._ri_widget.set_params(
+            ZetaParams(
+                tilt_deg=ri.tilt_deg,
+                depth_um=ri.depth_um,
+                NA=ri.na,
+                n2=ri.n2,
+                wavelength_um=ri.wavelength_um,
+            )
+        )
+
+    def _seed_ri_from_fm_metadata(self, fm_image: FluorescenceImage) -> None:
+        """Seed RI λ / NA from the POI channel's metadata (FIB-277); λ is
+        channel-specific, so read from the selected POI channel."""
+        channels = list(getattr(fm_image.metadata, "channels", None) or [])
+        if not channels:
+            return
+        poi_name = self._coords_tab._fm_poi_ch_combo.currentText()
+        channel = next((c for c in channels if (c.name or "") == poi_name), channels[0])
+        exc_nm = getattr(channel, "excitation_wavelength", None)
+        self._ri_tab._ri_widget.seed_from_metadata(
+            wavelength_um=(exc_nm / 1000.0) if exc_nm else None,
+            na=getattr(channel, "objective_numerical_aperture", None),
+        )
+
+    def _apply_fit_config(self) -> None:
+        """Push the config's fit methods + channel names into the combos.
+        setCurrentText no-ops on an absent channel, so this is safe before an FM
+        image loads and re-applied after — the selection lands once it exists."""
+        cl = self._coords_tab
+        fit = self._correlation_config.fit
+        cl._fib_method_combo.setCurrentText(fit.fib_method)
+        cl._fm_fid_method_combo.setCurrentText(fit.fm_fiducial_method)
+        cl._fm_poi_method_combo.setCurrentText(fit.fm_poi_method)
+        if fit.fm_fiducial_channel:
+            cl._fm_fid_ch_combo.setCurrentText(fit.fm_fiducial_channel)
+        if fit.fm_poi_channel:
+            cl._fm_poi_ch_combo.setCurrentText(fit.fm_poi_channel)
+
+    @property
+    def correlation_config(self) -> CorrelationConfig:
+        """Current config: fit/RI read from the widgets; UI-less fields (cutout,
+        interpolation, spot burns) carried through from what was set."""
+        cl = self._coords_tab
+        stored = self._correlation_config
+        params = self._ri_tab._ri_widget.get_params()
+        fit = FitSettings(
+            fib_method=cl._fib_method_combo.currentText(),
+            fm_fiducial_method=cl._fm_fid_method_combo.currentText(),
+            fm_poi_method=cl._fm_poi_method_combo.currentText(),
+            fm_fiducial_channel=cl._fm_fid_ch_combo.currentText() or None,
+            fm_poi_channel=cl._fm_poi_ch_combo.currentText() or None,
+            reflection_cutout=stored.fit.reflection_cutout,
+            fluorescence_cutout=stored.fit.fluorescence_cutout,
+        )
+        ri = RISettings(
+            tilt_deg=params.tilt_deg,
+            depth_um=params.depth_um,
+            na=params.NA,
+            n2=params.n2,
+            wavelength_um=params.wavelength_um,
+            mode=stored.ri.mode,
+        )
+        return CorrelationConfig(
+            fit=fit,
+            ri=ri,
+            interpolation=stored.interpolation,
+            load_spot_burns=stored.load_spot_burns,
+        )
 
     # ------------------------------------------------------------------
     # Canvas refresh helpers
@@ -2439,13 +2524,15 @@ class CorrelationTabWidget(QWidget):
                     if method == "Hole":
                         attempted = True
                         xr, yr, zr, diag = hole_fitting_reflection(
-                            img, x, y, z=int(z), cutout=2  # sub-pixel x/y (FIB-282)
+                            img, x, y, z=int(z),  # sub-pixel x/y (FIB-282)
+                            cutout=self._correlation_config.fit.reflection_cutout,
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":
                         attempted = True
                         xr, yr, zr, diag = target_fitting_fluorescence(
-                            img, x, y, int(z), cutout=5  # sub-pixel x/y (FIB-282)
+                            img, x, y, int(z),  # sub-pixel x/y (FIB-282)
+                            cutout=self._correlation_config.fit.fluorescence_cutout,
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
         except Exception as exc:
@@ -2530,6 +2617,14 @@ class CorrelationTabDialog(QDialog):
 
     def set_project_dir(self, path: str) -> None:
         self.widget.set_project_dir(path)
+
+    def set_correlation_config(self, config: "CorrelationConfig") -> None:
+        self.widget.set_correlation_config(config)
+
+    @property
+    def correlation_config(self) -> "CorrelationConfig":
+        """The (possibly edited) config to write back to the protocol on close."""
+        return self.widget.correlation_config
 
     @property
     def result(self):

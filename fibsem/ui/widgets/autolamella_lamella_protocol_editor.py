@@ -999,6 +999,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         dialog = CorrelationTabDialog(parent=self)
         dialog.set_project_dir(project_path)
 
+        # Experiment-global correlation config: pass in on open (FIB-298).
+        experiment = self.parent_widget.experiment if self.parent_widget else None
+        protocol = experiment.task_protocol if experiment is not None else None
+        if protocol is not None:
+            dialog.set_correlation_config(protocol.correlation)
+
         fib_image = self.image
         if fib_image is not None:
             dialog.set_fib_image(fib_image)
@@ -1007,7 +1013,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if fm_image is not None:
             dialog.set_fm_image(fm_image)
 
-        if dialog.exec_() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        # Persist the edited config to the protocol so every lamella inherits it.
+        if protocol is not None:
+            protocol.correlation = dialog.correlation_config
+            self._save_experiment()
+
+        if dialog.result is not None:
             self._handle_correlation_dialog_result(dialog.result)
 
     def _handle_correlation_dialog_result(self, result: "CorrelationResult") -> None:
