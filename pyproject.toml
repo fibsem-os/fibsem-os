@@ -26,7 +26,6 @@ dependencies = [
     "opencv-python-headless>=4.7.0.72",
     "scikit-image>=0.19.3",
     "matplotlib>=3.7.0",
-    "tqdm>=4.65.0",
     "petname>=2.6",
     "pandas>=2.0.0",
     "pyyaml>=6.0",
@@ -42,6 +41,7 @@ Homepage = "https://github.com/fibsem-os/fibsem-os"
 
 [project.optional-dependencies]
 ml = [
+    "tqdm>=4.65.0",
     "zarr>=2.13.6",
     "dask>=2023.3.0",
     "torch>=2.0.0,<=2.3.0",
