@@ -308,3 +308,26 @@ def test_task_protocol_estimated_time_per_task():
         assert isinstance(task.estimated_time, float)
         assert task.estimated_time >= 0.0
 
+
+
+def test_task_protocol_carries_correlation_config():
+    """FIB-298: the protocol holds an experiment-global CorrelationConfig as a
+    peer field, round-trips it, and a legacy protocol without the key defaults."""
+    from fibsem.correlation.config import CorrelationConfig
+
+    protocol = AutoLamellaTaskProtocol()
+    assert isinstance(protocol.correlation, CorrelationConfig)
+
+    # a customised config survives a to_dict / from_dict round-trip
+    protocol.correlation.fit.fm_poi_channel = "RFP"
+    protocol.correlation.ri.na = 0.9
+    protocol.correlation.load_spot_burns = False
+    restored = AutoLamellaTaskProtocol.from_dict(protocol.to_dict())
+    assert restored.correlation.fit.fm_poi_channel == "RFP"
+    assert restored.correlation.ri.na == 0.9
+    assert restored.correlation.load_spot_burns is False
+
+    # a protocol saved before this field existed loads with a default config
+    legacy = protocol.to_dict()
+    del legacy["correlation"]
+    assert AutoLamellaTaskProtocol.from_dict(legacy).correlation == CorrelationConfig()

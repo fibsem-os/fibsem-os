@@ -18,6 +18,7 @@ from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
+from fibsem.correlation.config import CorrelationConfig
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -431,6 +432,9 @@ class AutoLamellaTaskProtocol:
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
     options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
     lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
+    # Experiment-global correlation config (FIB-298): a user-step config, not an
+    # automated task, so a peer field rather than an entry in task_config.
+    correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -442,6 +446,7 @@ class AutoLamellaTaskProtocol:
             "workflow": self.workflow_config.to_dict(),
             "options": self.options.to_dict(),
             "lamella_defaults": self.lamella_defaults.to_dict(),
+            "correlation": self.correlation.to_dict(),
         }
 
     @classmethod
@@ -458,6 +463,8 @@ class AutoLamellaTaskProtocol:
             workflow_config=workflow_config,
             options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
             lamella_defaults=LamellaDefaultConfig.from_dict(data.get("lamella_defaults", {})),
+            # Missing on protocols saved before this field -> a default config.
+            correlation=CorrelationConfig.from_dict(data.get("correlation")),
         )
         if "_id" in data:
             protocol._id = data["_id"]

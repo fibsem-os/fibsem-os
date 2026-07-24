@@ -65,6 +65,8 @@ class RefractiveIndexWidget(QWidget):
         self._zeta: Optional[float] = None
         self._tilt_locked = False
         self._tilt_before_lock: Optional[float] = None
+        # Params the user has typed by hand; metadata seeding leaves these alone.
+        self._user_edited: set = set()
         try:
             _ensure_lut()
         except Exception as e:
@@ -162,6 +164,13 @@ class RefractiveIndexWidget(QWidget):
         ):
             spin.valueChanged.connect(self._recompute)
 
+        # Track manual edits so metadata seeding never clobbers a typed value
+        # (FIB-277). editingFinished fires only on user interaction, not setValue.
+        self._spin_na.editingFinished.connect(lambda: self._user_edited.add("na"))
+        self._spin_wl.editingFinished.connect(
+            lambda: self._user_edited.add("wavelength")
+        )
+
         self.zeta_computed.connect(self._spin_factor.setValue)
 
     # ------------------------------------------------------------------
@@ -246,6 +255,18 @@ class RefractiveIndexWidget(QWidget):
             n2=self._spin_n2.value(),
             wavelength_um=self._spin_wl.value() / 1000.0,  # nm → µm
         )
+
+    def seed_from_metadata(
+        self,
+        wavelength_um: Optional[float] = None,
+        na: Optional[float] = None,
+    ) -> None:
+        """Populate λ and/or NA from FM metadata (FIB-277), leaving user-typed
+        values and absent (``None``) inputs untouched."""
+        if wavelength_um is not None and "wavelength" not in self._user_edited:
+            self._spin_wl.setValue(wavelength_um * 1000.0)  # µm → nm
+        if na is not None and "na" not in self._user_edited:
+            self._spin_na.setValue(na)
 
     # ------------------------------------------------------------------
     # Internal
