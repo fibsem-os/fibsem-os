@@ -101,3 +101,16 @@ markers = [
     "ui: requires the [ui] extra (napari/pyqt5); auto-skipped when absent",
     "integration: exercises multiple components together",
 ]
+# Treat warnings as errors so new deprecations fail fast. Add targeted `ignore`
+# entries here for third-party warnings we can't fix at the source.
+filterwarnings = [
+    "error",
+    # pyparsing (pulled in by matplotlib) still calls several of its own
+    # renamed-and-deprecated methods (oneOf, parseString, ...) at import time on
+    # some Python versions' dependency resolutions — third-party, not ours to fix.
+    # Match pyparsing's "'<name>' deprecated - use ..." message family + the
+    # built-in DeprecationWarning category. Do NOT reference pyparsing's own
+    # warning class: it isn't importable on every version and breaks the filter
+    # at startup.
+    "ignore:'[^']*' deprecated - use:DeprecationWarning",
+]

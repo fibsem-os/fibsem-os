@@ -1266,7 +1266,8 @@ def test_load_coordinates_does_not_wipe_points_on_a_result_file(qapp, tmp_path):
         pass  # rejected, as it should be
 
     assert len(w.data.fib_coordinates) == 1  # still there, not cleared
-    on_disk = json.loads(open(data_path).read())
+    with open(data_path) as f:
+        on_disk = json.load(f)
     assert len(on_disk["fib_coordinates"]) == 1  # and not overwritten on disk
 
 
