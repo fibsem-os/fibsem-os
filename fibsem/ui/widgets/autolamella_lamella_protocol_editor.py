@@ -1030,10 +1030,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if fm_image is not None:
             dialog.set_fm_image(fm_image)
 
-        # Seed the coordinates from the chosen run (after the current images are
-        # set, so FM z can be rescaled to this volume's z-sampling). FIB-299.
+        # Seed the coordinates (after the current images are set, so FM z can be
+        # rescaled to this volume's z-sampling). A previous run seeds a
+        # re-correlation (FIB-299/301); with no previous run, the spot burns seed
+        # a first correlation's FIB fiducials (FIB-259). The two are exclusive: the
+        # burns are normalised to the setup FIB image, so they only map cleanly
+        # before milling — exactly the no-previous-run case.
         if seed_run is not None and seed_run.state.input_data is not None:
             dialog.seed_coordinates(seed_run.state.input_data)
+        elif (
+            not history.runs
+            and protocol is not None
+            and protocol.correlation.load_spot_burns
+        ):
+            spot_burns = self._spot_burn_coordinates(selected_lamella)
+            if spot_burns:
+                dialog.seed_fib_fiducials_from_spot_burns(spot_burns)
 
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -1045,6 +1057,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if dialog.result is not None:
             self._handle_correlation_dialog_result(dialog.result)
+
+    @staticmethod
+    def _spot_burn_coordinates(lamella: Lamella) -> List[Point]:
+        """The lamella's spot-burn fiducial coordinates, or [] if it has none.
+
+        Matched by config type — there's no fixed task-name key. Coordinates are
+        normalised (0-1) to the lamella's FIB reference image (FIB-259).
+        """
+        for cfg in lamella.task_config.values():
+            if isinstance(cfg, SpotBurnFiducialTaskConfig):
+                return list(cfg.coordinates)
+        return []
 
     def _handle_correlation_dialog_result(self, result: "CorrelationResult") -> None:
         """Handle the CorrelationResult returned from CorrelationTabDialog."""

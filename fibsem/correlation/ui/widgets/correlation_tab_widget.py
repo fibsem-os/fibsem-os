@@ -99,7 +99,7 @@ from fibsem.correlation.ui.widgets.fm_image_display_widget import (
 )
 from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage
+from fibsem.structures import FibsemImage, Point
 from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     QFileLineEdit,
@@ -1660,6 +1660,34 @@ class CorrelationTabWidget(QWidget):
             self._rescale_fm_z(src_z / cur_z)
         self.data_changed.emit(self.data)
 
+    def seed_fib_fiducials_from_spot_burns(self, coordinates: List[Point]) -> None:
+        """Seed FIB fiducials from spot-burn coordinates for a first correlation (FIB-259).
+
+        Spot burns are stored normalised (0-1) to the FIB image they were placed
+        on — the same image this correlation opens on — so multiply by that image's
+        pixel dimensions to get the absolute-pixel fiducials the canvas and fits
+        use. Only the FIB side is seeded; the FM side stays empty for the user to
+        pick. No-op without a FIB image or coordinates.
+        """
+        if self._fib_image is None or not coordinates:
+            return
+        h, w = self._fib_image.data.shape[:2]
+        fib_coords = [
+            Coordinate(
+                point=PointXYZ(x=pt.x * w, y=pt.y * h, z=0.0),
+                point_type=PointType.FIB,
+            )
+            for pt in coordinates
+        ]
+        self.set_data(
+            CorrelationInputData(
+                fib_coordinates=fib_coords,
+                fib_image=self._fib_image,
+                fm_image=self._fm_image,
+            )
+        )
+        self.data_changed.emit(self.data)
+
     def load_data(self, path: str) -> None:
         """Load a legacy coordinates file, preserving current images.
 
@@ -2640,6 +2668,9 @@ class CorrelationTabDialog(QDialog):
 
     def seed_coordinates(self, source: "CorrelationInputData") -> None:
         self.widget.seed_coordinates(source)
+
+    def seed_fib_fiducials_from_spot_burns(self, coordinates: "List[Point]") -> None:
+        self.widget.seed_fib_fiducials_from_spot_burns(coordinates)
 
     @property
     def correlation_config(self) -> "CorrelationConfig":
