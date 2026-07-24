@@ -36,12 +36,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
-
-
 def _scroll_area(factory, count=40):
     """A scroll area tall enough to scroll, filled with widgets from *factory*."""
     area = QScrollArea()

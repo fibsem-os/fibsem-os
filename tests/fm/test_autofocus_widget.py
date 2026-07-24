@@ -10,15 +10,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
-
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusMethod
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 @pytest.fixture

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from abc import ABC
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
 import numpy as np
 from psygnal import Signal
 
+from fibsem._timing import sim_sleep
 from fibsem.fm.structures import (
     CameraImageTransform,
     ChannelSettings,
@@ -104,7 +104,7 @@ class ObjectiveLens(ABC):
         Returns:
             The current position in meters (negative values = retracted)
         """
-        time.sleep(0.1)
+        sim_sleep(0.1)
         # logging.info(f"Objective position read: {self._position * 1e3:.3f} mm")
         return self._position
 
@@ -174,7 +174,7 @@ class ObjectiveLens(ABC):
             )
             position = np.clip(position, 0, self._limit_position)
 
-        time.sleep(0.5)  # Simulate time taken to move the objective
+        sim_sleep(0.5)  # Simulate time taken to move the objective
         self._position = position
         logging.info(
             f"Objective moved to absolute position: {self._position * 1e3:.3f} mm"
@@ -261,7 +261,7 @@ class Camera(ABC):
         Returns:
             A 16-bit numpy array representing the acquired image
         """
-        time.sleep(self.exposure_time)  # Simulate exposure time in seconds
+        sim_sleep(self.exposure_time)  # Simulate exposure time in seconds
 
         # get min and max values for the image
         noise = np.random.randint(

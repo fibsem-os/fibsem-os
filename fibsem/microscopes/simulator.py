@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
+from fibsem._timing import sim_sleep
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -363,7 +364,7 @@ class DemoMicroscope(FibsemMicroscope):
             hfw=effective_image_settings.hfw,
             random=True
         )
-        time.sleep(effective_image_settings.dwell_time * effective_image_settings.resolution[0] * effective_image_settings.resolution[1])  # simulate acquisition time
+        sim_sleep(effective_image_settings.dwell_time * effective_image_settings.resolution[0] * effective_image_settings.resolution[1])  # simulate acquisition time
 
         # generate the next image from the sequence iterator
         if self.use_image_sequence:
@@ -543,7 +544,7 @@ class DemoMicroscope(FibsemMicroscope):
                 dwell_time = image.metadata.image_settings.dwell_time
                 resolution = image.metadata.image_settings.resolution
                 estimated_time = dwell_time * resolution[0] * resolution[1]
-                time.sleep(estimated_time)
+                sim_sleep(estimated_time)
 
                 # emit the acquired image
                 if beam_type is BeamType.ELECTRON:
@@ -559,7 +560,7 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_reduced_area_scanning_mode(reduced_area, beam_type)
         # TODO: implement auto-contrast
         logging.info(f"Autocontrasting {beam_type.name} beam.")
-        time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-contrast
+        sim_sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-contrast
         self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
         self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
 
@@ -573,7 +574,7 @@ class DemoMicroscope(FibsemMicroscope):
         # TODO: implement auto-focus
         logging.info(f"Auto-focusing {beam_type.name} beam.")
         wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
-        time.sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
+        sim_sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
         focus_adjustment = random.uniform(-100e-6, 100e-6)
         new_wd = wd + focus_adjustment
         self.set_working_distance(new_wd, beam_type)
@@ -741,12 +742,12 @@ class DemoMicroscope(FibsemMicroscope):
             logging.debug(f"Running milling: {remaining_time} s remaining.")
             if self.get_milling_state() == MillingState.PAUSED:
                 logging.info("Milling paused.")
-                time.sleep(MILLING_SLEEP_TIME)
+                sim_sleep(MILLING_SLEEP_TIME)
                 continue
             if self.get_milling_state() == MillingState.IDLE:
                 logging.info("Milling stopped.")
                 break
-            time.sleep(MILLING_SLEEP_TIME)
+            sim_sleep(MILLING_SLEEP_TIME)
             remaining_time -= MILLING_SLEEP_TIME
 
             # update milling progress via signal
@@ -862,13 +863,13 @@ class DemoMicroscope(FibsemMicroscope):
         logging.info(f"Turning on heater for {gas}")
         # turn on heater
         gis.turn_heater_on()
-        time.sleep(3) # wait for the heat
+        sim_sleep(3) # wait for the heat
         # TODO: get state feedback, wait for heater to be at temp
 
         # run deposition
         logging.info(f"Running deposition for {duration} seconds")
         # gis.open()
-        time.sleep(duration) 
+        sim_sleep(duration) 
         gis.close()
 
         # turn off heater
@@ -999,7 +1000,7 @@ class DemoMicroscope(FibsemMicroscope):
     
         # stage 
         if key == "stage_position":
-            time.sleep(0.1)
+            sim_sleep(0.1)
             return self.stage_system.position
         if key == "stage_homed":
             return self.stage_system.is_homed
@@ -1270,5 +1271,5 @@ class DemoMicroscope(FibsemMicroscope):
             NotImplementedError: If the system is not an Arctis system.
         """
         logging.info(f"Running sputter coater for {time_seconds} seconds...")
-        time.sleep(time_seconds)
+        sim_sleep(time_seconds)
         logging.info("Sputter coating complete.")
