@@ -28,8 +28,10 @@ from PyQt5.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
+from fibsem.fm.config import load_recent_channels, remove_recent_channel
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
@@ -406,6 +408,108 @@ class ChannelRowWidget(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Recent-channels quick-select menu rows
+# ---------------------------------------------------------------------------
+
+# QWidgetAction rows don't get the menu's native hover highlight, so paint it
+# ourselves (#3d4251 matches QMenu::item:selected in stylesheets.py). Child
+# labels must stay transparent so the row's hover background shows through.
+_MENU_ROW_STYLE = (
+    "#menuRow { background: transparent; }"
+    "#menuRow:hover { background: #3d4251; }"
+    "#menuRow QLabel { background: transparent; }"
+)
+
+
+class _MenuRow(QWidget):
+    """Base row for the add-channel menu: fixed swatch slot + label, hover
+    highlight, and a left-click that emits ``selected``."""
+
+    selected = pyqtSignal(object)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("menuRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(_MENU_ROW_STYLE)
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(10, 4, 6, 4)
+        self._layout.setSpacing(6)
+
+    def _emit_selected(self):
+        raise NotImplementedError
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._emit_selected()
+        super().mousePressEvent(event)
+
+
+class _NewChannelRow(_MenuRow):
+    """First menu row — adds a fresh default channel."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setToolTip("Add a new channel")
+
+        # transparent placeholder aligns the label with the swatch column below
+        placeholder = QLabel()
+        placeholder.setFixedSize(14, 14)
+        self._layout.addWidget(placeholder)
+
+        self._layout.addWidget(QLabel("New channel"), 1)
+
+    def _emit_selected(self):
+        self.selected.emit(None)
+
+
+class _RecentChannelRow(_MenuRow):
+    """Recent-channel row: color + name + remove (x).
+
+    Clicking the row body selects the channel; the x removes it from the
+    recents store. Unavailable channels (wavelengths not on the current filter
+    set) are greyed out and cannot be selected, but can still be removed.
+    """
+
+    removed = pyqtSignal(object)   # ChannelSettings
+
+    def __init__(
+        self,
+        channel: ChannelSettings,
+        available: bool = True,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.channel = channel
+        self._available = available
+
+        tooltip = channel.pretty_name
+        if not available:
+            tooltip += "\nWavelength not available on current filter set"
+        self.setToolTip(tooltip)
+
+        swatch = QLabel()
+        swatch.setPixmap(_make_color_icon(channel.color, 14).pixmap(14, 14))
+        self._layout.addWidget(swatch)
+
+        name = QLabel(channel.name)
+        if not available:
+            name.setStyleSheet("color: #808080;")
+        self._layout.addWidget(name, 1)
+
+        self.btn_remove = IconToolButton(
+            icon="mdi:close", tooltip="Remove from recents", size=20
+        )
+        self.btn_remove.clicked.connect(lambda: self.removed.emit(self.channel))
+        self._layout.addWidget(self.btn_remove)
+
+    def _emit_selected(self):
+        if self._available:
+            self.selected.emit(self.channel)
+
+
+# ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
 
@@ -764,7 +868,72 @@ class ChannelListWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_add_channel(self) -> None:
+        recents = load_recent_channels()
+        if not recents:
+            self.add_channel()
+            return
+
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+
+        new_action = QWidgetAction(menu)
+        new_row = _NewChannelRow()
+        new_action.setDefaultWidget(new_row)
+        new_row.selected.connect(lambda _, m=menu: self._on_new_channel_selected(m))
+        menu.addAction(new_action)
+
+        menu.addSeparator()
+        for recent in recents:
+            self._add_recent_menu_row(menu, recent)
+
+        btn = self._header.btn_add
+        menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+
+    def _on_new_channel_selected(self, menu: QMenu) -> None:
+        menu.close()
         self.add_channel()
+
+    def _add_recent_menu_row(self, menu: QMenu, recent: ChannelSettings) -> None:
+        action = QWidgetAction(menu)
+        row = _RecentChannelRow(recent, available=self._channel_available(recent))
+        action.setDefaultWidget(row)
+        row.selected.connect(lambda ch, m=menu: self._on_recent_selected(m, ch))
+        row.removed.connect(
+            lambda ch, m=menu, a=action: self._on_recent_removed(m, a, ch)
+        )
+        menu.addAction(action)
+
+    def _on_recent_selected(self, menu: QMenu, channel: ChannelSettings) -> None:
+        menu.close()
+        channel = deepcopy(channel)
+        existing = {self._row(i).channel.name for i in range(self._list.count())}
+        channel.name = _unique_name(channel.name, existing)
+        self.add_channel(channel)
+
+    def _on_recent_removed(
+        self, menu: QMenu, action: QWidgetAction, channel: ChannelSettings
+    ) -> None:
+        remove_recent_channel(channel)
+        menu.removeAction(action)
+        has_recents = any(
+            isinstance(a, QWidgetAction)
+            and isinstance(a.defaultWidget(), _RecentChannelRow)
+            for a in menu.actions()
+        )
+        if not has_recents:
+            menu.close()
+
+    def _channel_available(self, channel: ChannelSettings) -> bool:
+        """Whether the channel's wavelengths exist on the current filter set."""
+        if self._excitation_items and channel.excitation_wavelength not in self._excitation_items:
+            return False
+        if (
+            channel.emission_wavelength is not None
+            and self._emission_items
+            and channel.emission_wavelength not in self._emission_items
+        ):
+            return False
+        return True
 
     def _on_remove_clicked(self, channel: ChannelSettings) -> None:
         if self.fm is not None and self.fm.is_acquiring and channel is self._selected_channel:
