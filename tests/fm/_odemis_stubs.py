@@ -25,7 +25,22 @@ MD_PIXEL_SIZE = "Pixel size"
 MD_BASELINE = "Baseline value"
 MD_FAV_POS_ACTIVE = "Favourite position active"
 MD_FAV_POS_DEACTIVE = "Favourite position deactive"
+MD_ACQ_DATE = "Acquisition date"
+MD_EXP_TIME = "Exposure time"
 BAND_PASS_THROUGH = "pass-through"
+
+
+class FakeDataArray(np.ndarray):
+    """odemis model.DataArray stand-in: an ndarray carrying a metadata dict."""
+
+    def __new__(cls, array, metadata=None):
+        obj = np.asarray(array).view(cls)
+        obj.metadata = dict(metadata) if metadata else {}
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is not None:
+            self.metadata = getattr(obj, "metadata", {})
 
 ODEMIS_MODULE_NAMES = (
     "odemis",
@@ -239,10 +254,21 @@ class FakeFluoStream:
 
 
 def fake_acquire(streams, settings_obs=None):
-    """acqmng.acquire stand-in: future resolving to ([DataArray], None)."""
+    """acqmng.acquire stand-in: future resolving to ([DataArray], None).
+
+    The returned frame carries per-exposure metadata like a real odemis
+    DataArray (pixel size, acquisition date, exposure time).
+    """
     detector = streams[0]._detector
     res = detector.resolution.value
-    data = np.zeros(res[::-1], dtype=np.uint16)
+    data = FakeDataArray(
+        np.zeros(res[::-1], dtype=np.uint16),
+        metadata={
+            MD_PIXEL_SIZE: detector.getMetadata()[MD_PIXEL_SIZE],
+            MD_ACQ_DATE: 1_780_000_000.0,  # fixed timestamp for determinism
+            MD_EXP_TIME: detector.exposureTime.value,
+        },
+    )
     return FakeFuture(([data], None))
 
 
@@ -308,11 +334,13 @@ def install_odemis_stubs() -> None:
     model_mod.MD_BASELINE = MD_BASELINE
     model_mod.MD_FAV_POS_ACTIVE = MD_FAV_POS_ACTIVE
     model_mod.MD_FAV_POS_DEACTIVE = MD_FAV_POS_DEACTIVE
+    model_mod.MD_ACQ_DATE = MD_ACQ_DATE
+    model_mod.MD_EXP_TIME = MD_EXP_TIME
     model_mod.BAND_PASS_THROUGH = BAND_PASS_THROUGH
     model_mod.Actuator = FakeFocuser
     model_mod.DigitalCamera = FakeCamera
     model_mod.Emitter = FakeLight
-    model_mod.DataArray = np.ndarray
+    model_mod.DataArray = FakeDataArray
     model_mod.getComponent = lambda role: _get_component(role)
     model_mod.hasVA = lambda comp, name: isinstance(getattr(comp, name, None), FakeVA)
 

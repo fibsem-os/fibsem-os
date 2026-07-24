@@ -1886,3 +1886,153 @@ def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
 
     _press_release(canvas, coord, drag_to=(60.0, 70.0))  # a real drag
     assert moved == [coord]
+
+
+# ---------------------------------------------------------------------------
+# FIB-295 — a result that predates the current points
+# ---------------------------------------------------------------------------
+
+
+def _input(fib=(1.0, 2.0), ri=None) -> CorrelationInputData:
+    return CorrelationInputData(
+        fib_coordinates=[_coord(*fib, pt=PointType.FIB)],
+        ri_pre_correction_factor=ri,
+    )
+
+
+def _result_from(data: CorrelationInputData) -> CorrelationResult:
+    return CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=1.5,
+        input_data=data,
+    )
+
+
+def test_matches_inputs_detects_a_moved_coordinate():
+    result = _result_from(_input(fib=(1.0, 2.0)))
+    assert result.matches_inputs(_input(fib=(1.0, 2.0))) is True
+    assert result.matches_inputs(_input(fib=(1.0, 9.0))) is False
+
+
+def test_matches_inputs_tracks_the_ri_factor():
+    """The RI pre-correction scales POI z before the fit, so it does change the
+    answer — unlike the flags below, it must count as a change."""
+    result = _result_from(_input(ri=1.4))
+    assert result.matches_inputs(_input(ri=1.4)) is True
+    assert result.matches_inputs(_input(ri=1.8)) is False
+
+
+def test_matches_inputs_ignores_changes_that_cannot_move_the_answer():
+    """Scoping guard. If a change the transform never reads marks a good result
+    stale, users learn to ignore the warning and it stops carrying information."""
+    result = _result_from(_input())
+
+    refit = _input()
+    refit.fib_coordinates[0].fitted = True  # provenance, not a position
+    assert result.matches_inputs(refit) is True
+
+    other_method = _input()
+    other_method.method = "single-point"  # not read by run_correlation_from_data
+    assert result.matches_inputs(other_method) is True
+
+
+def test_matches_inputs_ignores_image_presence():
+    """A deserialized result carries no images, so image-derived properties are
+    None on one side and populated on the other. Comparing them would report
+    every reloaded result as stale."""
+    saved = _input()  # no images, as if from JSON
+    live = _input()
+    live.fib_image = _fake_fib()
+    assert _result_from(saved).matches_inputs(live) is True
+
+
+def test_result_with_no_snapshot_cannot_claim_to_match():
+    result = CorrelationResult(poi=[], input_data=None)
+    assert result.matches_inputs(_input()) is False
+
+
+def test_loading_a_stale_result_does_not_arm_continue(qapp):
+    """Continue commits result.poi[0].px_m to the protocol editor. The in-session
+    guard (_set_result_live on edit) does not survive a reload, so the staleness
+    has to be re-derived from the result's own snapshot."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))  # the points as they are now
+
+    stale = _result_from(_input(fib=(1.0, 2.0)))  # fitted to where they were
+    w._load_result(stale, adopt_inputs=False)
+
+    assert w._btn_continue.isEnabled() is False
+    assert w._lbl_result.isHidden() is True  # no RMS badge for a dead transform
+    assert "changed since this run" in w._lbl_status.text()
+
+
+def test_loading_a_current_result_stays_live(qapp):
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    fresh = _result_from(_input(fib=(5.0, 5.0)))
+    w._load_result(fresh, adopt_inputs=False)
+
+    assert w._btn_continue.isEnabled() is True
+    assert w._lbl_status.text() == "Done."
+
+
+def test_load_result_can_keep_the_coordinates_already_loaded(qapp):
+    """The destructive half of FIB-295: the result's embedded snapshot used to
+    overwrite the lists unconditionally, so reopening a project silently
+    discarded every edit made after the last run."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    w._load_result(_result_from(_input(fib=(1.0, 2.0))), adopt_inputs=False)
+
+    kept = w._coords_tab.fib_list.coordinates
+    assert [(c.point.x, c.point.y) for c in kept] == [(5.0, 5.0)]
+
+
+def test_load_project_prefers_the_data_file_over_the_result_snapshot(qapp, tmp_path):
+    """End-to-end of the reported path: edit after a run, reopen, keep the edit."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    _result_from(_input(fib=(1.0, 2.0))).save(
+        str(tmp_path / "correlation_result.json")
+    )
+    _input(fib=(5.0, 5.0)).save(str(tmp_path / "correlation_data.json"))
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+
+    kept = w._coords_tab.fib_list.coordinates
+    assert [(c.point.x, c.point.y) for c in kept] == [(5.0, 5.0)]  # the edit survives
+    assert w._btn_continue.isEnabled() is False  # and the old result isn't armed
+
+
+def test_load_project_adopts_the_snapshot_when_there_is_no_data_file(qapp, tmp_path):
+    """With no data file the result's snapshot is the only record of the points."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    _result_from(_input(fib=(1.0, 2.0))).save(
+        str(tmp_path / "correlation_result.json")
+    )
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+
+    kept = w._coords_tab.fib_list.coordinates
+    assert [(c.point.x, c.point.y) for c in kept] == [(1.0, 2.0)]
+    assert w._btn_continue.isEnabled() is True  # consistent, so still usable
+
+
+def test_stale_status_outranks_the_ri_note(qapp):
+    """The status line is the only thing explaining why Continue is greyed out,
+    so a stale result must not report 'Done — RI ×1.500'."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    stale = _result_from(_input(fib=(1.0, 2.0)))
+    stale.refractive_index_correction_mode = "pre"
+    stale.refractive_index_correction_factor = 1.5
+    w._load_result(stale, adopt_inputs=False)
+
+    assert "changed since this run" in w._lbl_status.text()
+    assert "Done" not in w._lbl_status.text()

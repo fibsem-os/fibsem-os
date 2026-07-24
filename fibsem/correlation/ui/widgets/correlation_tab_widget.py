@@ -42,7 +42,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 logging.basicConfig(level=logging.INFO)
 
 import numpy as np
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -57,6 +57,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMenuBar,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QShortcut,
@@ -86,7 +87,8 @@ from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
     PointFitResult,
     humanize_fit_error,
 )
-from fibsem.ui import stylesheets
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.correlation.ui.widgets.fm_image_display_widget import (
     IMAGE_HEADER_STYLE,
     FMImageDisplayWidget,
@@ -132,6 +134,9 @@ _RMS_MIN_FIDUCIALS = 4
 _RMS_NEUTRAL = "#9aa0a6"
 _RMS_WARN = "#ffb300"
 _RMS_BAD = "#e53935"
+
+# Form-row labels: muted and one step below the value they describe.
+_FORM_LABEL_COLOR = "#9aa0a6"
 
 
 def _rms_concern(
@@ -187,6 +192,18 @@ def _ro_item(text: str) -> QTableWidgetItem:
     return item
 
 
+def _form_label(text: str) -> QLabel:
+    """A form-row label: small and muted, so the value reads louder than its name.
+
+    ``QFormLayout.addRow("Name:", w)`` builds the label at the default app font
+    size, which renders *larger* than the 11-12px values in these panels — the
+    field name ends up shouting over its own data. Pass this instead.
+    """
+    lbl = QLabel(text)
+    lbl.setStyleSheet(f"color: {_FORM_LABEL_COLOR}; font-size: 11px;")
+    return lbl
+
+
 # ---------------------------------------------------------------------------
 # Background worker
 # ---------------------------------------------------------------------------
@@ -210,6 +227,20 @@ class _CorrelationWorker(QThread):
             self.errored.emit(str(exc))
 
 
+class _ProgressRelay(QObject):
+    """Bounces a worker-thread progress callback onto the GUI thread.
+
+    ``interpolate_fm_volume`` calls ``emit_progress(done, total)`` from the worker
+    thread; because this object is created on the GUI thread, emitting its signal
+    there delivers it through the GUI event loop, so slots may touch widgets.
+    """
+
+    progress = pyqtSignal(int, int)  # (channels_done, channels_total)
+
+    def emit_progress(self, done: int, total: int) -> None:
+        self.progress.emit(done, total)
+
+
 # ---------------------------------------------------------------------------
 # Tab 0 — Images
 # ---------------------------------------------------------------------------
@@ -221,6 +252,7 @@ class _ImagesTab(QWidget):
     fib_image_changed = pyqtSignal(object)  # FibsemImage
     fm_image_changed = pyqtSignal(object)  # FluorescenceImage
     project_dir_changed = pyqtSignal(str)  # directory path
+    interpolate_requested = pyqtSignal()  # interpolate the loaded FM z-stack
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -266,8 +298,8 @@ class _ImagesTab(QWidget):
         self._lbl_fib_shape.setStyleSheet("color: #e0e0e0; font-size: 11px;")
         self._lbl_fib_px = QLabel("—")
         self._lbl_fib_px.setStyleSheet("color: #e0e0e0; font-size: 11px;")
-        fib_form.addRow("Shape:", self._lbl_fib_shape)
-        fib_form.addRow("Pixel size:", self._lbl_fib_px)
+        fib_form.addRow(_form_label("Shape:"), self._lbl_fib_shape)
+        fib_form.addRow(_form_label("Pixel size:"), self._lbl_fib_px)
         fib_layout.addLayout(fib_form)
 
         layout.addWidget(TitledPanel("FIB Image", content=fib_body, collapsible=False))
@@ -295,10 +327,37 @@ class _ImagesTab(QWidget):
         self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
         self._lbl_fm_z.setStyleSheet("color: #e0e0e0; font-size: 11px;")
-        fm_form.addRow("Shape (C×Z×Y×X):", self._lbl_fm_shape)
-        fm_form.addRow("Channels:", self._lbl_fm_ch)
-        fm_form.addRow("Z-slices:", self._lbl_fm_z)
+        fm_form.addRow(_form_label("Shape (C×Z×Y×X):"), self._lbl_fm_shape)
+        fm_form.addRow(_form_label("Channels:"), self._lbl_fm_ch)
+
+        # The interpolate action rides the Z-slices row — it acts on the z axis,
+        # so it reads as the action on that number rather than a stray button.
+        # (Data transform, deliberately not on the canvas toolbar.)
+        z_row = QWidget()
+        z_row_layout = QHBoxLayout(z_row)
+        z_row_layout.setContentsMargins(0, 0, 0, 0)
+        z_row_layout.setSpacing(6)
+        z_row_layout.addWidget(self._lbl_fm_z)
+        z_row_layout.addStretch(1)
+        self._btn_interpolate = QPushButton(" Interpolate…")
+        self._btn_interpolate.setIcon(fibsem_icon("mdi:arrow-expand-vertical"))
+        self._btn_interpolate.setToolTip(
+            "Interpolate the z-stack toward an isotropic voxel size"
+        )
+        self._btn_interpolate.setEnabled(False)  # enabled once a z-stack is loaded
+        self._btn_interpolate.clicked.connect(
+            lambda: self.interpolate_requested.emit()
+        )
+        z_row_layout.addWidget(self._btn_interpolate)
+        fm_form.addRow(_form_label("Z-slices:"), z_row)
+
         fm_layout.addLayout(fm_form)
+
+        # Embedded, non-modal progress — shown only while interpolating.
+        self._interp_progress = QProgressBar()
+        self._interp_progress.setTextVisible(True)
+        self._interp_progress.setVisible(False)
+        fm_layout.addWidget(self._interp_progress)
 
         layout.addWidget(TitledPanel("FM Image", content=fm_body, collapsible=False))
         layout.addStretch(1)
@@ -402,6 +461,24 @@ class _ImagesTab(QWidget):
         ) or str(c)
         self._lbl_fm_ch.setText(ch_names)
         self._lbl_fm_z.setText(str(z))
+        # interpolation needs a multi-slice stack with a known z step
+        self._btn_interpolate.setEnabled(
+            z > 1 and bool(getattr(image.metadata, "pixel_size_z", None))
+        )
+
+    def set_interpolating(self, running: bool, n_channels: int = 0) -> None:
+        """Reflect an in-flight interpolation: the button locks and an embedded
+        progress bar appears. Non-modal — the rest of the GUI stays live."""
+        self._btn_interpolate.setEnabled(not running and self._fm_image is not None)
+        if running:
+            self._interp_progress.setRange(0, max(n_channels, 1))
+            self._interp_progress.setValue(0)
+            self._interp_progress.setFormat("Interpolating z-stack… %v/%m")
+        self._interp_progress.setVisible(running)
+
+    def set_interpolation_progress(self, done: int, total: int) -> None:
+        self._interp_progress.setRange(0, max(total, 1))
+        self._interp_progress.setValue(done)
 
     @property
     def fib_image(self) -> Optional[FibsemImage]:
@@ -499,22 +576,22 @@ class _CoordinatesTab(QWidget):
         # empty and are refilled by rebuild_channel_combos — the blocker lives on
         # the widget, so it survives clear()/addItem().
         self._fib_method_combo = ValueComboBox(_FIT_METHODS, value="Hole")
-        fit_form.addRow("FIB method:", self._fib_method_combo)
+        fit_form.addRow(_form_label("FIB method:"), self._fib_method_combo)
 
         self._fm_fid_method_combo = ValueComboBox(_FIT_METHODS, value="None")
-        fit_form.addRow("FM Fid. method:", self._fm_fid_method_combo)
+        fit_form.addRow(_form_label("FM Fid. method:"), self._fm_fid_method_combo)
 
         self._fm_poi_method_combo = ValueComboBox(_FIT_METHODS, value="Gaussian")
-        fit_form.addRow("FM POI method:", self._fm_poi_method_combo)
+        fit_form.addRow(_form_label("FM POI method:"), self._fm_poi_method_combo)
 
         self._fm_fid_ch_combo = ValueComboBox([])
-        fit_form.addRow("FM Fid. channel:", self._fm_fid_ch_combo)
+        fit_form.addRow(_form_label("FM Fid. channel:"), self._fm_fid_ch_combo)
 
         self._fm_poi_ch_combo = ValueComboBox([])
-        fit_form.addRow("FM POI channel:", self._fm_poi_ch_combo)
+        fit_form.addRow(_form_label("FM POI channel:"), self._fm_poi_ch_combo)
 
         self._show_diag_check = QCheckBox()
-        fit_form.addRow("Show diagnostic:", self._show_diag_check)
+        fit_form.addRow(_form_label("Show diagnostic:"), self._show_diag_check)
 
         # Opt-in: apply fits without the confirm dialog. Off by default (the
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
@@ -524,7 +601,7 @@ class _CoordinatesTab(QWidget):
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
         )
-        fit_form.addRow("Auto-accept fits:", self._auto_accept_check)
+        fit_form.addRow(_form_label("Auto-accept fits:"), self._auto_accept_check)
 
         fit_help = QLabel(
             "Select a point and press <b>F</b> to fit it. Each fit opens a "
@@ -602,11 +679,11 @@ class _ResultsTab(QWidget):
         self._lbl_mae = self._val("—")
         self._lbl_rotation = self._val("—")
         self._lbl_trans = self._val("—")
-        summary_form.addRow("Scale:", self._lbl_scale)
-        summary_form.addRow("RMS Error:", self._lbl_rms)
-        summary_form.addRow("Mean Abs Error:", self._lbl_mae)
-        summary_form.addRow("Rotation:", self._lbl_rotation)
-        summary_form.addRow("Translation:", self._lbl_trans)
+        summary_form.addRow(_form_label("Scale:"), self._lbl_scale)
+        summary_form.addRow(_form_label("RMS Error:"), self._lbl_rms)
+        summary_form.addRow(_form_label("Mean Abs Error:"), self._lbl_mae)
+        summary_form.addRow(_form_label("Rotation:"), self._lbl_rotation)
+        summary_form.addRow(_form_label("Translation:"), self._lbl_trans)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
         # Per-marker error table
@@ -1117,6 +1194,9 @@ class CorrelationTabWidget(QWidget):
         self._fm_image: Optional[FluorescenceImage] = None
         self._result: Optional[CorrelationResult] = None
         self._worker: Optional[_CorrelationWorker] = None
+        # FM z-stack interpolation (background) — held for the op's lifetime
+        self._interp_worker = None
+        self._interp_relay: Optional[_ProgressRelay] = None
         self._project_dir: Optional[str] = None
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
@@ -1339,6 +1419,9 @@ class CorrelationTabWidget(QWidget):
             canvas.point_moved.connect(self._on_canvas_moved)
             canvas.point_removed.connect(self._on_canvas_removed)
             canvas.point_add_requested.connect(self._on_canvas_add_requested)
+
+        # FM z-stack interpolation (entry point lives in the Images tab)
+        self._images_tab.interpolate_requested.connect(self._on_interpolate_fm)
 
         # List → canvas (one identical wiring block per spec)
         for spec in self._point_specs.values():
@@ -1650,7 +1733,9 @@ class CorrelationTabWidget(QWidget):
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
 
-    def _on_result_ready(self, result: CorrelationResult) -> None:
+    def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
+        """Adopt a result. ``live`` is False for a *loaded* result that no longer
+        describes the current points (FIB-295) — a fresh run is always live."""
         self._result = result
         self._results_tab.set_result(result)
         self._ri_tab.set_result(
@@ -1658,13 +1743,14 @@ class CorrelationTabWidget(QWidget):
         )
         self._tabs.setTabEnabled(3, True)
         self._overlay_result_on_fib(result)
-        self._set_result_live(True)
+        self._set_result_live(live)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
         self._update_run_button()
         # RMS beside Continue (coloured only if something looks wrong); compact
-        # RI / POI note on status.
+        # RI / POI note on status. Suppressed for a stale result — an RMS is a
+        # statement about points these no longer are.
         rms = result.rms_error
-        if rms is not None:
+        if rms is not None and live:
             px_m = self._fib_pixel_size_m()
             rms_nm = rms * px_m * 1e9 if px_m else None
             shown = _format_distance_nm(rms_nm) if rms_nm is not None else f"{rms:.2f} px"
@@ -1679,7 +1765,13 @@ class CorrelationTabWidget(QWidget):
             )
             self._lbl_result.setToolTip(self._rms_tooltip(result, rms, px_m, concern))
             self._lbl_result.setVisible(True)
-        if (
+        # Staleness outranks the RI note: this is the only line explaining why
+        # Continue is greyed out, so "Done — RI ×1.500" must not mask it.
+        if not live:
+            self._lbl_status.setText(
+                "Loaded result — the points have changed since this run. Re-run to update."
+            )
+        elif (
             result.refractive_index_correction_mode == "pre"
             and result.refractive_index_correction_factor is not None
         ):
@@ -2036,10 +2128,10 @@ class CorrelationTabWidget(QWidget):
         fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
         plt.close(fig)
 
-    def load_result(self, path: str) -> None:
+    def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
         logging.info("Loading correlation result from %s", path)
-        self._load_result(CorrelationResult.load(path))
+        self._load_result(CorrelationResult.load(path), adopt_inputs=adopt_inputs)
 
     def _menu_load_result(self) -> None:
         start = self._project_dir or ""
@@ -2055,14 +2147,24 @@ class CorrelationTabWidget(QWidget):
             return
         self._load_result(result)
 
-    def _load_result(self, result: CorrelationResult) -> None:
-        """Adopt a loaded correlation result (and its input data, if any)."""
+    def _load_result(
+        self, result: CorrelationResult, *, adopt_inputs: bool = True
+    ) -> None:
+        """Adopt a loaded correlation result (and its input data, if any).
+
+        ``adopt_inputs=False`` when the caller has already loaded fresher
+        coordinates: ``result.input_data`` is a record of what the transform was
+        fitted to, not the current truth, so applying it would silently discard
+        every edit made after that run (FIB-295).
+        """
         # Populate the lists first so the RI tab sees the loaded surface points.
         # _on_result_ready refreshes the run button and sets the final status
         # text itself — no trailing update here, it would overwrite the status.
-        if result.input_data:
+        if adopt_inputs and result.input_data:
             self.set_data(result.input_data)
-        self._on_result_ready(result)
+        # Continue commits result.poi[0].px_m to the protocol editor, so a result
+        # that predates the current points must not arm it.
+        self._on_result_ready(result, live=result.matches_inputs(self.data))
 
     def _on_load(self) -> None:
         start = self._project_dir or ""
@@ -2086,6 +2188,102 @@ class CorrelationTabWidget(QWidget):
         )
         if path:
             self.save_data(path)
+
+    # ------------------------------------------------------------------
+    # FM z-stack interpolation (FIB-253)
+    # ------------------------------------------------------------------
+
+    def _fm_side_lists(self) -> List["CoordinateListWidget"]:
+        """The coordinate lists whose points live in the FM volume (carry z)."""
+        cl = self._coords_tab
+        return [cl.fm_list, cl.poi_list, cl.fm_surface_list]
+
+    def _fm_point_count(self) -> int:
+        return sum(len(lst.coordinates) for lst in self._fm_side_lists())
+
+    def _rescale_fm_z(self, scale: float) -> None:
+        """Scale every FM-side point's z index so its physical depth is preserved
+        after the z axis is resampled (depth = z_index * pixel_size_z)."""
+        for lst in self._fm_side_lists():
+            for coord in lst.coordinates:
+                coord.point.z *= scale
+
+    def _on_interpolate_fm(self) -> None:
+        if self._fm_image is None:
+            return
+        if self._interp_worker is not None and self._interp_worker.is_alive():
+            return  # one at a time
+        from fibsem.correlation.ui.widgets.fm_interpolate_dialog import (
+            InterpolateZDialog,
+        )
+
+        dlg = InterpolateZDialog(
+            self._fm_image, parent=self, fm_point_count=self._fm_point_count()
+        )
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        target_m, method = dlg.result_params()
+        self._start_fm_interpolation(target_m, method)
+
+    def _start_fm_interpolation(self, target_m: float, method: str) -> None:
+        from fibsem.correlation.util import interpolate_fm_volume
+        from fibsem.ui.qt.threading import FunctionWorker
+
+        src = self._fm_image
+        old_nz = src.data.shape[1]
+        n_channels = src.data.shape[0]
+
+        # Non-modal: an embedded progress bar in the Images tab, and the FM display
+        # is disabled so a point edit can't race the image/coordinate swap — but
+        # the rest of the GUI stays live.
+        self._images_tab.set_interpolating(True, n_channels)
+        self._fm_display.setEnabled(False)
+
+        relay = self._interp_relay = _ProgressRelay()
+        relay.progress.connect(self._images_tab.set_interpolation_progress)
+
+        worker = self._interp_worker = FunctionWorker(
+            interpolate_fm_volume, src, target_m, method, relay.emit_progress
+        )
+
+        def _finish() -> None:
+            self._interp_worker = None
+            self._images_tab.set_interpolating(False)
+            self._fm_display.setEnabled(True)
+
+        def _done(new_image) -> None:
+            _finish()
+            self._adopt_interpolated_volume(new_image, old_nz)
+
+        def _fail(exc) -> None:
+            _finish()
+            logging.exception("FM z-interpolation failed")
+            notification_service.show("Z-interpolation failed.", "error")
+            QMessageBox.warning(
+                self, "Interpolation failed", f"Could not interpolate:\n{exc}"
+            )
+
+        worker.returned.connect(_done)
+        worker.errored.connect(_fail)
+        worker.start()
+
+    def _adopt_interpolated_volume(self, new_image, old_nz: int) -> None:
+        """Swap in the resampled volume and keep FM coordinates + metadata coherent.
+
+        Matched pair: rescale FM-point z by the ACTUAL slice ratio, then adopt the
+        new volume whose pixel_size_z was derived from that same ratio — so each
+        point's physical depth (z_index * pixel_size_z) is preserved.
+        """
+        new_nz = new_image.data.shape[1]
+        self._rescale_fm_z(new_nz / old_nz)
+        self.set_fm_image(new_image)
+        self.set_data(self.data)  # redraw lists/canvas at the rescaled z
+        self.data_changed.emit(self.data)  # auto-save + RI refresh (new z step)
+        notification_service.show(
+            f"Z-interpolation complete — {old_nz} → {new_nz} slices "
+            f"({new_image.metadata.pixel_size_z * 1e9:.0f} nm z step)",
+            "info",
+        )
 
     # ------------------------------------------------------------------
     # Refit
@@ -2377,18 +2575,28 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     else:
         logging.warning("  no FM image (*.ome.tiff) found in %s", directory)
 
-    if found["result"]:
-        try:
-            widget.load_result(found["result"])
-            logging.info("  result: %s", os.path.basename(found["result"]))
-        except Exception:
-            logging.exception("  failed to load result %s", found["result"])
-    elif found["data"]:
+    # Coordinates first. correlation_data.json is rewritten on every edit, so it
+    # is the freshest record of the points; correlation_result.json is only
+    # rewritten by a run, and the input_data embedded in it is a snapshot from
+    # that run. Loading the result first (as this did) let that snapshot
+    # overwrite edits made afterwards — FIB-295.
+    loaded_data = False
+    if found["data"]:
         try:
             widget.load_data(found["data"])
+            loaded_data = True
             logging.info("  data: %s", os.path.basename(found["data"]))
         except Exception:
             logging.exception("  failed to load data %s", found["data"])
+
+    if found["result"]:
+        try:
+            # With no data file the result's snapshot is the only record of the
+            # points, so adopt it; otherwise keep the coordinates just loaded.
+            widget.load_result(found["result"], adopt_inputs=not loaded_data)
+            logging.info("  result: %s", os.path.basename(found["result"]))
+        except Exception:
+            logging.exception("  failed to load result %s", found["result"])
 
 
 def main() -> None:

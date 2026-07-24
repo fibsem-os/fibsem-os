@@ -35,6 +35,7 @@ SIM_OBJECTIVE_USER_POSITION_LIMIT = 8.6e-3  # user-defined limits for the object
 SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
 
 SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
+SIM_CAMERA_EXPOSURE_LIMITS = (1e-6, 60.0)  # seconds
 SIM_CAMERA_BINNING = 4
 SIM_CAMERA_GAIN = 0.01  # 1%
 SIM_CAMERA_OFFSET = 0.0
@@ -320,18 +321,34 @@ class Camera(ABC):
         """Set the binning of the camera.
 
         Args:
-            value: The binning factor (must be >= 1)
+            value: The binning factor (must be in available_binnings)
 
         Raises:
-            ValueError: If binning is less than 1
+            ValueError: If the binning value is not supported
         """
-        if value < 1:
-            raise ValueError("Binning must be at least 1.")
-        if value not in BINNING_VALUES:
-            raise Warning(
-                "Unusual binning value set. Typical values are 1, 2, 4, or 8."
+        if value not in self.available_binnings:
+            raise ValueError(
+                f"Binning must be one of {self.available_binnings}, got {value}"
             )
         self._binning = value
+
+    @property
+    def available_binnings(self) -> Tuple[int, ...]:
+        """Get the supported binning values for the camera.
+
+        Returns:
+            A tuple of supported binning factors (e.g., (1, 2, 4, 8))
+        """
+        return tuple(BINNING_VALUES)
+
+    @property
+    def exposure_time_limits(self) -> Tuple[float, float]:
+        """Get the valid exposure time range for the camera.
+
+        Returns:
+            A tuple of (minimum, maximum) exposure times in seconds
+        """
+        return SIM_CAMERA_EXPOSURE_LIMITS
 
     @property
     def gain(self) -> float:
@@ -451,6 +468,18 @@ class LightSource(ABC):
         """
         self._power = value
 
+    @property
+    def power_limits(self) -> Tuple[float, float]:
+        """Get the valid power range for the light source.
+
+        Power is expressed as a fraction of maximum power (0-1) across all
+        drivers; hardware units are normalised inside each driver.
+
+        Returns:
+            A tuple of (minimum, maximum) power levels
+        """
+        return (0.0, 1.0)
+
 
 class FilterSet(ABC):
     """Abstract base class for filter set control in fluorescence microscopy.
@@ -553,11 +582,9 @@ class FluorescenceMicroscope(ABC):
     camera: Camera
     light_source: LightSource
 
-    # live acquisition
+    # live acquisition signals (psygnal binds these per-instance on access)
     acquisition_signal = Signal(FluorescenceImage)
     acquisition_progress_signal = Signal(dict)
-    _stop_acquisition_event = threading.Event()
-    _acquisition_thread: Optional[threading.Thread] = None
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         """Initialize the fluorescence microscope with default components.
@@ -568,6 +595,10 @@ class FluorescenceMicroscope(ABC):
         super().__init__()
 
         self.parent = parent
+
+        # per-instance acquisition state (previously shared class attributes)
+        self._stop_acquisition_event = threading.Event()
+        self._acquisition_thread: Optional[threading.Thread] = None
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
@@ -793,13 +824,34 @@ class FluorescenceMicroscope(ABC):
         img = self._construct_image(data)
         return img
 
-    def _construct_image(self, data: np.ndarray) -> FluorescenceImage:
+    def _construct_image(
+        self, data: np.ndarray, frame_metadata: Optional[dict] = None
+    ) -> FluorescenceImage:
         """Construct a FluorescenceImage from raw data with associated metadata.
 
         Applies the configured image transformation to align the fluorescence image
         with the SEM/FIB coordinate system.
+
+        Args:
+            data: The raw image data.
+            frame_metadata: Optional per-frame metadata captured at exposure
+                time by the driver; where present these values override the
+                state snapshot from get_metadata(). Supported keys:
+                'pixel_size' ((x, y) in metres), 'acquisition_date'
+                (ISO string), 'exposure_time' (seconds).
         """
         md = self.get_metadata()
+
+        if frame_metadata:
+            pixel_size = frame_metadata.get("pixel_size")
+            if pixel_size is not None:
+                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
+            acquisition_date = frame_metadata.get("acquisition_date")
+            if acquisition_date is not None:
+                md.acquisition_date = acquisition_date
+            exposure_time = frame_metadata.get("exposure_time")
+            if exposure_time is not None and md.channels:
+                md.channels[0].exposure_time = exposure_time
 
         # Apply image transformation to align with SEM/FIB images
         data = self._apply_image_transform(data)
