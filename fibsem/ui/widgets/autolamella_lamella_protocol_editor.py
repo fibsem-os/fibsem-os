@@ -985,13 +985,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             logging.error("No lamella selected, cannot open correlation dialog.")
             return
 
+        from fibsem.correlation.history import LamellaCorrelation
         from fibsem.correlation.ui.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 
+        correlation_root = os.path.join(selected_lamella.path, "Correlation")
+        # Discover the newest previous run to seed from, BEFORE minting this run's
+        # folder (so this open isn't its own "previous"). FIB-299.
+        previous = LamellaCorrelation.discover(correlation_root).latest()
+
         project_path = os.path.join(
-            selected_lamella.path,
-            "Correlation",
+            correlation_root,
             datetime.datetime.now().strftime(constants.DATETIME_FILE),
         )
         os.makedirs(project_path, exist_ok=True)
@@ -1012,6 +1017,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         fm_image = self.fm_image
         if fm_image is not None:
             dialog.set_fm_image(fm_image)
+
+        # Seed the coordinates from the previous run (after the current images are
+        # set, so FM z can be rescaled to this volume's z-sampling). FIB-299.
+        if previous is not None and previous.state.input_data is not None:
+            dialog.seed_coordinates(previous.state.input_data)
 
         if dialog.exec_() != QDialog.Accepted:
             return

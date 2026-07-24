@@ -2325,3 +2325,71 @@ def test_ri_seed_skips_when_metadata_absent(qapp):
     before = w._ri_tab._ri_widget.get_params()
     w._seed_ri_from_fm_metadata(_fake_fm(n_c=2))  # plain channels, no λ/NA
     assert w._ri_tab._ri_widget.get_params() == before
+
+
+# ---------------------------------------------------------------------------
+# FIB-299 — seed a new correlation from the previous run
+# ---------------------------------------------------------------------------
+
+
+def _fm_at_zstep(z_step_m, n_z=21):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    return SimpleNamespace(
+        data=np.zeros((1, n_z, 8, 8), dtype=np.float32),
+        metadata=SimpleNamespace(
+            pixel_size_z=z_step_m, pixel_size_x=100e-9, channels=[], filename=""
+        ),
+    )
+
+
+def test_stored_fm_pixel_size_z_round_trips():
+    d = CorrelationInputData(
+        fib_coordinates=[_coord(1.0, 2.0, pt=PointType.FIB)],
+        stored_fm_pixel_size_z=500e-9,
+    )
+    assert d.to_dict()["fm_pixel_size_z"] == 500e-9
+    assert CorrelationInputData.from_dict(d.to_dict()).stored_fm_pixel_size_z == 500e-9
+    legacy = d.to_dict()
+    del legacy["fm_pixel_size_z"]  # a file written before FIB-299
+    assert CorrelationInputData.from_dict(legacy).stored_fm_pixel_size_z is None
+
+
+def test_seed_rescales_fm_z_across_a_different_zstep(qapp):
+    """A seed picked at 500 nm/slice, reloaded into a 100 nm/slice (interpolated)
+    volume, must land at the same physical depth — index 10 -> 50."""
+    w = _widget(qapp)
+    w._fm_image = _fm_at_zstep(100e-9, n_z=105)   # current volume, interpolated
+    source = CorrelationInputData(
+        fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
+        stored_fm_pixel_size_z=500e-9,            # source volume z-step
+    )
+    w.seed_coordinates(source)
+
+    assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(50.0)
+    assert w._result is None                      # previous result not carried in
+
+
+def test_seed_is_a_noop_when_the_zstep_matches(qapp):
+    w = _widget(qapp)
+    w._fm_image = _fm_at_zstep(500e-9)
+    source = CorrelationInputData(
+        fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
+        stored_fm_pixel_size_z=500e-9,
+    )
+    w.seed_coordinates(source)
+    assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(10.0)
+
+
+def test_seed_without_a_stored_zstep_does_not_rescale(qapp):
+    """A legacy seed with no stored z-step is loaded as-is (can't reconcile)."""
+    w = _widget(qapp)
+    w._fm_image = _fm_at_zstep(100e-9, n_z=105)
+    source = CorrelationInputData(
+        fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
+        stored_fm_pixel_size_z=None,
+    )
+    w.seed_coordinates(source)
+    assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(10.0)
