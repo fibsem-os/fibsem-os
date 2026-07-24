@@ -24,12 +24,6 @@ from fibsem.correlation.structures import (
 from fibsem.structures import Point
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
-
-
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
     """Never hit the network for the zeta LUT during widget construction."""
