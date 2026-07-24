@@ -103,4 +103,9 @@ markers = [
 ]
 # Treat warnings as errors so new deprecations fail fast. Add targeted `ignore`
 # entries here for third-party warnings we can't fix at the source.
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # pyparsing (pulled in by matplotlib) calls its own deprecated oneOf() on
+    # some Python versions' dependency resolutions — third-party, not ours to fix.
+    "ignore::pyparsing.warnings.PyparsingDeprecationWarning",
+]
