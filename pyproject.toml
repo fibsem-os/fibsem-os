@@ -69,6 +69,13 @@ reporting = [
 
 server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0"]
 
+# Test tooling. `pytest` itself is still listed under [project.dependencies] so
+# CI's `pip install .` keeps working; move it here once CI installs `.[test]`.
+test = [
+    "pytest-xdist>=3.0",   # parallel execution (-n auto)
+    "pytest-timeout>=2.1", # fail a hung test instead of blocking the whole run
+]
+
 [project.scripts]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
@@ -85,3 +92,13 @@ packages = ["fibsem"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "slow: tests dominated by simulated-hardware timing (deselect with -m 'not slow')",
+    "hardware_sim: drives the Demo microscope simulator end-to-end",
+    "ui: requires the [ui] extra (napari/pyqt5); auto-skipped when absent",
+    "integration: exercises multiple components together",
+]
