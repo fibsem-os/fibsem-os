@@ -119,6 +119,31 @@ def test_malformed_entry_is_skipped(recents_env):
     assert [ch.name for ch in recents] == ["DAPI"]
 
 
+def test_remove_recent_channel(recents_env):
+    fm_config.record_recent_channels(
+        [_channel("DAPI", 405.0), _channel("GFP", 488.0, 520.0)]
+    )
+    fm_config.remove_recent_channel(_channel("DAPI", 405.0))
+
+    recents = fm_config.load_recent_channels()
+    assert [ch.name for ch in recents] == ["GFP"]
+
+
+def test_remove_recent_channel_matches_by_name(recents_env):
+    # keyed on name: wavelength need not match to remove
+    fm_config.record_recent_channels(_channel("DAPI", 405.0))
+    fm_config.remove_recent_channel(_channel("DAPI", 999.0))
+
+    assert fm_config.load_recent_channels() == []
+
+
+def test_remove_missing_channel_is_noop(recents_env):
+    fm_config.record_recent_channels(_channel("DAPI", 405.0))
+    fm_config.remove_recent_channel(_channel("Nonexistent"))
+
+    assert [ch.name for ch in fm_config.load_recent_channels()] == ["DAPI"]
+
+
 def test_round_trip_preserves_emission_types(recents_env):
     fm_config.record_recent_channels(
         [

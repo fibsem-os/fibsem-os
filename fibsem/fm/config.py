@@ -93,3 +93,18 @@ def record_recent_channels(
             yaml.safe_dump(updated, f, sort_keys=False)
     except Exception as e:
         logging.warning(f"Failed to record recent FM channels: {e}")
+
+
+def remove_recent_channel(channel: ChannelSettings) -> None:
+    """Remove a channel from the recently-used list by its dedup key."""
+    try:
+        recents = load_recent_channels()
+        key = _recent_channel_key(channel)
+        remaining = [ch for ch in recents if _recent_channel_key(ch) != key]
+        if len(remaining) == len(recents):
+            return
+        os.makedirs(cfg.CONFIG_PATH, exist_ok=True)
+        with open(cfg.FM_RECENT_CHANNELS_PATH, "w") as f:
+            yaml.safe_dump([ch.to_dict() for ch in remaining], f, sort_keys=False)
+    except Exception as e:
+        logging.warning(f"Failed to remove recent FM channel: {e}")
