@@ -17,6 +17,7 @@ from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationPointOfInterest,
+    CorrelationState,
     CorrelationResult,
     PointType,
     PointXYZ,
@@ -851,18 +852,21 @@ def test_discover_correlation_files(tmp_path):
     assert _discover_correlation_files(str(tmp_path)) == {
         "fib": None,
         "fm": None,
+        "correlation": None,
         "data": None,
         "result": None,
     }
 
     (tmp_path / "BeforeMilling_G1.ome.tiff").write_bytes(b"")
     (tmp_path / "ref_Mill_ib.tif").write_bytes(b"")
+    (tmp_path / "correlation.json").write_text("{}")
     (tmp_path / "correlation_data.json").write_text("{}")
     (tmp_path / "correlation_result.json").write_text("{}")
 
     found = _discover_correlation_files(str(tmp_path))
     assert os.path.basename(found["fm"]) == "BeforeMilling_G1.ome.tiff"
     assert os.path.basename(found["fib"]) == "ref_Mill_ib.tif"
+    assert os.path.basename(found["correlation"]) == "correlation.json"
     assert os.path.basename(found["data"]) == "correlation_data.json"
     assert os.path.basename(found["result"]) == "correlation_result.json"
 
@@ -1282,9 +1286,9 @@ def test_load_result_rejects_a_coordinates_file(qapp, tmp_path):
     assert "Load Coordinates" in str(exc.value)
 
 
-def test_load_coordinates_shows_a_warning_instead_of_crashing(qapp, tmp_path, monkeypatch):
-    """_on_load had no try/except while _menu_load_result did — the same mistake
-    was a friendly warning in one direction and an unhandled KeyError in the other."""
+def test_menu_load_correlation_accepts_a_legacy_result_file(qapp, tmp_path, monkeypatch):
+    """FIB-264: the single Load action dispatches on shape, so selecting the
+    legacy result file — the exact FIB-263 misclick — now just loads it."""
     from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
     w = _widget(qapp)
@@ -1298,7 +1302,30 @@ def test_load_coordinates_shows_a_warning_instead_of_crashing(qapp, tmp_path, mo
         QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a))
     )
 
-    w._on_load()  # must not raise
+    w._menu_load_correlation()
+    assert not shown, "a valid result file should load, not warn"
+    assert len(w.result.poi) == 1  # the result was adopted
+
+
+def test_menu_load_correlation_warns_on_a_foreign_file(qapp, tmp_path, monkeypatch):
+    """A genuinely unreadable/foreign JSON still warns rather than crashing."""
+    import json
+
+    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+
+    w = _widget(qapp)
+    junk = tmp_path / "notes.json"
+    junk.write_text(json.dumps({"hello": "world"}))
+
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(junk), ""))
+    )
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a))
+    )
+
+    w._menu_load_correlation()  # must not raise
     assert shown, "expected a warning dialog rather than an exception"
 
 
@@ -2036,3 +2063,149 @@ def test_stale_status_outranks_the_ri_note(qapp):
 
     assert "changed since this run" in w._lbl_status.text()
     assert "Done" not in w._lbl_status.text()
+
+
+# ---------------------------------------------------------------------------
+# FIB-264 — one consolidated correlation.json
+# ---------------------------------------------------------------------------
+
+
+def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
+    """Both data_changed and result_changed rewrite a single correlation.json;
+    the legacy pair is never written."""
+    import json
+
+    w = _widget(qapp)
+    w.set_project_dir(str(tmp_path))
+    w.set_data(_input(fib=(3.0, 4.0)))
+    w.data_changed.emit(w.data)
+
+    single = tmp_path / "correlation.json"
+    assert single.exists()
+    assert not (tmp_path / "correlation_data.json").exists()
+    assert not (tmp_path / "correlation_result.json").exists()
+
+    raw = json.loads(single.read_text())
+    assert raw["version"] == 1
+    assert raw["result"] is None
+    assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 3.0
+
+    # a run adds the result to the same file
+    w._on_result_ready(_result_from(_input(fib=(3.0, 4.0))))
+    raw = json.loads(single.read_text())
+    assert raw["result"] is not None
+    assert "computed_from" in raw["result"]  # the snapshot, renamed
+
+
+def test_load_correlation_round_trips_a_consolidated_file(qapp, tmp_path):
+    w = _widget(qapp)
+    w.set_project_dir(str(tmp_path))
+    w.set_data(_input(fib=(5.0, 5.0)))
+    w._on_result_ready(_result_from(_input(fib=(5.0, 5.0))))  # live, matches
+
+    fresh = _widget(qapp)
+    fresh.load_correlation(str(tmp_path / "correlation.json"))
+    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [(5.0, 5.0)]
+    assert fresh._btn_continue.isEnabled() is True  # consistent -> usable
+
+
+def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
+    """A file saved after a post-run edit carries the new points plus the old
+    result; on load, matches_inputs must still flag it (FIB-295 within one file)."""
+    import json
+
+    w = _widget(qapp)
+    w.set_project_dir(str(tmp_path))
+    w.set_data(_input(fib=(1.0, 2.0)))
+    w._on_result_ready(_result_from(_input(fib=(1.0, 2.0))))  # result fitted here
+    w.set_data(_input(fib=(9.0, 9.0)))  # ...then the points move
+    w.data_changed.emit(w.data)         # rewrite: new points, stale result
+
+    raw = json.loads((tmp_path / "correlation.json").read_text())
+    assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 9.0
+    assert raw["result"]["computed_from"]["fib_coordinates"][0]["point"]["x"] == 1.0
+
+    fresh = _widget(qapp)
+    fresh.load_correlation(str(tmp_path / "correlation.json"))
+    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [(9.0, 9.0)]
+    assert fresh._btn_continue.isEnabled() is False  # stale result not armed
+
+
+def test_load_project_prefers_the_consolidated_file(qapp, tmp_path):
+    """With correlation.json present, the legacy pair is ignored even if it
+    disagrees."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    CorrelationState(input_data=_input(fib=(5.0, 5.0))).save(
+        str(tmp_path / "correlation.json")
+    )
+    # a stale legacy pair that must be ignored
+    _input(fib=(1.0, 1.0)).save(str(tmp_path / "correlation_data.json"))
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(5.0, 5.0)]
+
+
+def test_load_project_falls_back_to_legacy_when_no_consolidated_file(qapp, tmp_path):
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    _input(fib=(7.0, 7.0)).save(str(tmp_path / "correlation_data.json"))
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(7.0, 7.0)]
+
+
+def test_load_correlation_reads_a_legacy_data_file(qapp, tmp_path):
+    """A pre-FIB-264 correlation_data.json still loads via the unified entry."""
+    p = tmp_path / "correlation_data.json"
+    _input(fib=(7.0, 8.0)).save(str(p))
+
+    w = _widget(qapp)
+    w.load_correlation(str(p))
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(7.0, 8.0)]
+    assert w._result is None  # a bare data file carries no result
+
+
+def test_load_correlation_file_dispatches_on_every_shape(tmp_path):
+    """The one place the shape-sniff lives: container / legacy data / legacy
+    result (new + old snapshot key) / junk. This is the 'old files still load'
+    guarantee at the unit level."""
+    import json
+
+    from fibsem.correlation.structures import load_correlation_file
+
+    # new container
+    cpath = tmp_path / "c.json"
+    CorrelationState(
+        input_data=_input(fib=(1.0, 1.0)), result=_result_from(_input(fib=(1.0, 1.0)))
+    ).save(str(cpath))
+    st = load_correlation_file(str(cpath))
+    assert st.input_data.fib_coordinates[0].point.x == 1.0 and st.result is not None
+
+    # legacy data file
+    dpath = tmp_path / "correlation_data.json"
+    _input(fib=(2.0, 2.0)).save(str(dpath))
+    st = load_correlation_file(str(dpath))
+    assert st.result is None and st.input_data.fib_coordinates[0].point.x == 2.0
+
+    # legacy result file (current computed_from key)
+    rpath = tmp_path / "correlation_result.json"
+    _result_from(_input(fib=(3.0, 3.0))).save(str(rpath))
+    st = load_correlation_file(str(rpath))
+    assert st.result is not None and st.input_data.fib_coordinates[0].point.x == 3.0
+
+    # legacy result file written with the OLD "input_data" snapshot key
+    opath = tmp_path / "old_result.json"
+    old = _result_from(_input(fib=(4.0, 4.0))).to_dict()
+    old["input_data"] = old.pop("computed_from")
+    opath.write_text(json.dumps(old))
+    st = load_correlation_file(str(opath))
+    assert st.input_data.fib_coordinates[0].point.x == 4.0
+
+    # foreign / junk JSON
+    jpath = tmp_path / "junk.json"
+    jpath.write_text(json.dumps({"foo": 1}))
+    with pytest.raises(ValueError):
+        load_correlation_file(str(jpath))

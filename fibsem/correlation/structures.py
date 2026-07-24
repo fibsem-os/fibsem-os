@@ -169,7 +169,7 @@ class CorrelationInputData:
             hint = (
                 " This looks like a correlation result — load it with"
                 " Load Correlation Result instead."
-                if ("poi" in data or "input_data" in data)
+                if ("poi" in data or "computed_from" in data or "input_data" in data)
                 else ""
             )
             raise ValueError(
@@ -325,7 +325,13 @@ class CorrelationResult:
             "mean_absolute_error": self.mean_absolute_error,
             "delta_2d": [p.to_dict() for p in self.delta_2d],
             "reprojected_3d": [p.to_dict() for p in self.reprojected_3d],
-            "input_data": self.input_data.to_dict() if self.input_data else None,
+            # Serialized as "computed_from", not "input_data": it is a snapshot of
+            # the points this transform was FITTED to, not the current inputs.
+            # The distinction is invisible in a standalone result file but matters
+            # in the consolidated correlation.json (FIB-264), which also carries a
+            # top-level input_data for the current points. The Python attribute
+            # stays `input_data`; only the wire key differs.
+            "computed_from": self.input_data.to_dict() if self.input_data else None,
             "refractive_index_correction_factor": self.refractive_index_correction_factor,
             "refractive_index_correction_mode": self.refractive_index_correction_mode,
             "updated_at": self.updated_at,
@@ -359,8 +365,10 @@ class CorrelationResult:
             reprojected_3d=[
                 PointXYZ.from_dict(p) for p in data.get("reprojected_3d", [])
             ],
-            input_data=CorrelationInputData.from_dict(data["input_data"])
-            if data.get("input_data")
+            # "computed_from" is the current key; "input_data" is read for
+            # back-compat with result files written before FIB-264.
+            input_data=CorrelationInputData.from_dict(snapshot)
+            if (snapshot := data.get("computed_from") or data.get("input_data"))
             else None,
             refractive_index_correction_factor=data.get(
                 "refractive_index_correction_factor"
@@ -537,3 +545,92 @@ class CorrelationResult:
     def load(filename: str) -> CorrelationResult:
         with open(filename, "r") as f:
             return CorrelationResult.from_dict(json.load(f))
+
+
+# Current on-disk container version. Bump only on a breaking layout change; the
+# loader keys migration off this, and off the shape of legacy files that predate it.
+CORRELATION_FILE_VERSION = 1
+
+
+@dataclass
+class CorrelationState:
+    """The whole correlation state for a project directory, in one file (FIB-264).
+
+    Supersedes the split ``correlation_data.json`` (a bare
+    :class:`CorrelationInputData`) + ``correlation_result.json`` (a bare
+    :class:`CorrelationResult`). Those two sat side by side with near-identical
+    names and could silently disagree — see :meth:`CorrelationResult.matches_inputs`
+    and the FIB-295 fix. This carries both, with ``input_data`` as the single
+    source of truth for the current points and ``result`` optional (``None``
+    until the first run).
+    """
+
+    input_data: CorrelationInputData = field(default_factory=CorrelationInputData)
+    result: Optional[CorrelationResult] = None
+    version: int = CORRELATION_FILE_VERSION
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "input_data": self.input_data.to_dict(),
+            "result": self.result.to_dict() if self.result is not None else None,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> CorrelationState:
+        """Parse a container dict.
+
+        Only the container shape (has ``version``) is accepted here; legacy files
+        are handled by :func:`load_correlation_file`, which dispatches on shape.
+        """
+        result_data = data.get("result")
+        return CorrelationState(
+            input_data=CorrelationInputData.from_dict(data["input_data"]),
+            result=CorrelationResult.from_dict(result_data) if result_data else None,
+            version=data.get("version", CORRELATION_FILE_VERSION),
+        )
+
+    def save(self, filename: str) -> None:
+        with open(filename, "w") as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(filename: str) -> CorrelationState:
+        with open(filename, "r") as f:
+            return CorrelationState.from_dict(json.load(f))
+
+
+def load_correlation_file(filename: str) -> CorrelationState:
+    """Load any correlation JSON — new container or either legacy file — as a
+    :class:`CorrelationState`.
+
+    Dispatches on the payload shape, so the caller never has to know which of the
+    three a file is. This is the one place the sniff lives; the ``from_dict``
+    guards on the two legacy classes only reject the *wrong* legacy file when a
+    caller asks for a specific type by name.
+
+      * container      → has ``version``            → parse as-is
+      * legacy result  → has ``poi``/``computed_from``/``input_data`` → wrap
+      * legacy data    → has ``fib_coordinates``    → wrap, no result
+
+    A result file carries its own ``input_data`` snapshot, which becomes the
+    project's current points — the same behaviour the old result loader had.
+    """
+    with open(filename, "r") as f:
+        data = json.load(f)
+
+    if "version" in data:
+        return CorrelationState.from_dict(data)
+
+    if "poi" in data or "computed_from" in data or "input_data" in data:
+        result = CorrelationResult.from_dict(data)
+        current = result.input_data or CorrelationInputData()
+        return CorrelationState(input_data=current, result=result)
+
+    if "fib_coordinates" in data:
+        return CorrelationState(input_data=CorrelationInputData.from_dict(data))
+
+    raise ValueError(
+        f"{filename!r} is not a correlation file: no 'version', 'poi', or "
+        "'fib_coordinates' key."
+    )

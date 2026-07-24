@@ -75,9 +75,11 @@ from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationPointOfInterest,
+    CorrelationState,
     CorrelationResult,
     PointType,
     PointXYZ,
+    load_correlation_file,
     scale_about_surface,
 )
 from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
@@ -105,6 +107,12 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
+
+# Consolidated project file (FIB-264). The two legacy names are still *read* for
+# back-compat with projects saved by earlier versions; nothing writes them now.
+CORRELATION_FILENAME = "correlation.json"
+_LEGACY_DATA_FILENAME = "correlation_data.json"
+_LEGACY_RESULT_FILENAME = "correlation_result.json"
 
 # Auto-accept outlier fallback: a fit is a refinement of the user's click, so a
 # large jump usually means it locked onto the wrong feature. Beyond these, the
@@ -1226,17 +1234,17 @@ class CorrelationTabWidget(QWidget):
 
         self._action_load_fib = QAction("Load FIB Image", self)
         self._action_load_fm = QAction("Load Fluorescence Image", self)
-        self._action_load_coords = QAction("Load Coordinates", self)
-        self._action_save_coords = QAction("Save Coordinates", self)
-        self._action_load_result = QAction("Load Correlation Result", self)
+        # One action for coordinates + result: the file dispatches on its shape
+        # (FIB-264), so there is no wrong choice to make — removing the FIB-263
+        # misclick by construction rather than guarding against it.
+        self._action_load = QAction("Load Correlation…", self)
+        self._action_save = QAction("Save Correlation…", self)
 
         file_menu.addAction(self._action_load_fib)
         file_menu.addAction(self._action_load_fm)
         file_menu.addSeparator()
-        file_menu.addAction(self._action_load_coords)
-        file_menu.addAction(self._action_save_coords)
-        file_menu.addSeparator()
-        file_menu.addAction(self._action_load_result)
+        file_menu.addAction(self._action_load)
+        file_menu.addAction(self._action_save)
         file_menu.addSeparator()
         self._action_export_csv = QAction("Export CSV", self)
         file_menu.addAction(self._action_export_csv)
@@ -1405,9 +1413,9 @@ class CorrelationTabWidget(QWidget):
         self._images_tab.fm_image_changed.connect(self._on_fm_image_changed)
         self._images_tab.project_dir_changed.connect(self._on_project_dir_changed)
 
-        # Auto-save
-        self.data_changed.connect(self._auto_save_data)
-        self.result_changed.connect(self._auto_save_result)
+        # Auto-save — one file, rewritten whole on either signal (FIB-264)
+        self.data_changed.connect(self._auto_save_state)
+        self.result_changed.connect(self._auto_save_state)
 
         # RI correction
         self._ri_tab.correction_applied.connect(self._on_correction_applied)
@@ -1435,9 +1443,8 @@ class CorrelationTabWidget(QWidget):
         # File menu
         self._action_load_fib.triggered.connect(self._menu_load_fib)
         self._action_load_fm.triggered.connect(self._menu_load_fm)
-        self._action_load_coords.triggered.connect(self._on_load)
-        self._action_save_coords.triggered.connect(self._on_save)
-        self._action_load_result.triggered.connect(self._menu_load_result)
+        self._action_load.triggered.connect(self._menu_load_correlation)
+        self._action_save.triggered.connect(self._on_save)
         self._action_export_csv.triggered.connect(lambda _: self._menu_export_csv())
         self._action_reset_views.triggered.connect(lambda _: self._reset_views())
         self._action_show_scalebar.toggled.connect(self._on_scalebar_toggled)
@@ -1604,8 +1611,37 @@ class CorrelationTabWidget(QWidget):
             else None
         )
 
+    def load_correlation(self, path: str) -> None:
+        """Load any correlation JSON — consolidated file or either legacy file.
+
+        Dispatches on the file's shape (:func:`load_correlation_file`), so the
+        caller never picks the wrong loader — the FIB-263 crash can't recur.
+        """
+        logging.info("Loading correlation from %s", path)
+        self._adopt_state(load_correlation_file(path))
+
+    def _adopt_state(self, state: CorrelationState) -> None:
+        """Apply a loaded correlation state: points first, then the result (if any).
+
+        Points are loaded before the result so that, when a result is present,
+        its staleness is judged against the freshly-loaded coordinates and its
+        own snapshot is not replayed over them — the FIB-295 ordering, now the
+        only ordering because both come from one file.
+        """
+        data = state.input_data
+        data.fib_image = self._fib_image
+        data.fm_image = self._fm_image
+        self.set_data(data)
+        self.data_changed.emit(self.data)
+        if state.result is not None:
+            self._load_result(state.result, adopt_inputs=False)
+
     def load_data(self, path: str) -> None:
-        """Load coordinates from JSON, preserving current images."""
+        """Load a legacy coordinates file, preserving current images.
+
+        Retained for the quickstart fallback and as the type-specific loader; new
+        code and the File menu use :meth:`load_correlation`.
+        """
         logging.info("Loading correlation coordinates from %s", path)
         loaded = CorrelationInputData.load(path)
         loaded.fib_image = self._fib_image
@@ -1613,9 +1649,9 @@ class CorrelationTabWidget(QWidget):
         self.set_data(loaded)
         self.data_changed.emit(self.data)
 
-    def save_data(self, path: str) -> None:
-        """Save current coordinates to JSON."""
-        self.data.save(path)
+    def save_correlation(self, path: str) -> None:
+        """Save the whole correlation state (points + result) to one JSON."""
+        CorrelationState(input_data=self.data, result=self._result).save(path)
 
     @property
     def data(self) -> CorrelationInputData:
@@ -1671,21 +1707,28 @@ class CorrelationTabWidget(QWidget):
         self._project_dir = path
         self._lbl_status.setText(f"Project: {path}")
 
-    def _auto_save_data(self, data: CorrelationInputData) -> None:
-        if not self._project_dir:
-            return
-        try:
-            data.save(os.path.join(self._project_dir, "correlation_data.json"))
-        except Exception:
-            logging.exception("Auto-save of correlation data failed")
+    def _auto_save_state(self, *_) -> None:
+        """Persist the whole correlation state to a single correlation.json.
 
-    def _auto_save_result(self, result: CorrelationResult) -> None:
+        Wired to both ``data_changed`` and ``result_changed`` — either fires,
+        the full project is rewritten from the live widget state, so the two can
+        never drift apart on disk (which the split data/result files could;
+        FIB-264, FIB-295). The emitted payload is ignored: ``self.data`` and
+        ``self._result`` are the source of truth.
+
+        A post-run edit rewrites with the (now-stale) result still attached — by
+        design. The result carries its own ``computed_from`` snapshot, so
+        staleness stays derivable on load (``matches_inputs``) and the result
+        remains available to inspect; it is not silently discarded here.
+        """
         if not self._project_dir:
             return
         try:
-            result.save(os.path.join(self._project_dir, "correlation_result.json"))
+            CorrelationState(input_data=self.data, result=self._result).save(
+                os.path.join(self._project_dir, CORRELATION_FILENAME)
+            )
         except Exception:
-            logging.exception("Auto-save of correlation result failed")
+            logging.exception("Auto-save of correlation project failed")
 
     # ------------------------------------------------------------------
     # Run correlation
@@ -2133,20 +2176,6 @@ class CorrelationTabWidget(QWidget):
         logging.info("Loading correlation result from %s", path)
         self._load_result(CorrelationResult.load(path), adopt_inputs=adopt_inputs)
 
-    def _menu_load_result(self) -> None:
-        start = self._project_dir or ""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load Correlation Result", start, "JSON (*.json);;All files (*)"
-        )
-        if not path:
-            return
-        try:
-            result = CorrelationResult.load(path)
-        except Exception as exc:
-            QMessageBox.warning(self, "Load Error", f"Could not load result:\n{exc}")
-            return
-        self._load_result(result)
-
     def _load_result(
         self, result: CorrelationResult, *, adopt_inputs: bool = True
     ) -> None:
@@ -2166,28 +2195,29 @@ class CorrelationTabWidget(QWidget):
         # that predates the current points must not arm it.
         self._on_result_ready(result, live=result.matches_inputs(self.data))
 
-    def _on_load(self) -> None:
+    def _menu_load_correlation(self) -> None:
         start = self._project_dir or ""
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load Coordinates", start, "JSON (*.json);;All files (*)"
+            self, "Load Correlation", start, "JSON (*.json);;All files (*)"
         )
         if not path:
             return
-        # Guarded like _menu_load_result: this dialog opens on the project dir,
-        # which holds both auto-saved JSONs, so picking the wrong one is easy.
+        # One entry point for every correlation JSON; load_correlation dispatches
+        # on shape, so a wrong pick is no longer possible — only a genuinely
+        # unreadable/foreign file reaches this warning (FIB-264).
         try:
-            self.load_data(path)
+            self.load_correlation(path)
         except Exception as exc:
-            logging.exception("Failed to load coordinates from %s", path)
-            QMessageBox.warning(self, "Load Error", f"Could not load coordinates:\n{exc}")
+            logging.exception("Failed to load correlation from %s", path)
+            QMessageBox.warning(self, "Load Error", f"Could not load correlation:\n{exc}")
 
     def _on_save(self) -> None:
-        start = self._project_dir or ""
+        start = os.path.join(self._project_dir or "", CORRELATION_FILENAME)
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Coordinates", start, "JSON (*.json);;All files (*)"
+            self, "Save Correlation", start, "JSON (*.json);;All files (*)"
         )
         if path:
-            self.save_data(path)
+            self.save_correlation(path)
 
     # ------------------------------------------------------------------
     # FM z-stack interpolation (FIB-253)
@@ -2507,13 +2537,14 @@ class CorrelationTabDialog(QDialog):
 
 
 def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
-    """Locate FIB/FM images and saved data/result in a correlation project dir.
+    """Locate FIB/FM images and saved correlation JSON in a project dir.
 
     Conventions (matching the widget's auto-save + typical exports):
-      - FM image : ``*.ome.tif`` / ``*.ome.tiff``
-      - FIB image: ``*_ib.tif`` / ``*_ib.tiff`` (else the first non-OME TIFF)
-      - data     : ``correlation_data.json``
-      - result   : ``correlation_result.json``
+      - FM image   : ``*.ome.tif`` / ``*.ome.tiff``
+      - FIB image  : ``*_ib.tif`` / ``*_ib.tiff`` (else the first non-OME TIFF)
+      - correlation: ``correlation.json`` (FIB-264 consolidated file)
+      - data       : ``correlation_data.json``   (legacy, still read)
+      - result     : ``correlation_result.json`` (legacy, still read)
     """
     import glob
 
@@ -2541,8 +2572,9 @@ def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
     return {
         "fib": fib,
         "fm": _first(["*.ome.tif", "*.ome.tiff"]),
-        "data": _existing("correlation_data.json"),
-        "result": _existing("correlation_result.json"),
+        "correlation": _existing(CORRELATION_FILENAME),
+        "data": _existing(_LEGACY_DATA_FILENAME),
+        "result": _existing(_LEGACY_RESULT_FILENAME),
     }
 
 
@@ -2575,11 +2607,23 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     else:
         logging.warning("  no FM image (*.ome.tiff) found in %s", directory)
 
-    # Coordinates first. correlation_data.json is rewritten on every edit, so it
-    # is the freshest record of the points; correlation_result.json is only
-    # rewritten by a run, and the input_data embedded in it is a snapshot from
-    # that run. Loading the result first (as this did) let that snapshot
-    # overwrite edits made afterwards — FIB-295.
+    # The consolidated file is authoritative when present — it carries both the
+    # points and the result, staleness self-described (FIB-264/FIB-295).
+    if found["correlation"]:
+        try:
+            widget.load_correlation(found["correlation"])
+            logging.info("  correlation: %s", os.path.basename(found["correlation"]))
+            return
+        except Exception:
+            logging.exception(
+                "  failed to load %s; falling back to legacy files",
+                found["correlation"],
+            )
+
+    # Legacy fallback. Coordinates first: correlation_data.json is rewritten on
+    # every edit, so it is the freshest record of the points; the result's
+    # embedded snapshot is from its last run and must not overwrite later edits
+    # (FIB-295).
     loaded_data = False
     if found["data"]:
         try:
@@ -2611,7 +2655,7 @@ def main() -> None:
         nargs="?",
         default=None,
         help="Optional correlation project directory to quickstart-load "
-        "(FIB/FM images + correlation_data.json / correlation_result.json).",
+        "(FIB/FM images + correlation.json).",
     )
     args = parser.parse_args()
 
