@@ -2385,6 +2385,30 @@ class CorrelationTabWidget(QWidget):
         target_m, method = dlg.result_params()
         self._start_fm_interpolation(target_m, method)
 
+    def start_fm_interpolation(
+        self, *, isotropic: bool, target_z_nm: Optional[float], method: str
+    ) -> None:
+        """Kick off FM interpolation from the setup pre-dialog's choice (FIB-302).
+
+        Isotropic targets the XY pixel size (the same default ``InterpolateZDialog``
+        uses); an explicit target is given in nm. No-op unless the volume is
+        interpolatable (multi-slice with a known z step) — mirrors the in-widget
+        Interpolate button's enable rule.
+        """
+        if self._fm_image is None:
+            return
+        meta = self._fm_image.metadata
+        z_step = getattr(meta, "pixel_size_z", None)
+        if self._fm_image.data.shape[1] <= 1 or not z_step:
+            return
+        if isotropic:
+            target_m = meta.pixel_size_x
+        elif target_z_nm:
+            target_m = target_z_nm * 1e-9
+        else:
+            return
+        self._start_fm_interpolation(target_m, method)
+
     def _start_fm_interpolation(self, target_m: float, method: str) -> None:
         from fibsem.correlation.util import interpolate_fm_volume
         from fibsem.ui.qt.threading import FunctionWorker
@@ -2671,6 +2695,13 @@ class CorrelationTabDialog(QDialog):
 
     def seed_fib_fiducials_from_spot_burns(self, coordinates: "List[Point]") -> None:
         self.widget.seed_fib_fiducials_from_spot_burns(coordinates)
+
+    def start_fm_interpolation(
+        self, *, isotropic: bool, target_z_nm: "Optional[float]", method: str
+    ) -> None:
+        self.widget.start_fm_interpolation(
+            isotropic=isotropic, target_z_nm=target_z_nm, method=method
+        )
 
     @property
     def correlation_config(self) -> "CorrelationConfig":

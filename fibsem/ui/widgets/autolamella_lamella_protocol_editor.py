@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import napari
 import numpy as np
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -76,6 +77,53 @@ if TYPE_CHECKING:
 REFERENCE_IMAGE_LAYER_NAME = "Reference Image (FIB)"
 REFERENCE_IMAGE_SEM_LAYER_NAME = "Reference Image (SEM)"
 POINT_OF_INTEREST_LAYER_NAME = "Point of Interest"
+
+_PREVIEW_PX = 250  # correlation setup pre-dialog thumbnail size (FIB-302)
+
+
+def _to_u8(arr: np.ndarray) -> np.ndarray:
+    """Min/max-stretch an image to 0-255 uint8 for a thumbnail."""
+    arr = arr.astype(np.float32)
+    lo, hi = float(arr.min()), float(arr.max())
+    if hi > lo:
+        arr = (arr - lo) / (hi - lo)
+    return (arr * 255.0).clip(0, 255).astype(np.uint8)
+
+
+def _np_to_pixmap(rgb: np.ndarray, size: int = _PREVIEW_PX) -> QPixmap:
+    """RGB uint8 array → a square-fitted QPixmap (aspect preserved)."""
+    rgb = np.ascontiguousarray(rgb)
+    h, w, _ = rgb.shape
+    image = QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format_RGB888)
+    return QPixmap.fromImage(image).scaled(
+        size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+    )
+
+
+def _fib_thumbnail(image: FibsemImage) -> QPixmap:
+    """Grayscale FIB reference thumbnail for the setup pre-dialog preview."""
+    g = _to_u8(image.filtered_data)
+    return _np_to_pixmap(np.stack([g, g, g], axis=-1))
+
+
+def _fm_poi_thumbnail(
+    fm_image: FluorescenceImage, poi_channel_name: Optional[str]
+) -> tuple:
+    """(thumbnail, channel_name, z_count) for the POI channel, max-projected in z.
+
+    Grayscale keeps the fiducial/POI overlays legible. Falls back to the first
+    channel when the configured POI channel isn't present.
+    """
+    channels = fm_image.metadata.channels or []
+    idx = 0
+    name = channels[0].name if channels else "FM"
+    for i, ch in enumerate(channels):
+        if poi_channel_name and ch.name == poi_channel_name:
+            idx, name = i, ch.name
+            break
+    stack = fm_image.data[idx]  # (Z, Y, X)
+    proj = _to_u8(np.asarray(stack).max(axis=0))
+    return _np_to_pixmap(np.stack([proj, proj, proj], axis=-1)), name, fm_image.data.shape[1]
 
 
 class AutoLamellaProtocolEditorWidget(QWidget):
@@ -985,27 +1033,37 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             logging.error("No lamella selected, cannot open correlation dialog.")
             return
 
+        from fibsem.correlation.config import CorrelationConfig
         from fibsem.correlation.history import LamellaCorrelation
-        from fibsem.correlation.ui.widgets.correlation_history_dialog import (
-            CorrelationHistoryDialog,
+        from fibsem.correlation.ui.widgets.correlation_setup_dialog import (
+            SEED_PREVIOUS,
+            SEED_SPOT_BURNS,
+            CorrelationSetupDialog,
         )
         from fibsem.correlation.ui.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 
         correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        # Discover previous runs to seed from, BEFORE minting this run's folder
-        # (so this open isn't its own "previous"). FIB-299.
+        # Discover previous runs BEFORE minting this run's folder (so this open
+        # isn't its own "previous"). FIB-299.
         history = LamellaCorrelation.discover(correlation_root)
 
-        # Which run to seed from. 0/1 runs: nothing to choose, keep the silent
-        # default (newest, or none). 2+: let the user pick, or start fresh (FIB-257).
-        seed_run = history.latest()
-        if len(history.runs) >= 2:
-            picker = CorrelationHistoryDialog(history, parent=self)
-            if picker.exec_() != QDialog.Accepted:
-                return  # user cancelled opening the correlation tool
-            seed_run = picker.selected_run  # a run, or None for "start fresh"
+        experiment = self.parent_widget.experiment if self.parent_widget else None
+        protocol = experiment.task_protocol if experiment is not None else None
+        config = protocol.correlation if protocol is not None else CorrelationConfig()
+        spot_burns = self._spot_burn_coordinates(selected_lamella)
+
+        # Setup pre-dialog: confirm images + choose the starting-coordinates source
+        # + interpolation up front (FIB-302). Replaces the implicit seed logic and
+        # folds in the standalone history picker (FIB-301) as the Previous dropdown.
+        setup = self._run_setup_dialog(
+            selected_lamella, history, config, spot_burns, CorrelationSetupDialog
+        )
+        if setup is None:
+            return  # user cancelled
+
+        fib_image, fm_image = self._load_correlation_images(selected_lamella, setup)
 
         project_path = os.path.join(
             correlation_root,
@@ -1015,37 +1073,32 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         dialog = CorrelationTabDialog(parent=self)
         dialog.set_project_dir(project_path)
-
-        # Experiment-global correlation config: pass in on open (FIB-298).
-        experiment = self.parent_widget.experiment if self.parent_widget else None
-        protocol = experiment.task_protocol if experiment is not None else None
         if protocol is not None:
             dialog.set_correlation_config(protocol.correlation)
-
-        fib_image = self.image
         if fib_image is not None:
             dialog.set_fib_image(fib_image)
-
-        fm_image = self.fm_image
         if fm_image is not None:
             dialog.set_fm_image(fm_image)
 
-        # Seed the coordinates (after the current images are set, so FM z can be
-        # rescaled to this volume's z-sampling). A previous run seeds a
-        # re-correlation (FIB-299/301); with no previous run, the spot burns seed
-        # a first correlation's FIB fiducials (FIB-259). The two are exclusive: the
-        # burns are normalised to the setup FIB image, so they only map cleanly
-        # before milling — exactly the no-previous-run case.
-        if seed_run is not None and seed_run.state.input_data is not None:
-            dialog.seed_coordinates(seed_run.state.input_data)
-        elif (
-            not history.runs
-            and protocol is not None
-            and protocol.correlation.load_spot_burns
+        # Seed per the chosen source (after images are set, so FM z can rescale).
+        # A previous run seeds a re-correlation (FIB-299/301); spot burns seed a
+        # first correlation's FIB fiducials (FIB-259).
+        if (
+            setup.seed_source == SEED_PREVIOUS
+            and setup.previous_run is not None
+            and setup.previous_run.state.input_data is not None
         ):
-            spot_burns = self._spot_burn_coordinates(selected_lamella)
-            if spot_burns:
-                dialog.seed_fib_fiducials_from_spot_burns(spot_burns)
+            dialog.seed_coordinates(setup.previous_run.state.input_data)
+        elif setup.seed_source == SEED_SPOT_BURNS and spot_burns:
+            dialog.seed_fib_fiducials_from_spot_burns(spot_burns)
+
+        # Interpolation runs in the background once the window is open (FIB-253).
+        if setup.interpolate:
+            dialog.start_fm_interpolation(
+                isotropic=setup.isotropic,
+                target_z_nm=setup.target_z_nm,
+                method=setup.interp_method,
+            )
 
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -1057,6 +1110,115 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if dialog.result is not None:
             self._handle_correlation_dialog_result(dialog.result)
+
+    def _run_setup_dialog(self, lamella, history, config, spot_burns, dialog_cls):
+        """Build and show the setup pre-dialog; return its CorrelationSetup or None."""
+        fib_options = [
+            self.combobox_fib_filenames.itemText(i)
+            for i in range(self.combobox_fib_filenames.count())
+        ]
+        fm_options = [
+            self.combobox_fm_filenames.itemText(i)
+            for i in range(self.combobox_fm_filenames.count())
+        ]
+        fm_z = fm_psz_nm = fm_psxy_nm = None
+        if self.fm_image is not None:
+            fm_z = self.fm_image.data.shape[1]
+            psz = getattr(self.fm_image.metadata, "pixel_size_z", None)
+            psx = getattr(self.fm_image.metadata, "pixel_size_x", None)
+            fm_psz_nm = psz * 1e9 if psz else None
+            fm_psxy_nm = psx * 1e9 if psx else None
+
+        setup_dialog = dialog_cls(
+            lamella_name=lamella.name,
+            fib_options=fib_options,
+            fib_current=self.combobox_fib_filenames.currentText(),
+            fm_options=fm_options,
+            fm_current=self.combobox_fm_filenames.currentText(),
+            spot_burn_count=len(spot_burns),
+            history=history,
+            config=config,
+            preview=self._build_correlation_preview(
+                self.image, self.fm_image, config, history, spot_burns
+            ),
+            fm_z_slices=fm_z,
+            fm_pixel_size_z_nm=fm_psz_nm,
+            fm_pixel_size_xy_nm=fm_psxy_nm,
+            parent=self,
+        )
+        if setup_dialog.exec_() != QDialog.Accepted:
+            return None
+        return setup_dialog.setup
+
+    def _load_correlation_images(self, lamella, setup):
+        """Load the FIB/FM images the setup dialog selected, reusing the already
+        loaded ones when the selection is unchanged."""
+        fib_image = self.image
+        if (
+            setup.fib_filename
+            and setup.fib_filename != self.combobox_fib_filenames.currentText()
+        ):
+            path = os.path.join(lamella.path, setup.fib_filename)
+            if os.path.exists(path):
+                fib_image = FibsemImage.load(path)
+        fm_image = self.fm_image
+        if (
+            setup.fm_filename
+            and setup.fm_filename != self.combobox_fm_filenames.currentText()
+        ):
+            path = os.path.join(lamella.path, setup.fm_filename)
+            if os.path.exists(path):
+                fm_image = FluorescenceImage.load(path)
+        return fib_image, fm_image
+
+    @staticmethod
+    def _build_correlation_preview(fib_image, fm_image, config, history, spot_burns):
+        """The pre-dialog PreviewData: thumbnails + normalised overlay coords.
+
+        Spot-burn coords are already normalised; a previous run's coords are in
+        pixels/voxels, so divide by the image dimensions. Overlays are drawn for
+        the newest run (the pre-dialog's default selection).
+        """
+        from fibsem.correlation.ui.widgets.correlation_setup_dialog import PreviewData
+
+        preview = PreviewData()
+        if fib_image is not None:
+            preview.fib_thumb = _fib_thumbnail(fib_image)
+            fh, fw = fib_image.data.shape[:2]
+            caption = f"FIB · {fw}×{fh}"
+            ps = getattr(getattr(fib_image.metadata, "pixel_size", None), "x", None)
+            if ps:
+                caption += f" · {ps * 1e9:.0f} nm"
+            preview.fib_caption = caption
+        if fm_image is not None:
+            thumb, ch_name, z = _fm_poi_thumbnail(fm_image, config.fit.fm_poi_channel)
+            preview.fm_thumb = thumb
+            preview.fm_caption = f"FM · {ch_name} (POI channel) · {z} z"
+
+        preview.spot_burns = [(p.x, p.y) for p in spot_burns]
+
+        prev = history.latest() if history is not None else None
+        if (
+            prev is not None
+            and prev.state.input_data is not None
+            and fib_image is not None
+            and fm_image is not None
+        ):
+            inp = prev.state.input_data
+            fh, fw = fib_image.data.shape[:2]
+            _, _, fmy, fmx = fm_image.data.shape
+            if fw and fh:
+                preview.prev_fib = [
+                    (c.point.x / fw, c.point.y / fh) for c in inp.fib_coordinates
+                ]
+            if fmx and fmy:
+                preview.prev_fm = [
+                    (c.point.x / fmx, c.point.y / fmy) for c in inp.fm_coordinates
+                ]
+                if inp.poi_coordinates:
+                    p = inp.poi_coordinates[0].point
+                    preview.prev_poi = (p.x / fmx, p.y / fmy)
+        return preview
 
     @staticmethod
     def _spot_burn_coordinates(lamella: Lamella) -> List[Point]:
