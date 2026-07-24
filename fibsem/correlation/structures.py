@@ -110,6 +110,9 @@ class CorrelationInputData:
     # (images absent) can still convert corrected pixels to px / px_m
     stored_fib_image_shape: Optional[tuple] = None
     stored_fib_image_pixel_size: Optional[float] = None
+    # FM z-step, likewise restored from JSON: lets a seed's FM z be rescaled to a
+    # re-acquired volume with a different z-sampling (FIB-299).
+    stored_fm_pixel_size_z: Optional[float] = None
 
     def to_dict(self):
         return {
@@ -126,6 +129,7 @@ class CorrelationInputData:
             "fm_image_shape": self.fm_image_shape,
             "fib_image_shape": self.fib_image_shape,
             "fib_image_pixel_size": self.fib_image_pixel_size,
+            "fm_pixel_size_z": self.fm_pixel_size_z,
             "fib_image_filename": self.fib_image_filename,
             "fm_image_filename": self.fm_image_filename,
             "method": self.method,
@@ -148,6 +152,12 @@ class CorrelationInputData:
         if self.fm_image is None or self.fm_image.data is None:
             return None
         return self.fm_image.data.shape
+
+    @property
+    def fm_pixel_size_z(self) -> Optional[float]:
+        if self.fm_image is None:
+            return self.stored_fm_pixel_size_z
+        return getattr(self.fm_image.metadata, "pixel_size_z", None)
 
     @property
     def fib_image_filename(self) -> Optional[str]:
@@ -210,6 +220,7 @@ class CorrelationInputData:
             method=data.get("method", "multi-point"),
             stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
             stored_fib_image_pixel_size=data.get("fib_image_pixel_size"),
+            stored_fm_pixel_size_z=data.get("fm_pixel_size_z"),
         )
 
     def save(self, filename: str):

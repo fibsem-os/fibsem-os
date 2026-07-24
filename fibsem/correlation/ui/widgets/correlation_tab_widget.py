@@ -1643,6 +1643,23 @@ class CorrelationTabWidget(QWidget):
         if state.result is not None:
             self._load_result(state.result, adopt_inputs=False)
 
+    def seed_coordinates(self, source: CorrelationInputData) -> None:
+        """Load a previous run's coordinates as starting points (FIB-299).
+
+        Coordinates only — the previous result is from different images, so it is
+        not carried in. FM z is rescaled to the current volume's z-sampling when it
+        differs, so a seed picked in a differently-interpolated volume lands at the
+        right depth. Points are placed as-is; the user refines them on demand.
+        """
+        src_z = source.stored_fm_pixel_size_z   # read before we attach the current image
+        cur_z = self._fm_pixel_size_z()
+        source.fib_image = self._fib_image
+        source.fm_image = self._fm_image
+        self.set_data(source)
+        if src_z and cur_z and abs(src_z - cur_z) > 1e-15:
+            self._rescale_fm_z(src_z / cur_z)
+        self.data_changed.emit(self.data)
+
     def load_data(self, path: str) -> None:
         """Load a legacy coordinates file, preserving current images.
 
@@ -2620,6 +2637,9 @@ class CorrelationTabDialog(QDialog):
 
     def set_correlation_config(self, config: "CorrelationConfig") -> None:
         self.widget.set_correlation_config(config)
+
+    def seed_coordinates(self, source: "CorrelationInputData") -> None:
+        self.widget.seed_coordinates(source)
 
     @property
     def correlation_config(self) -> "CorrelationConfig":
