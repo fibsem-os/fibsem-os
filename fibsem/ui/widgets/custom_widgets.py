@@ -643,7 +643,8 @@ class _SpinnerLabel(QLabel):
 
     def stop(self):
         self._active = False
-        self._spin.stop()
+        if self._spin is not None and self._spin.parent_widget in self._spin.info:
+            self._spin.stop()
         self.update()        # repaint blank
 
     def clear(self):
