@@ -101,3 +101,6 @@ markers = [
     "ui: requires the [ui] extra (napari/pyqt5); auto-skipped when absent",
     "integration: exercises multiple components together",
 ]
+# Treat warnings as errors so new deprecations fail fast. Add targeted `ignore`
+# entries here for third-party warnings we can't fix at the source.
+filterwarnings = ["error"]
