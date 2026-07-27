@@ -109,6 +109,65 @@ def test_overtilt_threads_stop_event_into_alignment(monkeypatch):
     assert milled == []                  # aborted after alignment, before the beam
 
 
+# ── overtilt leaves the stage where it found it ──────────────────────────────
+
+def _stub_alignment(monkeypatch, on_call=None):
+    """Replace overtilt's alignment with a no-op (optionally firing a side effect).
+
+    Keeps these tests about stage handling, and off the ~2s cross-correlation the
+    real alignment runs against the simulator's noise images.
+    """
+    def fake_alignment(*args, **kwargs):
+        if on_call is not None:
+            on_call()
+
+    monkeypatch.setattr(
+        "fibsem.milling.strategy.overtilt.alignment.multi_step_alignment_v2",
+        fake_alignment,
+    )
+
+
+def test_overtilt_restores_stage_pose_after_a_normal_run(monkeypatch):
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    stage = _trench_stage("ot")
+    _stub_alignment(monkeypatch)
+
+    # capture the scalar: the simulator hands back its live position object, and
+    # move_stage_relative rebinds it while move_stage_absolute mutates in place
+    t0 = microscope.get_stage_position().t
+
+    stage.strategy.run(microscope, stage)
+
+    assert microscope.get_stage_position().t == pytest.approx(t0)
+
+
+def test_overtilt_restores_stage_pose_when_cancelled_mid_tilt(monkeypatch):
+    """Regression: the pose restore sat inside the per-pattern loop with no try/finally,
+    so a Stop after the tilt left the stage overtilted — at ±10 deg over a 50 nm lamella
+    that is not cosmetic."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    stage = _trench_stage("ot")
+    stage.strategy.config.overtilt = 10.0
+
+    ev = threading.Event()
+    tilted_at = {}
+
+    def stop_after_the_tilt():
+        # alignment runs after move_stage_relative, so the stage is tilted right now
+        tilted_at["t"] = microscope.get_stage_position().t
+        ev.set()
+
+    _stub_alignment(monkeypatch, on_call=stop_after_the_tilt)
+
+    t0 = microscope.get_stage_position().t
+
+    with pytest.raises(OperationCancelledError):
+        stage.strategy.run(microscope, stage, stop_event=ev)
+
+    assert tilted_at["t"] != pytest.approx(t0), "test is vacuous unless the stage really tilted"
+    assert microscope.get_stage_position().t == pytest.approx(t0)
+
+
 # ── task-level: aborts and still cleans up ───────────────────────────────────
 
 def test_task_aborts_and_restores_conditions(tmp_path):
