@@ -6,6 +6,11 @@ final reference image of the *Select Milling Position* task -- the same kind of 
 the targeting ML pipeline runs on -- so the pair (image, point) is directly usable as
 training data.
 
+Where those images are missing, a later task's final reference set is used instead
+(see :data:`SOURCE_TASK_TYPES`); every one of them images at the milling position, so
+the point is equally valid. Which task each sample came from is recorded, because the
+later ones show a progressively more milled sample.
+
 Layout written per run, by default into the experiment's own directory so a copied
 experiment carries its training data with it::
 
@@ -46,9 +51,21 @@ from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import FibsemImage
 
-# the task whose final FIB reference image is the training input. Its `task_name` is
-# user-configurable per protocol, so filenames are derived rather than hardcoded.
-SELECT_POSITION_TASK_TYPE = "SELECT_MILLING_POSITION"
+# Tasks whose final FIB reference image can serve as the training input, in order of
+# preference. All of them image at the milling position, so the POI is valid in any of
+# them; they are ordered earliest-first in the workflow, because each later task has
+# modified the sample further from the unmilled state the targeting model predicts on.
+# `MILL_ROUGH` in particular shows trenches already cut -- usable, but a different
+# visual distribution, which is why the chosen task is recorded per sample.
+#
+# A task's `task_name` is user-configurable per protocol, so filenames are derived from
+# each lamella's own config rather than hardcoded.
+SOURCE_TASK_TYPES = (
+    "SELECT_MILLING_POSITION",
+    "SPOT_BURN_FIDUCIAL",
+    "MILL_FIDUCIAL",
+    "MILL_ROUGH",
+)
 
 # `_acquire_set_of_channels` writes one image per field of view, suffixed res_01,
 # res_02, ... sorted largest FOV to smallest -- so the highest suffix is the most
@@ -81,6 +98,7 @@ class ExportedSample:
 
     stem: str
     source_image: str
+    source_task: str  # which SOURCE_TASK_TYPES entry the image came from
     shape: Tuple[int, int]  # (height, width)
     pixelsize: float
     hfw: Optional[float]
@@ -109,16 +127,16 @@ class ExportSummary:
         return len(self.samples)
 
 
-def select_position_task_names(lamella: Lamella) -> List[str]:
-    """Names of the lamella's Select Milling Position task(s).
+def task_names_for_type(lamella: Lamella, task_type: str) -> List[str]:
+    """Names of the lamella's task(s) of the given type.
 
-    A workflow may run the task more than once under different names, so this returns
+    A workflow may run a task more than once under different names, so this returns
     every match. Both the config's own ``task_name`` and the dict key are considered,
     since the key is what the protocol is written under.
     """
     names: List[str] = []
     for key, config in lamella.task_config.items():
-        if getattr(config, "task_type", None) != SELECT_POSITION_TASK_TYPE:
+        if getattr(config, "task_type", None) != task_type:
             continue
         for candidate in (getattr(config, "task_name", "") or "", key):
             if candidate and candidate not in names:
@@ -126,25 +144,32 @@ def select_position_task_names(lamella: Lamella) -> List[str]:
     return names
 
 
-def find_final_fib_image(lamella: Lamella) -> Optional[str]:
-    """The most zoomed FIB image from the Select Milling Position final reference set.
-
-    Returns None if the task never ran for this lamella, or its images are not on disk.
-    """
-    candidates: List[str] = []
-    for task_name in select_position_task_names(lamella):
-        pattern = FINAL_FIB_IMAGE_GLOB.format(task_name=task_name)
-        candidates.extend(glob.glob(os.path.join(str(lamella.path), pattern)))
-
-    if not candidates:
-        return None
+def _most_zoomed(paths: Sequence[str]) -> str:
+    """Of a final reference set, the highest res_NN -- the smallest field of view."""
 
     def resolution_index(path: str) -> int:
         match = _RES_SUFFIX.search(os.path.basename(path))
         return int(match.group(1)) if match else -1
 
-    # highest res_NN == smallest field of view == most zoomed
-    return max(candidates, key=resolution_index)
+    return max(paths, key=resolution_index)
+
+
+def find_final_fib_image(lamella: Lamella) -> Optional[Tuple[str, str]]:
+    """The best available final FIB reference image, as ``(path, task_type)``.
+
+    Walks :data:`SOURCE_TASK_TYPES` in order and takes the first task that actually
+    produced images, so a lamella whose Select Milling Position images are missing can
+    still contribute via a later task. Returns None if none of them did.
+    """
+    for task_type in SOURCE_TASK_TYPES:
+        candidates: List[str] = []
+        for task_name in task_names_for_type(lamella, task_type):
+            pattern = FINAL_FIB_IMAGE_GLOB.format(task_name=task_name)
+            candidates.extend(glob.glob(os.path.join(str(lamella.path), pattern)))
+        if candidates:
+            return _most_zoomed(candidates), task_type
+
+    return None
 
 
 def poi_to_pixels(lamella: Lamella, image: FibsemImage):
@@ -168,9 +193,10 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
     Raises ValueError if the image exists but lacks the metadata needed to place the
     point -- a real problem worth surfacing, not a silent skip.
     """
-    filename = find_final_fib_image(lamella)
-    if filename is None:
+    found = find_final_fib_image(lamella)
+    if found is None:
         return None
+    filename, source_task = found
 
     image = FibsemImage.load(filename)
     point = poi_to_pixels(lamella, image)
@@ -183,6 +209,7 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
     return ExportedSample(
         stem=stem,
         source_image=filename,
+        source_task=source_task,
         shape=tuple(image.data.shape[:2]),
         pixelsize=image.metadata.pixel_size.x,
         hfw=hfw,
@@ -290,8 +317,8 @@ def export_experiment(
 
         if sample is None:
             reason = (
-                f"{lamella.name}: no final FIB reference image from "
-                f"{SELECT_POSITION_TASK_TYPE}, skipped"
+                f"{lamella.name}: no final FIB reference image from any of "
+                f"{', '.join(SOURCE_TASK_TYPES)}, skipped"
             )
             logging.warning(reason)
             summary.skipped.append(reason)
@@ -330,9 +357,16 @@ def write_manifest(
     samples = [s for summary in summaries for s in summary.samples]
     manifest = {
         "format": "autolamella-targeting-points-v1",
-        "source_task": SELECT_POSITION_TASK_TYPE,
+        "source_task_preference": list(SOURCE_TASK_TYPES),
         "disc_radius_m": radius_m,
         "n_samples": len(samples),
+        # how many samples came from each task, so a consumer can see at a glance how
+        # much of the set is post-milling rather than pristine
+        "n_samples_by_source_task": {
+            task_type: sum(1 for s in samples if s.source_task == task_type)
+            for task_type in SOURCE_TASK_TYPES
+            if any(s.source_task == task_type for s in samples)
+        },
         "samples": [
             {
                 "stem": s.stem,
@@ -340,6 +374,7 @@ def write_manifest(
                 "points": f"{POINTS_DIR}/{s.stem}.json",
                 "label": f"{LABELS_DIR}/{s.stem}.tif",
                 "source_image": s.source_image,
+                "source_task": s.source_task,
                 "petname": s.petname,
                 "hfw": s.hfw,
                 "defect": s.defect,

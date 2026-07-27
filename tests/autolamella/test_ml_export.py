@@ -19,8 +19,15 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.tools import ml_export
+from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+    MillFiducialTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.trench import MillTrenchTaskConfig
 from fibsem.structures import (
@@ -84,17 +91,19 @@ def _save_reference_image(lamella, image=None, res: int = 2, task_name=TASK_NAME
 # ── locating the source image ────────────────────────────────────────────────
 
 
-def test_select_position_task_names_finds_the_task(tmp_path):
+def test_task_names_for_type_finds_the_task(tmp_path):
     exp = _make_experiment(tmp_path)
-    assert ml_export.select_position_task_names(exp.positions[0]) == [TASK_NAME]
+    names = ml_export.task_names_for_type(exp.positions[0], "SELECT_MILLING_POSITION")
+    assert names == [TASK_NAME]
 
 
-def test_select_position_task_names_ignores_other_tasks(tmp_path):
+def test_task_names_for_type_ignores_other_types(tmp_path):
     exp = _make_experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_config["Mill Trench"] = MillTrenchTaskConfig(task_name="Mill Trench")
 
-    assert ml_export.select_position_task_names(lamella) == [TASK_NAME]
+    names = ml_export.task_names_for_type(lamella, "SELECT_MILLING_POSITION")
+    assert names == [TASK_NAME]
 
 
 def test_find_final_fib_image_prefers_the_most_zoomed(tmp_path):
@@ -104,7 +113,10 @@ def test_find_final_fib_image_prefers_the_most_zoomed(tmp_path):
     _save_reference_image(lamella, res=1)
     expected = _save_reference_image(lamella, res=2)
 
-    assert ml_export.find_final_fib_image(lamella) == expected
+    assert ml_export.find_final_fib_image(lamella) == (
+        expected,
+        "SELECT_MILLING_POSITION",
+    )
 
 
 def test_find_final_fib_image_none_without_images(tmp_path):
@@ -133,6 +145,74 @@ def test_find_final_fib_image_ignores_sem_and_non_final(tmp_path):
         _make_fib_image().save(os.path.join(str(lamella.path), name))
 
     assert ml_export.find_final_fib_image(lamella) is None
+
+
+# ── falling back to a later task ─────────────────────────────────────────────
+
+FALLBACK_TASKS = [
+    ("SPOT_BURN_FIDUCIAL", SpotBurnFiducialTaskConfig, "Spot Burn Fiducial"),
+    ("MILL_FIDUCIAL", MillFiducialTaskConfig, "Mill Fiducial"),
+    ("MILL_ROUGH", MillRoughTaskConfig, "Rough Milling"),
+]
+
+
+@pytest.mark.parametrize("task_type,config_cls,task_name", FALLBACK_TASKS)
+def test_find_final_fib_image_falls_back_to_later_task(
+    tmp_path, task_type, config_cls, task_name
+):
+    """With no Select Milling Position images, a later task's set is used."""
+    exp = _make_experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_config[task_name] = config_cls(task_name=task_name)
+    expected = _save_reference_image(lamella, task_name=task_name)
+
+    assert ml_export.find_final_fib_image(lamella) == (expected, task_type)
+
+
+def test_find_final_fib_image_prefers_select_position_over_fallbacks(tmp_path):
+    """Preference order is earliest task first -- the least milled sample."""
+    exp = _make_experiment(tmp_path)
+    lamella = exp.positions[0]
+    for task_type, config_cls, task_name in FALLBACK_TASKS:
+        lamella.task_config[task_name] = config_cls(task_name=task_name)
+        _save_reference_image(lamella, task_name=task_name)
+    expected = _save_reference_image(lamella)  # Select Milling Position
+
+    assert ml_export.find_final_fib_image(lamella) == (
+        expected,
+        "SELECT_MILLING_POSITION",
+    )
+
+
+def test_find_final_fib_image_fallback_order_is_earliest_first(tmp_path):
+    """Given only fiducial and rough images, the fiducial one wins."""
+    exp = _make_experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_config["Rough Milling"] = MillRoughTaskConfig(task_name="Rough Milling")
+    _save_reference_image(lamella, task_name="Rough Milling")
+    lamella.task_config["Mill Fiducial"] = MillFiducialTaskConfig(
+        task_name="Mill Fiducial"
+    )
+    expected = _save_reference_image(lamella, task_name="Mill Fiducial")
+
+    assert ml_export.find_final_fib_image(lamella) == (expected, "MILL_FIDUCIAL")
+
+
+def test_export_records_which_task_the_image_came_from(tmp_path):
+    exp = _make_experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_config["Rough Milling"] = MillRoughTaskConfig(task_name="Rough Milling")
+    _save_reference_image(lamella, task_name="Rough Milling")
+    output = str(tmp_path / "out")
+
+    ml_export.export_experiment(exp, output)
+
+    with open(os.path.join(output, "points", "0001.json")) as f:
+        assert json.load(f)["source_task"] == "MILL_ROUGH"
+    with open(os.path.join(output, "manifest.json")) as f:
+        manifest = json.load(f)
+    assert manifest["samples"][0]["source_task"] == "MILL_ROUGH"
+    assert manifest["n_samples_by_source_task"] == {"MILL_ROUGH": 1}
 
 
 # ── POI -> pixels ────────────────────────────────────────────────────────────
@@ -365,7 +445,7 @@ def test_export_writes_manifest_indexing_samples(tmp_path):
         manifest = json.load(f)
 
     assert manifest["format"] == "autolamella-targeting-points-v1"
-    assert manifest["source_task"] == "SELECT_MILLING_POSITION"
+    assert manifest["source_task_preference"][0] == "SELECT_MILLING_POSITION"
     assert manifest["n_samples"] == 2
     assert manifest["samples"][0]["image"] == "images/0001.tif"
     assert manifest["samples"][0]["points"] == "points/0001.json"
