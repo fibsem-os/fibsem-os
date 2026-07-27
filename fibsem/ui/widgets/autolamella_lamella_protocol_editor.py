@@ -990,19 +990,21 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
 
         correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        # Discover previous runs BEFORE minting this run's folder (so this open
-        # isn't its own "previous"). FIB-299.
         history = LamellaCorrelation.discover(correlation_root)
 
         experiment = self.parent_widget.experiment if self.parent_widget else None
         protocol = experiment.task_protocol if experiment is not None else None
         spot_burns = self._spot_burn_coordinates(selected_lamella)
 
+        # Named now, created by the widget only if this session records a result.
+        # Creating it here made every *open* a run: cancelling still left a folder
+        # behind, which the setup section then offered as a previous correlation
+        # to seed from — so an abandoned session became the next open's starting
+        # coordinates (FIB-320).
         project_path = os.path.join(
             correlation_root,
             datetime.datetime.now().strftime(constants.DATETIME_FILE),
         )
-        os.makedirs(project_path, exist_ok=True)
 
         fib_current = self._image_path(
             selected_lamella, self.combobox_fib_filenames.currentText()

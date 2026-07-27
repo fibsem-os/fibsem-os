@@ -270,8 +270,12 @@ def test_spot_burns_without_a_fib_image_are_refused(qapp, monkeypatch):
 
 def _editor_stub(lamella_path, fib_filename, image):
     """Enough of the protocol editor to run _open_correlation_dialog unbound —
-    constructing the real widget needs napari."""
-    from PyQt5.QtWidgets import QComboBox
+    constructing the real widget needs napari.
+
+    A real QWidget, not a namespace: it is passed as the dialog's parent, so the
+    end-to-end variant of this harness needs it to survive PyQt's type check.
+    """
+    from PyQt5.QtWidgets import QComboBox, QWidget
 
     from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
@@ -280,17 +284,17 @@ def _editor_stub(lamella_path, fib_filename, image):
     fib_combo = QComboBox()
     if fib_filename:
         fib_combo.addItem(fib_filename)
-    return types.SimpleNamespace(
-        _selected_lamella=types.SimpleNamespace(path=lamella_path, task_config={}),
-        parent_widget=None,
-        image=image,
-        fm_image=None,
-        combobox_fib_filenames=fib_combo,
-        combobox_fm_filenames=QComboBox(),
-        _image_path=Editor._image_path,
-        _image_paths=Editor._image_paths,
-        _spot_burn_coordinates=Editor._spot_burn_coordinates,
-    )
+    stub = QWidget()
+    stub._selected_lamella = types.SimpleNamespace(path=lamella_path, task_config={})
+    stub.parent_widget = None
+    stub.image = image
+    stub.fm_image = None
+    stub.combobox_fib_filenames = fib_combo
+    stub.combobox_fm_filenames = QComboBox()
+    stub._image_path = Editor._image_path
+    stub._image_paths = Editor._image_paths
+    stub._spot_burn_coordinates = Editor._spot_burn_coordinates
+    return stub
 
 
 def _fake_dialog_class(record):

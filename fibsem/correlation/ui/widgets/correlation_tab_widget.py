@@ -1779,9 +1779,24 @@ class CorrelationTabWidget(QWidget):
         return px
 
     def set_project_dir(self, path: str) -> None:
-        """Set the project directory used for auto-save and export."""
+        """Set where this correlation would be saved.
+
+        A destination, not a promise: the directory is created on the first write
+        worth making, not here. See :meth:`_ensure_project_dir` (FIB-320).
+        """
         self._project_dir = path
         self._images_tab._proj_path.setText(path)
+
+    def _ensure_project_dir(self) -> Optional[str]:
+        """The project directory, created on demand. None if none is set.
+
+        Only ever called from a path that is about to write a file, so an
+        abandoned session leaves nothing behind.
+        """
+        if not self._project_dir:
+            return None
+        os.makedirs(self._project_dir, exist_ok=True)
+        return self._project_dir
 
     def set_data(self, data: CorrelationInputData) -> None:
         """Populate all coordinate lists and refresh canvases."""
@@ -2257,12 +2272,21 @@ class CorrelationTabWidget(QWidget):
         design. The result carries its own ``computed_from`` snapshot, so
         staleness stays derivable on load (``matches_inputs``) and the result
         remains available to inspect; it is not silently discarded here.
+
+        Nothing is written until there is a result to write, because a run folder
+        is no longer inert bookkeeping — the setup section seeds from it. Saving
+        from the first data change made every *open* a run: history counted opens
+        rather than correlations, and a session the user cancelled came back as
+        the next open's starting coordinates (FIB-320). Once the folder exists it
+        keeps its contents current, result or not.
         """
         if not self._project_dir:
             return
+        if self._result is None and not os.path.isdir(self._project_dir):
+            return
         try:
             CorrelationState(input_data=self.data, result=self._result).save(
-                os.path.join(self._project_dir, CORRELATION_FILENAME)
+                os.path.join(self._ensure_project_dir(), CORRELATION_FILENAME)
             )
         except Exception as exc:
             # Never let this pass unseen: it is the only persistence path, so a
@@ -2705,7 +2729,9 @@ class CorrelationTabWidget(QWidget):
                 QMessageBox.warning(self, "Save Plot", "No project directory set.")
                 return
             ts = time.strftime(DATETIME_FILE)
-            path = os.path.join(self._project_dir, f"correlation_plot_{ts}.png")
+            # Writing a file into the run folder, so this is a moment it should
+            # exist — the auto-save may not have minted it yet (FIB-320).
+            path = os.path.join(self._ensure_project_dir(), f"correlation_plot_{ts}.png")
 
         self._fib_canvas.reset_view()
         self._fm_display.canvas.reset_view()
