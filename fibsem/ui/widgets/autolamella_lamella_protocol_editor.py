@@ -990,25 +990,38 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
 
         correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        # Discover previous runs BEFORE minting this run's folder (so this open
-        # isn't its own "previous"). FIB-299.
         history = LamellaCorrelation.discover(correlation_root)
 
         experiment = self.parent_widget.experiment if self.parent_widget else None
         protocol = experiment.task_protocol if experiment is not None else None
         spot_burns = self._spot_burn_coordinates(selected_lamella)
 
+        # Named now, created by the widget only if this session records a result.
+        # Creating it here made every *open* a run: cancelling still left a folder
+        # behind, which the setup section then offered as a previous correlation
+        # to seed from — so an abandoned session became the next open's starting
+        # coordinates (FIB-320).
         project_path = os.path.join(
             correlation_root,
             datetime.datetime.now().strftime(constants.DATETIME_FILE),
         )
-        os.makedirs(project_path, exist_ok=True)
+
+        fib_current = self._image_path(
+            selected_lamella, self.combobox_fib_filenames.currentText()
+        )
+        fm_current = self._image_path(
+            selected_lamella, self.combobox_fm_filenames.currentText()
+        )
 
         dialog = CorrelationTabDialog(parent=self)
         dialog.set_project_dir(project_path)
         if protocol is not None:
             dialog.set_correlation_config(protocol.correlation)
-        if self.image is not None:
+        # Only a real image: with no reference image on disk self.image is a blank
+        # placeholder generated for the editor's own canvas, and correlating
+        # against it would scale the spot burns and the resulting POI by
+        # placeholder dimensions (FIB-319).
+        if self.image is not None and os.path.isfile(fib_current):
             dialog.set_fib_image(self.image)
         if self.fm_image is not None:
             dialog.set_fm_image(self.fm_image)
@@ -1024,13 +1037,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             fib_options=self._image_paths(
                 selected_lamella, self.combobox_fib_filenames
             ),
-            fib_current=self._image_path(
-                selected_lamella, self.combobox_fib_filenames.currentText()
-            ),
+            fib_current=fib_current,
             fm_options=self._image_paths(selected_lamella, self.combobox_fm_filenames),
-            fm_current=self._image_path(
-                selected_lamella, self.combobox_fm_filenames.currentText()
-            ),
+            fm_current=fm_current,
         )
         section.emit_current_seed()  # apply the default source, live on the canvas
 
