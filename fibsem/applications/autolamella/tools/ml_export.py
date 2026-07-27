@@ -15,10 +15,10 @@ experiment carries its training data with it::
         labels/0001.tif      disc at the point, rasterised from points/
         manifest.json        index over the samples, plus experiment provenance
 
-One sample is one lamella. ``points/`` is authoritative; ``labels/`` is a pure
-derivative of it, rebuildable at any radius via :func:`regenerate_labels` without
-re-reading the source experiments, so it should never be hand-edited. The ``images/``
-+ ``labels/`` pairing is what
+One sample is one lamella. ``points/`` is authoritative and ``labels/`` is derived
+from it, so the raster should never be hand-edited -- to change the label geometry,
+re-export at a different ``radius_m`` (or rasterise the sidecar yourself). The
+``images/`` + ``labels/`` pairing is what
 :func:`~fibsem.applications.autolamella.tools.upload_to_hf.create_dataset` consumes.
 
 No stage reprojection is involved: the reference image is acquired at the milling
@@ -399,37 +399,6 @@ def export_experiments(
     if output_path:
         write_manifest(output_path, [combined], radius_m=radius_m)
     return combined
-
-
-def regenerate_labels(
-    output_path: str, radius_m: float = DEFAULT_DISC_RADIUS_M
-) -> int:
-    """Rebuild every ``labels/*.tif`` from ``points/*.json``. Returns the count.
-
-    ``labels/`` is a derivative of the sidecar, so the raster can be re-stamped at a
-    different radius without touching the source experiments.
-    """
-    points_dir = os.path.join(output_path, POINTS_DIR)
-    labels_dir = os.path.join(output_path, LABELS_DIR)
-    os.makedirs(labels_dir, exist_ok=True)
-
-    count = 0
-    for path in sorted(glob.glob(os.path.join(points_dir, "*.json"))):
-        with open(path) as f:
-            data = json.load(f)
-        tifffile.imwrite(
-            os.path.join(labels_dir, f"{data['stem']}.tif"),
-            rasterise_point(
-                data["pixel_x"],
-                data["pixel_y"],
-                (data["shape"]["height"], data["shape"]["width"]),
-                data["pixelsize"],
-                radius_m,
-            ),
-        )
-        count += 1
-
-    return count
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

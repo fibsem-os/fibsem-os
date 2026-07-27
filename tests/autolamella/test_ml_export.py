@@ -435,38 +435,20 @@ def test_export_experiments_without_output_uses_each_experiment_directory(tmp_pa
         assert os.path.isfile(os.path.join(own, "manifest.json"))
 
 
-# ── regenerate_labels ────────────────────────────────────────────────────────
+# ── label radius ─────────────────────────────────────────────────────────────
 
 
-def test_regenerate_labels_rebuilds_at_new_radius(tmp_path):
+def test_export_radius_controls_label_size(tmp_path):
+    """Changing the label geometry means re-exporting at a different radius_m."""
     import tifffile
 
     exp = _make_experiment(tmp_path)
     _save_reference_image(exp.positions[0])
-    output = str(tmp_path / "out")
-    ml_export.export_experiment(exp, output, radius_m=1e-6)
 
-    small = tifffile.imread(os.path.join(output, "labels", "0001.tif"))
-    assert ml_export.regenerate_labels(output, radius_m=3e-6) == 1
-    large = tifffile.imread(os.path.join(output, "labels", "0001.tif"))
+    ml_export.export_experiment(exp, str(tmp_path / "small"), radius_m=1e-6)
+    ml_export.export_experiment(exp, str(tmp_path / "large"), radius_m=3e-6)
+
+    small = tifffile.imread(str(tmp_path / "small" / "labels" / "0001.tif"))
+    large = tifffile.imread(str(tmp_path / "large" / "labels" / "0001.tif"))
 
     assert (large > 0).sum() > (small > 0).sum()
-
-
-def test_regenerate_labels_without_source_experiment(tmp_path):
-    """labels/ is a pure derivative -- rebuilding must not need the experiment."""
-    import shutil
-
-    import tifffile
-
-    exp = _make_experiment(tmp_path)
-    _save_reference_image(exp.positions[0])
-    output = str(tmp_path / "out")
-    ml_export.export_experiment(exp, output)
-
-    shutil.rmtree(exp.path)  # source experiment is gone
-    os.remove(os.path.join(output, "labels", "0001.tif"))
-
-    assert ml_export.regenerate_labels(output) == 1
-    label = tifffile.imread(os.path.join(output, "labels", "0001.tif"))
-    assert label.max() == 1
