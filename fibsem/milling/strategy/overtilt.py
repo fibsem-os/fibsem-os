@@ -118,6 +118,39 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         ref_image = acquire.acquire_image(microscope, image_settings)
 
         # TODO: support rr
+        try:
+            self._mill_overtilted_patterns(
+                microscope=microscope,
+                stage=stage,
+                ref_image=ref_image,
+                overtilt_in_radians=overtilt_in_radians,
+                initial_position=initial_position,
+                stop_event=stop_event,
+            )
+        finally:
+            # Always leave the stage where we found it. A cancel or a failure part-way
+            # through the loop used to exit with the stage still overtilted, patterns
+            # loaded and the beam at milling current.
+            try:
+                microscope.finish_milling(
+                    imaging_current=microscope.system.ion.beam.beam_current,
+                    imaging_voltage=microscope.system.ion.beam.voltage,
+                )
+            except Exception as e:
+                logging.error(f"Failed to restore imaging conditions after {self.fullname}: {e}",
+                              exc_info=True)
+            microscope.move_stage_absolute(initial_position)
+
+    def _mill_overtilted_patterns(
+        self,
+        microscope: FibsemMicroscope,
+        stage: "FibsemMillingStage",
+        ref_image,
+        overtilt_in_radians: float,
+        initial_position: FibsemStagePosition,
+        stop_event: Optional[threading.Event],
+    ) -> None:
+        """Mill each pattern at an alternating over/under-tilt, realigning at each tilt."""
         for i, pattern in enumerate(stage.define_patterns()):
             # TODO: validate which direction to tilt, including when combined with scan rotation
             scan_rotation = microscope.get(
