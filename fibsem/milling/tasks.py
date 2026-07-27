@@ -208,6 +208,21 @@ class FibsemMillingTask:
         """Handle progress updates from the microscope."""
         self.microscope.milling_progress_signal.emit(ddict)
 
+    def _imaging_conditions(self) -> Tuple[float, float]:
+        """The (current, voltage) the user was imaging at before milling started.
+
+        Falls back to the system defaults only if the task failed before it could
+        capture them. Every restore path must go through here: reading
+        ``system.ion.beam.*`` directly picks up the *config* default, which bounces
+        the column back to 30 kV whenever a stage mills at some other voltage.
+        """
+        current = self.initial_imaging_current
+        voltage = self.initial_imaging_voltage
+        return (
+            current if current is not None else self.microscope.system.ion.beam.beam_current,
+            voltage if voltage is not None else self.microscope.system.ion.beam.voltage,
+        )
+
     def _configure_path(self) -> None:
         """Configure the acquisition path for the milling task."""
         path = self.config.acquisition.imaging.path
@@ -250,15 +265,11 @@ class FibsemMillingTask:
                 "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
                 "progress": {"state": "finished", "task_id": self.task_id, "task_name": self.name}
             })
-            # restore the captured pre-milling imaging current/voltage (falling back to the
-            # system defaults if we never got to capture them, e.g. an early failure).
+            # restore the captured pre-milling imaging current/voltage
+            imaging_current, imaging_voltage = self._imaging_conditions()
             self.microscope.finish_milling(
-                imaging_current=(self.initial_imaging_current
-                                 if self.initial_imaging_current is not None
-                                 else self.microscope.system.ion.beam.beam_current),
-                imaging_voltage=(self.initial_imaging_voltage
-                                 if self.initial_imaging_voltage is not None
-                                 else self.microscope.system.ion.beam.voltage),
+                imaging_current=imaging_current,
+                imaging_voltage=imaging_voltage,
             )
             # restore initial beam shift
             if self.initial_beam_shift is not None:
@@ -373,8 +384,9 @@ class FibsemMillingTask:
             stage_name (str): Name of the milling stage
             tag (str): Tag to append to the filename
         """
-        self.microscope.finish_milling(imaging_current=self.microscope.system.ion.beam.beam_current,    # type: ignore 
-                                       imaging_voltage=self.microscope.system.ion.beam.voltage)         # type: ignore
+        imaging_current, imaging_voltage = self._imaging_conditions()
+        self.microscope.finish_milling(imaging_current=imaging_current,
+                                       imaging_voltage=imaging_voltage)
 
         acq_date = current_timestamp_v3(timeonly=True)
         self.config.acquisition.imaging.filename = f"{stage_name}_{tag}_{acq_date}".replace(' ', '-')
