@@ -51,6 +51,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -275,9 +276,22 @@ class _ImagesTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        # Scrolled content: with the lamella setup section installed this tab
+        # carries more than a short window can show, and clipped panels overlap.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        outer.addWidget(scroll)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
+        self._content_layout = layout  # setup section is inserted here
+        scroll.setWidget(content)
 
         # ---- Project directory section ----
         proj_body = QWidget()
@@ -300,6 +314,7 @@ class _ImagesTab(QWidget):
         self._fib_path.lineEdit.setPlaceholderText("No file loaded")
         self._fib_path.editingFinished.connect(self._on_fib_path_edited)
         fib_layout.addWidget(self._fib_path)
+        self._fib_body_layout = fib_layout  # lamella quick-pick is inserted here
 
         fib_form = QFormLayout()
         fib_form.setContentsMargins(0, 0, 0, 0)
@@ -326,6 +341,7 @@ class _ImagesTab(QWidget):
         self._fm_path.lineEdit.setPlaceholderText("No file loaded")
         self._fm_path.editingFinished.connect(self._on_fm_path_edited)
         fm_layout.addWidget(self._fm_path)
+        self._fm_body_layout = fm_layout  # lamella quick-pick is inserted here
 
         fm_form = QFormLayout()
         fm_form.setContentsMargins(0, 0, 0, 0)
@@ -371,6 +387,29 @@ class _ImagesTab(QWidget):
 
         layout.addWidget(TitledPanel("FM Image", content=fm_body, collapsible=False))
         layout.addStretch(1)
+
+    # ------------------------------------------------------------------
+    # Lamella setup (installed only from the autolamella editor — FIB-302)
+    # ------------------------------------------------------------------
+
+    def add_image_quick_pick(
+        self, kind: str, options: List[str], current: str
+    ) -> "ValueComboBox":
+        """Add a "this lamella's images" dropdown above the FIB/FM path field.
+
+        The path field browses anywhere; this is the shortlist already in the
+        lamella folder. Returns the combo so the caller can wire it.
+        """
+        layout = self._fib_body_layout if kind == "fib" else self._fm_body_layout
+        combo = ValueComboBox(options or [current], value=current)
+        combo.setToolTip("Images found in this lamella's folder")
+        layout.insertWidget(0, combo)
+        return combo
+
+    def add_setup_section(self, section: QWidget) -> None:
+        """Insert the lamella setup section before the tab's trailing stretch."""
+        layout = self._content_layout
+        layout.insertWidget(layout.count() - 1, section)
 
     # ------------------------------------------------------------------
     # Browse / load
@@ -1208,6 +1247,9 @@ class CorrelationTabWidget(QWidget):
         self._interp_worker = None
         self._interp_relay: Optional[_ProgressRelay] = None
         self._project_dir: Optional[str] = None
+        # Positions as last seeded by the setup section, to detect manual edits
+        # before replacing them (None = nothing seeded yet). FIB-302.
+        self._seeded_positions: Optional[list] = None
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
         # Experiment-global config; passed in on open, read back on close (FIB-298).
@@ -1687,6 +1729,95 @@ class CorrelationTabWidget(QWidget):
             )
         )
         self.data_changed.emit(self.data)
+
+    def add_lamella_setup(
+        self,
+        *,
+        spot_burns: Optional[List[Point]] = None,
+        history=None,
+        config: Optional[CorrelationConfig] = None,
+        fib_options: Optional[List[str]] = None,
+        fib_current: str = "",
+        fm_options: Optional[List[str]] = None,
+        fm_current: str = "",
+    ) -> "CorrelationSetupSection":
+        """Install the lamella setup section into the Images tab (FIB-302).
+
+        Called only by the autolamella protocol editor, so the generic widget
+        stays lamella-agnostic. The section drives the live canvas: changing the
+        starting-coordinates source re-seeds it through the normal seeding API,
+        which makes the canvas itself the preview. Returns the section so the
+        caller can connect its image-selection combos.
+        """
+        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+            CorrelationSetupSection,
+        )
+
+        section = CorrelationSetupSection(
+            spot_burns=spot_burns, history=history, config=config, parent=self
+        )
+        section.seed_requested.connect(self._on_setup_seed_requested)
+        self._images_tab.add_setup_section(section)
+        self.fib_quick_pick = self._images_tab.add_image_quick_pick(
+            "fib", fib_options or [], fib_current
+        )
+        self.fm_quick_pick = self._images_tab.add_image_quick_pick(
+            "fm", fm_options or [], fm_current
+        )
+        # The tab now covers images *and* what to start from.
+        self._tabs.setTabText(0, "Setup")
+        self._setup_section = section
+        return section
+
+    def _on_setup_seed_requested(self, source: str, payload) -> None:
+        """Apply a starting-coordinates choice from the setup section.
+
+        Guards edits: once points have been moved by hand, silently replacing
+        them would throw that work away, so confirm first.
+        """
+        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+            SEED_PREVIOUS,
+            SEED_SPOT_BURNS,
+        )
+
+        if self._has_manual_edits() and not self._confirm_reseed():
+            return
+
+        if source == SEED_PREVIOUS and payload is not None:
+            self.seed_coordinates(copy.deepcopy(payload))
+        elif source == SEED_SPOT_BURNS and payload:
+            self.seed_fib_fiducials_from_spot_burns(payload)
+        else:
+            self.set_data(
+                CorrelationInputData(
+                    fib_image=self._fib_image, fm_image=self._fm_image
+                )
+            )
+            self.data_changed.emit(self.data)
+        self._seeded_positions = self._current_positions()
+
+    def _current_positions(self) -> list:
+        d = self.data
+        return [
+            c.point.to_dict()
+            for c in (d.fib_coordinates + d.fm_coordinates + d.poi_coordinates)
+        ]
+
+    def _has_manual_edits(self) -> bool:
+        """Whether the points differ from what was last seeded."""
+        if self._seeded_positions is None:
+            return bool(self._current_positions())
+        return self._current_positions() != self._seeded_positions
+
+    def _confirm_reseed(self) -> bool:
+        reply = QMessageBox.question(
+            self,
+            "Replace coordinates?",
+            "The current coordinates have been edited. Seeding will replace them.",
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        return reply == QMessageBox.Ok
 
     def load_data(self, path: str) -> None:
         """Load a legacy coordinates file, preserving current images.
@@ -2695,6 +2826,9 @@ class CorrelationTabDialog(QDialog):
 
     def seed_fib_fiducials_from_spot_burns(self, coordinates: "List[Point]") -> None:
         self.widget.seed_fib_fiducials_from_spot_burns(coordinates)
+
+    def add_lamella_setup(self, **kwargs):
+        return self.widget.add_lamella_setup(**kwargs)
 
     def start_fm_interpolation(
         self, *, isotropic: bool, target_z_nm: "Optional[float]", method: str
