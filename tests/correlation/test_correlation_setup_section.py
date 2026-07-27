@@ -227,3 +227,78 @@ def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
     )
     section.rb_none.setChecked(True)  # would clear — but the user cancels
     assert w.data.fib_coordinates[0].point.x == 111.0
+
+
+# ---------------------------------------------------------------------------
+# FM panel: voxel size + the Interpolate action
+# ---------------------------------------------------------------------------
+
+
+def _fm_image(nz=11, pixel_size_z=200e-9):
+    from datetime import datetime
+
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    ch = FluorescenceChannelMetadata(
+        name="GFP",
+        excitation_wavelength=488.0,
+        emission_wavelength=520.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.5,
+        offset=50.0,
+    )
+    meta = FluorescenceImageMetadata(
+        acquisition_date=datetime(2026, 7, 24).isoformat(),
+        pixel_size_x=40e-9,
+        pixel_size_y=40e-9,
+        pixel_size_z=pixel_size_z,
+        resolution=(64, 64),
+        channels=[ch],
+    )
+    return FluorescenceImage(data=np.zeros((1, nz, 64, 64), np.uint16), metadata=meta)
+
+
+def test_fm_pixel_size_reports_xy_z_and_anisotropy(qapp):
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        _format_fm_pixel_size,
+    )
+
+    text = _format_fm_pixel_size(_fm_image().metadata)
+    assert "40.0 nm xy" in text and "200.0 nm z" in text
+    assert "5.0× anisotropic" in text  # 200/40 — the ratio that decides interpolation
+
+    # an isotropic stack shouldn't be labelled anisotropic
+    assert "anisotropic" not in _format_fm_pixel_size(
+        _fm_image(pixel_size_z=40e-9).metadata
+    )
+
+
+def test_fm_pixel_size_handles_missing_metadata(qapp):
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        _format_fm_pixel_size,
+    )
+
+    class _Bare:
+        pass
+
+    assert _format_fm_pixel_size(_Bare()) == "—"
+
+
+def test_loading_fm_through_the_picker_enables_interpolate(qapp, monkeypatch):
+    """The picker's load path used to skip the enable, leaving Interpolate greyed
+    out for any volume opened through it."""
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+
+    tab = _widget()._images_tab
+    monkeypatch.setattr(ctw.FluorescenceImage, "load", staticmethod(lambda p: _fm_image()))
+
+    tab._load_fm("/lam/some.ome.tiff")
+    assert tab._btn_interpolate.isEnabled()
+    assert "200.0 nm z" in tab._lbl_fm_px.text()

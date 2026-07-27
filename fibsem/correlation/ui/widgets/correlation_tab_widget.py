@@ -258,6 +258,28 @@ class _ProgressRelay(QObject):
 # ---------------------------------------------------------------------------
 
 
+def _format_fm_pixel_size(metadata) -> str:
+    """XY/Z voxel size, with the anisotropy ratio that decides interpolation.
+
+    The ratio is the same one ``InterpolateZDialog`` reports, shown here next to
+    the Interpolate action so "is this stack anisotropic?" is answerable without
+    opening the dialog.
+    """
+    xy = getattr(metadata, "pixel_size_x", None)
+    z = getattr(metadata, "pixel_size_z", None)
+    parts = []
+    if xy:
+        parts.append(f"{xy * 1e9:.1f} nm xy")
+    if z:
+        parts.append(f"{z * 1e9:.1f} nm z")
+    if not parts:
+        return "—"
+    text = " · ".join(parts)
+    if xy and z and abs(z / xy - 1.0) > 0.05:
+        text += f" ({z / xy:.1f}× anisotropic)"
+    return text
+
+
 class _ImagePicker(QWidget):
     """One-row image chooser: a combo of known files plus a browse button.
 
@@ -423,8 +445,12 @@ class _ImagesTab(QWidget):
         self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
         self._lbl_fm_z.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_px = QLabel("—")
+        self._lbl_fm_px.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_px.setWordWrap(True)
         fm_form.addRow(_form_label("Shape (C×Z×Y×X):"), self._lbl_fm_shape)
         fm_form.addRow(_form_label("Channels:"), self._lbl_fm_ch)
+        fm_form.addRow(_form_label("Pixel size:"), self._lbl_fm_px)
 
         # The interpolate action rides the Z-slices row — it acts on the z axis,
         # so it reads as the action on that number rather than a stray button.
@@ -437,6 +463,8 @@ class _ImagesTab(QWidget):
         z_row_layout.addStretch(1)
         self._btn_interpolate = QPushButton(" Interpolate…")
         self._btn_interpolate.setIcon(fibsem_icon("mdi:arrow-expand-vertical"))
+        # Sized to the 11-12px rows it rides on, not the default app font.
+        self._btn_interpolate.setStyleSheet("font-size: 12px; padding: 2px 8px;")
         self._btn_interpolate.setToolTip(
             "Interpolate the z-stack toward an isotropic voxel size"
         )
@@ -518,14 +546,7 @@ class _ImagesTab(QWidget):
         self._fm_image = image
         self._fm_loaded_path = path
         self._fm_picker.show_path(path)
-        c, z, h, w = image.data.shape
-        self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
-        meta_channels = image.metadata.channels or []
-        ch_names = ", ".join(
-            ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)
-        ) or str(c)
-        self._lbl_fm_ch.setText(ch_names)
-        self._lbl_fm_z.setText(str(z))
+        self._update_fm_labels(image)
         self.fm_image_changed.emit(image)
 
     # ------------------------------------------------------------------
@@ -556,14 +577,24 @@ class _ImagesTab(QWidget):
         filename = getattr(image.metadata, "filename", "") or ""
         self._fm_loaded_path = filename
         self._fm_picker.show_path(filename)
+        self._update_fm_labels(image)
+
+    def _update_fm_labels(self, image: FluorescenceImage) -> None:
+        """Reflect an FM volume in the panel — shared by the load and preload paths.
+
+        Both used to set these labels separately, and only the preload path
+        re-enabled the Interpolate action, so a volume opened through the picker
+        left it greyed out.
+        """
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
         meta_channels = image.metadata.channels or []
-        ch_names = ", ".join(
-            ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)
-        ) or str(c)
-        self._lbl_fm_ch.setText(ch_names)
+        self._lbl_fm_ch.setText(
+            ", ".join(ch.name or f"CH {i}" for i, ch in enumerate(meta_channels))
+            or str(c)
+        )
         self._lbl_fm_z.setText(str(z))
+        self._lbl_fm_px.setText(_format_fm_pixel_size(image.metadata))
         # interpolation needs a multi-slice stack with a known z step
         self._btn_interpolate.setEnabled(
             z > 1 and bool(getattr(image.metadata, "pixel_size_z", None))
