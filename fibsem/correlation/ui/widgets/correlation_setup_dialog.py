@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
@@ -52,9 +53,9 @@ SEED_PREVIOUS = "previous"
 XY = Tuple[float, float]  # a point in normalised image coordinates, (x, y) in [0, 1]
 
 _MUTED = "#9aa0a6"
-_HDR = "#8ab4f8"
+_HDR = "#b0b3b8"  # muted grey — headers read via bold + letter-spacing, not colour
 _FIDUCIAL = "#37c0ff"
-_POI = "#ffd54a"
+_POI = "#ff00ff"  # magenta — matches the POI layer elsewhere in the app
 _THUMB = 250  # preview thumbnail size (px)
 
 
@@ -113,9 +114,12 @@ def _header(text: str) -> QLabel:
     return lbl
 
 
-def _caption(text: str, color: str = _MUTED) -> QLabel:
+def _caption(text: str, color: str = _MUTED, indent: int = 0) -> QLabel:
     lbl = QLabel(text)
-    lbl.setStyleSheet(f"color:{color};font-size:11px;")
+    style = f"color:{color};font-size:11px;"
+    if indent:
+        style += f"margin-left:{indent}px;"
+    lbl.setStyleSheet(style)
     lbl.setWordWrap(True)
     return lbl
 
@@ -133,25 +137,25 @@ def _hline() -> QFrame:
     return line
 
 
-def _overlay(base: QPixmap, circles: List[XY], cross: Optional[XY]) -> QPixmap:
-    """Draw fiducial circles and an optional POI cross on a copy of ``base``."""
+def _overlay(base: QPixmap, dots: List[XY], cross: Optional[XY]) -> QPixmap:
+    """Draw fiducial dots and an optional POI cross on a copy of ``base``."""
     out = QPixmap(base)
     painter = QPainter(out)
     painter.setRenderHint(QPainter.Antialiasing)
     w, h = out.width(), out.height()
 
-    pen = QPen(QColor(_FIDUCIAL))
-    pen.setWidth(2)
-    painter.setPen(pen)
-    r = 7
-    for fx, fy in circles:
-        x, y = fx * w, fy * h
-        painter.drawEllipse(int(x - r), int(y - r), 2 * r, 2 * r)
+    # fiducials: small filled dots
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(_FIDUCIAL))
+    r = 3
+    for fx, fy in dots:
+        painter.drawEllipse(int(fx * w - r), int(fy * h - r), 2 * r, 2 * r)
 
     if cross is not None:
         pen = QPen(QColor(_POI))
         pen.setWidth(2)
         painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         cx, cy = cross[0] * w, cross[1] * h
         s = 8
         painter.drawLine(int(cx - s), int(cy), int(cx + s), int(cy))
@@ -243,8 +247,12 @@ class CorrelationSetupDialog(QDialog):
         root.addLayout(cols)
 
         root.addWidget(_hline())
-        root.addWidget(self._build_inherited_summary())
         root.addLayout(self._build_buttons())
+
+        # Never let the dialog shrink below its content — otherwise the two columns
+        # differ in height and the shorter side squeezes controls (the interpolation
+        # spinbox/combo) below their minimum, collapsing them to slivers.
+        root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         # Connect only once everything is built, so setting the radio/interp
         # defaults above doesn't fire handlers that touch not-yet-created widgets.
@@ -266,22 +274,16 @@ class CorrelationSetupDialog(QDialog):
         col.setSpacing(12)
         col.addWidget(_header("PREVIEW"))
 
-        self._fib_preview = QLabel()
-        self._fib_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._fib_preview.setStyleSheet("border:1px solid #3a3d42;border-radius:5px;")
-        self._fib_preview.setFixedSize(_THUMB, _THUMB)
-        col.addWidget(self._fib_preview)
+        self._fib_preview = self._preview_label(self._preview.fib_thumb)
+        col.addWidget(self._fib_preview, alignment=Qt.AlignmentFlag.AlignHCenter)
         col.addWidget(_caption(self._preview.fib_caption or "FIB"))
 
-        self._fm_preview = QLabel()
-        self._fm_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._fm_preview.setStyleSheet("border:1px solid #3a3d42;border-radius:5px;")
-        self._fm_preview.setFixedSize(_THUMB, _THUMB)
-        col.addWidget(self._fm_preview)
+        self._fm_preview = self._preview_label(self._preview.fm_thumb)
+        col.addWidget(self._fm_preview, alignment=Qt.AlignmentFlag.AlignHCenter)
         col.addWidget(_caption(self._preview.fm_caption or "FM"))
 
         legend = QLabel(
-            f"<span style='color:{_FIDUCIAL}'>◯</span> fiducials    "
+            f"<span style='color:{_FIDUCIAL}'>●</span> fiducials    "
             f"<span style='color:{_POI}'>✛</span> POI    "
             f"<span style='color:{_MUTED}'>— from the selection</span>"
         )
@@ -294,6 +296,18 @@ class CorrelationSetupDialog(QDialog):
         wrapper.setLayout(col)
         wrapper.setFixedWidth(_THUMB + 6)
         return wrapper
+
+    def _preview_label(self, base: Optional[QPixmap]) -> QLabel:
+        """A preview frame sized to its thumbnail's aspect (square when absent), so
+        a landscape FIB image isn't letterboxed in a forced-square box."""
+        lbl = QLabel()
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("border:1px solid #3a3d42;border-radius:5px;")
+        if base is not None and not base.isNull():
+            lbl.setFixedSize(base.width(), base.height())
+        else:
+            lbl.setFixedSize(_THUMB, _THUMB)
+        return lbl
 
     def _build_controls(
         self,
@@ -335,7 +349,7 @@ class CorrelationSetupDialog(QDialog):
         run_layout.addWidget(self._run_combo, 1)
         col.addWidget(run_row)
         self._prev_caption = _caption(
-            "   Carries the FM POI + fiducials from that run forward."
+            "Carries the FM POI + fiducials from that run forward.", indent=22
         )
         col.addWidget(self._prev_caption)
         col.addWidget(_hline())
@@ -351,6 +365,8 @@ class CorrelationSetupDialog(QDialog):
             self._rb_none.setChecked(True)
 
         col.addWidget(self._build_interpolation())
+        col.addWidget(_hline())
+        col.addWidget(self._build_inherited_section())
         col.addStretch(1)
 
         wrapper = QWidget()
@@ -392,31 +408,40 @@ class CorrelationSetupDialog(QDialog):
         )
         box.addWidget(self._chip)
         box.addWidget(
-            _caption("   Runs in the background after opening; seeded points rescale in.")
+            _caption("Runs in the background after opening; seeded points rescale in.")
         )
 
         wrapper = QWidget()
         wrapper.setLayout(box)
         return wrapper
 
-    def _build_inherited_summary(self) -> QWidget:
+    def _build_inherited_section(self) -> QWidget:
+        """Read-only summary of the experiment-global CorrelationConfig (fit + RI).
+
+        Edited in the correlation window, not here (keeps setup fast). NA/λ are
+        seeded from the FM image's channel metadata (FIB-277), hence the hint.
+        """
         fit = self._config.fit
         ri = self._config.ri
-        text = (
-            f"<b style='color:#c8ccd2'>Inherited settings</b> (experiment defaults) — "
-            f"Fit: FIB {fit.fib_method} · FM POI {fit.fm_poi_method} · "
-            f"POI channel {fit.fm_poi_channel or '—'}.   "
-            f"RI: n₂ {ri.n2:.2f} · NA {ri.na:.2f} · λ {ri.wavelength_um * 1000:.0f} nm."
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(4)
+        col.addWidget(_header("INHERITED SETTINGS"))
+        col.addWidget(
+            _caption(
+                f"Fit — FIB {fit.fib_method} · FM POI {fit.fm_poi_method} · "
+                f"POI channel {fit.fm_poi_channel or '—'}"
+            )
         )
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        icon = QLabel()
-        icon.setPixmap(fibsem_icon("mdi:cog-outline", color=_MUTED).pixmap(13, 13))
-        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
-        layout.addWidget(_caption(text), 1)
-        return row
+        col.addWidget(
+            _caption(
+                f"RI — n₂ {ri.n2:.2f} · NA {ri.na:.2f} · "
+                f"λ {ri.wavelength_um * 1000:.0f} nm  (from FM metadata)"
+            )
+        )
+        wrapper = QWidget()
+        wrapper.setLayout(col)
+        return wrapper
 
     def _build_buttons(self) -> QHBoxLayout:
         row = QHBoxLayout()

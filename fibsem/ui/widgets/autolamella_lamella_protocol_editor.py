@@ -1194,23 +1194,25 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             thumb, ch_name, z = _fm_poi_thumbnail(fm_image, config.fit.fm_poi_channel)
             preview.fm_thumb = thumb
             preview.fm_caption = f"FM · {ch_name} (POI channel) · {z} z"
+        else:
+            # No FM in the lamella folder (e.g. acquired on another system) — the
+            # dialog still opens; the FM preview shows a placeholder.
+            preview.fm_caption = "FM — no image found"
 
         preview.spot_burns = [(p.x, p.y) for p in spot_burns]
 
+        # Previous-run overlays, computed per side so the FIB fiducials still show
+        # when there's no FM image to normalise the FM points against.
         prev = history.latest() if history is not None else None
-        if (
-            prev is not None
-            and prev.state.input_data is not None
-            and fib_image is not None
-            and fm_image is not None
-        ):
-            inp = prev.state.input_data
+        inp = prev.state.input_data if prev is not None else None
+        if inp is not None and fib_image is not None:
             fh, fw = fib_image.data.shape[:2]
-            _, _, fmy, fmx = fm_image.data.shape
             if fw and fh:
                 preview.prev_fib = [
                     (c.point.x / fw, c.point.y / fh) for c in inp.fib_coordinates
                 ]
+        if inp is not None and fm_image is not None:
+            _, _, fmy, fmx = fm_image.data.shape
             if fmx and fmy:
                 preview.prev_fm = [
                     (c.point.x / fmx, c.point.y / fmy) for c in inp.fm_coordinates

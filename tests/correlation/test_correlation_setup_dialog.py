@@ -30,6 +30,7 @@ from fibsem.correlation.ui.widgets.correlation_setup_dialog import (
     SEED_PREVIOUS,
     SEED_SPOT_BURNS,
     CorrelationSetupDialog,
+    PreviewData,
     _format_timestamp,
 )
 from fibsem.fm.structures import (
@@ -271,3 +272,60 @@ def test_start_fm_interpolation_noops_on_single_slice(qapp, monkeypatch):
 
     w.start_fm_interpolation(isotropic=True, target_z_nm=None, method="linear")
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# no FM image in the lamella folder (cross-system acquisition) — must not break
+# ---------------------------------------------------------------------------
+
+
+def test_build_preview_without_fm_image(qapp):
+    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+        AutoLamellaProtocolEditorWidget,
+    )
+
+    fib = FibsemImage.generate_blank_image(resolution=(300, 200), hfw=100e-6)
+    inp = CorrelationInputData(
+        fib_coordinates=[
+            Coordinate(point=PointXYZ(x=60, y=95, z=0), point_type=PointType.FIB)
+        ],
+        fm_coordinates=[
+            Coordinate(point=PointXYZ(x=30, y=40, z=2), point_type=PointType.FM)
+        ],
+        poi_coordinates=[
+            Coordinate(point=PointXYZ(x=60, y=55, z=2), point_type=PointType.POI)
+        ],
+    )
+    history = LamellaCorrelation(runs=[_run(NEW, inp)])
+
+    pv = AutoLamellaProtocolEditorWidget._build_correlation_preview(
+        fib, None, CorrelationConfig(), history, [Point(0.3, 0.5)]
+    )
+    assert pv.fm_thumb is None
+    assert pv.fm_caption == "FM — no image found"
+    # FIB fiducials from the previous run still preview (they don't need the FM)
+    assert pv.prev_fib[0] == pytest.approx((0.2, 0.475))
+    # FM overlays are skipped without an FM image to normalise against
+    assert pv.prev_fm == []
+    assert pv.prev_poi is None
+
+
+def test_dialog_opens_without_fm(qapp):
+    """The pre-dialog must still open + return a result when the lamella folder
+    has no FM image (it's on another system, loaded later)."""
+    fib = FibsemImage.generate_blank_image(resolution=(300, 200), hfw=100e-6)
+    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import _fib_thumbnail
+
+    pv = PreviewData(fib_thumb=_fib_thumbnail(fib), fm_thumb=None, fm_caption="FM — no image found")
+    dlg = CorrelationSetupDialog(
+        lamella_name="Lamella 03",
+        fib_options=["ref_ib.tif"], fib_current="ref_ib.tif",
+        fm_options=[], fm_current="",
+        spot_burn_count=3,
+        history=LamellaCorrelation(runs=[_run(NEW)]),
+        config=CorrelationConfig(), preview=pv,
+        fm_z_slices=None, fm_pixel_size_z_nm=None, fm_pixel_size_xy_nm=None,
+    )
+    dlg._on_accept()
+    assert dlg.setup is not None
+    assert dlg.setup.fm_filename == ""
