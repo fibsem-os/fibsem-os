@@ -77,7 +77,6 @@ REFERENCE_IMAGE_LAYER_NAME = "Reference Image (FIB)"
 REFERENCE_IMAGE_SEM_LAYER_NAME = "Reference Image (SEM)"
 POINT_OF_INTEREST_LAYER_NAME = "Point of Interest"
 
-
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
@@ -986,26 +985,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
 
         from fibsem.correlation.history import LamellaCorrelation
-        from fibsem.correlation.ui.widgets.correlation_history_dialog import (
-            CorrelationHistoryDialog,
-        )
         from fibsem.correlation.ui.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 
         correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        # Discover previous runs to seed from, BEFORE minting this run's folder
-        # (so this open isn't its own "previous"). FIB-299.
+        # Discover previous runs BEFORE minting this run's folder (so this open
+        # isn't its own "previous"). FIB-299.
         history = LamellaCorrelation.discover(correlation_root)
 
-        # Which run to seed from. 0/1 runs: nothing to choose, keep the silent
-        # default (newest, or none). 2+: let the user pick, or start fresh (FIB-257).
-        seed_run = history.latest()
-        if len(history.runs) >= 2:
-            picker = CorrelationHistoryDialog(history, parent=self)
-            if picker.exec_() != QDialog.Accepted:
-                return  # user cancelled opening the correlation tool
-            seed_run = picker.selected_run  # a run, or None for "start fresh"
+        experiment = self.parent_widget.experiment if self.parent_widget else None
+        protocol = experiment.task_protocol if experiment is not None else None
+        spot_burns = self._spot_burn_coordinates(selected_lamella)
 
         project_path = os.path.join(
             correlation_root,
@@ -1015,37 +1006,33 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         dialog = CorrelationTabDialog(parent=self)
         dialog.set_project_dir(project_path)
-
-        # Experiment-global correlation config: pass in on open (FIB-298).
-        experiment = self.parent_widget.experiment if self.parent_widget else None
-        protocol = experiment.task_protocol if experiment is not None else None
         if protocol is not None:
             dialog.set_correlation_config(protocol.correlation)
+        if self.image is not None:
+            dialog.set_fib_image(self.image)
+        if self.fm_image is not None:
+            dialog.set_fm_image(self.fm_image)
 
-        fib_image = self.image
-        if fib_image is not None:
-            dialog.set_fib_image(fib_image)
-
-        fm_image = self.fm_image
-        if fm_image is not None:
-            dialog.set_fm_image(fm_image)
-
-        # Seed the coordinates (after the current images are set, so FM z can be
-        # rescaled to this volume's z-sampling). A previous run seeds a
-        # re-correlation (FIB-299/301); with no previous run, the spot burns seed
-        # a first correlation's FIB fiducials (FIB-259). The two are exclusive: the
-        # burns are normalised to the setup FIB image, so they only map cleanly
-        # before milling — exactly the no-previous-run case.
-        if seed_run is not None and seed_run.state.input_data is not None:
-            dialog.seed_coordinates(seed_run.state.input_data)
-        elif (
-            not history.runs
-            and protocol is not None
-            and protocol.correlation.load_spot_burns
-        ):
-            spot_burns = self._spot_burn_coordinates(selected_lamella)
-            if spot_burns:
-                dialog.seed_fib_fiducials_from_spot_burns(spot_burns)
+        # Lamella setup lives in the window's Images tab (FIB-302): the images in
+        # this lamella's folder, and what to seed from — spot burns for a first
+        # correlation (FIB-259), a previous run for a re-correlation (FIB-299/301).
+        # Installed after the images are set, so seeding can rescale FM z.
+        section = dialog.add_lamella_setup(
+            spot_burns=spot_burns,
+            history=history,
+            config=protocol.correlation if protocol is not None else None,
+            fib_options=self._image_paths(
+                selected_lamella, self.combobox_fib_filenames
+            ),
+            fib_current=self._image_path(
+                selected_lamella, self.combobox_fib_filenames.currentText()
+            ),
+            fm_options=self._image_paths(selected_lamella, self.combobox_fm_filenames),
+            fm_current=self._image_path(
+                selected_lamella, self.combobox_fm_filenames.currentText()
+            ),
+        )
+        section.emit_current_seed()  # apply the default source, live on the canvas
 
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -1057,6 +1044,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if dialog.result is not None:
             self._handle_correlation_dialog_result(dialog.result)
+
+    @staticmethod
+    def _image_path(lamella: Lamella, filename: str) -> str:
+        """Absolute path for one of the lamella's discovered image filenames."""
+        return os.path.join(lamella.path, filename) if filename else ""
+
+    @classmethod
+    def _image_paths(cls, lamella: Lamella, combo) -> List[str]:
+        """Absolute paths for every filename offered by one of the editor combos.
+
+        The correlation window's picker loads by path, so it handles this
+        lamella's images and anything browsed to with the same control.
+        """
+        return [
+            cls._image_path(lamella, combo.itemText(i)) for i in range(combo.count())
+        ]
 
     @staticmethod
     def _spot_burn_coordinates(lamella: Lamella) -> List[Point]:

@@ -47,10 +47,13 @@ from PyQt5.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
+    QComboBox,
+    QToolButton,
     QAction,
     QDialog,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -102,7 +105,6 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, Point
 from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
-    QFileLineEdit,
     TitledPanel,
     ValueComboBox,
 )
@@ -256,6 +258,101 @@ class _ProgressRelay(QObject):
 # ---------------------------------------------------------------------------
 
 
+def _format_fm_pixel_size(metadata) -> str:
+    """XY/Z voxel size, with the anisotropy ratio that decides interpolation.
+
+    The ratio is the same one ``InterpolateZDialog`` reports, shown here next to
+    the Interpolate action so "is this stack anisotropic?" is answerable without
+    opening the dialog.
+    """
+    xy = getattr(metadata, "pixel_size_x", None)
+    z = getattr(metadata, "pixel_size_z", None)
+    parts = []
+    if xy:
+        parts.append(f"{xy * 1e9:.1f} nm xy")
+    if z:
+        parts.append(f"{z * 1e9:.1f} nm z")
+    if not parts:
+        return "—"
+    text = " · ".join(parts)
+    if xy and z and abs(z / xy - 1.0) > 0.05:
+        text += f" ({z / xy:.1f}× anisotropic)"
+    return text
+
+
+class _ImagePicker(QWidget):
+    """One-row image chooser: a combo of known files plus a browse button.
+
+    The combo shows basenames but carries the full path per item, so a lamella's
+    candidate images and anything browsed to from elsewhere live in one control
+    rather than a combo and a path field showing the same thing twice.
+
+    ``path_selected`` fires only for user choices — combo *activation* and browse
+    — so a programmatic :meth:`show_path` can't loop back into a reload.
+    """
+
+    path_selected = pyqtSignal(str)
+
+    def __init__(self, file_filter: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._filter = file_filter
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.combo = QComboBox()
+        # Match the 11-12px panels around it; the default app font reads oversized.
+        self.combo.setStyleSheet("font-size: 12px;")
+        self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo.setMinimumContentsLength(12)
+        self.combo.activated.connect(self._on_activated)
+        layout.addWidget(self.combo, stretch=1)
+        self.button_browse = QToolButton()
+        self.button_browse.setText("...")
+        self.button_browse.setToolTip("Browse for an image anywhere on disk")
+        self.button_browse.clicked.connect(self._browse)
+        layout.addWidget(self.button_browse)
+
+    def set_options(self, paths: List[str], current: str = "") -> None:
+        """Populate the known-files list (full paths), selecting ``current``."""
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        for path in paths:
+            self.combo.addItem(os.path.basename(path), path)
+        self.combo.blockSignals(False)
+        if current:
+            self.show_path(current)
+
+    def current_path(self) -> str:
+        data = self.combo.currentData()
+        return data or ""
+
+    def show_path(self, path: str) -> None:
+        """Select ``path``, adding it to the list if new. Emits nothing."""
+        if not path:
+            return
+        index = self.combo.findData(path)
+        if index < 0:
+            self.combo.addItem(os.path.basename(path), path)
+            index = self.combo.count() - 1
+        self.combo.blockSignals(True)
+        self.combo.setCurrentIndex(index)
+        self.combo.blockSignals(False)
+        self.combo.setToolTip(path)
+
+    def _on_activated(self, index: int) -> None:
+        path = self.combo.itemData(index)
+        if path:
+            self.combo.setToolTip(path)
+            self.path_selected.emit(path)
+
+    def _browse(self) -> None:
+        start = os.path.dirname(self.current_path()) or ""
+        path, _ = QFileDialog.getOpenFileName(self, "Select Image", start, self._filter)
+        if path:
+            self.show_path(path)  # a browsed file joins the list
+            self.path_selected.emit(path)
+
+
 class _ImagesTab(QWidget):
     """Browse / load FIB and FM image files."""
 
@@ -275,9 +372,22 @@ class _ImagesTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        # Scrolled content: with the lamella setup section installed this tab
+        # carries more than a short window can show, and clipped panels overlap.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        outer.addWidget(scroll)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
+        self._content_layout = layout  # setup section is inserted here
+        scroll.setWidget(content)
 
         # ---- Project directory section ----
         proj_body = QWidget()
@@ -296,10 +406,9 @@ class _ImagesTab(QWidget):
         fib_layout.setContentsMargins(8, 4, 8, 4)
         fib_layout.setSpacing(4)
 
-        self._fib_path = QFileLineEdit(filter="TIFF (*.tif *.tiff);;All Files (*)")
-        self._fib_path.lineEdit.setPlaceholderText("No file loaded")
-        self._fib_path.editingFinished.connect(self._on_fib_path_edited)
-        fib_layout.addWidget(self._fib_path)
+        self._fib_picker = _ImagePicker("TIFF (*.tif *.tiff);;All Files (*)")
+        self._fib_picker.path_selected.connect(self._load_fib)
+        fib_layout.addWidget(self._fib_picker)
 
         fib_form = QFormLayout()
         fib_form.setContentsMargins(0, 0, 0, 0)
@@ -320,12 +429,11 @@ class _ImagesTab(QWidget):
         fm_layout.setContentsMargins(8, 4, 8, 4)
         fm_layout.setSpacing(4)
 
-        self._fm_path = QFileLineEdit(
-            filter="OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)"
+        self._fm_picker = _ImagePicker(
+            "OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)"
         )
-        self._fm_path.lineEdit.setPlaceholderText("No file loaded")
-        self._fm_path.editingFinished.connect(self._on_fm_path_edited)
-        fm_layout.addWidget(self._fm_path)
+        self._fm_picker.path_selected.connect(self._load_fm)
+        fm_layout.addWidget(self._fm_picker)
 
         fm_form = QFormLayout()
         fm_form.setContentsMargins(0, 0, 0, 0)
@@ -337,8 +445,12 @@ class _ImagesTab(QWidget):
         self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
         self._lbl_fm_z.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_px = QLabel("—")
+        self._lbl_fm_px.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_px.setWordWrap(True)
         fm_form.addRow(_form_label("Shape (C×Z×Y×X):"), self._lbl_fm_shape)
         fm_form.addRow(_form_label("Channels:"), self._lbl_fm_ch)
+        fm_form.addRow(_form_label("Pixel size:"), self._lbl_fm_px)
 
         # The interpolate action rides the Z-slices row — it acts on the z axis,
         # so it reads as the action on that number rather than a stray button.
@@ -351,6 +463,8 @@ class _ImagesTab(QWidget):
         z_row_layout.addStretch(1)
         self._btn_interpolate = QPushButton(" Interpolate…")
         self._btn_interpolate.setIcon(fibsem_icon("mdi:arrow-expand-vertical"))
+        # Sized to the 11-12px rows it rides on, not the default app font.
+        self._btn_interpolate.setStyleSheet("font-size: 12px; padding: 2px 8px;")
         self._btn_interpolate.setToolTip(
             "Interpolate the z-stack toward an isotropic voxel size"
         )
@@ -373,6 +487,24 @@ class _ImagesTab(QWidget):
         layout.addStretch(1)
 
     # ------------------------------------------------------------------
+    # Lamella setup (installed only from the autolamella editor — FIB-302)
+    # ------------------------------------------------------------------
+
+    def set_image_options(self, kind: str, paths: List[str], current: str = "") -> None:
+        """Offer this lamella's images in the picker, keeping any browsed file.
+
+        The picker loads whatever is chosen, so the lamella's candidates and an
+        externally-acquired file share one control.
+        """
+        picker = self._fib_picker if kind == "fib" else self._fm_picker
+        picker.set_options(paths, current)
+
+    def add_setup_section(self, section: QWidget) -> None:
+        """Insert the lamella setup section before the tab's trailing stretch."""
+        layout = self._content_layout
+        layout.insertWidget(layout.count() - 1, section)
+
+    # ------------------------------------------------------------------
     # Browse / load
     # ------------------------------------------------------------------
 
@@ -386,22 +518,16 @@ class _ImagesTab(QWidget):
         p = self._proj_path.text().strip()
         return p if p else None
 
-    def _on_fib_path_edited(self) -> None:
-        # Fires on browse-pick and manual entry; skip programmatic/no-op sets
-        path = self._fib_path.text().strip()
-        if path and path != self._fib_loaded_path:
-            self._load_fib(path)
-
     def _load_fib(self, path: str) -> None:
         try:
             image = FibsemImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
-            self._fib_path.setText(self._fib_loaded_path)  # revert to last-good path
+            self._fib_picker.show_path(self._fib_loaded_path)  # revert to last good
             return
         self._fib_image = image
         self._fib_loaded_path = path
-        self._fib_path.setText(path)  # setText → textChanged only, no reload
+        self._fib_picker.show_path(path)
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
         px = getattr(
@@ -410,29 +536,17 @@ class _ImagesTab(QWidget):
         self._lbl_fib_px.setText(f"{px * 1e9:.2f} nm" if px else "—")
         self.fib_image_changed.emit(image)
 
-    def _on_fm_path_edited(self) -> None:
-        path = self._fm_path.text().strip()
-        if path and path != self._fm_loaded_path:
-            self._load_fm(path)
-
     def _load_fm(self, path: str) -> None:
         try:
             image = FluorescenceImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
-            self._fm_path.setText(self._fm_loaded_path)  # revert to last-good path
+            self._fm_picker.show_path(self._fm_loaded_path)  # revert to last good
             return
         self._fm_image = image
         self._fm_loaded_path = path
-        self._fm_path.setText(path)
-        c, z, h, w = image.data.shape
-        self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
-        meta_channels = image.metadata.channels or []
-        ch_names = ", ".join(
-            ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)
-        ) or str(c)
-        self._lbl_fm_ch.setText(ch_names)
-        self._lbl_fm_z.setText(str(z))
+        self._fm_picker.show_path(path)
+        self._update_fm_labels(image)
         self.fm_image_changed.emit(image)
 
     # ------------------------------------------------------------------
@@ -450,7 +564,7 @@ class _ImagesTab(QWidget):
             or ""
         )
         self._fib_loaded_path = filename
-        self._fib_path.setText(filename)
+        self._fib_picker.show_path(filename)
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
         px = getattr(
@@ -462,15 +576,25 @@ class _ImagesTab(QWidget):
         self._fm_image = image
         filename = getattr(image.metadata, "filename", "") or ""
         self._fm_loaded_path = filename
-        self._fm_path.setText(filename)
+        self._fm_picker.show_path(filename)
+        self._update_fm_labels(image)
+
+    def _update_fm_labels(self, image: FluorescenceImage) -> None:
+        """Reflect an FM volume in the panel — shared by the load and preload paths.
+
+        Both used to set these labels separately, and only the preload path
+        re-enabled the Interpolate action, so a volume opened through the picker
+        left it greyed out.
+        """
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
         meta_channels = image.metadata.channels or []
-        ch_names = ", ".join(
-            ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)
-        ) or str(c)
-        self._lbl_fm_ch.setText(ch_names)
+        self._lbl_fm_ch.setText(
+            ", ".join(ch.name or f"CH {i}" for i, ch in enumerate(meta_channels))
+            or str(c)
+        )
         self._lbl_fm_z.setText(str(z))
+        self._lbl_fm_px.setText(_format_fm_pixel_size(image.metadata))
         # interpolation needs a multi-slice stack with a known z step
         self._btn_interpolate.setEnabled(
             z > 1 and bool(getattr(image.metadata, "pixel_size_z", None))
@@ -607,6 +731,18 @@ class _CoordinatesTab(QWidget):
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
         # fits still surface the dialog — see _on_refit_requested.
         self._auto_accept_check = QCheckBox()
+
+        # Match the 11-12px labels these sit beside (see _form_label).
+        for _ctl in (
+            self._fib_method_combo,
+            self._fm_fid_method_combo,
+            self._fm_poi_method_combo,
+            self._fm_fid_ch_combo,
+            self._fm_poi_ch_combo,
+            self._show_diag_check,
+            self._auto_accept_check,
+        ):
+            _ctl.setStyleSheet("font-size: 12px;")
         self._auto_accept_check.setToolTip(
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
@@ -698,6 +834,10 @@ class _ResultsTab(QWidget):
 
         # Per-marker error table
         self._table = QTableWidget(0, 3)
+        self._table.setStyleSheet(
+            "QTableWidget { font-size: 11px; }"
+            "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+        )
         self._table.setHorizontalHeaderLabels(["Marker", "dx (px)", "dy (px)"])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
@@ -779,8 +919,10 @@ class _RITab(QWidget):
     correction_applied = pyqtSignal(object)             # CorrelationResult (post)
     pre_correction_requested = pyqtSignal(float, bool)  # factor, rerun (pre)
 
-    _POST_HEADERS = ["POI", "X (px)", "Y original (px)", "Y corrected (px)"]
-    _PRE_HEADERS = ["POI", "X (px)", "Z original (px)", "Z corrected (px)"]
+    # Abbreviated because the full words don't fit four columns at this panel
+    # width — a header elided to "original (p" says less than "Y orig".
+    _POST_HEADERS = ["POI", "X (px)", "Y orig (px)", "Y corr (px)"]
+    _PRE_HEADERS = ["POI", "X (px)", "Z orig (px)", "Z corr (px)"]
 
     _WARNING_STYLES = {
         "error":   "color: #e07b39; font-size: 11px;",
@@ -829,10 +971,12 @@ class _RITab(QWidget):
 
         self._btn_apply = QPushButton("Apply")
         self._btn_apply.setFixedWidth(80)
+        self._btn_apply.setStyleSheet("font-size: 12px; padding: 2px 8px;")
         self._btn_apply.clicked.connect(self._apply)
         apply_layout.addWidget(self._btn_apply)
 
         self._chk_rerun = QCheckBox("Re-run on apply")
+        self._chk_rerun.setStyleSheet("font-size: 12px;")
         self._chk_rerun.setChecked(True)
         self._chk_rerun.setToolTip(
             "Re-run the correlation immediately when applying the correction. "
@@ -854,6 +998,12 @@ class _RITab(QWidget):
 
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(self._POST_HEADERS)
+        # Default-font headers truncate at this panel width ("Y original (px)"
+        # became "original (p"); size them to the rest of the panel instead.
+        self._table.setStyleSheet(
+            "QTableWidget { font-size: 11px; }"
+            "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+        )
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
@@ -1208,6 +1358,9 @@ class CorrelationTabWidget(QWidget):
         self._interp_worker = None
         self._interp_relay: Optional[_ProgressRelay] = None
         self._project_dir: Optional[str] = None
+        # Positions as last seeded by the setup section, to detect manual edits
+        # before replacing them (None = nothing seeded yet). FIB-302.
+        self._seeded_positions: Optional[list] = None
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
         # Experiment-global config; passed in on open, read back on close (FIB-298).
@@ -1687,6 +1840,91 @@ class CorrelationTabWidget(QWidget):
             )
         )
         self.data_changed.emit(self.data)
+
+    def add_lamella_setup(
+        self,
+        *,
+        spot_burns: Optional[List[Point]] = None,
+        history=None,
+        config: Optional[CorrelationConfig] = None,
+        fib_options: Optional[List[str]] = None,
+        fib_current: str = "",
+        fm_options: Optional[List[str]] = None,
+        fm_current: str = "",
+    ) -> "CorrelationSetupSection":
+        """Install the lamella setup section into the Images tab (FIB-302).
+
+        Called only by the autolamella protocol editor, so the generic widget
+        stays lamella-agnostic. The section drives the live canvas: changing the
+        starting-coordinates source re-seeds it through the normal seeding API,
+        which makes the canvas itself the preview. Returns the section so the
+        caller can connect its image-selection combos.
+        """
+        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+            CorrelationSetupSection,
+        )
+
+        section = CorrelationSetupSection(
+            spot_burns=spot_burns, history=history, config=config, parent=self
+        )
+        section.seed_requested.connect(self._on_setup_seed_requested)
+        self._images_tab.add_setup_section(section)
+        self._images_tab.set_image_options("fib", fib_options or [], fib_current)
+        self._images_tab.set_image_options("fm", fm_options or [], fm_current)
+        # The tab now covers images *and* what to start from.
+        self._tabs.setTabText(0, "Setup")
+        self._setup_section = section
+        return section
+
+    def _on_setup_seed_requested(self, source: str, payload) -> None:
+        """Apply a starting-coordinates choice from the setup section.
+
+        Guards edits: once points have been moved by hand, silently replacing
+        them would throw that work away, so confirm first.
+        """
+        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+            SEED_PREVIOUS,
+            SEED_SPOT_BURNS,
+        )
+
+        if self._has_manual_edits() and not self._confirm_reseed():
+            return
+
+        if source == SEED_PREVIOUS and payload is not None:
+            self.seed_coordinates(copy.deepcopy(payload))
+        elif source == SEED_SPOT_BURNS and payload:
+            self.seed_fib_fiducials_from_spot_burns(payload)
+        else:
+            self.set_data(
+                CorrelationInputData(
+                    fib_image=self._fib_image, fm_image=self._fm_image
+                )
+            )
+            self.data_changed.emit(self.data)
+        self._seeded_positions = self._current_positions()
+
+    def _current_positions(self) -> list:
+        d = self.data
+        return [
+            c.point.to_dict()
+            for c in (d.fib_coordinates + d.fm_coordinates + d.poi_coordinates)
+        ]
+
+    def _has_manual_edits(self) -> bool:
+        """Whether the points differ from what was last seeded."""
+        if self._seeded_positions is None:
+            return bool(self._current_positions())
+        return self._current_positions() != self._seeded_positions
+
+    def _confirm_reseed(self) -> bool:
+        reply = QMessageBox.question(
+            self,
+            "Replace coordinates?",
+            "The current coordinates have been edited. Seeding will replace them.",
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        return reply == QMessageBox.Ok
 
     def load_data(self, path: str) -> None:
         """Load a legacy coordinates file, preserving current images.
@@ -2385,6 +2623,30 @@ class CorrelationTabWidget(QWidget):
         target_m, method = dlg.result_params()
         self._start_fm_interpolation(target_m, method)
 
+    def start_fm_interpolation(
+        self, *, isotropic: bool, target_z_nm: Optional[float], method: str
+    ) -> None:
+        """Kick off FM interpolation from the setup pre-dialog's choice (FIB-302).
+
+        Isotropic targets the XY pixel size (the same default ``InterpolateZDialog``
+        uses); an explicit target is given in nm. No-op unless the volume is
+        interpolatable (multi-slice with a known z step) — mirrors the in-widget
+        Interpolate button's enable rule.
+        """
+        if self._fm_image is None:
+            return
+        meta = self._fm_image.metadata
+        z_step = getattr(meta, "pixel_size_z", None)
+        if self._fm_image.data.shape[1] <= 1 or not z_step:
+            return
+        if isotropic:
+            target_m = meta.pixel_size_x
+        elif target_z_nm:
+            target_m = target_z_nm * 1e-9
+        else:
+            return
+        self._start_fm_interpolation(target_m, method)
+
     def _start_fm_interpolation(self, target_m: float, method: str) -> None:
         from fibsem.correlation.util import interpolate_fm_volume
         from fibsem.ui.qt.threading import FunctionWorker
@@ -2671,6 +2933,16 @@ class CorrelationTabDialog(QDialog):
 
     def seed_fib_fiducials_from_spot_burns(self, coordinates: "List[Point]") -> None:
         self.widget.seed_fib_fiducials_from_spot_burns(coordinates)
+
+    def add_lamella_setup(self, **kwargs):
+        return self.widget.add_lamella_setup(**kwargs)
+
+    def start_fm_interpolation(
+        self, *, isotropic: bool, target_z_nm: "Optional[float]", method: str
+    ) -> None:
+        self.widget.start_fm_interpolation(
+            isotropic=isotropic, target_z_nm=target_z_nm, method=method
+        )
 
     @property
     def correlation_config(self) -> "CorrelationConfig":
