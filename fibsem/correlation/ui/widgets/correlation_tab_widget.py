@@ -903,8 +903,10 @@ class _RITab(QWidget):
     correction_applied = pyqtSignal(object)             # CorrelationResult (post)
     pre_correction_requested = pyqtSignal(float, bool)  # factor, rerun (pre)
 
-    _POST_HEADERS = ["POI", "X (px)", "Y original (px)", "Y corrected (px)"]
-    _PRE_HEADERS = ["POI", "X (px)", "Z original (px)", "Z corrected (px)"]
+    # Abbreviated because the full words don't fit four columns at this panel
+    # width — a header elided to "original (p" says less than "Y orig".
+    _POST_HEADERS = ["POI", "X (px)", "Y orig (px)", "Y corr (px)"]
+    _PRE_HEADERS = ["POI", "X (px)", "Z orig (px)", "Z corr (px)"]
 
     _WARNING_STYLES = {
         "error":   "color: #e07b39; font-size: 11px;",
@@ -953,10 +955,12 @@ class _RITab(QWidget):
 
         self._btn_apply = QPushButton("Apply")
         self._btn_apply.setFixedWidth(80)
+        self._btn_apply.setStyleSheet("font-size: 12px; padding: 2px 8px;")
         self._btn_apply.clicked.connect(self._apply)
         apply_layout.addWidget(self._btn_apply)
 
         self._chk_rerun = QCheckBox("Re-run on apply")
+        self._chk_rerun.setStyleSheet("font-size: 12px;")
         self._chk_rerun.setChecked(True)
         self._chk_rerun.setToolTip(
             "Re-run the correlation immediately when applying the correction. "
@@ -978,6 +982,12 @@ class _RITab(QWidget):
 
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(self._POST_HEADERS)
+        # Default-font headers truncate at this panel width ("Y original (px)"
+        # became "original (p"); size them to the rest of the panel instead.
+        self._table.setStyleSheet(
+            "QTableWidget { font-size: 11px; }"
+            "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+        )
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
