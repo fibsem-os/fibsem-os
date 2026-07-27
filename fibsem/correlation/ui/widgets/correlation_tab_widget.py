@@ -1228,8 +1228,13 @@ class _RITab(QWidget):
             logging.warning("[RITab._apply_post] No result to update with correction.")
             return
 
-        # apply surface_y to the result for internal consistency (in case it wasn't set before)
-        self._result.input_data.surface_coordinate = self._surface_coordinate # type: ignore
+        # Record the surface this correction is about, as a *copy*: input_data is
+        # the snapshot the transform was fitted to. Storing the live coordinate
+        # would let a later drag of the surface line rewrite history — and, worse,
+        # launder an already-stale result back to "current" (FIB-315).
+        self._result.input_data.surface_coordinate = copy.deepcopy(  # type: ignore
+            self._surface_coordinate
+        )
 
         # Update POI 0 in the result and propagate (reads input_data internally)
         self._result.apply_refractive_index_correction(factor)
@@ -1361,6 +1366,9 @@ class CorrelationTabWidget(QWidget):
         # Positions as last seeded by the setup section, to detect manual edits
         # before replacing them (None = nothing seeded yet). FIB-302.
         self._seeded_positions: Optional[list] = None
+        # Last auto-save failure, held so the status line keeps reporting it
+        # instead of claiming "Ready." while nothing is saved (FIB-316).
+        self._autosave_error: Optional[str] = None
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
         # Experiment-global config; passed in on open, read back on close (FIB-298).
@@ -1672,6 +1680,11 @@ class CorrelationTabWidget(QWidget):
                 spec.list_widget.set_axis_maxima(x_max=w - 1, y_max=h - 1)
         self._images_tab.set_fib_image(fib_image)
         self._update_fib_name_label(fib_image)
+        # The image is an input to the fit, so swapping it invalidates the result
+        # and re-opens the readiness question. data_changed drives both (via
+        # _on_data_changed and _update_run_button) — without it, Continue stayed
+        # armed and committed a POI scaled by the *previous* image (FIB-317).
+        self.data_changed.emit(self.data)
 
     def _update_fib_name_label(self, image: FibsemImage) -> None:
         """Show the loaded FIB image's filename in the header (mirrors FM)."""
@@ -1700,6 +1713,9 @@ class CorrelationTabWidget(QWidget):
         self._apply_fit_config()
         self._seed_ri_from_fm_metadata(fm_image)
         self._images_tab.set_fm_image(fm_image)
+        # As for the FIB image: a new volume invalidates the result and changes
+        # what "ready to run" means (FIB-317).
+        self.data_changed.emit(self.data)
 
     @staticmethod
     def _effective_fm_pixel_size(fm_image: FluorescenceImage) -> Optional[float]:
@@ -1792,9 +1808,34 @@ class CorrelationTabWidget(QWidget):
         data.fib_image = self._fib_image
         data.fm_image = self._fm_image
         self.set_data(data)
+        # Discard *before* the emit: data_changed drives the auto-save, so
+        # clearing afterwards still writes the new inputs paired with the old
+        # result — the very thing FIB-318 is about.
+        if state.result is None:
+            self._discard_result()
         self.data_changed.emit(self.data)
         if state.result is not None:
             self._load_result(state.result, adopt_inputs=False)
+
+    def _discard_result(self) -> None:
+        """Drop the current result and everything that displays it.
+
+        Whenever the coordinates are replaced wholesale by a new source, any
+        result belongs to the *previous* points. Without this the old result
+        survives: its markers stay drawn over the new points, the Results tab
+        keeps its numbers, CSV export writes it, and — because the auto-save
+        pairs current inputs with ``self._result`` — it gets re-saved against
+        coordinates it was never computed from (FIB-318).
+        """
+        if self._result is None:
+            return
+        self._result = None
+        self._set_result_live(False)
+        self._results_tab.clear()
+        self._fib_canvas.clear_overlay()
+        self._ri_tab.set_result(
+            None, input_data=self.data, fm_pixel_size_z=self._fm_pixel_size_z()
+        )
 
     def seed_coordinates(self, source: CorrelationInputData) -> None:
         """Load a previous run's coordinates as starting points (FIB-299).
@@ -1811,6 +1852,7 @@ class CorrelationTabWidget(QWidget):
         self.set_data(source)
         if src_z and cur_z and abs(src_z - cur_z) > 1e-15:
             self._rescale_fm_z(src_z / cur_z)
+        self._discard_result()  # the seeded points are not what it was fitted to
         self.data_changed.emit(self.data)
 
     def seed_fib_fiducials_from_spot_burns(self, coordinates: List[Point]) -> None:
@@ -1839,6 +1881,7 @@ class CorrelationTabWidget(QWidget):
                 fm_image=self._fm_image,
             )
         )
+        self._discard_result()
         self.data_changed.emit(self.data)
 
     def add_lamella_setup(
@@ -1900,6 +1943,7 @@ class CorrelationTabWidget(QWidget):
                     fib_image=self._fib_image, fm_image=self._fm_image
                 )
             )
+            self._discard_result()
             self.data_changed.emit(self.data)
         self._seeded_positions = self._current_positions()
 
@@ -1937,6 +1981,7 @@ class CorrelationTabWidget(QWidget):
         loaded.fib_image = self._fib_image
         loaded.fm_image = self._fm_image
         self.set_data(loaded)
+        self._discard_result()
         self.data_changed.emit(self.data)
 
     def save_correlation(self, path: str) -> None:
@@ -2095,8 +2140,18 @@ class CorrelationTabWidget(QWidget):
             CorrelationState(input_data=self.data, result=self._result).save(
                 os.path.join(self._project_dir, CORRELATION_FILENAME)
             )
-        except Exception:
+        except Exception as exc:
+            # Never let this pass unseen: it is the only persistence path, so a
+            # swallowed failure silently discards the whole session's work
+            # (FIB-316). Sticky, because the status line is rewritten on every
+            # data change — a one-shot message would be gone before it was read.
             logging.exception("Auto-save of correlation project failed")
+            self._autosave_error = str(exc)
+            self._update_run_button()
+        else:
+            if self._autosave_error is not None:
+                self._autosave_error = None
+                self._update_run_button()
 
     # ------------------------------------------------------------------
     # Run correlation
@@ -2115,7 +2170,13 @@ class CorrelationTabWidget(QWidget):
             and len(d.fib_coordinates) == len(d.fm_coordinates)
         )
         self._btn_run.setEnabled(ok)
-        if running:
+        if self._autosave_error is not None:
+            # Outranks the readiness text: "Ready." while nothing is being saved
+            # is the most misleading thing this label could say (FIB-316).
+            self._lbl_status.setText(
+                f"Auto-save is failing — work is NOT being saved ({self._autosave_error})"
+            )
+        elif running:
             self._lbl_status.setText("Running…")
         elif self._fib_image is None or self._fm_image is None:
             self._lbl_status.setText("Load FIB and FM images to continue.")
@@ -2558,7 +2619,10 @@ class CorrelationTabWidget(QWidget):
         # _on_result_ready refreshes the run button and sets the final status
         # text itself — no trailing update here, it would overwrite the status.
         if adopt_inputs and result.input_data:
-            self.set_data(result.input_data)
+            # Deep-copy: the lists become editable, and sharing the Coordinate
+            # objects with the result's snapshot would make every edit mutate it
+            # too, permanently defeating matches_inputs (FIB-315).
+            self.set_data(copy.deepcopy(result.input_data))
         # Continue commits result.poi[0].px_m to the protocol editor, so a result
         # that predates the current points must not arm it.
         self._on_result_ready(result, live=result.matches_inputs(self.data))
