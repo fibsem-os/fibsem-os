@@ -1,8 +1,8 @@
 """Experiment-global correlation configuration (Tier-1 of the persistence design).
 
 ``CorrelationConfig`` is the reusable home for how a correlation is set up: fit
-settings, RI-correction parameters, an interpolation preference, and the
-spot-burn seeding toggle. It is held as a peer field on
+settings, RI-correction parameters, and the spot-burn seeding toggle. It is held
+as a peer field on
 ``AutoLamellaTaskProtocol`` — not an ``AutoLamellaTaskConfig``, since correlation
 is a user step, not an automated microscope task. Defined here so the autolamella
 model only holds an instance; imports no UI.
@@ -14,7 +14,6 @@ from typing import Any, Dict, Optional
 
 # Mirror the UI constants as plain strings so this module never imports the UI.
 FIT_METHODS = ("None", "Hole", "Gaussian")
-INTERPOLATION_METHODS = ("linear", "cubic")
 
 
 @dataclass
@@ -95,49 +94,24 @@ class RISettings:
 
 
 @dataclass
-class InterpolationSettings:
-    """FM z-interpolation preference. ``isotropic`` targets XY pixel size, else
-    ``target_z_nm``."""
-
-    enabled: bool = False
-    isotropic: bool = True
-    target_z_nm: Optional[float] = None
-    method: str = "linear"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "enabled": self.enabled,
-            "isotropic": self.isotropic,
-            "target_z_nm": self.target_z_nm,
-            "method": self.method,
-        }
-
-    @staticmethod
-    def from_dict(data: Optional[Dict[str, Any]]) -> "InterpolationSettings":
-        d = data or {}
-        default = InterpolationSettings()
-        return InterpolationSettings(
-            enabled=d.get("enabled", default.enabled),
-            isotropic=d.get("isotropic", default.isotropic),
-            target_z_nm=d.get("target_z_nm"),
-            method=d.get("method", default.method),
-        )
-
-
-@dataclass
 class CorrelationConfig:
-    """Experiment-global correlation config; inherited by every lamella in the run."""
+    """Experiment-global correlation config; inherited by every lamella in the run.
+
+    Interpolation is deliberately absent. It was persisted here for the setup
+    pre-dialog, which FIB-302 replaced with the in-window Interpolate action, and
+    a stored preference nothing reads is how ``load_spot_burns`` came to be inert
+    (FIB-319). ``from_dict`` reads named keys only, so the leftover
+    ``"interpolation"`` in an existing protocol is ignored rather than fatal.
+    """
 
     fit: FitSettings = field(default_factory=FitSettings)
     ri: RISettings = field(default_factory=RISettings)
-    interpolation: InterpolationSettings = field(default_factory=InterpolationSettings)
     load_spot_burns: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "fit": self.fit.to_dict(),
             "ri": self.ri.to_dict(),
-            "interpolation": self.interpolation.to_dict(),
             "load_spot_burns": self.load_spot_burns,
         }
 
@@ -147,6 +121,5 @@ class CorrelationConfig:
         return CorrelationConfig(
             fit=FitSettings.from_dict(d.get("fit")),
             ri=RISettings.from_dict(d.get("ri")),
-            interpolation=InterpolationSettings.from_dict(d.get("interpolation")),
             load_spot_burns=d.get("load_spot_burns", True),
         )

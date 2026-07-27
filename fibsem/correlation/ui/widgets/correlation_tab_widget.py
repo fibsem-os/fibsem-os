@@ -1280,6 +1280,12 @@ _POINT_TYPE_SIDES: Dict[PointType, str] = {
     PointType.SURFACE_FM: "fm",
 }
 
+# The point types whose z is a slice index into the FM volume, and so move when
+# that volume is resampled. Derived from the map above so the two can't drift.
+_FM_SIDE_POINT_TYPES = frozenset(
+    pt.value for pt, side in _POINT_TYPE_SIDES.items() if side == "fm"
+)
+
 
 class _CanvasAdapter:
     """Thin seam over a point-display surface (canvas or display widget).
@@ -1388,6 +1394,8 @@ class CorrelationTabWidget(QWidget):
         # Positions as last seeded by the setup section, to detect manual edits
         # before replacing them (None = nothing seeded yet). FIB-302.
         self._seeded_positions: Optional[list] = None
+        # Installed only when a lamella opens this window (add_lamella_setup).
+        self._setup_section = None
         # Last auto-save failure, held so the status line keeps reporting it
         # instead of claiming "Ready." while nothing is saved (FIB-316).
         self._autosave_error: Optional[str] = None
@@ -1703,6 +1711,8 @@ class CorrelationTabWidget(QWidget):
                 spec.list_widget.set_axis_maxima(x_max=w - 1, y_max=h - 1)
         self._images_tab.set_fib_image(fib_image)
         self._update_fib_name_label(fib_image)
+        if self._setup_section is not None:
+            self._setup_section.set_spot_burns_available(True)
         # The image is an input to the fit, so swapping it invalidates the result
         # and re-opens the readiness question. data_changed drives both (via
         # _on_data_changed and _update_run_button) — without it, Continue stayed
@@ -1969,8 +1979,13 @@ class CorrelationTabWidget(QWidget):
         )
 
         section = CorrelationSetupSection(
-            spot_burns=spot_burns, history=history, config=config, parent=self
+            spot_burns=spot_burns,
+            history=history,
+            config=config,
+            spot_burns_available=self._fib_image is not None,
+            parent=self,
         )
+        section.can_reseed = self._allow_reseed
         section.seed_requested.connect(self._on_setup_seed_requested)
         self._images_tab.add_setup_section(section)
         self._images_tab.set_image_options("fib", fib_options or [], fib_current)
@@ -1980,19 +1995,45 @@ class CorrelationTabWidget(QWidget):
         self._setup_section = section
         return section
 
+    def _allow_reseed(self, source: str) -> bool:
+        """Veto for the setup section, consulted before it emits (FIB-319).
+
+        Two reasons to refuse, in order — an impossible source is settled first,
+        so the user is never asked to sacrifice their points for a seed that was
+        never going to be applied:
+
+        1. Spot burns without a FIB image. The burns are normalised to *that*
+           image; with no image there is nothing to multiply by, and the seeding
+           call would return early leaving the radio reading as applied.
+        2. Points that differ from what was last seeded.
+
+        The section restores its controls when this returns False, so the choice
+        on screen keeps matching the canvas.
+        """
+        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+            SEED_SPOT_BURNS,
+        )
+
+        if source == SEED_SPOT_BURNS and self._fib_image is None:
+            QMessageBox.information(
+                self,
+                "No FIB image",
+                "Spot-burn positions are stored relative to the FIB image they "
+                "were placed on.\n\nLoad that image first, then choose them again.",
+            )
+            return False
+        return not self._has_manual_edits() or self._confirm_reseed()
+
     def _on_setup_seed_requested(self, source: str, payload) -> None:
         """Apply a starting-coordinates choice from the setup section.
 
-        Guards edits: once points have been moved by hand, silently replacing
-        them would throw that work away, so confirm first.
+        Whether it *may* be applied was settled by :meth:`_allow_reseed` before
+        the section emitted; this only applies it.
         """
         from fibsem.correlation.ui.widgets.correlation_setup_section import (
             SEED_PREVIOUS,
             SEED_SPOT_BURNS,
         )
-
-        if self._has_manual_edits() and not self._confirm_reseed():
-            return
 
         if source == SEED_PREVIOUS and payload is not None:
             self.seed_coordinates(copy.deepcopy(payload))
@@ -2009,10 +2050,31 @@ class CorrelationTabWidget(QWidget):
         self._seeded_positions = self._current_positions()
 
     def _current_positions(self) -> list:
+        """Every point on the canvas, as comparable ``(type, x, y, z)`` tuples.
+
+        The surface points are in here too: they are single points held in their
+        own fields rather than lists, and leaving them out meant a re-seed wiped
+        a placed surface point — silently disarming any stored RI pre-correction
+        with it — without so much as a confirmation (FIB-319).
+        """
         d = self.data
-        return [
-            c.point.to_dict()
-            for c in (d.fib_coordinates + d.fm_coordinates + d.poi_coordinates)
+        coords = d.fib_coordinates + d.fm_coordinates + d.poi_coordinates
+        coords += [c for c in (d.surface_coordinate, d.fm_surface_coordinate) if c]
+        return [(c.point_type.value, c.point.x, c.point.y, c.point.z) for c in coords]
+
+    def _rescale_baseline_z(self, scale: float) -> None:
+        """Apply an FM z-rescale to the seeded baseline as well as the points.
+
+        Interpolation moves every FM-side z by the slice ratio. Rescaling only
+        the points would leave the baseline describing the old sampling, so the
+        next re-seed would announce that the coordinates "have been edited" when
+        the user edited nothing (FIB-319).
+        """
+        if self._seeded_positions is None:
+            return
+        self._seeded_positions = [
+            (t, x, y, z * scale if t in _FM_SIDE_POINT_TYPES else z)
+            for (t, x, y, z) in self._seeded_positions
         ]
 
     def _has_manual_edits(self) -> bool:
@@ -2022,10 +2084,12 @@ class CorrelationTabWidget(QWidget):
         return self._current_positions() != self._seeded_positions
 
     def _confirm_reseed(self) -> bool:
+        # Deliberately doesn't claim the points were *edited*: they may equally
+        # have arrived from File > Load Correlation, which this never sees.
         reply = QMessageBox.question(
             self,
             "Replace coordinates?",
-            "The current coordinates have been edited. Seeding will replace them.",
+            "Seeding will replace the coordinates currently on the canvas.",
             QMessageBox.Ok | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
@@ -2119,7 +2183,7 @@ class CorrelationTabWidget(QWidget):
     @property
     def correlation_config(self) -> CorrelationConfig:
         """Current config: fit/RI read from the widgets; UI-less fields (cutout,
-        interpolation, spot burns) carried through from what was set."""
+        spot burns) carried through from what was set."""
         cl = self._coords_tab
         stored = self._correlation_config
         params = self._ri_tab._ri_widget.get_params()
@@ -2143,7 +2207,6 @@ class CorrelationTabWidget(QWidget):
         return CorrelationConfig(
             fit=fit,
             ri=ri,
-            interpolation=stored.interpolation,
             load_spot_burns=stored.load_spot_burns,
         )
 
@@ -2748,30 +2811,6 @@ class CorrelationTabWidget(QWidget):
         target_m, method = dlg.result_params()
         self._start_fm_interpolation(target_m, method)
 
-    def start_fm_interpolation(
-        self, *, isotropic: bool, target_z_nm: Optional[float], method: str
-    ) -> None:
-        """Kick off FM interpolation from the setup pre-dialog's choice (FIB-302).
-
-        Isotropic targets the XY pixel size (the same default ``InterpolateZDialog``
-        uses); an explicit target is given in nm. No-op unless the volume is
-        interpolatable (multi-slice with a known z step) — mirrors the in-widget
-        Interpolate button's enable rule.
-        """
-        if self._fm_image is None:
-            return
-        meta = self._fm_image.metadata
-        z_step = getattr(meta, "pixel_size_z", None)
-        if self._fm_image.data.shape[1] <= 1 or not z_step:
-            return
-        if isotropic:
-            target_m = meta.pixel_size_x
-        elif target_z_nm:
-            target_m = target_z_nm * 1e-9
-        else:
-            return
-        self._start_fm_interpolation(target_m, method)
-
     def _start_fm_interpolation(self, target_m: float, method: str) -> None:
         from fibsem.correlation.util import interpolate_fm_volume
         from fibsem.ui.qt.threading import FunctionWorker
@@ -2823,6 +2862,7 @@ class CorrelationTabWidget(QWidget):
         """
         new_nz = new_image.data.shape[1]
         self._rescale_fm_z(new_nz / old_nz)
+        self._rescale_baseline_z(new_nz / old_nz)  # nothing was *edited* by this
         self.set_fm_image(new_image)
         self.set_data(self.data)  # redraw lists/canvas at the rescaled z
         self.data_changed.emit(self.data)  # auto-save + RI refresh (new z step)
@@ -3061,13 +3101,6 @@ class CorrelationTabDialog(QDialog):
 
     def add_lamella_setup(self, **kwargs):
         return self.widget.add_lamella_setup(**kwargs)
-
-    def start_fm_interpolation(
-        self, *, isotropic: bool, target_z_nm: "Optional[float]", method: str
-    ) -> None:
-        self.widget.start_fm_interpolation(
-            isotropic=isotropic, target_z_nm=target_z_nm, method=method
-        )
 
     @property
     def correlation_config(self) -> "CorrelationConfig":
