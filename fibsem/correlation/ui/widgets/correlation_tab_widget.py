@@ -96,6 +96,7 @@ from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
 )
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.utils import install_wheel_blocker
 from fibsem.correlation.ui.widgets.fm_image_display_widget import (
     IMAGE_HEADER_STYLE,
     FMImageDisplayWidget,
@@ -302,6 +303,9 @@ class _ImagePicker(QWidget):
         self.combo = QComboBox()
         # Match the 11-12px panels around it; the default app font reads oversized.
         self.combo.setStyleSheet("font-size: 12px;")
+        install_wheel_blocker(self.combo)
+        # Changing the image discards the coordinates, so a wheel scroll passing
+        # over this combo must never be able to trigger it.
         self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo.setMinimumContentsLength(12)
         self.combo.activated.connect(self._on_activated)
@@ -369,6 +373,9 @@ class _ImagesTab(QWidget):
         # when the editable path widget re-emits editingFinished (focus-out).
         self._fib_loaded_path: str = ""
         self._fm_loaded_path: str = ""
+        # Asked before a *user-driven* image load, so the owner can confirm
+        # discarding the coordinates. None = no guard (standalone use).
+        self.confirm_image_change: Optional[Callable[[], bool]] = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -518,7 +525,19 @@ class _ImagesTab(QWidget):
         p = self._proj_path.text().strip()
         return p if p else None
 
+    def _allow_image_change(self) -> bool:
+        """Whether a user-driven image load may proceed (FIB-317).
+
+        Only the picker paths ask. Programmatic ``set_fib_image`` /
+        ``set_fm_image`` — how the lamella's images arrive on open — must never
+        prompt.
+        """
+        return self.confirm_image_change() if self.confirm_image_change else True
+
     def _load_fib(self, path: str) -> None:
+        if not self._allow_image_change():
+            self._fib_picker.show_path(self._fib_loaded_path)  # undo the selection
+            return
         try:
             image = FibsemImage.load(path)
         except Exception as exc:
@@ -537,6 +556,9 @@ class _ImagesTab(QWidget):
         self.fib_image_changed.emit(image)
 
     def _load_fm(self, path: str) -> None:
+        if not self._allow_image_change():
+            self._fm_picker.show_path(self._fm_loaded_path)  # undo the selection
+            return
         try:
             image = FluorescenceImage.load(path)
         except Exception as exc:
@@ -1465,6 +1487,7 @@ class CorrelationTabWidget(QWidget):
         # Right: tab widget stacked above run button
         self._tabs = QTabWidget()
         self._images_tab = _ImagesTab()
+        self._images_tab.confirm_image_change = self._confirm_image_change
         self._coords_tab = _CoordinatesTab()
         self._results_tab = _ResultsTab()
         self._ri_tab = _RITab()
@@ -1816,6 +1839,44 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
         if state.result is not None:
             self._load_result(state.result, adopt_inputs=False)
+
+    def _confirm_image_change(self) -> bool:
+        """Confirm discarding the coordinates before loading a different image.
+
+        Coordinates are pixel positions in a *specific* image. A different file is
+        a different scene — even at identical shape and pixel size the sample has
+        drifted or been milled — so the existing points no longer mark anything.
+        Keeping them produced off-image points, a coordinate list that displayed
+        clamped values while the data said otherwise, and a result that looked
+        current at the wrong scale (FIB-317).
+
+        Rescaling is deliberately not offered: scaling by the shape ratio is only
+        correct if the field of view is unchanged, and nothing in the files says
+        so. Interpolation rescales because there we *know* it is the same volume
+        resampled; here we know nothing, so we clear.
+
+        Returns True to proceed — clearing as a side effect — or False to leave
+        both the image and the coordinates untouched.
+        """
+        if not self._current_positions():
+            return True  # nothing to lose
+        reply = QMessageBox.question(
+            self,
+            "Change image?",
+            "Loading a different image will clear the current coordinates — they "
+            "mark positions in the image they were placed on.\n\n"
+            "Any correlation result is discarded with them.",
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Ok:
+            return False
+        self.set_data(
+            CorrelationInputData(fib_image=self._fib_image, fm_image=self._fm_image)
+        )
+        self._discard_result()
+        self._seeded_positions = None
+        return True
 
     def _discard_result(self) -> None:
         """Drop the current result and everything that displays it.

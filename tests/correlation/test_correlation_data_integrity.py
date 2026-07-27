@@ -131,32 +131,90 @@ def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# FIB-317 — the image is an input; swapping it invalidates the result
+# FIB-317 — a different image means different coordinates
 # ---------------------------------------------------------------------------
 
 
-def test_swapping_the_fib_image_makes_a_result_stale(qapp):
+def _load_via_picker(w, monkeypatch, answer):
+    """Drive a user-initiated image load, answering the confirm with `answer`."""
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    from PyQt5.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(
+        ctw.FibsemImage,
+        "load",
+        staticmethod(
+            lambda p: FibsemImage.generate_blank_image(resolution=(768, 512), hfw=20e-6)
+        ),
+    )
+    monkeypatch.setattr(
+        ctw.QMessageBox, "question", staticmethod(lambda *a, **k: answer)
+    )
+    w._images_tab._load_fib("/lam/other_ib.tif")
+    return QMessageBox
+
+
+def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+
     w = _widget()
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6))
-    result = _result(w.data)
-    w._load_result(result, adopt_inputs=False)
-    assert w._btn_continue.isEnabled() is True
+    w.set_data(_inputs(x=1382.0))
+    w._load_result(_result(w.data), adopt_inputs=False)
 
-    # a different magnification changes the metres scaling of the POI
-    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=20e-6))
-    assert result.matches_inputs(w.data) is False
-    assert w._btn_continue.isEnabled() is False
+    _load_via_picker(w, monkeypatch, QMessageBox.Ok)
+
+    assert w.data.fib_coordinates == []  # points belonged to the previous image
+    assert w._result is None
 
 
-def test_unknown_image_params_are_not_treated_as_a_change():
-    """A file written without the image fields says nothing about the image it
-    was fitted to — absence of information is not evidence of change."""
-    saved = _inputs()  # no image, no stored_* values
-    live = _inputs()
-    live.fib_image = FibsemImage.generate_blank_image(
-        resolution=(300, 200), hfw=100e-6
+def test_declining_the_change_keeps_both_image_and_points(qapp, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+
+    w = _widget()
+    original = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    w.set_fib_image(original)
+    w.set_data(_inputs(x=1382.0))
+
+    _load_via_picker(w, monkeypatch, QMessageBox.Cancel)
+
+    assert w.data.fib_coordinates[0].point.x == 1382.0
+    assert w._fib_image is original
+    # the picker must not be left showing a file that was never loaded
+    assert w._images_tab._fib_picker.current_path() == w._images_tab._fib_loaded_path
+
+
+def test_programmatic_image_load_does_not_prompt(qapp, monkeypatch):
+    """The lamella's images arrive this way on open — prompting there would be
+    a dialog nobody asked for."""
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+
+    asked = []
+    monkeypatch.setattr(
+        ctw.QMessageBox, "question", staticmethod(lambda *a, **k: asked.append(1))
     )
-    assert _result(saved).matches_inputs(live) is True
+    w = _widget()
+    w.set_data(_inputs(x=1.0))
+    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(300, 200), hfw=100e-6))
+
+    assert asked == []
+    assert w.data.fib_coordinates  # and it left them alone
+
+
+def test_image_combo_is_guarded_against_the_mouse_wheel(qapp):
+    """Changing the image discards the coordinates, so a scroll passing over the
+    combo must not be able to trigger it.
+
+    Asserts the guard is installed rather than delivering a synthetic wheel
+    event: without the guard an event-based check *hangs* offscreen instead of
+    failing, which is a useless diagnostic in CI.
+    """
+    from fibsem.ui.utils import _WHEEL_GUARD_PROPERTY
+    from PyQt5.QtCore import Qt
+
+    combo = _widget()._images_tab._fib_picker.combo
+    assert combo.property(_WHEEL_GUARD_PROPERTY) is True
+    assert combo.focusPolicy() == Qt.StrongFocus  # no wheel-focus either
 
 
 # ---------------------------------------------------------------------------

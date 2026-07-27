@@ -277,34 +277,6 @@ def _transform_inputs(data: CorrelationInputData) -> dict:
     }
 
 
-def _image_inputs_match(a: CorrelationInputData, b: CorrelationInputData) -> bool:
-    """Whether the FIB image parameters agree, where both sides know them.
-
-    The FIB image is an input to the answer: its shape sets the centre and its
-    pixel size the metres scaling of the reprojected POI, so swapping to an image
-    at a different magnification changes ``px_m`` (FIB-317) — a result fitted
-    against the old one is stale.
-
-    Compared pairwise, skipping any value that is ``None`` on either side: a file
-    written without these fields tells us nothing about the image it was fitted
-    to, and *absence of information is not evidence of change*. Judging it would
-    report every such reloaded result as stale, which is the failure mode the
-    staleness signal exists to avoid.
-    """
-    pairs = (
-        (a.fib_image_shape, b.fib_image_shape),
-        (a.fib_image_pixel_size, b.fib_image_pixel_size),
-    )
-    for lhs, rhs in pairs:
-        if lhs is None or rhs is None:
-            continue
-        left = tuple(lhs) if isinstance(lhs, (tuple, list)) else lhs
-        right = tuple(rhs) if isinstance(rhs, (tuple, list)) else rhs
-        if left != right:
-            return False
-    return True
-
-
 @dataclass
 class CorrelationPointOfInterest:
     """A single POI reprojected into the FIB image, in multiple coordinate systems."""
@@ -580,20 +552,18 @@ class CorrelationResult:
         :func:`_transform_inputs`); notably **excluded**:
 
           * ``fitted`` — provenance on a Coordinate, not a position;
-          * ``method`` — not read by ``run_correlation_from_data``.
+          * ``method`` — not read by ``run_correlation_from_data``;
+          * anything image-derived — see below.
 
-        The FIB image's shape and pixel size *are* compared, but only where both
-        sides know them — see :func:`_image_inputs_match`. They change the
-        answer, yet a result deserialized from a file that omits them says
-        nothing about the image it was fitted to.
+        Image parameters are *not* compared: changing the image now clears the
+        coordinates outright (see ``_confirm_image_change``), so a result can no
+        longer outlive the image it was fitted to by this route.
 
         A result with no snapshot can't be shown to match, so it reports False.
         """
         if self.input_data is None:
             return False
-        if _transform_inputs(self.input_data) != _transform_inputs(current):
-            return False
-        return _image_inputs_match(self.input_data, current)
+        return _transform_inputs(self.input_data) == _transform_inputs(current)
 
     def save(self, filename: str) -> None:
         with open(filename, "w") as f:
