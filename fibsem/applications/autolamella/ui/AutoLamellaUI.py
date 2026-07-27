@@ -834,6 +834,45 @@ class AutoLamellaUI(QMainWindow):
                 "Failed to open experiment directory.", "error"
             )
 
+    def export_targeting_ml_data(self) -> None:
+        """Export the experiment's lamella targets as targeting ML training data.
+
+        One sample per lamella: the final FIB reference image from its Select Milling
+        Position task, labelled with the operator's point of interest. Writes to
+        <experiment>/targeting-export. See
+        fibsem.applications.autolamella.tools.ml_export for the layout.
+        """
+        from fibsem.applications.autolamella.tools import ml_export
+
+        if self.experiment is None:
+            notification_service.show_toast(
+                "Please load an experiment first... [No Experiment Loaded]", "warning"
+            )
+            return
+
+        # no directory prompt: the destination is a subfolder of the experiment that
+        # does not exist yet, which an existing-directory dialog cannot select. The
+        # folder is opened afterwards so the location is still discoverable.
+        output_path = ml_export.default_output_path(self.experiment)
+
+        try:
+            summary = ml_export.export_experiment(self.experiment, output_path)
+        except Exception as e:
+            logging.error(f"Failed to export targeting ML data: {e}", exc_info=True)
+            notification_service.show_toast(f"Export failed: {e}", "error")
+            return
+
+        if summary.n_samples == 0:
+            reason = summary.skipped[0] if summary.skipped else "nothing to export"
+            notification_service.show_toast(f"Nothing exported: {reason}", "warning")
+            return
+
+        message = f"Exported {summary.n_samples} lamella target(s)."
+        if summary.skipped:
+            message += f" Skipped {len(summary.skipped)}."
+        notification_service.show_toast(message, "success")
+        fui.open_path_in_file_explorer(output_path)
+
     #### FLUORESCENCE MINIMAP
 
     def open_fm_minimap_widget(self):

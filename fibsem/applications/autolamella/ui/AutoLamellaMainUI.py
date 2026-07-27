@@ -343,6 +343,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         action_save_fm_configuration.triggered.connect(self._export_fm_configuration)
         dev_menu.addAction(action_save_fm_configuration)
 
+        dev_menu.addSeparator()
+
+        self.action_export_targeting_ml_data = QAction(
+            "Export Targeting ML Data...", self
+        )
+        self.action_export_targeting_ml_data.triggered.connect(
+            self._on_export_targeting_ml_data
+        )
+        dev_menu.addAction(self.action_export_targeting_ml_data)
+
     def _create_test_menu(self):
         """Create a test menu for toast notifications and sounds."""
 
@@ -583,6 +593,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Generate Overview Plot action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.action_generate_overview_plot()
+
+    def _on_export_targeting_ml_data(self):
+        """Handle Export Targeting ML Data action."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.export_targeting_ml_data()
 
     def _open_fm_minimap_widget(self):
         """Open the Fluorescence Minimap widget."""
