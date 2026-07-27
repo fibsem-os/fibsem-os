@@ -880,20 +880,20 @@ def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
 
 
 def test_load_error_reverts_path_field(qapp, monkeypatch):
-    """A failed load reverts the path field to the last-good value, so re-focusing
-    the field doesn't re-attempt (and re-warn about) the bad path."""
+    """A failed load reverts the picker to the last-good file, so the selection
+    never shows an image that isn't actually loaded."""
     from PyQt5.QtWidgets import QMessageBox
 
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
 
     tab = _widget(qapp)._images_tab
     tab._fib_loaded_path = "/good/prev_ib.tif"
-    tab._fib_path.setText("/good/prev_ib.tif")
+    tab._fib_picker.show_path("/good/prev_ib.tif")
 
-    tab._fib_path.setText("/nope/does_not_exist_ib.tif")
+    tab._fib_picker.show_path("/nope/does_not_exist_ib.tif")
     tab._load_fib("/nope/does_not_exist_ib.tif")  # FibsemImage.load raises
 
-    assert tab._fib_path.text() == "/good/prev_ib.tif"
+    assert tab._fib_picker.current_path() == "/good/prev_ib.tif"
     assert tab._fib_loaded_path == "/good/prev_ib.tif"
 
 

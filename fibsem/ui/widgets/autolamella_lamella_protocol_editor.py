@@ -1021,12 +1021,17 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             spot_burns=spot_burns,
             history=history,
             config=protocol.correlation if protocol is not None else None,
-            fib_options=self._combo_items(self.combobox_fib_filenames),
-            fib_current=self.combobox_fib_filenames.currentText(),
-            fm_options=self._combo_items(self.combobox_fm_filenames),
-            fm_current=self.combobox_fm_filenames.currentText(),
+            fib_options=self._image_paths(
+                selected_lamella, self.combobox_fib_filenames
+            ),
+            fib_current=self._image_path(
+                selected_lamella, self.combobox_fib_filenames.currentText()
+            ),
+            fm_options=self._image_paths(selected_lamella, self.combobox_fm_filenames),
+            fm_current=self._image_path(
+                selected_lamella, self.combobox_fm_filenames.currentText()
+            ),
         )
-        self._wire_setup_images(dialog, selected_lamella)
         section.emit_current_seed()  # apply the default source, live on the canvas
 
         if dialog.exec_() != QDialog.Accepted:
@@ -1041,29 +1046,20 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self._handle_correlation_dialog_result(dialog.result)
 
     @staticmethod
-    def _combo_items(combo) -> List[str]:
-        return [combo.itemText(i) for i in range(combo.count())]
+    def _image_path(lamella: Lamella, filename: str) -> str:
+        """Absolute path for one of the lamella's discovered image filenames."""
+        return os.path.join(lamella.path, filename) if filename else ""
 
-    def _wire_setup_images(self, dialog, lamella) -> None:
-        """Let the setup section's image quick-picks load into the live canvas.
+    @classmethod
+    def _image_paths(cls, lamella: Lamella, combo) -> List[str]:
+        """Absolute paths for every filename offered by one of the editor combos.
 
-        The dialog owns the canvas but not the lamella folder, so the load stays
-        here; picking an image re-renders the canvas, which is what makes it the
-        preview (FIB-302).
+        The correlation window's picker loads by path, so it handles this
+        lamella's images and anything browsed to with the same control.
         """
-
-        def _load_fib(_index: int) -> None:
-            path = os.path.join(lamella.path, dialog.widget.fib_quick_pick.currentText())
-            if os.path.exists(path):
-                dialog.set_fib_image(FibsemImage.load(path))
-
-        def _load_fm(_index: int) -> None:
-            path = os.path.join(lamella.path, dialog.widget.fm_quick_pick.currentText())
-            if os.path.exists(path):
-                dialog.set_fm_image(FluorescenceImage.load(path))
-
-        dialog.widget.fib_quick_pick.currentIndexChanged.connect(_load_fib)
-        dialog.widget.fm_quick_pick.currentIndexChanged.connect(_load_fm)
+        return [
+            cls._image_path(lamella, combo.itemText(i)) for i in range(combo.count())
+        ]
 
     @staticmethod
     def _spot_burn_coordinates(lamella: Lamella) -> List[Point]:

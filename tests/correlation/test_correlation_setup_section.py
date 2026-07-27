@@ -161,14 +161,21 @@ def test_add_lamella_setup_installs_and_renames_tab(qapp):
         spot_burns=[Point(0.3, 0.5)],
         history=LamellaCorrelation(runs=[_run(NEW)]),
         config=CorrelationConfig(),
-        fib_options=["a_ib.tif", "b_ib.tif"],
-        fib_current="a_ib.tif",
-        fm_options=["a.ome.tiff"],
-        fm_current="a.ome.tiff",
+        fib_options=["/lam/a_ib.tif", "/lam/b_ib.tif"],
+        fib_current="/lam/a_ib.tif",
+        fm_options=["/lam/a.ome.tiff"],
+        fm_current="/lam/a.ome.tiff",
     )
     assert w._tabs.tabText(0) == "Setup"
-    assert w.fib_quick_pick.currentText() == "a_ib.tif"
-    assert w.fm_quick_pick.currentText() == "a.ome.tiff"
+    picker = w._images_tab._fib_picker
+    # combo shows basenames but carries full paths, and browse lives on the row
+    assert picker.combo.currentText() == "a_ib.tif"
+    assert picker.current_path() == "/lam/a_ib.tif"
+    assert [picker.combo.itemText(i) for i in range(picker.combo.count())] == [
+        "a_ib.tif",
+        "b_ib.tif",
+    ]
+    assert w._images_tab._fm_picker.current_path() == "/lam/a.ome.tiff"
 
 
 def test_seed_request_places_spot_burns_on_the_canvas(qapp):

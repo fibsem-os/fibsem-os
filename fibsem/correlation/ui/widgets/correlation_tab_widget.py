@@ -47,6 +47,8 @@ from PyQt5.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
+    QComboBox,
+    QToolButton,
     QAction,
     QDialog,
     QFileDialog,
@@ -103,7 +105,6 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, Point
 from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
-    QFileLineEdit,
     TitledPanel,
     ValueComboBox,
 )
@@ -257,6 +258,77 @@ class _ProgressRelay(QObject):
 # ---------------------------------------------------------------------------
 
 
+class _ImagePicker(QWidget):
+    """One-row image chooser: a combo of known files plus a browse button.
+
+    The combo shows basenames but carries the full path per item, so a lamella's
+    candidate images and anything browsed to from elsewhere live in one control
+    rather than a combo and a path field showing the same thing twice.
+
+    ``path_selected`` fires only for user choices — combo *activation* and browse
+    — so a programmatic :meth:`show_path` can't loop back into a reload.
+    """
+
+    path_selected = pyqtSignal(str)
+
+    def __init__(self, file_filter: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._filter = file_filter
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.combo = QComboBox()
+        self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo.setMinimumContentsLength(12)
+        self.combo.activated.connect(self._on_activated)
+        layout.addWidget(self.combo, stretch=1)
+        self.button_browse = QToolButton()
+        self.button_browse.setText("...")
+        self.button_browse.setToolTip("Browse for an image anywhere on disk")
+        self.button_browse.clicked.connect(self._browse)
+        layout.addWidget(self.button_browse)
+
+    def set_options(self, paths: List[str], current: str = "") -> None:
+        """Populate the known-files list (full paths), selecting ``current``."""
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        for path in paths:
+            self.combo.addItem(os.path.basename(path), path)
+        self.combo.blockSignals(False)
+        if current:
+            self.show_path(current)
+
+    def current_path(self) -> str:
+        data = self.combo.currentData()
+        return data or ""
+
+    def show_path(self, path: str) -> None:
+        """Select ``path``, adding it to the list if new. Emits nothing."""
+        if not path:
+            return
+        index = self.combo.findData(path)
+        if index < 0:
+            self.combo.addItem(os.path.basename(path), path)
+            index = self.combo.count() - 1
+        self.combo.blockSignals(True)
+        self.combo.setCurrentIndex(index)
+        self.combo.blockSignals(False)
+        self.combo.setToolTip(path)
+
+    def _on_activated(self, index: int) -> None:
+        path = self.combo.itemData(index)
+        if path:
+            self.combo.setToolTip(path)
+            self.path_selected.emit(path)
+
+    def _browse(self) -> None:
+        start = os.path.dirname(self.current_path()) or ""
+        path, _ = QFileDialog.getOpenFileName(self, "Select Image", start, self._filter)
+        if path:
+            self.show_path(path)  # a browsed file joins the list
+            self.path_selected.emit(path)
+
+
 class _ImagesTab(QWidget):
     """Browse / load FIB and FM image files."""
 
@@ -310,11 +382,9 @@ class _ImagesTab(QWidget):
         fib_layout.setContentsMargins(8, 4, 8, 4)
         fib_layout.setSpacing(4)
 
-        self._fib_path = QFileLineEdit(filter="TIFF (*.tif *.tiff);;All Files (*)")
-        self._fib_path.lineEdit.setPlaceholderText("No file loaded")
-        self._fib_path.editingFinished.connect(self._on_fib_path_edited)
-        fib_layout.addWidget(self._fib_path)
-        self._fib_body_layout = fib_layout  # lamella quick-pick is inserted here
+        self._fib_picker = _ImagePicker("TIFF (*.tif *.tiff);;All Files (*)")
+        self._fib_picker.path_selected.connect(self._load_fib)
+        fib_layout.addWidget(self._fib_picker)
 
         fib_form = QFormLayout()
         fib_form.setContentsMargins(0, 0, 0, 0)
@@ -335,13 +405,11 @@ class _ImagesTab(QWidget):
         fm_layout.setContentsMargins(8, 4, 8, 4)
         fm_layout.setSpacing(4)
 
-        self._fm_path = QFileLineEdit(
-            filter="OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)"
+        self._fm_picker = _ImagePicker(
+            "OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)"
         )
-        self._fm_path.lineEdit.setPlaceholderText("No file loaded")
-        self._fm_path.editingFinished.connect(self._on_fm_path_edited)
-        fm_layout.addWidget(self._fm_path)
-        self._fm_body_layout = fm_layout  # lamella quick-pick is inserted here
+        self._fm_picker.path_selected.connect(self._load_fm)
+        fm_layout.addWidget(self._fm_picker)
 
         fm_form = QFormLayout()
         fm_form.setContentsMargins(0, 0, 0, 0)
@@ -392,19 +460,14 @@ class _ImagesTab(QWidget):
     # Lamella setup (installed only from the autolamella editor — FIB-302)
     # ------------------------------------------------------------------
 
-    def add_image_quick_pick(
-        self, kind: str, options: List[str], current: str
-    ) -> "ValueComboBox":
-        """Add a "this lamella's images" dropdown above the FIB/FM path field.
+    def set_image_options(self, kind: str, paths: List[str], current: str = "") -> None:
+        """Offer this lamella's images in the picker, keeping any browsed file.
 
-        The path field browses anywhere; this is the shortlist already in the
-        lamella folder. Returns the combo so the caller can wire it.
+        The picker loads whatever is chosen, so the lamella's candidates and an
+        externally-acquired file share one control.
         """
-        layout = self._fib_body_layout if kind == "fib" else self._fm_body_layout
-        combo = ValueComboBox(options or [current], value=current)
-        combo.setToolTip("Images found in this lamella's folder")
-        layout.insertWidget(0, combo)
-        return combo
+        picker = self._fib_picker if kind == "fib" else self._fm_picker
+        picker.set_options(paths, current)
 
     def add_setup_section(self, section: QWidget) -> None:
         """Insert the lamella setup section before the tab's trailing stretch."""
@@ -425,22 +488,16 @@ class _ImagesTab(QWidget):
         p = self._proj_path.text().strip()
         return p if p else None
 
-    def _on_fib_path_edited(self) -> None:
-        # Fires on browse-pick and manual entry; skip programmatic/no-op sets
-        path = self._fib_path.text().strip()
-        if path and path != self._fib_loaded_path:
-            self._load_fib(path)
-
     def _load_fib(self, path: str) -> None:
         try:
             image = FibsemImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
-            self._fib_path.setText(self._fib_loaded_path)  # revert to last-good path
+            self._fib_picker.show_path(self._fib_loaded_path)  # revert to last good
             return
         self._fib_image = image
         self._fib_loaded_path = path
-        self._fib_path.setText(path)  # setText → textChanged only, no reload
+        self._fib_picker.show_path(path)
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
         px = getattr(
@@ -449,21 +506,16 @@ class _ImagesTab(QWidget):
         self._lbl_fib_px.setText(f"{px * 1e9:.2f} nm" if px else "—")
         self.fib_image_changed.emit(image)
 
-    def _on_fm_path_edited(self) -> None:
-        path = self._fm_path.text().strip()
-        if path and path != self._fm_loaded_path:
-            self._load_fm(path)
-
     def _load_fm(self, path: str) -> None:
         try:
             image = FluorescenceImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
-            self._fm_path.setText(self._fm_loaded_path)  # revert to last-good path
+            self._fm_picker.show_path(self._fm_loaded_path)  # revert to last good
             return
         self._fm_image = image
         self._fm_loaded_path = path
-        self._fm_path.setText(path)
+        self._fm_picker.show_path(path)
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
         meta_channels = image.metadata.channels or []
@@ -489,7 +541,7 @@ class _ImagesTab(QWidget):
             or ""
         )
         self._fib_loaded_path = filename
-        self._fib_path.setText(filename)
+        self._fib_picker.show_path(filename)
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
         px = getattr(
@@ -501,7 +553,7 @@ class _ImagesTab(QWidget):
         self._fm_image = image
         filename = getattr(image.metadata, "filename", "") or ""
         self._fm_loaded_path = filename
-        self._fm_path.setText(filename)
+        self._fm_picker.show_path(filename)
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
         meta_channels = image.metadata.channels or []
@@ -1758,12 +1810,8 @@ class CorrelationTabWidget(QWidget):
         )
         section.seed_requested.connect(self._on_setup_seed_requested)
         self._images_tab.add_setup_section(section)
-        self.fib_quick_pick = self._images_tab.add_image_quick_pick(
-            "fib", fib_options or [], fib_current
-        )
-        self.fm_quick_pick = self._images_tab.add_image_quick_pick(
-            "fm", fm_options or [], fm_current
-        )
+        self._images_tab.set_image_options("fib", fib_options or [], fib_current)
+        self._images_tab.set_image_options("fm", fm_options or [], fm_current)
         # The tab now covers images *and* what to start from.
         self._tabs.setTabText(0, "Setup")
         self._setup_section = section
