@@ -731,6 +731,18 @@ class _CoordinatesTab(QWidget):
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
         # fits still surface the dialog — see _on_refit_requested.
         self._auto_accept_check = QCheckBox()
+
+        # Match the 11-12px labels these sit beside (see _form_label).
+        for _ctl in (
+            self._fib_method_combo,
+            self._fm_fid_method_combo,
+            self._fm_poi_method_combo,
+            self._fm_fid_ch_combo,
+            self._fm_poi_ch_combo,
+            self._show_diag_check,
+            self._auto_accept_check,
+        ):
+            _ctl.setStyleSheet("font-size: 12px;")
         self._auto_accept_check.setToolTip(
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
@@ -822,6 +834,10 @@ class _ResultsTab(QWidget):
 
         # Per-marker error table
         self._table = QTableWidget(0, 3)
+        self._table.setStyleSheet(
+            "QTableWidget { font-size: 11px; }"
+            "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+        )
         self._table.setHorizontalHeaderLabels(["Marker", "dx (px)", "dy (px)"])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
