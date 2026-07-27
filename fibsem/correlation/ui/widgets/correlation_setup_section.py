@@ -45,6 +45,9 @@ SEED_SPOT_BURNS = "spot_burns"
 SEED_PREVIOUS = "previous"
 
 _MUTED = "#9aa0a6"
+# The panels around this section run at 11-12px; controls left at the default app
+# font render noticeably larger than the labels and values they sit among.
+_CONTROL_STYLE = "font-size: 12px;"
 
 
 def format_run_timestamp(name: str) -> str:
@@ -150,6 +153,7 @@ class CorrelationSetupSection(QWidget):
         self.rb_burns = QRadioButton(burn_label)
         self.rb_prev = QRadioButton("Previous correlation")
         for rb in (self.rb_none, self.rb_burns, self.rb_prev):
+            rb.setStyleSheet(_CONTROL_STYLE)
             self._group.addButton(rb)
             col.addWidget(rb)
 
@@ -159,6 +163,7 @@ class CorrelationSetupSection(QWidget):
         self.run_combo = ValueComboBox(
             [format_run_timestamp(r.name) for r in self._prev_runs]
         )
+        self.run_combo.setStyleSheet(_CONTROL_STYLE)
         run_layout.addWidget(self.run_combo, 1)
         col.addWidget(run_row)
 

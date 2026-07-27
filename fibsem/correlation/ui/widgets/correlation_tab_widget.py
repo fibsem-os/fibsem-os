@@ -278,6 +278,8 @@ class _ImagePicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         self.combo = QComboBox()
+        # Match the 11-12px panels around it; the default app font reads oversized.
+        self.combo.setStyleSheet("font-size: 12px;")
         self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo.setMinimumContentsLength(12)
         self.combo.activated.connect(self._on_activated)
