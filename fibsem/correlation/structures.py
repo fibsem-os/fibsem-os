@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from enum import auto, Enum
 from typing import Optional
@@ -137,15 +138,26 @@ class CorrelationInputData:
 
     @property
     def fib_image_pixel_size(self) -> Optional[float]:
+        """Pixel size in metres, falling back to the value restored from JSON.
+
+        A plain (non-OME) TIFF loads with ``metadata = None``, and this property is
+        read by ``to_dict`` — i.e. by every auto-save. Dereferencing it blindly
+        turned "the user browsed to a bare TIFF" into "nothing is ever saved this
+        session", because the auto-save swallows exceptions (FIB-316).
+        """
         if self.fib_image is None:
             return self.stored_fib_image_pixel_size
-        return self.fib_image.metadata.pixel_size.x  # type: ignore[union-attr]
+        pixel_size = getattr(getattr(self.fib_image, "metadata", None), "pixel_size", None)
+        if pixel_size is None:
+            return self.stored_fib_image_pixel_size
+        return getattr(pixel_size, "x", None)
 
     @property
     def fib_image_shape(self) -> Optional[tuple[int, int]]:
-        if self.fib_image is None or self.fib_image.data is None:
+        data = getattr(self.fib_image, "data", None)
+        if data is None:
             return self.stored_fib_image_shape
-        return self.fib_image.data.shape
+        return data.shape
 
     @property
     def fm_image_shape(self) -> Optional[tuple[int, int, int, int]]:
@@ -161,13 +173,16 @@ class CorrelationInputData:
 
     @property
     def fib_image_filename(self) -> Optional[str]:
-        return (
-            self.fib_image.metadata.image_settings.filename if self.fib_image else None
+        # Also read by to_dict, so it must tolerate an image without metadata
+        # rather than take the auto-save down with it (FIB-316).
+        settings = getattr(
+            getattr(self.fib_image, "metadata", None), "image_settings", None
         )
+        return getattr(settings, "filename", None)
 
     @property
     def fm_image_filename(self) -> Optional[str]:
-        return self.fm_image.metadata.filename if self.fm_image else None
+        return getattr(getattr(self.fm_image, "metadata", None), "filename", None)
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
@@ -538,9 +553,11 @@ class CorrelationResult:
 
           * ``fitted`` — provenance on a Coordinate, not a position;
           * ``method`` — not read by ``run_correlation_from_data``;
-          * anything image-derived — a deserialized result carries no images, so
-            e.g. ``fm_image_shape`` is None on this side and populated on the
-            live side, which would report every reloaded result as stale.
+          * anything image-derived — see below.
+
+        Image parameters are *not* compared: changing the image now clears the
+        coordinates outright (see ``_confirm_image_change``), so a result can no
+        longer outlive the image it was fitted to by this route.
 
         A result with no snapshot can't be shown to match, so it reports False.
         """
@@ -635,7 +652,15 @@ def load_correlation_file(filename: str) -> CorrelationState:
 
     if "poi" in data or "computed_from" in data or "input_data" in data:
         result = CorrelationResult.from_dict(data)
-        current = result.input_data or CorrelationInputData()
+        # Deep-copy rather than share: the result's input_data is the *snapshot*
+        # the transform was fitted to, while the state's is the live, editable
+        # set. Aliasing them makes every later edit mutate the snapshot too, so
+        # matches_inputs can never report stale — FIB-295 defeated by identity.
+        current = (
+            copy.deepcopy(result.input_data)
+            if result.input_data is not None
+            else CorrelationInputData()
+        )
         return CorrelationState(input_data=current, result=result)
 
     if "fib_coordinates" in data:
