@@ -97,7 +97,7 @@ class CorrelationSetupSection(QWidget):
         ``payload`` is a ``CorrelationInputData`` (previous run), a
         ``list[Point]`` (spot burns, normalised 0-1), or ``None``.
 
-    ``can_reseed(source) -> bool``
+    ``can_reseed(source, payload) -> bool``
         Optional veto the widget installs: consulted *before* emitting, because
         only the widget knows whether the coordinates are worth protecting or
         whether a source can be applied at all. Refusing restores the controls.
@@ -115,7 +115,7 @@ class CorrelationSetupSection(QWidget):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self.can_reseed: Optional[Callable[[str], bool]] = None
+        self.can_reseed: Optional[Callable[[str, object], bool]] = None
         self._applied = (SEED_NONE, -1)
         self._burns_available = spot_burns_available
         self._config = config or CorrelationConfig()
@@ -311,7 +311,9 @@ class CorrelationSetupSection(QWidget):
 
     def _request_apply(self) -> None:
         """Apply the current selection, unless the widget vetoes it."""
-        if self.can_reseed is not None and not self.can_reseed(self.seed_source()):
+        if self.can_reseed is not None and not self.can_reseed(
+            self.seed_source(), self.seed_payload()
+        ):
             self._restore_applied()
             return
         self.emit_current_seed()

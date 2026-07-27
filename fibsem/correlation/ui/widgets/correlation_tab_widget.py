@@ -343,6 +343,25 @@ class _ImagePicker(QWidget):
         self.combo.blockSignals(False)
         self.combo.setToolTip(path)
 
+    def reject_path(self, bad_path: str, restore: str) -> None:
+        """Drop a path that failed to load, and go back to ``restore``.
+
+        A browsed file joins the list before anything tries to open it, so one
+        that fails has to be taken back out — otherwise it stays selectable for
+        the rest of the session. ``restore`` is empty when nothing has loaded
+        yet, and that case is why this exists: ``show_path("")`` returns
+        immediately, leaving the failed file on display as though it were the
+        current image while there was in fact no image at all (FIB-321).
+        """
+        index = self.combo.findData(bad_path)
+        if index >= 0:
+            self.combo.removeItem(index)  # programmatic: `activated` doesn't fire
+        if restore:
+            self.show_path(restore)
+        else:
+            self.combo.setCurrentIndex(-1)
+            self.combo.setToolTip("")
+
     def _on_activated(self, index: int) -> None:
         path = self.combo.itemData(index)
         if path:
@@ -542,7 +561,7 @@ class _ImagesTab(QWidget):
             image = FibsemImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
-            self._fib_picker.show_path(self._fib_loaded_path)  # revert to last good
+            self._fib_picker.reject_path(path, self._fib_loaded_path)
             return
         self._fib_image = image
         self._fib_loaded_path = path
@@ -563,7 +582,7 @@ class _ImagesTab(QWidget):
             image = FluorescenceImage.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
-            self._fm_picker.show_path(self._fm_loaded_path)  # revert to last good
+            self._fm_picker.reject_path(path, self._fm_loaded_path)
             return
         self._fm_image = image
         self._fm_loaded_path = path
@@ -1122,10 +1141,16 @@ class _RITab(QWidget):
         if mode == "pre" and self._input_pre_factor is not None:
             self._populate_pre_table(self._input_pre_factor)
 
+        # "Armed" means the stored factor is not what produced the POI on screen.
+        # Matching factors are not enough — a result corrected in *post* mode was
+        # corrected in a different space, so its POI is not the one this pre-mode
+        # factor describes. Comparing factors alone let a post-corrected result at
+        # the same ζ read as "Correction applied (post)" while the pre factor was
+        # only armed and the displayed POI was the old post-corrected one (FIB-321).
         armed = (
             mode == "pre"
             and self._input_pre_factor is not None
-            and self._input_pre_factor != result_factor
+            and (result_mode != "pre" or self._input_pre_factor != result_factor)
         )
         if armed:
             self._set_warning(
@@ -1258,8 +1283,15 @@ class _RITab(QWidget):
             self._surface_coordinate
         )
 
-        # Update POI 0 in the result and propagate (reads input_data internally)
-        self._result.apply_refractive_index_correction(factor)
+        # Update POI 0 in the result and propagate (reads input_data internally).
+        # It refuses when it cannot correct px_m, which is the number Continue
+        # commits — report that here rather than letting it reach the event loop.
+        try:
+            self._result.apply_refractive_index_correction(factor)
+        except ValueError as exc:
+            logging.exception("[RITab._apply_post] correction refused")
+            self._set_warning(f"Correction not applied: {exc}")
+            return
         logging.info("[RITab._apply_post] correction applied, emitting correction_applied")
         self.correction_applied.emit(self._result)
 
@@ -1285,6 +1317,24 @@ _POINT_TYPE_SIDES: Dict[PointType, str] = {
 _FM_SIDE_POINT_TYPES = frozenset(
     pt.value for pt, side in _POINT_TYPE_SIDES.items() if side == "fm"
 )
+
+
+def _has_coordinates(data: Optional[CorrelationInputData]) -> bool:
+    """Whether a seed payload actually carries points to seed from.
+
+    A run folder can hold a state with no coordinates — an empty run, or a legacy
+    result file whose ``input_data`` is null. Seeding from one replaced the live
+    coordinates with nothing (FIB-321).
+    """
+    if data is None:
+        return False
+    return bool(
+        data.fib_coordinates
+        or data.fm_coordinates
+        or data.poi_coordinates
+        or data.surface_coordinate
+        or data.fm_surface_coordinate
+    )
 
 
 class _CanvasAdapter:
@@ -2014,22 +2064,25 @@ class CorrelationTabWidget(QWidget):
         self._setup_section = section
         return section
 
-    def _allow_reseed(self, source: str) -> bool:
+    def _allow_reseed(self, source: str, payload) -> bool:
         """Veto for the setup section, consulted before it emits (FIB-319).
 
-        Two reasons to refuse, in order — an impossible source is settled first,
-        so the user is never asked to sacrifice their points for a seed that was
-        never going to be applied:
+        Reasons to refuse, impossible sources first, so the user is never asked to
+        sacrifice their points for a seed that was never going to be applied:
 
         1. Spot burns without a FIB image. The burns are normalised to *that*
            image; with no image there is nothing to multiply by, and the seeding
            call would return early leaving the radio reading as applied.
-        2. Points that differ from what was last seeded.
+        2. A previous run holding no coordinates — an empty run, or a legacy file
+           with a null ``input_data``. Seeding from one replaced the live points
+           with nothing (FIB-321).
+        3. Points that differ from what was last seeded.
 
         The section restores its controls when this returns False, so the choice
         on screen keeps matching the canvas.
         """
         from fibsem.correlation.ui.widgets.correlation_setup_section import (
+            SEED_PREVIOUS,
             SEED_SPOT_BURNS,
         )
 
@@ -2039,6 +2092,14 @@ class CorrelationTabWidget(QWidget):
                 "No FIB image",
                 "Spot-burn positions are stored relative to the FIB image they "
                 "were placed on.\n\nLoad that image first, then choose them again.",
+            )
+            return False
+        if source == SEED_PREVIOUS and not _has_coordinates(payload):
+            QMessageBox.information(
+                self,
+                "Nothing to seed",
+                "That run has no saved coordinates.\n\nPick another run, or choose "
+                "None to start fresh.",
             )
             return False
         return not self._has_manual_edits() or self._confirm_reseed()
@@ -2054,10 +2115,16 @@ class CorrelationTabWidget(QWidget):
             SEED_SPOT_BURNS,
         )
 
-        if source == SEED_PREVIOUS and payload is not None:
-            self.seed_coordinates(copy.deepcopy(payload))
-        elif source == SEED_SPOT_BURNS and payload:
-            self.seed_fib_fiducials_from_spot_burns(payload)
+        # Only the None branch clears. A source that cannot be applied leaves the
+        # canvas alone rather than emptying it under someone else's banner —
+        # falling through to the clear is how an empty previous run wiped every
+        # coordinate while the radio read "Previous correlation" (FIB-321).
+        if source == SEED_PREVIOUS:
+            if _has_coordinates(payload):
+                self.seed_coordinates(copy.deepcopy(payload))
+        elif source == SEED_SPOT_BURNS:
+            if payload:
+                self.seed_fib_fiducials_from_spot_burns(payload)
         else:
             self.set_data(
                 CorrelationInputData(
@@ -2363,13 +2430,24 @@ class CorrelationTabWidget(QWidget):
         # a run in flight has no live result yet; a failed run leaves it that way
         self._set_result_live(False)
         self._worker = _CorrelationWorker(copy.deepcopy(self.data))
-        self._worker.result_ready.connect(self._on_result_ready)
+        self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
 
+    def _on_run_finished(self, result: CorrelationResult) -> None:
+        """Adopt a just-computed result, judged against the points as they are now.
+
+        A finished run is not automatically current: ``_run`` snapshots the data
+        for the worker but leaves the canvases editable, so a fiducial dragged
+        while the run was in flight makes the delivered result describe points
+        that no longer exist. Marking it live regardless armed Continue on a
+        result whose ``matches_inputs`` was already False (FIB-321).
+        """
+        self._on_result_ready(result, live=result.matches_inputs(self.data))
+
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
-        """Adopt a result. ``live`` is False for a *loaded* result that no longer
-        describes the current points (FIB-295) — a fresh run is always live."""
+        """Adopt a result. ``live`` is False for a result that no longer describes
+        the current points (FIB-295)."""
         self._result = result
         self._results_tab.set_result(result)
         self._ri_tab.set_result(

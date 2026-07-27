@@ -445,6 +445,20 @@ class CorrelationResult:
         surface_y = self.input_data.surface_coordinate.point.y
         fib_shape = self.input_data.fib_image_shape
         pixel_size = self.input_data.fib_image_pixel_size
+        # Refuse rather than half-apply. px_m is exactly what Continue commits to
+        # the experiment, so correcting only image_px moved the marker on screen
+        # and recorded factor + mode while the committed number stayed
+        # uncorrected — a wrong result presented as a corrected one, flagged only
+        # by a log warning (FIB-321). Both properties fall back to the values
+        # restored from JSON, so this is reachable only for a result that was
+        # never associated with an image at all.
+        if fib_shape is None or pixel_size is None:
+            raise ValueError(
+                "fib image shape and pixel size are required to apply refractive "
+                "index correction: without them poi.px_m cannot be corrected, and "
+                "px_m is the value committed to the experiment"
+            )
+
         poi0 = self.poi[0]
         # Snapshot the uncorrected position for the ghost overlay
         self.poi_uncorrected = [
@@ -456,15 +470,9 @@ class CorrelationResult:
         ]
         corrected_y = scale_about_surface(poi0.image_px.y, surface_y, correction_factor)
         poi0.image_px.y = corrected_y
-        if fib_shape is not None and pixel_size is not None:
-            cy = fib_shape[0] / 2.0
-            poi0.px.y = -(corrected_y - cy)
-            poi0.px_m.y = poi0.px.y * pixel_size
-        else:
-            logging.warning(
-                "RI correction: fib image shape/pixel size unavailable — "
-                "poi.px / poi.px_m were NOT updated (only image_px)."
-            )
+        cy = fib_shape[0] / 2.0
+        poi0.px.y = -(corrected_y - cy)
+        poi0.px_m.y = poi0.px.y * pixel_size
         self.refractive_index_correction_factor = correction_factor
         self.refractive_index_correction_mode = "post"
         self.updated_at = time.time()

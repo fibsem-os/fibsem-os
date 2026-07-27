@@ -440,14 +440,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                     sorted(matching_filenames, key=os.path.getmtime)[-1]
                 )
 
-        # set default fib image filename
-        default_filename = fib_filenames[-1] if len(fib_filenames) > 0 else ""
-        if latest_task_filename in base_filenames:
-            default_filename = latest_task_filename
-        elif selected_fib_filename in base_filenames:
-            default_filename = selected_fib_filename
-
-        self.combobox_fib_filenames.setCurrentText(default_filename)
+        self.combobox_fib_filenames.setCurrentText(
+            self._default_fib_filename(
+                base_filenames, latest_task_filename, selected_fib_filename
+            )
+        )
         self.combobox_fib_filenames.blockSignals(False)
 
         # load sem reference image
@@ -1053,6 +1050,27 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if dialog.result is not None:
             self._handle_correlation_dialog_result(dialog.result)
+
+    @staticmethod
+    def _default_fib_filename(
+        base_filenames: List[str],
+        latest_task_filename: str,
+        previous_selection: str,
+    ) -> str:
+        """Which FIB image the combo lands on: the last completed task's reference
+        image, else whatever was selected before, else the newest.
+
+        Everything here is a *basename*, because that is what the combo holds.
+        The newest-image fallback used to be the full path from ``glob``, which
+        made ``setCurrentText`` a silent no-op — so a lamella with no task
+        reference image and no prior selection stayed on the *oldest* image, and
+        that is the image handed to the correlation window (FIB-321).
+        """
+        if latest_task_filename in base_filenames:
+            return latest_task_filename
+        if previous_selection in base_filenames:
+            return previous_selection
+        return base_filenames[-1] if base_filenames else ""
 
     @staticmethod
     def _image_path(lamella: Lamella, filename: str) -> str:
