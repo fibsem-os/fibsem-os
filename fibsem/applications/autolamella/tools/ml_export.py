@@ -12,7 +12,7 @@ experiment carries its training data with it::
     <experiment>/targeting-export/
         images/0001.tif      FIB reference image (FibsemImage, metadata preserved)
         points/0001.json     SOURCE OF TRUTH -- exact coordinates + provenance
-        labels/0001.tif      instance-indexed disc, rasterised from points/
+        labels/0001.tif      disc at the point, rasterised from points/
         manifest.json        index over the samples, plus experiment provenance
 
 One sample is one lamella. ``points/`` is authoritative; ``labels/`` is a pure
@@ -57,9 +57,9 @@ SELECT_POSITION_TASK_TYPE = "SELECT_MILLING_POSITION"
 FINAL_FIB_IMAGE_GLOB = "ref_{task_name}_final_res_*_ib.tif"
 _RES_SUFFIX = re.compile(r"_res_(\d+)_ib\.tif$")
 
-# radius of the disc stamped into labels/ for each point, in metres. Specified as a
-# physical size (not pixels) so a label means the same thing across images acquired
-# at different fields of view.
+# radius of the disc stamped into labels/, in metres. Specified as a physical size
+# (not pixels) so a label means the same thing across images acquired at different
+# fields of view.
 DEFAULT_DISC_RADIUS_M = 2.0e-6
 
 IMAGES_DIR = "images"
@@ -71,25 +71,8 @@ MANIFEST_NAME = "manifest.json"
 # carries its training data with it.
 DEFAULT_EXPORT_DIRNAME = "targeting-export"
 
-# labels are instance-indexed, so uint16 is ample (one point per sample today).
-LABEL_DTYPE = np.uint16
-
-
-@dataclass
-class ExportedPoint:
-    """The operator-selected point of interest, in its FIB reference image."""
-
-    index: int  # 1-based; matches the instance value in labels/
-    petname: str
-    lamella_id: str
-    pixel_x: float  # sub-pixel, deliberately not rounded
-    pixel_y: float
-    in_bounds: bool
-    poi: Dict[str, float]  # original milling coordinates, metres
-    stage_position: Dict[str, Optional[float]]
-    milling_angle: Optional[float]
-    defect: str
-    completed_tasks: List[str] = field(default_factory=list)
+LABEL_VALUE = 1
+LABEL_DTYPE = np.uint8
 
 
 @dataclass
@@ -101,11 +84,16 @@ class ExportedSample:
     shape: Tuple[int, int]  # (height, width)
     pixelsize: float
     hfw: Optional[float]
-    points: List[ExportedPoint] = field(default_factory=list)
-
-    @property
-    def n_in_bounds(self) -> int:
-        return sum(1 for p in self.points if p.in_bounds)
+    # the point, and where it came from
+    petname: str
+    lamella_id: str
+    pixel_x: float  # sub-pixel, deliberately not rounded
+    pixel_y: float
+    poi: Dict[str, float]  # original milling coordinates, metres
+    stage_position: Dict[str, Optional[float]]
+    milling_angle: Optional[float]
+    defect: str
+    completed_tasks: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -119,14 +107,6 @@ class ExportSummary:
     @property
     def n_samples(self) -> int:
         return len(self.samples)
-
-    @property
-    def n_points(self) -> int:
-        return sum(len(s.points) for s in self.samples)
-
-    @property
-    def n_in_bounds(self) -> int:
-        return sum(s.n_in_bounds for s in self.samples)
 
 
 def select_position_task_names(lamella: Lamella) -> List[str]:
@@ -194,9 +174,8 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
 
     image = FibsemImage.load(filename)
     point = poi_to_pixels(lamella, image)
-    height, width = image.data.shape[:2]
-
     pose = lamella.milling_pose
+
     hfw = None
     if image.metadata.image_settings is not None:
         hfw = image.metadata.image_settings.hfw
@@ -204,76 +183,58 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
     return ExportedSample(
         stem=stem,
         source_image=filename,
-        shape=(height, width),
+        shape=tuple(image.data.shape[:2]),
         pixelsize=image.metadata.pixel_size.x,
         hfw=hfw,
-        points=[
-            ExportedPoint(
-                index=1,
-                petname=lamella.name,
-                lamella_id=lamella._id,
-                pixel_x=float(point.x),
-                pixel_y=float(point.y),
-                in_bounds=bool(0 <= point.x < width and 0 <= point.y < height),
-                poi=lamella.poi.to_dict(),
-                stage_position=(
-                    pose.stage_position.to_dict()
-                    if pose is not None and pose.stage_position is not None
-                    else {}
-                ),
-                milling_angle=lamella.milling_angle,
-                defect=lamella.defect.state.name,
-                completed_tasks=list(lamella.completed_tasks),
-            )
-        ],
+        petname=lamella.name,
+        lamella_id=lamella._id,
+        pixel_x=float(point.x),
+        pixel_y=float(point.y),
+        poi=lamella.poi.to_dict(),
+        stage_position=(
+            pose.stage_position.to_dict()
+            if pose is not None and pose.stage_position is not None
+            else {}
+        ),
+        milling_angle=lamella.milling_angle,
+        defect=lamella.defect.state.name,
+        completed_tasks=list(lamella.completed_tasks),
     )
 
 
-def rasterise_points(
-    points: Sequence[ExportedPoint],
+def rasterise_point(
+    pixel_x: float,
+    pixel_y: float,
     shape: Tuple[int, int],
     pixelsize: float,
     radius_m: float = DEFAULT_DISC_RADIUS_M,
 ) -> np.ndarray:
-    """Stamp a disc per in-bounds point, valued with that point's ``index``.
-
-    Instance-indexed rather than binary so a blob in the raster traces back to a
-    specific entry in the sidecar. Where discs overlap the later index wins.
-    """
+    """A label image with a filled disc at the point."""
     label = np.zeros(shape, dtype=LABEL_DTYPE)
     radius_px = radius_m / pixelsize
     if radius_px < 0.5:
         logging.warning(
             f"disc radius {radius_m:.2e} m is under half a pixel at {pixelsize:.2e} "
-            f"m/px; labels will be empty or single-pixel"
+            f"m/px; the label will be empty or single-pixel"
         )
 
     height, width = shape
     r = int(np.ceil(radius_px))
-    for point in points:
-        if not point.in_bounds:
-            continue
-        cx, cy = point.pixel_x, point.pixel_y
-        x0, x1 = max(0, int(np.floor(cx)) - r), min(width, int(np.ceil(cx)) + r + 1)
-        y0, y1 = max(0, int(np.floor(cy)) - r), min(height, int(np.ceil(cy)) + r + 1)
-        if x0 >= x1 or y0 >= y1:
-            continue
-        ys, xs = np.ogrid[y0:y1, x0:x1]
-        mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= radius_px**2
-        label[y0:y1, x0:x1][mask] = point.index
+    x0, x1 = max(0, int(np.floor(pixel_x)) - r), min(width, int(np.ceil(pixel_x)) + r + 1)
+    y0, y1 = max(0, int(np.floor(pixel_y)) - r), min(height, int(np.ceil(pixel_y)) + r + 1)
+    if x0 >= x1 or y0 >= y1:
+        return label
 
+    ys, xs = np.ogrid[y0:y1, x0:x1]
+    mask = (xs - pixel_x) ** 2 + (ys - pixel_y) ** 2 <= radius_px**2
+    label[y0:y1, x0:x1][mask] = LABEL_VALUE
     return label
 
 
 def _sample_to_dict(sample: ExportedSample, experiment: Experiment) -> dict:
     """The contents of ``points/<stem>.json``."""
     return {
-        "stem": sample.stem,
         "image": f"{IMAGES_DIR}/{sample.stem}.tif",
-        "source_image": sample.source_image,
-        "shape": {"height": sample.shape[0], "width": sample.shape[1]},
-        "pixelsize": sample.pixelsize,
-        "hfw": sample.hfw,
         "experiment": {
             "name": experiment.name,
             "id": experiment._id,
@@ -282,7 +243,10 @@ def _sample_to_dict(sample: ExportedSample, experiment: Experiment) -> dict:
             "project": experiment.project,
             "organisation": experiment.organisation,
         },
-        "points": [asdict(p) for p in sample.points],
+        **asdict(sample),
+        # asdict() flattens the tuple to a bare list; name the axes instead, so the
+        # sidecar is unambiguous about height-vs-width order.
+        "shape": {"height": sample.shape[0], "width": sample.shape[1]},
     }
 
 
@@ -339,7 +303,9 @@ def export_experiment(
             json.dump(_sample_to_dict(sample, experiment), f, indent=2)
         tifffile.imwrite(
             os.path.join(output_path, LABELS_DIR, f"{stem}.tif"),
-            rasterise_points(sample.points, sample.shape, sample.pixelsize, radius_m),
+            rasterise_point(
+                sample.pixel_x, sample.pixel_y, sample.shape, sample.pixelsize, radius_m
+            ),
         )
 
         summary.samples.append(sample)
@@ -367,8 +333,6 @@ def write_manifest(
         "source_task": SELECT_POSITION_TASK_TYPE,
         "disc_radius_m": radius_m,
         "n_samples": len(samples),
-        "n_points": sum(len(s.points) for s in samples),
-        "n_points_in_bounds": sum(s.n_in_bounds for s in samples),
         "samples": [
             {
                 "stem": s.stem,
@@ -376,9 +340,9 @@ def write_manifest(
                 "points": f"{POINTS_DIR}/{s.stem}.json",
                 "label": f"{LABELS_DIR}/{s.stem}.tif",
                 "source_image": s.source_image,
+                "petname": s.petname,
                 "hfw": s.hfw,
-                "n_points": len(s.points),
-                "n_points_in_bounds": s.n_in_bounds,
+                "defect": s.defect,
             }
             for s in samples
         ],
@@ -453,11 +417,15 @@ def regenerate_labels(
     for path in sorted(glob.glob(os.path.join(points_dir, "*.json"))):
         with open(path) as f:
             data = json.load(f)
-        shape = (data["shape"]["height"], data["shape"]["width"])
-        points = [ExportedPoint(**p) for p in data["points"]]
         tifffile.imwrite(
             os.path.join(labels_dir, f"{data['stem']}.tif"),
-            rasterise_points(points, shape, data["pixelsize"], radius_m),
+            rasterise_point(
+                data["pixel_x"],
+                data["pixel_y"],
+                (data["shape"]["height"], data["shape"]["width"]),
+                data["pixelsize"],
+                radius_m,
+            ),
         )
         count += 1
 
@@ -495,10 +463,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     summary = export_experiments(args.experiments, args.output, radius_m=args.radius)
 
     destination = summary.output_path or f"each <experiment>/{DEFAULT_EXPORT_DIRNAME}"
-    print(
-        f"{summary.n_samples} samples, {summary.n_in_bounds}/{summary.n_points} "
-        f"points in bounds -> {destination}"
-    )
+    print(f"{summary.n_samples} samples -> {destination}")
     for reason in summary.skipped:
         print(f"  skipped: {reason}")
 

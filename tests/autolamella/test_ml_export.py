@@ -183,10 +183,8 @@ def test_collect_sample_places_the_point(tmp_path):
     _save_reference_image(exp.positions[0])
 
     sample = ml_export.collect_sample(exp.positions[0], "0001")
-    assert len(sample.points) == 1
-    assert sample.points[0].pixel_x == pytest.approx(266.0)
-    assert sample.points[0].pixel_y == pytest.approx(236.0)
-    assert sample.points[0].in_bounds
+    assert sample.pixel_x == pytest.approx(266.0)
+    assert sample.pixel_y == pytest.approx(236.0)
 
 
 def test_collect_sample_records_shape_pixelsize_hfw(tmp_path):
@@ -206,11 +204,11 @@ def test_collect_sample_carries_provenance(tmp_path):
     lamella.milling_angle = 0.3
     _save_reference_image(lamella)
 
-    point = ml_export.collect_sample(lamella, "0001").points[0]
-    assert point.defect == "FAILURE"
-    assert point.milling_angle == pytest.approx(0.3)
-    assert point.lamella_id == lamella._id
-    assert point.petname == lamella.name
+    sample = ml_export.collect_sample(lamella, "0001")
+    assert sample.defect == "FAILURE"
+    assert sample.milling_angle == pytest.approx(0.3)
+    assert sample.lamella_id == lamella._id
+    assert sample.petname == lamella.name
 
 
 def test_collect_sample_none_without_image(tmp_path):
@@ -218,71 +216,31 @@ def test_collect_sample_none_without_image(tmp_path):
     assert ml_export.collect_sample(exp.positions[0], "0001") is None
 
 
-def test_collect_sample_flags_out_of_bounds_poi(tmp_path):
-    """A POI further out than the image half-width is recorded, not dropped."""
-    exp = _make_experiment(tmp_path, poi=Point(1e-3, 0.0))  # 10000 px
-    _save_reference_image(exp.positions[0])
-
-    sample = ml_export.collect_sample(exp.positions[0], "0001")
-    assert len(sample.points) == 1
-    assert not sample.points[0].in_bounds
-
-
-# ── rasterise_points ─────────────────────────────────────────────────────────
-
-
-def _point(index=1, x=256.0, y=256.0, in_bounds=True) -> ml_export.ExportedPoint:
-    return ml_export.ExportedPoint(
-        index=index,
-        petname=f"lam-{index}",
-        lamella_id=f"id-{index}",
-        pixel_x=x,
-        pixel_y=y,
-        in_bounds=in_bounds,
-        poi={"x": 0.0, "y": 0.0},
-        stage_position={},
-        milling_angle=None,
-        defect="NONE",
-    )
+# ── rasterise_point ──────────────────────────────────────────────────────────
 
 
 def test_rasterise_stamps_disc_at_point():
-    label = ml_export.rasterise_points([_point(x=100.0, y=200.0)], SHAPE, PIXELSIZE, 1e-6)
-    assert label[200, 100] == 1
+    label = ml_export.rasterise_point(100.0, 200.0, SHAPE, PIXELSIZE, 1e-6)
+    assert label[200, 100] == ml_export.LABEL_VALUE
 
 
 def test_rasterise_disc_radius_matches_metres():
     """A 1 um radius at 100 nm/px is 10 px."""
-    label = ml_export.rasterise_points([_point(x=100.0, y=100.0)], SHAPE, PIXELSIZE, 1e-6)
-    assert label[100, 110] == 1  # on the edge
+    label = ml_export.rasterise_point(100.0, 100.0, SHAPE, PIXELSIZE, 1e-6)
+    assert label[100, 110] == ml_export.LABEL_VALUE  # on the edge
     assert label[100, 112] == 0  # beyond it
 
 
-def test_rasterise_is_instance_indexed():
-    points = [_point(index=1, x=50.0, y=50.0), _point(index=2, x=300.0, y=300.0)]
-    label = ml_export.rasterise_points(points, SHAPE, PIXELSIZE, 1e-6)
-    assert label[50, 50] == 1
-    assert label[300, 300] == 2
-    assert set(np.unique(label)) == {0, 1, 2}
-
-
-def test_rasterise_skips_out_of_bounds_points():
-    label = ml_export.rasterise_points(
-        [_point(x=-50.0, y=-50.0, in_bounds=False)], SHAPE, PIXELSIZE, 1e-6
-    )
-    assert label.max() == 0
+def test_rasterise_is_binary():
+    label = ml_export.rasterise_point(256.0, 256.0, SHAPE, PIXELSIZE, 1e-6)
+    assert set(np.unique(label)) == {0, ml_export.LABEL_VALUE}
+    assert label.dtype == ml_export.LABEL_DTYPE
 
 
 def test_rasterise_clips_disc_at_image_edge():
-    label = ml_export.rasterise_points([_point(x=2.0, y=2.0)], SHAPE, PIXELSIZE, 1e-6)
-    assert label[0, 0] == 1
+    label = ml_export.rasterise_point(2.0, 2.0, SHAPE, PIXELSIZE, 1e-6)
+    assert label[0, 0] == ml_export.LABEL_VALUE
     assert label.shape == SHAPE
-
-
-def test_rasterise_empty_points_gives_empty_label():
-    label = ml_export.rasterise_points([], SHAPE, PIXELSIZE, 1e-6)
-    assert label.max() == 0
-    assert label.dtype == ml_export.LABEL_DTYPE
 
 
 # ── export_experiment ────────────────────────────────────────────────────────
@@ -376,8 +334,8 @@ def test_export_sidecar_holds_subpixel_coordinates(tmp_path):
     with open(os.path.join(output, "points", "0001.json")) as f:
         data = json.load(f)
 
-    assert data["points"][0]["pixel_x"] == pytest.approx(257.5)
-    assert isinstance(data["points"][0]["pixel_x"], float)
+    assert data["pixel_x"] == pytest.approx(257.5)
+    assert isinstance(data["pixel_x"], float)
 
 
 def test_export_label_disc_lands_on_sidecar_coordinates(tmp_path):
@@ -390,10 +348,10 @@ def test_export_label_disc_lands_on_sidecar_coordinates(tmp_path):
 
     ml_export.export_experiment(exp, output)
     with open(os.path.join(output, "points", "0001.json")) as f:
-        point = json.load(f)["points"][0]
+        data = json.load(f)
     label = tifffile.imread(os.path.join(output, "labels", "0001.tif"))
 
-    assert label[round(point["pixel_y"]), round(point["pixel_x"])] == point["index"]
+    assert label[round(data["pixel_y"]), round(data["pixel_x"])] == ml_export.LABEL_VALUE
 
 
 def test_export_writes_manifest_indexing_samples(tmp_path):
