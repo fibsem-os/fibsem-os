@@ -32,6 +32,12 @@ class MillingTaskAcquisitionSettings:
                               metadata={
                                   "label": "Acquire FIB Image",
                                   "tooltip": "Whether to acquire FIB images between the milling task stages."})
+    acquire_final_image: bool = field(default=True,
+                                      metadata={
+                                          "label": "Acquire Final Image",
+                                          "tooltip": "Refresh the FIB view with a single image once the task finishes. "
+                                                     "Disable for low-kV polishing, where imaging the lamella with a "
+                                                     "higher-voltage beam undoes the polish."})
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
     @property
@@ -49,6 +55,7 @@ class MillingTaskAcquisitionSettings:
         return {
             "acquire_sem": self.acquire_sem,
             "acquire_fib": self.acquire_fib,
+            "acquire_final_image": self.acquire_final_image,
             "imaging": self.imaging.to_dict(),
         }
 
@@ -60,6 +67,9 @@ class MillingTaskAcquisitionSettings:
         return cls(
             acquire_sem=data.get("acquire_sem", False),
             acquire_fib=data.get("acquire_fib", False),
+            # default True so protocols written before this flag existed keep the
+            # post-task FIB refresh they have always had
+            acquire_final_image=data.get("acquire_final_image", True),
             imaging=ImageSettings.from_dict(imaging),
         )
 
@@ -259,8 +269,10 @@ class FibsemMillingTask:
     def _post_task_acquisition(self) -> None:
         """Acquire an image after finishing the milling task."""
         try:
-            # acquire an image after finishing the task, if not already done
-            if not self.config.acquisition.enabled and not self.config.acquisition.acquire_fib:
+            # refresh the view with a single image if the task didn't already acquire one.
+            # NB: acquisition.enabled is (acquire_sem or acquire_fib), so it subsumes the
+            # acquire_fib check this condition used to carry.
+            if self.config.acquisition.acquire_final_image and not self.config.acquisition.enabled:
                 self.microscope.autocontrast(beam_type=self.config.channel)
                 fib_image = self.microscope.acquire_image(image_settings=None, beam_type=self.config.channel)
                 self.microscope.fib_acquisition_signal.emit(fib_image)
