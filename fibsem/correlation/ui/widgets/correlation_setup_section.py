@@ -63,6 +63,21 @@ def format_run_timestamp(name: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def format_run_label(run: CorrelationRun) -> str:
+    """Dropdown label for one previous run: its timestamp, and whether it has a
+    result.
+
+    A run folder is not proof a correlation ran — ``File > Save Correlation``
+    writes one deliberately, and a run whose result was discarded keeps its
+    folder. Without the suffix those are indistinguishable from a completed
+    correlation at the moment you pick what to seed from (FIB-320).
+    """
+    label = format_run_timestamp(run.name)
+    if run.state.result is None:
+        label += "  ·  no result"
+    return label
+
+
 def _caption(text: str, indent: int = 0) -> QLabel:
     lbl = QLabel(text)
     style = f"color:{_MUTED};font-size:11px;"
@@ -171,7 +186,7 @@ class CorrelationSetupSection(QWidget):
         run_layout = QHBoxLayout(run_row)
         run_layout.setContentsMargins(20, 0, 0, 0)
         self.run_combo = ValueComboBox(
-            [format_run_timestamp(r.name) for r in self._prev_runs]
+            [format_run_label(r) for r in self._prev_runs]
         )
         self.run_combo.setStyleSheet(_CONTROL_STYLE)
         run_layout.addWidget(self.run_combo, 1)

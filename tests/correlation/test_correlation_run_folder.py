@@ -197,6 +197,74 @@ def test_save_plot_creates_the_folder_for_an_explicit_path_too(qapp, tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_a_run_without_a_result_says_so_in_the_dropdown(qapp):
+    """A run folder is not proof a correlation ran: File > Save Correlation
+    writes one deliberately (creating the folder is the point of an explicit
+    save), and a run whose result was discarded keeps its folder. Picking a
+    starting point means picking between those and real correlations."""
+    from fibsem.correlation.history import CorrelationRun
+    from fibsem.correlation.structures import CorrelationState
+    from fibsem.correlation.ui.widgets.correlation_setup_section import (
+        format_run_label,
+    )
+
+    def _run(result):
+        return CorrelationRun(
+            path="/tmp/r",
+            name="2026-07-24_14-32-00",
+            state=CorrelationState(input_data=CorrelationInputData(), result=result),
+        )
+
+    assert format_run_label(_run(_result())) == "2026-07-24 14:32:00"
+    assert format_run_label(_run(None)) == "2026-07-24 14:32:00  ·  no result"
+
+
+def test_a_failed_save_is_reported(qapp, tmp_path, monkeypatch):
+    """The load handler warns on failure; the save handlers didn't, so the
+    exception went to the event loop and the user was told nothing."""
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+
+    warned = []
+    monkeypatch.setattr(
+        ctw.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(tmp_path / "x.json"), "")),
+    )
+    monkeypatch.setattr(
+        ctw.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.append(a[1]))
+    )
+
+    w = _widget()
+    monkeypatch.setattr(
+        type(w), "save_correlation", lambda self, path: (_ for _ in ()).throw(OSError("disk full"))
+    )
+    w._on_save()  # must not raise
+
+    assert warned == ["Save Error"]
+
+
+def test_a_failed_plot_save_is_reported(qapp, tmp_path, monkeypatch):
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+
+    warned = []
+    monkeypatch.setattr(
+        ctw.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(tmp_path / "x.png"), "")),
+    )
+    monkeypatch.setattr(
+        ctw.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.append(a[1]))
+    )
+
+    w = _widget()
+    monkeypatch.setattr(
+        type(w), "save_plot", lambda self, path=None: (_ for _ in ()).throw(OSError("disk full"))
+    )
+    w._on_save_plot_clicked()  # must not raise
+
+    assert warned == ["Save Error"]
+
+
 def test_a_cancelled_correlation_leaves_no_run_behind(qapp, tmp_path, monkeypatch):
     """The reproduction from the issue: open, edit a point, cancel — and the next
     open must not offer that abandoned session as a previous correlation."""

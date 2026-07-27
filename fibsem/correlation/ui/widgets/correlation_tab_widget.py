@@ -2731,8 +2731,13 @@ class CorrelationTabWidget(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Correlation Plot", default, "PNG (*.png);;All files (*)"
         )
-        if path:
+        if not path:
+            return
+        try:
             self.save_plot(path)
+        except Exception as exc:
+            logging.exception("Failed to save correlation plot to %s", path)
+            QMessageBox.warning(self, "Save Error", f"Could not save plot:\n{exc}")
 
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""
@@ -2814,8 +2819,16 @@ class CorrelationTabWidget(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Correlation", start, "JSON (*.json);;All files (*)"
         )
-        if path:
+        if not path:
+            return
+        # Mirrors the load handler: a save that fails has to say so. Without this
+        # the exception went to the event loop, so the user was told nothing and
+        # walked away believing the file had been written.
+        try:
             self.save_correlation(path)
+        except Exception as exc:
+            logging.exception("Failed to save correlation to %s", path)
+            QMessageBox.warning(self, "Save Error", f"Could not save correlation:\n{exc}")
 
     # ------------------------------------------------------------------
     # FM z-stack interpolation (FIB-253)
