@@ -226,6 +226,43 @@ def test_a_failed_load_falls_back_to_the_last_good_image(qapp, monkeypatch):
     assert picker.combo.findData("/lam/broken_ib.tif") < 0
 
 
+def test_loading_an_image_does_not_list_it_twice(qapp, monkeypatch):
+    """Metadata records a basename, entries are keyed on full paths — so the
+    lookup missed and the bare name was added as a second entry for the same
+    file. Picking that one calls FibsemImage.load on a bare name, which resolves
+    against the working directory and fails."""
+    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+
+    w = _widget()
+    tab, picker = w._images_tab, w._images_tab._fib_picker
+    path = "/lam/03_ref_MillRough_ib.tif"
+    picker.set_options([path], path)
+    monkeypatch.setattr(
+        ctw.FibsemImage, "load", staticmethod(lambda p: _loads_as("03_ref_MillRough_ib.tif"))
+    )
+
+    tab._load_fib(path)
+
+    assert [picker.combo.itemData(i) for i in range(picker.combo.count())] == [path]
+    assert picker.current_path() == path
+    assert tab._fib_loaded_path == path  # a path, not a bare name
+
+
+def test_an_unknown_image_does_not_invent_an_entry(qapp):
+    """An image whose metadata names a file the picker doesn't offer must leave
+    the list — and the display — alone, rather than showing something it can't
+    load."""
+    w = _widget()
+    tab, picker = w._images_tab, w._images_tab._fib_picker
+    known = "/lam/03_ref_MillRough_ib.tif"
+    picker.set_options([known], known)
+
+    tab.set_fib_image(_loads_as("/somewhere/else/other_ib.tif"))
+
+    assert [picker.combo.itemData(i) for i in range(picker.combo.count())] == [known]
+    assert picker.current_path() == known
+
+
 # ---------------------------------------------------------------------------
 # 5 — a previous run with no coordinates has nothing to seed
 # ---------------------------------------------------------------------------

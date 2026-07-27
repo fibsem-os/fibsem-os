@@ -343,6 +343,31 @@ class _ImagePicker(QWidget):
         self.combo.blockSignals(False)
         self.combo.setToolTip(path)
 
+    def select_file(self, name: str) -> str:
+        """Select the known entry ``name`` refers to; return its full path.
+
+        Image metadata records a *basename* while entries are keyed on full
+        paths, so a direct lookup never matches and ``show_path`` would add the
+        bare name as a new entry — listing the same file twice, and leaving an
+        item that fails to load when picked, since nothing resolves a bare name
+        against a directory (FIB-321). The list holds paths; never put anything
+        else in it.
+
+        Returns "" and changes nothing when the file isn't one of the known ones.
+        """
+        if not name:
+            return ""
+        target = os.path.basename(name)
+        for i in range(self.combo.count()):
+            path = self.combo.itemData(i) or ""
+            if path == name or os.path.basename(path) == target:
+                self.combo.blockSignals(True)
+                self.combo.setCurrentIndex(i)
+                self.combo.blockSignals(False)
+                self.combo.setToolTip(path)
+                return path
+        return ""
+
     def reject_path(self, bad_path: str, restore: str) -> None:
         """Drop a path that failed to load, and go back to ``restore``.
 
@@ -524,6 +549,13 @@ class _ImagesTab(QWidget):
         """
         picker = self._fib_picker if kind == "fib" else self._fm_picker
         picker.set_options(paths, current)
+        # `current` is the file the caller has already loaded, so it is also the
+        # last-good path to fall back to when a later pick fails to load.
+        if current:
+            if kind == "fib":
+                self._fib_loaded_path = current
+            else:
+                self._fm_loaded_path = current
 
     def add_setup_section(self, section: QWidget) -> None:
         """Insert the lamella setup section before the tab's trailing stretch."""
@@ -604,8 +636,13 @@ class _ImagesTab(QWidget):
             )
             or ""
         )
-        self._fib_loaded_path = filename
-        self._fib_picker.show_path(filename)
+        # The metadata names the file; only the picker knows where it is. Resolve
+        # against what it already offers instead of taking the name as a path —
+        # and leave the display alone if this image isn't one of the known files,
+        # rather than showing a name the picker cannot load.
+        resolved = self._fib_picker.select_file(filename)
+        if resolved:
+            self._fib_loaded_path = resolved
         h, w = image.data.shape[:2]
         self._lbl_fib_shape.setText(f"{h} × {w}")
         px = getattr(
@@ -615,9 +652,11 @@ class _ImagesTab(QWidget):
 
     def set_fm_image(self, image: FluorescenceImage) -> None:
         self._fm_image = image
-        filename = getattr(image.metadata, "filename", "") or ""
-        self._fm_loaded_path = filename
-        self._fm_picker.show_path(filename)
+        resolved = self._fm_picker.select_file(
+            getattr(image.metadata, "filename", "") or ""
+        )
+        if resolved:
+            self._fm_loaded_path = resolved
         self._update_fm_labels(image)
 
     def _update_fm_labels(self, image: FluorescenceImage) -> None:
