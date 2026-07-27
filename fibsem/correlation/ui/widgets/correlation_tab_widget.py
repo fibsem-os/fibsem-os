@@ -1782,21 +1782,25 @@ class CorrelationTabWidget(QWidget):
         """Set where this correlation would be saved.
 
         A destination, not a promise: the directory is created on the first write
-        worth making, not here. See :meth:`_ensure_project_dir` (FIB-320).
+        worth making, not here. See :meth:`_ensure_dir_for` (FIB-320).
         """
         self._project_dir = path
         self._images_tab._proj_path.setText(path)
 
-    def _ensure_project_dir(self) -> Optional[str]:
-        """The project directory, created on demand. None if none is set.
+    @staticmethod
+    def _ensure_dir_for(path: str) -> str:
+        """Create the directory ``path`` is about to be written into; return path.
 
-        Only ever called from a path that is about to write a file, so an
-        abandoned session leaves nothing behind.
+        Every write site needs this now the run folder is created on demand: the
+        auto-save mints it on the first result, and both save dialogs offer a
+        default *inside* it — so an explicitly-passed path can be just as absent
+        as a derived one (FIB-320). Called immediately before writing, so an
+        abandoned session still leaves nothing behind.
         """
-        if not self._project_dir:
-            return None
-        os.makedirs(self._project_dir, exist_ok=True)
-        return self._project_dir
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        return path
 
     def set_data(self, data: CorrelationInputData) -> None:
         """Populate all coordinate lists and refresh canvases."""
@@ -2125,8 +2129,16 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def save_correlation(self, path: str) -> None:
-        """Save the whole correlation state (points + result) to one JSON."""
-        CorrelationState(input_data=self.data, result=self._result).save(path)
+        """Save the whole correlation state (points + result) to one JSON.
+
+        Creates the containing directory first. ``File > Save Correlation`` seeds
+        its dialog with the run folder, which since FIB-320 is created on demand
+        and may not exist yet — accepting that default would otherwise fail on
+        ``open()``. An explicit save names where it goes; make that place.
+        """
+        CorrelationState(input_data=self.data, result=self._result).save(
+            self._ensure_dir_for(path)
+        )
 
     @property
     def data(self) -> CorrelationInputData:
@@ -2286,7 +2298,9 @@ class CorrelationTabWidget(QWidget):
             return
         try:
             CorrelationState(input_data=self.data, result=self._result).save(
-                os.path.join(self._ensure_project_dir(), CORRELATION_FILENAME)
+                self._ensure_dir_for(
+                    os.path.join(self._project_dir, CORRELATION_FILENAME)
+                )
             )
         except Exception as exc:
             # Never let this pass unseen: it is the only persistence path, so a
@@ -2729,9 +2743,11 @@ class CorrelationTabWidget(QWidget):
                 QMessageBox.warning(self, "Save Plot", "No project directory set.")
                 return
             ts = time.strftime(DATETIME_FILE)
-            # Writing a file into the run folder, so this is a moment it should
-            # exist — the auto-save may not have minted it yet (FIB-320).
-            path = os.path.join(self._ensure_project_dir(), f"correlation_plot_{ts}.png")
+            path = os.path.join(self._project_dir, f"correlation_plot_{ts}.png")
+        # Whichever branch supplied it: the Save Plot dialog offers a default
+        # inside the run folder, so an explicit path lands in the same
+        # not-yet-created directory the derived one would (FIB-320).
+        path = self._ensure_dir_for(path)
 
         self._fib_canvas.reset_view()
         self._fm_display.canvas.reset_view()

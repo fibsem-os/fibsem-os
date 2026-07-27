@@ -151,6 +151,20 @@ def test_discarding_the_result_does_not_stop_saving(qapp, tmp_path):
     assert _saved_fib_x(run) == 7.0
 
 
+def test_explicit_save_creates_the_folder_it_writes_into(qapp, tmp_path):
+    """File > Save Correlation seeds its dialog with <run folder>/correlation.json.
+    Deferring creation made that default a path whose directory doesn't exist, so
+    accepting it raised FileNotFoundError out of open()."""
+    run = tmp_path / "2026-07-27_09-00-00"
+    w = _widget()
+    w.set_project_dir(str(run))
+    w.set_data(_inputs(x=3.0))
+
+    w.save_correlation(str(run / CORRELATION_JSON))  # the offered default
+
+    assert _saved_fib_x(run) == 3.0
+
+
 def test_save_plot_creates_the_folder_it_writes_into(qapp, tmp_path):
     """save_plot targets the run folder directly, so it can be the first writer."""
     run = tmp_path / "2026-07-27_09-00-00"
@@ -162,6 +176,20 @@ def test_save_plot_creates_the_folder_it_writes_into(qapp, tmp_path):
 
     assert run.is_dir()
     assert list(run.glob("correlation_plot_*.png"))
+
+
+def test_save_plot_creates_the_folder_for_an_explicit_path_too(qapp, tmp_path):
+    """The Save Plot dialog offers a default *inside* the run folder and then
+    passes it back as an explicit path — the same absent directory, arriving by
+    the branch that doesn't derive it."""
+    run = tmp_path / "2026-07-27_09-00-00"
+    w = _widget()
+    w.set_project_dir(str(run))
+    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6))
+
+    w.save_plot(str(run / "correlation_plot_2026-07-27_09-05-00.png"))  # as offered
+
+    assert (run / "correlation_plot_2026-07-27_09-05-00.png").is_file()
 
 
 # ---------------------------------------------------------------------------
