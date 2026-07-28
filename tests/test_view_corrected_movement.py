@@ -164,6 +164,21 @@ def _configure(microscope, *, pretilt_deg, rotation_deg, tilt_deg, compustage):
     return position
 
 
+def _sync_image_metadata(image, microscope, position, *, is_compustage: bool) -> None:
+    """Point an image's metadata at the geometry the microscope is configured for.
+
+    `tiled.py` reads geometry from image metadata rather than from a microscope, and
+    detects a compustage from `system.sim` / the model name rather than from
+    `stage_is_compustage`. The marker therefore has to be set explicitly here --
+    otherwise the test would silently depend on whatever the ambient default
+    configuration happens to advertise, which differs between machines and CI.
+    """
+    image.metadata.system = microscope.system
+    image.metadata.microscope_state.stage_position = position
+    image.metadata.system.sim = dict(image.metadata.system.sim or {})
+    image.metadata.system.sim["is_compustage"] = is_compustage
+
+
 class TestRefactorParity:
     """The extracted projection must reproduce the pre-refactor formulae exactly."""
 
@@ -371,8 +386,7 @@ class TestTiledInverseMatchesMicroscope:
         position = _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
         )
-        image.metadata.system = microscope.system
-        image.metadata.microscope_state.stage_position = position
+        _sync_image_metadata(image, microscope, position, is_compustage=True)
 
         dy, dz = 12e-6, -3e-6
         from_microscope = microscope._inverse_y_corrected_stage_movement(
@@ -393,8 +407,7 @@ class TestTiledInverseMatchesMicroscope:
         position = _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
         )
-        image.metadata.system = microscope.system
-        image.metadata.microscope_state.stage_position = position
+        _sync_image_metadata(image, microscope, position, is_compustage=True)
         expected_y = 25e-6
 
         move = microscope._y_corrected_stage_movement(expected_y, beam_type=BeamType.ELECTRON)
@@ -409,10 +422,7 @@ class TestTiledInverseMatchesMicroscope:
         position = _configure(
             microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False
         )
-        image.metadata.system = microscope.system
-        image.metadata.system.sim = dict(image.metadata.system.sim or {})
-        image.metadata.system.sim["is_compustage"] = False
-        image.metadata.microscope_state.stage_position = position
+        _sync_image_metadata(image, microscope, position, is_compustage=False)
 
         dy, dz = 12e-6, -3e-6
         for beam_type in BEAM_TYPES:
