@@ -1440,11 +1440,13 @@ class FibsemMicroscope(ABC):
         stage_rotation = current_stage_position.r % (2 * np.pi) if current_stage_position.r is not None else 0.0
         stage_tilt = current_stage_position.t if current_stage_position.t is not None else 0.0
 
-        # Handle compustage case
+        # Handle compustage case. This mirrors the forward's sign handling: it flips
+        # expected_y once for compustage, then a second time at the FIB orientation,
+        # so the two flips cancel there. The sign is +/-1, hence self-inverse, and is
+        # applied to the recovered expected_y below.
         compustage_sign = 1.0
         if self.stage_is_compustage:
-            if stage_tilt <= 0:
-                compustage_sign = -1.0
+            compustage_sign = -1.0
             stage_tilt += np.pi
 
         PRETILT_SIGN = 1.0
@@ -1453,6 +1455,10 @@ class FibsemMicroscope(ABC):
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
             PRETILT_SIGN = 1.0
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
+            PRETILT_SIGN = -1.0
+
+        if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
+            compustage_sign = 1.0  # the forward's second flip cancels the first
             PRETILT_SIGN = -1.0
 
         corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)

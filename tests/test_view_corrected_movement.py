@@ -1,4 +1,4 @@
-"""Parity tests for the view-parameterised stage projection (FIB-133 Phase A/B).
+"""Tests for the view-parameterised stage projection (FIB-133).
 
 `_y_corrected_stage_movement` used to hardcode a two-branch choice between the
 electron and ion columns. It is now a thin wrapper over
@@ -6,9 +6,19 @@ electron and ion columns. It is now a thin wrapper over
 far the viewing axis sits from the electron column -- 0 for the electron column,
 `column_tilt` for the ion column, and `camera_tilt` for a fluorescence camera.
 
-These tests pin that refactor as *inert*: the reference implementations below are
-the pre-refactor formulae copied verbatim, and the sweep asserts the new code
-agrees with them everywhere.
+Two different properties are pinned here, and they are deliberately kept apart:
+
+*Inert* -- the view parameterisation itself changed nothing. `_reference_y_corrected`
+and `_reference_inverse_y_corrected` are the original formulae copied verbatim, and
+the sweeps assert the current code agrees with them (for the inverse, on the
+non-compustage path, which the fix below leaves untouched).
+
+*Deliberately changed* -- the inverse was never a faithful inverse of the forward on
+a compustage: the forward flips `expected_y` again at the FIB orientation, while the
+inverse used a stage-tilt threshold and never consulted orientation, so it returned
+the wrong sign there. The correctness criterion is round-trip identity, so those
+tests assert the round-trip rather than agreement with the old formula, and one test
+pins the old formula's wrong answer so the defect cannot creep back.
 """
 
 import numpy as np
@@ -75,7 +85,13 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
 
 
 def _reference_inverse_y_corrected(microscope, dy: float, dz: float, beam_type: BeamType):
-    """Pre-refactor `_inverse_y_corrected_stage_movement`, copied verbatim."""
+    """Pre-*fix* `_inverse_y_corrected_stage_movement`, copied verbatim.
+
+    Retained to pin that the non-compustage path is untouched, and to document the
+    compustage behaviour this branch deliberately changes (see
+    TestCompustageInverseRoundTrip): the old form used a stage-tilt threshold and
+    never consulted orientation, so it inverted the sign at the FIB pose.
+    """
     sem_column_tilt = np.deg2rad(microscope.system.electron.column_tilt)
     fib_column_tilt = np.deg2rad(microscope.system.ion.column_tilt)
 
@@ -178,16 +194,16 @@ class TestRefactorParity:
     @pytest.mark.parametrize("pretilt_deg", PRETILTS_DEG)
     @pytest.mark.parametrize("rotation_deg", ROTATIONS_DEG)
     @pytest.mark.parametrize("beam_type", BEAM_TYPES)
-    @pytest.mark.parametrize("compustage", COMPUSTAGE)
-    def test_inverse_parity(
-        self, microscope, tilt_deg, pretilt_deg, rotation_deg, beam_type, compustage
+    def test_inverse_parity_non_compustage(
+        self, microscope, tilt_deg, pretilt_deg, rotation_deg, beam_type
     ):
+        """Pre-tilted shuttle stages are untouched by the compustage sign fix."""
         _configure(
             microscope,
             pretilt_deg=pretilt_deg,
             rotation_deg=rotation_deg,
             tilt_deg=tilt_deg,
-            compustage=compustage,
+            compustage=False,
         )
         dy, dz = 12e-6, -3e-6
 
@@ -237,6 +253,174 @@ class TestViewTiltEquivalence:
         )
 
         assert recovered == pytest.approx(expected_y, rel=1e-9)
+
+
+class TestCompustageInverseRoundTrip:
+    """The inverse must mirror the forward at every compustage orientation.
+
+    The forward flips `expected_y` for compustage and again at the FIB orientation;
+    the inverse previously used a stage-tilt threshold and never consulted
+    orientation, so it returned the wrong sign at the FIB pose.
+    """
+
+    # (tilt, expected orientation) for the compustage: SEM flat, milling, FIB, FM pose
+    COMPUSTAGE_POSES = [(0, "SEM"), (-30, "MILLING"), (-128, "FIB"), (-180, "FM")]
+
+    @pytest.mark.parametrize("tilt_deg, orientation", COMPUSTAGE_POSES)
+    @pytest.mark.parametrize("view_tilt_deg", [0, 52, 180])
+    def test_round_trips_at_every_compustage_orientation(
+        self, microscope, tilt_deg, orientation, view_tilt_deg
+    ):
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True)
+        assert microscope.get_stage_orientation() == orientation, "test pose drifted"
+
+        view_tilt = np.deg2rad(view_tilt_deg)
+        expected_y = 25e-6
+
+        move = microscope._view_corrected_stage_movement(expected_y, view_tilt=view_tilt)
+        recovered = microscope._inverse_view_corrected_stage_movement(
+            dy=move.y, dz=move.z, view_tilt=view_tilt
+        )
+
+        assert recovered == pytest.approx(expected_y, rel=1e-9)
+
+    @pytest.mark.parametrize("tilt_deg, orientation", COMPUSTAGE_POSES)
+    def test_beam_round_trips_at_every_compustage_orientation(
+        self, microscope, tilt_deg, orientation
+    ):
+        """The same property through the public beam-typed wrappers."""
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True)
+        expected_y = 25e-6
+
+        for beam_type in BEAM_TYPES:
+            move = microscope._y_corrected_stage_movement(expected_y, beam_type=beam_type)
+            recovered = microscope._inverse_y_corrected_stage_movement(
+                dy=move.y, dz=move.z, beam_type=beam_type
+            )
+            assert recovered == pytest.approx(expected_y, rel=1e-9), (
+                f"{orientation} / {beam_type.name} does not round-trip"
+            )
+
+    def test_fib_pose_sign_was_inverted_before_the_fix(self, microscope):
+        """Pin the specific defect: the pre-fix formula returns the wrong sign at FIB.
+
+        This is the behaviour change this branch makes, stated explicitly so it cannot
+        be reintroduced silently.
+        """
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-128, compustage=True)
+        assert microscope.get_stage_orientation() == "FIB"
+        expected_y = 25e-6
+
+        move = microscope._y_corrected_stage_movement(expected_y, beam_type=BeamType.ELECTRON)
+        pre_fix = _reference_inverse_y_corrected(
+            microscope, dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON
+        )
+        fixed = microscope._inverse_y_corrected_stage_movement(
+            dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON
+        )
+
+        assert pre_fix == pytest.approx(-expected_y, rel=1e-9), "pre-fix formula was sign-inverted"
+        assert fixed == pytest.approx(expected_y, rel=1e-9), "fixed formula round-trips"
+
+    def test_non_compustage_round_trips_across_orientations(self, microscope):
+        """Unchanged behaviour on a pre-tilted shuttle stage."""
+        for rotation_deg, tilt_deg in [(0, 35), (0, 12), (180, -17)]:
+            _configure(
+                microscope,
+                pretilt_deg=35,
+                rotation_deg=rotation_deg,
+                tilt_deg=tilt_deg,
+                compustage=False,
+            )
+            for beam_type in BEAM_TYPES:
+                move = microscope._y_corrected_stage_movement(25e-6, beam_type=beam_type)
+                recovered = microscope._inverse_y_corrected_stage_movement(
+                    dy=move.y, dz=move.z, beam_type=beam_type
+                )
+                assert recovered == pytest.approx(25e-6, rel=1e-9)
+
+
+class TestTiledInverseMatchesMicroscope:
+    """`tiled.py` keeps its own microscope-free copy for offline reprojection.
+
+    It reads geometry from image metadata instead of a live microscope, so it can
+    reproject saved images. It must still agree with the microscope method -- if it
+    doesn't, a reprojected point lands somewhere other than where the stage would
+    actually move.
+    """
+
+    @pytest.fixture()
+    def image(self, microscope):
+        from fibsem.structures import ImageSettings
+
+        return microscope.acquire_image(
+            ImageSettings(
+                hfw=80e-6, resolution=[64, 64], beam_type=BeamType.ELECTRON, save=False
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "tilt_deg, orientation", TestCompustageInverseRoundTrip.COMPUSTAGE_POSES
+    )
+    @pytest.mark.parametrize("beam_type", BEAM_TYPES)
+    def test_agrees_with_microscope_at_every_compustage_orientation(
+        self, microscope, image, tilt_deg, orientation, beam_type
+    ):
+        from fibsem.imaging.tiled import _inverse_y_corrected_stage_movement as tiled_inverse
+
+        position = _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
+        )
+        image.metadata.system = microscope.system
+        image.metadata.microscope_state.stage_position = position
+
+        dy, dz = 12e-6, -3e-6
+        from_microscope = microscope._inverse_y_corrected_stage_movement(
+            dy=dy, dz=dz, beam_type=beam_type
+        )
+        from_image = tiled_inverse(image, dy=dy, dz=dz, beam_type=beam_type)
+
+        assert from_image == pytest.approx(from_microscope, rel=1e-9), (
+            f"tiled.py disagrees with the microscope at {orientation}"
+        )
+
+    @pytest.mark.parametrize(
+        "tilt_deg, orientation", TestCompustageInverseRoundTrip.COMPUSTAGE_POSES
+    )
+    def test_round_trips_against_the_forward(self, microscope, image, tilt_deg, orientation):
+        from fibsem.imaging.tiled import _inverse_y_corrected_stage_movement as tiled_inverse
+
+        position = _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
+        )
+        image.metadata.system = microscope.system
+        image.metadata.microscope_state.stage_position = position
+        expected_y = 25e-6
+
+        move = microscope._y_corrected_stage_movement(expected_y, beam_type=BeamType.ELECTRON)
+        recovered = tiled_inverse(image, dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON)
+
+        assert recovered == pytest.approx(expected_y, rel=1e-9)
+
+    def test_non_compustage_is_untouched(self, microscope, image):
+        """The pre-tilted shuttle path through tiled.py is unchanged."""
+        from fibsem.imaging.tiled import _inverse_y_corrected_stage_movement as tiled_inverse
+
+        position = _configure(
+            microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False
+        )
+        image.metadata.system = microscope.system
+        image.metadata.system.sim = dict(image.metadata.system.sim or {})
+        image.metadata.system.sim["is_compustage"] = False
+        image.metadata.microscope_state.stage_position = position
+
+        dy, dz = 12e-6, -3e-6
+        for beam_type in BEAM_TYPES:
+            from_microscope = microscope._inverse_y_corrected_stage_movement(
+                dy=dy, dz=dz, beam_type=beam_type
+            )
+            from_image = tiled_inverse(image, dy=dy, dz=dz, beam_type=beam_type)
+            assert from_image == pytest.approx(from_microscope, rel=1e-9)
 
 
 class TestCameraTilt:
