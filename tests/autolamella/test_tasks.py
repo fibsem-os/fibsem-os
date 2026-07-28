@@ -171,3 +171,19 @@ def test_a_custom_filename_is_not_recorded_as_a_final_reference_set(
     )
 
     assert set(task.lamella.task_state.outputs) == {"other_sem", "other_fib"}
+
+
+def test_record_output_does_not_record_the_same_file_twice(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """Acquiring the same set twice in one run overwrites the same files; the record
+    describes files, not writes."""
+    task = _make_trench_task(compustage_microscope, tmp_path)
+    written = Path(task.lamella.path) / "ref_MillTrench_final_res_01_eb.tif"
+
+    task._record_output("final_sem", _image_written_to(written))
+    task._record_output("final_sem", _image_written_to(written))
+
+    assert task.lamella.task_state.outputs == {
+        "final_sem": ["ref_MillTrench_final_res_01_eb.tif"]
+    }

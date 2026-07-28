@@ -450,7 +450,13 @@ class AutoLamellaTask(ABC):
         if image is None or image.filepath is None:
             return
         path = os.path.relpath(image.filepath, self.lamella.path)
-        self.lamella.task_state.outputs.setdefault(role, []).append(path)
+        paths = self.lamella.task_state.outputs.setdefault(role, [])
+        # a run can acquire the same set more than once -- MillCoincidentTask does,
+        # before and after milling -- and the default filename means the second write
+        # overwrites the first. The record describes files, not writes, so the same
+        # path recorded twice is still one file.
+        if path not in paths:
+            paths.append(path)
 
     def _record_channel_outputs(self, phase: str, images: List[Tuple[Optional[FibsemImage], Optional[FibsemImage]]]) -> None:
         """Record a set of (sem, fib) pairs under `{phase}_sem` / `{phase}_fib`."""

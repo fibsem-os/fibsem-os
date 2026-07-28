@@ -32,8 +32,13 @@ def final_reference_images(lamella: Lamella, task: AutoLamellaTaskState) -> List
         for role in ("final_sem", "final_fib")
         for relpath in task.outputs.get(role, [])
     ]
+    # deduplicate: a path recorded twice is still one file, and duplicates would
+    # crowd out real images when callers slice the last N off the result.
+    # require the file to still exist, so a record whose images have been deleted
+    # falls through to the convention rather than yielding permanent blanks.
+    recorded = sorted({path for path in recorded if os.path.isfile(path)})
     if recorded:
-        return sorted(recorded)
+        return recorded
     return sorted(
         glob.glob(os.path.join(lamella.path, f"ref_{task.name}*_final_*res*.tif*"))
     )

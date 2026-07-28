@@ -120,3 +120,52 @@ def test_only_final_outputs_are_offered(tmp_path):
     )
 
     assert final_reference_images(lamella, task) == []
+
+
+def test_a_set_acquired_twice_in_one_run_does_not_crowd_out_the_other_beam(tmp_path):
+    """MillCoincidentTask acquires the final set twice in one run, before and after
+    milling. Both calls use the default filename, so the second overwrites the same
+    files -- but both record. Left duplicated, the last-two slice callers take would
+    return the same FIB image twice and no SEM image at all.
+    """
+    lamella = _lamella(tmp_path)
+    _write(lamella, CONVENTIONAL)
+    sem = [n for n in CONVENTIONAL if n.endswith("_eb.tif")]
+    fib = [n for n in CONVENTIONAL if n.endswith("_ib.tif")]
+
+    task = AutoLamellaTaskState(
+        name="MillRough", outputs={"final_sem": sem * 2, "final_fib": fib * 2}
+    )
+    found = final_reference_images(lamella, task)
+
+    assert [os.path.basename(p) for p in found] == CONVENTIONAL
+    assert [os.path.basename(p) for p in found[-2:]] == [
+        "ref_MillRough_final_res_02_eb.tif",
+        "ref_MillRough_final_res_02_ib.tif",
+    ]
+
+
+def test_a_record_whose_images_are_gone_falls_through_to_the_convention(tmp_path):
+    """Unlike the glob, a record can name files that no longer exist. Returning them
+    would build a task row of placeholders that never fill, where the old behaviour
+    skipped the row entirely.
+    """
+    lamella = _lamella(tmp_path)
+    _write(lamella, CONVENTIONAL)
+    task = AutoLamellaTaskState(
+        name="MillRough", outputs={"final_sem": ["deleted_eb.tif"]}
+    )
+
+    found = final_reference_images(lamella, task)
+
+    assert [os.path.basename(p) for p in found] == CONVENTIONAL
+
+
+def test_a_record_of_only_deleted_images_with_nothing_on_disk_finds_nothing(tmp_path):
+    """...and with no convention-named files either, the row is skipped as before."""
+    lamella = _lamella(tmp_path)
+    task = AutoLamellaTaskState(
+        name="MillRough", outputs={"final_sem": ["deleted_eb.tif"]}
+    )
+
+    assert final_reference_images(lamella, task) == []
