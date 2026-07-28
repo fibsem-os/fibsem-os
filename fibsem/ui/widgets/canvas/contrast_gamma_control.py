@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QDoubleSlider
 
-from fibsem.imaging.autogamma import apply_gamma
+from fibsem.autofunctions.gamma import apply_gamma
 
 _PANEL_STYLE = (
     "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
