@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
@@ -316,12 +316,15 @@ class LamellaTaskImageWidget(QWidget):
         )
         self._content_layout.addWidget(subtitle_label)
 
-        # Task rows — deduplicate, keep last occurrence of each task name
-        seen = {}
+        # One row per task, accumulating every run of it. Discovery returns the union
+        # of what those runs produced, which needs no special-casing: reference images
+        # are written to the same filename each run so repeated runs collapse to one
+        # set, while fluorescence stacks are uniquely named so every acquisition is
+        # kept. Showing only the last run would silently hide earlier FM images.
+        runs: Dict[str, List[AutoLamellaTaskState]] = {}
         for t in lamella.task_history:
-            seen[t.name] = t
-        completed_tasks = list(seen.values())
-        if not completed_tasks:
+            runs.setdefault(t.name, []).append(t)
+        if not runs:
             no_images = QLabel("No task images available.")
             no_images.setStyleSheet("color: #909090; font-size: 11px;")
             self._content_layout.addWidget(no_images)
@@ -330,16 +333,16 @@ class LamellaTaskImageWidget(QWidget):
 
         # Collect all filepaths to load and build placeholder rows
         all_filepaths: List[str] = []
-        for task in completed_tasks:
+        for task_name, task_runs in runs.items():
             # cap the reference images *before* appending fluorescence: the cap picks
             # the highest-magnification SEM/FIB pair out of a multi-FOV set, and
             # applying it to a merged list would let a z-stack displace the FIB image.
-            filenames = final_reference_images(lamella, task)[-_MAX_IMAGES_PER_TASK:]
-            filenames += fluorescence_images(lamella, task)
+            filenames = final_reference_images(lamella, *task_runs)[-_MAX_IMAGES_PER_TASK:]
+            filenames += fluorescence_images(lamella, *task_runs)
             # a task that produced nothing still gets a row saying so: silently
             # omitting it is indistinguishable from the task never having run,
             # which is the confusion this whole feature exists to remove.
-            row = self._build_task_row_with_placeholders(task.name, filenames)
+            row = self._build_task_row_with_placeholders(task_name, filenames)
             self._content_layout.addWidget(row)
             all_filepaths.extend(filenames)
 
