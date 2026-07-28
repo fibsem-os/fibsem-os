@@ -17,6 +17,39 @@ from typing import List
 from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
 
 
+def _recorded(lamella: Lamella, task: AutoLamellaTaskState, *roles: str) -> List[str]:
+    """Absolute, existing, de-duplicated paths recorded under the given roles.
+
+    A record can hold things a directory listing never could, so both guards are
+    load-bearing rather than defensive habit:
+
+    * **Deduplicate** — a run can acquire the same set twice (MillCoincidentTask
+      does, before and after milling) and overwrite the same files, recording each
+      path twice. Duplicates crowd out real images when callers slice off the last N.
+    * **Require existence** — a record can name a file that has since been deleted.
+      Returning it produces a row of placeholders that never fill, where the file
+      simply being absent used to mean no row at all.
+    """
+    paths = (
+        os.path.join(lamella.path, relpath)
+        for role in roles
+        for relpath in task.outputs.get(role, [])
+    )
+    return sorted({path for path in paths if os.path.isfile(path)})
+
+
+def fluorescence_images(lamella: Lamella, task: AutoLamellaTaskState) -> List[str]:
+    """Absolute paths to the fluorescence z-stacks a task run produced.
+
+    No filename fallback, unlike the reference images: fluorescence output never
+    followed a discoverable convention — it is named for the lamella and a
+    time-of-day stamp, with no task name — so an experiment written before runs
+    recorded their outputs simply has none to find. Guessing a pattern would
+    attribute files to the wrong run.
+    """
+    return _recorded(lamella, task, "fluorescence")
+
+
 def final_reference_images(lamella: Lamella, task: AutoLamellaTaskState) -> List[str]:
     """Absolute paths to the final reference images a task run produced.
 
@@ -27,16 +60,7 @@ def final_reference_images(lamella: Lamella, task: AutoLamellaTaskState) -> List
     Sorted so both routes yield the same order: alphabetical puts the highest-res
     pair last, which is what callers slice off.
     """
-    recorded = [
-        os.path.join(lamella.path, relpath)
-        for role in ("final_sem", "final_fib")
-        for relpath in task.outputs.get(role, [])
-    ]
-    # deduplicate: a path recorded twice is still one file, and duplicates would
-    # crowd out real images when callers slice the last N off the result.
-    # require the file to still exist, so a record whose images have been deleted
-    # falls through to the convention rather than yielding permanent blanks.
-    recorded = sorted({path for path in recorded if os.path.isfile(path)})
+    recorded = _recorded(lamella, task, "final_sem", "final_fib")
     if recorded:
         return recorded
     return sorted(

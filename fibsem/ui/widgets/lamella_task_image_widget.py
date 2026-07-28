@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGraphicsScene,
     QGraphicsView,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QScrollArea,
@@ -25,13 +26,18 @@ from PyQt5.QtWidgets import (
 from skimage.transform import resize
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.task_outputs import final_reference_images
+from fibsem.applications.autolamella.task_outputs import (
+    final_reference_images,
+    fluorescence_images,
+)
+from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.structures import FibsemImage
 
 _TARGET_WIDTH = 1024//2
 _PLACEHOLDER_HEIGHT = 768//2  # estimated height for placeholder labels
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
+_IMAGES_PER_LINE = 2      # tiles per line before wrapping; matches the SEM/FIB pair
 
 
 def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
@@ -49,21 +55,33 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
 
 
 def _load_and_resize(filepath: str, target_width: int = _TARGET_WIDTH) -> Tuple[np.ndarray, float]:
-    """Load a .tif image and resize to target width, preserving aspect ratio.
+    """Load an image and resize to target width, preserving aspect ratio.
+
+    Handles both a plain .tif and a fluorescence z-stack, which becomes an RGB
+    channel composite. resize() preserves a trailing channel axis on its own, so
+    both shapes go through the same path below.
 
     Returns:
         Tuple of (resized array, pixel_size_x in metres adjusted for resize).
     """
-    img = FibsemImage.load(filepath)
-    data = img.data
-    if data.ndim == 3 and data.shape[2] in (3, 4):
-        data = data[..., :3].mean(axis=2).astype(data.dtype)
+    if is_fluorescence_image(filepath):
+        data, pixel_size_x = load_projection(filepath)
+    else:
+        img = FibsemImage.load(filepath)
+        data = img.data
+        if data.ndim == 3 and data.shape[2] in (3, 4):
+            data = data[..., :3].mean(axis=2).astype(data.dtype)
+        pixel_size_x = img.metadata.pixel_size.x
     h, w = data.shape[:2]
-    scale = target_width / w
-    new_h = int(h * scale)
-    resized = resize(data, (new_h, target_width), preserve_range=True).astype(np.uint8)
-    pixel_size_x = img.metadata.pixel_size.x / scale
-    return resized, pixel_size_x
+    # Fit inside the tile box rather than filling its width. Beam images are 3:2 and
+    # are width-limited, but a fluorescence stack is square: scaling it to the full
+    # width makes it half again as tall as its neighbours, and taller than the
+    # placeholder it replaces, so the row jumps when it finishes loading.
+    max_height = target_width * _PLACEHOLDER_HEIGHT / _TARGET_WIDTH
+    scale = min(target_width / w, max_height / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
+    return resized, pixel_size_x / scale
 
 
 class ClickableLabel(QLabel):
@@ -313,10 +331,14 @@ class LamellaTaskImageWidget(QWidget):
         # Collect all filepaths to load and build placeholder rows
         all_filepaths: List[str] = []
         for task in completed_tasks:
-            filenames = final_reference_images(lamella, task)
-            if not filenames:
-                continue
-            filenames = filenames[-_MAX_IMAGES_PER_TASK:]
+            # cap the reference images *before* appending fluorescence: the cap picks
+            # the highest-magnification SEM/FIB pair out of a multi-FOV set, and
+            # applying it to a merged list would let a z-stack displace the FIB image.
+            filenames = final_reference_images(lamella, task)[-_MAX_IMAGES_PER_TASK:]
+            filenames += fluorescence_images(lamella, task)
+            # a task that produced nothing still gets a row saying so: silently
+            # omitting it is indistinguishable from the task never having run,
+            # which is the confusion this whole feature exists to remove.
             row = self._build_task_row_with_placeholders(task.name, filenames)
             self._content_layout.addWidget(row)
             all_filepaths.extend(filenames)
@@ -362,23 +384,37 @@ class LamellaTaskImageWidget(QWidget):
         )
         layout.addWidget(task_label)
 
-        # Image row with placeholders
+        # Say so explicitly rather than rendering an empty row: a task with a bare
+        # heading reads as "still loading", not "produced nothing".
+        if not filenames:
+            note = QLabel("No images recorded for this task.")
+            note.setStyleSheet(
+                "font-size: 11px; color: #808080; background: transparent;"
+            )
+            layout.addWidget(note)
+            return container
+
+        # Images wrap onto further lines rather than running off the edge: a task can
+        # now produce more than the SEM/FIB pair (a fluorescence stack as well), and
+        # the panel scrolls vertically only, so anything past the width is unreachable.
         img_row = QWidget()
         img_row.setStyleSheet("background: transparent;")
-        img_layout = QHBoxLayout(img_row)
+        img_layout = QGridLayout(img_row)
         img_layout.setContentsMargins(0, 0, 0, 0)
         img_layout.setSpacing(8)
 
-        for fpath in filenames:
+        for index, fpath in enumerate(filenames):
             img_label = ClickableLabel(fpath)
             img_label.setFixedSize(_TARGET_WIDTH, _PLACEHOLDER_HEIGHT)
             img_label.setStyleSheet("background: #1a1b1e; border-radius: 4px;")
             img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             img_label.setText("Loading...")
-            img_layout.addWidget(img_label)
+            row, column = divmod(index, _IMAGES_PER_LINE)
+            img_layout.addWidget(img_label, row, column)
             self._placeholder_labels[fpath] = img_label
 
-        img_layout.addStretch(1)
+        # trailing stretch column, so tiles stay left-aligned as before
+        img_layout.setColumnStretch(_IMAGES_PER_LINE, 1)
         layout.addWidget(img_row)
 
         return container

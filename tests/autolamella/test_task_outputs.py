@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import List
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
-from fibsem.applications.autolamella.task_outputs import final_reference_images
+from fibsem.applications.autolamella.task_outputs import (
+    final_reference_images,
+    fluorescence_images,
+)
 
 CONVENTIONAL = [
     "ref_MillRough_final_res_01_eb.tif",
@@ -169,3 +172,60 @@ def test_a_record_of_only_deleted_images_with_nothing_on_disk_finds_nothing(tmp_
     )
 
     assert final_reference_images(lamella, task) == []
+
+
+# fluorescence_images
+
+
+def test_fluorescence_images_returns_recorded_stacks(tmp_path):
+    lamella = _lamella(tmp_path)
+    _write(lamella, ["01-lam-zstack-14-26-25.ome.tiff"])
+    task = AutoLamellaTaskState(
+        name="Acquire Fluorescence Image",
+        outputs={"fluorescence": ["01-lam-zstack-14-26-25.ome.tiff"]},
+    )
+
+    found = fluorescence_images(lamella, task)
+
+    assert found == [str(Path(lamella.path, "01-lam-zstack-14-26-25.ome.tiff"))]
+
+
+def test_fluorescence_has_no_filename_fallback(tmp_path):
+    """FM output never followed a discoverable convention — it carries the lamella
+    name and a time-of-day stamp, but no task name. An experiment written before
+    runs recorded their outputs has none to find, and guessing a pattern would
+    attribute files to the wrong run.
+    """
+    lamella = _lamella(tmp_path)
+    _write(lamella, ["01-lam-zstack-14-26-25.ome.tiff"])  # on disk, but unrecorded
+
+    assert fluorescence_images(lamella, AutoLamellaTaskState(name="Acquire")) == []
+
+
+def test_fluorescence_applies_the_same_guards_as_reference_images(tmp_path):
+    """MillCoincidentTask records under `fluorescence` too, so duplicates and
+    deleted files are live cases here, not hypothetical."""
+    lamella = _lamella(tmp_path)
+    _write(lamella, ["stack.ome.tiff"])
+    task = AutoLamellaTaskState(
+        name="Mill Coincident",
+        outputs={"fluorescence": ["stack.ome.tiff", "stack.ome.tiff", "gone.ome.tiff"]},
+    )
+
+    assert fluorescence_images(lamella, task) == [str(Path(lamella.path, "stack.ome.tiff"))]
+
+
+def test_reference_and_fluorescence_are_separate(tmp_path):
+    """Each reads only its own roles — a task with both must not cross-contaminate."""
+    lamella = _lamella(tmp_path)
+    _write(lamella, CONVENTIONAL + ["stack.ome.tiff"])
+    task = AutoLamellaTaskState(
+        name="MillRough",
+        outputs={
+            "final_sem": [CONVENTIONAL[0]],
+            "fluorescence": ["stack.ome.tiff"],
+        },
+    )
+
+    assert final_reference_images(lamella, task) == [str(Path(lamella.path, CONVENTIONAL[0]))]
+    assert fluorescence_images(lamella, task) == [str(Path(lamella.path, "stack.ome.tiff"))]
