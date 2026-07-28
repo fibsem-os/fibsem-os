@@ -485,6 +485,20 @@ class TestCameraImageTransformIsFlipOnly:
             assert dy == 0.0
             assert abs(dx) == 5.0
 
+    def test_one_spelling_per_transform(self):
+        """No two members may describe the same operation.
+
+        A half turn used to exist as both FLIP_XY and ROTATE_180, which made
+        `transform is FLIP_XY` silently false for a value that behaved identically.
+        """
+        seen = {}
+        for transform in CameraImageTransform:
+            signature = transform.apply_to_delta(1.0, 1.0)
+            assert signature not in seen, (
+                f"{transform.name} and {seen[signature].name} are the same operation"
+            )
+            seen[signature] = transform
+
     def test_removed_values_load_as_none_with_a_warning(self, caplog):
         """A configuration written before the rotations were removed must still load."""
         from fibsem.fm.structures import CameraSettings
@@ -496,6 +510,22 @@ class TestCameraImageTransformIsFlipOnly:
 
         assert settings.transform is CameraImageTransform.NONE
         assert "rotate-90-cw" in caplog.text
+
+    def test_a_stored_half_turn_migrates_rather_than_being_dropped(self):
+        """`rotate-180` is the same operation as a double flip, so the setting survives.
+
+        Falling back to NONE here would silently change the image orientation for
+        anyone who had it configured.
+        """
+        from fibsem.fm.structures import CameraSettings
+
+        settings = CameraSettings.from_dict(
+            {"gain": 0.1, "offset": 0.0, "binning": 1, "transform": "rotate-180"}
+        )
+
+        assert settings.transform is CameraImageTransform.FLIP_XY
+        # and it re-saves under the canonical spelling
+        assert settings.to_dict()["transform"] == "flip-xy"
 
     def test_supported_values_still_round_trip(self):
         from fibsem.fm.structures import CameraSettings
@@ -665,7 +695,7 @@ class TestMountTransform:
             (CameraImageTransform.NONE, lambda d: d),
             (CameraImageTransform.FLIP_X, np.fliplr),
             (CameraImageTransform.FLIP_Y, np.flipud),
-            (CameraImageTransform.ROTATE_180, lambda d: np.rot90(d, k=2)),
+            (CameraImageTransform.FLIP_XY, lambda d: np.rot90(d, k=2)),
         ],
     )
     def test_user_transform_still_applies(self, transform, expected):

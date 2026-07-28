@@ -77,7 +77,6 @@ class CameraImageTransform(Enum):
     FLIP_X = "flip-x"
     FLIP_Y = "flip-y"
     FLIP_XY = "flip-xy"
-    ROTATE_180 = "rotate-180"  # identical to FLIP_XY; retained for stored configs
 
     def apply_to_delta(self, dx: float, dy: float) -> Tuple[float, float]:
         """Map a displacement between the raw and displayed frames.
@@ -86,36 +85,44 @@ class CameraImageTransform(Enum):
         take a delta measured in the displayed image back to the underlying frame,
         and vice versa.
         """
-        flip_x = self in (
-            CameraImageTransform.FLIP_X,
-            CameraImageTransform.FLIP_XY,
-            CameraImageTransform.ROTATE_180,
-        )
-        flip_y = self in (
-            CameraImageTransform.FLIP_Y,
-            CameraImageTransform.FLIP_XY,
-            CameraImageTransform.ROTATE_180,
-        )
+        flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
+        flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
         return (-dx if flip_x else dx, -dy if flip_y else dy)
 
 
-def _parse_image_transform(value: Any) -> CameraImageTransform:
-    """Read a stored transform, tolerating values that are no longer supported.
+# Transforms that stored configurations may still hold. A half turn is the same
+# element as flipping both axes, so it maps across without losing the setting; the
+# quarter turns describe a mount, which the driver now corrects, and have no
+# equivalent here.
+_LEGACY_IMAGE_TRANSFORMS = {"rotate-180": CameraImageTransform.FLIP_XY}
 
-    The 90-degree rotations were removed once mount rotation moved into the driver.
-    A configuration written before that must still load, so an unrecognised value
-    falls back to no transform with a warning rather than raising.
+
+def _parse_image_transform(value: Any) -> CameraImageTransform:
+    """Read a stored transform, tolerating values that are no longer members.
+
+    Rotations were removed once mount rotation moved into the driver. A half turn is
+    migrated to the equivalent flip so the setting survives; anything else falls back
+    to no transform with a warning rather than raising.
     """
     if value is None:
         return CameraImageTransform.NONE
     try:
         return CameraImageTransform(value)
     except ValueError:
-        logging.warning(
-            f"Unsupported camera image transform {value!r}; falling back to none. "
-            "Rotations are now applied as a fixed mount correction inside the driver."
+        pass
+
+    migrated = _LEGACY_IMAGE_TRANSFORMS.get(value)
+    if migrated is not None:
+        logging.info(
+            f"Camera image transform {value!r} is now {migrated.value!r}; migrated."
         )
-        return CameraImageTransform.NONE
+        return migrated
+
+    logging.warning(
+        f"Unsupported camera image transform {value!r}; falling back to none. "
+        "Rotations are now applied as a fixed mount correction inside the driver."
+    )
+    return CameraImageTransform.NONE
 
 
 class ZStackOrder(Enum):

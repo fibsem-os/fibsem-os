@@ -766,7 +766,6 @@ class FluorescenceMicroscope(ABC):
                 - CameraImageTransform.FLIP_X: Horizontal flip
                 - CameraImageTransform.FLIP_Y: Vertical flip
                 - CameraImageTransform.FLIP_XY: Both flips (equivalent to a 180° rotation)
-                - CameraImageTransform.ROTATE_180: Same as FLIP_XY
 
             Rotations are not offered here: a fixed rotation between the sensor and
             the stage describes the mount, and is corrected by `mount_transform`
@@ -831,10 +830,7 @@ class FluorescenceMicroscope(ABC):
             return np.fliplr(data)
         elif transform is CameraImageTransform.FLIP_Y:
             return np.flipud(data)
-        elif transform in (
-            CameraImageTransform.FLIP_XY,
-            CameraImageTransform.ROTATE_180,
-        ):
+        elif transform is CameraImageTransform.FLIP_XY:
             return np.fliplr(np.flipud(data))  # a half turn is both flips
         else:
             return data
