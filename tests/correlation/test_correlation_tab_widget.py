@@ -764,6 +764,78 @@ def test_canvas_shift_scroll_emits_z_when_enabled(qapp):
     assert got == [1, -1]
 
 
+def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
+    """Deliver a real QWheelEvent, so the Qt -> matplotlib path is exercised.
+
+    The test above hand-builds a matplotlib event and calls _on_scroll directly,
+    which is why it kept passing while Z stepping was dead on a real mouse: the
+    event never reached _on_scroll at all.
+    """
+    import numpy as np
+    from PyQt5.QtCore import QPoint, QPointF, Qt
+    from PyQt5.QtGui import QWheelEvent
+    from PyQt5.QtWidgets import QApplication
+
+    if canvas._ax.images == []:
+        canvas.set_image(np.zeros((64, 64), np.uint8))
+        canvas.resize(400, 400)
+    pos = QPointF(200.0, 200.0)
+    QApplication.sendEvent(
+        canvas,
+        QWheelEvent(
+            pos, pos, QPoint(*pixel), QPoint(*angle), Qt.NoButton,
+            Qt.ShiftModifier if shift else Qt.NoModifier, Qt.NoScrollPhase, False,
+        ),
+    )
+
+
+def test_shift_wheel_steps_z_however_the_delta_arrives(qapp):
+    """matplotlib reads only the *vertical* delta and emits nothing when it is
+    zero, so a device that reports Shift+wheel horizontally (a discrete mouse on
+    macOS) got no scroll_event at all — Z stepping silently dead, while the same
+    gesture on a trackpad kept working."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_shift_z_scroll_enabled(True)
+    got = []
+    canvas.z_scroll_requested.connect(got.append)
+
+    # Windows mouse / any platform that keeps it vertical: via matplotlib.
+    _wheel(canvas, angle=(0, 120))
+    assert got == [1]
+
+    # Trackpad: pixelDelta carries it, also vertical.
+    _wheel(canvas, angle=(0, 120), pixel=(0, 30))
+    assert got == [1, 1]
+
+    # macOS discrete mouse: the delta lands in x and matplotlib drops the event.
+    _wheel(canvas, angle=(120, 0))
+    _wheel(canvas, angle=(-120, 0))
+    assert got == [1, 1, 1, -1]
+
+    # Diagonal: matplotlib owns it, because it reads y. Taking it here would let
+    # x reach the opposite conclusion — which is what the vertical guard is for.
+    got.clear()
+    _wheel(canvas, angle=(-120, 120))
+    assert got == [1]
+
+
+def test_horizontal_wheel_only_steps_z_when_it_should(qapp):
+    """Guards the over-correction: the rescue must not fire without Shift, nor
+    when the canvas hasn't opted into Z stepping."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    got = []
+    canvas.z_scroll_requested.connect(got.append)
+
+    _wheel(canvas, angle=(120, 0))                 # not enabled yet
+    canvas.set_shift_z_scroll_enabled(True)
+    _wheel(canvas, angle=(120, 0), shift=False)    # enabled, but no Shift
+    assert got == []
+
+
 def test_fm_display_shows_image_name(qapp):
     from fibsem.correlation.ui.widgets.fm_image_display_widget import (
         FMImageDisplayWidget,
