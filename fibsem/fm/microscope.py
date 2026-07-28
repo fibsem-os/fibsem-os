@@ -765,10 +765,11 @@ class FluorescenceMicroscope(ABC):
                 - CameraImageTransform.NONE or None: No transformation
                 - CameraImageTransform.FLIP_X: Horizontal flip
                 - CameraImageTransform.FLIP_Y: Vertical flip
-                - CameraImageTransform.FLIP_XY: Both horizontal and vertical flip (equivalent to 180° rotation)
-                - CameraImageTransform.ROTATE_90_CW: Rotate 90° clockwise
-                - CameraImageTransform.ROTATE_90_CCW: Rotate 90° counter-clockwise
-                - CameraImageTransform.ROTATE_180: Rotate 180°
+                - CameraImageTransform.FLIP_XY: Both flips (equivalent to a 180° rotation)
+
+            Rotations are not offered here: a fixed rotation between the sensor and
+            the stage describes the mount, and is corrected by `mount_transform`
+            inside the driver before this preference is applied.
 
         Raises:
             ValueError: If transform is not a valid CameraImageTransform enum value
@@ -796,7 +797,8 @@ class FluorescenceMicroscope(ABC):
         - **Offset mounts (METEOR, iFLM)** sit parallel to the FIB column, displaced
           along x, so they share the ion column's tilt.
 
-        Drivers override if a system disagrees.
+        Drivers override if a system disagrees. This needs to become configurable for
+        systems whose mount is neither of the two known cases -- see FIB-335.
         """
         if self.parent is None:
             return 0.0  # simulator without a parent microscope
@@ -829,13 +831,7 @@ class FluorescenceMicroscope(ABC):
         elif transform is CameraImageTransform.FLIP_Y:
             return np.flipud(data)
         elif transform is CameraImageTransform.FLIP_XY:
-            return np.fliplr(np.flipud(data))
-        elif transform is CameraImageTransform.ROTATE_90_CW:
-            return np.rot90(data, k=-1)  # k=-1 for clockwise
-        elif transform is CameraImageTransform.ROTATE_90_CCW:
-            return np.rot90(data, k=1)  # k=1 for counter-clockwise
-        elif transform is CameraImageTransform.ROTATE_180:
-            return np.rot90(data, k=2)  # k=2 for 180 degrees
+            return np.fliplr(np.flipud(data))  # a half turn is both flips
         else:
             return data
 

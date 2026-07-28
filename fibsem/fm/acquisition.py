@@ -390,7 +390,9 @@ def acquire_tileset(
         channel_settings: Single channel or list of channels to acquire
         overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
         zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        beam_type: Unused for stage movement. Tiles are stepped with fm_stable_move,
+            which projects through the camera's own axis tilt; kept for signature
+            compatibility with callers that still pass it.
         autofocus_settings: Optional AutoFocusSettings for autofocus configuration
         save_directory: Optional directory path to save individual tile images (default: None)
         stop_event: Threading event to signal cancellation (optional)
@@ -500,12 +502,11 @@ def acquire_tileset(
         "task": "tileset",
     })
 
-    # QUERY: How we need to change direction of movements if in SEM orientation?
-    # if orientation == "SEM":
-        # start_offset_y *= -1  # invert y offset in SEM orientation
-        # step_y *= -1  # invert y step in SEM orientation
-
-    microscope.stable_move(dx=start_offset_x, dy=start_offset_y, beam_type=beam_type)
+    # Steps are expressed in the fluorescence image, so they are projected through the
+    # camera's own axis tilt rather than a beam's. Stepping with beam_type=ELECTRON
+    # used the SEM projection, which foreshortens differently from the camera on an
+    # offset mount and so mis-scaled the y pitch between tiles.
+    microscope.fm_stable_move(dx=start_offset_x, dy=start_offset_y)
 
     # Initialize results array
     tileset = []
@@ -532,6 +533,10 @@ def acquire_tileset(
     })
 
     # TODO: migrate to generate_grid_positions
+    # NOTE: when migrating, the position conversion must use the same projection the
+    # movement does. convert_grid_positions_to_stage_positions still goes through
+    # project_stable_move(beam_type=...), which would disagree with fm_stable_move on
+    # an offset mount. It has no callers today, so the two cannot drift apart yet.
     try:
         for row in range(rows):
             # Check for cancellation before each row
@@ -636,7 +641,7 @@ def acquire_tileset(
                     "state": "moving",
                     "task": "tileset",
                     })
-                    microscope.stable_move(dx=step_x, dy=0, beam_type=beam_type)
+                    microscope.fm_stable_move(dx=step_x, dy=0)
 
             tileset.append(row_images)
 
@@ -647,9 +652,7 @@ def acquire_tileset(
                     "task": "tileset",
                 })
                 # Return to first column of next row
-                microscope.stable_move(
-                    dx=-(cols - 1) * step_x, dy=step_y, beam_type=beam_type
-                )
+                microscope.fm_stable_move(dx=-(cols - 1) * step_x, dy=step_y)
 
         # save the parameters in a metadata json file if save_directory is provided
         if save_directory is not None:
@@ -881,7 +884,9 @@ def acquire_and_stitch_tileset(
         channel_settings: Single channel or list of channels to acquire
         overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
         zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        beam_type: Unused for stage movement. Tiles are stepped with fm_stable_move,
+            which projects through the camera's own axis tilt; kept for signature
+            compatibility with callers that still pass it.
         autofocus_settings: Optional AutoFocusSettings for autofocus configuration
         save_directory: Optional directory path to save individual tile images (default: None)
         stop_event: Optional threading event to signal cancellation
@@ -966,7 +971,9 @@ def acquire_multiple_overviews(
         channel_settings: Single channel or list of channels to acquire
         overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
         zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Beam type to use for stage movements (default: ELECTRON)
+        beam_type: Unused for stage movement. Tiles are stepped with fm_stable_move,
+            which projects through the camera's own axis tilt; kept for signature
+            compatibility with callers that still pass it.
         autofocus_settings: Optional AutoFocusSettings for autofocus configuration
         save_directory: Optional directory path to save overview images. Creates subdirectories
                        for each position (default: None)

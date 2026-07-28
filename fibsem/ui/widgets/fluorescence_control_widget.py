@@ -27,7 +27,6 @@ from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
-    CameraImageTransform,
     ChannelSettings,
     FluorescenceImage,
     FluorescenceConfiguration,
@@ -409,23 +408,11 @@ class FMControlWidget(QWidget):
                 point_clicked[0],
                 -point_clicked[1],
             )  # Y-inverse when t=0, need to make this more robust
-            # Apply inverse transform to account for image transformation
-            if self.fm._transform is CameraImageTransform.FLIP_X:
-                point_clicked = (-point_clicked[0], point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.FLIP_Y:
-                point_clicked = (point_clicked[0], -point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.FLIP_XY:
-                point_clicked = (-point_clicked[0], -point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.ROTATE_90_CW:
-                point_clicked = (point_clicked[1], -point_clicked[0])
-            elif self.fm._transform is CameraImageTransform.ROTATE_90_CCW:
-                point_clicked = (-point_clicked[1], point_clicked[0])
-            elif self.fm._transform is CameraImageTransform.ROTATE_180:
-                point_clicked = (-point_clicked[0], -point_clicked[1])
 
-            self.microscope.move_stage_relative(
-                FibsemStagePosition(x=point_clicked[0], y=point_clicked[1])
-            )
+            # fm_stable_move undoes the display transform and projects onto the tilted
+            # sample plane, so the move is foreshortening-correct and holds focus.
+            # Previously this was a raw relative move with neither correction.
+            self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
         logging.info(f"-" * 50)
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
