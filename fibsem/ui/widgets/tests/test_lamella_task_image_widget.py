@@ -22,10 +22,11 @@ from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.widgets.lamella_task_image_widget import (
-    LamellaTaskImageWidget,
+from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
+    fluorescence_images,
 )
+from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
 
 LOG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -78,11 +79,19 @@ def _report(lamella: Lamella) -> None:
     seen = {t.name: t for t in lamella.task_history}
     for task in seen.values():
         recorded = any(task.outputs.get(role) for role in ("final_sem", "final_fib"))
-        found = final_reference_images(lamella, task)
+        reference = final_reference_images(lamella, task)
+        fluorescence = fluorescence_images(lamella, task)
         route = "recorded" if recorded else "convention"
-        print(f"  {task.name:<28} {route:<11} {len(found)} image(s)")
-        for path in found:
+        print(
+            f"  {task.name:<28} {route:<11} "
+            f"{len(reference)} reference, {len(fluorescence)} fluorescence"
+        )
+        for path in reference:
             print(f"      {os.path.basename(path)}")
+        for path in fluorescence:
+            print(f"      {os.path.basename(path)}  [z-stack]")
+        if not reference and not fluorescence:
+            print("      (nothing recorded — the panel shows an empty-state row)")
     if not seen:
         print("  no completed tasks")
 
