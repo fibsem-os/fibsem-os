@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import glob
 import logging
 import os
 import threading
@@ -25,35 +24,14 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
+from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.task_outputs import final_reference_images
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.structures import FibsemImage
 
 _TARGET_WIDTH = 1024//2
 _PLACEHOLDER_HEIGHT = 768//2  # estimated height for placeholder labels
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
-
-
-def final_reference_images(lamella: Lamella, task: AutoLamellaTaskState) -> List[str]:
-    """Absolute paths to the final reference images a task run produced.
-
-    Prefers what the run recorded. Falls back to the filename convention, which
-    remains the only route for experiments written before outputs existed, and for
-    runs that failed before reaching post_task and so have no history entry at all.
-
-    Sorted so both routes yield the same order: alphabetical puts the highest-res
-    pair last, which is what callers slice off.
-    """
-    recorded = [
-        os.path.join(lamella.path, relpath)
-        for role in ("final_sem", "final_fib")
-        for relpath in task.outputs.get(role, [])
-    ]
-    if recorded:
-        return sorted(recorded)
-    return sorted(
-        glob.glob(os.path.join(lamella.path, f"ref_{task.name}*_final_*res*.tif*"))
-    )
 
 
 def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
