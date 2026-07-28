@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import pytest
 
@@ -435,3 +436,39 @@ def test_reference_image_parameters_estimated_time_no_images():
         imaging=img, acquire_sem=False, acquire_fib=False, acquire_image1=True, acquire_image2=True
     )
     assert ref.estimated_time == 0.0
+
+
+# FibsemImage.filepath — the file an image is associated with on disk
+
+
+def test_fibsem_image_filepath_is_none_until_written_or_read():
+    """An image that has never been saved or loaded has no file."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8))
+    assert image.filepath is None
+
+
+def test_fibsem_image_save_sets_filepath_to_the_resolved_file(tmp_path):
+    """save() records the path it actually wrote, extension included."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8))
+
+    # deliberately passed without a suffix: save() resolves it to .tif, and the
+    # recorded path must be the resolved one, not the argument.
+    returned = image.save(str(tmp_path / "ref_image"))
+
+    assert image.filepath == returned
+    assert image.filepath.endswith(".tif")
+    assert os.path.isfile(image.filepath)
+
+
+def test_fibsem_image_load_sets_filepath(tmp_path):
+    """load() records where the image came from."""
+    import numpy as np
+    written = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8)).save(
+        str(tmp_path / "ref_image")
+    )
+
+    loaded = FibsemImage.load(written)
+
+    assert loaded.filepath == written
