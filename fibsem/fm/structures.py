@@ -60,15 +60,62 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
 
 
 class CameraImageTransform(Enum):
-    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems."""
+    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
+
+    Flips only. Any fixed rotation between the sensor and the stage belongs to the
+    mount, not to user preference, and is corrected inside the driver
+    (``FluorescenceMicroscope.mount_transform``) before this is applied.
+
+    Restricting the set to flips makes it the Klein four-group: every member is its
+    own inverse and composition is order-independent, so mapping a displacement
+    between the displayed image and the stage is two sign flips with no axis swap
+    and no inverse to get backwards. Flips also preserve the array shape, so the
+    image and its geometry metadata always describe the same frame.
+    """
 
     NONE = None
     FLIP_X = "flip-x"
     FLIP_Y = "flip-y"
     FLIP_XY = "flip-xy"
-    ROTATE_90_CW = "rotate-90-cw"
-    ROTATE_90_CCW = "rotate-90-ccw"
-    ROTATE_180 = "rotate-180"
+    ROTATE_180 = "rotate-180"  # identical to FLIP_XY; retained for stored configs
+
+    def apply_to_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """Map a displacement between the raw and displayed frames.
+
+        Every member is its own inverse, so this maps in both directions: use it to
+        take a delta measured in the displayed image back to the underlying frame,
+        and vice versa.
+        """
+        flip_x = self in (
+            CameraImageTransform.FLIP_X,
+            CameraImageTransform.FLIP_XY,
+            CameraImageTransform.ROTATE_180,
+        )
+        flip_y = self in (
+            CameraImageTransform.FLIP_Y,
+            CameraImageTransform.FLIP_XY,
+            CameraImageTransform.ROTATE_180,
+        )
+        return (-dx if flip_x else dx, -dy if flip_y else dy)
+
+
+def _parse_image_transform(value: Any) -> CameraImageTransform:
+    """Read a stored transform, tolerating values that are no longer supported.
+
+    The 90-degree rotations were removed once mount rotation moved into the driver.
+    A configuration written before that must still load, so an unrecognised value
+    falls back to no transform with a warning rather than raising.
+    """
+    if value is None:
+        return CameraImageTransform.NONE
+    try:
+        return CameraImageTransform(value)
+    except ValueError:
+        logging.warning(
+            f"Unsupported camera image transform {value!r}; falling back to none. "
+            "Rotations are now applied as a fixed mount correction inside the driver."
+        )
+        return CameraImageTransform.NONE
 
 
 class ZStackOrder(Enum):
@@ -1540,7 +1587,7 @@ class CameraSettings:
             gain=ddict.get("gain", 1.0),
             offset=ddict.get("offset", 0.0),
             binning=ddict.get("binning", 1),
-            transform=CameraImageTransform(ddict.get("transform", CameraImageTransform.NONE.value)),
+            transform=_parse_image_transform(ddict.get("transform")),
         )
 
 

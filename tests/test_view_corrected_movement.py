@@ -433,6 +433,185 @@ class TestTiledInverseMatchesMicroscope:
             assert from_image == pytest.approx(from_microscope, rel=1e-9)
 
 
+class TestCameraImageTransformIsFlipOnly:
+    """Restricting the transform to flips is what makes the mapping two sign flips.
+
+    Rotations moved into the driver's mount correction, so the remaining members form
+    the Klein four-group: shape-preserving, self-inverse, no axis swap.
+    """
+
+    def test_no_rotations_are_offered(self):
+        names = {t.name for t in CameraImageTransform}
+        assert "ROTATE_90_CW" not in names
+        assert "ROTATE_90_CCW" not in names
+
+    @pytest.mark.parametrize("transform", list(CameraImageTransform))
+    def test_every_transform_is_its_own_inverse(self, transform):
+        dx, dy = 3.0, -7.0
+        once = transform.apply_to_delta(dx, dy)
+        twice = transform.apply_to_delta(*once)
+        assert twice == (dx, dy)
+
+    @pytest.mark.parametrize("transform", list(CameraImageTransform))
+    def test_delta_mapping_matches_the_array_transform(self, transform):
+        """The coordinate mapping and the pixel mapping must agree.
+
+        Build an index grid, transform it as an image, and check that the pixel which
+        ends up at a probe offset from centre is the one the delta mapping predicts.
+        """
+        fm = FluorescenceMicroscope()
+        size = 9
+        centre = size // 2
+        ys, xs = np.mgrid[0:size, 0:size]
+        coded = (ys * 100 + xs).astype(np.int32)
+
+        fm.set_image_transform(transform)
+        moved = fm._transform_array(coded, transform)
+
+        for probe in [(2, 0), (0, 2), (2, 3), (-1, 4)]:
+            dx, dy = probe
+            value = moved[centre + dy, centre + dx]
+            src_y, src_x = divmod(int(value), 100)
+            # where the delta mapping says that displayed offset came from
+            exp_dx, exp_dy = transform.apply_to_delta(dx, dy)
+            assert (src_x - centre, src_y - centre) == (exp_dx, exp_dy), (
+                f"{transform.name}: array and delta mappings disagree at {probe}"
+            )
+
+    def test_no_axis_swapping(self):
+        """A pure x displacement stays on x for every remaining transform."""
+        for transform in CameraImageTransform:
+            dx, dy = transform.apply_to_delta(5.0, 0.0)
+            assert dy == 0.0
+            assert abs(dx) == 5.0
+
+    def test_removed_values_load_as_none_with_a_warning(self, caplog):
+        """A configuration written before the rotations were removed must still load."""
+        from fibsem.fm.structures import CameraSettings
+
+        with caplog.at_level("WARNING"):
+            settings = CameraSettings.from_dict(
+                {"gain": 0.1, "offset": 0.0, "binning": 1, "transform": "rotate-90-cw"}
+            )
+
+        assert settings.transform is CameraImageTransform.NONE
+        assert "rotate-90-cw" in caplog.text
+
+    def test_supported_values_still_round_trip(self):
+        from fibsem.fm.structures import CameraSettings
+
+        for transform in CameraImageTransform:
+            restored = CameraSettings.from_dict(CameraSettings(transform=transform).to_dict())
+            assert restored.transform is transform
+
+
+class TestFmStableMove:
+    """Click a point in the FM image, the stage goes there, focus is held."""
+
+    def test_requires_a_fluorescence_microscope(self, microscope):
+        microscope.fm = None
+        with pytest.raises(ValueError):
+            microscope.fm_stable_move(1e-6, 1e-6)
+
+    def test_uses_the_camera_tilt_projection(self, microscope):
+        """The move must match the shared projection at the camera's own axis tilt."""
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        moved = []
+        microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
+
+        microscope.fm_stable_move(dx=4e-6, dy=25e-6)
+
+        expected = microscope._view_corrected_stage_movement(
+            expected_y=25e-6, view_tilt=np.deg2rad(microscope.fm.camera_tilt)
+        )
+        assert len(moved) == 1
+        assert moved[0].x == pytest.approx(4e-6)
+        assert moved[0].y == pytest.approx(expected.y)
+        assert moved[0].z == pytest.approx(expected.z)
+
+    def test_undoes_the_display_transform(self, microscope):
+        """A flipped display must not send the stage the wrong way."""
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        moved = []
+        microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
+
+        microscope.fm.set_image_transform(CameraImageTransform.NONE)
+        microscope.fm_stable_move(dx=4e-6, dy=25e-6)
+        microscope.fm.set_image_transform(CameraImageTransform.FLIP_X)
+        microscope.fm_stable_move(dx=4e-6, dy=25e-6)
+
+        assert moved[1].x == pytest.approx(-moved[0].x), "flip in x should reverse the x move"
+        assert moved[1].y == pytest.approx(moved[0].y), "flip in x should leave y alone"
+
+    def test_reads_the_transform_live(self, microscope):
+        """Changing the dropdown mid-session takes effect on the next move."""
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        moved = []
+        microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
+
+        for transform in (CameraImageTransform.NONE, CameraImageTransform.FLIP_Y):
+            microscope.fm.set_image_transform(transform)
+            microscope.fm_stable_move(dx=0.0, dy=25e-6)
+
+        assert moved[1].y == pytest.approx(-moved[0].y)
+
+    def test_does_not_touch_working_distance(self, microscope):
+        """Working distance is beam bookkeeping; the FM move must leave it alone."""
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.move_stage_relative = lambda p: None  # type: ignore[method-assign]
+        calls = []
+        microscope.set_working_distance = lambda *a, **k: calls.append((a, k))  # type: ignore[method-assign]
+
+        microscope.fm_stable_move(dx=0.0, dy=25e-6)
+
+        assert calls == []
+
+
+class TestFmConsumersUseTheFmProjection:
+    """Everything that moves from a fluorescence image must use the FM projection.
+
+    Stepping with a beam type used the wrong view's foreshortening: on an offset mount
+    the camera's axis parallels the ion column, so the SEM projection mis-scales the
+    y pitch by roughly 1/cos(column_tilt).
+    """
+
+    def test_tileset_no_longer_steps_with_a_beam_type(self):
+        import inspect
+
+        from fibsem.fm import acquisition
+
+        source = inspect.getsource(acquisition.acquire_tileset)
+        assert "fm_stable_move" in source
+        assert "stable_move(dx" not in source.replace("fm_stable_move(dx", "")
+
+    def test_fm_projection_differs_from_the_sem_projection_when_it_matters(self, microscope):
+        """Guard the reason for the switch: the two projections really do differ.
+
+        At the FIB-flat orientation on an offset mount, stepping via the electron
+        column foreshortens differently from the camera. If this ever became a
+        no-op the switch would be pointless -- and a regression would be invisible.
+        """
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=0, compustage=False)
+        microscope.system.electron.column_tilt = 0.0
+        microscope.system.ion.column_tilt = 52.0
+        fm = FluorescenceMicroscope(parent=microscope)
+
+        by_sem = microscope._view_corrected_stage_movement(25e-6, view_tilt=0.0)
+        by_fm = microscope._view_corrected_stage_movement(
+            25e-6, view_tilt=np.deg2rad(fm.camera_tilt)
+        )
+
+        assert by_fm.y != pytest.approx(by_sem.y, rel=1e-3)
+        # the FM view here parallels the ion column, so it must match that projection
+        by_ion = microscope._y_corrected_stage_movement(25e-6, beam_type=BeamType.ION)
+        assert by_fm.y == pytest.approx(by_ion.y)
+        assert by_fm.z == pytest.approx(by_ion.z)
+
+
 class TestCameraTilt:
     """The FM optical axis is derived from the mount, not configured."""
 

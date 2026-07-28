@@ -1491,6 +1491,69 @@ class FibsemMicroscope(ABC):
 
         return expected_y
 
+    def _fm_image_to_stage_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """Map a displacement in the displayed FM image onto stage axes.
+
+        The driver hands out stage-aligned images -- any fixed rotation or flip of the
+        mount is corrected by `FluorescenceMicroscope.mount_transform` before the
+        user's display preference is applied -- so undoing that preference is all
+        that is needed here. It is read live rather than from configuration, since
+        the user can change it mid-session, and every remaining transform is its own
+        inverse, so applying it maps in both directions.
+        """
+        if self.fm is None:
+            return dx, dy
+        return self.fm._transform.apply_to_delta(dx, dy)
+
+    def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Move the stage by a displacement seen in the fluorescence image.
+
+        The fluorescence counterpart of :meth:`stable_move`: click a point in the FM
+        view and the stage goes there, holding the focal plane. The projection is the
+        same one the beams use, with the camera's own axis tilt
+        (`FluorescenceMicroscope.camera_tilt`) in place of a column tilt, so the
+        foreshortening of a tilted sample is accounted for and the movement stays in
+        the sample plane -- which is what keeps the objective in focus.
+
+        Args:
+            dx: distance along the x-axis (image coordinates), as for stable_move.
+            dy: distance along the y-axis (image coordinates), as for stable_move.
+
+        Returns:
+            FibsemStagePosition: the stage position after the move.
+
+        Raises:
+            ValueError: if no fluorescence microscope is available.
+        """
+        if self.fm is None:
+            raise ValueError("Fluorescence microscope is not available. Cannot move.")
+
+        if self.fm.objective.state != "Inserted":
+            logging.warning(
+                "Moving via the fluorescence image while the objective is not inserted "
+                f"(state: {self.fm.objective.state}); the view may not match the sample."
+            )
+
+        dx, dy = self._fm_image_to_stage_delta(dx, dy)
+
+        yz_move = self._view_corrected_stage_movement(
+            expected_y=dy,
+            view_tilt=np.deg2rad(self.fm.camera_tilt),
+        )
+        stage_position = FibsemStagePosition(
+            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
+        )
+
+        # NOTE: no working-distance restore. That is beam bookkeeping; the objective
+        # keeps focus because the move stays in the sample plane.
+        self.move_stage_relative(stage_position)
+
+        logging.debug({"msg": "fm_stable_move", "dx": dx, "dy": dy,
+                       "camera_tilt": self.fm.camera_tilt,
+                       "position": stage_position.to_dict()})
+
+        return self.get_stage_position()
+
     def move_to_device(self, device: str) -> None:
         """Move the stage to the predefined device position."""
         logging.warning(f"move_to_device is not implemented for {self.__class__.__name__}.")

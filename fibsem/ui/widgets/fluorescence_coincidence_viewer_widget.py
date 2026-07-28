@@ -62,7 +62,7 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem import conversions
 from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
@@ -2613,23 +2613,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             pixelsize=pixelsize,
         )
         px, py = point[0], -point[1]  # Y-inversion (mirrors FMControlWidget)
-        transform = self.microscope.fm._transform
-        if transform is CameraImageTransform.FLIP_X:
-            px = -px
-        elif transform is CameraImageTransform.FLIP_Y:
-            py = -py
-        elif transform is CameraImageTransform.FLIP_XY:
-            px, py = -px, -py
-        elif transform is CameraImageTransform.ROTATE_90_CW:
-            px, py = py, -px
-        elif transform is CameraImageTransform.ROTATE_90_CCW:
-            px, py = -py, px
-        elif transform is CameraImageTransform.ROTATE_180:
-            px, py = -px, -py
+        # fm_stable_move undoes the display transform and projects through the
+        # camera's own axis tilt, so the sample is not foreshortened by the wrong beam.
         threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=px, dy=py, beam_type=BeamType.ELECTRON
-            ),
+            target=lambda: self.microscope.fm_stable_move(dx=px, dy=py),
             daemon=True,
         ).start()
 
