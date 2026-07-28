@@ -782,8 +782,68 @@ class FluorescenceMicroscope(ABC):
         )
         logging.info(f"Image transform set to: {transform}")
 
+    @property
+    def camera_tilt(self) -> float:
+        """Tilt of the FM optical axis from the SEM column, in degrees.
+
+        The camera's analogue of a beam column's ``column_tilt``; used to project
+        in-image displacements onto the tilted sample plane.
+
+        Derived from the mount geometry rather than configured:
+
+        - **Under-grid mounts (Arctis / compustage)** look up at the grid from the
+          opposite side to the SEM: a half turn, 180 degrees.
+        - **Offset mounts (METEOR, iFLM)** sit parallel to the FIB column, displaced
+          along x, so they share the ion column's tilt.
+
+        Drivers override if a system disagrees.
+        """
+        if self.parent is None:
+            return 0.0  # simulator without a parent microscope
+        if self.parent.stage_is_compustage:
+            return 180.0
+        return self.parent.system.ion.column_tilt
+
+    @property
+    def mount_transform(self) -> CameraImageTransform:
+        """Fixed correction from raw sensor axes to stage-aligned axes.
+
+        Hardware truth about how the camera is mounted, not a user preference: it
+        is applied before the user's ``CameraImageTransform`` so that every
+        consumer (display, correlation, saved data, movement) sees one consistently
+        oriented image, and so that movement needs only the user transform.
+
+        Defaults to no correction; drivers override per system. The value is
+        determined by observing which stage axis a feature travels along in the
+        FM view (see docs/design/fm-stable-move.md).
+        """
+        return CameraImageTransform.NONE
+
+    @staticmethod
+    def _transform_array(
+        data: np.ndarray, transform: Optional[CameraImageTransform]
+    ) -> np.ndarray:
+        """Apply a single CameraImageTransform to an array."""
+        if transform is CameraImageTransform.FLIP_X:
+            return np.fliplr(data)
+        elif transform is CameraImageTransform.FLIP_Y:
+            return np.flipud(data)
+        elif transform is CameraImageTransform.FLIP_XY:
+            return np.fliplr(np.flipud(data))
+        elif transform is CameraImageTransform.ROTATE_90_CW:
+            return np.rot90(data, k=-1)  # k=-1 for clockwise
+        elif transform is CameraImageTransform.ROTATE_90_CCW:
+            return np.rot90(data, k=1)  # k=1 for counter-clockwise
+        elif transform is CameraImageTransform.ROTATE_180:
+            return np.rot90(data, k=2)  # k=2 for 180 degrees
+        else:
+            return data
+
     def _apply_image_transform(self, data: np.ndarray) -> np.ndarray:
         """Apply the configured image transformation to align with SEM/FIB coordinate system.
+
+        Two stages: the fixed mount correction puts the raw sensor into stage-aligned
+        axes, then the user's transform applies their display preference on top.
 
         Args:
             data: The image data to transform
@@ -791,20 +851,8 @@ class FluorescenceMicroscope(ABC):
         Returns:
             The transformed image data
         """
-        if self._transform is CameraImageTransform.FLIP_X:
-            return np.fliplr(data)
-        elif self._transform is CameraImageTransform.FLIP_Y:
-            return np.flipud(data)
-        elif self._transform is CameraImageTransform.FLIP_XY:
-            return np.fliplr(np.flipud(data))
-        elif self._transform is CameraImageTransform.ROTATE_90_CW:
-            return np.rot90(data, k=-1)  # k=-1 for clockwise
-        elif self._transform is CameraImageTransform.ROTATE_90_CCW:
-            return np.rot90(data, k=1)  # k=1 for counter-clockwise
-        elif self._transform is CameraImageTransform.ROTATE_180:
-            return np.rot90(data, k=2)  # k=2 for 180 degrees
-        else:
-            return data
+        data = self._transform_array(data, self.mount_transform)
+        return self._transform_array(data, self._transform)
 
     def acquire_image(
         self, channel_settings: Optional[ChannelSettings] = None
