@@ -1945,11 +1945,18 @@ class FibsemImage:
             Returns:
                 FibsemImage: instance of FibsemImage
 
-        save(self, path: Path) -> None:
+        save(self, path: Path) -> str:
             Saves a FibsemImage to a tiff file.
 
             Inputs:
                 path (path): path to save directory and filename
+
+            Returns:
+                str: the resolved path written to
+
+    Attributes:
+        filepath (Optional[str]): the file this image is associated with on disk, set by
+            save() and load(). None for an image that has never been written or read.
     """
 
     def __init__(self, data: np.ndarray, metadata: Optional[FibsemImageMetadata] = None):
@@ -1963,6 +1970,9 @@ class FibsemImage:
             self.metadata = metadata
         else:
             self.metadata = None
+        # the file this image is associated with on disk, set by save() and load().
+        # not serialised: it describes where the image lives, not what it contains.
+        self.filepath: Optional[str] = None
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -2018,15 +2028,20 @@ class FibsemImage:
                 # print(f"Error: {e}")
                 # import traceback
                 # traceback.print_exc()
-        return cls(data=data, metadata=metadata)
+        image = cls(data=data, metadata=metadata)
+        image.filepath = str(tiff_path)
+        return image
 
-    def save(self, path: Optional[Union[Path, str]] = None) -> None:
+    def save(self, path: Optional[Union[Path, str]] = None) -> str:
         """Saves a FibsemImage to a tiff file.
 
         Inputs:
             path (path): path to save directory and filename
+
+        Returns:
+            str: the resolved path the image was written to (also set on self.filepath)
         """
-        
+
         if path is None:
             if self.metadata is None:
                 raise ValueError("No metadata provided, cannot determine save path. Please provide a path.")
@@ -2049,6 +2064,9 @@ class FibsemImage:
             self.data,
             metadata=metadata_dict,
         )
+        # set only after a successful write, so a recorded path is always a path that exists
+        self.filepath = str(path)
+        return self.filepath
 
     ### EXPERIMENTAL START ####
 

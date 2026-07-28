@@ -324,6 +324,10 @@ class ZParameters:
 class FluorescenceImage:
     data: np.ndarray  # TCZYX format (Time, Channels, Z, Y, X)
     metadata: "FluorescenceImageMetadata"
+    # the file this image is associated with on disk, set by save() and load().
+    # excluded from compare/repr: it describes where the image lives, not what it contains,
+    # so two images of the same data read from different paths are still equal.
+    filepath: Optional[str] = field(default=None, compare=False, repr=False)
 
     def save(self, filename: str) -> str:
         """
@@ -354,7 +358,9 @@ class FluorescenceImage:
             tif.write(data=tifffile_image, contiguous=True)
             tif.overwrite_description(ome_xml)
 
-        return filename
+        # set only after a successful write, so a recorded path is always a path that exists
+        self.filepath = str(filename)
+        return self.filepath
 
     def get_ome_metadata(self) -> OMEMetadata:
         """Generate OME metadata for the FluorescenceImage."""
@@ -613,7 +619,7 @@ class FluorescenceImage:
                             # Single channel, single Z: YX -> CZYX
                             data = data[np.newaxis, np.newaxis, :, :]
 
-                        return cls(data=data, metadata=metadata)
+                        return cls(data=data, metadata=metadata, filepath=str(filename))
 
         except Exception as e:
             logging.warning(f"Failed to load structured annotations: {e}")
@@ -628,7 +634,7 @@ class FluorescenceImage:
                 # Fallback to basic metadata
                 metadata = cls._create_basic_metadata(data.shape)
 
-        return cls(data=data, metadata=metadata)
+        return cls(data=data, metadata=metadata, filepath=str(filename))
 
     @classmethod
     def _create_basic_metadata(cls, data_shape: tuple) -> "FluorescenceImageMetadata":
