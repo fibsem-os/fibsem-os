@@ -132,6 +132,13 @@ class AutoLamellaTaskState:
     end_timestamp: Optional[float] = None
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     status_message: str = ""
+    # files this run produced, keyed by role, as paths relative to lamella.path.
+    # roles mirror the naming convention the files already carry: phase x modality,
+    # i.e. final_sem / final_fib / start_sem / start_fib, plus fluorescence.
+    # paths only -- the experiment is written with yaml.safe_dump, which refuses
+    # numpy scalars and enums and would fail the whole save. measured values belong
+    # in a separate field, not here.
+    outputs: Dict[str, List[str]] = field(default_factory=dict)
 
     @property
     def completed(self) -> str:
@@ -170,7 +177,10 @@ class AutoLamellaTaskState:
             return cls()
         data = data.copy()
         data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
-        return cls(**data)
+        # drop keys this build doesn't know about: an experiment written by a newer
+        # version must still load in an older one rather than raising TypeError.
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @evented

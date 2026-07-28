@@ -331,3 +331,63 @@ def test_task_protocol_carries_correlation_config():
     legacy = protocol.to_dict()
     del legacy["correlation"]
     assert AutoLamellaTaskProtocol.from_dict(legacy).correlation == CorrelationConfig()
+
+
+# ── AutoLamellaTaskState.outputs ──────────────────────────────────────────────
+
+
+def test_task_state_outputs_defaults_to_empty():
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    assert AutoLamellaTaskState().outputs == {}
+
+
+def test_task_state_outputs_survive_an_experiment_round_trip(tmp_path):
+    """The experiment is written with yaml.safe_dump, which refuses anything but
+    plain types. Recording paths as strings is what keeps the save working."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    exp = _make_experiment(tmp_path)
+    exp.add_new_lamella(MicroscopeState(), EventedDict())
+    exp.positions[0].task_history.append(
+        AutoLamellaTaskState(
+            name="MillRough",
+            outputs={
+                "final_sem": ["ref_MillRough_final_res_01_eb.tif"],
+                "final_fib": ["ref_MillRough_final_res_01_ib.tif"],
+            },
+        )
+    )
+
+    exp.save()
+    loaded = Experiment.load(os.path.join(exp.path, "experiment.yaml"))
+
+    assert loaded.positions[0].task_history[0].outputs == {
+        "final_sem": ["ref_MillRough_final_res_01_eb.tif"],
+        "final_fib": ["ref_MillRough_final_res_01_ib.tif"],
+    }
+
+
+def test_task_state_from_dict_without_outputs_defaults(tmp_path):
+    """Experiments written before outputs existed must still load."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    legacy = {"name": "MillRough", "status": "Completed"}
+
+    assert AutoLamellaTaskState.from_dict(legacy).outputs == {}
+
+
+def test_task_state_from_dict_ignores_unknown_keys():
+    """An experiment written by a newer build must load in an older one.
+
+    from_dict expands the dict into the constructor, so an unrecognised key would
+    otherwise raise TypeError and make the whole experiment unloadable.
+    """
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    future = {"name": "MillRough", "status": "Completed", "metrics": {"focus": 1.0}}
+
+    state = AutoLamellaTaskState.from_dict(future)
+
+    assert state.name == "MillRough"
+    assert not hasattr(state, "metrics")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import glob
 import logging
 import os
 import threading
@@ -26,6 +25,7 @@ from PyQt5.QtWidgets import (
 from skimage.transform import resize
 
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.task_outputs import final_reference_images
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.structures import FibsemImage
 
@@ -301,7 +301,7 @@ class LamellaTaskImageWidget(QWidget):
         # Task rows — deduplicate, keep last occurrence of each task name
         seen = {}
         for t in lamella.task_history:
-            seen[t.name] = t.name
+            seen[t.name] = t
         completed_tasks = list(seen.values())
         if not completed_tasks:
             no_images = QLabel("No task images available.")
@@ -312,14 +312,12 @@ class LamellaTaskImageWidget(QWidget):
 
         # Collect all filepaths to load and build placeholder rows
         all_filepaths: List[str] = []
-        for task_name in completed_tasks:
-            filenames = sorted(
-                glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*res*.tif*"))
-            )
+        for task in completed_tasks:
+            filenames = final_reference_images(lamella, task)
             if not filenames:
                 continue
             filenames = filenames[-_MAX_IMAGES_PER_TASK:]
-            row = self._build_task_row_with_placeholders(task_name, filenames)
+            row = self._build_task_row_with_placeholders(task.name, filenames)
             self._content_layout.addWidget(row)
             all_filepaths.extend(filenames)
 
