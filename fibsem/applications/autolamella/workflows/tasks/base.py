@@ -82,6 +82,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.fm.structures import FluorescenceImage
 
 TAutoLamellaTaskConfig = TypeVar(
     "TAutoLamellaTaskConfig", bound="AutoLamellaTaskConfig"
@@ -177,12 +178,20 @@ class AutoLamellaTask(ABC):
         logging.info(f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella._id})")
 
         # pre-task
+        # task_state is a single object reused across every run, so each per-run field
+        # has to be cleared here or the next run inherits the previous one's value.
+        # NOTE: do not "fix" this by assigning a fresh AutoLamellaTaskState. The lamella
+        # list and card widgets connect psygnal handlers to this instance and use them as
+        # their only refresh trigger; replacing the object orphans those connections and
+        # they silently stop updating mid-workflow. See FIB-325 for the real fix.
         self.lamella.task_state.name = self.task_name
         self.lamella.task_state.start_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.end_timestamp = None
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type
         self.lamella.task_state.status = AutoLamellaTaskStatus.InProgress
         self.lamella.task_state.status_message = ""
+        self.lamella.task_state.outputs = {}
         self.log_status_message(message="STARTED",
                                 display_message="Started",
                                 workflow_display_message=f"{self.lamella.name} [{self.display_name}]")
@@ -431,6 +440,24 @@ class AutoLamellaTask(ABC):
                                                 acquire_sem=acquire_sem,
                                                 acquire_fib=acquire_fib)
 
+    def _record_output(self, role: str, image: Optional[Union[FibsemImage, "FluorescenceImage"]]) -> None:
+        """Record where an acquired image was written, under the given role.
+
+        Stored relative to the lamella directory so the record survives the
+        experiment being copied off the microscope. Images that were never
+        written to disk carry no filepath and are skipped.
+        """
+        if image is None or image.filepath is None:
+            return
+        path = os.path.relpath(image.filepath, self.lamella.path)
+        self.lamella.task_state.outputs.setdefault(role, []).append(path)
+
+    def _record_channel_outputs(self, phase: str, images: List[Tuple[Optional[FibsemImage], Optional[FibsemImage]]]) -> None:
+        """Record a set of (sem, fib) pairs under `{phase}_sem` / `{phase}_fib`."""
+        for sem_image, fib_image in images:
+            self._record_output(f"{phase}_sem", sem_image)
+            self._record_output(f"{phase}_fib", fib_image)
+
     def _acquire_channels(self,
                           image_settings: ImageSettings,
                           filename: Optional[str] = None,
@@ -438,6 +465,10 @@ class AutoLamellaTask(ABC):
                           acquire_sem: bool = True,
                           acquire_fib: bool = True) -> None:
         """Acquire images for sem/fib channels at given field of view."""
+        # only the default filename is the conventional start-of-task reference set.
+        # tasks that pass their own name are recorded separately, so consumers asking
+        # for the conventional sets don't silently pick up one-off acquisitions.
+        phase = "start" if filename is None else "other"
         if filename is None:
             filename = f"ref_{self.task_name}_start"
 
@@ -449,6 +480,7 @@ class AutoLamellaTask(ABC):
                                                         image_settings,
                                                         acquire_sem=acquire_sem,
                                                         acquire_fib=acquire_fib)
+        self._record_channel_outputs(phase, [(sem_image, fib_image)])
         if fib_image is not None:
             self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)
@@ -462,6 +494,9 @@ class AutoLamellaTask(ABC):
 
         if field_of_views is None:
             field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
+        # only the default filename is the conventional final reference set; see
+        # _acquire_channels for why one-off acquisitions are recorded separately.
+        phase = "final" if filename is None else "other"
         if filename is None:
             filename = f"ref_{self.task_name}_final"
 
@@ -474,6 +509,7 @@ class AutoLamellaTask(ABC):
             acquire_sem=acquire_sem,
             acquire_fib=acquire_fib,
         )
+        self._record_channel_outputs(phase, images)
 
         sem_image, fib_image = images[-1] # last acquired image
         if fib_image is not None:

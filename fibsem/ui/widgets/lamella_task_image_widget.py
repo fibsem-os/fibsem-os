@@ -25,13 +25,35 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.structures import FibsemImage
 
 _TARGET_WIDTH = 1024//2
 _PLACEHOLDER_HEIGHT = 768//2  # estimated height for placeholder labels
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
+
+
+def final_reference_images(lamella: Lamella, task: AutoLamellaTaskState) -> List[str]:
+    """Absolute paths to the final reference images a task run produced.
+
+    Prefers what the run recorded. Falls back to the filename convention, which
+    remains the only route for experiments written before outputs existed, and for
+    runs that failed before reaching post_task and so have no history entry at all.
+
+    Sorted so both routes yield the same order: alphabetical puts the highest-res
+    pair last, which is what callers slice off.
+    """
+    recorded = [
+        os.path.join(lamella.path, relpath)
+        for role in ("final_sem", "final_fib")
+        for relpath in task.outputs.get(role, [])
+    ]
+    if recorded:
+        return sorted(recorded)
+    return sorted(
+        glob.glob(os.path.join(lamella.path, f"ref_{task.name}*_final_*res*.tif*"))
+    )
 
 
 def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
@@ -301,7 +323,7 @@ class LamellaTaskImageWidget(QWidget):
         # Task rows — deduplicate, keep last occurrence of each task name
         seen = {}
         for t in lamella.task_history:
-            seen[t.name] = t.name
+            seen[t.name] = t
         completed_tasks = list(seen.values())
         if not completed_tasks:
             no_images = QLabel("No task images available.")
@@ -312,14 +334,12 @@ class LamellaTaskImageWidget(QWidget):
 
         # Collect all filepaths to load and build placeholder rows
         all_filepaths: List[str] = []
-        for task_name in completed_tasks:
-            filenames = sorted(
-                glob.glob(os.path.join(lamella.path, f"ref_{task_name}*_final_*res*.tif*"))
-            )
+        for task in completed_tasks:
+            filenames = final_reference_images(lamella, task)
             if not filenames:
                 continue
             filenames = filenames[-_MAX_IMAGES_PER_TASK:]
-            row = self._build_task_row_with_placeholders(task_name, filenames)
+            row = self._build_task_row_with_placeholders(task.name, filenames)
             self._content_layout.addWidget(row)
             all_filepaths.extend(filenames)
 
