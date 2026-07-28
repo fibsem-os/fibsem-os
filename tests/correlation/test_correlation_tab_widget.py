@@ -234,7 +234,12 @@ def test_status_short_and_result_summary_after_run(qapp):
 
 
 def test_apply_post_creates_ghost_and_status(qapp):
+    from fibsem.structures import FibsemImage
+
     w = _widget(qapp)
+    # Correcting needs the image dimensions: px_m is derived from them, and px_m
+    # is what Continue commits (FIB-321).
+    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(512, 512), hfw=100e-6))
     w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
 
     result = CorrelationResult(

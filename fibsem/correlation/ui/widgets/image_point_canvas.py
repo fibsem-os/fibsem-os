@@ -318,6 +318,10 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._refresh_scalebar()
         self._overlay_point_artists.clear()
         self._overlay_label_artists.clear()
+        # ...and the legend entries that described them: cla() took the markers
+        # away, so keeping the labels left "POI (P)" / "FM reprojected (E)" in
+        # the legend of an image that has neither (FIB-321).
+        self._overlay_legend.clear()
         self._rebuild_artists()
 
     def set_coordinates(self, coords: List[Coordinate]) -> None:
