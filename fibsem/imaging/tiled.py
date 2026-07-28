@@ -1098,12 +1098,23 @@ def _inverse_y_corrected_stage_movement(
         stage_rotation = current_stage_position.r % (2 * np.pi) if current_stage_position.r is not None else 0.0
         stage_tilt = current_stage_position.t if current_stage_position.t is not None else 0.0
 
-        # Handle compustage case
+        # Handle compustage case. This mirrors FibsemMicroscope._view_corrected_stage_movement:
+        # the forward flips expected_y once for compustage, then a second time at the FIB
+        # orientation, so the two cancel there. Determined from metadata rather than a live
+        # microscope; for the compustage the rotation is always 0, so the orientation is
+        # fixed by the tilt alone (FIB sits at column_tilt - pretilt - 180, i.e. ~-128 deg,
+        # and the FM pose at -180 deg).
         compustage_sign = 1.0
         stage_is_compustage = "Arctis" in image.metadata.system.info.model or image.metadata.system.sim.get("is_compustage", False)
+        is_fib_orientation = False
         if stage_is_compustage: # TODO: add compustage to metadata
-            if stage_tilt <= 0 and stage_tilt > np.radians(-90):
-                compustage_sign = -1.0
+            fib_orientation_tilt = np.radians(
+                image.metadata.system.ion.column_tilt
+                - image.metadata.system.stage.shuttle_pre_tilt
+                - 180
+            )
+            is_fib_orientation = bool(np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1))
+            compustage_sign = 1.0 if is_fib_orientation else -1.0
             stage_tilt += np.pi
 
         PRETILT_SIGN = 1.0
@@ -1112,6 +1123,9 @@ def _inverse_y_corrected_stage_movement(
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
             PRETILT_SIGN = 1.0
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
+            PRETILT_SIGN = -1.0
+
+        if is_fib_orientation:
             PRETILT_SIGN = -1.0
 
         corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
