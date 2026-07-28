@@ -2392,11 +2392,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _record_coincidence_result(self) -> None:
         """Record the latest coincidence run against the selected lamella.
 
-        Saves the post-milling FIB with the review-panel naming (overwriting, so
-        the panel shows the latest) and appends a 'Coincidence Milling' entry to
-        the lamella's task history so the Review tab picks it up. Every run is
+        Saves the post-milling FIB and appends a 'Coincidence Milling' entry to the
+        lamella's task history, recording the image under `final_fib` so the Review
+        tab finds it the same way it finds any other task's output. Every run is
         recorded (the panel dedups by name); per-run images stay archived in the
         strategy's own coincidence-images folders.
+
+        The file keeps the review-panel naming, and is overwritten each run, purely
+        so experiments opened by a build predating task outputs still resolve it
+        through the filename convention. Once that fallback is no longer needed the
+        name is free to become per-run, and runs will stop overwriting each other.
         """
         lamella = self._selected_lamella
         image = self._latest_fib_image
@@ -2412,7 +2417,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 lamella.path,
                 f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
-            image.save(filename)
+            written = image.save(filename)
 
             now = datetime.datetime.now().timestamp()
             lamella.task_history.append(
@@ -2423,6 +2428,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                     end_timestamp=now,
                     status=AutoLamellaTaskStatus.Completed,
                     status_message="Coincidence milling (recorded from viewer)",
+                    outputs={"final_fib": [os.path.relpath(written, lamella.path)]},
                 )
             )
             self.experiment.save()

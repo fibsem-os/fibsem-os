@@ -120,3 +120,38 @@ def test_only_final_outputs_are_offered(tmp_path):
     )
 
     assert final_reference_images(lamella, task) == []
+
+
+def test_the_coincidence_viewer_records_what_the_panel_will_find(tmp_path, monkeypatch):
+    """The coincidence viewer writes its FIB image itself rather than going through a
+    task, so it has to record the output on the history entry it appends. What it
+    records and what the panel discovers must line up.
+    """
+    import numpy as np
+    from types import SimpleNamespace
+
+    from fibsem.structures import FibsemImage
+    from fibsem.ui.widgets import fluorescence_coincidence_viewer_widget as viewer
+
+    monkeypatch.setattr(viewer.notification_service, "show_toast", lambda *a, **k: None)
+
+    lamella = _lamella(tmp_path)
+    widget = viewer.FluorescenceCoincidenceViewerWidget.__new__(
+        viewer.FluorescenceCoincidenceViewerWidget
+    )
+    widget._selected_lamella = lamella
+    widget.experiment = SimpleNamespace(save=lambda: None)
+    widget._latest_fib_image = FibsemImage(data=np.zeros((8, 8), dtype=np.uint8))
+
+    widget._record_coincidence_result()
+
+    assert lamella.task_history, "no history entry was appended"
+    task = lamella.task_history[-1]
+    assert task.name == viewer.COINCIDENCE_REVIEW_TASK_NAME
+
+    recorded = task.outputs["final_fib"]
+    assert recorded == [os.path.basename(recorded[0])], "path must be relative"
+
+    found = final_reference_images(lamella, task)
+    assert found == [str(Path(lamella.path, recorded[0]))]
+    assert os.path.isfile(found[0])

@@ -256,6 +256,10 @@ class MillCoincidentTask(AutoLamellaTask):
                 stop_event=self._stop_event,
                 filename=filename,
             )
+            # acquire_image swallows save failures, so the requested filename is not
+            # proof the file was written; an unwritten image has no filepath and is
+            # skipped. See AcquireFluorescenceImageTask for the same pattern.
+            self._record_output("fluorescence", image)
 
         # acquire reference images
         self._acquire_set_of_reference_images(image_settings)
