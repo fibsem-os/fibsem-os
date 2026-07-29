@@ -64,9 +64,17 @@ def _make_result() -> CorrelationResult:
 def _make_corrected_result(
     poi_list=None, fib_image=None
 ) -> CorrelationResult:
-    """Result with input_data carrying a FIB surface at y=200."""
+    """Result with input_data carrying a FIB surface at y=200.
+
+    Carries a FIB image by default: correcting needs the image shape and pixel
+    size to update ``px_m``, and every real result has them — from the image, or
+    restored from JSON via the ``stored_*`` fallbacks (FIB-321).
+    """
     surface = _make_coord(y=200.0, pt=PointType.SURFACE)
-    data = CorrelationInputData(surface_coordinate=surface, fib_image=fib_image)
+    data = CorrelationInputData(
+        surface_coordinate=surface,
+        fib_image=fib_image if fib_image is not None else _make_fake_fib_image(),
+    )
     return CorrelationResult(
         poi=poi_list if poi_list is not None else [_make_poi(image_px_y=300.0)],
         input_data=data,

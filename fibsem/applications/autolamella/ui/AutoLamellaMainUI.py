@@ -41,6 +41,7 @@ from fibsem.structures import BeamType
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
@@ -369,6 +370,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         action_save_fm_configuration.triggered.connect(self._export_fm_configuration)
         dev_menu.addAction(action_save_fm_configuration)
 
+        dev_menu.addSeparator()
+
+        self.action_export_targeting_ml_data = QAction(
+            "Export Targeting ML Data...", self
+        )
+        self.action_export_targeting_ml_data.triggered.connect(
+            self._on_export_targeting_ml_data
+        )
+        dev_menu.addAction(self.action_export_targeting_ml_data)
+
     def _create_test_menu(self):
         """Create a test menu for toast notifications and sounds."""
 
@@ -598,6 +609,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Generate Overview Plot action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.action_generate_overview_plot()
+
+    def _on_export_targeting_ml_data(self):
+        """Handle Export Targeting ML Data action."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.export_targeting_ml_data()
 
     def _open_fm_minimap_widget(self):
         """Open the Fluorescence Minimap widget."""
@@ -1812,6 +1828,10 @@ def run_ui():
     init_sentry()  # inert unless crash reporting is enabled in preferences
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
+    # Cyclic garbage must only ever be collected on this thread: worker-thread GC
+    # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
+    # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.
+    gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
     window = AutoLamellaSingleWindowUI()
     window.show()
     sys.exit(app.exec_())

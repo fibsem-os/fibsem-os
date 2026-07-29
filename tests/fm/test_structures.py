@@ -635,6 +635,9 @@ def test_fluorescence_image_load_fallback():
         assert loaded_image.metadata.pixel_size_x == 1e-6
         assert loaded_image.metadata.pixel_size_y == 1e-6
 
+        # the fallback path is a separate return point — it must record the file too
+        assert loaded_image.filepath == filename
+
     finally:
         import os
 
@@ -2268,3 +2271,63 @@ def test_fluorescence_configuration_yaml_roundtrip_fm():
         import os
         if os.path.exists(filename):
             os.unlink(filename)
+
+
+# FluorescenceImage.filepath — the file an image is associated with on disk
+
+
+def _make_image() -> FluorescenceImage:
+    """A minimal two-channel image that round-trips through OME-TIFF cleanly."""
+    data = np.zeros((2, 1, 16, 16), dtype=np.uint8)  # C, Z, Y, X
+    metadata = FluorescenceImageMetadata(
+        acquisition_date="2025-01-01T12:00:00",
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 16),
+        channels=[
+            FluorescenceChannelMetadata(
+                name=name,
+                excitation_wavelength=excitation,
+                power=0.5,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
+            )
+            for name, excitation in (("DAPI", 365.0), ("GFP", 488.0))
+        ],
+    )
+    return FluorescenceImage(data=data, metadata=metadata)
+
+
+def test_fluorescence_image_filepath_is_none_until_written_or_read():
+    """An image that has never been saved or loaded has no file."""
+    assert _make_image().filepath is None
+
+
+def test_fluorescence_image_save_and_load_set_filepath(tmp_path):
+    """save() records where it wrote; load() records where it read."""
+    filename = str(tmp_path / "zstack.ome.tiff")
+
+    image = _make_image()
+    returned = image.save(filename)
+    assert returned == filename
+    assert image.filepath == filename
+
+    loaded = FluorescenceImage.load(filename)
+    assert loaded.filepath == filename
+
+
+def test_fluorescence_image_filepath_excluded_from_compare_and_repr():
+    """filepath describes where the image lives, not what it contains.
+
+    Guards the compare=False/repr=False on the field: without them, adding it
+    would change dataclass equality and repr for every FluorescenceImage.
+    """
+    import dataclasses
+
+    compared = [f.name for f in dataclasses.fields(FluorescenceImage) if f.compare]
+    assert compared == ["data", "metadata"]
+
+    image = _make_image()
+    image.filepath = "/somewhere/on/disk.ome.tiff"
+    assert "filepath" not in repr(image)

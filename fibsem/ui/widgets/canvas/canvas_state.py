@@ -9,7 +9,8 @@ Overlay specs (:class:`OverlaySpec` subclasses) are data records the reducer map
 onto the existing ``CanvasOverlay`` objects — they hold no Qt / matplotlib state,
 so they stay trivially testable and thread-safe to construct.
 
-See ``docs/design/canvas-overlay-state-model.md``.
+Each spec is keyed on a canvas by its ``id``, so re-setting a spec with the same id
+updates that overlay in place rather than stacking a second one.
 """
 from __future__ import annotations
 

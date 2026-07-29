@@ -318,6 +318,10 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._refresh_scalebar()
         self._overlay_point_artists.clear()
         self._overlay_label_artists.clear()
+        # ...and the legend entries that described them: cla() took the markers
+        # away, so keeping the labels left "POI (P)" / "FM reprojected (E)" in
+        # the legend of an image that has neither (FIB-321).
+        self._overlay_legend.clear()
         self._rebuild_artists()
 
     def set_coordinates(self, coords: List[Coordinate]) -> None:
@@ -926,6 +930,40 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def set_shift_z_scroll_enabled(self, enabled: bool) -> None:
         """When enabled, Shift+wheel emits z_scroll_requested instead of zooming."""
         self._shift_z_enabled = bool(enabled)
+
+    def wheelEvent(self, event) -> None:
+        """Rescue Shift+wheel when the delta doesn't arrive vertically.
+
+        matplotlib's Qt backend reads only the *vertical* component and emits
+        nothing at all when it is zero::
+
+            steps = event.angleDelta().y() / 120   # or pixelDelta().y()
+            if steps and self.figure is not None:
+                MouseEvent("scroll_event", ...)._process()
+
+        macOS turns Shift+wheel from a discrete mouse into horizontal scrolling,
+        moving the delta into ``x`` — so ``scroll_event`` never fires and Z
+        stepping is silently dead, while the same gesture on a trackpad (which
+        reports ``pixelDelta``) keeps working. Hence "it worked yesterday".
+
+        Only the empty-vertical case is taken here, which is exactly the case
+        matplotlib drops. Anything it would deliver is passed straight through,
+        so platforms where this already works — Windows wheels, macOS trackpads —
+        keep going through ``_on_scroll`` with its in-axes check intact.
+        """
+        angle, pixel = event.angleDelta(), event.pixelDelta()
+        if (
+            self._shift_z_enabled
+            and event.modifiers() & Qt.ShiftModifier
+            and angle.y() == 0
+            and pixel.y() == 0
+        ):
+            step = angle.x() or pixel.x()
+            if step:
+                self.z_scroll_requested.emit(1 if step > 0 else -1)
+                event.accept()
+                return
+        super().wheelEvent(event)
 
     def _on_scroll(self, event) -> None:
         if event.inaxes is not self._ax or event.xdata is None:

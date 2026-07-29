@@ -14,7 +14,8 @@ import fibsem.constants as constants
 from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
-TESCAN_BEAM_READY_TIMEOUT = 60        # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
+TESCAN_BEAM_READY_TIMEOUT = 60                     # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
+TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE = True   # Restore rotation/FOV/shift across preset changes, if false, use the values stored in the preset
 
 try:
     import tescanautomation
@@ -264,6 +265,7 @@ class TescanMicroscope(FibsemMicroscope):
         self.system: SystemSettings = system_settings
         self.milling_channel: BeamType = BeamType.ION
         self.stage_is_compustage: bool = False
+        self._preserve_settings_on_preset_change: bool = TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE
         self._last_imaging_settings: ImageSettings = ImageSettings()
 
         # user, experiment metadata
@@ -1128,8 +1130,8 @@ class TescanMicroscope(FibsemMicroscope):
             imaging_current (float): The current to use for imaging in amps.
         # """
         try:
-            default_preset = "30 keV; 150 pA"
-            self.connection.FIB.Preset.Activate(default_preset) # TODO: restore the default preset?
+            default_preset = "30 keV; 10 pA"
+            self.set_preset(default_preset, BeamType.ION)
             self.connection.DrawBeam.UnloadLayer()
             logging.debug(f"Finished milling, restored preset to {default_preset}")
         except Exception as e:
@@ -1339,6 +1341,18 @@ class TescanMicroscope(FibsemMicroscope):
         if beam_type is BeamType.ION:
             return self.connection.FIB
 
+    def _wait_for_beam_ready(self, beam: Union['Automation.SEM', 'Automation.FIB'], beam_type: BeamType, operation: str = "operation") -> None:
+        """Wait for the beam to become ready (not busy)."""
+        start_time = time.monotonic()
+        while beam.IsBusy():
+            logging.debug(f"Waiting for the {beam_type.name} beam to become ready after {operation}.")
+            if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:
+                raise TimeoutError(
+                    f"{beam_type.name} beam is not ready after {operation}. "
+                    f"Timeout of {TESCAN_BEAM_READY_TIMEOUT} seconds expired."
+                )
+            time.sleep(1)
+
     def _prepare_beam(self, beam_type: BeamType) -> Union['Automation.SEM', 'Automation.FIB']:
         """Prepare the beam for imaging, milling, or other operations."""
         beam = self._get_beam(beam_type)
@@ -1351,15 +1365,7 @@ class TescanMicroscope(FibsemMicroscope):
         # stop the scanning before we start scanning or before automatic procedures,
         beam.Scan.Stop()
 
-        start_time = time.monotonic()
-        while (beam.IsBusy()):
-            logging.debug(f"Waiting for the {beam_type.name} beam to become ready.")
-            if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:
-                raise TimeoutError(
-                    f"{beam_type.name} beam is not ready. "
-                    f"Timeout of {TESCAN_BEAM_READY_TIMEOUT} seconds expired."
-                )
-            time.sleep(1)
+        self._wait_for_beam_ready(beam, beam_type, operation="preparation")
 
         return beam
 
@@ -1545,6 +1551,57 @@ class TescanMicroscope(FibsemMicroscope):
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None   
 
+    def _activate_preset(self, beam: Union['Automation.SEM', 'Automation.FIB'], beam_type: BeamType, preset_name: str) -> None:
+        """Activate a preset, preserving rotation/FOV/shift when self._preserve_settings_on_preset_change is set."""
+        # Check if preset is available
+        if not beam.Preset.IsAvailable(preset_name):
+            logging.warning(f"Preset {preset_name} not available for {beam_type}.")
+            return
+        
+        preserve_settings = self._preserve_settings_on_preset_change
+        
+        # Save current settings if they should be preserved
+        image_rotation = None
+        view_field = None
+        image_shift_x = None
+        image_shift_y = None
+        
+        if preserve_settings:
+            image_rotation = beam.Optics.GetImageRotation()
+            logging.debug(f"Image rotation before changing preset: {image_rotation}.")
+            view_field = beam.Optics.GetViewfield()
+            logging.debug(f"FOV before changing preset: {view_field}.")
+            image_shift_x, image_shift_y = beam.Optics.GetImageShift()
+            logging.debug(f"XY shift before changing preset: {image_shift_x}, {image_shift_y}.")
+
+        try:
+            # Activate preset
+            beam.Preset.Activate(preset_name)
+            logging.info(f"Preset {preset_name} activated for {beam_type}.")
+            
+            # Wait for preset to fully apply
+            self._wait_for_beam_ready(beam, beam_type, operation="preset activation")
+            
+            # Update internal state
+            self._beam_parameters[beam_type].preset = preset_name
+            
+        except Exception as e:
+            logging.error(f"Failed to activate preset {preset_name} for {beam_type}: {e}")
+            raise  # Re-raise to ensure finally block runs and then propagate error
+            
+        finally:
+            # Restore settings if requested
+            if preserve_settings:
+                try:
+                    beam.Optics.SetImageRotation(image_rotation)
+                    logging.debug(f"Restored image rotation after changing preset to {image_rotation}.")
+                    beam.Optics.SetViewfield(view_field)
+                    logging.debug(f"Restored FOV after changing preset to {view_field}.")
+                    beam.Optics.SetImageShift(image_shift_x, image_shift_y)
+                    logging.debug(f"Restored XY shift after changing preset to {image_shift_x}, {image_shift_y}.")
+                except Exception as restore_error:
+                    logging.error(f"Failed to restore beam settings: {restore_error}")
+
     def _set(self, key: str, value, beam_type: BeamType = None) -> None:
         """Set a property of the microscope."""
         if beam_type is not None:
@@ -1641,12 +1698,7 @@ class TescanMicroscope(FibsemMicroscope):
             return
 
         if key == "preset":
-            # check if value is in available
-            if not beam.Preset.IsAvailable(value):
-                logging.warning(f"Preset {value} not available for {beam_type}.")
-                return
-            beam.Preset.Activate(value)
-            logging.info(f"Preset {value} activated for {beam_type}.")
+            self._activate_preset(beam, beam_type, value)
             return
 
         if key in ["resolution", "dwell_time", "stigmation"]:

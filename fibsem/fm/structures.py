@@ -60,15 +60,69 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
 
 
 class CameraImageTransform(Enum):
-    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems."""
+    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
+
+    Flips only. Any fixed rotation between the sensor and the stage belongs to the
+    mount, not to user preference, and is corrected inside the driver
+    (``FluorescenceMicroscope.mount_transform``) before this is applied.
+
+    Restricting the set to flips makes it the Klein four-group: every member is its
+    own inverse and composition is order-independent, so mapping a displacement
+    between the displayed image and the stage is two sign flips with no axis swap
+    and no inverse to get backwards. Flips also preserve the array shape, so the
+    image and its geometry metadata always describe the same frame.
+    """
 
     NONE = None
     FLIP_X = "flip-x"
     FLIP_Y = "flip-y"
     FLIP_XY = "flip-xy"
-    ROTATE_90_CW = "rotate-90-cw"
-    ROTATE_90_CCW = "rotate-90-ccw"
-    ROTATE_180 = "rotate-180"
+
+    def apply_to_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """Map a displacement between the raw and displayed frames.
+
+        Every member is its own inverse, so this maps in both directions: use it to
+        take a delta measured in the displayed image back to the underlying frame,
+        and vice versa.
+        """
+        flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
+        flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
+        return (-dx if flip_x else dx, -dy if flip_y else dy)
+
+
+# Transforms that stored configurations may still hold. A half turn is the same
+# element as flipping both axes, so it maps across without losing the setting; the
+# quarter turns describe a mount, which the driver now corrects, and have no
+# equivalent here.
+_LEGACY_IMAGE_TRANSFORMS = {"rotate-180": CameraImageTransform.FLIP_XY}
+
+
+def _parse_image_transform(value: Any) -> CameraImageTransform:
+    """Read a stored transform, tolerating values that are no longer members.
+
+    Rotations were removed once mount rotation moved into the driver. A half turn is
+    migrated to the equivalent flip so the setting survives; anything else falls back
+    to no transform with a warning rather than raising.
+    """
+    if value is None:
+        return CameraImageTransform.NONE
+    try:
+        return CameraImageTransform(value)
+    except ValueError:
+        pass
+
+    migrated = _LEGACY_IMAGE_TRANSFORMS.get(value)
+    if migrated is not None:
+        logging.info(
+            f"Camera image transform {value!r} is now {migrated.value!r}; migrated."
+        )
+        return migrated
+
+    logging.warning(
+        f"Unsupported camera image transform {value!r}; falling back to none. "
+        "Rotations are now applied as a fixed mount correction inside the driver."
+    )
+    return CameraImageTransform.NONE
 
 
 class ZStackOrder(Enum):
@@ -324,6 +378,10 @@ class ZParameters:
 class FluorescenceImage:
     data: np.ndarray  # TCZYX format (Time, Channels, Z, Y, X)
     metadata: "FluorescenceImageMetadata"
+    # the file this image is associated with on disk, set by save() and load().
+    # excluded from compare/repr: it describes where the image lives, not what it contains,
+    # so two images of the same data read from different paths are still equal.
+    filepath: Optional[str] = field(default=None, compare=False, repr=False)
 
     def save(self, filename: str) -> str:
         """
@@ -354,7 +412,9 @@ class FluorescenceImage:
             tif.write(data=tifffile_image, contiguous=True)
             tif.overwrite_description(ome_xml)
 
-        return filename
+        # set only after a successful write, so a recorded path is always a path that exists
+        self.filepath = str(filename)
+        return self.filepath
 
     def get_ome_metadata(self) -> OMEMetadata:
         """Generate OME metadata for the FluorescenceImage."""
@@ -613,7 +673,7 @@ class FluorescenceImage:
                             # Single channel, single Z: YX -> CZYX
                             data = data[np.newaxis, np.newaxis, :, :]
 
-                        return cls(data=data, metadata=metadata)
+                        return cls(data=data, metadata=metadata, filepath=str(filename))
 
         except Exception as e:
             logging.warning(f"Failed to load structured annotations: {e}")
@@ -628,7 +688,7 @@ class FluorescenceImage:
                 # Fallback to basic metadata
                 metadata = cls._create_basic_metadata(data.shape)
 
-        return cls(data=data, metadata=metadata)
+        return cls(data=data, metadata=metadata, filepath=str(filename))
 
     @classmethod
     def _create_basic_metadata(cls, data_shape: tuple) -> "FluorescenceImageMetadata":
@@ -1146,7 +1206,7 @@ class FluorescenceChannelMetadata:
 
     # Camera settings
     exposure_time: float  # seconds
-    gain: float  # camera gain
+    gain: Optional[float]  # camera gain (None when the camera has no gain control)
     offset: float  # camera offset
 
     # Fields with defaults must come after required fields
@@ -1534,7 +1594,7 @@ class CameraSettings:
             gain=ddict.get("gain", 1.0),
             offset=ddict.get("offset", 0.0),
             binning=ddict.get("binning", 1),
-            transform=CameraImageTransform(ddict.get("transform", CameraImageTransform.NONE.value)),
+            transform=_parse_image_transform(ddict.get("transform")),
         )
 
 

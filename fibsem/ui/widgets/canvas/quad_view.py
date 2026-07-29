@@ -331,8 +331,9 @@ class MicroscopeViewController(QObject):
     (image + overlays + info per canvas), and renders it onto the per-beam canvases
     in a single debounced pass. Producers mutate the model *only* through the reducer
     API (``set_image`` / ``set_overlay`` / ``remove_overlay``); they never touch the
-    canvases or overlay objects directly. See
-    ``docs/design/canvas-overlay-state-model.md``.
+    canvases or overlay objects directly. Renders are coalesced: mutations mark the
+    scene dirty and a queued signal drives one ``_reconcile`` pass per canvas on the
+    GUI thread, so the reducer API is safe to call from worker threads.
     """
 
     # Emitted (queued) when a canvas needs re-rendering; the queued connection

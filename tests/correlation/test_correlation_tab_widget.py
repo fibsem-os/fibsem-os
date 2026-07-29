@@ -17,17 +17,12 @@ from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationPointOfInterest,
+    CorrelationState,
     CorrelationResult,
     PointType,
     PointXYZ,
 )
 from fibsem.structures import Point
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 @pytest.fixture(autouse=True)
@@ -239,7 +234,12 @@ def test_status_short_and_result_summary_after_run(qapp):
 
 
 def test_apply_post_creates_ghost_and_status(qapp):
+    from fibsem.structures import FibsemImage
+
     w = _widget(qapp)
+    # Correcting needs the image dimensions: px_m is derived from them, and px_m
+    # is what Continue commits (FIB-321).
+    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(512, 512), hfw=100e-6))
     w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
 
     result = CorrelationResult(
@@ -764,6 +764,78 @@ def test_canvas_shift_scroll_emits_z_when_enabled(qapp):
     assert got == [1, -1]
 
 
+def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
+    """Deliver a real QWheelEvent, so the Qt -> matplotlib path is exercised.
+
+    The test above hand-builds a matplotlib event and calls _on_scroll directly,
+    which is why it kept passing while Z stepping was dead on a real mouse: the
+    event never reached _on_scroll at all.
+    """
+    import numpy as np
+    from PyQt5.QtCore import QPoint, QPointF, Qt
+    from PyQt5.QtGui import QWheelEvent
+    from PyQt5.QtWidgets import QApplication
+
+    if canvas._ax.images == []:
+        canvas.set_image(np.zeros((64, 64), np.uint8))
+        canvas.resize(400, 400)
+    pos = QPointF(200.0, 200.0)
+    QApplication.sendEvent(
+        canvas,
+        QWheelEvent(
+            pos, pos, QPoint(*pixel), QPoint(*angle), Qt.NoButton,
+            Qt.ShiftModifier if shift else Qt.NoModifier, Qt.NoScrollPhase, False,
+        ),
+    )
+
+
+def test_shift_wheel_steps_z_however_the_delta_arrives(qapp):
+    """matplotlib reads only the *vertical* delta and emits nothing when it is
+    zero, so a device that reports Shift+wheel horizontally (a discrete mouse on
+    macOS) got no scroll_event at all — Z stepping silently dead, while the same
+    gesture on a trackpad kept working."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    canvas.set_shift_z_scroll_enabled(True)
+    got = []
+    canvas.z_scroll_requested.connect(got.append)
+
+    # Windows mouse / any platform that keeps it vertical: via matplotlib.
+    _wheel(canvas, angle=(0, 120))
+    assert got == [1]
+
+    # Trackpad: pixelDelta carries it, also vertical.
+    _wheel(canvas, angle=(0, 120), pixel=(0, 30))
+    assert got == [1, 1]
+
+    # macOS discrete mouse: the delta lands in x and matplotlib drops the event.
+    _wheel(canvas, angle=(120, 0))
+    _wheel(canvas, angle=(-120, 0))
+    assert got == [1, 1, 1, -1]
+
+    # Diagonal: matplotlib owns it, because it reads y. Taking it here would let
+    # x reach the opposite conclusion — which is what the vertical guard is for.
+    got.clear()
+    _wheel(canvas, angle=(-120, 120))
+    assert got == [1]
+
+
+def test_horizontal_wheel_only_steps_z_when_it_should(qapp):
+    """Guards the over-correction: the rescue must not fire without Shift, nor
+    when the canvas hasn't opted into Z stepping."""
+    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+
+    canvas = ImagePointCanvas()
+    got = []
+    canvas.z_scroll_requested.connect(got.append)
+
+    _wheel(canvas, angle=(120, 0))                 # not enabled yet
+    canvas.set_shift_z_scroll_enabled(True)
+    _wheel(canvas, angle=(120, 0), shift=False)    # enabled, but no Shift
+    assert got == []
+
+
 def test_fm_display_shows_image_name(qapp):
     from fibsem.correlation.ui.widgets.fm_image_display_widget import (
         FMImageDisplayWidget,
@@ -851,18 +923,21 @@ def test_discover_correlation_files(tmp_path):
     assert _discover_correlation_files(str(tmp_path)) == {
         "fib": None,
         "fm": None,
+        "correlation": None,
         "data": None,
         "result": None,
     }
 
     (tmp_path / "BeforeMilling_G1.ome.tiff").write_bytes(b"")
     (tmp_path / "ref_Mill_ib.tif").write_bytes(b"")
+    (tmp_path / "correlation.json").write_text("{}")
     (tmp_path / "correlation_data.json").write_text("{}")
     (tmp_path / "correlation_result.json").write_text("{}")
 
     found = _discover_correlation_files(str(tmp_path))
     assert os.path.basename(found["fm"]) == "BeforeMilling_G1.ome.tiff"
     assert os.path.basename(found["fib"]) == "ref_Mill_ib.tif"
+    assert os.path.basename(found["correlation"]) == "correlation.json"
     assert os.path.basename(found["data"]) == "correlation_data.json"
     assert os.path.basename(found["result"]) == "correlation_result.json"
 
@@ -882,20 +957,20 @@ def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
 
 
 def test_load_error_reverts_path_field(qapp, monkeypatch):
-    """A failed load reverts the path field to the last-good value, so re-focusing
-    the field doesn't re-attempt (and re-warn about) the bad path."""
+    """A failed load reverts the picker to the last-good file, so the selection
+    never shows an image that isn't actually loaded."""
     from PyQt5.QtWidgets import QMessageBox
 
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
 
     tab = _widget(qapp)._images_tab
     tab._fib_loaded_path = "/good/prev_ib.tif"
-    tab._fib_path.setText("/good/prev_ib.tif")
+    tab._fib_picker.show_path("/good/prev_ib.tif")
 
-    tab._fib_path.setText("/nope/does_not_exist_ib.tif")
+    tab._fib_picker.show_path("/nope/does_not_exist_ib.tif")
     tab._load_fib("/nope/does_not_exist_ib.tif")  # FibsemImage.load raises
 
-    assert tab._fib_path.text() == "/good/prev_ib.tif"
+    assert tab._fib_picker.current_path() == "/good/prev_ib.tif"
     assert tab._fib_loaded_path == "/good/prev_ib.tif"
 
 
@@ -1268,7 +1343,8 @@ def test_load_coordinates_does_not_wipe_points_on_a_result_file(qapp, tmp_path):
         pass  # rejected, as it should be
 
     assert len(w.data.fib_coordinates) == 1  # still there, not cleared
-    on_disk = json.loads(open(data_path).read())
+    with open(data_path) as f:
+        on_disk = json.load(f)
     assert len(on_disk["fib_coordinates"]) == 1  # and not overwritten on disk
 
 
@@ -1282,9 +1358,9 @@ def test_load_result_rejects_a_coordinates_file(qapp, tmp_path):
     assert "Load Coordinates" in str(exc.value)
 
 
-def test_load_coordinates_shows_a_warning_instead_of_crashing(qapp, tmp_path, monkeypatch):
-    """_on_load had no try/except while _menu_load_result did — the same mistake
-    was a friendly warning in one direction and an unhandled KeyError in the other."""
+def test_menu_load_correlation_accepts_a_legacy_result_file(qapp, tmp_path, monkeypatch):
+    """FIB-264: the single Load action dispatches on shape, so selecting the
+    legacy result file — the exact FIB-263 misclick — now just loads it."""
     from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
     w = _widget(qapp)
@@ -1298,7 +1374,30 @@ def test_load_coordinates_shows_a_warning_instead_of_crashing(qapp, tmp_path, mo
         QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a))
     )
 
-    w._on_load()  # must not raise
+    w._menu_load_correlation()
+    assert not shown, "a valid result file should load, not warn"
+    assert len(w.result.poi) == 1  # the result was adopted
+
+
+def test_menu_load_correlation_warns_on_a_foreign_file(qapp, tmp_path, monkeypatch):
+    """A genuinely unreadable/foreign JSON still warns rather than crashing."""
+    import json
+
+    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+
+    w = _widget(qapp)
+    junk = tmp_path / "notes.json"
+    junk.write_text(json.dumps({"hello": "world"}))
+
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(junk), ""))
+    )
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a))
+    )
+
+    w._menu_load_correlation()  # must not raise
     assert shown, "expected a warning dialog rather than an exception"
 
 
@@ -1422,22 +1521,26 @@ def test_fit_confirmation_dialog_constructs(qapp):
 
 
 def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
+    import numpy as np
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-    from matplotlib.figure import Figure
 
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
     )
 
-    fig = Figure(figsize=(20, 5))  # like hole_fitting_reflection's 1x3 strip
-    for i in range(3):
-        fig.add_subplot(1, 3, i + 1)
+    # a z + XY diagnostic renders wide (9x4.5), like the FM fits
+    diag = FitDiagnostic(
+        title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0),
+        z_axis=np.arange(5), z_signal=np.arange(5.0), z_fit=np.arange(5.0),
+        z_input=2.0, z_fitted=2.5,
+    )
     r = PointFitResult(
         coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
         initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 3.0),
-        status=FitStatus.OK, figure=fig,
+        status=FitStatus.OK, diagnostic=diag,
     )
     dialog = FitConfirmationDialog(r, show_figure=True)
     canvases = dialog.findChildren(FigureCanvasQTAgg)
@@ -1445,37 +1548,6 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     canvas = canvases[0]
     assert canvas.minimumWidth() > canvas.minimumHeight()  # wide, not squished
     assert canvas.minimumWidth() <= 900                     # capped
-
-
-def test_apply_dark_theme_darkens_chrome_keeps_data():
-    # The fit figures are authored light; the dialog re-themes them to the dark
-    # palette at embed time. Lock the contract: chrome (figure/axes bg) goes
-    # dark, the near-black gaussian-fit line is lifted so it stays visible, and
-    # the saturated markers / mid-grey signal are left untouched (they read on
-    # dark already, and the marker colours carry meaning).
-    from matplotlib.colors import to_hex
-    from matplotlib.figure import Figure
-
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
-        _AXES_BG,
-        _FIG_BG,
-        _apply_dark_theme,
-        _luminance,
-    )
-
-    fig = Figure()
-    ax = fig.add_subplot(1, 1, 1)
-    (signal,) = ax.plot([0, 1], [0, 1], color="0.55")           # mid-grey
-    (fit,) = ax.plot([0, 1], [1, 0], color="0.15", ls="--")     # near-black
-    (marker,) = ax.plot([0.5], [0.5], "+", color="#e53935")     # input red
-
-    _apply_dark_theme(fig)
-
-    assert to_hex(fig.get_facecolor()) == _FIG_BG
-    assert to_hex(ax.get_facecolor()) == _AXES_BG
-    assert _luminance(fit.get_color()) > _luminance("0.15")     # lifted off black
-    assert signal.get_color() == "0.55"                         # signal untouched
-    assert marker.get_color() == "#e53935"                      # marker untouched
 
 
 def test_humanize_fit_error_maps_known_modes():
@@ -1558,8 +1630,9 @@ def test_error_dialog_splits_title_and_wrapped_reason(qapp):
 
 
 def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
-    from matplotlib.figure import Figure
+    import numpy as np
 
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1567,12 +1640,11 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     )
 
     def _result():
-        fig = Figure(figsize=(9, 4.5))
-        fig.add_subplot(1, 1, 1)
+        diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
         return PointFitResult(
             coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
             initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
-            status=FitStatus.OK, figure=fig,
+            status=FitStatus.OK, diagnostic=diag,
         )
 
     # Checkbox unchecked -> figure is still embedded, just hidden; the button
@@ -1597,21 +1669,21 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
 
 
 def test_accept_is_default_button_not_the_toggle(qapp):
-    from matplotlib.figure import Figure
+    import numpy as np
     from PyQt5.QtWidgets import QPushButton
 
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
     )
 
-    fig = Figure(figsize=(9, 4.5))
-    fig.add_subplot(1, 1, 1)
+    diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
     result = PointFitResult(
         coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
         initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
-        status=FitStatus.OK, figure=fig,
+        status=FitStatus.OK, diagnostic=diag,
     )
     dlg = FitConfirmationDialog(result, show_figure=True)
     buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
@@ -1713,7 +1785,7 @@ def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
     assert fitted == []  # don't hijack the key mid-edit
 
 
-def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, figure=None):
+def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, diagnostic=None):
     from fibsem.correlation.ui.widgets.fit_confirmation_dialog import PointFitResult
 
     initial = PointXYZ(100.0, 100.0, 10.0)
@@ -1725,7 +1797,7 @@ def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, figure=None):
     return PointFitResult(
         coordinate=_coord(100.0, 100.0, 10.0, PointType.FM),
         method="Hole", channel=0, initial=initial, fitted=fitted,
-        status=status, figure=figure,
+        status=status, diagnostic=diagnostic,
     )
 
 
@@ -1802,9 +1874,9 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
-    fig = object()
+    diag = object()  # stand-in FitDiagnostic
     monkeypatch.setattr(
-        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, fig)
+        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
     )
 
     coord = _coord(20.0, 20.0, 0.0, PointType.FIB)  # FIB method defaults to "Hole"
@@ -1816,7 +1888,7 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     assert result.status is FitStatus.OK
     assert (result.fitted.x, result.fitted.y) == (23.0, 24.0)
     assert round(result.delta_px, 1) == 5.0
-    assert result.figure is fig
+    assert result.diagnostic is diag
 
 
 def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
@@ -1913,3 +1985,489 @@ def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
 
     _press_release(canvas, coord, drag_to=(60.0, 70.0))  # a real drag
     assert moved == [coord]
+
+
+# ---------------------------------------------------------------------------
+# FIB-295 — a result that predates the current points
+# ---------------------------------------------------------------------------
+
+
+def _input(fib=(1.0, 2.0), ri=None) -> CorrelationInputData:
+    return CorrelationInputData(
+        fib_coordinates=[_coord(*fib, pt=PointType.FIB)],
+        ri_pre_correction_factor=ri,
+    )
+
+
+def _result_from(data: CorrelationInputData) -> CorrelationResult:
+    return CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=10.0, y=20.0))],
+        rms_error=1.5,
+        input_data=data,
+    )
+
+
+def test_matches_inputs_detects_a_moved_coordinate():
+    result = _result_from(_input(fib=(1.0, 2.0)))
+    assert result.matches_inputs(_input(fib=(1.0, 2.0))) is True
+    assert result.matches_inputs(_input(fib=(1.0, 9.0))) is False
+
+
+def test_matches_inputs_tracks_the_ri_factor():
+    """The RI pre-correction scales POI z before the fit, so it does change the
+    answer — unlike the flags below, it must count as a change."""
+    result = _result_from(_input(ri=1.4))
+    assert result.matches_inputs(_input(ri=1.4)) is True
+    assert result.matches_inputs(_input(ri=1.8)) is False
+
+
+def test_matches_inputs_ignores_changes_that_cannot_move_the_answer():
+    """Scoping guard. If a change the transform never reads marks a good result
+    stale, users learn to ignore the warning and it stops carrying information."""
+    result = _result_from(_input())
+
+    refit = _input()
+    refit.fib_coordinates[0].fitted = True  # provenance, not a position
+    assert result.matches_inputs(refit) is True
+
+    other_method = _input()
+    other_method.method = "single-point"  # not read by run_correlation_from_data
+    assert result.matches_inputs(other_method) is True
+
+
+def test_matches_inputs_ignores_image_presence():
+    """A deserialized result carries no images, so image-derived properties are
+    None on one side and populated on the other. Comparing them would report
+    every reloaded result as stale."""
+    saved = _input()  # no images, as if from JSON
+    live = _input()
+    live.fib_image = _fake_fib()
+    assert _result_from(saved).matches_inputs(live) is True
+
+
+def test_result_with_no_snapshot_cannot_claim_to_match():
+    result = CorrelationResult(poi=[], input_data=None)
+    assert result.matches_inputs(_input()) is False
+
+
+def test_loading_a_stale_result_does_not_arm_continue(qapp):
+    """Continue commits result.poi[0].px_m to the protocol editor. The in-session
+    guard (_set_result_live on edit) does not survive a reload, so the staleness
+    has to be re-derived from the result's own snapshot."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))  # the points as they are now
+
+    stale = _result_from(_input(fib=(1.0, 2.0)))  # fitted to where they were
+    w._load_result(stale, adopt_inputs=False)
+
+    assert w._btn_continue.isEnabled() is False
+    assert w._lbl_result.isHidden() is True  # no RMS badge for a dead transform
+    assert "changed since this run" in w._lbl_status.text()
+
+
+def test_loading_a_current_result_stays_live(qapp):
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    fresh = _result_from(_input(fib=(5.0, 5.0)))
+    w._load_result(fresh, adopt_inputs=False)
+
+    assert w._btn_continue.isEnabled() is True
+    assert w._lbl_status.text() == "Done."
+
+
+def test_load_result_can_keep_the_coordinates_already_loaded(qapp):
+    """The destructive half of FIB-295: the result's embedded snapshot used to
+    overwrite the lists unconditionally, so reopening a project silently
+    discarded every edit made after the last run."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    w._load_result(_result_from(_input(fib=(1.0, 2.0))), adopt_inputs=False)
+
+    kept = w._coords_tab.fib_list.coordinates
+    assert [(c.point.x, c.point.y) for c in kept] == [(5.0, 5.0)]
+
+
+def test_load_project_prefers_the_data_file_over_the_result_snapshot(qapp, tmp_path):
+    """End-to-end of the reported path: edit after a run, reopen, keep the edit."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    _result_from(_input(fib=(1.0, 2.0))).save(
+        str(tmp_path / "correlation_result.json")
+    )
+    _input(fib=(5.0, 5.0)).save(str(tmp_path / "correlation_data.json"))
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+
+    kept = w._coords_tab.fib_list.coordinates
+    assert [(c.point.x, c.point.y) for c in kept] == [(5.0, 5.0)]  # the edit survives
+    assert w._btn_continue.isEnabled() is False  # and the old result isn't armed
+
+
+def test_load_project_adopts_the_snapshot_when_there_is_no_data_file(qapp, tmp_path):
+    """With no data file the result's snapshot is the only record of the points."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    _result_from(_input(fib=(1.0, 2.0))).save(
+        str(tmp_path / "correlation_result.json")
+    )
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+
+    kept = w._coords_tab.fib_list.coordinates
+    assert [(c.point.x, c.point.y) for c in kept] == [(1.0, 2.0)]
+    assert w._btn_continue.isEnabled() is True  # consistent, so still usable
+
+
+def test_stale_status_outranks_the_ri_note(qapp):
+    """The status line is the only thing explaining why Continue is greyed out,
+    so a stale result must not report 'Done — RI ×1.500'."""
+    w = _widget(qapp)
+    w.set_data(_input(fib=(5.0, 5.0)))
+
+    stale = _result_from(_input(fib=(1.0, 2.0)))
+    stale.refractive_index_correction_mode = "pre"
+    stale.refractive_index_correction_factor = 1.5
+    w._load_result(stale, adopt_inputs=False)
+
+    assert "changed since this run" in w._lbl_status.text()
+    assert "Done" not in w._lbl_status.text()
+
+
+# ---------------------------------------------------------------------------
+# FIB-264 — one consolidated correlation.json
+# ---------------------------------------------------------------------------
+
+
+def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
+    """Both data_changed and result_changed rewrite a single correlation.json;
+    the legacy pair is never written."""
+    import json
+
+    w = _widget(qapp)
+    w.set_project_dir(str(tmp_path))
+    w.set_data(_input(fib=(3.0, 4.0)))
+    w.data_changed.emit(w.data)
+
+    single = tmp_path / "correlation.json"
+    assert single.exists()
+    assert not (tmp_path / "correlation_data.json").exists()
+    assert not (tmp_path / "correlation_result.json").exists()
+
+    raw = json.loads(single.read_text())
+    assert raw["version"] == 1
+    assert raw["result"] is None
+    assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 3.0
+
+    # a run adds the result to the same file
+    w._on_result_ready(_result_from(_input(fib=(3.0, 4.0))))
+    raw = json.loads(single.read_text())
+    assert raw["result"] is not None
+    assert "computed_from" in raw["result"]  # the snapshot, renamed
+
+
+def test_load_correlation_round_trips_a_consolidated_file(qapp, tmp_path):
+    w = _widget(qapp)
+    w.set_project_dir(str(tmp_path))
+    w.set_data(_input(fib=(5.0, 5.0)))
+    w._on_result_ready(_result_from(_input(fib=(5.0, 5.0))))  # live, matches
+
+    fresh = _widget(qapp)
+    fresh.load_correlation(str(tmp_path / "correlation.json"))
+    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [(5.0, 5.0)]
+    assert fresh._btn_continue.isEnabled() is True  # consistent -> usable
+
+
+def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
+    """A file saved after a post-run edit carries the new points plus the old
+    result; on load, matches_inputs must still flag it (FIB-295 within one file)."""
+    import json
+
+    w = _widget(qapp)
+    w.set_project_dir(str(tmp_path))
+    w.set_data(_input(fib=(1.0, 2.0)))
+    w._on_result_ready(_result_from(_input(fib=(1.0, 2.0))))  # result fitted here
+    w.set_data(_input(fib=(9.0, 9.0)))  # ...then the points move
+    w.data_changed.emit(w.data)         # rewrite: new points, stale result
+
+    raw = json.loads((tmp_path / "correlation.json").read_text())
+    assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 9.0
+    assert raw["result"]["computed_from"]["fib_coordinates"][0]["point"]["x"] == 1.0
+
+    fresh = _widget(qapp)
+    fresh.load_correlation(str(tmp_path / "correlation.json"))
+    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [(9.0, 9.0)]
+    assert fresh._btn_continue.isEnabled() is False  # stale result not armed
+
+
+def test_load_project_prefers_the_consolidated_file(qapp, tmp_path):
+    """With correlation.json present, the legacy pair is ignored even if it
+    disagrees."""
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    CorrelationState(input_data=_input(fib=(5.0, 5.0))).save(
+        str(tmp_path / "correlation.json")
+    )
+    # a stale legacy pair that must be ignored
+    _input(fib=(1.0, 1.0)).save(str(tmp_path / "correlation_data.json"))
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(5.0, 5.0)]
+
+
+def test_load_project_falls_back_to_legacy_when_no_consolidated_file(qapp, tmp_path):
+    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+
+    _input(fib=(7.0, 7.0)).save(str(tmp_path / "correlation_data.json"))
+
+    w = _widget(qapp)
+    load_project(w, str(tmp_path))
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(7.0, 7.0)]
+
+
+def test_load_correlation_reads_a_legacy_data_file(qapp, tmp_path):
+    """A pre-FIB-264 correlation_data.json still loads via the unified entry."""
+    p = tmp_path / "correlation_data.json"
+    _input(fib=(7.0, 8.0)).save(str(p))
+
+    w = _widget(qapp)
+    w.load_correlation(str(p))
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(7.0, 8.0)]
+    assert w._result is None  # a bare data file carries no result
+
+
+def test_load_correlation_file_dispatches_on_every_shape(tmp_path):
+    """The one place the shape-sniff lives: container / legacy data / legacy
+    result (new + old snapshot key) / junk. This is the 'old files still load'
+    guarantee at the unit level."""
+    import json
+
+    from fibsem.correlation.structures import load_correlation_file
+
+    # new container
+    cpath = tmp_path / "c.json"
+    CorrelationState(
+        input_data=_input(fib=(1.0, 1.0)), result=_result_from(_input(fib=(1.0, 1.0)))
+    ).save(str(cpath))
+    st = load_correlation_file(str(cpath))
+    assert st.input_data.fib_coordinates[0].point.x == 1.0 and st.result is not None
+
+    # legacy data file
+    dpath = tmp_path / "correlation_data.json"
+    _input(fib=(2.0, 2.0)).save(str(dpath))
+    st = load_correlation_file(str(dpath))
+    assert st.result is None and st.input_data.fib_coordinates[0].point.x == 2.0
+
+    # legacy result file (current computed_from key)
+    rpath = tmp_path / "correlation_result.json"
+    _result_from(_input(fib=(3.0, 3.0))).save(str(rpath))
+    st = load_correlation_file(str(rpath))
+    assert st.result is not None and st.input_data.fib_coordinates[0].point.x == 3.0
+
+    # legacy result file written with the OLD "input_data" snapshot key
+    opath = tmp_path / "old_result.json"
+    old = _result_from(_input(fib=(4.0, 4.0))).to_dict()
+    old["input_data"] = old.pop("computed_from")
+    opath.write_text(json.dumps(old))
+    st = load_correlation_file(str(opath))
+    assert st.input_data.fib_coordinates[0].point.x == 4.0
+
+    # foreign / junk JSON
+    jpath = tmp_path / "junk.json"
+    jpath.write_text(json.dumps({"foo": 1}))
+    with pytest.raises(ValueError):
+        load_correlation_file(str(jpath))
+
+
+# ---------------------------------------------------------------------------
+# FIB-298 — CorrelationConfig passed in on open, read back on close
+# ---------------------------------------------------------------------------
+
+
+def test_widget_config_round_trips(qapp):
+    """set_correlation_config -> combos + RI widget -> correlation_config back."""
+    from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+
+    w = _widget(qapp)
+    cfg = CorrelationConfig(
+        fit=FitSettings(fib_method="None", fm_poi_method="Hole", reflection_cutout=4),
+        ri=RISettings(na=0.9, wavelength_um=0.488, n2=1.33),
+        load_spot_burns=False,
+    )
+    w.set_correlation_config(cfg)
+
+    cl = w._coords_tab
+    assert cl._fib_method_combo.currentText() == "None"
+    assert cl._fm_poi_method_combo.currentText() == "Hole"
+    p = w._ri_tab._ri_widget.get_params()
+    assert (p.NA, p.n2) == (pytest.approx(0.9), pytest.approx(1.33))
+    assert p.wavelength_um == pytest.approx(0.488)
+
+    out = w.correlation_config
+    assert out.fit.fib_method == "None"
+    assert out.fit.reflection_cutout == 4      # UI-less field carried through
+    assert out.ri.na == pytest.approx(0.9)
+    assert out.load_spot_burns is False        # UI-less field carried through
+
+
+def test_widget_config_reflects_a_combo_edit(qapp):
+    from fibsem.correlation.config import CorrelationConfig
+
+    w = _widget(qapp)
+    w.set_correlation_config(CorrelationConfig())
+    w._coords_tab._fib_method_combo.setCurrentText("Gaussian")
+    assert w.correlation_config.fit.fib_method == "Gaussian"
+
+
+def test_config_default_matches_current_behaviour(qapp):
+    """A widget that was never given a config reports today's defaults."""
+    w = _widget(qapp)
+    fit = w.correlation_config.fit
+    assert (fit.fib_method, fit.fm_fiducial_method, fit.fm_poi_method) == \
+        ("Hole", "None", "Gaussian")
+
+
+def test_channel_by_name_lands_once_the_channel_exists(qapp):
+    """A config naming a POI channel applies after the FM image populates the
+    combos — stored by name, resolved against the image (not a pinned index)."""
+    from fibsem.correlation.config import CorrelationConfig, FitSettings
+
+    w = _widget(qapp)
+    # config set before any FM image: channel combo is still empty, no-op
+    w.set_correlation_config(
+        CorrelationConfig(fit=FitSettings(fm_poi_channel="CH1"))
+    )
+    assert w._coords_tab._fm_poi_ch_combo.currentText() == ""
+
+    # channels populate; re-apply lands the named selection (as set_fm_image does)
+    w._coords_tab.rebuild_channel_combos(_fake_fm(n_c=3))
+    w._apply_fit_config()
+    assert w._coords_tab._fm_poi_ch_combo.currentText() == "CH1"
+    assert w.correlation_config.fit.fm_poi_channel == "CH1"
+
+
+def _fake_fm_with_optics(names=("Reflection", "GFP"), wl_nm=(488, 520), na=0.85):
+    """FM whose channels carry the ζ-seedable metadata (λ, NA)."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    chans = [
+        SimpleNamespace(name=n, color=None, excitation_wavelength=w,
+                        objective_numerical_aperture=na)
+        for n, w in zip(names, wl_nm)
+    ]
+    return SimpleNamespace(
+        data=np.zeros((len(chans), 5, 8, 8), dtype=np.float32),
+        metadata=SimpleNamespace(filename="/data/fm.ome.tiff", channels=chans),
+    )
+
+
+def test_ri_seeds_wavelength_and_na_from_poi_channel(qapp):
+    """FIB-277: λ comes from the *POI* channel's excitation wavelength, NA from
+    the objective — both read from metadata, not left at the generic default."""
+    from fibsem.correlation.config import CorrelationConfig, FitSettings
+
+    w = _widget(qapp)
+    fm = _fake_fm_with_optics(names=("Reflection", "GFP"), wl_nm=(488, 520), na=0.85)
+    w._coords_tab.rebuild_channel_combos(fm)
+    # POI channel = GFP (520 nm)
+    w.set_correlation_config(CorrelationConfig(fit=FitSettings(fm_poi_channel="GFP")))
+    w._apply_fit_config()
+
+    w._seed_ri_from_fm_metadata(fm)
+
+    p = w._ri_tab._ri_widget.get_params()
+    assert p.wavelength_um == pytest.approx(0.520)   # GFP, not Reflection
+    assert p.NA == pytest.approx(0.85)
+
+
+def test_ri_seed_respects_a_manual_edit(qapp):
+    """A wavelength the user typed is not clobbered by metadata on FM load."""
+    w = _widget(qapp)
+    ri = w._ri_tab._ri_widget
+    ri._spin_wl.setValue(600.0)
+    ri._spin_wl.editingFinished.emit()   # marks it user-edited
+
+    w._seed_ri_from_fm_metadata(_fake_fm_with_optics(wl_nm=(488, 520)))
+    assert ri.get_params().wavelength_um == pytest.approx(0.600)  # kept
+
+
+def test_ri_seed_skips_when_metadata_absent(qapp):
+    """A channel with no optics metadata leaves the RI params at their default."""
+    w = _widget(qapp)
+    before = w._ri_tab._ri_widget.get_params()
+    w._seed_ri_from_fm_metadata(_fake_fm(n_c=2))  # plain channels, no λ/NA
+    assert w._ri_tab._ri_widget.get_params() == before
+
+
+# ---------------------------------------------------------------------------
+# FIB-299 — seed a new correlation from the previous run
+# ---------------------------------------------------------------------------
+
+
+def _fm_at_zstep(z_step_m, n_z=21):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    return SimpleNamespace(
+        data=np.zeros((1, n_z, 8, 8), dtype=np.float32),
+        metadata=SimpleNamespace(
+            pixel_size_z=z_step_m, pixel_size_x=100e-9, channels=[], filename=""
+        ),
+    )
+
+
+def test_stored_fm_pixel_size_z_round_trips():
+    d = CorrelationInputData(
+        fib_coordinates=[_coord(1.0, 2.0, pt=PointType.FIB)],
+        stored_fm_pixel_size_z=500e-9,
+    )
+    assert d.to_dict()["fm_pixel_size_z"] == 500e-9
+    assert CorrelationInputData.from_dict(d.to_dict()).stored_fm_pixel_size_z == 500e-9
+    legacy = d.to_dict()
+    del legacy["fm_pixel_size_z"]  # a file written before FIB-299
+    assert CorrelationInputData.from_dict(legacy).stored_fm_pixel_size_z is None
+
+
+def test_seed_rescales_fm_z_across_a_different_zstep(qapp):
+    """A seed picked at 500 nm/slice, reloaded into a 100 nm/slice (interpolated)
+    volume, must land at the same physical depth — index 10 -> 50."""
+    w = _widget(qapp)
+    w._fm_image = _fm_at_zstep(100e-9, n_z=105)   # current volume, interpolated
+    source = CorrelationInputData(
+        fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
+        stored_fm_pixel_size_z=500e-9,            # source volume z-step
+    )
+    w.seed_coordinates(source)
+
+    assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(50.0)
+    assert w._result is None                      # previous result not carried in
+
+
+def test_seed_is_a_noop_when_the_zstep_matches(qapp):
+    w = _widget(qapp)
+    w._fm_image = _fm_at_zstep(500e-9)
+    source = CorrelationInputData(
+        fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
+        stored_fm_pixel_size_z=500e-9,
+    )
+    w.seed_coordinates(source)
+    assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(10.0)
+
+
+def test_seed_without_a_stored_zstep_does_not_rescale(qapp):
+    """A legacy seed with no stored z-step is loaded as-is (can't reconcile)."""
+    w = _widget(qapp)
+    w._fm_image = _fm_at_zstep(100e-9, n_z=105)
+    source = CorrelationInputData(
+        fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
+        stored_fm_pixel_size_z=None,
+    )
+    w.seed_coordinates(source)
+    assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(10.0)

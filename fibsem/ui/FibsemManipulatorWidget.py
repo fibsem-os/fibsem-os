@@ -1,22 +1,30 @@
 import logging
-import os
+from typing import TYPE_CHECKING, Optional
 
-import numpy as np
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMessageBox
 
 from fibsem import config as cfg
-from fibsem import constants, conversions
+from fibsem import constants
 from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.qtdesigner_files import (
     FibsemManipulatorWidget as FibsemManipulatorWidgetUI,
 )
 from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui
+
+if TYPE_CHECKING:
+    # Annotation-only. `viewer` is still handed a napari Viewer by FibsemUI, so the
+    # type stays documented without importing napari here; image_widget likewise
+    # avoids a runtime dependency on a sibling widget module. (napari still reaches
+    # this module transitively via fibsem/ui/__init__.py, which eagerly imports every
+    # widget — that one belongs to the wider cutover.)
+    import napari
+
+    from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
 
 class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidget):
@@ -24,8 +32,8 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self,
         microscope: FibsemMicroscope = None,
         settings: MicroscopeSettings = None,
-        viewer=None,  # unused; retained for call-site compatibility
-        image_widget: FibsemImageSettingsWidget = None,
+        viewer: Optional["napari.Viewer"] = None,  # unused; retained for call-site compatibility
+        image_widget: Optional["FibsemImageSettingsWidget"] = None,
         parent=None,
     ):
         super().__init__(parent=parent)
@@ -307,16 +315,3 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         logging.info(f"Moving to saved position {name} at {position}")
         self.microscope.move_manipulator_absolute(position=position)
         self.update_ui()
-
-
-
-def main():
-
-    app = QtWidgets.QApplication([])
-    manipulator_widget = FibsemManipulatorWidget()
-    manipulator_widget.show()
-    app.exec_()
-
-
-if __name__ == "__main__":
-    main()

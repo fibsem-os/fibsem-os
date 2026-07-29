@@ -7,7 +7,6 @@ These cover the failure modes that crashed the unsupervised (automatic) path:
 - the widget factory rendering float/int fields as a text box instead of a spinbox.
 """
 
-import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -355,16 +354,6 @@ def test_resolve_field_types_resolves_future_annotations():
 
     assert hints["milling_current"] is float
     assert hints["exposure_time"] is int
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    try:
-        from PyQt5.QtWidgets import QApplication
-    except Exception as exc:  # pragma: no cover - environment without Qt
-        pytest.skip(f"PyQt5 not available: {exc}")
-    return QApplication.instance() or QApplication([])
 
 
 @requires_ui

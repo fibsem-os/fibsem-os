@@ -15,8 +15,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
-
 from fibsem import utils
 from fibsem.milling.patterning import get_pattern
 from fibsem.ui.widgets.custom_widgets import IntegerValueSpinBox
@@ -25,12 +23,6 @@ from fibsem.ui.widgets.pattern_settings_widget import FibsemPatternSettingsWidge
 # ArrayPattern exposes several integer fields (n_columns, n_rows, passes) with
 # no scale, which is exactly the path that regressed.
 _INT_FIELDS = {"n_columns": 7, "n_rows": 3, "passes": 4}
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 @pytest.fixture(scope="module")

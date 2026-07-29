@@ -32,6 +32,12 @@ class MillingTaskAcquisitionSettings:
                               metadata={
                                   "label": "Acquire FIB Image",
                                   "tooltip": "Whether to acquire FIB images between the milling task stages."})
+    acquire_final_image: bool = field(default=True,
+                                      metadata={
+                                          "label": "Acquire Final Image",
+                                          "tooltip": "Refresh the FIB view with a single image once the task finishes. "
+                                                     "Disable for low-kV polishing, where imaging the lamella with a "
+                                                     "higher-voltage beam undoes the polish."})
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
     @property
@@ -49,6 +55,7 @@ class MillingTaskAcquisitionSettings:
         return {
             "acquire_sem": self.acquire_sem,
             "acquire_fib": self.acquire_fib,
+            "acquire_final_image": self.acquire_final_image,
             "imaging": self.imaging.to_dict(),
         }
 
@@ -60,6 +67,9 @@ class MillingTaskAcquisitionSettings:
         return cls(
             acquire_sem=data.get("acquire_sem", False),
             acquire_fib=data.get("acquire_fib", False),
+            # default True so protocols written before this flag existed keep the
+            # post-task FIB refresh they have always had
+            acquire_final_image=data.get("acquire_final_image", True),
             imaging=ImageSettings.from_dict(imaging),
         )
 
@@ -198,6 +208,21 @@ class FibsemMillingTask:
         """Handle progress updates from the microscope."""
         self.microscope.milling_progress_signal.emit(ddict)
 
+    def _imaging_conditions(self) -> Tuple[float, float]:
+        """The (current, voltage) the user was imaging at before milling started.
+
+        Falls back to the system defaults only if the task failed before it could
+        capture them. Every restore path must go through here: reading
+        ``system.ion.beam.*`` directly picks up the *config* default, which bounces
+        the column back to 30 kV whenever a stage mills at some other voltage.
+        """
+        current = self.initial_imaging_current
+        voltage = self.initial_imaging_voltage
+        return (
+            current if current is not None else self.microscope.system.ion.beam.beam_current,
+            voltage if voltage is not None else self.microscope.system.ion.beam.voltage,
+        )
+
     def _configure_path(self) -> None:
         """Configure the acquisition path for the milling task."""
         path = self.config.acquisition.imaging.path
@@ -240,15 +265,11 @@ class FibsemMillingTask:
                 "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
                 "progress": {"state": "finished", "task_id": self.task_id, "task_name": self.name}
             })
-            # restore the captured pre-milling imaging current/voltage (falling back to the
-            # system defaults if we never got to capture them, e.g. an early failure).
+            # restore the captured pre-milling imaging current/voltage
+            imaging_current, imaging_voltage = self._imaging_conditions()
             self.microscope.finish_milling(
-                imaging_current=(self.initial_imaging_current
-                                 if self.initial_imaging_current is not None
-                                 else self.microscope.system.ion.beam.beam_current),
-                imaging_voltage=(self.initial_imaging_voltage
-                                 if self.initial_imaging_voltage is not None
-                                 else self.microscope.system.ion.beam.voltage),
+                imaging_current=imaging_current,
+                imaging_voltage=imaging_voltage,
             )
             # restore initial beam shift
             if self.initial_beam_shift is not None:
@@ -259,8 +280,10 @@ class FibsemMillingTask:
     def _post_task_acquisition(self) -> None:
         """Acquire an image after finishing the milling task."""
         try:
-            # acquire an image after finishing the task, if not already done
-            if not self.config.acquisition.enabled and not self.config.acquisition.acquire_fib:
+            # refresh the view with a single image if the task didn't already acquire one.
+            # NB: acquisition.enabled is (acquire_sem or acquire_fib), so it subsumes the
+            # acquire_fib check this condition used to carry.
+            if self.config.acquisition.acquire_final_image and not self.config.acquisition.enabled:
                 self.microscope.autocontrast(beam_type=self.config.channel)
                 fib_image = self.microscope.acquire_image(image_settings=None, beam_type=self.config.channel)
                 self.microscope.fib_acquisition_signal.emit(fib_image)
@@ -361,8 +384,9 @@ class FibsemMillingTask:
             stage_name (str): Name of the milling stage
             tag (str): Tag to append to the filename
         """
-        self.microscope.finish_milling(imaging_current=self.microscope.system.ion.beam.beam_current,    # type: ignore 
-                                       imaging_voltage=self.microscope.system.ion.beam.voltage)         # type: ignore
+        imaging_current, imaging_voltage = self._imaging_conditions()
+        self.microscope.finish_milling(imaging_current=imaging_current,
+                                       imaging_voltage=imaging_voltage)
 
         acq_date = current_timestamp_v3(timeonly=True)
         self.config.acquisition.imaging.filename = f"{stage_name}_{tag}_{acq_date}".replace(' ', '-')

@@ -11,7 +11,7 @@ from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTaskConfig,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemImage, FibsemStagePosition
 
 
 def _make_trench_task(microscope: FibsemMicroscope, tmp_path: Path) -> MillTrenchTask:
@@ -58,3 +58,132 @@ def test_mill_trench_task_config_orientation_accepts_none_and_strings(
     """MillTrenchTaskConfig accepts all valid orientation values including None."""
     config = MillTrenchTaskConfig(orientation=orientation)
     assert config.orientation == orientation
+
+
+# ── output recording ──────────────────────────────────────────────────────────
+
+
+def _image_written_to(path: Path) -> FibsemImage:
+    """A FibsemImage that reports having been written to `path`."""
+    image = FibsemImage(data=np.zeros((4, 4), dtype=np.uint8))
+    image.filepath = str(path)
+    return image
+
+
+def test_record_output_stores_paths_relative_to_the_lamella(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """Absolute paths would break the moment an experiment is copied off the
+    microscope, which they routinely are."""
+    task = _make_trench_task(compustage_microscope, tmp_path)
+    written = Path(task.lamella.path) / "ref_MillTrench_final_res_01_eb.tif"
+
+    task._record_output("final_sem", _image_written_to(written))
+
+    assert task.lamella.task_state.outputs == {
+        "final_sem": ["ref_MillTrench_final_res_01_eb.tif"]
+    }
+
+
+def test_record_output_skips_an_image_that_was_never_written(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """save() sets filepath only after a successful write, so an image with none
+    was not written. The FM task relies on this: its acquire swallows save errors."""
+    task = _make_trench_task(compustage_microscope, tmp_path)
+
+    task._record_output("fluorescence", FibsemImage(data=np.zeros((4, 4), dtype=np.uint8)))
+    task._record_output("fluorescence", None)
+
+    assert task.lamella.task_state.outputs == {}
+
+
+def test_pre_task_clears_the_previous_runs_outputs_and_end_timestamp(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """task_state is one object reused across runs. Without an explicit reset the
+    next run's history entry accumulates the previous run's paths, and reports the
+    previous run's completion time while it is still in progress."""
+    task = _make_trench_task(compustage_microscope, tmp_path)
+
+    # stand in for a completed previous run
+    task.lamella.task_state.outputs = {"final_sem": ["ref_Previous_final_res_01_eb.tif"]}
+    task.lamella.task_state.end_timestamp = 1234.0
+
+    task.pre_task()
+
+    assert task.lamella.task_state.outputs == {}
+    assert task.lamella.task_state.end_timestamp is None
+
+
+def test_pre_task_keeps_the_same_task_state_object(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """The lamella list and card widgets connect psygnal handlers to this instance
+    and use them as their only refresh trigger. Replacing the object orphans those
+    connections and they silently stop updating mid-workflow."""
+    task = _make_trench_task(compustage_microscope, tmp_path)
+    before = task.lamella.task_state
+
+    task.pre_task()
+
+    assert task.lamella.task_state is before
+
+
+def test_default_filename_is_recorded_as_the_final_reference_set(
+    monkeypatch, compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    from fibsem import acquire
+    from fibsem.structures import ImageSettings
+
+    task = _make_trench_task(compustage_microscope, tmp_path)
+    lam = Path(task.lamella.path)
+    pair = (
+        _image_written_to(lam / "ref_MillTrench_final_res_01_eb.tif"),
+        _image_written_to(lam / "ref_MillTrench_final_res_01_ib.tif"),
+    )
+    monkeypatch.setattr(acquire, "acquire_set_of_channels", lambda *a, **k: [pair])
+
+    task._acquire_set_of_channels(ImageSettings(), field_of_views=(100e-6,))
+
+    assert set(task.lamella.task_state.outputs) == {"final_sem", "final_fib"}
+
+
+def test_a_custom_filename_is_not_recorded_as_a_final_reference_set(
+    monkeypatch, compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """Undercut alignment and one-off reference acquisitions pass their own name and
+    do not match the review panel's convention today. Recording them as `final` would
+    start showing them there."""
+    from fibsem import acquire
+    from fibsem.structures import ImageSettings
+
+    task = _make_trench_task(compustage_microscope, tmp_path)
+    lam = Path(task.lamella.path)
+    pair = (
+        _image_written_to(lam / "ref_MillTrench_undercut_res_01_eb.tif"),
+        _image_written_to(lam / "ref_MillTrench_undercut_res_01_ib.tif"),
+    )
+    monkeypatch.setattr(acquire, "acquire_set_of_channels", lambda *a, **k: [pair])
+
+    task._acquire_set_of_channels(
+        ImageSettings(), field_of_views=(100e-6,), filename="ref_MillTrench_undercut"
+    )
+
+    assert set(task.lamella.task_state.outputs) == {"other_sem", "other_fib"}
+
+
+def test_record_output_does_not_record_the_same_file_twice(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """Acquiring the same set twice in one run overwrites the same files; the record
+    describes files, not writes."""
+    task = _make_trench_task(compustage_microscope, tmp_path)
+    written = Path(task.lamella.path) / "ref_MillTrench_final_res_01_eb.tif"
+
+    task._record_output("final_sem", _image_written_to(written))
+    task._record_output("final_sem", _image_written_to(written))
+
+    assert task.lamella.task_state.outputs == {
+        "final_sem": ["ref_MillTrench_final_res_01_eb.tif"]
+    }

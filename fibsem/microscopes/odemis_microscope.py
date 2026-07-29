@@ -35,8 +35,13 @@ from fibsem.structures import (
 )
 
 
-def add_odemis_path():
-    """Add the odemis path to the python path"""
+def add_odemis_path(config_path: str = "/etc/odemis.conf"):
+    """Add the odemis path to the python path.
+
+    Safe to call on machines without an odemis installation (no config file,
+    or a config without DEVPATH): it simply leaves sys.path unchanged so the
+    subsequent `import odemis` fails with a regular ImportError.
+    """
 
     def parse_config(path) -> dict:
         """Parse the odemis config file and return a dict with the config values"""
@@ -51,9 +56,15 @@ def add_odemis_path():
         }
         return config
 
-    odemis_path = "/etc/odemis.conf"
-    config = parse_config(odemis_path)
-    sys.path.append(f"{config['DEVPATH']}/odemis/src")  # dev version
+    try:
+        config = parse_config(config_path)
+    except Exception as e:
+        logging.debug(f"Odemis config not available at {config_path}: {e}")
+        return
+
+    devpath = config.get("DEVPATH")
+    if devpath:
+        sys.path.append(f"{devpath}/odemis/src")  # dev version
     sys.path.append("/usr/lib/python3/dist-packages")  # release version + pyro4
 
 

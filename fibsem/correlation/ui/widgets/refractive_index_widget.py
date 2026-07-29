@@ -39,6 +39,20 @@ _DEFAULTS = ZetaParams(
 
 _DEFAULT_FACTOR = 1.47
 
+# The correlation panels run at 11-12px. Controls and QFormLayout's auto-built
+# string labels default to the app font, which renders larger than the values
+# beside them — the field name ends up shouting over its own data.
+_CONTROL_STYLE = "font-size: 12px;"
+_FORM_LABEL_STYLE = "color: #a0a0a0; font-size: 11px;"
+
+
+def _form_label(text: str) -> QLabel:
+    """A small, muted form-row label — pass instead of a bare string."""
+    lbl = QLabel(text)
+    lbl.setStyleSheet(_FORM_LABEL_STYLE)
+    return lbl
+
+
 _TILT_TOOLTIP = "The angle between the FIB column and the sample surface"
 _TILT_LOCKED_TOOLTIP = (
     "Locked to 0°: the FM-surface correction acts along the optical axis, "
@@ -65,6 +79,8 @@ class RefractiveIndexWidget(QWidget):
         self._zeta: Optional[float] = None
         self._tilt_locked = False
         self._tilt_before_lock: Optional[float] = None
+        # Params the user has typed by hand; metadata seeding leaves these alone.
+        self._user_edited: set = set()
         try:
             _ensure_lut()
         except Exception as e:
@@ -111,18 +127,18 @@ class RefractiveIndexWidget(QWidget):
             tooltip="Excitation wavelength of the fluorescence channel",
         )
 
-        form.addRow("Milling Angle", self._spin_tilt)
-        form.addRow("Depth", self._spin_depth)
-        form.addRow("Numerical Aperture", self._spin_na)
-        form.addRow("Refractive Index", self._spin_n2)
-        form.addRow("Wavelength (λ)", self._spin_wl)
+        form.addRow(_form_label("Milling Angle"), self._spin_tilt)
+        form.addRow(_form_label("Depth"), self._spin_depth)
+        form.addRow(_form_label("Numerical Aperture"), self._spin_na)
+        form.addRow(_form_label("Refractive Index"), self._spin_n2)
+        form.addRow(_form_label("Wavelength (λ)"), self._spin_wl)
 
         self._spin_factor = ValueSpinBox(
             minimum=0.1, maximum=10.0, step=0.01, decimals=3,
             tooltip="Correction factor (ζ) applied to the depth below the surface",
         )
         self._spin_factor.setValue(_DEFAULT_FACTOR)
-        form.addRow("Correction Factor (ζ)", self._spin_factor)
+        form.addRow(_form_label("Correction Factor (ζ)"), self._spin_factor)
 
         self._btn_reset_factor = IconToolButton(
             "mdi:refresh",
@@ -134,7 +150,9 @@ class RefractiveIndexWidget(QWidget):
         self._lut_available = lut_available
         if not lut_available:
             self._lut_warning = QLabel("LUT not found — calculator disabled. Edit correction factor manually.")
-            self._lut_warning.setStyleSheet("color: #f0a500; font-style: italic; padding: 4px 8px;")
+            self._lut_warning.setStyleSheet(
+                "color: #f0a500; font-style: italic; font-size: 11px; padding: 4px 8px;"
+            )
             self._lut_warning.setWordWrap(True)
             self._lut_warning.setToolTip(_LUT_MISSING_MSG)
             form.addRow(self._lut_warning)
@@ -150,6 +168,16 @@ class RefractiveIndexWidget(QWidget):
         outer.addWidget(panel)
         outer.addStretch(1)
 
+        for spin in (
+            self._spin_tilt,
+            self._spin_depth,
+            self._spin_na,
+            self._spin_n2,
+            self._spin_wl,
+            self._spin_factor,
+        ):
+            spin.setStyleSheet(_CONTROL_STYLE)
+
         self.set_params(_DEFAULTS)
 
     def _connect_signals(self) -> None:
@@ -161,6 +189,13 @@ class RefractiveIndexWidget(QWidget):
             self._spin_wl,
         ):
             spin.valueChanged.connect(self._recompute)
+
+        # Track manual edits so metadata seeding never clobbers a typed value
+        # (FIB-277). editingFinished fires only on user interaction, not setValue.
+        self._spin_na.editingFinished.connect(lambda: self._user_edited.add("na"))
+        self._spin_wl.editingFinished.connect(
+            lambda: self._user_edited.add("wavelength")
+        )
 
         self.zeta_computed.connect(self._spin_factor.setValue)
 
@@ -246,6 +281,18 @@ class RefractiveIndexWidget(QWidget):
             n2=self._spin_n2.value(),
             wavelength_um=self._spin_wl.value() / 1000.0,  # nm → µm
         )
+
+    def seed_from_metadata(
+        self,
+        wavelength_um: Optional[float] = None,
+        na: Optional[float] = None,
+    ) -> None:
+        """Populate λ and/or NA from FM metadata (FIB-277), leaving user-typed
+        values and absent (``None``) inputs untouched."""
+        if wavelength_um is not None and "wavelength" not in self._user_edited:
+            self._spin_wl.setValue(wavelength_um * 1000.0)  # µm → nm
+        if na is not None and "na" not in self._user_edited:
+            self._spin_na.setValue(na)
 
     # ------------------------------------------------------------------
     # Internal

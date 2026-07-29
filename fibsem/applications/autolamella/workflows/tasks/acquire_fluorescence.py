@@ -105,6 +105,12 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
                                 stop_event=self._stop_event,
                                 filename=filename)
 
+        # acquire_image swallows save failures (it logs and carries on), so the
+        # requested filename is not proof the file was written. FluorescenceImage.save
+        # sets filepath only after a successful write, so an unwritten image has none
+        # and _record_output skips it.
+        self._record_output("fluorescence", image)
+
         # refresh the recorded fluorescence pose (preserving the configured objective position)
         self._update_fluorescence_pose()
 

@@ -17,7 +17,7 @@ def _make_config() -> FluorescenceConfiguration:
         channel_settings=[ChannelSettings(name="GFP", exposure_time=0.05)],
         z_parameters=ZParameters(),
         overview_parameters=OverviewParameters(),
-        camera_settings=CameraSettings(transform=CameraImageTransform.ROTATE_90_CW),
+        camera_settings=CameraSettings(transform=CameraImageTransform.FLIP_XY),
         focus_position=1.1e-3,
         limit_position=3.3e-3,
     )
@@ -40,7 +40,7 @@ def test_configuration_roundtrip(tmp_path, monkeypatch):
 
     assert loaded is not None
     # camera transform + objective limit are the fields the earlier save path dropped
-    assert loaded.camera_settings.transform == CameraImageTransform.ROTATE_90_CW
+    assert loaded.camera_settings.transform == CameraImageTransform.FLIP_XY
     assert loaded.limit_position == 3.3e-3
     assert loaded.focus_position == 1.1e-3
     assert loaded.channel_settings[0].name == "GFP"

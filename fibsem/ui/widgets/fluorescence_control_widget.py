@@ -23,9 +23,9 @@ from fibsem import conversions, utils
 from fibsem import config as fcfg
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_autofocus
+from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
-    CameraImageTransform,
     ChannelSettings,
     FluorescenceImage,
     FluorescenceConfiguration,
@@ -33,10 +33,7 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    FibsemStagePosition,
-    Point,
-)
+from fibsem.structures import Point
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     CameraWidget,
@@ -51,6 +48,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -386,9 +384,9 @@ class FMControlWidget(QWidget):
 
     def _fm_relative_move_from_pixel(self, x, y, image_shape, pixelsize):
         """Convert an FM-image pixel (x=col, y=row) into a relative stage move that
-        recenters that point — applying the Y-inversion and the FM camera-image
-        transform compensation — then move the stage. Shared by the napari
-        double-click path and the quad-view canvas path.
+        recenters that point, applying the Y-inversion, then move the stage via
+        fm_stable_move. Used by the quad-view canvas double-click path (the napari
+        handler this once also served went with the napari cutover).
         """
         point_clicked = conversions.image_to_microscope_image_coordinates2(
             coord=Point(x=x, y=y),
@@ -399,28 +397,12 @@ class FMControlWidget(QWidget):
             point_clicked[0],
             -point_clicked[1],
         )  # Y-inverse when t=0, need to make this more robust
-        point_clicked = self._apply_fm_camera_transform(point_clicked)
         logging.info(f"FM relative move: {point_clicked}")
-        self.microscope.move_stage_relative(
-            FibsemStagePosition(x=point_clicked[0], y=point_clicked[1])
-        )
-
-    def _apply_fm_camera_transform(self, pt):
-        """Compensate a relative (x, y) move for the FM camera image transform."""
-        transform = self.fm._transform
-        if transform is CameraImageTransform.FLIP_X:
-            return (-pt[0], pt[1])
-        if transform is CameraImageTransform.FLIP_Y:
-            return (pt[0], -pt[1])
-        if transform is CameraImageTransform.FLIP_XY:
-            return (-pt[0], -pt[1])
-        if transform is CameraImageTransform.ROTATE_90_CW:
-            return (pt[1], -pt[0])
-        if transform is CameraImageTransform.ROTATE_90_CCW:
-            return (-pt[1], pt[0])
-        if transform is CameraImageTransform.ROTATE_180:
-            return (-pt[0], -pt[1])
-        return pt
+        # fm_stable_move undoes the display transform itself (FluorescenceMicroscope
+        # ._transform) and projects through the camera's axis tilt, so the move is
+        # foreshortening-correct and holds focus. Do NOT pre-apply the camera
+        # transform here — that would double-apply it (see #198 / FIB-133).
+        self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
 
     def _on_canvas_fm_double_click(self, x, y, modifiers):
         """Quad-view FM canvas double-click → relative stage move that recenters
@@ -625,6 +607,7 @@ class FMControlWidget(QWidget):
         logging.info(
             f"Starting acquisition with channel settings: {selected_channel_settings}"
         )
+        record_recent_channels(selected_channel_settings)
         self.fm.start_acquisition(channel_settings=selected_channel_settings)
         self._update_acquisition_button_states()
 
@@ -825,6 +808,8 @@ class FMControlWidget(QWidget):
             self._current_acquisition_type = None
             self._update_acquisition_button_states()
             return
+
+        record_recent_channels(channel_settings)
 
         # Start acquisition thread
         self._acquisition_thread = FunctionWorker(

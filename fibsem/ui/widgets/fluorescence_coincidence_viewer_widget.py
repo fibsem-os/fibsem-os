@@ -61,7 +61,7 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem import conversions
 from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
@@ -1664,7 +1664,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 logging.exception("Error moving objective to stored position")
 
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(_move)
+        worker.start()
 
     def _on_slw_pose_move_to(self, pose_name: str):
         """Move the stage to the given pose of the selected lamella."""
@@ -1695,7 +1696,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 logging.exception("Error moving to pose position")
 
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(_move)
+        worker.start()
 
     def _on_slw_pose_update(self, pose_name: str):
         """Set the current stage position as the given pose of the selected lamella."""
@@ -1746,9 +1748,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
             return
 
-        worker = FunctionWorker(
-            self.microscope.safe_absolute_stage_movement, lamella.stage_position
-        )
+        def _move():
+            try:
+                self.microscope.safe_absolute_stage_movement(lamella.stage_position)
+            except Exception:
+                logging.exception("Error moving to lamella position")
+
+        worker = FunctionWorker(_move)
         worker.start()
 
     def _acquire_fib_image(self):
@@ -1827,7 +1833,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 self._fib_acquire_done.emit()
 
         worker = FunctionWorker(_worker)
-        # reset the button label on the GUI thread when the worker finishes (success or error)
+        # reset the label on the GUI thread; setText from the worker thread is unsafe
         worker.finished.connect(lambda: self.btn_autocontrast_fib.setText("AutoContrast"))
         worker.start()
 
@@ -1853,6 +1859,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 self._fib_acquire_done.emit()
 
         worker = FunctionWorker(_worker)
+        # reset the label on the GUI thread; setText from the worker thread is unsafe
         worker.finished.connect(lambda: self.btn_autofocus_fib.setText("AutoFocus"))
         worker.start()
 
@@ -2391,11 +2398,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _record_coincidence_result(self) -> None:
         """Record the latest coincidence run against the selected lamella.
 
-        Saves the post-milling FIB with the review-panel naming (overwriting, so
-        the panel shows the latest) and appends a 'Coincidence Milling' entry to
-        the lamella's task history so the Review tab picks it up. Every run is
+        Saves the post-milling FIB and appends a 'Coincidence Milling' entry to the
+        lamella's task history, recording the image under `final_fib` so the Review
+        tab finds it the same way it finds any other task's output. Every run is
         recorded (the panel dedups by name); per-run images stay archived in the
         strategy's own coincidence-images folders.
+
+        The file keeps the review-panel naming, and is overwritten each run, purely
+        so experiments opened by a build predating task outputs still resolve it
+        through the filename convention. Once that fallback is no longer needed the
+        name is free to become per-run, and runs will stop overwriting each other.
         """
         lamella = self._selected_lamella
         image = self._latest_fib_image
@@ -2411,7 +2423,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 lamella.path,
                 f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
-            image.save(filename)
+            written = image.save(filename)
 
             now = datetime.datetime.now().timestamp()
             lamella.task_history.append(
@@ -2422,6 +2434,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                     end_timestamp=now,
                     status=AutoLamellaTaskStatus.Completed,
                     status_message="Coincidence milling (recorded from viewer)",
+                    outputs={"final_fib": [os.path.relpath(written, lamella.path)]},
                 )
             )
             self.experiment.save()
@@ -2604,22 +2617,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             pixelsize=pixelsize,
         )
         px, py = point[0], -point[1]  # Y-inversion (mirrors FMControlWidget)
-        transform = self.microscope.fm._transform
-        if transform is CameraImageTransform.FLIP_X:
-            px = -px
-        elif transform is CameraImageTransform.FLIP_Y:
-            py = -py
-        elif transform is CameraImageTransform.FLIP_XY:
-            px, py = -px, -py
-        elif transform is CameraImageTransform.ROTATE_90_CW:
-            px, py = py, -px
-        elif transform is CameraImageTransform.ROTATE_90_CCW:
-            px, py = -py, px
-        elif transform is CameraImageTransform.ROTATE_180:
-            px, py = -px, -py
-        worker = FunctionWorker(
-            self.microscope.stable_move, dx=px, dy=py, beam_type=BeamType.ELECTRON
-        )
+        # fm_stable_move undoes the display transform and projects through the
+        # camera's own axis tilt, so the sample is not foreshortened by the wrong beam.
+        worker = FunctionWorker(self.microscope.fm_stable_move, dx=px, dy=py)
         worker.start()
 
     # Public API

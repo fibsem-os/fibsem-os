@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from abc import ABC
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
 import numpy as np
 from psygnal import Signal
 
+from fibsem._timing import sim_sleep
 from fibsem.fm.structures import (
     CameraImageTransform,
     ChannelSettings,
@@ -35,6 +35,7 @@ SIM_OBJECTIVE_USER_POSITION_LIMIT = 8.6e-3  # user-defined limits for the object
 SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
 
 SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
+SIM_CAMERA_EXPOSURE_LIMITS = (1e-6, 60.0)  # seconds
 SIM_CAMERA_BINNING = 4
 SIM_CAMERA_GAIN = 0.01  # 1%
 SIM_CAMERA_OFFSET = 0.0
@@ -103,7 +104,7 @@ class ObjectiveLens(ABC):
         Returns:
             The current position in meters (negative values = retracted)
         """
-        time.sleep(0.1)
+        sim_sleep(0.1)
         # logging.info(f"Objective position read: {self._position * 1e3:.3f} mm")
         return self._position
 
@@ -173,7 +174,7 @@ class ObjectiveLens(ABC):
             )
             position = np.clip(position, 0, self._limit_position)
 
-        time.sleep(0.5)  # Simulate time taken to move the objective
+        sim_sleep(0.5)  # Simulate time taken to move the objective
         self._position = position
         logging.info(
             f"Objective moved to absolute position: {self._position * 1e3:.3f} mm"
@@ -260,7 +261,7 @@ class Camera(ABC):
         Returns:
             A 16-bit numpy array representing the acquired image
         """
-        time.sleep(self.exposure_time)  # Simulate exposure time in seconds
+        sim_sleep(self.exposure_time)  # Simulate exposure time in seconds
 
         # get min and max values for the image
         noise = np.random.randint(
@@ -320,18 +321,34 @@ class Camera(ABC):
         """Set the binning of the camera.
 
         Args:
-            value: The binning factor (must be >= 1)
+            value: The binning factor (must be in available_binnings)
 
         Raises:
-            ValueError: If binning is less than 1
+            ValueError: If the binning value is not supported
         """
-        if value < 1:
-            raise ValueError("Binning must be at least 1.")
-        if value not in BINNING_VALUES:
-            raise Warning(
-                "Unusual binning value set. Typical values are 1, 2, 4, or 8."
+        if value not in self.available_binnings:
+            raise ValueError(
+                f"Binning must be one of {self.available_binnings}, got {value}"
             )
         self._binning = value
+
+    @property
+    def available_binnings(self) -> Tuple[int, ...]:
+        """Get the supported binning values for the camera.
+
+        Returns:
+            A tuple of supported binning factors (e.g., (1, 2, 4, 8))
+        """
+        return tuple(BINNING_VALUES)
+
+    @property
+    def exposure_time_limits(self) -> Tuple[float, float]:
+        """Get the valid exposure time range for the camera.
+
+        Returns:
+            A tuple of (minimum, maximum) exposure times in seconds
+        """
+        return SIM_CAMERA_EXPOSURE_LIMITS
 
     @property
     def gain(self) -> float:
@@ -451,6 +468,18 @@ class LightSource(ABC):
         """
         self._power = value
 
+    @property
+    def power_limits(self) -> Tuple[float, float]:
+        """Get the valid power range for the light source.
+
+        Power is expressed as a fraction of maximum power (0-1) across all
+        drivers; hardware units are normalised inside each driver.
+
+        Returns:
+            A tuple of (minimum, maximum) power levels
+        """
+        return (0.0, 1.0)
+
 
 class FilterSet(ABC):
     """Abstract base class for filter set control in fluorescence microscopy.
@@ -553,11 +582,9 @@ class FluorescenceMicroscope(ABC):
     camera: Camera
     light_source: LightSource
 
-    # live acquisition
+    # live acquisition signals (psygnal binds these per-instance on access)
     acquisition_signal = Signal(FluorescenceImage)
     acquisition_progress_signal = Signal(dict)
-    _stop_acquisition_event = threading.Event()
-    _acquisition_thread: Optional[threading.Thread] = None
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         """Initialize the fluorescence microscope with default components.
@@ -568,6 +595,10 @@ class FluorescenceMicroscope(ABC):
         super().__init__()
 
         self.parent = parent
+
+        # per-instance acquisition state (previously shared class attributes)
+        self._stop_acquisition_event = threading.Event()
+        self._acquisition_thread: Optional[threading.Thread] = None
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
@@ -734,10 +765,11 @@ class FluorescenceMicroscope(ABC):
                 - CameraImageTransform.NONE or None: No transformation
                 - CameraImageTransform.FLIP_X: Horizontal flip
                 - CameraImageTransform.FLIP_Y: Vertical flip
-                - CameraImageTransform.FLIP_XY: Both horizontal and vertical flip (equivalent to 180° rotation)
-                - CameraImageTransform.ROTATE_90_CW: Rotate 90° clockwise
-                - CameraImageTransform.ROTATE_90_CCW: Rotate 90° counter-clockwise
-                - CameraImageTransform.ROTATE_180: Rotate 180°
+                - CameraImageTransform.FLIP_XY: Both flips (equivalent to a 180° rotation)
+
+            Rotations are not offered here: a fixed rotation between the sensor and
+            the stage describes the mount, and is corrected by `mount_transform`
+            inside the driver before this preference is applied.
 
         Raises:
             ValueError: If transform is not a valid CameraImageTransform enum value
@@ -751,8 +783,63 @@ class FluorescenceMicroscope(ABC):
         )
         logging.info(f"Image transform set to: {transform}")
 
+    @property
+    def camera_tilt(self) -> float:
+        """Tilt of the FM optical axis from the SEM column, in degrees.
+
+        The camera's analogue of a beam column's ``column_tilt``; used to project
+        in-image displacements onto the tilted sample plane.
+
+        Derived from the mount geometry rather than configured:
+
+        - **Under-grid mounts (Arctis / compustage)** look up at the grid from the
+          opposite side to the SEM: a half turn, 180 degrees.
+        - **Offset mounts (METEOR, iFLM)** sit parallel to the FIB column, displaced
+          along x, so they share the ion column's tilt.
+
+        Drivers override if a system disagrees. This needs to become configurable for
+        systems whose mount is neither of the two known cases -- see FIB-335.
+        """
+        if self.parent is None:
+            return 0.0  # simulator without a parent microscope
+        if self.parent.stage_is_compustage:
+            return 180.0
+        return self.parent.system.ion.column_tilt
+
+    @property
+    def mount_transform(self) -> CameraImageTransform:
+        """Fixed correction from raw sensor axes to stage-aligned axes.
+
+        Hardware truth about how the camera is mounted, not a user preference: it
+        is applied before the user's ``CameraImageTransform`` so that every
+        consumer (display, correlation, saved data, movement) sees one consistently
+        oriented image, and so that movement needs only the user transform.
+
+        Defaults to no correction; drivers override per system. The value is
+        determined by observing which stage axis a feature travels along in the
+        FM view (see docs/design/fm-stable-move.md).
+        """
+        return CameraImageTransform.NONE
+
+    @staticmethod
+    def _transform_array(
+        data: np.ndarray, transform: Optional[CameraImageTransform]
+    ) -> np.ndarray:
+        """Apply a single CameraImageTransform to an array."""
+        if transform is CameraImageTransform.FLIP_X:
+            return np.fliplr(data)
+        elif transform is CameraImageTransform.FLIP_Y:
+            return np.flipud(data)
+        elif transform is CameraImageTransform.FLIP_XY:
+            return np.fliplr(np.flipud(data))  # a half turn is both flips
+        else:
+            return data
+
     def _apply_image_transform(self, data: np.ndarray) -> np.ndarray:
         """Apply the configured image transformation to align with SEM/FIB coordinate system.
+
+        Two stages: the fixed mount correction puts the raw sensor into stage-aligned
+        axes, then the user's transform applies their display preference on top.
 
         Args:
             data: The image data to transform
@@ -760,20 +847,8 @@ class FluorescenceMicroscope(ABC):
         Returns:
             The transformed image data
         """
-        if self._transform is CameraImageTransform.FLIP_X:
-            return np.fliplr(data)
-        elif self._transform is CameraImageTransform.FLIP_Y:
-            return np.flipud(data)
-        elif self._transform is CameraImageTransform.FLIP_XY:
-            return np.fliplr(np.flipud(data))
-        elif self._transform is CameraImageTransform.ROTATE_90_CW:
-            return np.rot90(data, k=-1)  # k=-1 for clockwise
-        elif self._transform is CameraImageTransform.ROTATE_90_CCW:
-            return np.rot90(data, k=1)  # k=1 for counter-clockwise
-        elif self._transform is CameraImageTransform.ROTATE_180:
-            return np.rot90(data, k=2)  # k=2 for 180 degrees
-        else:
-            return data
+        data = self._transform_array(data, self.mount_transform)
+        return self._transform_array(data, self._transform)
 
     def acquire_image(
         self, channel_settings: Optional[ChannelSettings] = None
@@ -793,13 +868,34 @@ class FluorescenceMicroscope(ABC):
         img = self._construct_image(data)
         return img
 
-    def _construct_image(self, data: np.ndarray) -> FluorescenceImage:
+    def _construct_image(
+        self, data: np.ndarray, frame_metadata: Optional[dict] = None
+    ) -> FluorescenceImage:
         """Construct a FluorescenceImage from raw data with associated metadata.
 
         Applies the configured image transformation to align the fluorescence image
         with the SEM/FIB coordinate system.
+
+        Args:
+            data: The raw image data.
+            frame_metadata: Optional per-frame metadata captured at exposure
+                time by the driver; where present these values override the
+                state snapshot from get_metadata(). Supported keys:
+                'pixel_size' ((x, y) in metres), 'acquisition_date'
+                (ISO string), 'exposure_time' (seconds).
         """
         md = self.get_metadata()
+
+        if frame_metadata:
+            pixel_size = frame_metadata.get("pixel_size")
+            if pixel_size is not None:
+                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
+            acquisition_date = frame_metadata.get("acquisition_date")
+            if acquisition_date is not None:
+                md.acquisition_date = acquisition_date
+            exposure_time = frame_metadata.get("exposure_time")
+            if exposure_time is not None and md.channels:
+                md.channels[0].exposure_time = exposure_time
 
         # Apply image transformation to align with SEM/FIB images
         data = self._apply_image_transform(data)

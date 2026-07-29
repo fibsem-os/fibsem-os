@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 from scipy import ndimage
 from scipy.optimize import curve_fit, leastsq
+
+from fibsem.correlation.fit_diagnostics import FitDiagnostic
 
 # migrated from tdct.beadPos and refactored
 
@@ -310,24 +312,31 @@ def multi_channel_interpolation(
     image: np.ndarray,
     pixelsize_in: float,
     pixelsize_out: float,
-    method: str = "cubic",
-    parent_ui=None,
+    method: str = "linear",
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> np.ndarray:
-    """Interpolate a multi-channel z-stack (CZYX) along the z-axis
+    """Interpolate a multi-channel z-stack (CZYX) along the z-axis.
+
     Args:
         image: 4D numpy array (CZYX)
         pixelsize_in: original pixel size in z-axis
         pixelsize_out: desired pixel size in z-axis
+        method: one of ``INTERPOLATION_METHODS``
+        progress_callback: optional ``fn(channels_done, channels_total)`` invoked
+            before the first channel and after each one. Kept UI-agnostic (a plain
+            callable, not a Qt object) so the algorithm stays testable; a worker
+            passes a callback that emits its own progress signal.
+
     Returns:
         interpolated: 4D numpy array (CZYX) with adjusted z-axis resolution
     """
-    if parent_ui:
-        parent_ui.progress_update.emit({"value": 0, "max": image.shape[0]})
+    n = image.shape[0]
+    if progress_callback is not None:
+        progress_callback(0, n)
 
-    # QUERY: how to speed up?
     ch_interpolated = []
     for i, channel in enumerate(image):
-        logging.info(f"Interpolating channel {i+1}/{image.shape[0]}")
+        logging.info(f"Interpolating channel {i + 1}/{n}")
         ch_interpolated.append(
             interpolate_z_stack(
                 image=channel,
@@ -336,9 +345,94 @@ def multi_channel_interpolation(
                 method=method,
             )
         )
-        if parent_ui:
-            parent_ui.progress_update.emit({"value": i + 1, "max": image.shape[0]})
+        if progress_callback is not None:
+            progress_callback(i + 1, n)
     return np.array(ch_interpolated)
+
+
+def interpolate_fm_volume(
+    fm_image,
+    target_z_size_m: float,
+    method: str = "linear",
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+):
+    """Resample an FM volume along z, returning a NEW ``FluorescenceImage``.
+
+    Only the z-axis is resampled (XY is untouched). The returned image carries
+    metadata consistent with the resampled data: ``pixel_size_z`` and
+    ``z_positions`` are recomputed for the new slice count.
+
+    scipy's ``zoom`` rounds the output slice count to an integer, so the achieved
+    z-scale is ``new_nz / old_nz`` — not the nominal ``pixel_size_z / target``.
+    The effective z pixel size is derived from that actual ratio, keeping data,
+    metadata, and any caller-side coordinate rescale exactly consistent. Callers
+    that must move z-bearing coordinates should scale by ``new_nz / old_nz``,
+    read from the returned image's shape versus the input's.
+
+    Args:
+        fm_image: source ``FluorescenceImage`` (CZYX, with ``pixel_size_z`` set)
+        target_z_size_m: desired z pixel size in metres (e.g. ``pixel_size_x`` for
+            an isotropic volume)
+        method: one of ``INTERPOLATION_METHODS``
+        progress_callback: forwarded to :func:`multi_channel_interpolation`
+
+    Raises:
+        ValueError: for a single-plane volume (no ``pixel_size_z``), a
+            non-positive target, or a non-CZYX array.
+    """
+    import copy
+
+    from fibsem.fm.structures import FluorescenceImage  # lazy: correlation -> fm
+
+    data = fm_image.data
+    if data.ndim != 4:
+        raise ValueError(f"expected a CZYX volume, got shape {data.shape}")
+
+    meta = fm_image.metadata
+    z_in = getattr(meta, "pixel_size_z", None)
+    if not z_in:
+        raise ValueError(
+            "volume has no z step (single plane) — nothing to interpolate"
+        )
+    if not target_z_size_m or target_z_size_m <= 0:
+        raise ValueError(
+            f"target z pixel size must be positive, got {target_z_size_m}"
+        )
+
+    old_nz = data.shape[1]
+    interpolated = multi_channel_interpolation(
+        data,
+        pixelsize_in=z_in,
+        pixelsize_out=target_z_size_m,
+        method=method,
+        progress_callback=progress_callback,
+    )
+    new_nz = interpolated.shape[1]
+    if new_nz < 1:
+        raise ValueError("interpolation produced an empty volume")
+
+    # Effective z pixel size from the ACTUAL resampled slice count, not the
+    # nominal target — so physical depth (z_index * pixel_size_z) is preserved
+    # when the caller rescales coordinates by new_nz / old_nz.
+    new_meta = copy.deepcopy(meta)
+    new_meta.pixel_size_z = z_in * old_nz / new_nz
+
+    # z_positions is a per-plane objective ramp; resample it to the new count so
+    # its length scales with the volume (convention-agnostic — np.interp on the
+    # existing ramp preserves whatever ordering it had).
+    positions = getattr(meta, "z_positions", None)
+    if positions:
+        old = np.asarray(positions, dtype=float)
+        new_len = max(1, round(len(old) * new_nz / old_nz))
+        if new_len == 1 or len(old) == 1:
+            new_meta.z_positions = [float(old[0])] * new_len
+        else:
+            src = np.linspace(0.0, len(old) - 1, new_len)
+            new_meta.z_positions = np.interp(
+                src, np.arange(len(old)), old
+            ).tolist()
+
+    return FluorescenceImage(data=interpolated, metadata=new_meta)
 
 
 def multi_channel_get_z_guass(image: np.ndarray, x: int, y: int, show: bool = False) -> List[float]:
@@ -493,20 +587,16 @@ def hole_fitting_FIB(img: np.ndarray,
     x: float,
     y: float,
     cutout: int = 15,
-    show: bool = False,
 ):
     """Refine selection of hole in FIB image.
     Args:
         img: 2D numpy array (Y,X)
         x,y initial coordinates from the user click (may be sub-pixel)
         cutout: size of the cutout around the point in x,y
-        show: show the diagnostic figure
     Returns:
         xr, yr: refined x, y coordinates
-        fig: matplotlib figure with diagnostic plot (or None if show=False)
+        diagnostic: FitDiagnostic for the (XY-only) diagnostic figure
     """
-    import matplotlib.pyplot as plt
-
     # The click may be sub-pixel; round for integer slicing but keep the
     # fraction so the input marker is drawn exactly where the user clicked
     # (otherwise a no-change fit shows the markers up to ~1px apart).
@@ -535,52 +625,31 @@ def hole_fitting_FIB(img: np.ndarray,
     xr = np.clip(xr, cutout, img.shape[1] - cutout)
     yr = np.clip(yr, cutout, img.shape[0] - cutout)
 
-    # --- Diagnostic figure (XY only — no z for the FIB image) ---
-    C_IN, C_FIT = "#e53935", "#43a047"
-    n = roi.shape[0]
-    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-    fig.suptitle("FIB hole fit")
-    ax.imshow(roi, cmap="gray")
-    ax.plot(cutout + (x - xi), cutout + (y - yi), "+", color=C_IN, ms=16, mew=2,
-            label="input")
-    if err is None:
-        ax.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
-    else:
-        ax.text(0.5, 0.08, "fit failed — using input", transform=ax.transAxes,
-                ha="center", va="center", color=C_IN, fontsize=10,
-                bbox=dict(boxstyle="round", fc="black", ec=C_IN, alpha=0.65))
-    ax.set_xlim(-0.5, n - 0.5)
-    ax.set_ylim(n - 0.5, -0.5)
-    ax.set_title("XY")
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.6)
-    ax.axis("off")
-
-    if show:
-        plt.show()
-
-    return xr, yr, fig
+    # --- Diagnostic (XY only — no z for the FIB image) ---
+    diagnostic = FitDiagnostic(
+        title="FIB hole fit",
+        roi_xy=roi,
+        input_xy=(cutout + (x - xi), cutout + (y - yi)),
+        fitted_xy=None if err is not None else (xopt, yopt),
+        xy_title="XY",
+        xy_message=None if err is None else "fit failed — using input",
+    )
+    return xr, yr, diagnostic
 
 def target_fitting_fluorescence(img: np.ndarray,
                                 x: float, y: float, z: int,
                                 cutout: int = 5,
-                                show: bool=False,
-                                use_xy_fitting: bool = False) -> tuple[int, int, int, 'plt.Figure']:
+                                use_xy_fitting: bool = False) -> tuple:
     """Refine selection of target in fluorescence image.
     Args:
         img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
         x,y,z initial coordinates from the user click (x, y may be sub-pixel)
         cutout: size of the cutout around the point in x,y. z uses 3x this value
-        show: show the diagnostic figure
         use_xy_fitting: whether to use xy fitting or just return the input x, y
     Returns:
         xr, yr, zr: refined x, y, z coordinates
-        fig: matplotlib figure with diagnostic plot (or None if show=False)
+        diagnostic: FitDiagnostic for the z + XY diagnostic figure
     """
-    import matplotlib.pyplot as plt
-
-    # input (red) / fitted (green) are the only saturated colours; rest greyscale
-    C_IN, C_FIT = "#e53935", "#43a047"
-
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
     # the input marker so it lands exactly where the user clicked (FIB-282).
     xc, yc = int(round(x)), int(round(y))
@@ -590,7 +659,6 @@ def target_fitting_fluorescence(img: np.ndarray,
     zi = popt_z[1]
 
     slc_init = img[int(zi), yc - cutout:yc + cutout, xc - cutout:xc + cutout]
-    n = slc_init.shape[0]
     err = None
     if use_xy_fitting:
         try:
@@ -612,43 +680,21 @@ def target_fitting_fluorescence(img: np.ndarray,
         xopt, yopt = cutout, cutout  # fit result is the cutout centre for plotting
 
     # --- confirmation-friendly diagnostic: z (left) + XY hero (right) ---
-    fig, (ax_z, ax_xy) = plt.subplots(
-        1, 2, figsize=(9, 4.5), gridspec_kw={"width_ratios": [1, 1.4]}
-    )
-    fig.suptitle("Fluorescence target fit")
-
     z_axis = np.arange(len(intensity))
-    ax_z.plot(z_axis, intensity, color="0.55", lw=1.3)
-    ax_z.plot(z_axis, gauss1d(z_axis, *popt_z) + intensity.min(),
-              color="0.15", ls="--", lw=1.2)
-    ax_z.axvline(z, color=C_IN, ls="--", lw=1.6, label=f"input {z}")
-    ax_z.axvline(zi, color=C_FIT, ls="--", lw=1.6, label=f"fitted {zi:.1f}")
-    ax_z.set_title("z", fontsize=10)
-    ax_z.set_xlabel("z slice", fontsize=8)
-    ax_z.set_yticks([])
-    ax_z.tick_params(labelsize=8)
-    ax_z.legend(fontsize=7, framealpha=0.6)
-
-    ax_xy.imshow(slc_init, cmap="gray")
-    ax_xy.plot(cutout + (x - xc), cutout + (y - yc), "+", color=C_IN, ms=16,
-               mew=2, label="input")
-    if err is not None:
-        ax_xy.text(0.5, 0.08, "XY fit failed", transform=ax_xy.transAxes,
-                   ha="center", va="center", color=C_IN, fontsize=10,
-                   bbox=dict(boxstyle="round", fc="black", ec=C_IN, alpha=0.65))
-    elif use_xy_fitting:
-        ax_xy.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
-    ax_xy.set_xlim(-0.5, n - 0.5)
-    ax_xy.set_ylim(n - 0.5, -0.5)
-    ax_xy.set_title(f"XY  @ z = {zi:.1f}")
-    ax_xy.legend(loc="upper right", fontsize=8, framealpha=0.6)
-    ax_xy.axis("off")
-
-    fig.tight_layout()
-    if show:
-        plt.show()
-
-    return xi, yi, zi, fig
+    diagnostic = FitDiagnostic(
+        title="Fluorescence target fit",
+        roi_xy=slc_init,
+        input_xy=(cutout + (x - xc), cutout + (y - yc)),
+        fitted_xy=(xopt, yopt) if (use_xy_fitting and err is None) else None,
+        xy_title=f"XY  @ z = {zi:.1f}",
+        xy_message="XY fit failed" if err is not None else None,
+        z_axis=z_axis,
+        z_signal=intensity,
+        z_fit=gauss1d(z_axis, *popt_z) + intensity.min(),
+        z_input=z,
+        z_fitted=zi,
+    )
+    return xi, yi, zi, diagnostic
 
 
 def zyx_targeting(
@@ -940,9 +986,8 @@ def fit_gauss1d_mod_old(data: np.ndarray, show: bool = False) -> Tuple[np.ndarra
 
 
 
-def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, 'plt.Figure']:
+def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
 
-    import matplotlib.pyplot as plt
     from scipy.ndimage import gaussian_filter
 
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
@@ -978,50 +1023,24 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> Tuple[float, float, float, '
     n = roi_fitted.shape[0]
     fit_in_roi = 0 <= xopt < n and 0 <= yopt < n
 
-    # Palette kept deliberately minimal: only input (red) and fitted (green) are
-    # saturated; signal / fit are greyscale so the eye goes to the two markers.
-    C_IN, C_FIT = "#e53935", "#43a047"
-
-    fig, (ax_z, ax_xy) = plt.subplots(
-        1, 2, figsize=(9, 4.5), gridspec_kw={"width_ratios": [1, 1.4]}
-    )
-    fig.suptitle("Reflection hole fit")
-
-    # z: signal + gaussian fit (grey), with input / fitted z the only labels
+    # z: signal + gaussian fit (grey). The hole is dark, so the signal is
+    # inverted (z_inverted) — the peak is the hole.
     z_axis = np.arange(zmin1, zmin1 + len(intensity))
     gauss_curve = gauss1d(np.arange(len(intensity)), *popt) + intensity.min()
-    ax_z.plot(z_axis, intensity, color="0.55", lw=1.3)
-    ax_z.plot(z_axis, gauss_curve, color="0.15", ls="--", lw=1.2)
-    ax_z.axvline(z, color=C_IN, ls="--", lw=1.6, label=f"input {z:.1f}")
-    ax_z.axvline(zreal, color=C_FIT, ls="--", lw=1.6, label=f"fitted {zreal:.1f}")
-    ax_z.set_title("z", fontsize=10)
-    ax_z.set_xlabel("z slice", fontsize=8)
-    # the hole is dark, so the signal is inverted — the peak is the hole
-    ax_z.set_ylabel("signal (inverted)", fontsize=8)
-    ax_z.set_yticks([])
-    ax_z.tick_params(labelsize=8)
-    ax_z.legend(fontsize=7, framealpha=0.6)
 
-    # XY: the hero — did it land on the feature?
-    ax_xy.imshow(gaussian_filter(roi_fitted, sigma=1), cmap="gray")
-    ax_xy.plot(xy_cutout + (x - xi), xy_cutout + (y - yi), "+", color=C_IN, ms=16,
-               mew=2, label="input")
-    if fit_in_roi:
-        ax_xy.plot(xopt, yopt, "+", color=C_FIT, ms=16, mew=2, label="fitted")
-    else:
-        # A failed 2D fit lands outside the ROI; make that explicit instead of
-        # letting matplotlib silently expand the axes to chase the marker.
-        ax_xy.text(
-            0.5, 0.5, "fit fell outside\nthe search region",
-            transform=ax_xy.transAxes, ha="center", va="center",
-            color=C_IN, fontsize=11,
-            bbox=dict(boxstyle="round", fc="black", ec=C_IN, alpha=0.65),
-        )
-    ax_xy.set_xlim(-0.5, n - 0.5)
-    ax_xy.set_ylim(n - 0.5, -0.5)
-    ax_xy.set_title(f"XY  @ z = {zreal:.1f}")
-    ax_xy.legend(loc="upper right", fontsize=8, framealpha=0.6)
-    ax_xy.axis("off")
-
-    fig.tight_layout()
-    return xopt_real, yopt_real, zreal, fig
+    diagnostic = FitDiagnostic(
+        title="Reflection hole fit",
+        roi_xy=gaussian_filter(roi_fitted, sigma=1),
+        input_xy=(xy_cutout + (x - xi), xy_cutout + (y - yi)),
+        # A failed 2D fit lands outside the ROI — say so instead of a marker.
+        fitted_xy=(xopt, yopt) if fit_in_roi else None,
+        xy_title=f"XY  @ z = {zreal:.1f}",
+        xy_message=None if fit_in_roi else "fit fell outside\nthe search region",
+        z_axis=z_axis,
+        z_signal=intensity,
+        z_fit=gauss_curve,
+        z_input=z,
+        z_fitted=zreal,
+        z_inverted=True,
+    )
+    return xopt_real, yopt_real, zreal, diagnostic
