@@ -18,3 +18,7 @@ TASK_TYPE = "FIXTURE_TASK"
 # Deliberately collides with a built-in pattern, so the documented precedence
 # (builtins > registered > plugins) has something to actually assert against.
 CLASHING_PATTERN_NAME = "Rectangle"
+
+# Entry points that fail on purpose, one per failure shape: a class that is not
+# a task, and a module that does not exist. See the pyproject.
+FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")

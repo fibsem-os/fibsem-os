@@ -1,8 +1,7 @@
-import logging
 import typing
-from functools import lru_cache as cache
 
 from fibsem.milling.base import MillingStrategy
+from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
 from fibsem.milling.strategy.standard import StandardMillingStrategy
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy # noqa: F401
@@ -15,6 +14,7 @@ BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] =
     CoincidenceMillingStrategy.name: CoincidenceMillingStrategy,
 }
 REGISTERED_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {}
+STRATEGY_ENTRY_POINT_GROUP = "fibsem.strategies"
 
 
 def get_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]]:
@@ -31,37 +31,26 @@ def register_strategy(strategy_cls: typing.Type[MillingStrategy[typing.Any]]) ->
     REGISTERED_STRATEGIES[strategy_cls.name] = strategy_cls
 
 
-@cache
+def get_strategy_plugin_records() -> typing.Tuple[PluginRecord, ...]:
+    """Every ``fibsem.strategies`` entry point and what became of it.
+
+    Loading happens once per process, on the first call. Includes the plugins
+    that failed and the ones a built-in later shadows, neither of which
+    survives into :func:`get_strategies` -- see ``fibsem.plugins.report``.
+
+    To add a plugin strategy, add to your package's pyproject.toml:
+
+    [project.entry-points.'fibsem.strategies']
+    my_strategy = "my_package.strategies:MyCustomStrategy"
+    """
+    return load_entry_point_group(
+        group=STRATEGY_ENTRY_POINT_GROUP,
+        base_cls=MillingStrategy,
+        name_of=lambda cls: cls.name,
+        kind="strategy",
+    )
+
+
 def _get_plugin_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]]:
-    """
-    Import new strategies and append them to the list here
-
-    The plugin logic is based on:
-    https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata
-    """
-    import sys
-
-    if sys.version_info < (3, 10):
-        from importlib_metadata import entry_points
-    else:
-        from importlib.metadata import entry_points
-
-    strategies: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {}
-    for strategy_entry_point in entry_points(group="fibsem.strategies"):
-        try:
-            strategy = strategy_entry_point.load()
-            if not issubclass(strategy, MillingStrategy):
-                raise TypeError(
-                    f"'{strategy_entry_point.value}' is not a subclass of MillingStrategy"
-                )
-            logging.info("Loaded strategy '%s'", strategy.name)
-            strategies[strategy.name] = strategy
-        except TypeError as e:
-            logging.warning("Invalid strategy found: %s", str(e))
-        except Exception:
-            logging.error(
-                "Unexpected error raised while attempting to import strategy from '%s'",
-                strategy_entry_point.value,
-                exc_info=True,
-            )
-    return strategies
+    """Plugin strategies that loaded, as ``{name: class}``."""
+    return plugin_classes(get_strategy_plugin_records())
