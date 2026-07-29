@@ -209,7 +209,12 @@ class SpotBurnCoordinatesWidget(QWidget):
             color="white",
             selected_color="cyan",
             marker="o",
-            size=12,
+            # markersize, in points. Deliberately small: fiducial patterns put spots
+            # ~0.01 of the frame apart, and a larger marker merges the cluster into one
+            # blob at full-frame zoom. Picking is unaffected — PointOverlay hit-tests
+            # against a fixed screen-space radius, not the marker size — and the
+            # selected point still stands out at size * 1.4.
+            size=6,
             add_on_right_click=True,
             removable=True,
             modal=True,
