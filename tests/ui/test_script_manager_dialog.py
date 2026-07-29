@@ -91,7 +91,34 @@ def test_a_writing_script_warns_in_the_detail_panel(qapp, tmp_path):
     _write(tmp_path, "w.py", "writes = True\ndef run(ctx):\n    pass\n")
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
-    assert "saves it when finished" in dialog.detail_label.text()
+    # the consequence sits opposite the facts; the chip-length phrase is on
+    # screen and the full sentence is in the tooltip
+    assert "Modifies and saves" in dialog.consequence_label.text()
+    assert "saves it when it finishes" in dialog.consequence_label.toolTip()
+
+
+def test_a_read_only_script_says_so(qapp, tmp_path):
+    """Silence would leave the user guessing whether it writes."""
+    _write(tmp_path, "r.py", "def run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.table.selectRow(0)
+    assert "Read-only" in dialog.consequence_label.text()
+
+
+def test_an_empty_folder_says_how_to_start(qapp, tmp_path):
+    dialog = _dialog(tmp_path, context=FakeContext())
+    assert "New script" in dialog.detail_label.text()
+
+
+def test_the_last_run_stamp_is_12_hour(qapp, tmp_path):
+    _write(tmp_path, "s.py", "def run(ctx):\n    return 'ok'\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.table.selectRow(0)
+
+    dialog.run_selected()
+
+    stamp = _cell_text(dialog, 0, 2)
+    assert "am" in stamp or "pm" in stamp
 
 
 def test_source_and_hash_are_shown(qapp, tmp_path):

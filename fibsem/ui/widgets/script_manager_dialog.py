@@ -11,6 +11,8 @@ See FIB-338.
 """
 
 from datetime import datetime
+
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -19,6 +21,7 @@ from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QFileDialog,
     QInputDialog,
@@ -119,7 +122,8 @@ class ScriptManagerDialog(QDialog):
 
         self.setWindowTitle("Scripts")
         self.setStyleSheet(f"QDialog {{ background-color: {_BG}; }}")
-        self.resize(780, 620)
+        self.resize(820, 640)
+        self.setMinimumWidth(720)
         self._build()
         self.refresh()
 
@@ -145,8 +149,7 @@ class ScriptManagerDialog(QDialog):
         self.meta_label.setMinimumWidth(160)
         titles.addWidget(self.title_label)
         titles.addWidget(self.meta_label)
-        header.addLayout(titles)
-        header.addStretch()
+        header.addLayout(titles, 1)  # take the free width so the path can elide into it
 
         self.open_folder_button = QPushButton("Open folder")
         self.open_folder_button.setStyleSheet(_SECONDARY_BUTTON_STYLE)
@@ -171,14 +174,26 @@ class ScriptManagerDialog(QDialog):
         self.table = self._build_table()
         layout.addWidget(self.table)
 
+        detail_panel = QWidget()
+        detail_panel.setStyleSheet(
+            f"background-color: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 6px;"
+        )
+        detail_layout = QHBoxLayout(detail_panel)
+        detail_layout.setContentsMargins(11, 9, 11, 9)
         self.detail_label = QLabel()
         self.detail_label.setTextFormat(Qt.RichText)
-        self.detail_label.setWordWrap(True)
         self.detail_label.setStyleSheet(
-            f"background-color: {_PANEL}; border: 1px solid {_BORDER};"
-            f"border-radius: 6px; padding: 9px 11px; font-size: 12px; color: {_TEXT};"
+            f"border: none; font-size: 12px; color: {_TEXT};"
         )
-        layout.addWidget(self.detail_label)
+        # the consequence of running this sits opposite the facts about it, so it
+        # reads as a warning rather than another line of metadata
+        self.consequence_label = QLabel()
+        self.consequence_label.setTextFormat(Qt.RichText)
+        self.consequence_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.consequence_label.setStyleSheet("border: none; font-size: 12px;")
+        detail_layout.addWidget(self.detail_label, 1)
+        detail_layout.addWidget(self.consequence_label, 0)
+        layout.addWidget(detail_panel)
 
         footer = QHBoxLayout()
         self.hint_label = QLabel()
@@ -202,7 +217,7 @@ class ScriptManagerDialog(QDialog):
         table.setHorizontalHeaderLabels(_COLUMNS)
         table.verticalHeader().setVisible(False)
         # rows carry a stacked name + description, so they need room to breathe
-        table.verticalHeader().setDefaultSectionSize(62)
+        table.verticalHeader().setDefaultSectionSize(56)
         table.setShowGrid(False)
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -215,7 +230,7 @@ class ScriptManagerDialog(QDialog):
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, header.Stretch)
-        table.setColumnWidth(2, 100)
+        table.setColumnWidth(2, 130)
         return table
 
     @staticmethod
@@ -239,8 +254,8 @@ class ScriptManagerDialog(QDialog):
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(12, 10, 10, 10)
-        layout.setSpacing(3)
+        layout.setContentsMargins(12, 8, 10, 8)
+        layout.setSpacing(2)
 
         name = QLabel(script.name)
         name.setStyleSheet(
@@ -377,38 +392,53 @@ class ScriptManagerDialog(QDialog):
         host_ready, reason = self.runner.availability()
 
         if script is None:
-            self.detail_label.setText(
-                f'<span style="color:{_TEXT_MUTED};">No script selected.</span>'
+            empty = (
+                "No scripts in this folder yet — use New script… to create one."
+                if not self.scripts else "No script selected."
             )
+            self.detail_label.setText(f'<span style="color:{_TEXT_MUTED};">{empty}</span>')
+            self.consequence_label.setText("")
             self.run_button.setEnabled(False)
             self.hint_label.setText(reason)
             return
 
-        parts = [
-            f'<span style="color:{_TEXT_MUTED};">Source</span>&nbsp; {script.path.name}',
-            f'<span style="color:{_TEXT_MUTED};">Hash</span>&nbsp; {script.content_hash}',
-        ]
-        detail = "<br>".join(parts)
+        self.detail_label.setText(
+            f'<span style="color:{_TEXT_MUTED};">Source</span>&nbsp; {script.path.name}'
+            f'<br><span style="color:{_TEXT_MUTED};">Hash</span>&nbsp; {script.content_hash}'
+        )
 
+        # short phrases, not sentences: this sits opposite the Source/Hash block and
+        # a full sentence clips against it once the dialog narrows. The tooltip
+        # carries the longer wording.
         if not script.is_runnable:
-            detail += f'<br><span style="color:{_ERROR};">● {script.error}</span>'
+            consequence, colour, explain = "● Cannot load", _ERROR, script.error
         elif script.uses_microscope:
-            detail += (
-                f'<br><span style="color:{_WARN};">● Needs the microscope — '
-                f"not supported yet.</span>"
+            consequence, colour, explain = (
+                "● Needs the microscope", _WARN,
+                "Microscope scripts are not supported yet (FIB-340).",
             )
         elif script.writes:
-            detail += (
-                f'<br><span style="color:{_WARN};">● Modifies the experiment and '
-                f"saves it when finished.</span>"
+            consequence, colour, explain = (
+                "● Modifies and saves the experiment", _WARN,
+                "This script changes the experiment and saves it when it finishes.",
+            )
+        else:
+            consequence, colour, explain = (
+                "● Read-only", _TEXT_MUTED, "This script does not change anything.",
             )
         if script.on_workflow_completed:
-            detail += (
-                f'<br><span style="color:{_ACCENT};">● Also runs automatically when '
-                f"a workflow finishes.</span>"
-            )
+            # already an "auto" chip on the row -- repeating it here is what
+            # pushed this line past the panel edge on a narrow dialog
+            explain += " It also runs automatically when a workflow finishes."
+        self.consequence_label.setToolTip(explain)
+        # Same trap as the chips: a rich-text QLabel under-reports sizeHint
+        # against its rendered width, so the tail clips. Pin it from the metrics
+        # of the plain text before wrapping it in the colour span.
+        metrics = QFontMetrics(self.consequence_label.font())
+        self.consequence_label.setMinimumWidth(metrics.horizontalAdvance(consequence) + 10)
+        consequence = f'<span style="color:{colour};">{consequence}</span>'
+        self.consequence_label.setText(consequence)
 
-        self.detail_label.setText(detail)
         # uses_microscope is disabled rather than offered-then-refused: the runner
         # would reject it anyway (FIB-340), and a button that does nothing but
         # complain is worse than one that is visibly unavailable.
@@ -456,8 +486,13 @@ class ScriptManagerDialog(QDialog):
         script = self.selected_script()
         if script is None or not script.is_runnable:
             return
-        result = self.runner.run(script)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            result = self.runner.run(script)
+        finally:
+            QApplication.restoreOverrideCursor()
         if result is not None:
             outcome = "ok" if result.ok else "failed"
-            self.last_run[script.name] = f"{datetime.now().strftime('%H:%M')} {outcome}"
+            stamp = datetime.now().strftime(TIME_DISPLAY_AMPM_SHORT).lstrip('0').lower()
+            self.last_run[script.name] = f"{stamp} {outcome}"
         self.refresh()
