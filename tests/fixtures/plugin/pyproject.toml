@@ -17,6 +17,8 @@ requires-python = ">=3.8"
 # particular cannot reach fibsem.milling.base. See patterns.py.
 [project.entry-points."fibsem.patterns"]
 fixture_pattern = "fibsem_test_plugin.patterns:FixturePattern"
+# Claims a built-in's name on purpose; built-ins must still win.
+clashing_pattern = "fibsem_test_plugin.patterns:ClashingPattern"
 
 [project.entry-points."fibsem.strategies"]
 fixture_strategy = "fibsem_test_plugin.strategies:FixtureMillingStrategy"

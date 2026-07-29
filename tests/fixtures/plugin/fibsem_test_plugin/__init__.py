@@ -14,3 +14,7 @@ Class names avoid a ``Test`` prefix so pytest does not try to collect them.
 PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
+
+# Deliberately collides with a built-in pattern, so the documented precedence
+# (builtins > registered > plugins) has something to actually assert against.
+CLASHING_PATTERN_NAME = "Rectangle"

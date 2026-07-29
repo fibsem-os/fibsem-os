@@ -23,7 +23,7 @@ from typing import ClassVar, List
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import FibsemRectangleSettings
 
-from fibsem_test_plugin import PATTERN_NAME
+from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 
 
 @dataclass
@@ -44,3 +44,15 @@ class FixturePattern(BasePattern[FibsemRectangleSettings]):
             )
         ]
         return self.shapes
+
+
+@dataclass
+class ClashingPattern(FixturePattern):
+    """Takes the name of a built-in pattern on purpose.
+
+    Registering this must not displace the built-in: get_patterns() merges
+    plugins first and built-ins last, so built-ins win. Without a plugin that
+    actually collides, a test of that precedence asserts nothing.
+    """
+
+    name: ClassVar[str] = CLASHING_PATTERN_NAME

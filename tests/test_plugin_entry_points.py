@@ -17,15 +17,23 @@ rather than failing. To run them:
 
     pip install --no-deps tests/fixtures/plugin
 
+In CI the workflow sets ``FIBSEM_REQUIRE_PLUGIN_FIXTURE=1``, which turns that
+skip into a hard failure. Without it these tests could be disabled by deleting
+the install step and CI would stay green -- which is precisely the shape of
+silent breakage this file exists to catch, so it must not be possible here.
+
 The counterpart to this file lives in the fibsem-plugin-example repository,
 which checks the same contract from the outside, against fibsem main.
 """
+
+import os
 
 import pytest
 
 PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
+CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 
 def _fixture_installed() -> bool:
     """Detect the fixture without importing it.
@@ -52,10 +60,20 @@ def _fixture_installed() -> bool:
     return any(ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns"))
 
 
+_INSTALLED = _fixture_installed()
+
+if not _INSTALLED and os.environ.get("FIBSEM_REQUIRE_PLUGIN_FIXTURE") == "1":
+    raise RuntimeError(
+        "FIBSEM_REQUIRE_PLUGIN_FIXTURE=1 but the plugin fixture is not installed. "
+        "The CI step that runs `pip install --no-deps tests/fixtures/plugin` is "
+        "missing or failed. Skipping here would leave the entry point contract "
+        "untested with a green build."
+    )
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
-        not _fixture_installed(),
+        not _INSTALLED,
         reason="plugin fixture not installed: pip install --no-deps tests/fixtures/plugin",
     ),
 ]
@@ -156,10 +174,33 @@ def test_milling_stage_built_from_yaml_uses_both_plugin_classes():
 
 
 def test_builtins_win_name_clashes():
-    """Documented precedence: builtins > runtime-registered > plugins. A plugin
-    cannot silently replace a built-in pattern."""
+    """Documented precedence: builtins > runtime-registered > plugins.
+
+    The fixture registers a pattern under a built-in's name on purpose. Without
+    a plugin that actually collides this test asserts nothing -- every built-in
+    trivially maps to itself when no plugin competes for the name.
+    """
     from fibsem.milling.patterning import BUILTIN_PATTERNS, get_patterns
 
     patterns = get_patterns()
+
+    # the colliding entry point resolved, so the precedence rule is under load
+    assert CLASHING_PATTERN_NAME in BUILTIN_PATTERNS
+    assert patterns[CLASHING_PATTERN_NAME] is BUILTIN_PATTERNS[CLASHING_PATTERN_NAME]
+    assert patterns[CLASHING_PATTERN_NAME].__module__.startswith("fibsem.")
+
+    # and no other built-in was displaced either
     for name, cls in BUILTIN_PATTERNS.items():
         assert patterns[name] is cls
+
+
+def test_shadowed_plugin_is_not_silently_reported_as_the_builtin():
+    """A shadowed plugin should be absent, not masquerading.
+
+    get_pattern() must hand back the built-in class, so a protocol naming
+    "Rectangle" keeps meaning the built-in even with the plugin installed.
+    """
+    from fibsem.milling.patterning import get_pattern
+    from fibsem.milling.patterning.patterns2 import RectanglePattern
+
+    assert isinstance(get_pattern(CLASHING_PATTERN_NAME), RectanglePattern)
