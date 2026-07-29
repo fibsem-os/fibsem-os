@@ -11,7 +11,12 @@ def main():
     except ImportError:
         FIBSEM_AVAILABLE = False
     if FIBSEM_AVAILABLE:
-        print(f"OpenFIBSEM v{fibsem.__version__}")
+        from fibsem.versioning import get_branch, get_version_string
+
+        print(f"OpenFIBSEM v{get_version_string()}")
+        branch = get_branch()
+        if branch:
+            print(f"Branch: {branch}")
         print(f"Installed at: {fibsem.__path__}")
     
     print(f"-" * 80)
@@ -23,8 +28,10 @@ def main():
     except ImportError: 
         AUTOLAMELLA_AVAILABLE = False
     if AUTOLAMELLA_AVAILABLE:
-        print(f"AutoLamella v{autolamella.__version__}")
-        print(f"Installed at: {autolamella.__path__}")   
+        # getattr rather than direct access: this script exists to report what is
+        # installed, so a package that omits __version__ must not abort the report.
+        print(f"AutoLamella v{getattr(autolamella, '__version__', 'unknown')}")
+        print(f"Installed at: {autolamella.__path__}")
     
     try: 
         import salami
@@ -32,7 +39,7 @@ def main():
     except ImportError:
         SALAMI_AVAILABLE = False
     if SALAMI_AVAILABLE:
-        print(f"SALAMI v{salami.__version__}")
+        print(f"SALAMI v{getattr(salami, '__version__', 'unknown')}")
         print(f"Installed at: {salami.__path__}")
     print(f"-" * 80)
     

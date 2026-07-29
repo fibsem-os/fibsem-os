@@ -16,6 +16,7 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
+from fibsem.versioning import get_version_string
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
@@ -330,7 +331,7 @@ def main():
     viewer.window.add_dock_widget(
         det_widget_ui, area="right", 
         add_vertical_stretch=False, 
-        name=f"OpenFIBSEMv{fibsem.__version__} Feature Detection"
+        name=f"OpenFIBSEMv{get_version_string()} Feature Detection"
     )
     napari.run()
 
