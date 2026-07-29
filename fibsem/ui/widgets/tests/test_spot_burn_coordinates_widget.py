@@ -297,6 +297,77 @@ def test_dialog_survives_a_malformed_protocol():
         _open_dialog(_editor_stub(cfg))  # must not raise
 
 
+def test_button_wiring_on_the_real_editor():
+    """The tests above drive the dialog against a stub, which cannot catch the button
+    being created in the wrong place or never connected. Build the real editor."""
+    import logging
+    import pathlib
+    import tempfile
+
+    from PyQt5.QtWidgets import QDialog, QWidget
+
+    from fibsem import utils
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTaskConfig
+    from fibsem.ui.widgets.autolamella_task_config_editor import (
+        AutoLamellaProtocolTaskConfigEditor,
+    )
+
+    logging.disable(logging.CRITICAL)
+    try:
+        microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+        exp = Experiment(path=pathlib.Path(tempfile.mkdtemp()), name="probe")
+        exp.task_protocol = AutoLamellaTaskProtocol()
+        exp.task_protocol.task_config = {
+            "Spot Burn Fiducial": SpotBurnFiducialTaskConfig(
+                task_name="Spot Burn Fiducial", coordinates=[Point(0.16, 0.45)]
+            ),
+            "Other Task": AutoLamellaTaskConfig(task_name="Other Task"),
+        }
+        parent = QWidget()
+        parent.experiment, parent.microscope = exp, microscope
+        editor = AutoLamellaProtocolTaskConfigEditor(parent=parent)
+        editor.show()
+        for _ in range(8):
+            _app.processEvents()
+
+        btn = editor.pushButton_edit_spot_burn
+        rows = editor.task_list_widget._list
+        for row, want_visible in ((0, True), (1, False), (0, True)):
+            rows.setCurrentRow(row)
+            for _ in range(3):
+                _app.processEvents()
+            assert (not btn.isHidden()) == want_visible, (
+                f"row {row} ({editor.task_list_widget.selected_task}): "
+                f"visible={not btn.isHidden()}, wanted {want_visible}"
+            )
+
+        # and the click reaches the dialog with this task's coordinates
+        seen = {}
+        original = QDialog.exec_
+
+        def fake_exec(dialog):
+            w = dialog.findChild(SpotBurnCoordinatesWidget)
+            seen["coords"] = len(w.get_settings().coordinates)
+            seen["title"] = dialog.windowTitle()
+            return QDialog.Rejected
+
+        QDialog.exec_ = fake_exec
+        try:
+            btn.click()
+            for _ in range(4):
+                _app.processEvents()
+        finally:
+            QDialog.exec_ = original
+        assert seen["coords"] == 1
+        assert "Spot Burn Fiducial" in seen["title"]
+    finally:
+        logging.disable(logging.NOTSET)
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
