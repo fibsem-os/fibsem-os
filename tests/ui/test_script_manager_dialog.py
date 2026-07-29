@@ -271,3 +271,33 @@ def test_the_folder_is_elided_but_kept_whole_in_the_tooltip(qapp, tmp_path):
 
     assert "…" in dialog.meta_label.text()
     assert str(deep) == dialog.meta_label.toolTip()
+
+
+def test_every_chip_carries_a_dot(qapp, tmp_path):
+    """Type and flag chips looked like different kinds of thing for no readable
+    reason. Colour separates them; shape should not."""
+    _write(tmp_path, "s.py",
+           "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    from PyQt5.QtWidgets import QLabel
+    chips = dialog.table.cellWidget(0, 1).findChildren(QLabel)
+
+    assert len(chips) == 3  # Data + writes + auto
+    assert all("9679" in chip.text() for chip in chips)
+
+
+def test_the_type_column_fits_the_widest_row_of_chips(qapp, tmp_path):
+    """A fixed width clips as soon as a script declares more than one flag, and
+    ResizeToContents is no help -- it measures the item, not the cell widget."""
+    _write(tmp_path, "plain.py", "def run(ctx):\n    pass\n")
+    _write(tmp_path, "loaded.py",
+           "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.show()
+
+    widest = max(
+        dialog.table.cellWidget(row, 1).sizeHint().width()
+        for row in range(dialog.table.rowCount())
+    )
+    assert dialog.table.columnWidth(1) >= widest

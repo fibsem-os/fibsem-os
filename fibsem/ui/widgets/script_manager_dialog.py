@@ -215,21 +215,23 @@ class ScriptManagerDialog(QDialog):
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, header.Stretch)
-        table.setColumnWidth(1, 210)
         table.setColumnWidth(2, 100)
         return table
 
     @staticmethod
-    def _chip(text: str, colour: str, dot: bool = True) -> QLabel:
+    def _chip(text: str, colour: str) -> QLabel:
         """A pill label: coloured dot + text, on a tint of the same colour."""
         rgb = QColor(colour)
         tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
-        marker = f'<span style="color:{colour};">&#9679;</span> ' if dot else ""
-        chip = QLabel(f"{marker}{text}")
+        chip = QLabel(f'<span style="color:{colour};">&#9679;</span> {text}')
         chip.setStyleSheet(
             f"background-color: {tint}; color: {colour};"
             f"padding: 2px 9px; border-radius: 10px; font-size: 11px;"
         )
+        # A rich-text QLabel under-reports sizeHint against the stylesheet padding,
+        # so the last character clips. Measure the visible text and pin the width.
+        metrics = QFontMetrics(chip.font())
+        chip.setMinimumWidth(metrics.horizontalAdvance(f"* {text}") + 26)
         return chip
 
     def _name_cell(self, script: DiscoveredScript) -> QWidget:
@@ -266,9 +268,9 @@ class ScriptManagerDialog(QDialog):
         label, colour = _script_type(script)
         layout.addWidget(self._chip(label, colour))
         if script.writes:
-            layout.addWidget(self._chip("writes", _WARN, dot=False))
+            layout.addWidget(self._chip("writes", _WARN))
         if script.on_workflow_completed:
-            layout.addWidget(self._chip("auto", _ACCENT, dot=False))
+            layout.addWidget(self._chip("auto", _ACCENT))
         layout.addStretch()
         notes = [f"Type: {label}"]
         if script.writes:
@@ -314,11 +316,28 @@ class ScriptManagerDialog(QDialog):
             for col in (0, 1):
                 self.table.setItem(row, col, QTableWidgetItem())
 
+        self._fit_type_column()
+
         if self.scripts:
             names = [s.name for s in self.scripts]
             row = names.index(previous) if previous in names else 0
             self.table.selectRow(row)
         self._on_selection_changed()
+
+    def _fit_type_column(self) -> None:
+        """Widen the type column to the widest row of chips.
+
+        ResizeToContents is no use here: it measures the item's size hint, and
+        these cells hold widgets over empty items. A row carries one type chip
+        plus a chip per flag, so any fixed width clips as soon as a script
+        declares more than one.
+        """
+        widths = [
+            self.table.cellWidget(row, 1).sizeHint().width()
+            for row in range(self.table.rowCount())
+            if self.table.cellWidget(row, 1) is not None
+        ]
+        self.table.setColumnWidth(1, max(widths, default=140) + 12)
 
     def _update_meta(self) -> None:
         """Counts plus the folder, elided to whatever width the dialog has.
