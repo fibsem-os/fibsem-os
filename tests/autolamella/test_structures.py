@@ -391,3 +391,72 @@ def test_task_state_from_dict_ignores_unknown_keys():
 
     assert state.name == "MillRough"
     assert not hasattr(state, "metrics")
+
+
+# ── Lamella paths follow a moved experiment (FIB-367) ────────────────────────
+
+def _experiment_on_disk(root: Path, with_milling: bool = False) -> Experiment:
+    """A saved experiment with one lamella, optionally carrying a milling task."""
+    exp = Experiment(path=root, name="exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    Path(exp.path).mkdir(parents=True, exist_ok=True)
+
+    task_config = EventedDict()
+    if with_milling:
+        task_config["basic"] = _make_task_config()
+    exp.add_new_lamella(MicroscopeState(), task_config)
+    exp.save(save_protocol=True)
+    return exp
+
+
+def test_lamella_path_follows_a_copied_experiment(tmp_path):
+    """`path` is persisted as the directory the lamella was *created* in, so a
+    copied experiment would otherwise point back at the machine it came from.
+
+    That is worse than an error whenever the original directory still exists
+    locally, because reads silently succeed against the wrong experiment.
+    """
+    import shutil
+
+    src = tmp_path / "src"
+    exp = _experiment_on_disk(src)
+    original = Path(exp.positions[0].path)
+
+    dst = tmp_path / "dst"
+    shutil.copytree(exp.path, dst / "exp")
+    shutil.rmtree(src)
+
+    loaded = Experiment.load(str(dst / "exp" / "experiment.yaml"))
+    lamella = loaded.positions[0]
+
+    assert Path(lamella.path) == Path(loaded.path) / lamella.name
+    assert Path(lamella.path) != original
+    assert Path(lamella.path).exists()
+
+
+def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
+    """Milling configs carry their own acquisition imaging path, copied from the
+    lamella in __post_init__. Correcting `path` alone would leave acquisitions
+    still writing back to the original location.
+    """
+    import shutil
+
+    src = tmp_path / "src"
+    exp = _experiment_on_disk(src, with_milling=True)
+
+    dst = tmp_path / "dst"
+    shutil.copytree(exp.path, dst / "exp")
+    shutil.rmtree(src)
+
+    loaded = Experiment.load(str(dst / "exp" / "experiment.yaml"))
+    lamella = loaded.positions[0]
+
+    imaging_paths = [
+        mtc.acquisition.imaging.path
+        for tc in lamella.task_config.values()
+        for mtc in tc.milling.values()
+    ]
+    assert imaging_paths, "expected the lamella to carry a milling task config"
+    for path in imaging_paths:
+        assert Path(path) == Path(lamella.path)
+        assert str(src) not in str(path)

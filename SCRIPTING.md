@@ -39,7 +39,7 @@ On each lamella in `exp.positions`:
 | Attribute | Description |
 |---|---|
 | `lamella.name` | e.g. `01-deep-crane` |
-| `lamella.path` | that lamella's directory — but see [Gotchas](#gotchas) before using it |
+| `lamella.path` | that lamella's directory, where its images live |
 | `lamella.completed_tasks` | list of completed task names |
 | `lamella.last_completed_task` | the most recent task state, or `None` |
 | `lamella.task_history` | every task state, including repeats |
@@ -118,6 +118,21 @@ df = df[df["duration"].notna()]
 print(df.groupby("task_name")["duration"].agg(["count", "mean", "max"]).round(1))
 ```
 
+### Find each lamella's images
+
+```python
+from pathlib import Path
+from fibsem.applications.autolamella.structures import Experiment
+
+exp = Experiment.load("/path/to/my-experiment/experiment.yaml")
+
+for lamella in exp.positions:
+    for image in sorted(Path(lamella.path).glob("*.tif")):
+        print(lamella.name, image.name)
+```
+
+`lamella.path` is re-derived from the experiment's location when it loads, so this keeps working after you copy an experiment off the microscope PC.
+
 ## Changing an experiment
 
 The same objects are writable. Call `exp.save()` when you are done:
@@ -141,26 +156,6 @@ To clear a mark again, use `lamella.defect.clear()`.
 **Back up the experiment directory before running anything that writes.** These scripts have no undo.
 
 ## Gotchas
-
-**Don't use `lamella.path` — derive it instead.** This one bites as soon as you copy an experiment off the microscope PC, which is the usual way of working.
-
-`exp.path` is taken from the file you loaded, so it is always right. But each `lamella.path` is stored in `experiment.yaml` exactly as it was when the lamella was created, and never updated. On a copied or moved experiment it still points at the original machine's directory:
-
-```
-exp.path      : /data/analysis/my-experiment          # correct
-lamella.path  : /home/user/experiments/my-experiment/01-deep-crane   # gone
-```
-
-If the original directory happens to still exist on the same machine, this is worse than an error — you silently read the wrong experiment. Build the path yourself:
-
-```python
-from pathlib import Path
-
-for lamella in exp.positions:
-    lamella_dir = Path(exp.path) / lamella.name
-    for image in sorted(lamella_dir.glob("*.tif")):
-        print(lamella.name, image.name)
-```
 
 **Close the experiment in the GUI first, or reload it afterwards.** AutoLamella holds the experiment in memory. If it is open while your script writes, whichever saves last wins and the other's changes are gone.
 
