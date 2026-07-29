@@ -68,7 +68,9 @@ def test_lists_runnable_and_failed_together(qapp, tmp_path):
     dialog = _dialog(tmp_path, context=FakeContext())
 
     assert dialog.table.rowCount() == 2
-    assert dialog.title_label.text() == "1 script, 1 failed to load"
+    # the heading says what the dialog is; the counts are meta beneath it
+    assert dialog.title_label.text() == "User scripts"
+    assert "1 script, 1 failed to load" in dialog.meta_label.text()
 
 
 def test_the_failure_reason_is_shown_in_the_row(qapp, tmp_path):
@@ -186,3 +188,86 @@ def test_the_type_tooltip_spells_out_the_flags(qapp, tmp_path):
     tooltip = dialog.table.cellWidget(0, 1).toolTip()
 
     assert "saves the experiment" in tooltip
+
+
+def test_selection_survives_running_a_script(qapp, tmp_path):
+    """Running one used to bounce the selection back to the top of the list."""
+    for name in ("a.py", "b.py", "c.py"):
+        _write(tmp_path, name, "def run(ctx):\n    return 'ok'\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.table.selectRow(_row_of(dialog, "b"))
+
+    dialog.run_selected()
+
+    assert dialog.selected_script().name == "b"
+
+
+def test_rebuilding_does_not_stack_cell_widgets(qapp, tmp_path):
+    """setRowCount alone leaves the previous build's widgets parented to the
+    viewport, so rows drew on top of each other."""
+    from PyQt5.QtWidgets import QLabel
+
+    _write(tmp_path, "a.py", '"""One."""\ndef run(ctx):\n    pass\n')
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    for _ in range(3):
+        dialog.refresh()
+
+    # name + description, not three builds' worth
+    assert len(dialog.table.cellWidget(0, 0).findChildren(QLabel)) == 2
+
+
+def test_change_folder_switches_the_listing(qapp, tmp_path):
+    _write(tmp_path / "first", "one.py", "def run(ctx):\n    pass\n")
+    _write(tmp_path / "second", "two.py", "def run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path / "first", context=FakeContext())
+    assert [s.name for s in dialog.scripts] == ["one"]
+
+    dialog.runner.set_directory(tmp_path / "second")
+    dialog.refresh(keep_selection=False)
+
+    assert [s.name for s in dialog.scripts] == ["two"]
+
+
+def test_new_script_creates_a_runnable_stub(qapp, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QInputDialog
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("fresh", True))
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.script_manager_dialog.open_path_in_file_explorer",
+        lambda path: None,
+    )
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    dialog.new_script()
+
+    assert (tmp_path / "fresh.py").exists()
+    assert "fresh" in [s.name for s in dialog.scripts]
+    # the stub must actually load, or the first thing a user sees is an error
+    assert dialog.scripts[_row_of(dialog, "fresh")].is_runnable
+
+
+def test_new_script_refuses_to_overwrite(qapp, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QInputDialog
+
+    _write(tmp_path, "taken.py", "def run(ctx):\n    return 'original'\n")
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("taken", True))
+    notes = []
+    dialog = _dialog(tmp_path, context=FakeContext(), notes=notes)
+
+    dialog.new_script()
+
+    assert "original" in (tmp_path / "taken.py").read_text()
+    assert notes and notes[-1][0] == "warning"
+
+
+def test_the_folder_is_elided_but_kept_whole_in_the_tooltip(qapp, tmp_path):
+    """The path is far longer than anything else and would otherwise dictate the
+    dialog's width."""
+    deep = tmp_path / ("nested/" * 12).rstrip("/")
+    _write(deep, "s.py", "def run(ctx):\n    pass\n")
+    dialog = _dialog(deep, context=FakeContext())
+    dialog.show()
+
+    assert "…" in dialog.meta_label.text()
+    assert str(deep) == dialog.meta_label.toolTip()

@@ -39,10 +39,19 @@ class ScriptRunner:
         notify: Notifier,
         parent: Optional[QWidget] = None,
     ) -> None:
-        self.scripts_directory = scripts_directory
+        self._scripts_directory = scripts_directory
+        self._directory_override: Optional[Path] = None
         self.context_factory = context_factory
         self.notify = notify
         self.parent = parent
+
+    def scripts_directory(self) -> Path:
+        """Where to look for scripts — the host's folder, or a chosen override."""
+        return self._directory_override or Path(self._scripts_directory())
+
+    def set_directory(self, directory: Optional[Path]) -> None:
+        """Point at a different folder for this session. ``None`` restores the host's."""
+        self._directory_override = Path(directory) if directory is not None else None
 
     # --- discovery ---
 

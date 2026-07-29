@@ -177,12 +177,20 @@ def run_script(script: DiscoveredScript, ctx: Any) -> ScriptResult:
     )
 
     result = ScriptResult(script=script)
+    # Tag anything the script logs with its name, so lines in a shared logfile are
+    # attributable. Restored afterwards so a reused context is not left modified.
+    original_log = getattr(ctx, "log", None)
+    if callable(original_log):
+        ctx.log = lambda message, _name=script.name: logging.info("[%s] %s", _name, message)
     try:
         result.value = script._module.run(ctx)  # type: ignore[union-attr]
     except BaseException as e:  # noqa: BLE001 - deliberately broad, see docstring
         result.error = e
         logging.exception("Script %s failed", script.name)
         return result
+    finally:
+        if callable(original_log):
+            ctx.log = original_log
 
     save = getattr(ctx, "save", None)
     if script.writes and callable(save):

@@ -11,16 +11,21 @@ See FIB-338.
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFileDialog,
+    QInputDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -29,6 +34,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.scripting import DiscoveredScript
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
+from fibsem.ui.utils import open_path_in_file_explorer
 from fibsem.ui.widgets.script_runner import ScriptRunner
 
 # Palette (matching fibsem.ui.stylesheets napari theme)
@@ -44,6 +50,17 @@ _WARN = "#e0a030"
 _ERROR = "#d04040"
 
 _COLUMNS = ["Script", "Type", "Last run"]
+
+_TEMPLATE = '''"""Describe what this script does — this line becomes its tooltip."""
+
+# writes = True   # uncomment if the script changes state that should be saved
+
+
+def run(ctx):
+    # ctx carries whatever the application provides.
+    # Return a string, a Path or a DataFrame to show the result.
+    return "done"
+'''
 
 _TABLE_STYLE = f"""
 QTableWidget {{
@@ -102,7 +119,7 @@ class ScriptManagerDialog(QDialog):
 
         self.setWindowTitle("Scripts")
         self.setStyleSheet(f"QDialog {{ background-color: {_BG}; }}")
-        self.resize(760, 580)
+        self.resize(780, 620)
         self._build()
         self.refresh()
 
@@ -116,14 +133,18 @@ class ScriptManagerDialog(QDialog):
         header = QHBoxLayout()
         titles = QVBoxLayout()
         titles.setSpacing(2)
-        self.title_label = QLabel()
+        self.title_label = QLabel("User scripts")
         self.title_label.setStyleSheet(
-            f"font-size: 14px; font-weight: 500; color: {_TEXT_STRONG};"
+            f"font-size: 15px; font-weight: 500; color: {_TEXT_STRONG};"
         )
-        self.path_label = QLabel()
-        self.path_label.setStyleSheet(f"font-size: 12px; color: {_TEXT_MUTED};")
+        # counts and location are meta, not the heading -- the heading says what
+        # this dialog is, the line under it says what is currently in it.
+        self.meta_label = QLabel()
+        self.meta_label.setStyleSheet(f"font-size: 12px; color: {_TEXT_MUTED};")
+        self.meta_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.meta_label.setMinimumWidth(160)
         titles.addWidget(self.title_label)
-        titles.addWidget(self.path_label)
+        titles.addWidget(self.meta_label)
         header.addLayout(titles)
         header.addStretch()
 
@@ -135,6 +156,14 @@ class ScriptManagerDialog(QDialog):
         # "Rescan", not "Reload": scripts are loaded fresh on every run anyway, so
         # this only picks up files added or deleted since the dialog opened.
         self.rescan_button.clicked.connect(self.refresh)
+        self.new_script_button = QPushButton("New script…")
+        self.new_script_button.setStyleSheet(_SECONDARY_BUTTON_STYLE)
+        self.new_script_button.clicked.connect(self.new_script)
+        self.change_folder_button = QPushButton("Change folder…")
+        self.change_folder_button.setStyleSheet(_SECONDARY_BUTTON_STYLE)
+        self.change_folder_button.clicked.connect(self.change_folder)
+        header.addWidget(self.new_script_button)
+        header.addWidget(self.change_folder_button)
         header.addWidget(self.open_folder_button)
         header.addWidget(self.rescan_button)
         layout.addLayout(header)
@@ -251,8 +280,14 @@ class ScriptManagerDialog(QDialog):
 
     # --- data ---
 
-    def refresh(self) -> None:
-        """Re-read the folder and rebuild the table."""
+    def refresh(self, keep_selection: bool = True) -> None:
+        """Re-read the folder and rebuild the table.
+
+        The selected script is restored by name, so running one does not bounce
+        the selection back to the top of the list.
+        """
+        previous = self.selected_script().name if (keep_selection and self.selected_script()) else None
+
         self.scripts = self.runner.discover()
         failed = sum(1 for s in self.scripts if not s.is_runnable)
         runnable = len(self.scripts) - failed
@@ -260,9 +295,11 @@ class ScriptManagerDialog(QDialog):
         summary = f"{runnable} script{'s' if runnable != 1 else ''}"
         if failed:
             summary += f", {failed} failed to load"
-        self.title_label.setText(summary)
-        self.path_label.setText(str(self.runner.scripts_directory()))
+        self._summary = summary
+        self._update_meta()
 
+        self.table.clearContents()
+        self.table.setRowCount(0)  # destroys the previous rows' cell widgets
         self.table.setRowCount(len(self.scripts))
         for row, script in enumerate(self.scripts):
             # cell widgets, not items: a QTableWidgetItem cannot carry a pill
@@ -278,8 +315,35 @@ class ScriptManagerDialog(QDialog):
                 self.table.setItem(row, col, QTableWidgetItem())
 
         if self.scripts:
-            self.table.selectRow(0)
+            names = [s.name for s in self.scripts]
+            row = names.index(previous) if previous in names else 0
+            self.table.selectRow(row)
         self._on_selection_changed()
+
+    def _update_meta(self) -> None:
+        """Counts plus the folder, elided to whatever width the dialog has.
+
+        The path is often far longer than anything else in the dialog and would
+        otherwise dictate its width. The full value stays in the tooltip.
+        """
+        directory = str(self.runner.scripts_directory())
+        # elide against the label's real width -- with a floor, because showEvent
+        # fires before layout and a near-zero width elides the path away entirely
+        available = max(self.meta_label.width(), 240)
+        elided = QFontMetrics(self.meta_label.font()).elidedText(
+            directory, Qt.ElideMiddle, available
+        )
+        self.meta_label.setText(f"{self._summary}  ·  {elided}")
+        self.meta_label.setToolTip(directory)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        if getattr(self, "_summary", None) is not None:
+            self._update_meta()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().showEvent(event)
+        self._update_meta()
 
     # --- selection + running ---
 
@@ -333,6 +397,41 @@ class ScriptManagerDialog(QDialog):
             script.is_runnable and host_ready and not script.uses_microscope
         )
         self.hint_label.setText(reason)
+
+    def change_folder(self) -> None:
+        """Point the dialog at a different folder for this session."""
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose a scripts folder", str(self.runner.scripts_directory())
+        )
+        if not chosen:
+            return
+        self.runner.set_directory(Path(chosen))
+        self.refresh(keep_selection=False)
+
+    def new_script(self) -> None:
+        """Create a stub script in the current folder and reveal it."""
+        name, accepted = QInputDialog.getText(self, "New script", "File name:", text="my_script")
+        if not accepted or not name.strip():
+            return
+
+        directory = self.runner.scripts_directory()
+        path = directory / (name.strip() if name.strip().endswith(".py") else f"{name.strip()}.py")
+        if path.exists():
+            self.runner.notify(f"{path.name} already exists.", "warning")
+            return
+
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path.write_text(_TEMPLATE)
+        except OSError as e:
+            self.runner.notify(f"Could not create {path.name}: {e}", "error")
+            return
+
+        self.refresh(keep_selection=False)
+        names = [s.name for s in self.scripts]
+        if path.stem in names:
+            self.table.selectRow(names.index(path.stem))
+        open_path_in_file_explorer(str(directory))
 
     def run_selected(self) -> None:
         script = self.selected_script()
