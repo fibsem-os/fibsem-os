@@ -30,6 +30,19 @@ _SECTION_STYLE = (
 )
 _LABEL_STYLE = "color: #a0a0a0; min-width: 80px; font-size: 11px; background: transparent;"
 _INVALID_STYLE = "color: #E3B617; font-size: 10px; background: transparent;"
+_HINT_STYLE = (
+    "color: #808080; font-size: 10px; background: transparent;"
+    " border-top: 1px solid #4a4a4a; padding-top: 6px;"
+)
+
+# Tells the user the preview is editable — without it the overlays look decorative
+# and the spinboxes read as the only way in.
+_CANVAS_HINT = (
+    "Drag on the preview to edit:\n"
+    "• green box (and its corners) — alignment area\n"
+    "• magenta marker — point of interest\n"
+    "The values above stay in sync, both ways."
+)
 
 _EXAMPLE_PETNAME = "brave-tiger"
 
@@ -184,6 +197,12 @@ class LamellaDefaultConfigWidget(QWidget):
 
         left.addLayout(_row("X (µm) / Y (µm)", self.poi_x, self.poi_y))
         left.addStretch()
+
+        # pinned below the stretch so it sits at the foot of the panel, clear of the controls
+        self.canvas_hint_lbl = QLabel(_CANVAS_HINT)
+        self.canvas_hint_lbl.setStyleSheet(_HINT_STYLE)
+        self.canvas_hint_lbl.setWordWrap(True)
+        left.addWidget(self.canvas_hint_lbl)
 
         self._params_panel = TitledPanel("Default Parameters", content=controls_widget, collapsible=False)
         self._params_panel.add_header_widget(self._btn_reset)
