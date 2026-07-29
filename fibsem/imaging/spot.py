@@ -11,22 +11,49 @@ from fibsem.structures import BeamType, Point
 
 SLEEP_TIME = 1
 
+
+@dataclass
+class SpotBurnSettings:
+    """The payload for a spot-burn run: where to burn, and with what.
+
+    Shared, fibsem-level currency for the coordinate editor + the live spot-burn widget
+    + :func:`run_spot_burn`. Workflow concerns such as the stage orientation live on the
+    task config, not here.
+    """
+
+    coordinates: List[Point] = field(default_factory=list)
+    milling_current: float = 60e-12  # amperes
+    exposure_time: float = 10.0      # seconds
+
+    def to_dict(self) -> dict:
+        return {
+            "coordinates": [pt.to_dict() for pt in self.coordinates],
+            "milling_current": self.milling_current,
+            "exposure_time": self.exposure_time,
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "SpotBurnSettings":
+        return cls(
+            coordinates=[Point.from_dict(pt) for pt in ddict.get("coordinates", [])],
+            milling_current=ddict.get("milling_current", 60e-12),
+            exposure_time=ddict.get("exposure_time", 10.0),
+        )
+
+
 def run_spot_burn(microscope: FibsemMicroscope,
-                  coordinates: List[Point],
-                  exposure_time: float,
-                  milling_current: float,
+                  settings: SpotBurnSettings,
                   beam_type: BeamType = BeamType.ION,
                   stop_event: Optional[threading.Event] = None) -> None:
-    """Run a spot burner job on the microscope. Exposes the specified coordinates for a the specified
-    time at the specified current.
+    """Run a spot burner job on the microscope. Exposes the coordinates in *settings* for
+    the exposure time at the milling current it specifies.
 
     Progress is reported via ``microscope.spot_burn_progress_signal`` (a dict), which the
     status bar and the spot burn widget subscribe to.
     Args:
         microscope: The microscope object.
-        coordinates: List of points to burn. (0 - 1 in image coordinates)
-        exposure_time: Time to expose each point in seconds.
-        milling_current: Current to use for the spot.
+        settings: What to burn — coordinates (0-1 image coordinates), exposure time per
+            point in seconds, and the milling current to burn at.
         beam_type: The type of beam to use. (Default: BeamType.ION)
         stop_event: Threading event to signal cancellation. (Default: None)
     Returns:
@@ -36,14 +63,15 @@ def run_spot_burn(microscope: FibsemMicroscope,
 
     # coerce numeric parameters: protocol-editor fields can arrive as strings
     # (e.g. "3e-11"), which would break beam-current/timing arithmetic on hardware.
-    exposure_time = float(exposure_time)
-    milling_current = float(milling_current)
+    # Read into locals rather than writing back — settings belongs to the caller.
+    exposure_time = float(settings.exposure_time)
+    milling_current = float(settings.milling_current)
 
     # drop points outside the image bounds (0-1 normalised); set_spot rejects out-of-range
     # coordinates on hardware. The supervised widget filters these, so filter here too for
     # the unsupervised/automatic path (coordinates come straight from the stored config).
     in_bounds, dropped = [], []
-    for pt in coordinates:
+    for pt in settings.coordinates:
         (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
     if dropped:
         logging.warning(

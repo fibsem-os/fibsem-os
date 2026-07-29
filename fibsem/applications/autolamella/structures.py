@@ -727,7 +727,7 @@ class Lamella:
     description: str = ""  # free-text note about the lamella
 
     def __post_init__(self):
-        # only make the dir, if the base path is actually set, 
+        # only make the dir, if the base path is actually set,
         # prevents creating path on other computer..
         if os.path.exists(os.path.dirname(self.path)):
             os.makedirs(self.path, exist_ok=True)
@@ -736,10 +736,29 @@ class Lamella:
             self._id = str(uuid.uuid4())
         self.task_state.lamella_id = self._id
 
-        # assign the imaging path to the task config
-        for task_name, tc in self.task_config.items():
-            for name, milling_task_config in tc.milling.items():
+        self._sync_imaging_paths()
+
+    def _sync_imaging_paths(self) -> None:
+        """Point every milling task's acquisition at this lamella's directory.
+
+        Milling configs carry their own imaging path, so it has to be re-derived
+        whenever ``path`` changes or acquisitions are written to the old location.
+        """
+        for tc in self.task_config.values():
+            for milling_task_config in tc.milling.values():
                 milling_task_config.acquisition.imaging.path = self.path
+
+    def relocate(self, experiment_path: Path) -> None:
+        """Re-point this lamella at ``experiment_path``.
+
+        ``path`` is persisted in experiment.yaml as the absolute path the lamella
+        was *created* at, so a lamella loaded from a moved or copied experiment
+        still points at the original machine. Worse, when that directory happens
+        to still exist locally, reads silently succeed against the wrong data.
+        ``Experiment.load`` calls this so paths follow the experiment. See FIB-367.
+        """
+        self.path = os.path.join(experiment_path, self.name)
+        self._sync_imaging_paths()
 
     @property
     def name(self) -> str:
@@ -1120,6 +1139,12 @@ class Experiment:
         # create experiment from dict
         experiment = Experiment.from_dict(ddict)
         experiment.path = os.path.dirname(fname)
+
+        # lamella paths are stored as-created, so re-point them at wherever the
+        # experiment actually is now. otherwise a moved or copied experiment
+        # reads and writes against the original location. (FIB-367)
+        for lamella in experiment.positions:
+            lamella.relocate(experiment.path)
 
         # configure experiment logging
         configure_logging(path=experiment.path, log_filename="logfile")

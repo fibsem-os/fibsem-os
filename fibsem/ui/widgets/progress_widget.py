@@ -28,7 +28,7 @@ Done — completes the bar and shows "Done"::
 
     ProgressUpdate.done()
 
-Failed — completes the bar but shows an error message::
+Failed — completes the bar, shows an error message, and turns the bar red::
 
     ProgressUpdate.failed("Spot burn failed")
 
@@ -66,6 +66,9 @@ class ProgressUpdate:
     total_seconds: float = 0.0
     message: str = ""
     finished: bool = False
+    # NOTE: not `failed` -- the `failed()` classmethod below would shadow the field's
+    # class attribute, and @dataclass would take the method object as the default.
+    is_failed: bool = False
 
     @classmethod
     def numeric(cls, current: int, total: int, message: str = "") -> "ProgressUpdate":
@@ -117,7 +120,7 @@ class ProgressUpdate:
     @classmethod
     def failed(cls, message: str = "Failed") -> "ProgressUpdate":
         """Signals failure — completes the bar but shows ``message`` instead of "Done"."""
-        return cls(finished=True, message=message)
+        return cls(finished=True, is_failed=True, message=message)
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +153,24 @@ class FibsemProgressWidget(QWidget):
 
         self._bar = QProgressBar()
         self._bar.setTextVisible(True)
+        self._failed_style = False
         self._bar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
         layout.addWidget(self._bar)
+
+    def _set_failed_style(self, failed: bool) -> None:
+        """Swap the chunk colour between the normal and error styles.
+
+        Guarded on the current state: setStyleSheet forces a restyle, and
+        update_progress runs on every frame of a countdown.
+        """
+        if failed == self._failed_style:
+            return
+        self._failed_style = failed
+        self._bar.setStyleSheet(
+            stylesheets.FAILED_PROGRESS_BAR_STYLESHEET
+            if failed
+            else stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -165,6 +184,7 @@ class FibsemProgressWidget(QWidget):
         prefix = f"{info.message} — " if info.message else ""
 
         self._finished = info.finished
+        self._set_failed_style(info.is_failed)
         self.setVisible(True)
 
         if info.finished:
@@ -236,6 +256,7 @@ class FibsemProgressWidget(QWidget):
     def reset(self) -> None:
         """Return to initial hidden state."""
         self._finished = False
+        self._set_failed_style(False)
         self._spinner.stop()
         self._spinner.clear()
         self._bar.setMinimum(0)

@@ -438,6 +438,21 @@ MILLING_PROGRESS_BAR_STYLESHEET = """
             }
         """
 
+# same bar, error-coloured chunk: rendered when an operation finishes in a failed
+# state, so "Done" and "Failed" are not both a full green bar.
+FAILED_PROGRESS_BAR_STYLESHEET = """
+            QProgressBar {
+                border: 1px solid #3d4251;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #1e2027;
+                color: #d6d6d6;
+            }
+            QProgressBar::chunk {
+                background-color: #99121F;
+            }
+        """
+
 USER_ATTENTION_BUTTON_STYLESHEET = """
             QPushButton {
                 background-color: #ff9800;

@@ -1,6 +1,7 @@
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 import fibsem
+from fibsem.versioning import get_version_string
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
@@ -26,7 +27,9 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         self.setStyleSheet(NAPARI_STYLE)
 
         # Title now lives in the window titlebar; drop the in-panel label.
-        self.setWindowTitle(f"fibsemOS v{fibsem.__version__}")
+        # get_version_string (not fibsem.__version__) so the running git revision
+        # still shows once napari's viewer.title is gone — see FIB-349 / #202.
+        self.setWindowTitle(f"fibsemOS v{get_version_string()}")
         self.gridLayout.removeWidget(self.label_title)
         self.label_title.deleteLater()
 

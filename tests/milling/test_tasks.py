@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from fibsem import utils
@@ -159,6 +161,39 @@ def test_every_restore_uses_the_captured_voltage(tmp_path):
     voltages = [call[1]["imaging_voltage"] for call in restored]
     assert all(v == 2e3 for v in voltages), f"expected every restore at 2 kV, got {voltages}"
     assert microscope.get_beam_voltage(BeamType.ION) == 2e3
+
+
+# ── an unset save path is not a directory called "None" ──────────────────────
+
+def test_unset_path_does_not_resolve_under_a_none_directory(tmp_path, monkeypatch):
+    """Regression: _configure_path stringified the imaging path before joining it, so a
+    task with no path configured (the default, and what the milling widget hands over
+    when its Path field is left empty) wrote its reference image and its whole
+    drift-correction run to ./None/Milling/<task>/ beside the cwd."""
+    monkeypatch.chdir(tmp_path)
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    cfg = FibsemMillingTaskConfig.from_stages(stages=[FibsemMillingStage(name="s")])
+    assert cfg.acquisition.imaging.path is None, "guard: the path starts out unset"
+
+    task = FibsemMillingTask(microscope, cfg)
+    task._configure_path()
+
+    configured = str(task.config.acquisition.imaging.path)
+    assert Path(configured).is_absolute(), f"unset path resolved to a relative {configured!r}"
+    assert "None" not in Path(configured).parts, configured
+    assert Path(configured).parts[-2:] == ("Milling", "Milling-Task")
+
+
+def test_configured_path_is_preserved(tmp_path):
+    """The fallback only applies when nothing is configured."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    cfg = FibsemMillingTaskConfig.from_stages(stages=[FibsemMillingStage(name="s")], name="t")
+    cfg.acquisition.imaging.path = str(tmp_path)
+
+    task = FibsemMillingTask(microscope, cfg)
+    task._configure_path()
+
+    assert task.config.acquisition.imaging.path == str(tmp_path / "Milling" / "t")
 
 
 def test_imaging_conditions_falls_back_before_capture(tmp_path):

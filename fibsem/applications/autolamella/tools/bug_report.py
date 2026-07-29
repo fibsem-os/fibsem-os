@@ -30,6 +30,7 @@ from urllib.parse import quote, urlencode
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.versioning import get_revision, get_version_string
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -80,6 +81,11 @@ def collect_system_context(
     """
     ctx: Dict[str, str] = {
         "fibsem_version": getattr(fibsem, "__version__", "unknown"),
+        # The commit, for source installs. Deliberately not the branch: branch
+        # names routinely embed usernames, which this function promises to omit
+        # and scrub_text cannot catch (it only strips the *local* user).
+        # Empty for a wheel install, and dropped by the filter below.
+        "fibsem_revision": get_revision() or "",
         "platform": platform.platform(),
         "python_version": platform.python_version(),
     }
@@ -348,7 +354,9 @@ def init_sentry() -> bool:
 
     sentry_sdk.init(
         dsn=dsn,
-        release=getattr(fibsem, "__version__", "unknown"),
+        # Version plus commit, so a crash group identifies the exact code. Never
+        # the branch: Sentry disallows forward slashes in release names.
+        release=get_version_string(),
         send_default_pii=False,
         before_send=_before_send,
     )

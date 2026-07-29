@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.imaging.spot import run_spot_burn
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.structures import BeamType, Point
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
@@ -72,9 +72,8 @@ def test_run_spot_burn_filters_out_of_bounds_coordinates(mock_microscope):
     ]
     run_spot_burn(
         microscope=mock_microscope,
-        coordinates=coords,
-        exposure_time=1.0,
-        milling_current=30e-12,
+        settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
+                                  milling_current=30e-12),
         beam_type=BeamType.ION,
     )
     assert _burned_points(mock_microscope) == [Point(0.5, 0.5), Point(0.9, 0.2)]
@@ -85,9 +84,8 @@ def test_run_spot_burn_keeps_boundary_coordinates(mock_microscope):
     coords = [Point(0.0, 0.0), Point(1.0, 1.0)]
     run_spot_burn(
         microscope=mock_microscope,
-        coordinates=coords,
-        exposure_time=1.0,
-        milling_current=30e-12,
+        settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
+                                  milling_current=30e-12),
     )
     assert _burned_points(mock_microscope) == coords
 
@@ -96,9 +94,8 @@ def test_run_spot_burn_empty_coordinates_does_not_burn(mock_microscope):
     """No coordinates -> no spot exposures, but the beam state is still restored."""
     run_spot_burn(
         microscope=mock_microscope,
-        coordinates=[],
-        exposure_time=1.0,
-        milling_current=30e-12,
+        settings=SpotBurnSettings(coordinates=[], exposure_time=1.0,
+                                  milling_current=30e-12),
     )
     mock_microscope.set_spot_scanning_mode.assert_not_called()
     mock_microscope.set_full_frame_scanning_mode.assert_called_once()
@@ -111,9 +108,8 @@ def test_run_spot_burn_coerces_string_parameters(mock_microscope):
     """String milling_current/exposure_time (from the editor QLineEdit bug) don't crash."""
     run_spot_burn(
         microscope=mock_microscope,
-        coordinates=[Point(0.5, 0.5)],
-        exposure_time="2",
-        milling_current="3e-11",
+        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time="2",
+                                  milling_current="3e-11"),
         beam_type=BeamType.ION,
     )
     # the milling current is applied as a real float, not the string "3e-11"
@@ -129,9 +125,8 @@ def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
     """After burning, scanning returns to full frame and the imaging current is restored."""
     run_spot_burn(
         microscope=mock_microscope,
-        coordinates=[Point(0.5, 0.5)],
-        exposure_time=1.0,
-        milling_current=30e-12,
+        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=1.0,
+                                  milling_current=30e-12),
     )
     mock_microscope.set_full_frame_scanning_mode.assert_called_once()
     last_current = mock_microscope.set_beam_current.call_args_list[-1].kwargs["current"]
@@ -145,9 +140,8 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     """Progress is reported through microscope.spot_burn_progress_signal (both run paths)."""
     run_spot_burn(
         microscope=mock_microscope,
-        coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
-        exposure_time=1.0,
-        milling_current=30e-12,
+        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+                                  exposure_time=1.0, milling_current=30e-12),
     )
     emitted = [
         c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
@@ -200,10 +194,12 @@ def _make_headless_spot_burn_task(coordinates, tmp_path):
 
 def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
     """Unsupervised/headless with no coordinates skips, rather than blocking on ask_user."""
-    import fibsem.imaging.spot as spot_mod
+    # patch where it is *used*: the task imports run_spot_burn at module level, so
+    # patching fibsem.imaging.spot would leave the task's own binding untouched.
+    import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
 
     calls = []
-    monkeypatch.setattr(spot_mod, "run_spot_burn", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(sb_mod, "run_spot_burn", lambda **kw: calls.append(kw))
 
     task = _make_headless_spot_burn_task([], tmp_path)
     task.update_spot_burn_parameters_ui()  # must return, not hang
@@ -213,17 +209,20 @@ def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
 
 def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_path):
     """Unsupervised/headless with coordinates burns them directly."""
-    import fibsem.imaging.spot as spot_mod
+    import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
 
     calls = []
-    monkeypatch.setattr(spot_mod, "run_spot_burn", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(sb_mod, "run_spot_burn", lambda **kw: calls.append(kw))
 
     coords = [Point(0.5, 0.5), Point(0.6, 0.6)]
     task = _make_headless_spot_burn_task(coords, tmp_path)
     task.update_spot_burn_parameters_ui()
 
     assert len(calls) == 1
-    assert calls[0]["coordinates"] == coords
+    settings = calls[0]["settings"]
+    assert settings.coordinates == coords
+    assert settings.milling_current == task.config.milling_current
+    assert settings.exposure_time == task.config.exposure_time
 
 
 # --- SpotBurnFiducialTask supervised loop ---------------------------------------

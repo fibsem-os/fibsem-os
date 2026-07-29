@@ -224,10 +224,21 @@ class FibsemMillingTask:
         )
 
     def _configure_path(self) -> None:
-        """Configure the acquisition path for the milling task."""
+        """Configure the acquisition path for the milling task.
+
+        Everything the task saves hangs off this path: the alignment reference image,
+        the drift-correction run, and the per-stage images. The path is unset by
+        default — a config built from stages, or loaded from a protocol that doesn't
+        name one, carries ``None`` — so fall back to the cross-correlation data
+        directory, as every other acquisition in this path already does. Stringifying
+        the ``None`` instead put the whole task under a directory literally named
+        "None", beside the current working directory.
+        """
         path = self.config.acquisition.imaging.path
+        if path is None:
+            path = fcfg.DATA_CC_PATH
         self.config.acquisition.imaging.path = os.path.join(str(path), "Milling",
-                                                            self.name.replace(" ", "-"), 
+                                                            self.name.replace(" ", "-"),
                                                             )
 
     def run(self) -> None:

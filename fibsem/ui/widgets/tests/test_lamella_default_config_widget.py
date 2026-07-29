@@ -23,6 +23,10 @@ from fibsem.applications.autolamella.structures import LamellaDefaultConfig
 from fibsem.structures import FibsemRectangle, Point
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.lamella_default_config_widget import (
+    _POI_LIMIT_X_UM,
+    _POI_LIMIT_Y_UM,
+    _PREVIEW_H,
+    _PREVIEW_W,
     LamellaDefaultConfigWidget,
     _pixel_to_poi,
     _poi_to_pixel,
@@ -209,6 +213,57 @@ def test_legend_survives_image_change_and_clears():
     assert c._legend_artist is not None
     c.set_legend(None)  # explicit clear
     assert c._legend_artist is None and c._legend_entries is None
+
+
+# ── POI limits: every accepted value must be representable on the preview ──
+
+def test_poi_limits_match_the_preview_frame():
+    """The spinbox bounds are exactly half the frame, so no accepted value is clamped."""
+    w = _widget()
+    assert (w.poi_x.minimum(), w.poi_x.maximum()) == (-_POI_LIMIT_X_UM, _POI_LIMIT_X_UM)
+    assert (w.poi_y.minimum(), w.poi_y.maximum()) == (-_POI_LIMIT_Y_UM, _POI_LIMIT_Y_UM)
+    # x and y limits differ: the frame is 4:3, not square
+    assert _POI_LIMIT_X_UM != _POI_LIMIT_Y_UM
+
+
+def test_extreme_poi_still_lands_inside_the_image():
+    """_poi_to_pixel clamps; at the limits it must not have to, or the marker lies."""
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            poi = Point(x=sx * _POI_LIMIT_X_UM * 1e-6, y=sy * _POI_LIMIT_Y_UM * 1e-6)
+            px, py = _poi_to_pixel(poi)
+            assert 0 <= px <= _PREVIEW_W - 1 and 0 <= py <= _PREVIEW_H - 1
+            # round-trips within a pixel, i.e. it was not silently pulled to the edge
+            back = _pixel_to_poi(px, py)
+            assert abs(back.x - poi.x) < _POI_LIMIT_X_UM * 1e-6 / _PREVIEW_W * 2
+            assert abs(back.y - poi.y) < _POI_LIMIT_Y_UM * 1e-6 / _PREVIEW_H * 2
+
+
+def test_out_of_frame_poi_is_clamped_but_reported():
+    """A legacy protocol POI beyond the frame is clamped — and the user is told."""
+    w = _widget()
+    w.set_template(LamellaDefaultConfig(poi=Point(x=500e-6, y=-400e-6)))
+    assert not w.poi_clamped_lbl.isHidden()  # isVisible() is False while the parent is unshown
+    msg = w.poi_clamped_lbl.text()
+    assert "500.00" in msg and "-400.00" in msg  # the original values are named
+    t = w.get_template()
+    assert _close(t.poi.x, _POI_LIMIT_X_UM * 1e-6, tol=1e-12)
+    assert _close(t.poi.y, -_POI_LIMIT_Y_UM * 1e-6, tol=1e-12)
+
+
+def test_in_frame_poi_reports_nothing():
+    w = _widget()
+    w.set_template(LamellaDefaultConfig(poi=Point(x=5e-6, y=-3e-6)))
+    assert w.poi_clamped_lbl.isHidden()
+
+
+def test_clamp_warning_clears_when_a_valid_template_is_loaded():
+    """The warning must not persist across loads."""
+    w = _widget()
+    w.set_template(LamellaDefaultConfig(poi=Point(x=500e-6, y=0)))
+    assert not w.poi_clamped_lbl.isHidden()  # isVisible() is False while the parent is unshown
+    w.set_template(LamellaDefaultConfig(poi=Point(x=1e-6, y=0)))
+    assert w.poi_clamped_lbl.isHidden()
 
 
 def main() -> int:

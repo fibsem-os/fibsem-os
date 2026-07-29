@@ -283,6 +283,13 @@ class ReportingPreferences:
     contact_email: str = ""
     crash_reporting_enabled: bool = False
     sentry_dsn: str = ""
+    # Grouped with crash reporting because it is the same question: may the
+    # application make outbound network calls? Opt-in for the same reason —
+    # these run on instrument PCs, sometimes on institutional networks where an
+    # unannounced connection at startup is a compliance question and the
+    # operator would have no idea it was happening. Skipped entirely for source
+    # installs regardless of this setting (see fibsem.update_check.is_enabled).
+    update_check_enabled: bool = False
 
 @dataclass
 class UserPreferences:

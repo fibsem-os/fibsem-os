@@ -11,9 +11,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
-from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
@@ -24,6 +25,7 @@ from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWi
 from fibsem.utils import format_value
 
 DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
+HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
 def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
@@ -333,17 +335,34 @@ class FibsemSpotBurnWidget(QWidget):
         ``microscope.spot_burn_progress_signal``; completion is delivered on the GUI
         thread via the FunctionWorker's returned / errored signals, so a failure anywhere
         here — including the post-burn acquire — resets the UI via spot_burn_errored."""
-        settings.run(
-            microscope=self.microscope,
-            beam_type=BeamType.ION,
-            stop_event=self.stop_event,
-        )
+        run_spot_burn(microscope=self.microscope,
+                      settings=settings,
+                      beam_type=BeamType.ION,
+                      stop_event=self.stop_event)
         # acquire a post-burn fib image and push it to the view (off the GUI thread)
         image = self.microscope.acquire_image(beam_type=BeamType.ION)
         self.microscope.fib_acquisition_signal.emit(image)
 
     def spot_burn_finished(self, result) -> None:
-        """Called when the spot burn is finished."""
+        """Called when the spot burn completes successfully."""
+        self._restore_idle_state()
+        # hide the "Done" bar after a moment, so it doesn't linger for the rest of the
+        # session (mirrors the status bar). reset_if_finished leaves the widget alone if
+        # another burn has already started rendering progress in the meantime.
+        QTimer.singleShot(HIDE_PROGRESS_DELAY_MS, self.progress_widget.reset_if_finished)
+
+    def spot_burn_errored(self, error) -> None:
+        """Called when the spot burn fails.
+
+        The failed bar is deliberately left on screen (no auto-hide) so the failure is
+        still visible if the user was not watching when it happened.
+        """
+        logging.error(f"Spot burn failed: {error}")
+        self.microscope.spot_burn_progress_signal.emit({"finished": True, "error": True})
+        self._restore_idle_state()
+
+    def _restore_idle_state(self) -> None:
+        """Return the run button to its idle state after a burn ends (either way)."""
         self._is_burning = False
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
@@ -352,12 +371,6 @@ class FibsemSpotBurnWidget(QWidget):
         self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         # in workflow mode, hide the button again now the burn is done
         self._update_run_button_visibility()
-
-    def spot_burn_errored(self, error) -> None:
-        """Called when the spot burn fails."""
-        logging.error(f"Spot burn failed: {error}")
-        self.microscope.spot_burn_progress_signal.emit({"finished": True, "error": True})
-        self.spot_burn_finished(error)
 
     @ensure_main_thread
     def _update_progress_bar(self, ddict: dict) -> None:

@@ -32,6 +32,7 @@ from PyQt5.QtCore import Qt, QEventLoop, QObject, QTimer, pyqtSignal
 _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 from fibsem import acquire, utils
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
@@ -131,14 +132,14 @@ def test_spot_burn_worker_migrated():
     stub = _SpotStub(microscope)
 
     # The current widget builds the worker directly as ``FunctionWorker(self._run_spot_burn,
-    # settings)`` (see ``run_spot_burn_worker``); the burn itself is ``settings.run(...)``, so a
-    # fake no-op settings keeps this about the worker plumbing, not a real burn. Completion is
-    # delivered by the FunctionWorker's own returned/errored signals (no widget-owned signal).
-    class _FakeSettings:
-        def run(self, **kwargs):
-            return None
-
-    worker = FunctionWorker(FibsemSpotBurnWidget._run_spot_burn, stub, _FakeSettings())
+    # settings)`` (see ``run_spot_burn_worker``); the burn itself is
+    # ``run_spot_burn(microscope, settings)``. Real settings with no coordinates keep this
+    # about the worker plumbing rather than a real burn — run_spot_burn still restores the
+    # beam state and returns, so the actual call path is exercised. Completion is delivered
+    # by the FunctionWorker's own returned/errored signals (no widget-owned signal).
+    worker = FunctionWorker(
+        FibsemSpotBurnWidget._run_spot_burn, stub, SpotBurnSettings(coordinates=[])
+    )
     returned = []
     worker.returned.connect(lambda r: returned.append(r))
     err, off_main = _drive(worker)

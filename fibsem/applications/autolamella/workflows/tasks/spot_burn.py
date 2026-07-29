@@ -18,7 +18,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     clear_spot_burn_ui,
     update_spot_burn_parameters,
 )
-from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.structures import BeamType, Point
 
 
@@ -139,11 +139,10 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                 )
                 return
             # burn the stored coordinates directly (progress via the microscope signal)
-            self.config.to_settings().run(
-                microscope=self.microscope,
-                beam_type=BeamType.ION,
-                stop_event=self._stop_event,
-            )
+            run_spot_burn(microscope=self.microscope,
+                          settings=self.config.to_settings(),
+                          beam_type=BeamType.ION,
+                          stop_event=self._stop_event)
             return
 
         # supervised path: task-orchestrated run/wait/re-prompt loop (mirrors milling).

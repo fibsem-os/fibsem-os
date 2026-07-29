@@ -490,12 +490,38 @@ def _add_set_beam_parser(sub, conn) -> None:
     p.set_defaults(func=cmd_set_beam)
 
 
+class _VersionAction(argparse.Action):
+    """Print the version, revision and branch, then exit.
+
+    A custom action rather than ``action="version"`` so the git lookup happens
+    only when --version is actually passed, instead of on every CLI invocation.
+    It exits during parsing, before the required-subcommand check.
+    """
+
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from fibsem.versioning import get_branch, get_version_string
+
+        print(f"fibsemOS {get_version_string()}")
+        branch = get_branch()
+        if branch:
+            print(f"branch: {branch}")
+        parser.exit()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     conn = _build_connection_parser()
     root = argparse.ArgumentParser(
         prog="fibsem-cli",
         description="fibsemOS command-line interface for FIB/SEM microscope control",
         parents=[conn],
+    )
+    root.add_argument(
+        "--version",
+        action=_VersionAction,
+        help="Print the fibsemOS version and exit",
     )
     sub = root.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
     sub.required = True
