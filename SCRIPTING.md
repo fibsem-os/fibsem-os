@@ -223,11 +223,54 @@ def run(ctx):
 | Flag | What it does |
 |---|---|
 | `writes = True` | asks you to confirm before running, then calls `ctx.save()` afterwards |
+| `uses_microscope = True` | asks you to confirm, then runs the script on a background thread with `ctx.microscope` available |
 | `background = True` | **not implemented** — parsed, but the script still runs inline |
-| `uses_microscope = True` | **not implemented** — the script is refused rather than run |
 | `on_workflow_completed = True` | **not implemented** — nothing runs it automatically |
 
 Without `writes`, nothing your script changed is persisted — a read-only script cannot rewrite `experiment.yaml` by accident.
+
+## Microscope scripts
+
+`uses_microscope = True` gives you `ctx.microscope` and lets the script drive the hardware.
+
+**Nothing validates what you do.** There are no limits, no interlocks and no checks that the state you left the microscope in is sane. A script that drives the stage into the pole piece will do exactly that. This is the same access the application's own code has, with none of its guard rails — treat it accordingly, and test on a dummy or a sacrificial grid first.
+
+```python
+"""Acquire an ion image at every lamella position."""
+uses_microscope = True
+
+from fibsem.structures import BeamType, ImageSettings
+
+
+def run(ctx):
+    settings = ImageSettings(hfw=80e-6, beam_type=BeamType.ION, save=True)
+
+    for lamella in ctx.experiment.positions:
+        ctx.raise_if_cancelled()          # let Stop actually stop it
+        ctx.log(f"moving to {lamella.name}")
+        ctx.microscope.safe_absolute_stage_movement(lamella.state.stage_position)
+        settings.path, settings.filename = lamella.path, "script-survey"
+        ctx.microscope.acquire_image(settings)
+
+    return f"imaged {len(ctx.experiment.positions)} positions"
+```
+
+### How these differ from data scripts
+
+**They run on a background thread.** Hardware operations take seconds to minutes, and running one inline would freeze the window for the whole time, which is indistinguishable from a crash. The dialog's Run button becomes **Stop** while the script runs.
+
+**So do not touch `ctx.experiment` from one.** It holds evented containers whose change handlers write straight into widgets, and those must only be touched from the GUI thread. Reading is generally fine; mutating is not. Nothing stops you — this is a convention you have to keep.
+
+**Stop is cooperative, and it is your job.** A Python thread cannot be killed. Pressing Stop sets a flag; nothing happens until your script looks at it:
+
+```python
+ctx.raise_if_cancelled()   # raises, unwinding the script
+if ctx.cancelled: ...      # or check it yourself and return
+```
+
+A script that never checks runs to completion no matter how many times Stop is pressed. Call it between steps — after each move, between images.
+
+**One at a time, and never alongside a workflow.** A second script is refused while one is running, and starting a workflow is refused while a microscope script is running — otherwise two things end up commanding the stage at once.
 
 ### Editing and re-running
 
@@ -241,7 +284,7 @@ Scripts are re-read from disk on every run. Edit the file, click Run, and the ne
 
 **Scripts are unavailable with no experiment loaded, and while a workflow is running.** The menu says which. A workflow mutates lamella state from a worker thread, so a script reading mid-run would see a torn snapshot.
 
-**`ctx.microscope` exists, and you should not use it.** Scripts that declare `uses_microscope` are refused, because the guarantees they need — hardware exclusion, cancellation, restoring state afterwards — do not exist yet. Touching the microscope without declaring the flag gets you past the check, not past the missing guarantees.
+**`ctx.microscope` is there whether or not you declared the flag.** Reaching for it from a script that did not declare `uses_microscope` skips the confirmation, runs the hardware call on the GUI thread, and lets a workflow start underneath you. Declare the flag.
 
 ## Gotchas
 

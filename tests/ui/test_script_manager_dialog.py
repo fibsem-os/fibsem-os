@@ -1,5 +1,6 @@
 """The Scripts manager dialog, driven without an application around it (FIB-338)."""
 
+import time
 from pathlib import Path
 
 import pytest
@@ -19,9 +20,27 @@ def qapp():
 class FakeContext:
     def __init__(self):
         self.saved = False
+        self.stop_event = None  # the runner injects one for threaded scripts
 
     def save(self):
         self.saved = True
+
+    def raise_if_cancelled(self):
+        from fibsem.cancellation import raise_if_cancelled
+        raise_if_cancelled(self.stop_event)
+
+
+def _drain(qapp, predicate, timeout=5.0):
+    """Pump the Qt event loop until predicate() is true, or give up.
+
+    Threaded scripts report back through a queued signal, so nothing lands unless
+    the loop runs.
+    """
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    return predicate()
 
 
 def _write(directory: Path, name: str, body: str) -> Path:
@@ -139,13 +158,45 @@ def test_run_is_disabled_for_a_broken_script(qapp, tmp_path):
     assert not dialog.run_button.isEnabled()
 
 
-def test_run_is_disabled_for_a_microscope_script(qapp, tmp_path):
-    """The runner would refuse it (FIB-340); a button that only complains is worse
-    than one that is visibly unavailable."""
+def test_a_microscope_script_can_be_run_and_says_what_it_will_do(qapp, tmp_path):
     _write(tmp_path, "hw.py", "uses_microscope = True\ndef run(ctx):\n    pass\n")
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
-    assert not dialog.run_button.isEnabled()
+
+    assert dialog.run_button.isEnabled()
+    assert "Drives the microscope" in dialog.consequence_label.text()
+    # the warning has to be specific about what is missing, not just "careful"
+    assert "no limits, no interlocks" in dialog.consequence_label.toolTip()
+
+
+def test_run_becomes_stop_while_a_script_is_running(qapp, tmp_path):
+    """A microscope script runs for minutes. Without this the dialog looks idle
+    and the only way to stop it is to kill the app."""
+    _write(tmp_path, "slow.py",
+           "uses_microscope = True\n"
+           "def run(ctx):\n"
+           "    ctx.stop_event.wait(3)\n"
+           "    ctx.raise_if_cancelled()\n"
+           "    return 'ran to completion'\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.table.selectRow(0)
+
+    dialog.run_selected()
+    assert _drain(qapp, lambda: dialog.runner.is_running)
+    assert dialog.run_button.text() == "Stop script"
+    assert dialog.run_button.isEnabled()
+    # nothing that would start a second run or move the ground under this one
+    assert not dialog.table.isEnabled()
+    assert not dialog.change_folder_button.isEnabled()
+
+    dialog.run_selected()  # the same button, now Stop
+
+    # not `not is_running` -- the thread dies before its result is delivered, so
+    # that would pass while the dialog is still mid-teardown
+    assert _drain(qapp, lambda: "slow" in dialog.last_run)
+    assert dialog.run_button.text() == "Run script"
+    assert dialog.table.isEnabled()
+    assert "cancelled" in dialog.last_run["slow"]
 
 
 def test_run_is_disabled_and_explained_when_the_host_is_not_ready(qapp, tmp_path):

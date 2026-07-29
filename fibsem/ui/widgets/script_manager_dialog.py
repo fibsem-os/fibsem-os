@@ -34,8 +34,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.scripting import DiscoveredScript
-from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
+from fibsem.cancellation import OperationCancelledError
+from fibsem.scripting import DiscoveredScript, ScriptResult
+from fibsem.ui.stylesheets import (
+    PRIMARY_BUTTON_STYLESHEET,
+    STOP_WORKFLOW_BUTTON_STYLESHEET,
+)
 from fibsem.ui.utils import open_path_in_file_explorer
 from fibsem.ui.widgets.script_runner import ScriptRunner
 
@@ -450,8 +454,10 @@ class ScriptManagerDialog(QDialog):
             consequence, colour, explain = "● Cannot load", _ERROR, script.error
         elif script.uses_microscope:
             consequence, colour, explain = (
-                "● Needs the microscope", _WARN,
-                "Microscope scripts are not supported yet (FIB-340).",
+                "● Drives the microscope", _ERROR,
+                "This script controls the hardware directly. Nothing checks what it "
+                "does — no limits, no interlocks. It runs in the background, and Stop "
+                "only works if the script itself checks for it.",
             )
         elif script.writes:
             consequence, colour, explain = (
@@ -475,13 +481,9 @@ class ScriptManagerDialog(QDialog):
         consequence = f'<span style="color:{colour};">{consequence}</span>'
         self.consequence_label.setText(consequence)
 
-        # uses_microscope is disabled rather than offered-then-refused: the runner
-        # would reject it anyway (FIB-340), and a button that does nothing but
-        # complain is worse than one that is visibly unavailable.
-        self.run_button.setEnabled(
-            script.is_runnable and host_ready and not script.uses_microscope
-        )
+        self.run_button.setEnabled(script.is_runnable and host_ready)
         self.hint_label.setText(reason)
+        self._sync_run_button()
 
     def change_folder(self) -> None:
         """Point the dialog at a different folder for this session."""
@@ -519,14 +521,48 @@ class ScriptManagerDialog(QDialog):
         open_path_in_file_explorer(str(directory))
 
     def run_selected(self) -> None:
+        # while a script is running this button is Stop -- see _sync_run_button
+        if self.runner.is_running:
+            self.runner.stop()
+            return
+
         script = self.selected_script()
         if script is None or not script.is_runnable:
             return
-        # the runner owns the wait cursor -- it has to be set after its write
+
+        # the runner owns the wait cursor -- it has to be set after its
         # confirmation, not before
-        result = self.runner.run(script)
-        if result is not None:
-            outcome = "ok" if result.ok else "failed"
-            stamp = datetime.now().strftime(TIME_DISPLAY_AMPM_SHORT).lstrip('0').lower()
-            self.last_run[script.name] = f"{stamp} {outcome}"
+        self.runner.run(script, on_finished=lambda r, s=script: self._record_run(s, r))
+        # a microscope script is still running at this point -- the stamp and the
+        # refresh happen in _record_run, which the worker delivers on the GUI thread
+        self._sync_run_button()
+
+    def _record_run(self, script: DiscoveredScript, result: ScriptResult) -> None:
+        """Stamp the outcome once the script has actually finished."""
+        outcome = "cancelled" if isinstance(result.error, OperationCancelledError) else (
+            "ok" if result.ok else "failed"
+        )
+        stamp = datetime.now().strftime(TIME_DISPLAY_AMPM_SHORT).lstrip('0').lower()
+        self.last_run[script.name] = f"{stamp} {outcome}"
+        self._sync_run_button()
         self.refresh()
+
+    def _sync_run_button(self) -> None:
+        """Run, or Stop while a script is running.
+
+        One button rather than two: a Stop that is greyed out almost always is
+        noise, and the state it reports is the same state Run is reporting.
+        """
+        running = self.runner.is_running
+        self.run_button.setText("Stop script" if running else "Run script")
+        self.run_button.setStyleSheet(
+            STOP_WORKFLOW_BUTTON_STYLESHEET if running else PRIMARY_BUTTON_STYLESHEET
+        )
+        if running:
+            self.run_button.setEnabled(True)  # Stop must never be the disabled one
+        # everything that would start a second run, or move the ground under the
+        # one already going
+        for button in (self.new_script_button, self.change_folder_button,
+                       self.rescan_button):
+            button.setEnabled(not running)
+        self.table.setEnabled(not running)

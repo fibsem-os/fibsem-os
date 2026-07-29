@@ -4,6 +4,7 @@ The controller takes a folder, a context factory and a notifier, so it can be
 driven standalone -- which is the point of it not living in AutoLamellaMainUI.
 """
 
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QMenu  # noqa: E402
 
+from fibsem.cancellation import OperationCancelledError  # noqa: E402
 from fibsem.ui.widgets.script_menu import MANAGE_LABEL, ScriptMenuController  # noqa: E402
 
 
@@ -23,14 +25,40 @@ def qapp():
 
 
 class FakeContext:
-    """Stands in for whatever an application hands its scripts."""
+    """Stands in for whatever an application hands its scripts.
+
+    Same shape as the real ScriptContext, including the cancellation surface the
+    runner injects into for threaded scripts.
+    """
 
     def __init__(self):
         self.saved = False
         self.value = "from-context"
+        self.stop_event = None
 
     def save(self):
         self.saved = True
+
+    @property
+    def cancelled(self):
+        return self.stop_event is not None and self.stop_event.is_set()
+
+    def raise_if_cancelled(self):
+        from fibsem.cancellation import raise_if_cancelled
+        raise_if_cancelled(self.stop_event)
+
+
+def _drain(qapp, predicate, timeout=5.0):
+    """Pump the Qt event loop until predicate() is true, or give up.
+
+    Threaded scripts report back through a queued signal, so nothing is delivered
+    unless the loop runs.
+    """
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    return predicate()
 
 
 def _write(directory: Path, name: str, body: str) -> Path:
@@ -206,14 +234,117 @@ def test_a_failing_script_notifies_instead_of_raising(qapp, tmp_path):
     assert notes and notes[-1][0] == "error"
 
 
-def test_a_microscope_script_is_refused_until_the_strict_runner_exists(qapp, tmp_path):
-    """FIB-340 owns the worker thread, hardware lock and state restoration."""
-    _write(tmp_path, "hw.py", "uses_microscope = True\ndef run(ctx):\n    raise AssertionError\n")
-    notes = []
-    controller, _ = _controller(tmp_path, context=FakeContext(), notes=notes)
+def test_a_microscope_script_runs_off_the_gui_thread(qapp, tmp_path):
+    """Hardware operations take seconds to minutes. Inline they would freeze the
+    window for the whole run, which is indistinguishable from a crash."""
+    _write(tmp_path, "hw.py",
+           "import threading\n"
+           "uses_microscope = True\n"
+           "def run(ctx):\n"
+           "    return threading.current_thread() is threading.main_thread()\n")
+    done = []
+    controller, _ = _controller(tmp_path, context=FakeContext())
+
+    # returns None because it has not finished yet -- the result arrives by callback
+    assert controller.runner.run(controller.runner.discover()[0],
+                                 on_finished=done.append) is None
+    assert _drain(qapp, lambda: bool(done)), "the script never reported back"
+    assert done[0].value is False, "ran on the main thread"
+
+
+def test_a_microscope_script_is_confirmed_before_it_runs(qapp, tmp_path):
+    """It has already moved the hardware by the time it finishes."""
+    _write(tmp_path, "hw.py", "uses_microscope = True\ndef run(ctx):\n    pass\n")
+    asked = []
+    controller, _ = _controller(tmp_path, context=FakeContext())
+    controller.runner.confirm = lambda q, detail: asked.append(detail) or True
+
+    controller.runner.run(controller.runner.discover()[0])
+    _drain(qapp, lambda: not controller.runner.is_running)
+
+    assert asked and "drives the microscope" in asked[0]
+
+
+def test_declining_a_microscope_confirmation_does_not_start_a_thread(qapp, tmp_path):
+    _write(tmp_path, "hw.py",
+           "uses_microscope = True\ndef run(ctx):\n    raise AssertionError\n")
+    controller, _ = _controller(tmp_path, context=FakeContext(), confirm=False)
 
     assert controller.runner.run(controller.runner.discover()[0]) is None
-    assert notes and notes[-1][0] == "warning"
+    assert not controller.runner.is_running
+
+
+def test_a_script_that_both_writes_and_drives_says_both(qapp, tmp_path):
+    _write(tmp_path, "hw.py",
+           "uses_microscope = True\nwrites = True\ndef run(ctx):\n    pass\n")
+    asked = []
+    controller, _ = _controller(tmp_path, context=FakeContext())
+    controller.runner.confirm = lambda q, detail: asked.append(detail) or True
+
+    controller.runner.run(controller.runner.discover()[0])
+    _drain(qapp, lambda: not controller.runner.is_running)
+
+    assert "drives the microscope" in asked[0] and "modifies the experiment" in asked[0]
+
+
+def test_only_one_script_runs_at_a_time(qapp, tmp_path):
+    """Two threads commanding one microscope is the failure this prevents."""
+    _write(tmp_path, "slow.py",
+           "uses_microscope = True\n"
+           "def run(ctx):\n"
+           "    ctx.stop_event.wait(3)\n"
+           "    return 'done'\n")
+    notes = []
+    controller, _ = _controller(tmp_path, context=FakeContext(), notes=notes)
+    script = controller.runner.discover()[0]
+
+    controller.runner.run(script)
+    assert _drain(qapp, lambda: controller.runner.is_running)
+
+    assert controller.runner.run(script) is None
+    assert notes[-1] == ("warning", "A script is already running.")
+
+    controller.runner.stop()
+    assert _drain(qapp, lambda: not controller.runner.is_running)
+
+
+def test_stop_is_cooperative_and_reports_as_cancelled(qapp, tmp_path):
+    """A Python thread cannot be killed, so Stop only sets a flag -- the script
+    has to look at it."""
+    _write(tmp_path, "slow.py",
+           "uses_microscope = True\n"
+           "def run(ctx):\n"
+           "    ctx.stop_event.wait(3)\n"
+           "    ctx.raise_if_cancelled()\n"
+           "    return 'ran to completion'\n")
+    done, notes = [], []
+    controller, _ = _controller(tmp_path, context=FakeContext(), notes=notes)
+
+    controller.runner.run(controller.runner.discover()[0], on_finished=done.append)
+    assert _drain(qapp, lambda: controller.runner.is_running)
+    controller.runner.stop()
+
+    assert _drain(qapp, lambda: bool(done)), "the script never reported back"
+    assert isinstance(done[0].error, OperationCancelledError)
+    # a cancel is not a failure, and must not be reported as one
+    assert notes[-1] == ("warning", "slow cancelled.")
+
+
+def test_a_script_that_ignores_stop_still_finishes(qapp, tmp_path):
+    """Documented behaviour, not a bug: nothing can force it to stop."""
+    _write(tmp_path, "stubborn.py",
+           "uses_microscope = True\n"
+           "def run(ctx):\n"
+           "    ctx.stop_event.wait(0.05)\n"
+           "    return 'finished anyway'\n")
+    done = []
+    controller, _ = _controller(tmp_path, context=FakeContext())
+
+    controller.runner.run(controller.runner.discover()[0], on_finished=done.append)
+    controller.runner.stop()
+
+    assert _drain(qapp, lambda: bool(done))
+    assert done[0].ok and done[0].value == "finished anyway"
 
 
 def test_running_is_refused_when_the_host_has_no_context(qapp, tmp_path):

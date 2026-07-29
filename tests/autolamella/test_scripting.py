@@ -1,11 +1,13 @@
 """Tier 1 user scripts: discovery, flags, and the runner (FIB-338)."""
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
 from psygnal.containers import EventedDict
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.scripting import (
     DEFAULT_SCRIPTS_DIR,
     SCRIPTS_DIR_ENV_VAR,
@@ -188,3 +190,20 @@ def test_an_unrunnable_script_returns_an_error_result(tmp_path):
 def test_ctx_path_is_the_experiment_directory(tmp_path):
     exp = _experiment(tmp_path)
     assert ScriptContext(experiment=exp).path == Path(exp.path)
+
+
+def test_ctx_cancellation_is_inert_without_a_stop_event(tmp_path):
+    """A headless run has no one to press Stop, so the same script must still work."""
+    ctx = ScriptContext(experiment=_experiment(tmp_path))
+
+    assert ctx.cancelled is False
+    ctx.raise_if_cancelled()  # must not raise
+
+
+def test_ctx_raise_if_cancelled_aborts_once_the_event_is_set(tmp_path):
+    ctx = ScriptContext(experiment=_experiment(tmp_path), stop_event=threading.Event())
+    ctx.stop_event.set()
+
+    assert ctx.cancelled is True
+    with pytest.raises(OperationCancelledError):
+        ctx.raise_if_cancelled()

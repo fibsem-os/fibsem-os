@@ -94,11 +94,13 @@ class ScriptMenuController:
 
     def _build_action(self, script: DiscoveredScript, host_ready: bool) -> QAction:
         label = script.name
-        # writes only. on_workflow_completed is not connected to anything yet, and
-        # a menu has nowhere to say so -- an "auto" label here would read as a
-        # promise. The dialog carries the flag and the caveat together.
-        if script.writes:
-            label += "  (writes)"
+        # on_workflow_completed is deliberately absent: it is not connected to
+        # anything yet, and a menu has nowhere to say so, so an "auto" label here
+        # would read as a promise. The dialog carries the flag and the caveat.
+        flags = [name for name, on in (("microscope", script.uses_microscope),
+                                       ("writes", script.writes)) if on]
+        if flags:
+            label += f"  ({', '.join(flags)})"
 
         action = QAction(label, self.menu)
         action.setToolTip(script.description)

@@ -9,9 +9,12 @@ See SCRIPTING.md for the headless equivalent, and FIB-338 for the design.
 
 import logging
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, List, Optional
+
+from fibsem.cancellation import raise_if_cancelled
 
 from fibsem.scripting import (  # noqa: F401 - re-exported for callers
     DiscoveredScript,
@@ -63,6 +66,10 @@ class ScriptContext:
     experiment: "Experiment"
     log: Callable[[str], None] = logging.info
     microscope: Optional["FibsemMicroscope"] = None
+    # Set by the runner for scripts that run off the GUI thread. A script cannot be
+    # killed -- Python threads have no such thing -- so stopping one is cooperative:
+    # the runner sets this, and the script has to look at it.
+    stop_event: Optional[threading.Event] = None
 
     @property
     def path(self) -> Path:
@@ -72,3 +79,17 @@ class ScriptContext:
     def save(self) -> None:
         """Persist the experiment. Called by the runner only for ``writes`` scripts."""
         self.experiment.save()
+
+    @property
+    def cancelled(self) -> bool:
+        """Whether the user has asked this script to stop."""
+        return self.stop_event is not None and self.stop_event.is_set()
+
+    def raise_if_cancelled(self, msg: str = "Script cancelled by user.") -> None:
+        """Abort the script if the user pressed Stop.
+
+        Call between steps of a long run — after each move, between images. A
+        script that never calls it (or never checks :attr:`cancelled`) simply
+        runs to completion, and Stop does nothing.
+        """
+        raise_if_cancelled(self.stop_event, msg)
