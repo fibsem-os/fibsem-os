@@ -31,5 +31,12 @@ jobs:
         # UI deps (the [ui] extra) are intentionally not installed: the
         # napari/PyQt5 tests importorskip and are skipped on CI.
         python -m pip install ".[test]"
+    - name: Install the plugin entry point fixture
+      # A packaged plugin is the only way into two of the three extension
+      # points, so the entry point contract needs a plugin installed the way a
+      # user installs one. Without this step tests/test_plugin_entry_points.py
+      # skips, and a refactor could break every third-party plugin with no test
+      # failure. --no-deps because fibsem is already installed above.
+      run: python -m pip install --no-deps tests/fixtures/plugin
     - name: Test with pytest
       run: pytest tests/ -n auto --dist worksteal --timeout=300
