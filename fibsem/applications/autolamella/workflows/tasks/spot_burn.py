@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     clear_spot_burn_ui,
     update_spot_burn_parameters,
 )
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.structures import BeamType, Point
 
 
@@ -80,6 +81,21 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             coordinates=coordinates,
         )
 
+    def to_settings(self) -> SpotBurnSettings:
+        """The run payload (coordinates + current + exposure) for this task."""
+        return SpotBurnSettings(
+            coordinates=list(self.coordinates),
+            milling_current=self.milling_current,
+            exposure_time=float(self.exposure_time),
+        )
+
+    def apply_settings(self, settings: SpotBurnSettings) -> None:
+        """Apply a run payload back onto this task config (coordinates + current + exposure)."""
+        self.coordinates = list(settings.coordinates)
+        self.milling_current = settings.milling_current
+        self.exposure_time = settings.exposure_time
+
+
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
     config: SpotBurnFiducialTaskConfig
@@ -122,11 +138,9 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                     f"No spot burn coordinates set for {self.lamella.name}; skipping spot burn."
                 )
                 return
-            from fibsem.imaging.spot import run_spot_burn
+            # burn the stored coordinates directly (progress via the microscope signal)
             run_spot_burn(microscope=self.microscope,
-                          coordinates=self.config.coordinates,
-                          exposure_time=self.config.exposure_time,
-                          milling_current=self.config.milling_current,
+                          settings=self.config.to_settings(),
                           beam_type=BeamType.ION,
                           stop_event=self._stop_event)
             return
