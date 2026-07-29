@@ -19,9 +19,22 @@ from typing import Any, Callable, List, Optional, Tuple
 
 import pandas as pd
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (
+    QApplication,
+    QDialog,
+    QMessageBox,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from fibsem.scripting import DiscoveredScript, ScriptResult, discover_scripts, run_script
+from fibsem.ui.stylesheets import (
+    MESSAGE_BOX_STYLESHEET,
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
+)
 from fibsem.ui.utils import open_path_in_file_explorer
 
 # (context, reason). A context of None means "cannot run", and reason says why.
@@ -87,14 +100,31 @@ class ScriptRunner:
 
     def _default_confirm(self, question: str, detail: str) -> bool:
         """Yes/No box defaulting to Cancel, since this gates a destructive action."""
-        box = QMessageBox(self.parent)
+        # parented to whatever the user is actually looking at, so it centres over
+        # the manager dialog when the run came from there rather than over the
+        # main window behind it
+        box = QMessageBox(QApplication.activeWindow() or self.parent)
         box.setWindowTitle("Run script")
         box.setText(question)
         box.setInformativeText(detail)
         box.setIcon(QMessageBox.Warning)
+        box.setStyleSheet(MESSAGE_BOX_STYLESHEET)
         run = box.addButton("Run script", QMessageBox.AcceptRole)
         cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+        # same weighting as the dialog's own footer: Run primary, Cancel secondary
+        run.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         box.setDefaultButton(cancel)
+
+        # QMessageBox sizes itself from its own layout and ignores a stylesheet
+        # min-width, so the width has to come from the layout too. Without this it
+        # comes up at ~280px and wraps two short sentences over three lines.
+        layout = box.layout()
+        layout.addItem(
+            QSpacerItem(400, 0, QSizePolicy.Minimum, QSizePolicy.Fixed),
+            layout.rowCount(), 0, 1, layout.columnCount(),
+        )
+
         box.exec_()
         return box.clickedButton() is run
 

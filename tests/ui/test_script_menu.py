@@ -162,6 +162,18 @@ def test_declining_the_confirmation_does_not_run_or_save(qapp, tmp_path):
     assert not getattr(context, "ran", False)
 
 
+def test_the_real_confirmation_box_builds(qapp, tmp_path, monkeypatch):
+    """Every other test injects a stub for it, so the box itself is otherwise
+    never constructed and a mistake in it would only show up in the app."""
+    from PyQt5.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "exec_", lambda self: 0)
+    controller, _ = _controller(tmp_path, context=FakeContext())
+
+    # no button clicked -> not confirmed, which is the safe direction
+    assert controller.runner._default_confirm("Run 'x'?", "It writes.") is False
+
+
 def test_a_read_only_script_is_not_confirmed(qapp, tmp_path):
     """The common case must stay one click -- a prompt on every run gets clicked
     through without reading, which is worse than not having one."""

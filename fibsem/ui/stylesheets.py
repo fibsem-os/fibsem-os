@@ -582,6 +582,24 @@ SECONDARY_BUTTON_STYLESHEET = """
     }
 """
 
+MESSAGE_BOX_STYLESHEET = """
+    QMessageBox {
+        background-color: #262930;
+    }
+    QMessageBox QLabel {
+        color: #d6d6d6;
+        font-size: 12px;
+    }
+    QMessageBox QLabel#qt_msgbox_label {
+        color: #f0f1f2;
+        font-size: 13px;
+        font-weight: 500;
+    }
+"""
+# The #qt_msgbox_label id is Qt's own name for the headline label, so it is only
+# a lift on top of the rule above -- if a future Qt renames it the text stays
+# readable rather than disappearing.
+
 STATUS_BAR_STYLESHEET = """
                 QStatusBar {
                     background-color: #1e2027;
