@@ -128,18 +128,20 @@ class SpotBurnCoordinatesWidget(QWidget):
         cl.addSpacing(24)  # align with the per-row remove button
         outer.addWidget(col)
 
-        # rows
+        # rows — the only part that should absorb spare height. It used to be capped at
+        # 180px with no stretch, which scrolled a six-row window while the panel below it
+        # sat empty; a fiducial pattern is a dozen-plus points, so the cap bit immediately.
         self._list = QListWidget()
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._list.setMaximumHeight(180)
+        self._list.setMinimumHeight(120)  # still readable in a short host
         self._list.itemSelectionChanged.connect(self._on_row_selection_changed)
-        outer.addWidget(self._list)
+        outer.addWidget(self._list, 1)
 
         # footer summary + hint
         self.label_summary = QLabel()
         self.label_summary.setWordWrap(True)
         self.label_summary.setStyleSheet(f"color: {_MUTED}; padding: 4px 6px;")
-        outer.addWidget(self.label_summary)
+        outer.addWidget(self.label_summary, 0)
 
         self._rebuild_rows()
 

@@ -163,6 +163,50 @@ def test_deactivate_removes_the_overlay():
     assert SpotBurnCoordinatesWidget.OVERLAY_ID not in controller._scene.fib.overlays
 
 
+# ── layout: the list absorbs spare height, and survives a cramped host ──────
+
+def test_list_takes_the_spare_height():
+    """The list used to be capped at 180px with no stretch, so a dozen-point pattern
+    scrolled a six-row window while the panel below it sat empty."""
+    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+
+    w, _, _, _ = _host(settings=SpotBurnSettings(
+        coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]))
+    host = QWidget()
+    QVBoxLayout(host).addWidget(w, 1)
+    host.resize(360, 800)
+    host.show()
+    for _ in range(8):
+        _app.processEvents()
+    assert w._list.height() > 400, w._list.height()
+    # every row reachable without scrolling
+    visible = sum(
+        1 for i in range(w._list.count())
+        if w._list.visualItemRect(w._list.item(i)).bottom() <= w._list.viewport().height()
+    )
+    assert visible == w._list.count() == 11
+
+
+def test_cramped_host_keeps_the_summary_and_a_usable_list():
+    """The live spot-burn tab is short — the list must not eat the footer."""
+    from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+
+    w, _, _, _ = _host(settings=SpotBurnSettings(
+        coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]))
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    lay.addWidget(w, 1)
+    sibling = QPushButton("Run Spot Burn")
+    lay.addWidget(sibling, 0)
+    host.resize(360, 260)
+    host.show()
+    for _ in range(8):
+        _app.processEvents()
+    assert w._list.height() >= 100          # did not collapse
+    assert not w.label_summary.isHidden()   # footer survived
+    assert sibling.isVisible()              # and so did the host's own controls
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
