@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fibsem-test-plugin"
+version = "0.0.0"
+description = "Test fixture: a package declaring all three fibsem entry point groups"
+requires-python = ">=3.8"
+
+# The point of the fixture. These three group names are the plugin contract;
+# nothing in fibsem scans for near-misses, so a typo here would produce a
+# plugin that loads nowhere and reports nothing.
+#
+# One module per group, not one shared module: the three registries are built
+# at different points in fibsem's own import sequence, and a pattern module in
+# particular cannot reach fibsem.milling.base. See patterns.py.
+[project.entry-points."fibsem.patterns"]
+fixture_pattern = "fibsem_test_plugin.patterns:FixturePattern"
+# Claims a built-in's name on purpose; built-ins must still win.
+clashing_pattern = "fibsem_test_plugin.patterns:ClashingPattern"
+
+[project.entry-points."fibsem.strategies"]
+fixture_strategy = "fibsem_test_plugin.strategies:FixtureMillingStrategy"
+
+[project.entry-points."fibsem.tasks"]
+fixture_task = "fibsem_test_plugin.tasks:FixtureTask"
+
+[tool.setuptools]
+packages = ["fibsem_test_plugin"]
