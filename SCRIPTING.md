@@ -4,6 +4,8 @@ You can read and modify an AutoLamella experiment from a plain Python script. No
 
 This is the quickest way to do custom things with your data: export a summary, pull out timings, find the lamellae that failed, or bulk-edit something across a whole run.
 
+AutoLamella can also run scripts itself, against the experiment you already have open — see [Running scripts from the GUI](#running-scripts-from-the-gui).
+
 ## Loading an experiment
 
 Every experiment directory contains an `experiment.yaml`. Point `Experiment.load()` at it:
@@ -154,6 +156,92 @@ To clear a mark again, use `lamella.defect.clear()`.
 `exp.save()` rewrites `experiment.yaml` only, leaving `protocol.yaml` untouched. Pass `exp.save(save_protocol=True)` if you also want the protocol written out.
 
 **Back up the experiment directory before running anything that writes.** These scripts have no undo.
+
+## Running scripts from the GUI
+
+Everything above assumes you loaded the experiment yourself. AutoLamella can instead run a script against the experiment it already has open, from **Tools → Scripts**.
+
+Drop a `.py` file in:
+
+```
+~/.autolamella/scripts
+```
+
+Set `AUTOLAMELLA_SCRIPTS_DIR` to use a different folder. **Tools → Scripts → Manage scripts…** shows which folder it resolved to; **Open folder** there creates it if it does not exist yet, and **New script…** writes a working stub into it.
+
+### The contract
+
+One rule: a module-level `run(ctx)`.
+
+```python
+"""Export the experiment summary to CSV."""   # first line becomes the tooltip
+
+def run(ctx):
+    out = ctx.path / "summary.csv"
+    ctx.experiment.experiment_summary_dataframe().to_csv(out, index=False)
+    return out
+```
+
+That is all of it — no registration step, nothing to install, no restart. Files whose names start with `_` are skipped, so you can keep shared helpers in the same folder.
+
+`ctx` carries:
+
+| Attribute | Description |
+|---|---|
+| `ctx.experiment` | the experiment currently open in the GUI |
+| `ctx.path` | its directory — the default place to write output |
+| `ctx.log(message)` | writes to the log, tagged with your script's name |
+| `ctx.save()` | called for you; see `writes` below |
+
+### Showing your results
+
+**Return the output.** There is no console in the app — `print()` goes to a terminal you may not have, and a packaged Windows build has none at all. A script that prints its answer and returns nothing looks like it did nothing.
+
+What you return decides how it is shown:
+
+| Return | What happens |
+|---|---|
+| a `str` | shown as a toast |
+| a `DataFrame` | opened in a table |
+| a `Path` | toast, and the containing folder opens |
+| `None` | a "finished" toast |
+
+`ctx.log("...")` writes to the log file, tagged with the script name so the lines stay attributable afterwards. Plain `logging.info(...)` works too and goes to the same place, just untagged.
+
+### Flags
+
+A script declares what it needs with module-level names, so the declaration cannot drift from the code it governs:
+
+```python
+"""Mark every lamella that never reached polishing."""
+writes = True
+
+def run(ctx):
+    ...
+```
+
+| Flag | What it does |
+|---|---|
+| `writes = True` | asks you to confirm before running, then calls `ctx.save()` afterwards |
+| `background = True` | **not implemented** — parsed, but the script still runs inline |
+| `uses_microscope = True` | **not implemented** — the script is refused rather than run |
+| `on_workflow_completed = True` | **not implemented** — nothing runs it automatically |
+
+Without `writes`, nothing your script changed is persisted — a read-only script cannot rewrite `experiment.yaml` by accident.
+
+### Editing and re-running
+
+Scripts are re-read from disk on every run. Edit the file, click Run, and the new code runs; there is no reload button because there is nothing to reload.
+
+**Manage scripts…** also lists the files that failed to import, with the reason. A file with `def main(ctx)` instead of `def run(ctx)` shows up as an error row rather than quietly disappearing from the menu.
+
+### What to expect
+
+**The window freezes while a script runs.** Scripts run on the GUI thread, so a slow loop over thousands of images locks the interface until it finishes. Keep GUI scripts short and do the heavy work headlessly.
+
+**Scripts are unavailable with no experiment loaded, and while a workflow is running.** The menu says which. A workflow mutates lamella state from a worker thread, so a script reading mid-run would see a torn snapshot.
+
+**`ctx.microscope` exists, and you should not use it.** Scripts that declare `uses_microscope` are refused, because the guarantees they need — hardware exclusion, cancellation, restoring state afterwards — do not exist yet. Touching the microscope without declaring the flag gets you past the check, not past the missing guarantees.
 
 ## Gotchas
 
