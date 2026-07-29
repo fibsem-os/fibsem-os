@@ -36,29 +36,34 @@ _HINT_STYLE = (
 )
 
 # Tells the user the preview is editable — without it the overlays look decorative
-# and the spinboxes read as the only way in.
+# and the spinboxes read as the only way in. Says what to drag, not what colour it
+# is; the canvas legend already names the colours.
 _CANVAS_HINT = (
-    "Drag on the preview to edit:\n"
-    "• green box (and its corners) — alignment area\n"
-    "• magenta marker — point of interest\n"
+    "Drag the box, or its corners, to set the alignment area.\n"
+    "Drag the marker to set the point of interest.\n"
     "The values above stay in sync, both ways."
 )
 
 _EXAMPLE_PETNAME = "brave-tiger"
 
-_POI_RANGE_UM = 5000.0  # POI spinbox limit, ± micrometres
-
 _AA_SPIN_W = 120   # holds a bare "0.20"
-# Sized for the widest legal POI value, "-4888.88 µm" — sign, four digits and the
-# suffix. Sizing for a typical "-3.00 µm" instead clips silently at the extremes,
-# which is how the suffix used to render as "µn".
-_POI_SPIN_W = 170
+# Sized for the widest legal POI value, "-50.00 µm" — sign, digits and the suffix.
+# Sizing for a typical "-3.00 µm" instead clips silently at the extremes, which is
+# how the suffix used to render as "µn".
+_POI_SPIN_W = 150
 
 # ── Preview image settings ─────────────────────────────────────────────────────
 _PREVIEW_HFW = 100e-6               # 100 µm horizontal field width
 _PREVIEW_W, _PREVIEW_H = 384, 288
 _PIXEL_SIZE = _PREVIEW_HFW / _PREVIEW_W
 _PREVIEW_VFW = _PREVIEW_HFW * _PREVIEW_H / _PREVIEW_W  # vertical field width (metres)
+
+# POI spinbox limits = half the preview frame, so every value the spinboxes accept
+# lands inside the image. Previously ±5000 µm, 100x what a 100 µm frame can show:
+# _poi_to_pixel clamps anything past the edge, so the marker parked on the border
+# and displayed a position it did not have (500 µm and 5000 µm looked identical).
+_POI_LIMIT_X_UM = _PREVIEW_HFW / 2 * 1e6   # 50.00
+_POI_LIMIT_Y_UM = _PREVIEW_VFW / 2 * 1e6   # 37.50
 
 _COLOR_AA = "limegreen"            # alignment area rectangle
 _COLOR_POI = "magenta"             # point of interest marker
@@ -190,11 +195,11 @@ class LamellaDefaultConfigWidget(QWidget):
         left.addWidget(poi_lbl)
 
         # Wider than the alignment-area boxes: those hold a bare "0.20", these hold a
-        # signed value plus the µm suffix ("-3.00 µm"), which does not fit in 120px.
-        self.poi_x = ValueSpinBox(suffix="µm", minimum=-_POI_RANGE_UM, maximum=_POI_RANGE_UM,
+        # signed value plus the µm suffix ("-50.00 µm"), which does not fit in 120px.
+        self.poi_x = ValueSpinBox(suffix="µm", minimum=-_POI_LIMIT_X_UM, maximum=_POI_LIMIT_X_UM,
                                   decimals=2, step=0.1)
         self.poi_x.setFixedWidth(_POI_SPIN_W)
-        self.poi_y = ValueSpinBox(suffix="µm", minimum=-_POI_RANGE_UM, maximum=_POI_RANGE_UM,
+        self.poi_y = ValueSpinBox(suffix="µm", minimum=-_POI_LIMIT_Y_UM, maximum=_POI_LIMIT_Y_UM,
                                   decimals=2, step=0.1)
         self.poi_y.setFixedWidth(_POI_SPIN_W)
         self._poi_widgets = [self.poi_x, self.poi_y]
@@ -202,7 +207,9 @@ class LamellaDefaultConfigWidget(QWidget):
         _poi_tip = (
             "The point of interest is the initial target position within the image for\n"
             "the lamella workflow. It is defined as an offset from the image centre.\n"
-            "Units: micrometres (µm). Positive X is right, positive Y is up."
+            "Units: micrometres (µm). Positive X is right, positive Y is up.\n"
+            f"Limited to the {_PREVIEW_HFW * 1e6:.0f} µm preview frame "
+            f"(X ±{_POI_LIMIT_X_UM:.2f}, Y ±{_POI_LIMIT_Y_UM:.2f})."
         )
         self.poi_x.setToolTip(f"Horizontal offset from image centre.\n{_poi_tip}")
         self.poi_y.setToolTip(f"Vertical offset from image centre.\n{_poi_tip}")
@@ -214,6 +221,15 @@ class LamellaDefaultConfigWidget(QWidget):
         # spinbox has the µm suffix.
         left.addLayout(_row("X", self.poi_x))
         left.addLayout(_row("Y", self.poi_y))
+
+        # A protocol saved before the limits existed can carry a POI outside the frame.
+        # setValue() clamps silently, which would rewrite the stored value the moment
+        # the dialog opened — say so instead of quietly changing it.
+        self.poi_clamped_lbl = QLabel()
+        self.poi_clamped_lbl.setStyleSheet(_INVALID_STYLE)
+        self.poi_clamped_lbl.setWordWrap(True)
+        self.poi_clamped_lbl.setVisible(False)
+        left.addWidget(self.poi_clamped_lbl)
         left.addStretch()
 
         # pinned below the stretch so it sits at the foot of the panel, clear of the controls
@@ -302,6 +318,7 @@ class LamellaDefaultConfigWidget(QWidget):
         poi = template.poi if template.poi is not None else _DEFAULT_POI
         self.poi_x.setValue(poi.x * 1e6)
         self.poi_y.setValue(poi.y * 1e6)
+        self._report_poi_clamped(poi)
 
         for w in [self.use_petname_cb, *self._aa_widgets, *self._poi_widgets]:
             w.blockSignals(False)
@@ -340,6 +357,25 @@ class LamellaDefaultConfigWidget(QWidget):
     def _on_alignment_changed(self) -> None:
         self._validate_alignment_area()
         self._on_changed()
+
+    def _report_poi_clamped(self, poi: Point) -> None:
+        """Warn if *poi* fell outside the preview frame and was clamped on load.
+
+        The spinboxes bound the POI to the frame, so anything further in is silently
+        pulled to the edge by setValue. Left unsaid, opening the dialog and pressing
+        OK would rewrite a stored value the user never touched.
+        """
+        out = []
+        if abs(poi.x * 1e6) > _POI_LIMIT_X_UM:
+            out.append(f"X {poi.x * 1e6:.2f} → {self.poi_x.value():.2f} µm")
+        if abs(poi.y * 1e6) > _POI_LIMIT_Y_UM:
+            out.append(f"Y {poi.y * 1e6:.2f} → {self.poi_y.value():.2f} µm")
+        if out:
+            self.poi_clamped_lbl.setText(
+                f"Outside the {_PREVIEW_HFW * 1e6:.0f} µm preview frame, clamped: "
+                + ", ".join(out)
+            )
+        self.poi_clamped_lbl.setVisible(bool(out))
 
     def _validate_alignment_area(self) -> None:
         aa = FibsemRectangle(
