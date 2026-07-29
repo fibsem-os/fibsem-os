@@ -242,7 +242,7 @@ class FibsemMinimapWidget(QWidget):
             pass
         self.canvas._contrast.changed.connect(self._on_overview_contrast_changed)
 
-        # entity-grouped overlays (see docs/design/overview-minimap-cutover.md): each
+        # entity-grouped overlays (see docs/design/napari-deprecation.md): each
         # redraws on its own trigger. ReferenceFrame (static geometry) behind
         # CurrentPosition behind LamellaMarkers (the interactive one, on top).
         self._reference_overlay = MinimapShapesOverlay(zorder=4)
@@ -483,7 +483,7 @@ class FibsemMinimapWidget(QWidget):
         self._acquisition_finished.connect(self.tile_collection_finished)
 
         # Correlation, gridbar, and milling-pattern overlays are disabled pending a
-        # rework (see docs/design/minimap-correlation-gridbar-rework.md): the
+        # rework (FIB-355): the
         # composite / stretch-to-fit approach can't do properly aligned correlation.
         # Hide their controls; the underlying methods are no-op stubs.
         self.correlation_panel.setVisible(False)
@@ -720,8 +720,7 @@ class FibsemMinimapWidget(QWidget):
         return self._acquisition_worker is not None and self._acquisition_worker.is_alive()
 
     def toggle_gridbar_display(self):
-        """Disabled pending the correlation/gridbar rework
-        (see docs/design/minimap-correlation-gridbar-rework.md)."""
+        """Disabled pending the correlation/gridbar rework (FIB-355)."""
         return
 
     def update_gridbar_layer(self):
@@ -1211,13 +1210,12 @@ class FibsemMinimapWidget(QWidget):
 
     def _draw_milling_pattern_overlay(self):
         """Draw the selected task's milling pattern reprojected onto all saved positions.
-        Deferred (see docs/design/overview-minimap-cutover.md): re-add later by feeding
-        the reprojected stage list to a MillingPatternOverlay on the canvas."""
+        Deferred (FIB-356): re-add later by feeding the reprojected stage list to a
+        MillingPatternOverlay on the canvas."""
         return
 
     def add_correlation_image(self, image: FibsemImage, is_gridbar: bool = False):
-        """Disabled pending the correlation/gridbar rework
-        (see docs/design/minimap-correlation-gridbar-rework.md). The composite-based
+        """Disabled pending the correlation/gridbar rework (FIB-355). The composite-based
         approach was reverted: correlation needs a real, persisted alignment transform,
         not a stretch-to-fit composite."""
         return
