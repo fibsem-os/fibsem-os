@@ -522,6 +522,28 @@ class AutoLamellaTask(ABC):
             self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
 
+    def _retract_objective(self) -> None:
+        """Retract the FM objective if it is inserted.
+
+        Called at the end of tasks that insert the objective, so it is clear of the
+        stage before any subsequent move or tilt. The task manager also retracts at
+        the end of a run, but that is once for the whole queue -- without this the
+        objective stays inserted across every task in between.
+
+        Failures are logged, not raised: a task that has otherwise completed should
+        not be reported as failed because the retract did not take.
+        """
+        if self.microscope.fm is None:
+            return
+        try:
+            if self.microscope.fm.objective.state != "Inserted":
+                return
+            self.log_status_message("RETRACT_OBJECTIVE", "Retracting Objective...")
+            self.microscope.fm.objective.retract()
+        except Exception as e:
+            logging.warning(f"Failed to retract the objective after {self.task_name}: {e}",
+                            exc_info=True)
+
     def _move_to_milling_pose(self) -> None:
         """Move to the lamella milling pose."""
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
