@@ -46,6 +46,14 @@ _CANVAS_HINT = (
 
 _EXAMPLE_PETNAME = "brave-tiger"
 
+_POI_RANGE_UM = 5000.0  # POI spinbox limit, ± micrometres
+
+_AA_SPIN_W = 120   # holds a bare "0.20"
+# Sized for the widest legal POI value, "-4888.88 µm" — sign, four digits and the
+# suffix. Sizing for a typical "-3.00 µm" instead clips silently at the extremes,
+# which is how the suffix used to render as "µn".
+_POI_SPIN_W = 170
+
 # ── Preview image settings ─────────────────────────────────────────────────────
 _PREVIEW_HFW = 100e-6               # 100 µm horizontal field width
 _PREVIEW_W, _PREVIEW_H = 384, 288
@@ -151,13 +159,13 @@ class LamellaDefaultConfigWidget(QWidget):
         left.addWidget(aa_lbl)
 
         self.aa_left   = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_left.setFixedWidth(120)
+        self.aa_left.setFixedWidth(_AA_SPIN_W)
         self.aa_top    = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_top.setFixedWidth(120)
+        self.aa_top.setFixedWidth(_AA_SPIN_W)
         self.aa_width  = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_width.setFixedWidth(120)
+        self.aa_width.setFixedWidth(_AA_SPIN_W)
         self.aa_height = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_height.setFixedWidth(120)
+        self.aa_height.setFixedWidth(_AA_SPIN_W)
         self._aa_widgets = [self.aa_left, self.aa_top, self.aa_width, self.aa_height]
 
         _aa_tip = (
@@ -181,10 +189,14 @@ class LamellaDefaultConfigWidget(QWidget):
         poi_lbl.setStyleSheet(_SECTION_STYLE)
         left.addWidget(poi_lbl)
 
-        self.poi_x = ValueSpinBox(suffix="µm", minimum=-5000.0, maximum=5000.0, decimals=2, step=0.1)
-        self.poi_x.setFixedWidth(120)
-        self.poi_y = ValueSpinBox(suffix="µm", minimum=-5000.0, maximum=5000.0, decimals=2, step=0.1)
-        self.poi_y.setFixedWidth(120)
+        # Wider than the alignment-area boxes: those hold a bare "0.20", these hold a
+        # signed value plus the µm suffix ("-3.00 µm"), which does not fit in 120px.
+        self.poi_x = ValueSpinBox(suffix="µm", minimum=-_POI_RANGE_UM, maximum=_POI_RANGE_UM,
+                                  decimals=2, step=0.1)
+        self.poi_x.setFixedWidth(_POI_SPIN_W)
+        self.poi_y = ValueSpinBox(suffix="µm", minimum=-_POI_RANGE_UM, maximum=_POI_RANGE_UM,
+                                  decimals=2, step=0.1)
+        self.poi_y.setFixedWidth(_POI_SPIN_W)
         self._poi_widgets = [self.poi_x, self.poi_y]
 
         _poi_tip = (
@@ -195,7 +207,13 @@ class LamellaDefaultConfigWidget(QWidget):
         self.poi_x.setToolTip(f"Horizontal offset from image centre.\n{_poi_tip}")
         self.poi_y.setToolTip(f"Vertical offset from image centre.\n{_poi_tip}")
 
-        left.addLayout(_row("X (µm) / Y (µm)", self.poi_x, self.poi_y))
+        # One per row, unlike the paired alignment-area rows. Side by side, two boxes
+        # wide enough for "-4888.88 µm" would push the whole panel out and shrink the
+        # preview; stacked they fit inside the width the alignment rows already need,
+        # using vertical space the panel has spare. Labels carry no unit — each
+        # spinbox has the µm suffix.
+        left.addLayout(_row("X", self.poi_x))
+        left.addLayout(_row("Y", self.poi_y))
         left.addStretch()
 
         # pinned below the stretch so it sits at the foot of the panel, clear of the controls
