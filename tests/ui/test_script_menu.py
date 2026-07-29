@@ -40,13 +40,15 @@ def _write(directory: Path, name: str, body: str) -> Path:
     return path
 
 
-def _controller(tmp_path, context=None, reason="", notes=None):
+def _controller(tmp_path, context=None, reason="", notes=None, confirm=True):
     menu = QMenu()
     controller = ScriptMenuController(
         menu=menu,
         scripts_directory=lambda: tmp_path,
         context_factory=lambda: (context, reason),
         notify=lambda msg, level: (notes if notes is not None else []).append((level, msg)),
+        # the real one is a modal box; a stub keeps the tests from blocking on it
+        confirm=lambda question, detail: confirm,
     )
     return controller, menu
 
@@ -134,6 +136,40 @@ def test_writes_flag_triggers_the_context_save_hook(qapp, tmp_path):
     controller.runner.run(controller.runner.discover()[0])
 
     assert context.saved
+
+
+def test_a_writes_script_is_confirmed_before_it_runs(qapp, tmp_path):
+    """It saves the moment it finishes and there is no undo."""
+    _write(tmp_path, "w.py", "writes = True\ndef run(ctx):\n    pass\n")
+    asked = []
+    controller, _ = _controller(tmp_path, context=FakeContext())
+    controller.runner.confirm = lambda q, detail: asked.append((q, detail)) or True
+
+    controller.runner.run(controller.runner.discover()[0])
+
+    assert asked, "a writes script ran without asking"
+    question, detail = asked[0]
+    assert "w" in question and "no undo" in detail
+
+
+def test_declining_the_confirmation_does_not_run_or_save(qapp, tmp_path):
+    _write(tmp_path, "w.py", "writes = True\ndef run(ctx):\n    ctx.ran = True\n")
+    context = FakeContext()
+    controller, _ = _controller(tmp_path, context=context, confirm=False)
+
+    assert controller.runner.run(controller.runner.discover()[0]) is None
+    assert not context.saved
+    assert not getattr(context, "ran", False)
+
+
+def test_a_read_only_script_is_not_confirmed(qapp, tmp_path):
+    """The common case must stay one click -- a prompt on every run gets clicked
+    through without reading, which is worse than not having one."""
+    _write(tmp_path, "r.py", "def run(ctx):\n    pass\n")
+    controller, _ = _controller(tmp_path, context=FakeContext())
+    controller.runner.confirm = lambda q, detail: pytest.fail("asked to confirm a read")
+
+    assert controller.runner.run(controller.runner.discover()[0]).ok
 
 
 def test_without_the_flag_the_save_hook_is_not_called(qapp, tmp_path):

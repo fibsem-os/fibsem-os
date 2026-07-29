@@ -31,11 +31,13 @@ def _write(directory: Path, name: str, body: str) -> Path:
     return path
 
 
-def _dialog(tmp_path, context=None, reason="", notes=None):
+def _dialog(tmp_path, context=None, reason="", notes=None, confirm=True):
     runner = ScriptRunner(
         scripts_directory=lambda: tmp_path,
         context_factory=lambda: (context, reason),
         notify=lambda m, l: (notes if notes is not None else []).append((l, m)),
+        # the real one is a modal box; a stub keeps the tests from blocking on it
+        confirm=lambda question, detail: confirm,
     )
     return ScriptManagerDialog(runner=runner)
 
@@ -229,6 +231,19 @@ def test_selection_survives_running_a_script(qapp, tmp_path):
     assert dialog.selected_script().name == "b"
 
 
+def test_cancelling_a_writes_confirmation_leaves_no_last_run(qapp, tmp_path):
+    """A run that never happened must not read as one that did."""
+    _write(tmp_path, "w.py", "writes = True\ndef run(ctx):\n    pass\n")
+    context = FakeContext()
+    dialog = _dialog(tmp_path, context=context, confirm=False)
+
+    dialog.run_selected()
+
+    assert dialog.last_run == {}
+    assert _cell_text(dialog, 0, 2) == "—"
+    assert not context.saved
+
+
 def test_rebuilding_does_not_stack_cell_widgets(qapp, tmp_path):
     """setRowCount alone leaves the previous build's widgets parented to the
     viewport, so rows drew on top of each other."""
@@ -300,6 +315,53 @@ def test_the_folder_is_elided_but_kept_whole_in_the_tooltip(qapp, tmp_path):
     assert str(deep) == dialog.meta_label.toolTip()
 
 
+def test_a_long_description_elides_instead_of_clipping(qapp, tmp_path):
+    """It used to be cut off mid-glyph, which reads as a typo rather than as
+    text continuing past the edge."""
+    summary = "Archive the experiment folder and every image in it when a workflow finishes"
+    _write(tmp_path, "a.py", f'"""{summary}"""\ndef run(ctx):\n    pass\n')
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.resize(520, 400)  # narrow enough that this description cannot fit
+    dialog.grab()  # forces the paint pass that does the eliding
+
+    from PyQt5.QtWidgets import QLabel
+    shown = dialog.table.cellWidget(0, 0).findChildren(QLabel)[1].text()
+
+    assert shown.endswith("…") and shown != summary
+    assert summary in dialog.table.cellWidget(0, 0).toolTip()
+
+
+def test_the_auto_flag_says_it_is_not_connected(qapp, tmp_path):
+    """Nothing fires on_workflow_completed yet. An author who declared it has no
+    other way to find that out, and a chip alone would read as a promise."""
+    _write(tmp_path, "a.py", "on_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.table.selectRow(0)
+
+    assert "off" in _cell_text(dialog, 0, 1)
+    assert "not run automatically yet" in dialog.table.cellWidget(0, 1).toolTip()
+    assert "not run automatically yet" in dialog.consequence_label.toolTip()
+
+
+def test_the_menu_does_not_label_a_script_auto(qapp, tmp_path):
+    """A menu has nowhere to explain the caveat, so it leaves the flag out."""
+    from PyQt5.QtWidgets import QMenu
+
+    from fibsem.ui.widgets.script_menu import ScriptMenuController
+
+    _write(tmp_path, "a.py", "on_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    menu = QMenu()
+    controller = ScriptMenuController(
+        menu=menu,
+        scripts_directory=lambda: tmp_path,
+        context_factory=lambda: (FakeContext(), ""),
+        notify=lambda m, l: None,
+    )
+    controller.rebuild()
+
+    assert not any("auto" in a.text() for a in menu.actions())
+
+
 def test_every_chip_carries_a_dot(qapp, tmp_path):
     """Type and flag chips looked like different kinds of thing for no readable
     reason. Colour separates them; shape should not."""
@@ -310,7 +372,7 @@ def test_every_chip_carries_a_dot(qapp, tmp_path):
     from PyQt5.QtWidgets import QLabel
     chips = dialog.table.cellWidget(0, 1).findChildren(QLabel)
 
-    assert len(chips) == 3  # Data + writes + auto
+    assert len(chips) == 3  # Data + writes + auto (off)
     assert all("9679" in chip.text() for chip in chips)
 
 

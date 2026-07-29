@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 
 import pandas as pd
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QWidget
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from fibsem.scripting import DiscoveredScript, ScriptResult, discover_scripts, run_script
 from fibsem.ui.utils import open_path_in_file_explorer
@@ -27,6 +28,8 @@ from fibsem.ui.utils import open_path_in_file_explorer
 ContextFactory = Callable[[], Tuple[Optional[Any], str]]
 # (message, level) where level is info/success/warning/error
 Notifier = Callable[[str, str], None]
+# (question, detail) -> True to go ahead. Injectable so the gate can be driven in tests.
+Confirmer = Callable[[str, str], bool]
 
 
 class ScriptRunner:
@@ -38,12 +41,14 @@ class ScriptRunner:
         context_factory: ContextFactory,
         notify: Notifier,
         parent: Optional[QWidget] = None,
+        confirm: Optional[Confirmer] = None,
     ) -> None:
         self._scripts_directory = scripts_directory
         self._directory_override: Optional[Path] = None
         self.context_factory = context_factory
         self.notify = notify
         self.parent = parent
+        self.confirm = confirm or self._default_confirm
 
     def scripts_directory(self) -> Path:
         """Where to look for scripts — the host's folder, or a chosen override."""
@@ -80,6 +85,19 @@ class ScriptRunner:
 
     # --- running ---
 
+    def _default_confirm(self, question: str, detail: str) -> bool:
+        """Yes/No box defaulting to Cancel, since this gates a destructive action."""
+        box = QMessageBox(self.parent)
+        box.setWindowTitle("Run script")
+        box.setText(question)
+        box.setInformativeText(detail)
+        box.setIcon(QMessageBox.Warning)
+        run = box.addButton("Run script", QMessageBox.AcceptRole)
+        cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec_()
+        return box.clickedButton() is run
+
     def run(self, script: DiscoveredScript) -> Optional[ScriptResult]:
         """Run one script and render whatever it returned.
 
@@ -103,7 +121,24 @@ class ScriptRunner:
                 "Script %s declares background=True; running inline for now.", script.name
             )
 
-        result = run_script(script, context)
+        # Last gate before running: a writes script saves the moment it finishes and
+        # there is no undo, so the user gets one chance to back out. Read-only
+        # scripts -- the common case -- go straight through.
+        if script.writes and not self.confirm(
+            f"Run '{script.name}'?",
+            "It modifies the experiment and saves it when it finishes. There is no undo.",
+        ):
+            logging.info("Script %s cancelled at the write confirmation.", script.name)
+            return None
+
+        # Scripts run on the GUI thread, so a slow one freezes the window. The
+        # cursor is the only sign it is working. Set after the confirmation, or
+        # the modal box above would come up under a wait cursor.
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            result = run_script(script, context)
+        finally:
+            QApplication.restoreOverrideCursor()
 
         if not result.ok:
             self.notify(f"{script.name} failed: {result.error}", "error")

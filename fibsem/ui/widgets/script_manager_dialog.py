@@ -21,7 +21,6 @@ from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QDialog,
     QFileDialog,
     QInputDialog,
@@ -53,6 +52,12 @@ _WARN = "#e0a030"
 _ERROR = "#d04040"
 
 _COLUMNS = ["Script", "Type", "Last run"]
+
+# on_workflow_completed is parsed and shown, but nothing fires it: the workflow
+# hook runs on a worker thread, and these scripts touch evented experiment state
+# that must only be mutated from the GUI thread. Said plainly rather than left
+# implied -- an author who declared the flag has no other way to find out.
+AUTO_NOT_CONNECTED = "auto: declared, but scripts do not run automatically yet"
 
 _TEMPLATE = '''"""Describe what this script does — this line becomes its tooltip."""
 
@@ -98,6 +103,33 @@ QPushButton {{
 QPushButton:hover {{ background-color: {_ROW_ALT}; }}
 QPushButton:disabled {{ color: {_TEXT_MUTED}; }}
 """
+
+
+class _ElidedLabel(QLabel):
+    """A QLabel that elides rather than clipping mid-glyph.
+
+    The Script column stretches, so the width is not known when the row is built
+    and any one-off elide would be wrong at the next size. Re-eliding on resize
+    tracks it. The size policy is Ignored so the full text cannot drive the
+    column wider, which would defeat the point.
+    """
+
+    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(text, parent)
+        self._full_text = text
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        # At paint time the width is always the real one. Doing this on resize
+        # instead misses a label that is laid out at its final size and never
+        # resized, which then clips. Re-eliding from _full_text rather than from
+        # the displayed text keeps it stable: setText schedules one more paint,
+        # the second computes the same string, and it settles.
+        metrics = QFontMetrics(self.font())
+        elided = metrics.elidedText(self._full_text, Qt.ElideRight, self.width())
+        if elided != self.text():
+            self.setText(elided)  # QLabel draws it, so the stylesheet colour survives
+        super().paintEvent(event)
 
 
 def _script_type(script: DiscoveredScript) -> "tuple[str, str]":
@@ -257,19 +289,21 @@ class ScriptManagerDialog(QDialog):
         layout.setContentsMargins(12, 8, 10, 8)
         layout.setSpacing(2)
 
-        name = QLabel(script.name)
+        summary = script.description if script.is_runnable else script.error
+        name = _ElidedLabel(script.name)
         name.setStyleSheet(
             f"font-family: Menlo, monospace; font-size: 13px; background: transparent;"
             f"color: {_TEXT_STRONG if script.is_runnable else _TEXT_MUTED};"
         )
-        detail = QLabel(script.description if script.is_runnable else script.error)
+        detail = _ElidedLabel(summary)
         detail.setStyleSheet(
             f"font-size: 12px; background: transparent;"
             f"color: {_TEXT if script.is_runnable else _ERROR};"
         )
         layout.addWidget(name)
         layout.addWidget(detail)
-        widget.setToolTip(f"{script.path}\n{script.content_hash}")
+        # the summary is elided in the row, so the tooltip has to carry it in full
+        widget.setToolTip(f"{summary}\n\n{script.path}\n{script.content_hash}")
         return widget
 
     def _type_cell(self, script: DiscoveredScript) -> QWidget:
@@ -285,13 +319,15 @@ class ScriptManagerDialog(QDialog):
         if script.writes:
             layout.addWidget(self._chip("writes", _WARN))
         if script.on_workflow_completed:
-            layout.addWidget(self._chip("auto", _ACCENT))
+            # muted, and labelled off: the flag is recognised but nothing fires it
+            # yet, and a live-looking chip would promise a run that never happens
+            layout.addWidget(self._chip("auto (off)", _TEXT_MUTED))
         layout.addStretch()
         notes = [f"Type: {label}"]
         if script.writes:
             notes.append("writes: saves the experiment when finished")
         if script.on_workflow_completed:
-            notes.append("auto: also runs when a workflow finishes")
+            notes.append(AUTO_NOT_CONNECTED)
         widget.setToolTip("\n".join(notes))
         return widget
 
@@ -427,9 +463,9 @@ class ScriptManagerDialog(QDialog):
                 "● Read-only", _TEXT_MUTED, "This script does not change anything.",
             )
         if script.on_workflow_completed:
-            # already an "auto" chip on the row -- repeating it here is what
-            # pushed this line past the panel edge on a narrow dialog
-            explain += " It also runs automatically when a workflow finishes."
+            # already a chip on the row -- repeating it on screen is what pushed
+            # this line past the panel edge on a narrow dialog, so tooltip only
+            explain += f" {AUTO_NOT_CONNECTED}."
         self.consequence_label.setToolTip(explain)
         # Same trap as the chips: a rich-text QLabel under-reports sizeHint
         # against its rendered width, so the tail clips. Pin it from the metrics
@@ -486,11 +522,9 @@ class ScriptManagerDialog(QDialog):
         script = self.selected_script()
         if script is None or not script.is_runnable:
             return
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            result = self.runner.run(script)
-        finally:
-            QApplication.restoreOverrideCursor()
+        # the runner owns the wait cursor -- it has to be set after its write
+        # confirmation, not before
+        result = self.runner.run(script)
         if result is not None:
             outcome = "ok" if result.ok else "failed"
             stamp = datetime.now().strftime(TIME_DISPLAY_AMPM_SHORT).lstrip('0').lower()

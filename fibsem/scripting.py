@@ -18,10 +18,11 @@ drift from the code it governs:
     writes = True                 # the run mutates state the host should persist
     background = True             # safe to run off the GUI thread
     uses_microscope = True        # needs hardware, and whatever guarantees that implies
-    on_workflow_completed = True  # also runs automatically when a workflow finishes
+    on_workflow_completed = True  # host may also run it when a workflow finishes
 
 Only ``writes`` is acted on here, via the context's optional ``save()`` hook. The
-rest are parsed and exposed for the host to interpret.
+rest are parsed and exposed for the host to interpret — and no host acts on
+``on_workflow_completed`` yet, so declaring it currently does nothing.
 """
 
 import hashlib

@@ -15,7 +15,12 @@ from typing import Callable, Optional
 from PyQt5.QtWidgets import QAction, QMenu, QWidget
 
 from fibsem.scripting import DiscoveredScript
-from fibsem.ui.widgets.script_runner import ContextFactory, Notifier, ScriptRunner
+from fibsem.ui.widgets.script_runner import (
+    Confirmer,
+    ContextFactory,
+    Notifier,
+    ScriptRunner,
+)
 
 MANAGE_LABEL = "Manage scripts…"
 
@@ -34,6 +39,7 @@ class ScriptMenuController:
         context_factory: ContextFactory,
         notify: Notifier,
         parent: Optional[QWidget] = None,
+        confirm: Optional[Confirmer] = None,
     ) -> None:
         self.menu = menu
         self.parent = parent
@@ -42,6 +48,7 @@ class ScriptMenuController:
             context_factory=context_factory,
             notify=notify,
             parent=parent,
+            confirm=confirm,
         )
 
         self.menu.setToolTipsVisible(True)
@@ -87,10 +94,11 @@ class ScriptMenuController:
 
     def _build_action(self, script: DiscoveredScript, host_ready: bool) -> QAction:
         label = script.name
-        flags = [name for name, on in (("writes", script.writes),
-                                       ("auto", script.on_workflow_completed)) if on]
-        if flags:
-            label += f"  ({', '.join(flags)})"
+        # writes only. on_workflow_completed is not connected to anything yet, and
+        # a menu has nowhere to say so -- an "auto" label here would read as a
+        # promise. The dialog carries the flag and the caveat together.
+        if script.writes:
+            label += "  (writes)"
 
         action = QAction(label, self.menu)
         action.setToolTip(script.description)
