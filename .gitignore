@@ -88,3 +88,4 @@ fibsem/applications/sashimi/log/*
 fibsem/correlation/data/
 # Belt-and-braces: a path built from an unset (None) save path lands here
 None/
+publications/*

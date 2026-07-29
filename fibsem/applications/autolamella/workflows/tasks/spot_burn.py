@@ -43,6 +43,14 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             'scale': 1
         }
     )
+    autofocus: bool = field(
+        default=False,
+        metadata={
+            "help": "Run a FIB autofocus before acquiring the reference image, so the "
+                    "points are placed on (and burned into) a focused image",
+            "label": "Autofocus",
+        },
+    )
     coordinates: list[Point] = field(
         default_factory=list,
         metadata={"help": "Spot burn positions in normalised image coordinates (0-1)"},
@@ -58,6 +66,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         ddict["parameters"] = {
             "milling_current": self.milling_current,
             "exposure_time": self.exposure_time,
+            "autofocus": self.autofocus,
         }
         ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
         if self.reference_imaging is not None:
@@ -77,6 +86,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             # coerce numeric params: older protocols may have stored these as strings
             milling_current=float(params.get("milling_current", 60.0e-12)),
             exposure_time=int(float(params.get("exposure_time", 10))),
+            autofocus=bool(params.get("autofocus", False)),
             coordinates=coordinates,
         )
 
@@ -113,8 +123,15 @@ class SpotBurnFiducialTask(AutoLamellaTask):
 
         self.config.exposure_time = float(self.config.exposure_time)
 
+        # focus before the reference image, not after: the points are placed on that
+        # image, and the burn lands where they were placed. Same field of view, so the
+        # sweep is scored on the view the user actually works in.
+        field_of_view = self.config.reference_imaging.field_of_view1
+        if self.config.autofocus:
+            self._run_autofocus(BeamType.ION, hfw=field_of_view)
+
         # acquire images, set ui
-        self._acquire_reference_image(image_settings, field_of_view=self.config.reference_imaging.field_of_view1)
+        self._acquire_reference_image(image_settings, field_of_view=field_of_view)
 
         self.log_status_message("SPOT_BURN_FIDUCIAL", "Running Spot Burn...")
 

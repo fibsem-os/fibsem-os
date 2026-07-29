@@ -128,18 +128,20 @@ class SpotBurnCoordinatesWidget(QWidget):
         cl.addSpacing(24)  # align with the per-row remove button
         outer.addWidget(col)
 
-        # rows
+        # rows — the only part that should absorb spare height. It used to be capped at
+        # 180px with no stretch, which scrolled a six-row window while the panel below it
+        # sat empty; a fiducial pattern is a dozen-plus points, so the cap bit immediately.
         self._list = QListWidget()
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._list.setMaximumHeight(180)
+        self._list.setMinimumHeight(120)  # still readable in a short host
         self._list.itemSelectionChanged.connect(self._on_row_selection_changed)
-        outer.addWidget(self._list)
+        outer.addWidget(self._list, 1)
 
         # footer summary + hint
         self.label_summary = QLabel()
         self.label_summary.setWordWrap(True)
         self.label_summary.setStyleSheet(f"color: {_MUTED}; padding: 4px 6px;")
-        outer.addWidget(self.label_summary)
+        outer.addWidget(self.label_summary, 0)
 
         self._rebuild_rows()
 
@@ -166,6 +168,15 @@ class SpotBurnCoordinatesWidget(QWidget):
 
     def _rebuild_rows(self):
         self._updating = True
+        # QListWidget.clear() drops the items but leaves the setItemWidget row widgets
+        # parented to the viewport. This runs on every edit — including each drag-release
+        # on the canvas — so without an explicit delete they accumulate for the lifetime
+        # of the widget (measured: 24 row widgets for a single coordinate after 21 edits).
+        for i in range(self._list.count()):
+            row = self._list.itemWidget(self._list.item(i))
+            if row is not None:
+                row.setParent(None)
+                row.deleteLater()
         self._list.clear()
         for i, pt in enumerate(self._coordinates):
             row = _SpotBurnRow(i, pt)
@@ -200,7 +211,12 @@ class SpotBurnCoordinatesWidget(QWidget):
             color="white",
             selected_color="cyan",
             marker="o",
-            size=12,
+            # markersize, in points. Deliberately small: fiducial patterns put spots
+            # ~0.01 of the frame apart, and a larger marker merges the cluster into one
+            # blob at full-frame zoom. Picking is unaffected — PointOverlay hit-tests
+            # against a fixed screen-space radius, not the marker size — and the
+            # selected point still stands out at size * 1.4.
+            size=6,
             add_on_right_click=True,
             removable=True,
             modal=True,
@@ -290,8 +306,16 @@ class SpotBurnCoordinatesWidget(QWidget):
                 icon="mdi:record-circle-outline",
             )
         else:
-            self.controller.arm_overlay(self.beam, None)
-            self.controller.remove_overlay(self.beam, self.OVERLAY_ID)
+            # Deactivation runs on teardown too (hideEvent), and Qt gives no ordering
+            # guarantee between this widget and the controller. If the controller's C++
+            # object is already gone, touching it raises RuntimeError — there is nothing
+            # left to disarm, so treat it as already torn down. closeEvent guards its
+            # disconnects the same way.
+            try:
+                self.controller.arm_overlay(self.beam, None)
+                self.controller.remove_overlay(self.beam, self.OVERLAY_ID)
+            except RuntimeError:
+                pass
 
     def showEvent(self, event):
         super().showEvent(event)
