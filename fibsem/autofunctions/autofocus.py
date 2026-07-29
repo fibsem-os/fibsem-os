@@ -333,10 +333,16 @@ def run_auto_focus(
         beam_type: Which beam to focus.
         hfw: Horizontal field width for probe images (metres).
         settings: ``AutoFocusSettings``; defaults constructed if ``None``.
+        stop_event: Cancellation event, polled between passes and between working
+            distance steps. On cancel the starting working distance is restored and
+            ``OperationCancelledError`` is raised.
 
     Returns:
         ``AutoFocusResult`` with the best probe image, winning working
         distance, focus score, and full per-pass iteration history.
+
+    Raises:
+        OperationCancelledError: if ``stop_event`` is set during the sweep.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
     from fibsem.structures import BeamType, ImageSettings

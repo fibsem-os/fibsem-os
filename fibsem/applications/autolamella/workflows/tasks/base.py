@@ -388,8 +388,19 @@ class AutoLamellaTask(ABC):
                                         stop_event=self._stop_event,
                                         run_name=f"{self.lamella.name} - {self.task_name}")
 
-    def _run_autofocus(self, beam_type, hfw: float = None) -> None:
-        """Run the image-based autofocus sweep, saving diagnostics to the lamella path."""
+    def _run_autofocus(self, beam_type: BeamType, hfw: Optional[float] = None) -> None:
+        """Run the image-based autofocus sweep, saving diagnostics to the lamella path.
+
+        Args:
+            beam_type: which beam to focus.
+            hfw: field width for the probe images. Defaults to the task's configured
+                imaging hfw. Pass the field of view the task actually images at, so the
+                sweep is scored on the same view the task goes on to use.
+
+        A user Stop raises OperationCancelledError out of run_auto_focus (which restores
+        the starting working distance first); _is_cancellation treats that as a
+        cancellation rather than a task failure, so it is deliberately not caught here.
+        """
         from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
         settings = AutoFocusSettings(
             method="tenengrad",
@@ -399,12 +410,18 @@ class AutoLamellaTask(ABC):
             ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True)
+        # NOTE: config.imaging, not self.image_settings -- only two subclasses define
+        # that attribute, and only partway through their own _run().
+        # `is None` rather than `or`, so an explicit hfw=0 is not silently replaced.
+        if hfw is None:
+            hfw = self.config.imaging.hfw
         self.log_status_message("AUTOFOCUS", f"Running autofocus ({beam_type.name})...")
         result = run_auto_focus(
             self.microscope,
             beam_type=beam_type,
-            hfw=hfw or self.image_settings.hfw,
+            hfw=hfw,
             settings=settings,
+            stop_event=self._stop_event,
         )
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
