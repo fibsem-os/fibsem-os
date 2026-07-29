@@ -317,42 +317,15 @@ def open_text_input_dialog(
     )
     return text, okPressed
 
-def open_information_dialog(microscope: FibsemMicroscope, parent: Optional[QWidget] = None):
-    import fibsem
-    
-    fibsem_version = fibsem.__version__
-    from fibsem.structures import SystemInfo
-    if microscope is None:
-        msg = QMessageBox(parent)
-        msg.setWindowTitle("fibsemOS Information")
-        msg.setText(f"fibsemOS: {fibsem_version}\n\nNo microscope connected.")
-        msg.exec()
-        return
-    info: SystemInfo = microscope.system.info
+def open_information_dialog(
+    microscope: Optional[FibsemMicroscope] = None,
+    parent: Optional[QWidget] = None,
+    application: str = "fibsemOS",
+):
+    """Show the about dialog. Works with or without a connected microscope."""
+    from fibsem.ui.widgets.about_dialog import open_about_dialog
 
-    text = f"""
-    fibsemOS Information:
-    fibsemOS: {fibsem_version}
-    AutoLamella: {fibsem_version}
-
-    Microscope Information:
-    Name: {info.name}
-    Manufacturer: {info.manufacturer}
-    Model: {info.model}
-    Serial Number: {info.serial_number}
-    Firmware Version: {info.hardware_version}
-    Software Version: {info.software_version}
-    """
-
-    # create a qdialog box with information
-    msg = QtWidgets.QMessageBox(parent=parent)
-    msg.setIcon(QtWidgets.QMessageBox.Information)
-    msg.setWindowTitle("Information")
-    msg.setText(text)
-    msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
-
-    # exec
-    msg.exec_()
+    open_about_dialog(microscope=microscope, application=application, parent=parent)
 
 
 

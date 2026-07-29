@@ -807,13 +807,10 @@ class AutoLamellaUI(QMainWindow):
     #### PROTOCOL EDITOR
 
     def open_information_dialog(self) -> None:
-        if self.microscope is None:
-            notification_service.show_toast(
-                "Please connect to a microscope first... [No Microscope Connected]",
-                "warning",
-            )
-            return
-        fui.open_information_dialog(self.microscope, self)
+        # No connection guard: checking which version you are running is exactly
+        # what you want to do *before* connecting. The dialog drops the
+        # microscope section when there is nothing to report.
+        fui.open_information_dialog(self.microscope, self, application="AutoLamella")
 
     def _open_experiment_directory(self) -> None:
         """Open the experiment directory in the system file explorer."""
