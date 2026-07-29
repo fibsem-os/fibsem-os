@@ -12,7 +12,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QMenu  # noqa: E402
 
-from fibsem.ui.widgets.script_menu import ScriptMenuController  # noqa: E402
+from fibsem.ui.widgets.script_menu import MANAGE_LABEL, ScriptMenuController  # noqa: E402
 
 
 @pytest.fixture
@@ -71,16 +71,24 @@ def test_a_script_that_writes_is_labelled(qapp, tmp_path):
     assert any("writes" in a.text() for a in menu.actions())
 
 
-def test_a_broken_script_is_shown_disabled_with_the_reason(qapp, tmp_path):
-    """Omitting it would leave the author with nothing to diagnose."""
+def test_a_broken_script_is_summarised_and_points_at_the_manager(qapp, tmp_path):
+    """A menu has nowhere to put a failure reason, so it reports the count and
+    sends the user to the dialog. Omitting it entirely is what we are avoiding."""
     _write(tmp_path, "broken.py", "def main(ctx):\n    pass\n")
     controller, menu = _controller(tmp_path, context=FakeContext())
 
     controller.rebuild()
 
-    action = next(a for a in menu.actions() if a.text().startswith("broken"))
-    assert not action.isEnabled()
-    assert "run()" in action.toolTip()
+    labels = [a.text() for a in menu.actions()]
+    assert not any(t.startswith("broken") for t in labels)
+    assert any("failed to load" in t for t in labels)
+    assert any(t == MANAGE_LABEL for t in labels)
+
+
+def test_the_manager_entry_is_always_offered(qapp, tmp_path):
+    controller, menu = _controller(tmp_path, context=FakeContext())
+    controller.rebuild()
+    assert any(a.text() == MANAGE_LABEL for a in menu.actions())
 
 
 def test_entries_are_disabled_and_explained_when_the_host_is_not_ready(qapp, tmp_path):
@@ -113,7 +121,7 @@ def test_running_passes_the_context_through(qapp, tmp_path):
     context = FakeContext()
     controller, _ = _controller(tmp_path, context=context)
 
-    result = controller.run(controller.discover()[0])
+    result = controller.runner.run(controller.runner.discover()[0])
 
     assert result.ok and result.value == "from-context"
 
@@ -123,7 +131,7 @@ def test_writes_flag_triggers_the_context_save_hook(qapp, tmp_path):
     context = FakeContext()
     controller, _ = _controller(tmp_path, context=context)
 
-    controller.run(controller.discover()[0])
+    controller.runner.run(controller.runner.discover()[0])
 
     assert context.saved
 
@@ -133,7 +141,7 @@ def test_without_the_flag_the_save_hook_is_not_called(qapp, tmp_path):
     context = FakeContext()
     controller, _ = _controller(tmp_path, context=context)
 
-    controller.run(controller.discover()[0])
+    controller.runner.run(controller.runner.discover()[0])
 
     assert not context.saved
 
@@ -144,7 +152,7 @@ def test_a_failing_script_notifies_instead_of_raising(qapp, tmp_path):
     notes = []
     controller, _ = _controller(tmp_path, context=FakeContext(), notes=notes)
 
-    result = controller.run(controller.discover()[0])
+    result = controller.runner.run(controller.runner.discover()[0])
 
     assert not result.ok
     assert notes and notes[-1][0] == "error"
@@ -156,7 +164,7 @@ def test_a_microscope_script_is_refused_until_the_strict_runner_exists(qapp, tmp
     notes = []
     controller, _ = _controller(tmp_path, context=FakeContext(), notes=notes)
 
-    assert controller.run(controller.discover()[0]) is None
+    assert controller.runner.run(controller.runner.discover()[0]) is None
     assert notes and notes[-1][0] == "warning"
 
 
@@ -165,5 +173,5 @@ def test_running_is_refused_when_the_host_has_no_context(qapp, tmp_path):
     notes = []
     controller, _ = _controller(tmp_path, context=None, reason="Load an experiment", notes=notes)
 
-    assert controller.run(controller.discover()[0]) is None
+    assert controller.runner.run(controller.runner.discover()[0]) is None
     assert notes and notes[-1] == ("warning", "Load an experiment")
