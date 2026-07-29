@@ -252,6 +252,51 @@ def test_a_microscope_script_runs_off_the_gui_thread(qapp, tmp_path):
     assert done[0].value is False, "ran on the main thread"
 
 
+def test_the_microscope_is_withheld_without_the_flag(qapp, tmp_path):
+    """Otherwise a script could drive the stage while the dialog still labels it
+    'Data / Read-only' -- an active falsehood, worse than saying nothing."""
+    _write(tmp_path, "sneaky.py", "def run(ctx):\n    return ctx.microscope\n")
+    context = FakeContext()
+    context.microscope = object()
+    controller, _ = _controller(tmp_path, context=context)
+
+    result = controller.runner.run(controller.runner.discover()[0])
+
+    assert result.ok and result.value is None
+    # put back, so a host that reuses one context object is not left without it
+    assert context.microscope is not None
+
+
+def test_forgetting_the_flag_says_which_flag_to_add(qapp, tmp_path):
+    """The traceback names the line, but the toast is all most users see, and
+    "'NoneType' has no attribute acquire_image" does not say what to do."""
+    _write(tmp_path, "forgot.py", "def run(ctx):\n    return ctx.microscope.acquire()\n")
+    context = FakeContext()
+    context.microscope = object()
+    notes = []
+    controller, _ = _controller(tmp_path, context=context, notes=notes)
+
+    controller.runner.run(controller.runner.discover()[0])
+
+    level, message = notes[-1]
+    assert level == "error"
+    assert "uses_microscope = True" in message
+
+
+def test_a_declared_script_gets_the_real_microscope(qapp, tmp_path):
+    _write(tmp_path, "hw.py",
+           "uses_microscope = True\ndef run(ctx):\n    return ctx.microscope\n")
+    context = FakeContext()
+    context.microscope = microscope = object()
+    done = []
+    controller, _ = _controller(tmp_path, context=context)
+
+    controller.runner.run(controller.runner.discover()[0], on_finished=done.append)
+
+    assert _drain(qapp, lambda: bool(done))
+    assert done[0].value is microscope
+
+
 def test_a_microscope_script_is_confirmed_before_it_runs(qapp, tmp_path):
     """It has already moved the hardware by the time it finishes."""
     _write(tmp_path, "hw.py", "uses_microscope = True\ndef run(ctx):\n    pass\n")

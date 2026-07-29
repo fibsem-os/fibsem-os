@@ -199,6 +199,19 @@ class ScriptRunner:
             self._run_threaded(script, context, on_finished)
             return None
 
+        # The flag is the route to the hardware: without it, `microscope` is withheld.
+        # A script that quietly drove the stage would otherwise still be listed as
+        # "Data / Read-only" -- an active falsehood, and worse than saying nothing.
+        # Restored afterwards, so a host that reuses one context object is not left
+        # with the microscope permanently removed from it.
+        #
+        # Not a boundary. Scripts are arbitrary Python and can import their way to a
+        # handle regardless; this is for the author who did not know the flag existed,
+        # and the AttributeError it produces names the line and implies the fix.
+        withheld = getattr(context, "microscope", None)
+        if withheld is not None:
+            context.microscope = None
+
         # Inline, on the GUI thread, so a slow one freezes the window -- the cursor is
         # the only sign it is working. Set after the confirmation, or the modal box
         # above would come up under a wait cursor.
@@ -207,8 +220,18 @@ class ScriptRunner:
             result = run_script(script, context)
         finally:
             QApplication.restoreOverrideCursor()
+            if withheld is not None:
+                context.microscope = withheld
 
-        self._report(script, result)
+        # The traceback in the log names the offending line, but the toast is all
+        # most users see, and "'NoneType' has no attribute acquire_image" does not
+        # say what to do about it. Phrased as a conditional so it stays harmless on
+        # an AttributeError that had nothing to do with the microscope.
+        hint = ""
+        if withheld is not None and isinstance(result.error, AttributeError):
+            hint = " — if it needs the microscope, declare uses_microscope = True."
+
+        self._report(script, result, hint)
         if on_finished is not None:
             on_finished(result)
         return result
@@ -248,13 +271,15 @@ class ScriptRunner:
         self.notify(f"{script.name} started…", "info")
         worker.start()
 
-    def _report(self, script: DiscoveredScript, result: ScriptResult) -> None:
+    def _report(
+        self, script: DiscoveredScript, result: ScriptResult, hint: str = ""
+    ) -> None:
         """Surface the outcome of a finished run."""
         if isinstance(result.error, OperationCancelledError):
             self.notify(f"{script.name} cancelled.", "warning")
             return
         if not result.ok:
-            self.notify(f"{script.name} failed: {result.error}", "error")
+            self.notify(f"{script.name} failed: {result.error}{hint}", "error")
             return
         self.show_result(script, result.value)
 

@@ -192,6 +192,7 @@ That is all of it — no registration step, nothing to install, no restart. File
 | `ctx.path` | its directory — the default place to write output |
 | `ctx.log(message)` | writes to the log, tagged with your script's name |
 | `ctx.save()` | called for you; see `writes` below |
+| `ctx.microscope` | the microscope, or `None` unless you declared `uses_microscope` |
 
 ### Showing your results
 
@@ -284,7 +285,7 @@ Scripts are re-read from disk on every run. Edit the file, click Run, and the ne
 
 **Scripts are unavailable with no experiment loaded, and while a workflow is running.** The menu says which. A workflow mutates lamella state from a worker thread, so a script reading mid-run would see a torn snapshot.
 
-**`ctx.microscope` is there whether or not you declared the flag.** Reaching for it from a script that did not declare `uses_microscope` skips the confirmation, runs the hardware call on the GUI thread, and lets a workflow start underneath you. Declare the flag.
+**`ctx.microscope` is `None` unless you declared `uses_microscope`.** If you reach for it without the flag you get `AttributeError: 'NoneType' object has no attribute …` — add the flag rather than working around it. This is a guard against forgetting, not a sandbox: a script is arbitrary Python and can import its way to a microscope handle. Doing that skips the confirmation, runs the hardware call on the GUI thread, and lets a workflow start underneath you.
 
 ## Gotchas
 
