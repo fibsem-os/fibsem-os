@@ -84,6 +84,96 @@ def test_microscope_section_skipped_when_info_unavailable(qapp):
     assert "Microscope" not in [title for title, _ in dialog._sections]
 
 
+def _slot_text(dialog):
+    from PyQt5.QtWidgets import QLabel
+
+    return " ".join(
+        w.text() for w in dialog._update_slot.findChildren(QLabel) if w.text()
+    )
+
+
+def _slot_buttons(dialog):
+    from PyQt5.QtWidgets import QToolButton
+
+    return dialog._update_slot.findChildren(QToolButton)
+
+
+@pytest.fixture
+def wheel_install(monkeypatch):
+    monkeypatch.setattr("fibsem.ui.widgets.about_dialog.get_revision", lambda: None)
+    monkeypatch.setattr("fibsem.update_check.get_revision", lambda: None)
+
+
+def test_source_install_gets_no_update_slot_content(qapp, monkeypatch):
+    """A PyPI comparison is meaningless from a checkout, so offer nothing."""
+    monkeypatch.setattr("fibsem.update_check.get_revision", lambda: "v0.5.1-48-gabc")
+
+    dialog = AboutDialog(application="fibsemOS")
+
+    assert dialog._update_slot.layout().count() == 0
+
+
+def test_check_button_offered_when_no_result_yet(qapp, wheel_install, monkeypatch):
+    monkeypatch.setattr("fibsem.update_check.get_available_update", lambda: None)
+
+    dialog = AboutDialog(application="fibsemOS")
+
+    assert _slot_text(dialog) == ""
+    assert len(_slot_buttons(dialog)) == 1
+
+
+def test_background_result_shown_instead_of_the_button(qapp, wheel_install, monkeypatch):
+    monkeypatch.setattr("fibsem.update_check.get_available_update", lambda: "0.5.3")
+
+    dialog = AboutDialog(application="fibsemOS")
+
+    assert "0.5.3 available" in _slot_text(dialog)
+    assert _slot_buttons(dialog) == []
+
+
+@pytest.mark.parametrize(
+    "render, expected_text, keeps_button",
+    [
+        ("_render_up_to_date", "up to date", False),
+        ("_render_check_failed", "could not check", True),
+    ],
+)
+def test_manual_check_reports_every_outcome(
+    qapp, wheel_install, render, expected_text, keeps_button
+):
+    """Unlike the passive indicator, a check the user asked for always answers."""
+    dialog = AboutDialog(application="fibsemOS")
+
+    getattr(dialog, render)()
+
+    assert expected_text in _slot_text(dialog)
+    # A failed check keeps the button so a transient blip can be retried.
+    assert bool(_slot_buttons(dialog)) is keeps_button
+
+
+def test_result_after_close_is_ignored(qapp, wheel_install):
+    """PyQt5 qFatals on an exception escaping a slot, so this must not throw."""
+    from fibsem.update_check import UpdateStatus
+
+    dialog = AboutDialog(application="fibsemOS")
+    dialog.done(0)
+
+    dialog._on_update_check_returned(
+        UpdateStatus(current="0.5.1", latest="0.5.3", update_available=True)
+    )
+
+    assert dialog._closed is True
+
+
+def test_update_slot_never_stops_the_dialog_opening(qapp, monkeypatch):
+    def _boom():
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr("fibsem.update_check.is_supported", _boom)
+
+    AboutDialog(application="fibsemOS")  # must still construct
+
+
 def test_environment_section_is_present(qapp):
     dialog = AboutDialog(application="fibsemOS")
 
