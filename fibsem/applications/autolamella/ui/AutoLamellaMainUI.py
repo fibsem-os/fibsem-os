@@ -35,6 +35,7 @@ from superqt import ensure_main_thread
 from fibsem.ui.icon import fibsem_icon
 
 import fibsem
+from fibsem.versioning import get_version_string
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
@@ -141,7 +142,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"AutoLamella v{fibsem.__version__} ")
+        self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
         self.resize(1600, 1000)
 
         # Apply napari-style dark theme. Border state rules live here (on the parent)

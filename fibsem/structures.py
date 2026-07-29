@@ -17,6 +17,7 @@ from numpy.typing import NDArray
 from scipy.ndimage import median_filter, gaussian_filter
 
 import fibsem
+from fibsem.versioning import get_revision
 from fibsem.config import METADATA_VERSION, SUPPORTED_COORDINATE_SYSTEMS
 
 
@@ -1610,6 +1611,10 @@ class SystemInfo:
     fibsem_version: str = fibsem.__version__
     application: Optional[str] = None
     application_version: Optional[str] = None
+    # The commit actually running, when installed from a source checkout. None
+    # for a wheel install. default_factory, not a plain default, so the lookup
+    # happens on first use rather than at import of this module.
+    fibsem_revision: Optional[str] = field(default_factory=get_revision)
 
     def to_dict(self):
         return {
@@ -1623,6 +1628,7 @@ class SystemInfo:
             "fibsem_version": self.fibsem_version,
             "application": self.application,
             "application_version": self.application_version,
+            "fibsem_revision": self.fibsem_revision,
         }
 
     @staticmethod
@@ -1638,6 +1644,9 @@ class SystemInfo:
             fibsem_version=settings.get("fibsem_version", fibsem.__version__),
             application=settings.get("application", None),
             application_version=settings.get("application_version", None),
+            # `or`, not a .get() default: settings.get(k, get_revision()) would
+            # evaluate the lookup eagerly on every call.
+            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
         )
 
 @dataclass
@@ -1743,10 +1752,16 @@ class MicroscopeSettings:
 class FibsemExperiment:
     id: Optional[str] = None
     method: Optional[str] = None
-    date: float = datetime.timestamp(datetime.now())
+    # default_factory, not a plain default: a plain default is evaluated once at
+    # class definition, so every experiment recorded the interpreter's import
+    # time rather than its own creation time.
+    date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
     application: str = "fibsemOS"
     fibsem_version: str = fibsem.__version__
     application_version: Optional[str] = None
+    # The commit actually running, when installed from a source checkout. None
+    # for a wheel install.
+    fibsem_revision: Optional[str] = field(default_factory=get_revision)
 
     def to_dict(self) -> dict:
         """Converts to a dictionary."""
@@ -1757,6 +1772,7 @@ class FibsemExperiment:
             "application": self.application,
             "fibsem_version": self.fibsem_version,
             "application_version": self.application_version,
+            "fibsem_revision": self.fibsem_revision,
         }
 
     @staticmethod
@@ -1769,6 +1785,7 @@ class FibsemExperiment:
             application=settings.get("application", "fibsemOS"),
             fibsem_version=settings.get("fibsem_version", fibsem.__version__),
             application_version=settings.get("application_version", None),
+            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
         )
 
 
