@@ -116,6 +116,10 @@ For examples of core functionality please see:
 
 Additional example scripts and notebooks are available.
 
+### Working with experiment data
+
+To read or modify a saved AutoLamella experiment from a plain Python script — no microscope or GUI needed — see the [Scripting Guide](SCRIPTING.md).
+
 ## Contributing
 
 Contributions are welcome! Please open a pull request or issue.
