@@ -159,7 +159,9 @@ To clear a mark again, use `lamella.defect.clear()`.
 
 ## Running scripts from the GUI
 
-Everything above assumes you loaded the experiment yourself. AutoLamella can instead run a script against the experiment it already has open, from **Tools → Scripts**.
+Everything above assumes you loaded the experiment yourself. AutoLamella can instead run a script against the experiment it already has open, from **Tools → Scripts → Manage scripts…**.
+
+Everything happens in that dialog. The menu itself only opens it and the scripts folder — it deliberately does not run anything, because a menu item has no way to show you a script that is still going, and no way to stop it.
 
 Drop a `.py` file in:
 
@@ -240,6 +242,7 @@ Without `writes`, nothing your script changed is persisted — a read-only scrip
 """Acquire an ion image at every lamella position."""
 uses_microscope = True
 
+from fibsem import acquire
 from fibsem.structures import BeamType, ImageSettings
 
 
@@ -249,12 +252,14 @@ def run(ctx):
     for lamella in ctx.experiment.positions:
         ctx.raise_if_cancelled()          # let Stop actually stop it
         ctx.log(f"moving to {lamella.name}")
-        ctx.microscope.safe_absolute_stage_movement(lamella.state.stage_position)
+        ctx.microscope.safe_absolute_stage_movement(lamella.stage_position)
         settings.path, settings.filename = lamella.path, "script-survey"
-        ctx.microscope.acquire_image(settings)
+        acquire.acquire_image(ctx.microscope, settings)
 
     return f"imaged {len(ctx.experiment.positions)} positions"
 ```
+
+Use `fibsem.acquire.acquire_image(microscope, settings)`, not `microscope.acquire_image(settings)`. The method on the microscope is the raw grab and **ignores `save=True`** — the module-level function is the one that applies autocontrast, auto-gamma and writes the file.
 
 ### How these differ from data scripts
 
@@ -277,13 +282,13 @@ A script that never checks runs to completion no matter how many times Stop is p
 
 Scripts are re-read from disk on every run. Edit the file, click Run, and the new code runs; there is no reload button because there is nothing to reload.
 
-**Manage scripts…** also lists the files that failed to import, with the reason. A file with `def main(ctx)` instead of `def run(ctx)` shows up as an error row rather than quietly disappearing from the menu.
+The dialog also lists the files that failed to import, with the reason. A file with `def main(ctx)` instead of `def run(ctx)` shows up as an error row rather than quietly disappearing from the list.
 
 ### What to expect
 
 **The window freezes while a script runs.** Scripts run on the GUI thread, so a slow loop over thousands of images locks the interface until it finishes. Keep GUI scripts short and do the heavy work headlessly.
 
-**Scripts are unavailable with no experiment loaded, and while a workflow is running.** The menu says which. A workflow mutates lamella state from a worker thread, so a script reading mid-run would see a torn snapshot.
+**Scripts are unavailable with no experiment loaded, and while a workflow is running.** Run is greyed out and the dialog says which. A workflow mutates lamella state from a worker thread, so a script reading mid-run would see a torn snapshot.
 
 **`ctx.microscope` is `None` unless you declared `uses_microscope`.** If you reach for it without the flag you get `AttributeError: 'NoneType' object has no attribute …` — add the flag rather than working around it. This is a guard against forgetting, not a sandbox: a script is arbitrary Python and can import its way to a microscope handle. Doing that skips the confirmation, runs the hardware call on the GUI thread, and lets a workflow start underneath you.
 

@@ -1,12 +1,15 @@
-"""A reusable "Scripts" menu for running user scripts from a Qt application.
+"""A reusable "Scripts" menu for a Qt application.
 
-The menu is for running a known-good script in one click. Everything a menu
-cannot express — the folder path, per-script load errors, the ``writes`` warning,
-source and hash — lives in the manager dialog it opens. A failed script would
-otherwise simply be absent from the menu, which is the silent-omission failure
-this is meant to avoid.
+The menu is a way *in*, not a way to run. Running happens in the manager dialog
+only, because a script can now drive the microscope on a worker thread and the
+dialog is the only surface with a Stop button — a menu item that starts a
+ten-minute stage survey with no way to interrupt it is a trap.
 
-Knows nothing about experiments, microscopes or AutoLamella. See FIB-338.
+That also settles what the menu should list: nothing. Names alone cannot express
+the folder, a load error, or that a script writes or needs hardware, and the
+dialog shows all of it beside the button that starts it.
+
+Knows nothing about experiments, microscopes or AutoLamella. See FIB-338, FIB-340.
 """
 
 from pathlib import Path
@@ -14,7 +17,6 @@ from typing import Callable, Optional
 
 from PyQt5.QtWidgets import QAction, QMenu, QWidget
 
-from fibsem.scripting import DiscoveredScript
 from fibsem.ui.widgets.script_runner import (
     Confirmer,
     ContextFactory,
@@ -23,13 +25,14 @@ from fibsem.ui.widgets.script_runner import (
 )
 
 MANAGE_LABEL = "Manage scripts…"
+OPEN_FOLDER_LABEL = "Open scripts folder"
 
 
 class ScriptMenuController:
-    """Populates a QMenu with the scripts in a directory, and runs them.
+    """Puts the way into user scripts on an existing QMenu.
 
-    Attached to an existing menu rather than subclassing QMenu so a host can place
-    it wherever it likes in its own menu tree.
+    Attached to a menu rather than subclassing QMenu so a host can place it
+    wherever it likes in its own menu tree.
     """
 
     def __init__(
@@ -50,63 +53,26 @@ class ScriptMenuController:
             parent=parent,
             confirm=confirm,
         )
-
-        self.menu.setToolTipsVisible(True)
-        # Rebuilt on every open: scripts are not cached, so editing a file and
-        # running it again picks up the change with no reload step.
-        self.menu.aboutToShow.connect(self.rebuild)
+        self.build()
 
     # --- menu ---
 
-    def rebuild(self) -> None:
+    def build(self) -> None:
+        """Two fixed entries.
+
+        Built once, not on ``aboutToShow``: nothing here depends on what is in
+        the folder any more, so there is nothing to rebuild and no reason to
+        import every script each time the user opens the Tools menu.
+        """
         self.menu.clear()
-        scripts = self.runner.discover()
-        host_ready, reason = self.runner.availability()
-
-        runnable = [s for s in scripts if s.is_runnable]
-        failed = len(scripts) - len(runnable)
-
-        if not runnable:
-            self._add_disabled("No scripts found" if not scripts else "No runnable scripts")
-
-        for script in runnable:
-            self.menu.addAction(self._build_action(script, host_ready))
-
-        self.menu.addSeparator()
-        if reason:
-            self._add_disabled(reason)
-        if failed:
-            # named here, detail in the dialog -- a menu has nowhere to put a reason
-            self._add_disabled(f"{failed} script(s) failed to load — see {MANAGE_LABEL}")
 
         manage = QAction(MANAGE_LABEL, self.menu)
         manage.triggered.connect(self.open_manager)
         self.menu.addAction(manage)
 
-        open_folder = QAction("Open scripts folder", self.menu)
+        open_folder = QAction(OPEN_FOLDER_LABEL, self.menu)
         open_folder.triggered.connect(self.runner.open_folder)
         self.menu.addAction(open_folder)
-
-    def _add_disabled(self, text: str) -> None:
-        action = QAction(text, self.menu)
-        action.setEnabled(False)
-        self.menu.addAction(action)
-
-    def _build_action(self, script: DiscoveredScript, host_ready: bool) -> QAction:
-        label = script.name
-        # on_workflow_completed is deliberately absent: it is not connected to
-        # anything yet, and a menu has nowhere to say so, so an "auto" label here
-        # would read as a promise. The dialog carries the flag and the caveat.
-        flags = [name for name, on in (("microscope", script.uses_microscope),
-                                       ("writes", script.writes)) if on]
-        if flags:
-            label += f"  ({', '.join(flags)})"
-
-        action = QAction(label, self.menu)
-        action.setToolTip(script.description)
-        action.setEnabled(host_ready)
-        action.triggered.connect(lambda _checked=False, s=script: self.runner.run(s))
-        return action
 
     # --- manager ---
 

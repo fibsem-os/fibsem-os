@@ -394,25 +394,6 @@ def test_the_auto_flag_says_it_is_not_connected(qapp, tmp_path):
     assert "not run automatically yet" in dialog.consequence_label.toolTip()
 
 
-def test_the_menu_does_not_label_a_script_auto(qapp, tmp_path):
-    """A menu has nowhere to explain the caveat, so it leaves the flag out."""
-    from PyQt5.QtWidgets import QMenu
-
-    from fibsem.ui.widgets.script_menu import ScriptMenuController
-
-    _write(tmp_path, "a.py", "on_workflow_completed = True\ndef run(ctx):\n    pass\n")
-    menu = QMenu()
-    controller = ScriptMenuController(
-        menu=menu,
-        scripts_directory=lambda: tmp_path,
-        context_factory=lambda: (FakeContext(), ""),
-        notify=lambda m, l: None,
-    )
-    controller.rebuild()
-
-    assert not any("auto" in a.text() for a in menu.actions())
-
-
 def test_every_chip_carries_a_dot(qapp, tmp_path):
     """Type and flag chips looked like different kinds of thing for no readable
     reason. Colour separates them; shape should not."""
