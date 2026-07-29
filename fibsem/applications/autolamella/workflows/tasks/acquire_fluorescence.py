@@ -38,6 +38,9 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     orientation: Optional[str] = field(default=None,
                                        metadata={"help": "Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
                                                  "label": "Orientation"})
+    retract_objective: bool = field(default=True,
+                                    metadata={"help": "Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
+                                              "label": "Retract Objective"})
 
     def to_dict(self) -> dict:
         ddict = {}
@@ -46,6 +49,7 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
         ddict["autofocus_settings"] = self.autofocus_settings.to_dict()
         ddict["zparams"] = self.zparams.to_dict()
         ddict["orientation"] = self.orientation
+        ddict["retract_objective"] = self.retract_objective
         return ddict
 
     @classmethod
@@ -60,6 +64,7 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
             autofocus_settings=autofocus_settings,
             zparams=zparams,
             orientation=data.get("orientation", None),
+            retract_objective=data.get("retract_objective", True),
         )
 
 # TODO: implement time estimates...
@@ -113,6 +118,10 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         # refresh the recorded fluorescence pose (preserving the configured objective position)
         self._update_fluorescence_pose()
+
+        # retract the objective so it is clear of the stage for subsequent moves
+        if self.config.retract_objective:
+            self._retract_objective()
 
 
     def _run_autofocus(self) -> Optional[AutoFocusResult]:
