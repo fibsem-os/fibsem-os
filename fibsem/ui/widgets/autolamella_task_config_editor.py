@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
+from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui import stylesheets
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
     AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
@@ -29,10 +30,9 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.ui.widgets.autolamella_spot_burn_coordinates_widget import (
-    AutoLamellaSpotBurnCoordinatesWidget,
-)
 from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
+from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
+from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
 from fibsem.ui.widgets.custom_widgets import (
     TaskNameListWidget,
@@ -219,12 +219,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             parent=self
         )
 
-        # self.spot_burn_coordinates_widget = AutoLamellaSpotBurnCoordinatesWidget(
-        #     viewer=self.viewer,
-        #     config=None,
-        #     parent=self
-        # )
-
         # lamella, milling controls (Column 1)
         self.task_list_widget = TaskNameListWidget()
 
@@ -241,6 +235,15 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.pushButton_open_lamella_defaults.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_open_lamella_defaults.setToolTip("Edit the initial state applied to every new lamella created from this protocol.")
 
+        # only meaningful for a spot-burn task; shown/hidden in _on_selected_task_changed
+        self.pushButton_edit_spot_burn = QPushButton("Spot Burn Coordinates")
+        self.pushButton_edit_spot_burn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_edit_spot_burn.setToolTip(
+            "Place this task's default spot-burn coordinates on a reference frame, "
+            "instead of hand-editing them in the protocol file."
+        )
+        self.pushButton_edit_spot_burn.setVisible(False)
+
         self.label_warning = QLabel("")
         self.label_warning.setStyleSheet("color: orange;")
         self.label_warning.setVisible(False)
@@ -250,6 +253,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.button_layout.addWidget(self.pushButton_sync_to_lamella)
         self.button_layout.addWidget(self.pushButton_open_global_editor)
         self.button_layout.addWidget(self.pushButton_open_lamella_defaults)
+        self.button_layout.addWidget(self.pushButton_edit_spot_burn)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addWidget(self.task_list_widget, 0, 0, 1, 2)
@@ -275,7 +279,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col2_layout.addWidget(self.task_parameters_config_widget)
         col2_layout.addWidget(self.ref_image_params_widget)
         col2_layout.addWidget(self.fluorescence_acquisition_task_config_widget)
-        # col2_layout.addWidget(self.spot_burn_coordinates_widget)
         col2_layout.addStretch()
         col2_scroll = QScrollArea()
         col2_scroll.setWidgetResizable(True)
@@ -319,7 +322,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.task_parameters_config_widget.parameter_changed.connect(self._on_task_parameters_config_changed)
         self.ref_image_params_widget.settings_changed.connect(self._on_ref_image_settings_changed)
         self.fluorescence_acquisition_task_config_widget.settings_changed.connect(self._on_fluorescence_acquisition_settings_changed)
-        # self.spot_burn_coordinates_widget.settings_changed.connect(self._on_spot_burn_coordinates_changed)
+        self.pushButton_edit_spot_burn.clicked.connect(self._on_spot_burn_coordinates_clicked)
         self.pushButton_sync_to_lamella.clicked.connect(self._on_sync_to_lamella_clicked)
         self.pushButton_open_global_editor.clicked.connect(self._on_global_edit_clicked)
         self.pushButton_open_lamella_defaults.clicked.connect(self._on_lamella_defaults_clicked)
@@ -364,11 +367,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         self._set_protocol_dirty(False)
 
-        # special handling for spot burn fiducial task
-        # is_spot_burn_task = isinstance(task_config, SpotBurnFiducialTaskConfig)
-        # self.spot_burn_coordinates_widget.setVisible(is_spot_burn_task)
-        # if is_spot_burn_task:
-            # self.spot_burn_coordinates_widget.set_task_config(task_config)
+        # spot-burn coordinates live in their own dialog (they need a canvas to place
+        # points on, which this tab has no room for) — offer the button only for that task
+        self.pushButton_edit_spot_burn.setVisible(
+            isinstance(task_config, SpotBurnFiducialTaskConfig)
+        )
 
     def _on_milling_settings_changed(self, config: 'FibsemMillingTaskConfig'):
         """Callback when the milling task config is changed."""
@@ -415,12 +418,95 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # # Save the experiment
         self._save_experiment()
 
-    def _on_spot_burn_coordinates_changed(self, config: 'SpotBurnFiducialTaskConfig'):
-        """Callback when the spot burn coordinates are changed."""
-        selected_task_name = self.task_list_widget.selected_task
-        self.experiment.task_protocol.task_config[selected_task_name] = config
-        logging.info(f"Updated {selected_task_name} Spot Burn Coordinates")
-        self._save_experiment()
+    def _on_spot_burn_coordinates_clicked(self):
+        """Edit this task's default spot-burn coordinates on a reference frame.
+
+        A dialog rather than a column in this tab: placing points needs a canvas, and
+        this editor's third column is the milling viewer built with ``viewer=None``.
+        The widget brings its own canvas via a standalone ``MicroscopeViewController``,
+        so no microscope and no acquired image are involved.
+        """
+        task_name = self.task_list_widget.selected_task
+        config = self.experiment.task_protocol.task_config[task_name]
+        if not isinstance(config, SpotBurnFiducialTaskConfig):
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Spot Burn Coordinates — {task_name}")
+        dialog.setModal(True)
+
+        # The frame the coordinates are relative to. Coordinates are normalised 0-1 in x
+        # and y *independently*, so the aspect ratio has to match the real reference image
+        # or every point lands somewhere else — hence the task's own reference-imaging
+        # resolution rather than an arbitrary square. field_of_view1 gives the scalebar
+        # its scale. Deliberately flat, not noise: this is a coordinate frame, not a
+        # picture of anyone's sample.
+        ref = config.reference_imaging
+        resolution = tuple(ref.imaging.resolution)
+        image = FibsemImage.generate_blank_image(
+            resolution=resolution, hfw=ref.field_of_view1, random=False
+        )
+
+        # Kept on the dialog: the controller must outlive the coordinate widget, and
+        # LamellaEditorView must outlive the controller (it is the controller's widget).
+        dialog._view = LamellaEditorView()
+        dialog._controller = MicroscopeViewController(view=dialog._view)
+        dialog._controller.set_image(BeamType.ION, image)
+
+        coord_widget = SpotBurnCoordinatesWidget(
+            controller=dialog._controller,
+            beam=BeamType.ION,
+            settings=config.to_settings(),
+            parent=dialog,
+        )
+        coord_widget.set_image_shape(image.data.shape)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        body = QHBoxLayout()
+        body.setSpacing(8)
+        coord_widget.setMinimumWidth(360)
+        body.addWidget(coord_widget, 0)
+        body.addWidget(dialog._controller.widget, 1)
+        layout.addLayout(body)
+
+        hint = QLabel(
+            f"Coordinates are fractions of the reference image ({resolution[0]}×{resolution[1]} px, "
+            f"{ref.field_of_view1 * 1e6:.0f} µm wide): 0-1 across, 0-1 down, origin top-left. "
+            "Right-click the frame to add a point, drag to move, Delete to remove."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8a9099; font-size: 11px;")
+        layout.addWidget(hint)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        ok_btn = QPushButton("OK")
+        cancel_btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        ok_btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        for b in (cancel_btn, ok_btn):
+            b.setDefault(False)
+            b.setAutoDefault(False)
+        cancel_btn.clicked.connect(dialog.reject)
+        ok_btn.clicked.connect(dialog.accept)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        dialog.resize(1000, 560)
+        if dialog.exec_() == QDialog.Accepted:
+            # apply onto the stored config rather than replacing it, so the task's other
+            # fields (milling, reference imaging, autofocus) survive the edit
+            config.apply_settings(coord_widget.get_settings())
+            self._set_protocol_dirty(True)
+            logging.info(
+                f"Updated {task_name} spot burn coordinates "
+                f"({len(config.coordinates)} point(s))"
+            )
+            self._save_experiment()
 
     def _save_experiment(self):
         """Save the experiment if available."""
