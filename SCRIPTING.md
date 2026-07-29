@@ -184,7 +184,9 @@ def run(ctx):
     return out
 ```
 
-That is all of it — no registration step, nothing to install, no restart. Files whose names start with `_` are skipped, so you can keep shared helpers in the same folder.
+That is all of it — no registration step, nothing to install, no restart. Files whose names start with `_` are hidden from the list.
+
+You can import anything installed — the standard library, `numpy`, `pandas`, and all of `fibsem` itself. You **cannot** import another file from the scripts folder: the folder is not on `sys.path`, so `import _helpers` fails even with the file sitting right beside your script. To share code between scripts, put it in a small package of your own and `pip install -e` it.
 
 `ctx` carries:
 

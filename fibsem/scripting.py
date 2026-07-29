@@ -125,8 +125,9 @@ def discover_scripts(directory: Path) -> List[DiscoveredScript]:
     """Load every ``.py`` in ``directory``, sorted by filename.
 
     Returns failures alongside successes. A missing directory is not an error —
-    it just means no scripts yet. Files starting with ``_`` are skipped so users
-    can keep shared helpers beside their scripts.
+    it just means no scripts yet. Files starting with ``_`` are hidden from the
+    listing; note that they are *not* importable from a script, since the folder
+    is never on ``sys.path`` (FIB-386).
 
     Not cached: scripts are loaded fresh on every call, so editing a file and
     running it again picks up the change. A data script runs in milliseconds, so
