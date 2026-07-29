@@ -38,7 +38,7 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
         default=1800,
         metadata={
             "label": "Timeout",
-            "units": "s",
+            "unit": "s",
             "minimum": 30,
             "maximum": 9000,
             "tooltip": "Milling will timeout after this duration in seconds, without user intervention",
@@ -86,7 +86,7 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
         default=30.0,
         metadata={
             "label": "Warmup Duration",
-            "units": "s",
+            "unit": "s",
             "tooltip": "Seconds to ignore at start before tracking the peak",
         },
     )
