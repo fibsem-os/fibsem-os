@@ -385,6 +385,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
+        # Below the separator because it is the one entry here that acts on the
+        # install rather than on the experiment: read-only, and the thing you open
+        # when a Scripts entry above did not appear.
+        tools_menu.addSeparator()
+        self.action_show_plugins = QAction("Plugins...", self)
+        self.action_show_plugins.setToolTip(
+            "Show every registered pattern, strategy and task, and where it came from"
+        )
+        self.action_show_plugins.triggered.connect(self._on_show_plugins)
+        tools_menu.addAction(self.action_show_plugins)
+
         # add help menu
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
@@ -688,6 +699,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         open_bug_report_dialog(
             experiment=experiment, microscope=microscope, parent=self
         )
+
+    def _on_show_plugins(self):
+        """Open the read-only listing of registered extensions."""
+        from fibsem.ui.widgets.plugins_dialog import PluginsDialog
+
+        PluginsDialog(parent=self).exec_()
 
     def _on_toggle_minimap_widget(self, checked: bool):
         """Toggle the minimap plot dock widget visibility."""
