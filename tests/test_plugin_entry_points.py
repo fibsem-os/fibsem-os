@@ -35,11 +35,19 @@ def _fixture_installed() -> bool:
     are ``@cache``d, so the empty result is locked in for the rest of the
     process and every assertion below fails for the wrong reason. Asking the
     entry point metadata is both safer and a more direct test of the contract.
+
+    Guard on the version, not on ImportError: ``importlib.metadata`` exists
+    from 3.8, so a try/except import succeeds on 3.8/3.9 and then fails at the
+    call with ``entry_points() got an unexpected keyword argument 'group'`` --
+    the ``group=`` filter only arrived in 3.10. This is the same check the
+    plugin loaders themselves use.
     """
-    try:
-        from importlib.metadata import entry_points
-    except ImportError:  # Python < 3.10
+    import sys
+
+    if sys.version_info < (3, 10):
         from importlib_metadata import entry_points
+    else:
+        from importlib.metadata import entry_points
 
     return any(ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns"))
 
