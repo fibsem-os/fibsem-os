@@ -54,7 +54,8 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     Point,
 )
-from fibsem.ui import FibsemMovementWidget, stylesheets
+from fibsem.ui import stylesheets
+from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
 from fibsem.ui.qt.threading import FunctionWorker

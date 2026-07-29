@@ -28,17 +28,14 @@ from fibsem.structures import (
     MicroscopeSettings,
     Point,
 )
-from fibsem.ui import (
-    DETECTION_AVAILABLE,
-    FibsemCryoDepositionWidget,
-    FibsemImageSettingsWidget,
-    FibsemMinimapWidget,
-    FibsemMovementWidget,
-    FibsemSystemSetupWidget,
-    FibsemSpotBurnWidget,
-    MillingTaskViewerWidget,
-    stylesheets,
-)
+from fibsem.ui import DETECTION_AVAILABLE, stylesheets
+from fibsem.ui.FibsemCryoDepositionWidget import FibsemCryoDepositionWidget
+from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
+from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
+from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.fm.widgets import FMImageViewerWidget

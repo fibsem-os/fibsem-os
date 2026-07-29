@@ -40,7 +40,7 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
-from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,

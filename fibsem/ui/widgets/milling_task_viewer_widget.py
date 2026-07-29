@@ -29,7 +29,7 @@ from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidge
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 if TYPE_CHECKING:
-    from fibsem.ui import FibsemImageSettingsWidget
+    from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
 
 def _apply_diff_to_pattern(pattern, diff: Point) -> None:
