@@ -295,6 +295,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         reporting_menu.addAction(self.action_generate_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
+        # user scripts (FIB-338). The menu itself is application-agnostic; this
+        # supplies only the folder, the context, and how to notify.
+        from fibsem.applications.autolamella.scripting import get_scripts_directory
+        from fibsem.ui.widgets.script_menu import ScriptMenuController
+
+        self.scripts_menu = tools_menu.addMenu("Scripts")
+        if self.scripts_menu is None:
+            raise RuntimeError("Failed to create Scripts submenu in AutoLamella UI.")
+        self.script_menu_controller = ScriptMenuController(
+            menu=self.scripts_menu,
+            scripts_directory=get_scripts_directory,
+            context_factory=self._script_context,
+            notify=self.show_toast,
+            parent=self,
+        )
+
         # add help menu
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
@@ -505,6 +521,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_workflow_widget.workflow.enable_schedule_button(
                 self._preferences.features.scheduled_tasks
             )
+
+    #### USER SCRIPTS (FIB-338)
+
+    def _script_context(self):
+        """Build the context a script runs against, or explain why it cannot.
+
+        Returns (context, reason). A reason means the menu entries are disabled and
+        that string is shown instead.
+        """
+        from fibsem.applications.autolamella.scripting import ScriptContext
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None, "Load an experiment to run scripts"
+        if self.autolamella_ui.is_workflow_running:
+            # tasks mutate lamella state on a worker thread, so a script reading
+            # mid-workflow would get a torn snapshot.
+            return None, "Unavailable while a workflow is running"
+
+        return ScriptContext(
+            experiment=experiment,
+            log=logging.info,
+            microscope=self.autolamella_ui.microscope,
+        ), ""
 
     def show_toast(
         self,
