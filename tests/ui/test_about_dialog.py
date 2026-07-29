@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+
 from fibsem.ui.widgets.about_dialog import AboutDialog, mask_serial_number
 
 
