@@ -1,0 +1,386 @@
+"""Headless tests for the protocol-level spot-burn coordinate editor (FIB-380).
+
+Covers the widget itself (settings round-trip, list <-> overlay sync, teardown) and
+the config bridge the protocol editor's dialog relies on:
+
+    SpotBurnFiducialTaskConfig --to_settings()--> SpotBurnSettings --> widget
+    widget.get_settings() --> SpotBurnSettings --apply_settings()--> config
+
+Run directly (no display needed):
+    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_spot_burn_coordinates_widget.py
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt5.QtWidgets import QApplication
+
+from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
+)
+from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
+from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
+
+_app = QApplication.instance() or QApplication(sys.argv)
+
+_RESOLUTION = (1536, 1024)  # (x, y) — deliberately non-square, see the aspect test
+_HFW = 150e-6
+
+
+def _close(a, b, tol=1e-6):
+    return abs(a - b) < tol
+
+
+def _host(settings=None):
+    """A widget + its own controller/canvas, as the protocol-editor dialog builds it."""
+    view = LamellaEditorView()
+    controller = MicroscopeViewController(view=view)
+    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW, random=False)
+    controller.set_image(BeamType.ION, image)
+    w = SpotBurnCoordinatesWidget(controller=controller, beam=BeamType.ION, settings=settings)
+    w.set_image_shape(image.data.shape)
+    return w, controller, view, image
+
+
+# ── the config <-> settings bridge the dialog depends on ────────────────────
+
+def test_config_round_trips_through_settings():
+    cfg = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn Fiducial",
+        milling_current=80e-12,
+        exposure_time=7,
+        coordinates=[Point(0.16, 0.45), Point(0.15, 0.45)],
+    )
+    w, _, _, _ = _host(settings=cfg.to_settings())
+    cfg.apply_settings(w.get_settings())
+    assert [(p.x, p.y) for p in cfg.coordinates] == [(0.16, 0.45), (0.15, 0.45)]
+    assert cfg.milling_current == 80e-12 and cfg.exposure_time == 7.0
+
+
+def test_apply_settings_preserves_unrelated_task_fields():
+    """The dialog applies onto the stored config; milling/reference/autofocus must survive."""
+    cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial", autofocus=True)
+    ref_before = cfg.reference_imaging
+    cfg.apply_settings(SpotBurnSettings(coordinates=[Point(0.5, 0.5)]))
+    assert cfg.autofocus is True
+    assert cfg.reference_imaging is ref_before
+    assert cfg.task_type == "SPOT_BURN_FIDUCIAL"
+
+
+# ── coordinates are relative to the frame, and the frame is not square ──────
+
+def test_normalised_coordinates_survive_a_non_square_frame():
+    """x and y are normalised independently — a 3:2 frame must not skew them."""
+    pts = [Point(0.25, 0.75), Point(0.9, 0.1)]
+    w, _, _, image = _host(settings=SpotBurnSettings(coordinates=pts))
+    h, width = image.data.shape
+    assert (width, h) == _RESOLUTION  # generate_blank_image takes (x, y)
+    out = w.get_settings().coordinates
+    assert _close(out[0].x, 0.25) and _close(out[0].y, 0.75)
+    assert _close(out[1].x, 0.9) and _close(out[1].y, 0.1)
+
+
+def test_overlay_receives_pixel_positions_scaled_by_each_axis():
+    w, controller, _, image = _host(settings=SpotBurnSettings(coordinates=[Point(0.25, 0.75)]))
+    w.set_active(True)
+    _app.processEvents()
+    spec = controller._scene.fib.overlays[SpotBurnCoordinatesWidget.OVERLAY_ID]
+    h, width = image.data.shape
+    (px, py), = spec.points
+    assert _close(px, 0.25 * width) and _close(py, 0.75 * h)
+
+
+# ── list <-> canvas sync ────────────────────────────────────────────────────
+
+def test_canvas_edit_writes_back_to_settings_and_emits():
+    w, controller, _, image = _host(settings=SpotBurnSettings(coordinates=[Point(0.2, 0.2)]))
+    w.set_active(True)
+    seen = []
+    w.settings_changed.connect(seen.append)
+    h, width = image.data.shape
+    # simulate a drag + an add on the canvas
+    controller.overlay_edited.emit(
+        BeamType.ION, SpotBurnCoordinatesWidget.OVERLAY_ID,
+        [(0.4 * width, 0.6 * h), (0.8 * width, 0.1 * h)],
+    )
+    out = w.get_settings().coordinates
+    assert len(out) == 2
+    assert _close(out[0].x, 0.4) and _close(out[0].y, 0.6)
+    assert len(seen) == 1
+
+
+def test_rows_mirror_the_coordinates():
+    w, _, _, _ = _host(settings=SpotBurnSettings(
+        coordinates=[Point(0.16, 0.45), Point(0.15, 0.45), Point(0.17, 0.45)]))
+    assert w._list.count() == 3
+    w.set_settings(SpotBurnSettings(coordinates=[Point(0.5, 0.5)]))
+    assert w._list.count() == 1
+
+
+def test_rebuilding_rows_does_not_accumulate_widgets():
+    """_rebuild_rows runs on every edit (each canvas drag-release), so leaked row
+    widgets would grow without bound over a session."""
+    from fibsem.ui.widgets.spot_burn_coordinates_widget import _SpotBurnRow
+
+    w, _, _, _ = _host(settings=SpotBurnSettings(coordinates=[Point(0.1, 0.1)]))
+    for _ in range(20):
+        w.set_settings(SpotBurnSettings(coordinates=[Point(0.5, 0.5)]))
+    for _ in range(5):
+        _app.processEvents()
+    live = [r for r in w.findChildren(_SpotBurnRow)]
+    assert len(live) <= 2, f"{len(live)} row widgets alive for 1 coordinate"
+
+
+# ── teardown ────────────────────────────────────────────────────────────────
+
+def test_hide_after_controller_is_gone_does_not_raise():
+    """Qt gives no teardown ordering guarantee between the widget and the controller.
+
+    The dialog owns both, so on close the controller's C++ object can go first; the
+    widget's hideEvent then disarms an overlay on a dead object. Must be survivable.
+    """
+    import sip
+
+    w, controller, view, _ = _host(settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)]))
+    w.set_active(True)
+    sip.delete(controller)          # controller dies first
+    assert sip.isdeleted(controller)
+    w.set_active(False)             # what hideEvent does — must not raise
+
+
+def test_deactivate_removes_the_overlay():
+    w, controller, _, _ = _host(settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)]))
+    w.set_active(True)
+    _app.processEvents()
+    assert SpotBurnCoordinatesWidget.OVERLAY_ID in controller._scene.fib.overlays
+    w.set_active(False)
+    _app.processEvents()
+    assert SpotBurnCoordinatesWidget.OVERLAY_ID not in controller._scene.fib.overlays
+
+
+# ── layout: the list absorbs spare height, and survives a cramped host ──────
+
+def test_list_takes_the_spare_height():
+    """The list used to be capped at 180px with no stretch, so a dozen-point pattern
+    scrolled a six-row window while the panel below it sat empty."""
+    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+
+    w, _, _, _ = _host(settings=SpotBurnSettings(
+        coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]))
+    host = QWidget()
+    QVBoxLayout(host).addWidget(w, 1)
+    host.resize(360, 800)
+    host.show()
+    for _ in range(8):
+        _app.processEvents()
+    assert w._list.height() > 400, w._list.height()
+    # every row reachable without scrolling
+    visible = sum(
+        1 for i in range(w._list.count())
+        if w._list.visualItemRect(w._list.item(i)).bottom() <= w._list.viewport().height()
+    )
+    assert visible == w._list.count() == 11
+
+
+def test_cramped_host_keeps_the_summary_and_a_usable_list():
+    """The live spot-burn tab is short — the list must not eat the footer."""
+    from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+
+    w, _, _, _ = _host(settings=SpotBurnSettings(
+        coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]))
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    lay.addWidget(w, 1)
+    sibling = QPushButton("Run Spot Burn")
+    lay.addWidget(sibling, 0)
+    host.resize(360, 260)
+    host.show()
+    for _ in range(8):
+        _app.processEvents()
+    assert w._list.height() >= 100          # did not collapse
+    assert not w.label_summary.isHidden()   # footer survived
+    assert sibling.isVisible()              # and so did the host's own controls
+
+
+# ── the protocol-editor dialog that hosts the widget ────────────────────────
+
+def _editor_stub(config):
+    """The minimum of AutoLamellaProtocolTaskConfigEditor the dialog method touches."""
+    import types
+
+    from PyQt5.QtWidgets import QWidget
+
+    from fibsem.applications.autolamella.structures import LamellaDefaultConfig
+
+    host = QWidget()
+    host.task_list_widget = types.SimpleNamespace(selected_task="T")
+    host.experiment = types.SimpleNamespace(
+        task_protocol=types.SimpleNamespace(
+            task_config={"T": config}, lamella_defaults=LamellaDefaultConfig()
+        )
+    )
+    host.dirty, host.saved = [], []
+    host._set_protocol_dirty = lambda v: host.dirty.append(v)
+    host._save_experiment = lambda: host.saved.append(1)
+    return host
+
+
+def _open_dialog(host, on_exec=None):
+    from PyQt5.QtWidgets import QDialog
+
+    from fibsem.ui.widgets.autolamella_task_config_editor import (
+        AutoLamellaProtocolTaskConfigEditor,
+    )
+
+    original = QDialog.exec_
+    QDialog.exec_ = on_exec or (lambda self: QDialog.Rejected)
+    try:
+        AutoLamellaProtocolTaskConfigEditor._on_spot_burn_coordinates_clicked(host)
+    finally:
+        QDialog.exec_ = original
+
+
+def test_dialog_does_not_leak_a_canvas_per_open():
+    """QDialog(parent) is owned by the parent, so without an explicit delete every open
+    strands another controller + matplotlib canvas for the rest of the session."""
+    from PyQt5.QtCore import QCoreApplication, QEvent
+    from PyQt5.QtWidgets import QDialog
+
+    host = _editor_stub(SpotBurnFiducialTaskConfig(task_name="T",
+                                                   coordinates=[Point(0.2, 0.2)]))
+    for _ in range(5):
+        _open_dialog(host)
+    # deleteLater posts a DeferredDelete event; processEvents alone will not deliver it
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    for _ in range(4):
+        _app.processEvents()
+    assert host.findChildren(QDialog) == []
+    assert host.findChildren(SpotBurnCoordinatesWidget) == []
+
+
+def test_cancel_leaves_the_config_untouched():
+    cfg = SpotBurnFiducialTaskConfig(task_name="T",
+                                     coordinates=[Point(0.2, 0.2), Point(0.4, 0.4)])
+    before = [(p.x, p.y) for p in cfg.coordinates]
+    host = _editor_stub(cfg)
+
+    from PyQt5.QtWidgets import QDialog
+
+    def edit_then_cancel(dialog):
+        w = dialog.findChild(SpotBurnCoordinatesWidget)
+        w._coordinates = [Point(0.9, 0.9)]
+        w._rebuild_rows()
+        return QDialog.Rejected
+
+    _open_dialog(host, on_exec=edit_then_cancel)
+    assert [(p.x, p.y) for p in cfg.coordinates] == before
+    assert host.dirty == [] and host.saved == []  # nothing marked dirty, nothing written
+
+
+def test_dialog_survives_a_malformed_protocol():
+    """This feature exists because people hand-edit these files, so a null or zero
+    reference-imaging resolution is a real input, not a hypothetical."""
+    for mutate in (
+        lambda c: setattr(c.reference_imaging.imaging, "resolution", None),
+        lambda c: setattr(c.reference_imaging.imaging, "resolution", [0, 0]),
+        lambda c: setattr(c.reference_imaging.imaging, "resolution", "abc"),
+        lambda c: setattr(c.reference_imaging, "field_of_view1", 0.0),
+        lambda c: setattr(c.reference_imaging, "field_of_view1", None),
+    ):
+        cfg = SpotBurnFiducialTaskConfig(task_name="T", coordinates=[Point(0.2, 0.2)])
+        mutate(cfg)
+        _open_dialog(_editor_stub(cfg))  # must not raise
+
+
+def test_button_wiring_on_the_real_editor():
+    """The tests above drive the dialog against a stub, which cannot catch the button
+    being created in the wrong place or never connected. Build the real editor."""
+    import logging
+    import pathlib
+    import tempfile
+
+    from PyQt5.QtWidgets import QDialog, QWidget
+
+    from fibsem import utils
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTaskConfig
+    from fibsem.ui.widgets.autolamella_task_config_editor import (
+        AutoLamellaProtocolTaskConfigEditor,
+    )
+
+    logging.disable(logging.CRITICAL)
+    try:
+        microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+        exp = Experiment(path=pathlib.Path(tempfile.mkdtemp()), name="probe")
+        exp.task_protocol = AutoLamellaTaskProtocol()
+        exp.task_protocol.task_config = {
+            "Spot Burn Fiducial": SpotBurnFiducialTaskConfig(
+                task_name="Spot Burn Fiducial", coordinates=[Point(0.16, 0.45)]
+            ),
+            "Other Task": AutoLamellaTaskConfig(task_name="Other Task"),
+        }
+        parent = QWidget()
+        parent.experiment, parent.microscope = exp, microscope
+        editor = AutoLamellaProtocolTaskConfigEditor(parent=parent)
+        editor.show()
+        for _ in range(8):
+            _app.processEvents()
+
+        btn = editor.pushButton_edit_spot_burn
+        rows = editor.task_list_widget._list
+        for row, want_visible in ((0, True), (1, False), (0, True)):
+            rows.setCurrentRow(row)
+            for _ in range(3):
+                _app.processEvents()
+            assert (not btn.isHidden()) == want_visible, (
+                f"row {row} ({editor.task_list_widget.selected_task}): "
+                f"visible={not btn.isHidden()}, wanted {want_visible}"
+            )
+
+        # and the click reaches the dialog with this task's coordinates
+        seen = {}
+        original = QDialog.exec_
+
+        def fake_exec(dialog):
+            w = dialog.findChild(SpotBurnCoordinatesWidget)
+            seen["coords"] = len(w.get_settings().coordinates)
+            seen["title"] = dialog.windowTitle()
+            return QDialog.Rejected
+
+        QDialog.exec_ = fake_exec
+        try:
+            btn.click()
+            for _ in range(4):
+                _app.processEvents()
+        finally:
+            QDialog.exec_ = original
+        assert seen["coords"] == 1
+        assert "Spot Burn Fiducial" in seen["title"]
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+def main() -> int:
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"PASS {t.__name__}")
+        except AssertionError as e:
+            failed += 1
+            print(f"FAIL {t.__name__}: {e}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
