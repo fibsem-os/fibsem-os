@@ -1728,6 +1728,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             app.quit()
 
 
+def _start_update_check() -> None:
+    """Ask PyPI about newer releases on a worker thread, once, at startup.
+
+    Startup rather than on dialog open: the about dialog reads the cached result,
+    so it stays instant and offline-safe by construction, and the latency lands
+    where nothing is waiting on it. A no-op for source installs and when the user
+    has opted out, so the common developer case makes no network call at all.
+    """
+    from fibsem import update_check
+    from fibsem.ui.qt.threading import thread_worker
+
+    if not update_check.is_enabled():
+        return
+
+    @thread_worker
+    def _check() -> None:
+        update_check.refresh()
+
+    _check().start()
+
+
 def run_ui():
     """Run the AutoLamella embedded example."""
     import faulthandler
@@ -1757,6 +1778,7 @@ def run_ui():
     gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
     window = AutoLamellaSingleWindowUI()
     window.show()
+    _start_update_check()
     sys.exit(app.exec_())
 
 

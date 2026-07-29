@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple, Optional, Union
 
 import yaml
-from packaging import version
 from PIL import Image
 
 from fibsem import config as cfg
@@ -515,76 +514,3 @@ def _register_metadata(microscope: 'FibsemMicroscope',
     )
     microscope.user = user
     microscope.experiment = experiment
-
-
-def get_pypi_versions(package_name: str = "fibsem") -> List[str]:
-    """Get all available versions from PyPI for the specified package.
-    
-    Args:
-        package_name: Name of the package to check. Defaults to "fibsem".
-        
-    Returns:
-        List of available versions sorted by version number (latest first).
-        Returns empty list if unable to fetch versions.
-    """
-    try:
-        import requests
-        url = f'https://pypi.org/pypi/{package_name}/json'
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        versions = list(data['releases'].keys())
-        # Filter out pre-releases and dev versions for cleaner output
-        stable_versions = [v for v in versions if not any(pre in v.lower() for pre in ['a', 'b', 'rc', 'dev'])]
-        return sorted(stable_versions, key=version.parse, reverse=True)
-    except Exception as e:
-        logging.warning(f'Error fetching PyPI data for {package_name}: {e}')
-        return []
-
-
-def check_for_updates(package_name: str = "fibsem") -> dict:
-    """Check if a newer version of the package is available on PyPI.
-    
-    Args:
-        package_name: Name of the package to check. Defaults to "fibsem".
-        
-    Returns:
-        Dictionary containing:
-        - 'current_version': Currently installed version
-        - 'latest_version': Latest version on PyPI (None if unable to fetch)
-        - 'update_available': Boolean indicating if update is available
-        - 'status': Text description of the status
-    """
-    import fibsem
-    
-    result = {
-        'current_version': fibsem.__version__,
-        'latest_version': None,
-        'update_available': False,
-        'status': 'Unknown'
-    }
-    
-    # Get PyPI versions
-    pypi_versions = get_pypi_versions(package_name)
-    if pypi_versions:
-        result['latest_version'] = pypi_versions[0]
-    
-    # Compare versions
-    if result['latest_version']:
-        try:
-            current_ver = version.parse(result['current_version'])
-            latest_ver = version.parse(result['latest_version'])
-            
-            if current_ver < latest_ver:
-                result['update_available'] = True
-                result['status'] = f'Newer version available: {result["latest_version"]} (you have {result["current_version"]})'
-            elif current_ver == latest_ver:
-                result['status'] = f'You have the latest version: {result["current_version"]}'
-            else:
-                result['status'] = f'You have a newer version than PyPI: {result["current_version"]} > {result["latest_version"]}'
-        except Exception as e:
-            result['status'] = f'Error comparing versions: {e}'
-    else:
-        result['status'] = f'Could not fetch PyPI versions for {package_name}'
-    
-    return result
