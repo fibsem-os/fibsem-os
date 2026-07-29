@@ -43,6 +43,21 @@ from fibsem.ui.widgets.autolamella_task_config_widget import AutoLamellaTaskPara
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 
+# Frame used by the spot-burn coordinate dialog when the task's stored reference
+# imaging is unusable (missing/zero). Matches ImageSettings' own defaults.
+_FALLBACK_RESOLUTION = (1536, 1024)
+_FALLBACK_HFW = 150e-6
+
+
+def _valid_resolution(resolution) -> Tuple[int, int]:
+    """A usable (x, y) pixel resolution, falling back when the protocol's is not."""
+    try:
+        x, y = (int(v) for v in resolution)
+    except (TypeError, ValueError):
+        return _FALLBACK_RESOLUTION
+    return (x, y) if x > 0 and y > 0 else _FALLBACK_RESOLUTION
+
+
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
     from fibsem.applications.autolamella.structures import Experiment
@@ -441,10 +456,14 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # resolution rather than an arbitrary square. field_of_view1 gives the scalebar
         # its scale. Deliberately flat, not noise: this is a coordinate frame, not a
         # picture of anyone's sample.
+        # Fall back rather than crash on a malformed protocol: this feature exists
+        # because people hand-edit these files, so a null or zero resolution is a real
+        # input, and generate_blank_image would raise TypeError / ZeroDivisionError.
         ref = config.reference_imaging
-        resolution = tuple(ref.imaging.resolution)
+        resolution = _valid_resolution(getattr(ref.imaging, "resolution", None))
+        hfw = ref.field_of_view1 if (ref.field_of_view1 or 0) > 0 else _FALLBACK_HFW
         image = FibsemImage.generate_blank_image(
-            resolution=resolution, hfw=ref.field_of_view1, random=False
+            resolution=resolution, hfw=hfw, random=False
         )
 
         # Kept on the dialog: the controller must outlive the coordinate widget, and
@@ -474,7 +493,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         hint = QLabel(
             f"Coordinates are fractions of the reference image ({resolution[0]}×{resolution[1]} px, "
-            f"{ref.field_of_view1 * 1e6:.0f} µm wide): 0-1 across, 0-1 down, origin top-left. "
+            f"{hfw * 1e6:.0f} µm wide): 0-1 across, 0-1 down, origin top-left. "
             "Right-click the frame to add a point, drag to move, Delete to remove."
         )
         hint.setWordWrap(True)
@@ -497,16 +516,22 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         layout.addLayout(btn_row)
 
         dialog.resize(1000, 560)
-        if dialog.exec_() == QDialog.Accepted:
-            # apply onto the stored config rather than replacing it, so the task's other
-            # fields (milling, reference imaging, autofocus) survive the edit
-            config.apply_settings(coord_widget.get_settings())
-            self._set_protocol_dirty(True)
-            logging.info(
-                f"Updated {task_name} spot burn coordinates "
-                f"({len(config.coordinates)} point(s))"
-            )
-            self._save_experiment()
+        try:
+            if dialog.exec_() == QDialog.Accepted:
+                # apply onto the stored config rather than replacing it, so the task's
+                # other fields (milling, reference imaging, autofocus) survive the edit
+                config.apply_settings(coord_widget.get_settings())
+                self._set_protocol_dirty(True)
+                logging.info(
+                    f"Updated {task_name} spot burn coordinates "
+                    f"({len(config.coordinates)} point(s))"
+                )
+                self._save_experiment()
+        finally:
+            # QDialog(self) parents the dialog to this editor, so Qt keeps it alive after
+            # exec_ returns and every open would strand another canvas + controller for
+            # the session. Delete after reading the settings, never before.
+            dialog.deleteLater()
 
     def _save_experiment(self):
         """Save the experiment if available."""
@@ -636,9 +661,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         btn_row.addWidget(ok_btn)
         layout.addLayout(btn_row)
 
-        if dialog.exec_() == QDialog.Accepted:
-            self.experiment.task_protocol.lamella_defaults = template_widget.get_template()
-            self._save_experiment()
+        try:
+            if dialog.exec_() == QDialog.Accepted:
+                self.experiment.task_protocol.lamella_defaults = template_widget.get_template()
+                self._save_experiment()
+        finally:
+            dialog.deleteLater()  # parented to this editor, so Qt keeps it otherwise
 
     def _on_protocol_field_changed(self, field: str, value: str) -> None:
         if self.experiment and self.experiment.task_protocol:

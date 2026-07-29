@@ -207,6 +207,96 @@ def test_cramped_host_keeps_the_summary_and_a_usable_list():
     assert sibling.isVisible()              # and so did the host's own controls
 
 
+# ── the protocol-editor dialog that hosts the widget ────────────────────────
+
+def _editor_stub(config):
+    """The minimum of AutoLamellaProtocolTaskConfigEditor the dialog method touches."""
+    import types
+
+    from PyQt5.QtWidgets import QWidget
+
+    from fibsem.applications.autolamella.structures import LamellaDefaultConfig
+
+    host = QWidget()
+    host.task_list_widget = types.SimpleNamespace(selected_task="T")
+    host.experiment = types.SimpleNamespace(
+        task_protocol=types.SimpleNamespace(
+            task_config={"T": config}, lamella_defaults=LamellaDefaultConfig()
+        )
+    )
+    host.dirty, host.saved = [], []
+    host._set_protocol_dirty = lambda v: host.dirty.append(v)
+    host._save_experiment = lambda: host.saved.append(1)
+    return host
+
+
+def _open_dialog(host, on_exec=None):
+    from PyQt5.QtWidgets import QDialog
+
+    from fibsem.ui.widgets.autolamella_task_config_editor import (
+        AutoLamellaProtocolTaskConfigEditor,
+    )
+
+    original = QDialog.exec_
+    QDialog.exec_ = on_exec or (lambda self: QDialog.Rejected)
+    try:
+        AutoLamellaProtocolTaskConfigEditor._on_spot_burn_coordinates_clicked(host)
+    finally:
+        QDialog.exec_ = original
+
+
+def test_dialog_does_not_leak_a_canvas_per_open():
+    """QDialog(parent) is owned by the parent, so without an explicit delete every open
+    strands another controller + matplotlib canvas for the rest of the session."""
+    from PyQt5.QtCore import QCoreApplication, QEvent
+    from PyQt5.QtWidgets import QDialog
+
+    host = _editor_stub(SpotBurnFiducialTaskConfig(task_name="T",
+                                                   coordinates=[Point(0.2, 0.2)]))
+    for _ in range(5):
+        _open_dialog(host)
+    # deleteLater posts a DeferredDelete event; processEvents alone will not deliver it
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    for _ in range(4):
+        _app.processEvents()
+    assert host.findChildren(QDialog) == []
+    assert host.findChildren(SpotBurnCoordinatesWidget) == []
+
+
+def test_cancel_leaves_the_config_untouched():
+    cfg = SpotBurnFiducialTaskConfig(task_name="T",
+                                     coordinates=[Point(0.2, 0.2), Point(0.4, 0.4)])
+    before = [(p.x, p.y) for p in cfg.coordinates]
+    host = _editor_stub(cfg)
+
+    from PyQt5.QtWidgets import QDialog
+
+    def edit_then_cancel(dialog):
+        w = dialog.findChild(SpotBurnCoordinatesWidget)
+        w._coordinates = [Point(0.9, 0.9)]
+        w._rebuild_rows()
+        return QDialog.Rejected
+
+    _open_dialog(host, on_exec=edit_then_cancel)
+    assert [(p.x, p.y) for p in cfg.coordinates] == before
+    assert host.dirty == [] and host.saved == []  # nothing marked dirty, nothing written
+
+
+def test_dialog_survives_a_malformed_protocol():
+    """This feature exists because people hand-edit these files, so a null or zero
+    reference-imaging resolution is a real input, not a hypothetical."""
+    for mutate in (
+        lambda c: setattr(c.reference_imaging.imaging, "resolution", None),
+        lambda c: setattr(c.reference_imaging.imaging, "resolution", [0, 0]),
+        lambda c: setattr(c.reference_imaging.imaging, "resolution", "abc"),
+        lambda c: setattr(c.reference_imaging, "field_of_view1", 0.0),
+        lambda c: setattr(c.reference_imaging, "field_of_view1", None),
+    ):
+        cfg = SpotBurnFiducialTaskConfig(task_name="T", coordinates=[Point(0.2, 0.2)])
+        mutate(cfg)
+        _open_dialog(_editor_stub(cfg))  # must not raise
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
