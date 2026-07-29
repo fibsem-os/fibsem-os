@@ -86,6 +86,52 @@ def test_detection_available_is_a_plain_bool():
     assert out == "bool"
 
 
+def test_optional_export_is_absent_rather_than_broken():
+    """FibsemEmbeddedDetectionUI needs optional deps (torch et al).
+
+    The eager ``__init__`` imported it under ``try/except ImportError``, so when the stack
+    was missing the name simply did not exist. Resolving it lazily must degrade the same
+    way — ``AttributeError``, not the underlying ``ModuleNotFoundError`` — or ``hasattr``,
+    ``dir`` and ``inspect.getmembers`` all blow up on an optional dependency.
+    """
+    out = _probe(
+        "import fibsem.ui\n"
+        "try:\n"
+        "    fibsem.ui.FibsemEmbeddedDetectionUI\n"
+        "    print('resolved')\n"
+        "except AttributeError:\n"
+        "    print('AttributeError')\n"
+        "except ImportError as exc:\n"
+        "    print('LEAKED ImportError:', exc)\n"
+    )
+    assert out in ("resolved", "AttributeError"), out
+
+
+@needs_qt
+def test_star_import_does_not_force_optional_dependencies():
+    """`from fibsem.ui import *` must not explode when the segmentation stack is absent.
+
+    Regression: listing the optional export in ``__all__`` made star-import resolve it and
+    raise ModuleNotFoundError, where the eager version worked fine.
+    """
+    out = _probe(
+        "ns = {}\n"
+        "exec('from fibsem.ui import *', ns)\n"
+        "print('FibsemMovementWidget' in ns)\n"
+    )
+    assert out == "True"
+
+
+@needs_qt
+def test_getmembers_does_not_force_optional_dependencies():
+    """Same regression, reached through introspection rather than star-import."""
+    out = _probe(
+        "import inspect, fibsem.ui;"
+        "print('FibsemMovementWidget' in dict(inspect.getmembers(fibsem.ui)))"
+    )
+    assert out == "True"
+
+
 @needs_qt
 def test_reexport_resolves_to_the_class():
     out = _probe(
