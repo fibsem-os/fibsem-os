@@ -86,8 +86,20 @@ fm-image-viewer-ui = "fibsem.ui.fm.widgets.fm_image_viewer_widget:main"
 fibsem-correlation-ui = "fibsem.correlation.ui.widgets.correlation_tab_widget:main"
 fibsem-cli = "fibsem.cli:main"
 
-[tool.setuptools]
-packages = ["fibsem"]
+# Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
+# only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc. That
+# it worked at all was an accident of setuptools_scm (in build-requires above)
+# registering a file finder that swept in every git-tracked file — so package
+# discovery silently depended on a build tool with no config section of its own.
+# See FIB-373.
+[tool.setuptools.packages.find]
+include = ["fibsem*"]
+# Stated explicitly because it is load-bearing, not a preference: a dozen
+# directories are PEP 420 namespace packages with no __init__.py, including
+# fibsem/ui/widgets (68 modules), fibsem/microscopes and fibsem/ui/napari.
+# This defaults to true for pyproject config, but setting it false — or reaching
+# for find_packages semantics — would silently drop all of them from the wheel.
+namespaces = true
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
