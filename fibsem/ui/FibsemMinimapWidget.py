@@ -57,6 +57,7 @@ from fibsem.structures import (
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.napari.patterns import (
     MILLING_PATTERN_LAYER_NAME,
     draw_milling_patterns_in_napari,
@@ -207,7 +208,7 @@ class FibsemMinimapWidget(QWidget):
         self.correlation_mode_enabled: bool = False
 
         self._thread_stop_event = threading.Event()
-        self._acquisition_worker: Optional[threading.Thread] = None
+        self._acquisition_worker: Optional[FunctionWorker] = None
 
         # display options
         self.show_current_fov: bool = True
@@ -588,10 +589,8 @@ class FibsemMinimapWidget(QWidget):
         self._hide_overlay_layers()
 
         self._thread_stop_event.clear()
-        self._acquisition_worker = threading.Thread(
-            target=self._run_tile_collection,
-            args=(self.microscope, overview_settings),
-            daemon=True,
+        self._acquisition_worker = FunctionWorker(
+            self._run_tile_collection, self.microscope, overview_settings
         )
         self._acquisition_worker.start()
 
