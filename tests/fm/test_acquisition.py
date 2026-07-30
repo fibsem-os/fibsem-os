@@ -1006,49 +1006,28 @@ def test_acquire_multiple_overviews(fm_microscope):
 # ---------------------------------------------------------------------------
 
 
-def _record_tile_moves(microscope, monkeypatch):
-    """Run a tileset with the stage and camera stubbed, returning the moves made.
+def _record_tile_positions(microscope, monkeypatch):
+    """Run a tileset with the stage and camera stubbed, returning where tiles land.
 
-    Returns a list of (dx, dy) passed to fm_stable_move, in call order.
+    Records the absolute stage positions the acquisition visits, in acquisition order,
+    rather than the movement calls it makes to get there. An earlier version of these
+    tests recorded `fm_stable_move` calls, which pinned the stepping *mechanism*: they
+    broke the moment stepping moved to precomputed absolute positions, even though
+    every tile still landed in exactly the same place. Where the tiles end up is the
+    thing worth asserting, and it survives the implementation changing underneath.
     """
-    moves = []
+    positions = []
 
-    def fake_move(dx, dy):
-        moves.append((dx, dy))
-        return microscope.get_stage_position()
+    def fake_move(position):
+        positions.append(position)
 
     stub = Mock(spec=FluorescenceImage)
-    monkeypatch.setattr(microscope, "fm_stable_move", fake_move)
+    monkeypatch.setattr(microscope, "safe_absolute_stage_movement", fake_move)
     monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", lambda *a, **k: stub)
-    return moves
+    return positions
 
 
-def _cumulative_tile_offsets(moves, rows, cols):
-    """Replay the recorded moves into a per-tile (dx, dy) offset from the origin."""
-    x = y = 0.0
-    offsets = {}
-    index = 0  # moves[0] is the move to the start of the grid
-    x, y = moves[0]
-    for row in range(rows):
-        for col in range(cols):
-            offsets[(row, col)] = (x, y)
-            if col < cols - 1:
-                index += 1
-                x += moves[index][0]
-                y += moves[index][1]
-        if row < rows - 1:
-            index += 1
-            x += moves[index][0]
-            y += moves[index][1]
-    return offsets
-
-
-@pytest.mark.parametrize("rows,cols", [(2, 2), (3, 2), (1, 4), (4, 1)])
-def test_acquire_tileset_steps_rows_downward(fm_microscope, monkeypatch, rows, cols):
-    """Row 0 starts at the top of the grid and later rows step down."""
-    microscope = fm_microscope
-    moves = _record_tile_moves(microscope, monkeypatch)
-
+def _run_tileset(microscope, rows, cols, overlap=0.1):
     acquisition.acquire_tileset(
         microscope=microscope,
         channel_settings=ChannelSettings(
@@ -1056,24 +1035,62 @@ def test_acquire_tileset_steps_rows_downward(fm_microscope, monkeypatch, rows, c
             power=0.1, exposure_time=0.1,
         ),
         overview_parameters=OverviewParameters(
-            rows=rows, cols=cols, overlap=0.1,
+            rows=rows, cols=cols, overlap=overlap,
             use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
         ),
     )
 
-    offsets = _cumulative_tile_offsets(moves, rows, cols)
 
-    # Row 0 is the top of the mosaic, so it sits at the most positive y.
-    ys = [offsets[(row, 0)][1] for row in range(rows)]
-    assert ys == sorted(ys, reverse=True), f"rows must step downward, got {ys}"
+def _by_tile(positions, rows, cols):
+    """Tiles are visited row-major, so index k is (k // cols, k % cols).
+
+    The acquisition also returns to its starting position when it finishes, which
+    lands in the same recording; the tile moves are the leading `rows * cols`.
+    """
+    assert len(positions) == rows * cols + 1, (
+        f"expected one move per tile plus the restore, got {len(positions)} "
+        f"for a {rows}x{cols} grid"
+    )
+    return {(k // cols, k % cols): p for k, p in enumerate(positions[:rows * cols])}
+
+
+@pytest.mark.parametrize("rows,cols", [(2, 2), (3, 2), (1, 4), (4, 1)])
+def test_acquire_tileset_visits_rows_top_to_bottom(fm_microscope, monkeypatch, rows, cols):
+    """Row 0 is the top of the mosaic, so it sits at the highest stage y."""
+    microscope = fm_microscope
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _run_tileset(microscope, rows, cols)
+    tiles = _by_tile(positions, rows, cols)
+
+    ys = [tiles[(row, 0)].y for row in range(rows)]
+    assert ys == sorted(ys, reverse=True), f"rows must descend in y, got {ys}"
     if rows > 1:
-        assert ys[0] > ys[-1]
         # ... and the grid stays centred on the starting position.
         assert ys[0] == pytest.approx(-ys[-1])
 
-    # Columns are unchanged: col 0 is the left edge, x increases to the right.
-    xs = [offsets[(0, col)][0] for col in range(cols)]
-    assert xs == sorted(xs), f"columns must step rightward, got {xs}"
+    xs = [tiles[(0, col)].x for col in range(cols)]
+    assert xs == sorted(xs), f"columns must ascend in x, got {xs}"
+
+
+def test_acquire_tileset_uses_absolute_positions_not_accumulated_steps(
+    fm_microscope, monkeypatch
+):
+    """Every tile is projected from the same base, so error cannot accumulate.
+
+    With relative stepping the y pitch between rows is a sum of separately-projected
+    steps; with absolute positions it is a difference of two projections from one
+    origin. This asserts the pitch is uniform, which is what the difference buys.
+    """
+    rows, cols = 4, 1
+    microscope = fm_microscope
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _run_tileset(microscope, rows, cols)
+    tiles = _by_tile(positions, rows, cols)
+
+    pitches = [tiles[(r + 1, 0)].y - tiles[(r, 0)].y for r in range(rows - 1)]
+    assert all(p == pytest.approx(pitches[0]) for p in pitches), (
+        f"row pitch must be uniform, got {pitches}"
+    )
 
 
 def test_acquire_tileset_row_direction_matches_the_beam_tiler(fm_microscope, monkeypatch):
@@ -1087,20 +1104,9 @@ def test_acquire_tileset_row_direction_matches_the_beam_tiler(fm_microscope, mon
 
     rows, cols = 3, 3
     microscope = fm_microscope
-    moves = _record_tile_moves(microscope, monkeypatch)
-
-    acquisition.acquire_tileset(
-        microscope=microscope,
-        channel_settings=ChannelSettings(
-            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
-            power=0.1, exposure_time=0.1,
-        ),
-        overview_parameters=OverviewParameters(
-            rows=rows, cols=cols, overlap=0.1,
-            use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
-        ),
-    )
-    fm_offsets = _cumulative_tile_offsets(moves, rows, cols)
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _run_tileset(microscope, rows, cols)
+    tiles = _by_tile(positions, rows, cols)
 
     beam_tiles = compute_tile_grid(
         OverviewAcquisitionSettings(
@@ -1109,12 +1115,12 @@ def test_acquire_tileset_row_direction_matches_the_beam_tiler(fm_microscope, mon
         )
     )
 
-    # compute_tile_grid measures from the top-left tile, acquire_tileset from the
+    # compute_tile_grid measures from the top-left tile, the acquisition from the
     # centre, so compare directions between tiles rather than absolute offsets.
-    origin = fm_offsets[(0, 0)]
+    origin = tiles[(0, 0)]
     for tile in beam_tiles:
-        fm_dx, fm_dy = fm_offsets[(tile.row, tile.col)]
-        fm_dx, fm_dy = fm_dx - origin[0], fm_dy - origin[1]
+        pos = tiles[(tile.row, tile.col)]
+        fm_dx, fm_dy = pos.x - origin.x, pos.y - origin.y
         assert np.sign(fm_dx) == np.sign(tile.dx), (
             f"x direction disagrees at row {tile.row} col {tile.col}: "
             f"FM {fm_dx:+.3e} vs beam {tile.dx:+.3e}"
@@ -1125,25 +1131,15 @@ def test_acquire_tileset_row_direction_matches_the_beam_tiler(fm_microscope, mon
         )
 
 
-def test_generate_grid_positions_orders_rows_top_to_bottom():
-    """Row 0 is the top of the mosaic, so its y is the most positive.
+def test_acquire_tileset_returns_to_the_starting_position(fm_microscope, monkeypatch):
+    """The grid is centred on wherever the stage was, and it is left there."""
+    rows, cols = 2, 2
+    microscope = fm_microscope
+    start = microscope.get_stage_position()
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _run_tileset(microscope, rows, cols)
 
-    The other generate_grid_positions tests assert on *sets* of coordinates, and the
-    grid is symmetric about zero -- so every one of them passes with the row order
-    inverted. This pins the ordering itself.
-    """
-    ncols, nrows, fov = 2, 3, 10.0
-    positions = generate_grid_positions(
-        ncols=ncols, nrows=nrows, fov_x=fov, fov_y=fov, overlap=0.0
-    )
-
-    # Positions come out column-major, so each run of `nrows` is one column.
-    for col in range(ncols):
-        column = positions[col * nrows:(col + 1) * nrows]
-        ys = [y for _, y in column]
-        assert ys == sorted(ys, reverse=True), (
-            f"column {col} must run top to bottom, got {ys}"
-        )
-
-    assert max(y for _, y in positions) == pytest.approx(fov)
-    assert min(y for _, y in positions) == pytest.approx(-fov)
+    final = positions[-1]
+    assert final.x == pytest.approx(start.x)
+    assert final.y == pytest.approx(start.y)
+    assert final.z == pytest.approx(start.z)

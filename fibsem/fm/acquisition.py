@@ -11,6 +11,7 @@ import matplotlib.patches as patches
 
 from fibsem import utils
 from fibsem.fm.calibration import run_autofocus
+from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -492,28 +493,46 @@ def acquire_tileset(
             logging.info("Initial autofocus cancelled")
             return []  # Return empty list if cancelled
 
-    # Calculate starting position (top-left corner of grid).
+    # Lay the grid out once, with the shared tiling geometry, and project every tile
+    # to an absolute stage position before moving anywhere.
     #
-    # Row 0 is the top of the mosaic, so it sits at the most *positive* y offset and
-    # later rows step down -- the same convention `imaging/tiled.py` uses for beam
-    # tilesets ("negate: stage y axis is inverted"). Both express their steps in image
-    # coordinates and hand them to the same projection, so the two tilers have to agree
-    # on the row direction or their mosaics disagree. `stitch_tileset` places row 0 at
-    # canvas y=0 regardless, so getting this backwards reverses the row order.
-    start_offset_x = -(cols - 1) * step_x / 2
-    start_offset_y = (rows - 1) * step_y / 2
+    # Previously this walked the grid with relative steps. That accumulated error over
+    # the traversal, and on an offset mount each step carries a real z component -- so
+    # the drift was in the focal plane, not just the position. Compustage hides it,
+    # having no pre-tilt and therefore z == 0 throughout.
+    #
+    # Using the shared layout also means the row direction lives in one place rather
+    # than in this loop's step signs. Row 0 is the top of the mosaic and later rows
+    # step down; `stitch_tileset` paints row 0 at canvas y=0 regardless, so the two
+    # have to agree. They disagreed once already (#226).
+    tiles = compute_tile_grid_from_fov(
+        nrows=rows,
+        ncols=cols,
+        fov_x=fov_x,
+        fov_y=fov_y,
+        image_width=image_width,
+        image_height=image_height,
+        overlap=tile_overlap,
+    )
 
-    # Move to starting position
+    # compute_tile_grid_from_fov measures from the top-left tile; shift so the grid is
+    # centred on where the stage is now. Same convention as TiledAcquisitionRunner.
+    grid_offset_x = (cols - 1) * step_x / 2
+    grid_offset_y = (rows - 1) * step_y / 2
+
+    tile_stage_positions = {
+        (tile.row, tile.col): microscope.project_fm_stable_move(
+            dx=tile.dx - grid_offset_x,
+            dy=tile.dy + grid_offset_y,
+            base_position=initial_position,
+        )
+        for tile in tiles
+    }
+
     microscope.fm.acquisition_progress_signal.emit({
         "state": "moving",
         "task": "tileset",
     })
-
-    # Steps are expressed in the fluorescence image, so they are projected through the
-    # camera's own axis tilt rather than a beam's. Stepping with beam_type=ELECTRON
-    # used the SEM projection, which foreshortens differently from the camera on an
-    # offset mount and so mis-scaled the y pitch between tiles.
-    microscope.fm_stable_move(dx=start_offset_x, dy=start_offset_y)
 
     # Initialize results array
     tileset = []
@@ -567,10 +586,13 @@ def acquire_tileset(
                     return tileset
 
             for col in range(cols):
-                # Check for cancellation before each tile
+                # Check for cancellation before moving, so a cancel skips the travel
                 if stop_event and stop_event.is_set():
                     logging.info("Tileset acquisition cancelled during tile acquisition")
                     return tileset
+
+                # Absolute, from the grid computed up front -- no accumulation.
+                microscope.safe_absolute_stage_movement(tile_stage_positions[(row, col)])
 
                 microscope.fm.objective.move_absolute(initial_objective_position)
 
@@ -642,13 +664,13 @@ def acquire_tileset(
 
                 row_images.append(tile_image)
 
-                # Move to next column position (except for last column)
+                # Movement to the next tile happens at the top of its own iteration,
+                # from the precomputed absolute positions.
                 if col < cols - 1:
                     microscope.fm.acquisition_progress_signal.emit({
                     "state": "moving",
                     "task": "tileset",
                     })
-                    microscope.fm_stable_move(dx=step_x, dy=0)
 
             tileset.append(row_images)
 
@@ -658,9 +680,6 @@ def acquire_tileset(
                     "state": "moving",
                     "task": "tileset",
                 })
-                # Return to first column of next row, and step *down* one row (see the
-                # row-direction note where start_offset_y is computed).
-                microscope.fm_stable_move(dx=-(cols - 1) * step_x, dy=-step_y)
 
         # save the parameters in a metadata json file if save_directory is provided
         if save_directory is not None:
