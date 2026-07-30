@@ -223,9 +223,10 @@ def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) 
         bool: True if inside image bounds, False otherwise.
 
     NOTE: the lower bound is exclusive, so row/column 0 reports as outside even
-    though it is a real pixel. Preserved verbatim from the original in
-    `fibsem.ui.napari.utilities`; callers may rely on it, so it is pinned by test
-    rather than corrected here.
+    though it is a real pixel. This is intentional -- callers use it to decide
+    whether to draw a marker, and widening the region would change what they
+    render. It reads like an off-by-one, so it is pinned by test to stop it being
+    tidied away.
     """
     ycoord, xcoord = coords
 

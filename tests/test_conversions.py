@@ -47,11 +47,11 @@ def test_outside(coords):
 def test_zero_reports_as_outside(coords):
     """The lower bound is exclusive, so row/column 0 is 'outside' despite being real.
 
-    Almost certainly an off-by-one -- the upper bound is exclusive, as it should be,
-    but the lower one is too. Pinned rather than fixed: four call sites in
-    `imaging/tiled.py` and several in the minimap widgets use this to decide whether
-    to draw a marker, and silently widening the accepted region during a file move is
-    how a move stops being inert. Worth correcting deliberately, separately.
+    Intentional, and confirmed as wanted -- not an off-by-one to be tidied up. It
+    reads like one, since the upper bound is exclusive as it should be and the lower
+    one is too, which is exactly why it is pinned here. Several call sites in
+    `imaging/tiled.py` and the minimap widgets use this to decide whether to draw a
+    marker; widening the accepted region would change what they render.
     """
     assert is_inside_image_bounds(coords, SHAPE) is False
 

@@ -52,17 +52,60 @@ def compute_tile_grid(settings: OverviewAcquisitionSettings) -> list[TilePositio
     image_width, image_height = settings.image_settings.resolution
     tile_fov_x = settings.image_settings.hfw
     tile_fov_y = tile_fov_x * (image_height / image_width)
-    overlap = settings.overlap
 
-    dx_step = tile_fov_x * (1 - overlap)
-    dy_step = tile_fov_y * (1 - overlap)
+    return compute_tile_grid_from_fov(
+        nrows=settings.nrows,
+        ncols=settings.ncols,
+        fov_x=tile_fov_x,
+        fov_y=tile_fov_y,
+        image_width=image_width,
+        image_height=image_height,
+        overlap=settings.overlap,
+    )
+
+
+def compute_tile_grid_from_fov(
+    nrows: int,
+    ncols: int,
+    fov_x: float,
+    fov_y: float,
+    image_width: int,
+    image_height: int,
+    overlap: float,
+) -> list[TilePosition]:
+    """Compute the tile grid from a field of view given directly.
+
+    The same layout as :func:`compute_tile_grid`, for callers that do not have an
+    `OverviewAcquisitionSettings`. A fluorescence camera has a real field of view in
+    both axes -- pixel size times resolution -- rather than a horizontal field width
+    with the vertical inferred from the aspect ratio, so it cannot go through the
+    beam-shaped settings object without inventing an `hfw`.
+
+    Keeping one implementation matters more than the convenience: the beam tiler and
+    the fluorescence tiler stepping rows in opposite directions is what produced a
+    reversed mosaic (#226), and separate layout code is how that happened.
+
+    Args:
+        nrows: Number of tile rows.
+        ncols: Number of tile columns.
+        fov_x: Width of one tile, in metres.
+        fov_y: Height of one tile, in metres.
+        image_width: Tile width in pixels.
+        image_height: Tile height in pixels.
+        overlap: Fractional overlap between adjacent tiles.
+
+    Returns:
+        Flat list of TilePosition objects in row-major order (top-left first).
+    """
+    dx_step = fov_x * (1 - overlap)
+    dy_step = fov_y * (1 - overlap)
 
     eff_w = max(1, int(round(image_width  * (1 - overlap))))
     eff_h = max(1, int(round(image_height * (1 - overlap))))
 
     tiles = []
-    for i in range(settings.nrows):
-        for j in range(settings.ncols):
+    for i in range(nrows):
+        for j in range(ncols):
             tiles.append(TilePosition(
                 row=i, col=j,
                 dx=j * dx_step,
