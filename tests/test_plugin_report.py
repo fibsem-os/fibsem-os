@@ -12,10 +12,12 @@ contract -- that real entry points actually produce these rows -- lives in
 tests/test_plugin_entry_points.py against an installed fixture.
 """
 
+import importlib
 import os
 
 import pytest
 
+from fibsem.plugins import report
 from fibsem.plugins.report import (
     Extension,
     ExtensionGroup,
@@ -219,6 +221,87 @@ def test_script_row_shows_its_path_and_keeps_the_class():
 def test_empty_group_says_so_rather_than_rendering_nothing():
     text = render_report([_group()])
     assert "fibsem.tasks  (nothing registered)" in text
+
+
+# ---------------------------------------------------------------------------
+# A registry that will not import
+# ---------------------------------------------------------------------------
+
+
+def _boom():
+    raise ImportError("No module named 'psygnal'")
+
+
+def test_a_group_that_cannot_be_inspected_becomes_one_row_saying_so():
+    group = report._collect_group(
+        "fibsem.tasks", "AutoLamella tasks", "fibsem.applications.autolamella.workflows.tasks", _boom
+    )
+
+    (row,) = group.extensions
+    assert row.source is ExtensionSource.FAILED
+    # The module that could not be read, so the reader knows what to try importing.
+    assert row.target == "fibsem.applications.autolamella.workflows.tasks"
+    assert "No module named 'psygnal'" in row.problem
+    # ...and that this is not one plugin failing but the whole group being unknown.
+    assert "whole group could not be inspected" in row.problem
+
+
+def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
+    """The point of the isolation: a broken task registry still leaves a report.
+
+    This listing is what a user is asked for when their install misbehaves. If it
+    needs all three registries intact to print anything, it cannot do the one job
+    it exists for.
+    """
+    monkeypatch.setattr(
+        report,
+        "_GROUPS",
+        tuple(
+            (group, label, module, _boom if group == "fibsem.tasks" else collect)
+            for group, label, module, collect in report._GROUPS
+        ),
+    )
+
+    groups = {g.group: g for g in report.collect_extensions()}
+
+    assert set(groups) == {"fibsem.patterns", "fibsem.strategies", "fibsem.tasks"}
+    assert [e.source for e in groups["fibsem.tasks"].extensions] == [ExtensionSource.FAILED]
+    # The milling groups are not merely present, they are populated: every
+    # install has built-in patterns and strategies.
+    for intact in ("fibsem.patterns", "fibsem.strategies"):
+        assert any(e.source is ExtensionSource.BUILTIN for e in groups[intact].extensions)
+
+
+def test_an_unreadable_group_still_renders(monkeypatch):
+    """Rendering must not assume a row has a name or a distribution."""
+    group = report._collect_group("fibsem.tasks", "AutoLamella tasks", "some.module", _boom)
+
+    text = render_report([group])
+
+    assert "fibsem.tasks" in text
+    assert "some.module" in text
+    assert "! ImportError: No module named 'psygnal'" in text
+
+
+def test_the_group_table_matches_the_registries():
+    """_GROUPS repeats the group strings, because it is used when the import fails.
+
+    Repeating them is the only option -- the constant lives in the module that may
+    not be importable -- so the duplication gets pinned here instead.
+    """
+    from fibsem.applications.autolamella.workflows.tasks import TASK_ENTRY_POINT_GROUP
+    from fibsem.milling.patterning import PATTERN_ENTRY_POINT_GROUP
+    from fibsem.milling.strategy import STRATEGY_ENTRY_POINT_GROUP
+
+    assert [group for group, _, _, _ in report._GROUPS] == [
+        PATTERN_ENTRY_POINT_GROUP,
+        STRATEGY_ENTRY_POINT_GROUP,
+        TASK_ENTRY_POINT_GROUP,
+    ]
+    # The module named in the fallback row has to be the one actually imported,
+    # or the row sends the reader somewhere irrelevant.
+    for _, _, module, _ in report._GROUPS:
+        importlib.import_module(module)
 
 
 # ---------------------------------------------------------------------------

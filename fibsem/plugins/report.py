@@ -27,12 +27,13 @@ the renderers and the panel already handle them.
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import sys
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Iterable, List, Optional, Tuple, Type
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Type
 
 from fibsem.plugins.loader import PluginRecord
 
@@ -259,15 +260,7 @@ def _build_group(
     return ExtensionGroup(group=group, label=label, extensions=tuple(extensions))
 
 
-def collect_extensions() -> Tuple[ExtensionGroup, ...]:
-    """Every registered extension across all three groups, with provenance."""
-    from fibsem.applications.autolamella.workflows.tasks import (
-        BUILTIN_TASKS,
-        REGISTERED_TASKS,
-        TASK_ENTRY_POINT_GROUP,
-        get_task_plugin_records,
-        get_tasks,
-    )
+def _pattern_group() -> ExtensionGroup:
     from fibsem.milling.patterning import (
         BUILTIN_PATTERNS,
         PATTERN_ENTRY_POINT_GROUP,
@@ -275,6 +268,18 @@ def collect_extensions() -> Tuple[ExtensionGroup, ...]:
         get_pattern_plugin_records,
         get_patterns,
     )
+
+    return _build_group(
+        group=PATTERN_ENTRY_POINT_GROUP,
+        label="Milling patterns",
+        records=get_pattern_plugin_records(),
+        builtins=BUILTIN_PATTERNS,
+        registered=REGISTERED_PATTERNS,
+        active=get_patterns(),
+    )
+
+
+def _strategy_group() -> ExtensionGroup:
     from fibsem.milling.strategy import (
         BUILTIN_STRATEGIES,
         REGISTERED_STRATEGIES,
@@ -283,32 +288,104 @@ def collect_extensions() -> Tuple[ExtensionGroup, ...]:
         get_strategy_plugin_records,
     )
 
-    return (
-        _build_group(
-            group=PATTERN_ENTRY_POINT_GROUP,
-            label="Milling patterns",
-            records=get_pattern_plugin_records(),
-            builtins=BUILTIN_PATTERNS,
-            registered=REGISTERED_PATTERNS,
-            active=get_patterns(),
-        ),
-        _build_group(
-            group=STRATEGY_ENTRY_POINT_GROUP,
-            label="Milling strategies",
-            records=get_strategy_plugin_records(),
-            builtins=BUILTIN_STRATEGIES,
-            registered=REGISTERED_STRATEGIES,
-            active=get_strategies(),
-        ),
-        _build_group(
-            group=TASK_ENTRY_POINT_GROUP,
-            label="AutoLamella tasks",
-            records=get_task_plugin_records(),
-            builtins=BUILTIN_TASKS,
-            registered=REGISTERED_TASKS,
-            active=get_tasks(),
-        ),
+    return _build_group(
+        group=STRATEGY_ENTRY_POINT_GROUP,
+        label="Milling strategies",
+        records=get_strategy_plugin_records(),
+        builtins=BUILTIN_STRATEGIES,
+        registered=REGISTERED_STRATEGIES,
+        active=get_strategies(),
     )
+
+
+def _task_group() -> ExtensionGroup:
+    from fibsem.applications.autolamella.workflows.tasks import (
+        BUILTIN_TASKS,
+        REGISTERED_TASKS,
+        TASK_ENTRY_POINT_GROUP,
+        get_task_plugin_records,
+        get_tasks,
+    )
+
+    return _build_group(
+        group=TASK_ENTRY_POINT_GROUP,
+        label="AutoLamella tasks",
+        records=get_task_plugin_records(),
+        builtins=BUILTIN_TASKS,
+        registered=REGISTERED_TASKS,
+        active=get_tasks(),
+    )
+
+
+# group string, label, providing module, collector.
+#
+# The first three repeat what the registry modules already declare, instead of
+# importing it. That is the point: they are needed precisely when importing the
+# registry is what failed, and a group that cannot be inspected still has to be
+# named in the listing. Pinned against the real constants by
+# test_the_group_table_matches_the_registries.
+_GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
+    ("fibsem.patterns", "Milling patterns", "fibsem.milling.patterning", _pattern_group),
+    ("fibsem.strategies", "Milling strategies", "fibsem.milling.strategy", _strategy_group),
+    (
+        "fibsem.tasks",
+        "AutoLamella tasks",
+        "fibsem.applications.autolamella.workflows.tasks",
+        _task_group,
+    ),
+)
+
+
+def _collect_group(
+    group: str,
+    label: str,
+    module: str,
+    collect: Callable[[], ExtensionGroup],
+) -> ExtensionGroup:
+    """One group, or one row explaining why it could not be read.
+
+    The header count will say "1 failed", which is a slight overstatement of what
+    is known -- nothing was inspected, so nothing is known to have failed. The row
+    underneath says so in words, and the alternative (a group-level problem field)
+    would have to be threaded through both renderers and the panel to say the same
+    thing.
+    """
+    try:
+        return collect()
+    except Exception as exc:
+        logging.error("Could not inspect the '%s' extension group", group, exc_info=True)
+        return ExtensionGroup(
+            group=group,
+            label=label,
+            extensions=(
+                Extension(
+                    group=group,
+                    name=None,
+                    source=ExtensionSource.FAILED,
+                    # The module that could not be read goes in the column that
+                    # normally carries a plugin's declared target: same question
+                    # ("what was being loaded?"), same shape of answer.
+                    target=module,
+                    problem=(
+                        f"{type(exc).__name__}: {exc} "
+                        f"- this whole group could not be inspected"
+                    ),
+                ),
+            ),
+        )
+
+
+def collect_extensions() -> Tuple[ExtensionGroup, ...]:
+    """Every registered extension across all three groups, with provenance.
+
+    Each group is collected independently. A group whose registry will not import
+    becomes a single row saying so rather than taking the listing down with it:
+    this is the surface that exists to explain a broken install, so needing an
+    intact one would defeat it. The AutoLamella task registry is the realistic
+    case -- by far the heaviest import of the three -- and the two milling groups
+    are worth showing without it.
+    """
+    return tuple(_collect_group(*spec) for spec in _GROUPS)
 
 
 # ---------------------------------------------------------------------------
