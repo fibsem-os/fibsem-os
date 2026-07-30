@@ -299,6 +299,16 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread is not None and self._task_worker_thread.is_alive()
         )
 
+    def _script_runner_is_busy(self) -> bool:
+        """Whether a user script is currently driving the microscope (FIB-340).
+
+        Reached through the parent window, which owns the Scripts menu. Absent in
+        the tests and in any host that never built one, so this stays optional
+        rather than asserting the attribute exists.
+        """
+        controller = getattr(self.parent_widget, "script_menu_controller", None)
+        return bool(controller is not None and controller.runner.is_running)
+
     def setup_connections(self):
 
         # lamella controls
@@ -1007,6 +1017,15 @@ class AutoLamellaUI(QMainWindow):
         self, selected_tasks: List[str], selected_lamella: List[str]
     ) -> None:
         """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
+
+        # A user script may be driving the microscope right now. Scripts are already
+        # blocked while a workflow runs; this is the other direction, so the two
+        # cannot end up moving the stage at the same time (FIB-340).
+        if self._script_runner_is_busy():
+            msg = "A microscope script is running. Stop it before starting a workflow."
+            logging.warning(msg)
+            notification_service.show_toast(msg, "warning")
+            return
 
         # clear milling task config
         self.milling_task_config_widget.clear()  # type: ignore

@@ -4,6 +4,8 @@ You can read and modify an AutoLamella experiment from a plain Python script. No
 
 This is the quickest way to do custom things with your data: export a summary, pull out timings, find the lamellae that failed, or bulk-edit something across a whole run.
 
+AutoLamella can also run scripts itself, against the experiment you already have open — see [Running scripts from the GUI](#running-scripts-from-the-gui).
+
 ## Loading an experiment
 
 Every experiment directory contains an `experiment.yaml`. Point `Experiment.load()` at it:
@@ -154,6 +156,161 @@ To clear a mark again, use `lamella.defect.clear()`.
 `exp.save()` rewrites `experiment.yaml` only, leaving `protocol.yaml` untouched. Pass `exp.save(save_protocol=True)` if you also want the protocol written out.
 
 **Back up the experiment directory before running anything that writes.** These scripts have no undo.
+
+## Running scripts from the GUI
+
+Everything above assumes you loaded the experiment yourself. AutoLamella can instead run a script against the experiment it already has open, from **Tools → Scripts → Manage scripts…**.
+
+> **Off by default.** Turn it on in **File → Preferences… → Features → Enable User Scripts**. It takes effect immediately — no restart — and persists in `user-preferences.yaml`.
+>
+> A script gets the application's own access to the microscope and none of its guard rails, so the menu is not offered to anyone who has not asked for it. Switching it on warns you once; switching it off hides the menu again. Hiding the menu hides the whole feature, since that is the only route to the dialog and the dialog is the only thing that runs a script.
+>
+> None of this affects the headless recipes above: loading an experiment yourself in a notebook or a plain `python` script needs no flag.
+
+Everything happens in that dialog. The menu itself only opens it and the scripts folder — it deliberately does not run anything, because a menu item has no way to show you a script that is still going, and no way to stop it.
+
+Drop a `.py` file in:
+
+```
+~/.autolamella/scripts
+```
+
+Set `AUTOLAMELLA_SCRIPTS_DIR` to use a different folder. **Tools → Scripts → Manage scripts…** shows which folder it resolved to; **Open folder** there creates it if it does not exist yet, and **New script…** writes a working stub into it.
+
+### Working examples
+
+Three complete scripts live in [`examples/scripts/`](examples/scripts), one per tier. Copy any of them into your scripts folder and it will run as-is.
+
+| File | Flags | What it shows |
+| -- | -- | -- |
+| [`export_summary.py`](examples/scripts/export_summary.py) | none | reading the experiment, and how the return value becomes output |
+| [`describe_lamellae.py`](examples/scripts/describe_lamellae.py) | `writes` | changing lamellae and letting the runner save |
+| [`survey_positions.py`](examples/scripts/survey_positions.py) | `uses_microscope` | moving the stage, acquiring, and honouring Stop |
+
+These are executed by the test suite (`tests/autolamella/test_example_scripts.py`) against a real experiment and a simulated microscope, so they cannot quietly rot. That is deliberate: earlier versions of the snippets below shipped with two bugs that only running them would have caught — one addressed a `lamella.state` attribute that does not exist, and one used `microscope.acquire_image`, which ignores `save=True` and writes nothing.
+
+### The contract
+
+One rule: a module-level `run(ctx)`.
+
+```python
+"""Export the experiment summary to CSV."""   # first line becomes the tooltip
+
+def run(ctx):
+    out = ctx.path / "summary.csv"
+    ctx.experiment.experiment_summary_dataframe().to_csv(out, index=False)
+    return out
+```
+
+That is all of it — no registration step, nothing to install, no restart. Files whose names start with `_` are hidden from the list.
+
+You can import anything installed — the standard library, `numpy`, `pandas`, and all of `fibsem` itself. You **cannot** import another file from the scripts folder: the folder is not on `sys.path`, so `import _helpers` fails even with the file sitting right beside your script. To share code between scripts, put it in a small package of your own and `pip install -e` it.
+
+`ctx` carries:
+
+| Attribute | Description |
+|---|---|
+| `ctx.experiment` | the experiment currently open in the GUI |
+| `ctx.path` | its directory — the default place to write output |
+| `ctx.log(message)` | writes to the log, tagged with your script's name |
+| `ctx.save()` | called for you; see `writes` below |
+| `ctx.microscope` | the microscope, or `None` unless you declared `uses_microscope` |
+
+### Showing your results
+
+**Return the output.** There is no console in the app — `print()` goes to a terminal you may not have, and a packaged Windows build has none at all. A script that prints its answer and returns nothing looks like it did nothing.
+
+What you return decides how it is shown:
+
+| Return | What happens |
+|---|---|
+| a `str` | shown as a toast |
+| a `DataFrame` | opened in a table |
+| a `Path` | toast, and the containing folder opens |
+| `None` | a "finished" toast |
+
+`ctx.log("...")` writes to the log file, tagged with the script name so the lines stay attributable afterwards. Plain `logging.info(...)` works too and goes to the same place, just untagged.
+
+### Flags
+
+A script declares what it needs with module-level names, so the declaration cannot drift from the code it governs:
+
+```python
+"""Mark every lamella that never reached polishing."""
+writes = True
+
+def run(ctx):
+    ...
+```
+
+| Flag | What it does |
+|---|---|
+| `writes = True` | asks you to confirm before running, then calls `ctx.save()` afterwards |
+| `uses_microscope = True` | asks you to confirm, then runs the script on a background thread with `ctx.microscope` available |
+| `background = True` | **not implemented** — parsed, but the script still runs inline |
+| `on_workflow_completed = True` | **not implemented** — nothing runs it automatically |
+
+Without `writes`, nothing your script changed is persisted — a read-only script cannot rewrite `experiment.yaml` by accident.
+
+## Microscope scripts
+
+`uses_microscope = True` gives you `ctx.microscope` and lets the script drive the hardware.
+
+**Nothing validates what you do.** There are no limits, no interlocks and no checks that the state you left the microscope in is sane. A script that drives the stage into the pole piece will do exactly that. This is the same access the application's own code has, with none of its guard rails — treat it accordingly, and test on a dummy or a sacrificial grid first.
+
+```python
+"""Acquire an ion image at every lamella position."""
+uses_microscope = True
+
+from fibsem import acquire
+from fibsem.structures import BeamType, ImageSettings
+
+
+def run(ctx):
+    settings = ImageSettings(hfw=80e-6, beam_type=BeamType.ION, save=True)
+
+    for lamella in ctx.experiment.positions:
+        ctx.raise_if_cancelled()          # let Stop actually stop it
+        ctx.log(f"moving to {lamella.name}")
+        ctx.microscope.safe_absolute_stage_movement(lamella.stage_position)
+        settings.path, settings.filename = lamella.path, "script-survey"
+        acquire.acquire_image(ctx.microscope, settings)
+
+    return f"imaged {len(ctx.experiment.positions)} positions"
+```
+
+Use `fibsem.acquire.acquire_image(microscope, settings)`, not `microscope.acquire_image(settings)`. The method on the microscope is the raw grab and **ignores `save=True`** — the module-level function is the one that applies autocontrast, auto-gamma and writes the file.
+
+### How these differ from data scripts
+
+**They run on a background thread.** Hardware operations take seconds to minutes, and running one inline would freeze the window for the whole time, which is indistinguishable from a crash. The dialog's Run button becomes **Stop** while the script runs.
+
+**So do not touch `ctx.experiment` from one.** It holds evented containers whose change handlers write straight into widgets, and those must only be touched from the GUI thread. Reading is generally fine; mutating is not. Nothing stops you — this is a convention you have to keep.
+
+**Stop is cooperative, and it is your job.** A Python thread cannot be killed. Pressing Stop sets a flag; nothing happens until your script looks at it:
+
+```python
+ctx.raise_if_cancelled()   # raises, unwinding the script
+if ctx.cancelled: ...      # or check it yourself and return
+```
+
+A script that never checks runs to completion no matter how many times Stop is pressed. Call it between steps — after each move, between images.
+
+**One at a time, and never alongside a workflow.** A second script is refused while one is running, and starting a workflow is refused while a microscope script is running — otherwise two things end up commanding the stage at once.
+
+### Editing and re-running
+
+Scripts are re-read from disk on every run. Edit the file, click Run, and the new code runs; there is no reload button because there is nothing to reload.
+
+The dialog also lists the files that failed to import, with the reason. A file with `def main(ctx)` instead of `def run(ctx)` shows up as an error row rather than quietly disappearing from the list.
+
+### What to expect
+
+**The window freezes while a script runs.** Scripts run on the GUI thread, so a slow loop over thousands of images locks the interface until it finishes. Keep GUI scripts short and do the heavy work headlessly.
+
+**Scripts are unavailable with no experiment loaded, and while a workflow is running.** Run is greyed out and the dialog says which. A workflow mutates lamella state from a worker thread, so a script reading mid-run would see a torn snapshot.
+
+**`ctx.microscope` is `None` unless you declared `uses_microscope`.** If you reach for it without the flag you get `AttributeError: 'NoneType' object has no attribute …` — add the flag rather than working around it. This is a guard against forgetting, not a sandbox: a script is arbitrary Python and can import its way to a microscope handle. Doing that skips the confirmation, runs the hardware call on the GUI thread, and lets a workflow start underneath you.
 
 ## Gotchas
 

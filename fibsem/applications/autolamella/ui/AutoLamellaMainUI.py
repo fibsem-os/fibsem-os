@@ -295,6 +295,29 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         reporting_menu.addAction(self.action_generate_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
+        # user scripts (FIB-338). The menu itself is application-agnostic; this
+        # supplies only the folder, the context, and how to notify.
+        #
+        # Built unconditionally and hidden by _apply_preferences when the
+        # features.scripts_enabled flag is off, which is the default. Hidden rather
+        # than absent so toggling the preference takes effect without a restart, the
+        # same way the coincidence viewer and bug reporter do. Constructing the
+        # controller costs nothing -- it adds two fixed actions and never touches the
+        # scripts folder until the dialog is opened.
+        from fibsem.applications.autolamella.scripting import get_scripts_directory
+        from fibsem.ui.widgets.script_menu import ScriptMenuController
+
+        self.scripts_menu = tools_menu.addMenu("Scripts")
+        if self.scripts_menu is None:
+            raise RuntimeError("Failed to create Scripts submenu in AutoLamella UI.")
+        self.script_menu_controller = ScriptMenuController(
+            menu=self.scripts_menu,
+            scripts_directory=get_scripts_directory,
+            context_factory=self._script_context,
+            notify=self.show_toast,
+            parent=self,
+        )
+
         # add help menu
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
@@ -499,12 +522,45 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_report_issue.setVisible(
             self._preferences.features.bug_report_enabled
         )
+        # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
+        # only route to the manager dialog, and the dialog is the only thing that runs
+        # a script. If a script is mid-run, leave it visible -- taking away the only
+        # Stop button while the microscope is moving would be worse than the flag
+        # being briefly wrong.
+        self.scripts_menu.menuAction().setVisible(
+            self._preferences.features.scripts_enabled
+            or self.script_menu_controller.runner.is_running
+        )
         # Toggle the per-task schedule button in the workflow tab live, so a
         # scheduled-tasks flag change applies without restarting.
         if hasattr(self, "lamella_workflow_widget"):
             self.lamella_workflow_widget.workflow.enable_schedule_button(
                 self._preferences.features.scheduled_tasks
             )
+
+    #### USER SCRIPTS (FIB-338)
+
+    def _script_context(self):
+        """Build the context a script runs against, or explain why it cannot.
+
+        Returns (context, reason). A reason means the menu entries are disabled and
+        that string is shown instead.
+        """
+        from fibsem.applications.autolamella.scripting import ScriptContext
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None, "Load an experiment to run scripts"
+        if self.autolamella_ui.is_workflow_running:
+            # tasks mutate lamella state on a worker thread, so a script reading
+            # mid-workflow would get a torn snapshot.
+            return None, "Unavailable while a workflow is running"
+
+        return ScriptContext(
+            experiment=experiment,
+            log=logging.info,
+            microscope=self.autolamella_ui.microscope,
+        ), ""
 
     def show_toast(
         self,
