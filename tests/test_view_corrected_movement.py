@@ -21,6 +21,8 @@ tests assert the round-trip rather than agreement with the old formula, and one 
 pins the old formula's wrong answer so the defect cannot creep back.
 """
 
+from unittest.mock import Mock, patch
+from fibsem.fm.structures import AutoFocusMode, ChannelSettings, OverviewParameters
 import numpy as np
 import pytest
 
@@ -755,14 +757,47 @@ class TestFmConsumersUseTheFmProjection:
     y pitch by roughly 1/cos(column_tilt).
     """
 
-    def test_tileset_no_longer_steps_with_a_beam_type(self):
-        import inspect
+    def test_tileset_projects_through_the_camera_not_a_beam(self, microscope):
+        """The tileset must position tiles with the FM projection, never a beam's.
 
+        Asserted by spying on the two projections rather than by reading the source.
+        The previous version grepped `inspect.getsource(acquire_tileset)` for
+        "fm_stable_move", which was fragile twice over: it passed after the switch to
+        `project_fm_stable_move` only because that name *contains* the string it looked
+        for, and it broke the moment the movement moved into a runner class without
+        anything about the behaviour changing.
+        """
         from fibsem.fm import acquisition
 
-        source = inspect.getsource(acquisition.acquire_tileset)
-        assert "fm_stable_move" in source
-        assert "stable_move(dx" not in source.replace("fm_stable_move(dx", "")
+        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+
+        fm_calls, beam_calls = [], []
+        real_project_fm = microscope.project_fm_stable_move
+        microscope.project_fm_stable_move = (  # type: ignore[method-assign]
+            lambda **kw: (fm_calls.append(kw), real_project_fm(**kw))[1]
+        )
+        microscope.project_stable_move = (  # type: ignore[method-assign]
+            lambda **kw: beam_calls.append(kw)
+        )
+        microscope.safe_absolute_stage_movement = lambda p: None  # type: ignore[method-assign]
+        microscope.fm_stable_move = lambda **kw: beam_calls.append(kw)  # type: ignore[method-assign]
+
+        with patch.object(acquisition, "acquire_image", return_value=Mock()):
+            acquisition.acquire_tileset(
+                microscope=microscope,
+                channel_settings=ChannelSettings(
+                    name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+                    power=0.1, exposure_time=0.1,
+                ),
+                overview_parameters=OverviewParameters(
+                    rows=2, cols=2, overlap=0.1,
+                    use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+                ),
+            )
+
+        assert len(fm_calls) == 4, "one FM projection per tile"
+        assert beam_calls == [], "nothing may position a tile via a beam projection"
 
     def test_fm_projection_differs_from_the_sem_projection_when_it_matters(self, microscope):
         """Guard the reason for the switch: the two projections really do differ.

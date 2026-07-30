@@ -12,6 +12,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
+from fibsem.cancellation import raise_if_cancelled
 from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
@@ -59,9 +60,15 @@ from fibsem.structures import (
 
 
 def _check_cancelled(stop_event: Optional[threading.Event]) -> None:
-    """Raise if the stop event has been set by the caller."""
-    if stop_event and stop_event.is_set():
-        raise Exception("User Stopped Acquisition")
+    """Raise if the stop event has been set by the caller.
+
+    Raises `OperationCancelledError` rather than a bare `Exception`, so callers can
+    tell a user cancel from a genuine failure and report it as "cancelled" rather
+    than "failed" -- which is what the rest of the codebase already does for milling
+    and autofocus. It subclasses `Exception`, so anything that was catching the
+    previous bare raise still catches this.
+    """
+    raise_if_cancelled(stop_event, "Tiled acquisition cancelled by user.")
 
 
 ##### TILED ACQUISITION
