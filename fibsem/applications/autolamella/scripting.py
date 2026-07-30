@@ -36,28 +36,6 @@ if TYPE_CHECKING:
 SCRIPTS_DIR_ENV_VAR = "AUTOLAMELLA_SCRIPTS_DIR"
 DEFAULT_SCRIPTS_DIR = Path.home() / ".autolamella" / "scripts"
 
-# Off by default. A script here runs with the application's own access to the
-# hardware and none of its guard rails, so the feature should not appear to someone
-# who never asked for it. Set AUTOLAMELLA_ENABLE_SCRIPTS=1 to opt a machine in.
-# An env var rather than a settings key because that is what the rest of the
-# codebase already uses for this kind of switch (FIBSEM_SIM_NO_DELAY, and
-# SCRIPTS_DIR_ENV_VAR above), and because it needs no file on a locked-down
-# microscope PC.
-SCRIPTS_ENABLED_ENV_VAR = "AUTOLAMELLA_ENABLE_SCRIPTS"
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
-
-def scripts_enabled() -> bool:
-    """Whether the Scripts menu is offered at all.
-
-    Gating the menu gates everything: it is the only way to reach the manager
-    dialog, and the dialog is the only thing that runs a script. Unset, empty, and
-    anything unrecognised all count as off -- a typo in the value should leave the
-    feature hidden rather than silently enabled.
-    """
-    return os.environ.get(SCRIPTS_ENABLED_ENV_VAR, "").strip().lower() in _TRUTHY
-
-
 def get_scripts_directory() -> Path:
     """Resolve the user scripts directory. Does not create it."""
     override = os.environ.get(SCRIPTS_DIR_ENV_VAR)

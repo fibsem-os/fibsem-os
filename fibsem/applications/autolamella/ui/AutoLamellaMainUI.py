@@ -298,31 +298,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # user scripts (FIB-338). The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
         #
-        # Behind AUTOLAMELLA_ENABLE_SCRIPTS, and off by default: a script runs with
-        # the application's own hardware access and none of its guard rails. Not
-        # built at all rather than built-and-disabled -- a greyed-out Scripts menu
-        # advertises a feature the user cannot reach and cannot be told how to.
-        # Nothing else creates the menu or the dialog, so this is the whole gate.
-        from fibsem.applications.autolamella.scripting import (
-            get_scripts_directory,
-            scripts_enabled,
+        # Built unconditionally and hidden by _apply_preferences when the
+        # features.scripts_enabled flag is off, which is the default. Hidden rather
+        # than absent so toggling the preference takes effect without a restart, the
+        # same way the coincidence viewer and bug reporter do. Constructing the
+        # controller costs nothing -- it adds two fixed actions and never touches the
+        # scripts folder until the dialog is opened.
+        from fibsem.applications.autolamella.scripting import get_scripts_directory
+        from fibsem.ui.widgets.script_menu import ScriptMenuController
+
+        self.scripts_menu = tools_menu.addMenu("Scripts")
+        if self.scripts_menu is None:
+            raise RuntimeError("Failed to create Scripts submenu in AutoLamella UI.")
+        self.script_menu_controller = ScriptMenuController(
+            menu=self.scripts_menu,
+            scripts_directory=get_scripts_directory,
+            context_factory=self._script_context,
+            notify=self.show_toast,
+            parent=self,
         )
-
-        self.scripts_menu = None
-        self.script_menu_controller = None
-        if scripts_enabled():
-            from fibsem.ui.widgets.script_menu import ScriptMenuController
-
-            self.scripts_menu = tools_menu.addMenu("Scripts")
-            if self.scripts_menu is None:
-                raise RuntimeError("Failed to create Scripts submenu in AutoLamella UI.")
-            self.script_menu_controller = ScriptMenuController(
-                menu=self.scripts_menu,
-                scripts_directory=get_scripts_directory,
-                context_factory=self._script_context,
-                notify=self.show_toast,
-                parent=self,
-            )
 
         # add help menu
         help_menu = menu_bar.addMenu("Help")
@@ -527,6 +521,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Toggle the "Report an Issue..." Help menu action
         self.action_report_issue.setVisible(
             self._preferences.features.bug_report_enabled
+        )
+        # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
+        # only route to the manager dialog, and the dialog is the only thing that runs
+        # a script. If a script is mid-run, leave it visible -- taking away the only
+        # Stop button while the microscope is moving would be worse than the flag
+        # being briefly wrong.
+        self.scripts_menu.menuAction().setVisible(
+            self._preferences.features.scripts_enabled
+            or self.script_menu_controller.runner.is_running
         )
         # Toggle the per-task schedule button in the workflow tab live, so a
         # scheduled-tasks flag change applies without restarting.

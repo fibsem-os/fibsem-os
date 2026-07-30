@@ -209,6 +209,23 @@ def test_an_empty_folder_says_how_to_start_where_you_are_looking(qapp, tmp_path)
     assert "New script" in text and "Change folder" in text
 
 
+def test_the_empty_state_points_at_the_worked_examples(qapp, tmp_path):
+    """examples/scripts/ is not in the wheel, so a pip-installed user has no local
+    copy and no way to know three of them exist. Saying "repository" is the point:
+    without it the only advice is to write one from scratch."""
+    from fibsem.ui.widgets.script_manager_dialog import EXAMPLES_PATH
+
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    from PyQt5.QtWidgets import QLabel
+    text = " ".join(
+        label.text() for label in dialog.stack.currentWidget().findChildren(QLabel)
+    )
+
+    assert EXAMPLES_PATH in text
+    assert "repository" in text
+
+
 def test_the_empty_message_is_not_also_repeated_in_the_detail_panel(qapp, tmp_path):
     """It used to be the only place it appeared; now it would be the second. The
     panel hides rather than sitting there as an empty bordered strip."""

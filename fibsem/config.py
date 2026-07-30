@@ -259,6 +259,10 @@ class FeatureFlags:
     sample_holder_widget: bool = False
     scheduled_tasks: bool = False
     bug_report_enabled: bool = False
+    # Tools -> Scripts. A user script runs with the application's own access to the
+    # microscope and none of its guard rails, so the menu is not offered to anyone
+    # who has not asked for it (FIB-338).
+    scripts_enabled: bool = False
 
 @dataclass
 class MovementPreferences:

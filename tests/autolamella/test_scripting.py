@@ -1,6 +1,5 @@
 """Tier 1 user scripts: discovery, flags, and the runner (FIB-338)."""
 
-import os
 import threading
 from pathlib import Path
 
@@ -11,12 +10,10 @@ from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.scripting import (
     DEFAULT_SCRIPTS_DIR,
     SCRIPTS_DIR_ENV_VAR,
-    SCRIPTS_ENABLED_ENV_VAR,
     ScriptContext,
     discover_scripts,
     get_scripts_directory,
     run_script,
-    scripts_enabled,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -56,29 +53,6 @@ def test_scripts_directory_env_override(monkeypatch, tmp_path):
 
 def test_missing_directory_is_not_an_error(tmp_path):
     assert discover_scripts(tmp_path / "nope") == []
-
-
-# ── the feature flag ─────────────────────────────────────────────────────────
-
-def test_scripts_are_off_unless_asked_for(monkeypatch):
-    """A script runs with the application's hardware access and none of its guard
-    rails, so nobody gets the feature by simply upgrading."""
-    monkeypatch.delenv(SCRIPTS_ENABLED_ENV_VAR, raising=False)
-    assert scripts_enabled() is False
-
-
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " 1 "])
-def test_the_flag_accepts_the_obvious_spellings(monkeypatch, value):
-    monkeypatch.setenv(SCRIPTS_ENABLED_ENV_VAR, value)
-    assert scripts_enabled() is True
-
-
-@pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "ture", "enabled"])
-def test_anything_unrecognised_leaves_the_flag_off(monkeypatch, value):
-    """Including "ture" and "enabled": a typo in the value must fail closed, not
-    quietly switch the feature on."""
-    monkeypatch.setenv(SCRIPTS_ENABLED_ENV_VAR, value)
-    assert scripts_enabled() is False
 
 
 # ── discovery ────────────────────────────────────────────────────────────────

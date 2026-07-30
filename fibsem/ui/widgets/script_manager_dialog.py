@@ -83,6 +83,16 @@ _COLUMNS = ["Script", "Type", "Last run"]
 # who declared the flag still has somewhere to find out it is inert.
 AUTO_NOT_CONNECTED = "auto: declared, but scripts do not run automatically yet"
 
+# Shown in the empty state. Three worked examples exist, one per tier, but they live
+# in the repository rather than the wheel -- so someone who pip-installed has no
+# local copy and no way to know they exist.
+EXAMPLES_PATH = "examples/scripts/"
+EXAMPLES_HINT = (
+    f"Three worked examples — read-only, writes, and microscope — are in "
+    f"<span style='font-family: Menlo, monospace;'>{EXAMPLES_PATH}</span> "
+    f"in the fibsem-os repository. Copy one here to try it."
+)
+
 _TEMPLATE = '''"""Describe what this script does — this line becomes its tooltip."""
 
 # writes = True   # uncomment if the script changes state that should be saved
@@ -307,8 +317,20 @@ class ScriptManagerDialog(QDialog):
         hint.setStyleSheet(
             f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
         )
+        # Says "repository" on purpose: examples/ is not shipped in the wheel, so a
+        # pip-installed user will not find it on disk and would otherwise be told
+        # only to write one from scratch. FIB-341 owns seeding them properly.
+        examples = QLabel(EXAMPLES_HINT)
+        examples.setTextFormat(Qt.RichText)
+        examples.setAlignment(Qt.AlignCenter)
+        examples.setWordWrap(True)
+        examples.setStyleSheet(
+            f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
+        )
         layout.addWidget(headline)
         layout.addWidget(hint)
+        layout.addSpacing(4)
+        layout.addWidget(examples)
         return panel
 
     def _build_table(self) -> QTableWidget:

@@ -53,6 +53,12 @@ _TIP_BUG_REPORT    = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
+_LBL_SCRIPTS       = "Enable User Scripts"
+_TIP_SCRIPTS       = (
+    "Show Tools > Scripts, for running your own .py files against the open "
+    "experiment. A script has the same access to the microscope as the application "
+    "itself and none of its safety checks — nothing validates what it does."
+)
 
 # Experiment defaults
 _LBL_EXP_DIR       = "Default Experiment Directory"
@@ -83,7 +89,10 @@ class PreferencesDialog(QDialog):
         self._preferences = preferences
         self._setup_ui()
         self._load_from_preferences(preferences)
+        # Connected after loading, so opening this dialog with a flag already on does
+        # not fire its warning.
         self._chk_coincidence_milling.toggled.connect(self._on_coincidence_milling_toggled)
+        self._chk_scripts.toggled.connect(self._on_scripts_toggled)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -133,11 +142,14 @@ class PreferencesDialog(QDialog):
         self._chk_scheduled_tasks.setToolTip(_TIP_SCHEDULED)
         self._chk_bug_report = QCheckBox()
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
+        self._chk_scripts = QCheckBox()
+        self._chk_scripts.setToolTip(_TIP_SCRIPTS)
         features_form.addRow(_LBL_LAMELLA_LIVE, self._chk_lamella_live)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
+        features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -199,6 +211,7 @@ class PreferencesDialog(QDialog):
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
+        self._chk_scripts.setChecked(f.scripts_enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -233,6 +246,20 @@ class PreferencesDialog(QDialog):
             "running the fluorescence microscope while milling.",
         )
 
+    def _on_scripts_toggled(self, checked: bool):
+        """Same shape as the coincidence-milling warning: state the consequence once,
+        on the way in, and never on the way out."""
+        if not checked:
+            return
+        QMessageBox.warning(
+            self,
+            "User Scripts — No Safety Checks",
+            "A script you run from Tools > Scripts has the same access to the "
+            "microscope as the application itself, with none of its limits or "
+            "interlocks, and nothing validates what it does before it runs.\n\n"
+            "Scripts you did not write yourself should be read before they are run.",
+        )
+
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state."""
         from fibsem.config import (
@@ -255,6 +282,7 @@ class PreferencesDialog(QDialog):
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
                 scheduled_tasks=self._chk_scheduled_tasks.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
+                scripts_enabled=self._chk_scripts.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
