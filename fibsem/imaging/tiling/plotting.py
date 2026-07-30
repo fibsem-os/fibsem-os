@@ -10,11 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
-from matplotlib_scalebar.scalebar import ScaleBar
 
 from fibsem import constants
 from fibsem.conversions import is_inside_image_bounds

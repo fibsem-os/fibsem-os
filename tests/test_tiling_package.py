@@ -50,6 +50,23 @@ def _declared_imports(relative_path: str) -> set:
     return names
 
 
+def _module_level_imports(relative_path: str) -> set:
+    """Only imports at module scope -- the ones that cost something to `import`.
+
+    Imports nested inside a function are deliberately excluded: deferring an
+    optional dependency to the one function that needs it is the pattern being
+    protected here, not a violation of it.
+    """
+    source = (FIBSEM_ROOT / relative_path).read_text()
+    names = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+        elif isinstance(node, ast.Import):
+            names.update(a.name for a in node.names)
+    return names
+
+
 @pytest.mark.parametrize("path", PURE_MODULES)
 def test_layers_declare_no_microscope_or_ui_import(path):
     offending = sorted(
@@ -103,3 +120,34 @@ def test_the_package_exposes_the_public_surface():
     assert set(tiling.__all__) <= set(dir(tiling))
     for name in tiling.__all__:
         assert getattr(tiling, name) is not None
+
+
+# Packages declared in the `ui` extra of pyproject.toml. CI installs `.[test]`, not
+# `.[ui]`, so a module-level import of any of these from code on a non-UI path fails
+# the whole test run at collection time.
+UI_ONLY_PACKAGES = ("matplotlib_scalebar", "napari", "PyQt5", "pyqt5", "qtawesome")
+
+IMPORTED_BY_NON_UI_CODE = PURE_MODULES + ["imaging/tiled.py"]
+
+
+@pytest.mark.parametrize("path", IMPORTED_BY_NON_UI_CODE)
+def test_no_module_level_import_of_a_ui_only_dependency(path):
+    """Optional UI dependencies must stay deferred to the functions that need them.
+
+    `matplotlib_scalebar` is in the `ui` extra. `plot_stage_positions_on_image` and
+    `plot_minimap` both use it and both import it inside their own bodies, which is
+    what lets headless installs import this module at all.
+
+    That was nearly lost in the extraction (FIB-390): the moved function bodies were
+    verified AST-identical to their originals, but the module headers were written by
+    hand, and hoisting the lazy import into one of them broke every CI job on every
+    Python version -- at collection time, so it read as unrelated tests failing.
+    """
+    offending = sorted(
+        m for m in _module_level_imports(path)
+        if m.split(".")[0] in UI_ONLY_PACKAGES
+    )
+    assert not offending, (
+        f"{path} imports {offending} at module level. Those live in the `ui` extra, "
+        f"which CI does not install -- defer the import into the function that needs it."
+    )
