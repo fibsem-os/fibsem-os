@@ -83,9 +83,9 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 from fibsem.utils import format_duration
-from fibsem.ui.qt.threading import FunctionWorker
 
 
 # Overlay layer configuration constants

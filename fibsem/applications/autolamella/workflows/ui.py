@@ -20,6 +20,7 @@ from fibsem.structures import (
 from fibsem.applications.autolamella.structures import Experiment
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.imaging.spot import SpotBurnSettings
 
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
 def _check_for_abort(parent_ui: Optional['AutoLamellaUI'], msg: str = "Workflow aborted by user.") -> bool:
@@ -248,14 +249,14 @@ def update_experiment_ui(parent_ui: Optional['AutoLamellaUI'], experiment: Exper
     parent_ui.update_experiment_signal.emit(deepcopy(experiment))
 
 def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
-                                parameters: dict | None = None,
+                                settings: Optional['SpotBurnSettings'] = None,
                                 clear_spots: bool = False):
-    """Update the spot burn parameters in the UI."""
+    """Push spot-burn settings to the UI (or clear them)."""
     _check_for_abort(parent_ui)
 
     INFO = {
         "msg": "Updating Spot Burn Parameters",
-        "spot_burn_parameters": parameters,
+        "spot_burn_settings": settings,
         "clear_spot_burn": clear_spots,
     }
 
@@ -266,4 +267,4 @@ def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
 
 def clear_spot_burn_ui(parent_ui: 'AutoLamellaUI'):
     """Clear the spot burn UI."""
-    update_spot_burn_parameters(parent_ui=parent_ui, parameters=None, clear_spots=True)
+    update_spot_burn_parameters(parent_ui=parent_ui, settings=None, clear_spots=True)

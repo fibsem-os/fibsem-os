@@ -72,12 +72,9 @@ from fibsem.ui.widgets.custom_widgets import (
     LamellaNameListWidget,
     TitledPanel,
 )
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
-from fibsem.ui.widgets.image_canvas import (
-    FibsemImageCanvas,
-    RectOverlay,
-    ScanDirectionArrowOverlay,
-)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella

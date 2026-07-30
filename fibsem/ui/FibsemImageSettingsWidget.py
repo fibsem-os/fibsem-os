@@ -1,18 +1,15 @@
 import logging
-from typing import Dict, List, Optional, Tuple
+import threading
+from typing import List, Optional
 
-import napari
-import numpy as np
-from napari.layers import Image as NapariImageLayer
-from napari.layers import Points as NapariPointLayer
-from napari.layers import Shapes as NapariShapesLayer
 from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
 from fibsem.ui.icon import fibsem_icon
 
-from fibsem import acquire, constants, utils
+from fibsem import acquire, utils
+from fibsem.cancellation import OperationCancelledError
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
@@ -24,22 +21,6 @@ from fibsem.structures import (
 )
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui import notification_service
-from fibsem.ui.napari.patterns import (
-    convert_reduced_area_to_napari_shape,
-    convert_shape_to_image_area,
-)
-from fibsem.ui.napari.properties import (
-    ALIGNMENT_LAYER_PROPERTIES,
-    IMAGE_TEXT_LAYER_PROPERTIES,
-    IMAGING_RULER_LAYER_PROPERTIES,
-    RULER_LAYER_NAME,
-    RULER_LINE_LAYER_NAME,
-)
-from fibsem.ui.napari.utilities import (
-    add_points_layer,
-    draw_crosshair_in_napari,
-    draw_scalebar_in_napari,
-)
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -57,30 +38,26 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
-        if not hasattr(parent, "viewer") and not isinstance(parent.viewer, napari.Viewer):
-            raise ValueError("Parent must have a 'viewer' attribute of type napari.Viewer")
 
         self.parent = parent
         self.microscope = microscope
-        self.viewer = parent.viewer
-        self.eb_layer: NapariImageLayer = None
-        self.ib_layer: NapariImageLayer = None
-
-        # TODO: migrate to this structure
-        self.imaging_layers: Dict[BeamType, NapariImageLayer] = {}
-        self.imaging_layers[BeamType.ELECTRON] = None
-        self.imaging_layers[BeamType.ION] = None
+        # viewer-less: the quad-view controller is the display (None when no host viewer)
+        self.viewer = getattr(parent, "viewer", None)
 
         # generate initial blank images
         self.eb_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
         self.ib_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
 
-        # overlay layers
-        self.ruler_layer: Optional[NapariPointLayer] = None
-        self.alignment_layer: Optional[NapariShapesLayer] = None
-
+        self._overlay_edited_wired = False  # quad-view: subscribed to controller.overlay_edited
         self.is_acquiring: bool = False
-        self._ruler_enabled: bool = False
+        self._live_beam: Optional[BeamType] = None  # beam currently live (for the canvas LIVE badge)
+        self._auto_function_error: Optional[Exception] = None
+        self._autofocus_stop_event = threading.Event()  # cancel signal for a running autofocus
+        self._autofocus_running: bool = False  # drives the Run <-> Cancel button morph
+        # True while EITHER auto-function (contrast/focus) runs. The disabled buttons don't
+        # guard the hotkey path (F9/F11 call run_* directly), so both entry points check
+        # this to stay mutually exclusive — they share the beam and _auto_function_error.
+        self._auto_function_running: bool = False
 
         self._setup_ui()
         self.setup_connections()
@@ -90,11 +67,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self._set_image_settings_to_ui(image_settings)
             self.update_ui_saving_settings()
 
-        # register initial images
-        self.eb_layer = self.viewer.add_image(self.eb_image.data, name=BeamType.ELECTRON.name, blending='additive')
-        self.ib_layer = self.viewer.add_image(self.ib_image.data, name=BeamType.ION.name, blending='additive')
-        self._on_acquire(self.eb_image)
-        self._on_acquire(self.ib_image)
+        # NOTE: the canvases are intentionally left empty ("No image") on connect — no blank
+        # placeholder is seeded. eb_image / ib_image remain as internal fallbacks and appear
+        # once a real acquisition arrives (sem/fib_acquisition_signal -> _on_acquire).
 
     # ------------------------------------------------------------------
     # Backward-compatibility properties for callers outside this widget
@@ -147,20 +122,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._spinner = _SpinnerLabel(parent=self)
         self._spinner.setVisible(False)
 
-        # View tool buttons (scalebar, crosshair) + spinner — right-aligned alongside the lamella checkbox
-        self.btn_scalebar = IconToolButton(
-            icon="mdi:arrow-expand-horizontal",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Scale Bar",
-            checked=False,
-        )
-        self.btn_crosshair = IconToolButton(
-            icon="mdi:target",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Cross Hair",
-            checked=True,
-        )
-
+        # Spinner row — right-aligned alongside the lamella checkbox. (Scalebar /
+        # crosshair toggles live on the quad-view canvas, not here.)
         tools_row = QtWidgets.QWidget()
         tools_layout = QtWidgets.QHBoxLayout(tools_row)
         tools_layout.setContentsMargins(0, 0, 0, 0)
@@ -168,8 +131,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         tools_layout.addWidget(self.checkBox_save_with_selected_lamella)
         tools_layout.addStretch()
         tools_layout.addWidget(self._spinner)
-        tools_layout.addWidget(self.btn_scalebar)
-        tools_layout.addWidget(self.btn_crosshair)
 
         # add buttons to layout — scroll area at row 1, tools row at row 2, buttons below
         self.gridLayout.addWidget(tools_row, 2, 0, 1, 2)
@@ -236,13 +197,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # image advanced toggle
         self._btn_advanced_image.toggled.connect(self.image_settings_widget.set_show_advanced)
 
-        # util
-        self.btn_scalebar.toggled.connect(self.update_ui_tools)
-        self.btn_crosshair.toggled.connect(self.update_ui_tools)
-
         # signals
         self.acquisition_progress_signal.connect(self.handle_acquisition_progress_update)
-        self.viewer_update_signal.connect(self.update_ui_tools)
 
         # auto functions
         self.pushButton_run_autocontrast.clicked.connect(self.run_autocontrast)
@@ -270,34 +226,98 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.microscope.fib_acquisition_signal.connect(self._on_acquire)
         self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
 
+        # Working-distance Shift+scroll nudge on the SEM/FIB canvases (mirrors the FM
+        # objective wheel). Store the bound-method connections for teardown — the canvases
+        # outlive this widget, so a leaked connection would drive a dead slot on reconnect.
+        self._wd_scroll_connections: List[tuple] = []
+        controller = self._view_controller()
+        if controller is not None:
+            for beam, canvas in (
+                (BeamType.ELECTRON, controller.sem_canvas),
+                (BeamType.ION, controller.fib_canvas),
+            ):
+                beam_widget = (
+                    self.dual_beam_widget.sem_widget
+                    if beam is BeamType.ELECTRON
+                    else self.dual_beam_widget.fib_widget
+                )
+                slot = beam_widget.beam_settings_widget._on_canvas_scroll
+                canvas.canvas_scrolled.connect(slot)
+                self._wd_scroll_connections.append((canvas, slot))
+
+        # Two-way sync between the quad-view selection and the SEM/FIB beam radios:
+        # selecting a canvas checks its radio (revealing that beam's settings), and checking
+        # a radio selects its canvas. The controller is persistent, so store the connections
+        # for teardown (else a reconnect leaks onto a dead widget). Loop-safe: set_selected
+        # no-ops on re-select and setChecked emits no toggled when already set.
+        self._view_sync_connections: List[tuple] = []
+        if controller is not None:
+            controller.view_selected.connect(self._on_view_selected)
+            self._view_sync_connections.append((controller.view_selected, self._on_view_selected))
+            self._on_view_selected(controller.selected_view)  # align radio to current selection
+            self.dual_beam_widget.sem_radio.toggled.connect(self._on_beam_radio_toggled)
+            self._view_sync_connections.append(
+                (self.dual_beam_widget.sem_radio.toggled, self._on_beam_radio_toggled)
+            )
+
     @ensure_main_thread
     def _on_acquire(self, image: FibsemImage):
         """Update the viewer from the main thread"""
         try:
             if image.metadata is None:
-                raise ValueError("Image metadata is None, cannot update viewer layer without beam type information.")
+                raise ValueError("Image metadata is None, cannot update the display without beam type information.")
 
-            # Update existing layer
-            layer = self.viewer.layers[image.metadata.beam_type.name]
-            layer.data = image.filtered_data
-            # update images references
+            # update image references
             if self.microscope.is_acquiring:
                 if image.metadata.beam_type is BeamType.ELECTRON:
                     self.eb_image = image
                 elif image.metadata.beam_type is BeamType.ION:
                     self.ib_image = image
+            # Display on the quad-view canvas
+            controller = self._view_controller()
+            if controller is not None:
+                controller.set_image(image.metadata.beam_type, image)
         except Exception as e:
-            logging.error(f"Error updating image layer: {e}")
+            logging.error(f"Error updating image: {e}")
 
-        # dont reset view when live acq
-        self._update_layer_positions()
-        self.restore_active_layer_for_movement()
-        self.viewer_update_signal.emit()
+        self.viewer_update_signal.emit()  # notifies the milling widget of a new image
+
+    def _view_controller(self):
+        """Return the quad-view MicroscopeViewController, or None when inactive.
+
+        Two hosts expose it: standalone ``FibsemUI`` (the direct parent holds
+        ``view_controller``) and AutoLamella (parent → ``AutoLamellaUI`` →
+        ``parent_widget`` → the main window). Check the direct parent first, then
+        the AutoLamella chain; ``None`` if neither holds one.
+        """
+        controller = getattr(self.parent, "view_controller", None)
+        if controller is not None:
+            return controller
+        parent_ui = getattr(self.parent, "parent_widget", None)
+        return getattr(parent_ui, "view_controller", None)
+
+    def _on_view_selected(self, key) -> None:
+        """Quad-view selection changed -> check the matching beam radio (view -> radio).
+        Ignores ``"fm"`` / ``None`` (no beam radio)."""
+        if key is BeamType.ELECTRON:
+            self.dual_beam_widget.sem_radio.setChecked(True)
+        elif key is BeamType.ION:
+            self.dual_beam_widget.fib_radio.setChecked(True)
+
+    def _on_beam_radio_toggled(self, sem_checked: bool) -> None:
+        """Beam radio toggled -> select the matching canvas in the quad view (radio -> view)."""
+        controller = self._view_controller()
+        if controller is None:
+            return
+        widget = getattr(controller, "widget", None)
+        if widget is not None and hasattr(widget, "set_selected"):
+            widget.set_selected(BeamType.ELECTRON if sem_checked else BeamType.ION)
 
     def toggle_live_acquisition(self, event=None):
         if self.microscope.is_acquiring:
             logging.info("Microscope is already acquiring. Stopping acquisition...")
             self.microscope.stop_acquisition()
+            self._set_live_indicator(None)  # clear the green border + LIVE badge
             self.pushButton_start_acquisition.setText("Start Acquisition")
             self.pushButton_start_acquisition.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
             for btn in self.acquisition_buttons:
@@ -321,123 +341,78 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         beam_type = self.dual_beam_widget.beam_type
         self.microscope.start_acquisition(beam_type)
+        self._set_live_indicator(beam_type)  # green border + LIVE badge on the live view
         self.pushButton_start_acquisition.setText("Stop Acquisition")
         self.pushButton_start_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
 
-    def update_ruler(self):
-        """Initialise the ruler in the viewer"""
+    def _set_live_indicator(self, beam_type: Optional[BeamType]) -> None:
+        """Drive the quad-view live indicator (green border + 'LIVE' badge): pass the live beam,
+        or None to clear. Also clears a previously-live beam (on stop or a beam switch)."""
+        controller = self._view_controller()
+        if self._live_beam is not None and self._live_beam is not beam_type and controller is not None:
+            controller.set_live(self._live_beam, False)
+        self._live_beam = beam_type
+        if beam_type is not None and controller is not None:
+            controller.set_live(beam_type, True)
 
-        # TODO: migrate to using a line layer for everything, and enable 'select vertices' mode to move it.
-        # TODO: allow multiple rulers
-        # TODO: re-do this and consolidate into napari.utilities
-
-        if not self._ruler_enabled:
-            # remove the ruler layers
-            try:
-                self.viewer.layers.remove(self.ruler_layer)
-                self.viewer.layers.remove(RULER_LINE_LAYER_NAME)
-            except Exception as e:
-                logging.debug(f"Error removing ruler layers: {e}")
-            self.ruler_layer = None
-            self.restore_active_layer_for_movement()
-            return
-
-        # create an initial ruler in SEM image
-        sem_shape = self.eb_image.data.shape
-        pixelsize = self.eb_image.metadata.pixel_size.x
-        cy, cx = sem_shape[0] // 2, sem_shape[1] // 2
-        length = 400
-        data = [[cy, cx - length/2], [cy, cx + length]]
-
-        # create text label
-        dist_um = length * pixelsize * constants.SI_TO_MICRO
-        text = {
-            "string": [f"{dist_um:.2f} um", ""],
-            "color": IMAGING_RULER_LAYER_PROPERTIES["text"]["color"],
-            "translation": IMAGING_RULER_LAYER_PROPERTIES["text"]["translation"],
-            "size": IMAGING_RULER_LAYER_PROPERTIES["text"]["size"],
-        }
-
-        # create initial layers, and select the ruler layer for interaction
-        self.ruler_layer = add_points_layer(
-            self.viewer,
-            data=data,
-            name=RULER_LAYER_NAME,
-            size=IMAGING_RULER_LAYER_PROPERTIES["size"],
-            face_color=IMAGING_RULER_LAYER_PROPERTIES["face_color"],
-            border_color=IMAGING_RULER_LAYER_PROPERTIES["edge_color"],
-            text=text,
-        )
-        self.viewer.add_shapes(data, shape_type='line', edge_color='lime', name=RULER_LINE_LAYER_NAME, edge_width=5)
-        self.ruler_layer.mouse_drag_callbacks.append(self.update_ruler_points)
-        self.ruler_layer.mode = 'select'
-        self.viewer.layers.selection.active = self.ruler_layer
-
-    def update_ruler_points(self, layer: NapariPointLayer, event):
-        """Update the ruler line and value when the mouse is dragged"""
-
-        # TODO: update this to use the new data changed api in napari
-        # self.ruler_layer.events.data.connect(self._update_ruler)
-        # event.action == "changing", "changed", "added", "removed"...
-
-        dragged = False
-        yield
-
-        def check_point_image_in_eb(point: Tuple[int, int]) -> bool:
-            if point[1] >= 0 and point[1] <= self.eb_layer.data.shape[1]:
-                return True
-            else:
-                return False
-
-        while event.type == 'mouse_move':
-
-            # if no points are selected, do nothing
-            if self.ruler_layer.selected_data is None:
-                yield
-
-            data = self.ruler_layer.data
-
-            p1, p2 = data[0], data[1]
-            dist_px = np.linalg.norm(p1-p2)
-
-            if check_point_image_in_eb(p1):
-                pixelsize = self.eb_image.metadata.pixel_size.x
-            else:
-                pixelsize = self.ib_image.metadata.pixel_size.x
-
-            dist_um = dist_px * pixelsize * constants.SI_TO_MICRO
-
-            text = {
-                "string": [f"{dist_um:.2f} um", ""],
-                "color": IMAGING_RULER_LAYER_PROPERTIES["text"]["color"],
-                "translation": IMAGING_RULER_LAYER_PROPERTIES["text"]["translation"],
-                "size": IMAGING_RULER_LAYER_PROPERTIES["text"]["size"],
-            }
-
-            self.viewer.layers[RULER_LAYER_NAME].text = text
-            self.viewer.layers.selection.active = self.ruler_layer
-            self.viewer.layers[RULER_LINE_LAYER_NAME].data = [p1, p2]
-            self.viewer.layers[RULER_LINE_LAYER_NAME].refresh()
-
-            dragged = True
-            yield
+    def _stop_live_acquisition_if_running(self) -> None:
+        """Stop live acquisition if it's running — it contends with the auto-functions for the
+        beam, so an auto-contrast/focus request stops live first (then runs)."""
+        if self.microscope.is_acquiring:
+            logging.info("Stopping live acquisition before running auto-function...")
+            self.toggle_live_acquisition()  # stops live + resets its button/UI state
 
     def run_autocontrast(self) -> None:
         """Run autocontrast for the selected beam type."""
+        if self._auto_function_running:
+            notification_service.show_toast("An auto-function is already running.", "warning")
+            return
+        self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
+        self._auto_function_running = True
         self._toggle_interactions(enable=False)
+        self._auto_function_error = None
         worker = self._autocontrast_worker(beam_type)
+        worker.errored.connect(self._on_auto_function_errored)
         worker.finished.connect(lambda: self._on_auto_function_finished("AutoContrast", beam_type=beam_type))
         worker.start()
 
     def run_autofocus(self) -> None:
-        """Run autofocus for the selected beam type."""
+        """Run autofocus, or cancel it if already running — the "Run AutoFocus" button morphs
+        into "Cancel" while it runs (F11 toggles the same way)."""
+        if self._autofocus_running:
+            # cancel: signal the worker to stop at its next checkpoint (between WD steps/passes)
+            self._autofocus_stop_event.set()
+            self.pushButton_run_autofocus.setEnabled(False)
+            self.pushButton_run_autofocus.setText("Cancelling…")
+            return
+        if self._auto_function_running:
+            # a non-cancellable auto-function (autocontrast) is running — refuse to start,
+            # or F9-then-F11 would run two workers on the same beam and desync the state
+            notification_service.show_toast("An auto-function is already running.", "warning")
+            return
+        self._stop_live_acquisition_if_running()
         beam_type = self.dual_beam_widget.beam_type
+        self._auto_function_error = None
+        self._autofocus_stop_event.clear()
+        self._auto_function_running = True
+        self._autofocus_running = True
         notification_service.show_toast(f"Running AutoFocus on {beam_type.name} beam...")
         self._toggle_interactions(enable=False)
+        # keep the autofocus button live, morphed into a Cancel control
+        self.pushButton_run_autofocus.setEnabled(True)
+        self.pushButton_run_autofocus.setText("Cancel AutoFocus")
+        self.pushButton_run_autofocus.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
         worker = self._autofocus_worker(beam_type)
+        worker.errored.connect(self._on_auto_function_errored)
         worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type))
         worker.start()
+
+    def _restore_autofocus_button(self) -> None:
+        """Un-morph the autofocus button back to its default 'Run AutoFocus' state."""
+        self.pushButton_run_autofocus.setText("Run AutoFocus")
+        self.pushButton_run_autofocus.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_run_autofocus.setEnabled(True)
 
     @thread_worker
     def _autocontrast_worker(self, beam_type: BeamType):
@@ -459,12 +434,32 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             beam_type=beam_type,
             hfw=self.microscope.get_field_of_view(beam_type),
             settings=settings,
+            stop_event=self._autofocus_stop_event,
         )
 
+    def _on_auto_function_errored(self, exc: Exception) -> None:
+        """Record a background auto-function failure.
+
+        The user-facing toast is shown in ``_on_auto_function_finished`` (which
+        runs after ``sync_from_microscope``); ``errored`` is delivered before
+        ``finished``, so the flag is set by the time it is read.
+        """
+        self._auto_function_error = exc
+
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
+        self._autofocus_running = False
+        self._auto_function_running = False
         self._toggle_interactions(enable=True)
+        self._restore_autofocus_button()  # un-morph if it was showing "Cancel"
         beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
         beam_widget.sync_from_microscope()
+        if self._auto_function_error is not None:
+            if isinstance(self._auto_function_error, OperationCancelledError):
+                notification_service.show_toast(f"{name} cancelled", "warning")  # user cancel, not a failure
+            else:
+                notification_service.show_toast(f"{name} failed: {self._auto_function_error}", "error")
+            self._auto_function_error = None
+            return
         if name == "AutoFocus":
             wd = beam_widget.beam_settings_widget.working_distance_spinbox.value()
             notification_service.show_toast(f"AutoFocus Complete ({beam_type.name}). Best WD: {wd:.2f}mm")
@@ -597,6 +592,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._toggle_interactions(True)
         self.is_acquiring = False
 
+    def _on_acquisition_errored(self, exc: Exception) -> None:
+        """Surface a background image-acquisition failure to the user.
+
+        ``FunctionWorker`` logs the traceback but (unlike napari's old
+        ``thread_worker``) does not reraise it onto the GUI thread; interaction
+        state is still reset by ``acquisition_finished`` on ``finished``.
+        """
+        notification_service.show_toast(f"Image acquisition failed: {exc}", "error")
+
     def acquire_sem_image(self) -> None:
         """Acquire an SEM image with the current settings"""
         self.start_acquisition(both=False, beam_type=BeamType.ELECTRON)
@@ -634,6 +638,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
         worker.finished.connect(self.acquisition_finished)
+        worker.errored.connect(self._on_acquisition_errored)
         worker.start()
 
     @thread_worker
@@ -656,111 +661,84 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         logging.debug({"msg": "acquisition_worker", "image_settings": self.image_settings.to_dict()})
 
-    def update_ui_tools(self):
-        """Redraw the ui tools (scalebar, crosshair)"""
-
-        # draw scalebar and crosshair
-        if self.eb_image is not None and self.ib_image is not None:
-            draw_scalebar_in_napari(
-                viewer=self.viewer,
-                sem_shape=self.eb_image.data.shape,
-                fib_shape=self.ib_image.data.shape,
-                sem_fov=self.eb_image.metadata.image_settings.hfw,
-                fib_fov=self.ib_image.metadata.image_settings.hfw,
-                is_checked=self.btn_scalebar.isChecked(),
-            )
-            fm_shape = None
-            if self.microscope.fm is not None:
-                try:
-                    fm_shape = self.microscope.fm.camera.resolution[::-1]
-                except Exception as e:
-                    logging.error(f"Failed to get fm image shape: {e}", exc_info=True)
-            draw_crosshair_in_napari(
-                viewer=self.viewer,
-                sem_shape=self.eb_image.data.shape,
-                fib_shape=self.ib_image.data.shape,
-                fm_shape=fm_shape,
-                is_checked=self.btn_crosshair.isChecked(),
-            )
-
-        # restore active layer for movement
-        self.restore_active_layer_for_movement()
-
-    def _update_layer_positions(self):
-        """Update the positions of the image layers in the viewer. Ion beam to the right of electron beam."""
-        # translate ion beam layer to the right of electron beam, adjust the camera
-        if self.eb_layer and self.ib_layer:
-            self.ib_layer.translate = [0.0, self.eb_layer.data.shape[1]]
-
-            # position the image text layer
-            points = np.array([[-20, 200], [-20, self.ib_layer.translate[1] + 150]])
-
-            try:
-                self.viewer.layers[IMAGE_TEXT_LAYER_PROPERTIES["name"]].data = points
-            except KeyError:
-                add_points_layer(
-                    viewer=self.viewer,
-                    data=points,
-                    name=IMAGE_TEXT_LAYER_PROPERTIES["name"],
-                    size=IMAGE_TEXT_LAYER_PROPERTIES["size"],
-                    text=IMAGE_TEXT_LAYER_PROPERTIES["text"],
-                    border_width=IMAGE_TEXT_LAYER_PROPERTIES["border_width"],
-                    border_width_is_relative=IMAGE_TEXT_LAYER_PROPERTIES[
-                        "border_width_is_relative"
-                    ],
-                    border_color=IMAGE_TEXT_LAYER_PROPERTIES["border_color"],
-                    face_color=IMAGE_TEXT_LAYER_PROPERTIES["face_color"],
-                )
-                self.viewer.reset_view()
-
-    def get_data_from_coord(self, coords: Tuple[float, float]) -> Tuple[Tuple[float, float], BeamType, FibsemImage]:
-
-        # TODO: change this to use the image layers, and extent
-
-        # check inside image dimensions, (y, x)
-        eb_shape = self.eb_image.data.shape[0], self.eb_image.data.shape[1]
-        ib_shape = self.ib_image.data.shape[0], self.ib_image.data.shape[1] + self.eb_image.data.shape[1]
-
-        if (coords[0] > 0 and coords[0] < eb_shape[0]) and (
-            coords[1] > 0 and coords[1] < eb_shape[1]
-        ):
-            image = self.eb_image
-            beam_type = BeamType.ELECTRON
-
-        elif (coords[0] > 0 and coords[0] < ib_shape[0]) and (
-            coords[1] > eb_shape[0] and coords[1] < ib_shape[1]
-        ):
-            image = self.ib_image
-            coords = (coords[0], coords[1] - ib_shape[1] // 2)
-            beam_type = BeamType.ION
-        else:
-            beam_type, image = None, None
-
-        # logging
-        logging.debug({"msg": "get_data_from_coord", "coords": coords, "beam_type": beam_type})
-
-        return coords, beam_type, image
-
     def closeEvent(self, event: QEvent):
-        self.viewer.layers.clear()
+        self._teardown_connections()
         event.accept()
 
-    def clear_viewer(self):
-        self.viewer.layers.clear()
-        self.eb_layer = None
-        self.ib_layer = None
+    def _teardown_connections(self) -> None:
+        """Drop the controller subscription (idempotent). Called from ``closeEvent`` AND
+        the AutoLamella teardown path — ``deleteLater`` fires neither ``closeEvent`` nor
+        ``close``, so without this an alignment edit after a reconnect would drive the
+        dead widget's slot on the persistent controller."""
+        if self._overlay_edited_wired:
+            controller = self._view_controller()
+            if controller is not None:
+                try:
+                    controller.overlay_edited.disconnect(self._on_controller_overlay_edited)
+                except (TypeError, RuntimeError):
+                    pass
+            self._overlay_edited_wired = False
 
-    def restore_active_layer_for_movement(self):
-        """Restore the active layer to the electron beam for movement"""
-        if self.eb_layer in self.viewer.layers:
-            self.viewer.layers.selection.active = self.eb_layer
+        # WD Shift+scroll: disconnect from the (persistent) canvases and cancel any pending
+        # debounced move so it can't fire on a torn-down beam-settings widget.
+        for canvas, slot in getattr(self, "_wd_scroll_connections", []):
+            try:
+                canvas.canvas_scrolled.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._wd_scroll_connections = []
+        for beam_widget in (self.dual_beam_widget.sem_widget, self.dual_beam_widget.fib_widget):
+            try:
+                beam_widget.beam_settings_widget._execute_wd_wheel_move.cancel()
+            except Exception:
+                pass
+
+        # View <-> beam-radio sync: drop both directions (controller is persistent).
+        for signal, slot in getattr(self, "_view_sync_connections", []):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._view_sync_connections = []
+
+    def _ensure_overlay_edited_wiring(self, controller) -> None:
+        """Subscribe (once) to the controller's overlay-edit signal so a user drag of
+        the alignment area drives the existing validation/workflow path unchanged."""
+        if self._overlay_edited_wired:
+            return
+        controller.overlay_edited.connect(self._on_controller_overlay_edited)
+        self.alignment_area_updated.connect(self._on_alignment_area_updated)
+        self._overlay_edited_wired = True
+
+    def _on_controller_overlay_edited(self, beam, overlay_id, value) -> None:
+        """Route a committed alignment-area edit into the existing signal/workflow.
+
+        The authoritative value lives in the model (``controller.alignment_area``);
+        this just drives validation, so it forwards the edit without caching it."""
+        if overlay_id == "alignment":
+            self.alignment_area_updated.emit(value)
+
+    def hide_alignment_area(self):
+        """Hide the alignment area but keep its value.
+
+        The workflow reads ``get_alignment_area()`` straight after sending its
+        "clear" (in ``update_alignment_area_ui``), so the rect must survive — the
+        overlay is hidden but the model keeps its value.
+        """
+        controller = self._view_controller()
+        if controller is not None:
+            controller.set_alignment_edit(BeamType.ION, None, editing=False)
 
     def clear_alignment_area(self):
-        """Hide the alignment area layer"""
-        if self.alignment_layer is not None:
-            self.alignment_layer.mode = "pan_zoom"
-            self.alignment_layer.visible = False
-        self.restore_active_layer_for_movement()
+        """Remove the alignment area entirely (true teardown; no value retained).
+
+        No caller yet — defined for explicit teardown (e.g. lamella deselect). The
+        workflow's mid-flow "clear" uses :meth:`hide_alignment_area` instead.
+        """
+        controller = self._view_controller()
+        if controller is not None:
+            controller.arm_overlay(BeamType.ION, None)
+            controller.remove_overlay(BeamType.ION, "alignment")
 
     def toggle_alignment_area(self, reduced_area: FibsemRectangle, editable: bool = True):
         """Toggle the alignment area layer to selection mode, and display the alignment area."""
@@ -771,43 +749,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         reduced_area: FibsemRectangle = FibsemRectangle(0.25, 0.25, 0.5, 0.5),
         editable: bool = True,
     ):
-        """Set the alignment area layer in napari."""
-
-        # add alignment area to napari
-        data = convert_reduced_area_to_napari_shape(
-            reduced_area=reduced_area,
-            image_shape=self.ib_image.data.shape,
-        )
-        if self.alignment_layer is None or ALIGNMENT_LAYER_PROPERTIES["name"] not in self.viewer.layers:
-            self.alignment_layer = self.viewer.add_shapes(
-                data=data,
-                name=ALIGNMENT_LAYER_PROPERTIES["name"],
-                shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"],
-                edge_color=ALIGNMENT_LAYER_PROPERTIES["edge_color"],
-                edge_width=ALIGNMENT_LAYER_PROPERTIES["edge_width"],
-                face_color=ALIGNMENT_LAYER_PROPERTIES["face_color"],
-                opacity=ALIGNMENT_LAYER_PROPERTIES["opacity"],
-                translate=self.ib_layer.translate,  # match the fib layer translation
-            )
-            self.alignment_layer.metadata = ALIGNMENT_LAYER_PROPERTIES["metadata"]
-            self.alignment_layer.events.data.connect(self.update_alignment)
-            self.alignment_area_updated.connect(self._on_alignment_area_updated)
-        else:
-            self.alignment_layer.data = data
-
-        if editable:
-            self.alignment_layer.visible = True
-            self.viewer.layers.selection.active = self.alignment_layer
-            self.alignment_layer.mode = "select"
-            self.alignment_layer.selected_data.clear()
-        # TODO: prevent rotation of rectangles?
-
-    def update_alignment(self, event):
-        """Validate the alignment area, and update the parent ui."""
-        reduced_area = self.get_alignment_area()
-        if reduced_area is None:
-            return
-        self.alignment_area_updated.emit(reduced_area)
+        """Display the editable alignment area on the quad-view FIB canvas."""
+        controller = self._view_controller()
+        if controller is not None:
+            self._ensure_overlay_edited_wiring(controller)
+            # editing wins over the milling read-only display + owns FIB input
+            controller.set_alignment_edit(BeamType.ION, reduced_area, editing=editable)
 
     def _on_alignment_area_updated(self, reduced_area: FibsemRectangle):
         """Update the parent ui with the new alignment area. (compatibility for AutoLamellaUI)
@@ -828,9 +775,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             logging.info(f"Error updating alignment area: {e}")
 
     def get_alignment_area(self) -> Optional[FibsemRectangle]:
-        """Get the alignment area from the alignment layer."""
-        data = self.alignment_layer.data
-        if data is None or len(data) == 0:
-            return None
-        data = data[0]
-        return convert_shape_to_image_area(data, self.ib_image.data.shape)
+        """Get the alignment area from the model (quad-view)."""
+        controller = self._view_controller()
+        if controller is not None:
+            return controller.alignment_area(BeamType.ION)
+        return None
