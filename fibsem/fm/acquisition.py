@@ -492,9 +492,16 @@ def acquire_tileset(
             logging.info("Initial autofocus cancelled")
             return []  # Return empty list if cancelled
 
-    # Calculate starting position (top-left corner of grid)
+    # Calculate starting position (top-left corner of grid).
+    #
+    # Row 0 is the top of the mosaic, so it sits at the most *positive* y offset and
+    # later rows step down -- the same convention `imaging/tiled.py` uses for beam
+    # tilesets ("negate: stage y axis is inverted"). Both express their steps in image
+    # coordinates and hand them to the same projection, so the two tilers have to agree
+    # on the row direction or their mosaics disagree. `stitch_tileset` places row 0 at
+    # canvas y=0 regardless, so getting this backwards reverses the row order.
     start_offset_x = -(cols - 1) * step_x / 2
-    start_offset_y = -(rows - 1) * step_y / 2
+    start_offset_y = (rows - 1) * step_y / 2
 
     # Move to starting position
     microscope.fm.acquisition_progress_signal.emit({
@@ -651,8 +658,9 @@ def acquire_tileset(
                     "state": "moving",
                     "task": "tileset",
                 })
-                # Return to first column of next row
-                microscope.fm_stable_move(dx=-(cols - 1) * step_x, dy=step_y)
+                # Return to first column of next row, and step *down* one row (see the
+                # row-direction note where start_offset_y is computed).
+                microscope.fm_stable_move(dx=-(cols - 1) * step_x, dy=-step_y)
 
         # save the parameters in a metadata json file if save_directory is provided
         if save_directory is not None:
@@ -1123,7 +1131,11 @@ def generate_grid_positions(
     for i in range(ncols):
         for j in range(nrows):
             x = (i - (ncols - 1) / 2) * (fov_x * (1 - overlap))
-            y = (j - (nrows - 1) / 2) * (fov_y * (1 - overlap))
+            # Negated so that row 0 is the top of the mosaic, matching
+            # `acquire_tileset`'s stepping and `TilePosition` in imaging/tiled.py.
+            # The grid is symmetric about zero, so this changes the row ordering
+            # without changing the set of positions visited.
+            y = -(j - (nrows - 1) / 2) * (fov_y * (1 - overlap))
             positions.append((x, y))
 
     return positions
