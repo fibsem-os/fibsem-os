@@ -153,10 +153,43 @@ class ManipulatorState(Enum):
 
 
 class AutoFocusMode(Enum):
-    NONE = 0
-    ONCE = 1
-    EVERY_ROW = 2
-    EVERY_TILE = 3
+    """When to run autofocus during a tiled acquisition.
+
+    One vocabulary for both tilers. There used to be two enums of this name --
+    this one, and an identical set of concepts in `fibsem.fm.structures` -- which
+    meant `AutoFocusMode.NONE is AutoFocusMode.NONE` was False across the two
+    import paths, with no type error to catch it. `fibsem.fm.structures` now
+    re-exports this one.
+
+    Every spelling either enum was ever written in still resolves: the `EVERY_*`
+    aliases below (this side persisted by name), the lowercase values (the FM side
+    persisted by value), and the integers 0-3 that used to be this enum's values.
+    """
+
+    NONE = "none"
+    ONCE = "once"
+    EACH_ROW = "each_row"
+    EACH_TILE = "each_tile"
+
+    # Aliases, not new members: `AutoFocusMode.EVERY_ROW is AutoFocusMode.EACH_ROW`,
+    # `AutoFocusMode["EVERY_ROW"]` resolves, and `list(AutoFocusMode)` still yields
+    # exactly the four modes above -- which is what the mode combo boxes iterate.
+    EVERY_ROW = "each_row"
+    EVERY_TILE = "each_tile"
+
+    @classmethod
+    def _missing_(cls, value):
+        """Resolve the older spellings, so nothing already written stops loading."""
+        if isinstance(value, str):
+            # Member names ("EVERY_ROW", "NONE"). Values are lowercase and names are
+            # uppercase, so this cannot collide with a real value.
+            return cls.__members__.get(value.upper())
+        # The integers this enum used to be, in declaration order. bool is excluded
+        # deliberately: True == 1 would otherwise silently resolve to ONCE.
+        if isinstance(value, int) and not isinstance(value, bool):
+            order = (cls.NONE, cls.ONCE, cls.EACH_ROW, cls.EACH_TILE)
+            return order[value] if 0 <= value < len(order) else None
+        return None
 
 
 class TileOrderStrategy(Enum):
@@ -716,19 +749,21 @@ class AutoFocusSettings:
     """Settings for autofocus in tiled overview acquisition.
 
     Attributes:
-        mode: When to apply autofocus (NONE, ONCE, EVERY_ROW, EVERY_TILE).
+        mode: When to apply autofocus (NONE, ONCE, EACH_ROW, EACH_TILE).
               beam_type and reduced_area are taken from image_settings at acquisition time.
     """
 
     mode: AutoFocusMode = AutoFocusMode.NONE
 
     def to_dict(self) -> dict:
-        return {"mode": self.mode.name}
+        # By value, matching how the fluorescence side has always written this mode.
+        # Files that stored the old member name ("EVERY_ROW") still load.
+        return {"mode": self.mode.value}
 
     @staticmethod
     def from_dict(d: dict) -> "AutoFocusSettings":
         return AutoFocusSettings(
-            mode=AutoFocusMode[d.get("mode", "NONE")]
+            mode=AutoFocusMode(d.get("mode", AutoFocusMode.NONE.value))
         )
 
 

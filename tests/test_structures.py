@@ -196,7 +196,7 @@ def test_autofocus_settings_round_trip():
     for mode in AutoFocusMode:
         s = AutoFocusSettings(mode=mode)
         d = s.to_dict()
-        assert d["mode"] == mode.name
+        assert d["mode"] == mode.value
         restored = AutoFocusSettings.from_dict(d)
         assert restored.mode is mode
 
