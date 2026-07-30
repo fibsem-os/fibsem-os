@@ -1505,6 +1505,77 @@ class FibsemMicroscope(ABC):
             return dx, dy
         return self.fm._transform.apply_to_delta(dx, dy)
 
+    def _fm_stage_delta(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Relative stage movement for a displacement in the stage-aligned FM image.
+
+        The projection shared by :meth:`fm_stable_move` and
+        :meth:`project_fm_stable_move`, so the two cannot disagree about where a
+        given displacement lands.
+
+        Takes **stage-aligned** image coordinates: the display transform, if any,
+        must already have been undone by the caller. See
+        :meth:`project_fm_stable_move` for why that split exists.
+
+        Args:
+            dx: distance along the x-axis, in stage-aligned image coordinates.
+            dy: distance along the y-axis, in stage-aligned image coordinates.
+
+        Returns:
+            FibsemStagePosition: relative movement, with the y-displacement split
+            across the stage y- and z-axes by the sample tilt.
+
+        Raises:
+            ValueError: if no fluorescence microscope is available.
+        """
+        if self.fm is None:
+            raise ValueError("Fluorescence microscope is not available.")
+
+        yz_move = self._view_corrected_stage_movement(
+            expected_y=dy,
+            view_tilt=np.deg2rad(self.fm.camera_tilt),
+        )
+        return FibsemStagePosition(
+            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
+        )
+
+    def project_fm_stable_move(
+        self, dx: float, dy: float, base_position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """Where the stage would end up after an FM displacement, without moving.
+
+        The fluorescence counterpart of :meth:`project_stable_move`. That one is
+        abstract and reimplemented by every driver, because it carries beam-specific
+        work -- scan rotation, `beam_type` dispatch. A camera has neither, and both
+        `camera_tilt` and the projection itself are already concrete here, so this
+        needs no per-driver override.
+
+        Unlike :meth:`fm_stable_move`, this does **not** undo the user's display
+        transform. The undo belongs at the point where a displacement enters from
+        display space -- that is, a click. Callers that synthesise a displacement
+        instead, such as tile stepping computed from the camera's field of view in
+        physical units, were never in display space and have nothing to undo; running
+        them through the undo would make a display preference alter the stage path.
+
+        Args:
+            dx: distance along the x-axis, in stage-aligned image coordinates.
+            dy: distance along the y-axis, in stage-aligned image coordinates.
+            base_position: the position the displacement is measured from.
+
+        Returns:
+            FibsemStagePosition: the absolute position the displacement lands on.
+
+        Raises:
+            ValueError: if no fluorescence microscope is available.
+        """
+        delta = self._fm_stage_delta(dx, dy)
+
+        new_position = deepcopy(base_position)
+        new_position.x += delta.x
+        new_position.y += delta.y
+        new_position.z += delta.z
+
+        return new_position
+
     def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
         """Move the stage by a displacement seen in the fluorescence image.
 
@@ -1534,15 +1605,12 @@ class FibsemMicroscope(ABC):
                 f"(state: {self.fm.objective.state}); the view may not match the sample."
             )
 
+        # The click arrived in display space, so undo the user's transform before
+        # projecting. Displacements that were never in display space must not come
+        # through here -- see project_fm_stable_move.
         dx, dy = self._fm_image_to_stage_delta(dx, dy)
 
-        yz_move = self._view_corrected_stage_movement(
-            expected_y=dy,
-            view_tilt=np.deg2rad(self.fm.camera_tilt),
-        )
-        stage_position = FibsemStagePosition(
-            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
-        )
+        stage_position = self._fm_stage_delta(dx, dy)
 
         # NOTE: no working-distance restore. That is beam bookkeeping; the objective
         # keeps focus because the move stays in the sample plane.

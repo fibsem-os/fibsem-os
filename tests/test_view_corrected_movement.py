@@ -601,6 +601,141 @@ class TestFmStableMove:
         assert calls == []
 
 
+# NOTE: these build their own sessions rather than taking the shared `microscope`
+# fixture. A test that contrasts the two mounts needs two distinct microscopes -- with a
+# common parent fixture they alias to one object, the second _configure silently wins,
+# and the contrast the test is written to check quietly stops existing.
+
+
+@pytest.fixture()
+def compustage_fm():
+    """The Arctis geometry: under-grid camera, no pre-tilt, FM pose at t = -180."""
+    scope, _ = utils.setup_session(manufacturer="Demo")
+    _configure(scope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+    scope.fm = FluorescenceMicroscope(parent=scope)
+    return scope
+
+
+@pytest.fixture()
+def offset_fm():
+    """A non-compustage FM mount: optical axis parallel to the FIB column, real pre-tilt.
+
+    The suite otherwise only exercises the compustage geometry, where the absence of a
+    pre-tilt pins z at zero and so hides a whole class of error -- see
+    `test_z_is_only_exercised_by_the_offset_mount`.
+    """
+    scope, _ = utils.setup_session(manufacturer="Demo")
+    _configure(scope, pretilt_deg=35, rotation_deg=0, tilt_deg=0, compustage=False)
+    scope.fm = FluorescenceMicroscope(parent=scope)
+    return scope
+
+
+class TestProjectFmStableMove:
+    """Where an FM displacement lands, without moving the stage."""
+
+    def test_requires_a_fluorescence_microscope(self, microscope):
+        microscope.fm = None
+        with pytest.raises(ValueError):
+            microscope.project_fm_stable_move(1e-6, 1e-6, FibsemStagePosition())
+
+    def test_does_not_move_the_stage(self, compustage_fm):
+        """It is a projection. Nothing may reach the stage."""
+        moved = []
+        compustage_fm.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
+        compustage_fm.move_stage_absolute = lambda p: moved.append(p)  # type: ignore[method-assign]
+
+        compustage_fm.project_fm_stable_move(4e-6, 25e-6, FibsemStagePosition(x=0, y=0, z=0))
+
+        assert moved == []
+
+    @pytest.mark.parametrize("mount", ["compustage_fm", "offset_fm"])
+    def test_agrees_with_fm_stable_move(self, request, mount):
+        """The projection and the real move must land in the same place.
+
+        Both go through `_fm_stage_delta`, so this pins them together rather than
+        merely checking each against a hand-computed number.
+        """
+        scope = request.getfixturevalue(mount)
+        scope.fm.set_image_transform(CameraImageTransform.NONE)
+        base = FibsemStagePosition(x=1e-3, y=-2e-3, z=5e-4, r=0, t=0, coordinate_system="RAW")
+
+        moved = []
+        scope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
+        scope.fm_stable_move(dx=4e-6, dy=25e-6)
+
+        projected = scope.project_fm_stable_move(4e-6, 25e-6, base)
+
+        assert projected.x == pytest.approx(base.x + moved[0].x)
+        assert projected.y == pytest.approx(base.y + moved[0].y)
+        assert projected.z == pytest.approx(base.z + moved[0].z)
+
+    def test_is_absolute_not_relative(self, compustage_fm):
+        """The result is measured from the base position, not from zero."""
+        origin = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
+        offset = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3)
+
+        a = compustage_fm.project_fm_stable_move(4e-6, 25e-6, origin)
+        b = compustage_fm.project_fm_stable_move(4e-6, 25e-6, offset)
+
+        assert b.x - a.x == pytest.approx(offset.x)
+        assert b.y - a.y == pytest.approx(offset.y)
+        assert b.z - a.z == pytest.approx(offset.z)
+
+    def test_leaves_the_base_position_untouched(self, compustage_fm):
+        """It returns a new position rather than mutating the caller's."""
+        base = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3)
+
+        compustage_fm.project_fm_stable_move(4e-6, 25e-6, base)
+
+        assert (base.x, base.y, base.z) == (1e-3, 2e-3, 3e-3)
+
+    def test_does_not_undo_the_display_transform(self, compustage_fm):
+        """Deliberately unlike fm_stable_move -- and the whole point of the split.
+
+        Input is stage-aligned, so a display preference must not reach it. Callers that
+        synthesise a displacement (tile steps, computed from the camera field of view in
+        physical units) were never in display space; routing them through the undo is
+        what lets a dropdown alter the stage path.
+        """
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
+        results = []
+        for transform in CameraImageTransform:
+            compustage_fm.fm.set_image_transform(transform)
+            results.append(compustage_fm.project_fm_stable_move(4e-6, 25e-6, base))
+
+        assert all(r.x == pytest.approx(results[0].x) for r in results)
+        assert all(r.y == pytest.approx(results[0].y) for r in results)
+        assert all(r.z == pytest.approx(results[0].z) for r in results)
+
+    def test_z_is_only_exercised_by_the_offset_mount(self, compustage_fm, offset_fm):
+        """Why the offset fixture exists.
+
+        Compustage has no pre-tilt, so z stays 0 and relative-step accumulation only
+        drifts in y. An offset mount puts a real z on every step, which is what makes
+        accumulating them a focus problem rather than a positioning one.
+        """
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
+
+        flat = compustage_fm.project_fm_stable_move(0.0, 25e-6, base)
+        tilted = offset_fm.project_fm_stable_move(0.0, 25e-6, base)
+
+        assert flat.z == pytest.approx(0.0, abs=1e-18)
+        assert abs(tilted.z) > 1e-9
+
+    def test_offset_mount_uses_the_ion_column_tilt(self, offset_fm):
+        """The offset optical axis is parallel to the FIB column, so it must project like one."""
+        assert offset_fm.fm.camera_tilt == pytest.approx(offset_fm.system.ion.column_tilt)
+
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
+        projected = offset_fm.project_fm_stable_move(0.0, 25e-6, base)
+        expected = offset_fm._view_corrected_stage_movement(
+            expected_y=25e-6, view_tilt=np.deg2rad(offset_fm.system.ion.column_tilt)
+        )
+
+        assert projected.y == pytest.approx(expected.y)
+        assert projected.z == pytest.approx(expected.z)
+
+
 class TestFmConsumersUseTheFmProjection:
     """Everything that moves from a fluorescence image must use the FM projection.
 
