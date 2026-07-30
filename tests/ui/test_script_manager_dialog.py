@@ -104,7 +104,7 @@ def test_the_failure_reason_is_shown_in_the_row(qapp, tmp_path):
 def test_flags_appear_in_the_type_cell(qapp, tmp_path):
     _write(tmp_path, "w.py", "writes = True\ndef run(ctx):\n    pass\n")
     dialog = _dialog(tmp_path, context=FakeContext())
-    assert "writes" in _cell_text(dialog, 0, 1)
+    assert "Writes" in _cell_text(dialog, 0, 1)
 
 
 def test_a_writing_script_warns_in_the_detail_panel(qapp, tmp_path):
@@ -124,6 +124,61 @@ def test_a_read_only_script_says_so(qapp, tmp_path):
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
     assert "Read-only" in dialog.consequence_label.text()
+
+
+def test_the_type_column_survives_a_folder_with_no_chips(qapp, tmp_path):
+    """Dropping the Data chip meant an all-plain folder had nothing to measure, so
+    the column collapsed to 28px and clipped its own header."""
+    _write(tmp_path, "a.py", "def run(ctx):\n    pass\n")
+    _write(tmp_path, "b.py", "def run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    header = dialog.table.horizontalHeader()
+    assert dialog.table.columnWidth(1) >= header.fontMetrics().horizontalAdvance("Type")
+
+
+def test_a_plain_data_script_gets_no_type_chip(qapp, tmp_path):
+    """Data is the default, so a chip for it sat on nearly every row and separated
+    nothing. An empty Type cell means "touches nothing unusual"; the word survives
+    in the tooltip, where it costs no width."""
+    _write(tmp_path, "plain.py", '"""Read some numbers."""\ndef run(ctx):\n    pass\n')
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    from PyQt5.QtWidgets import QLabel
+    cell = dialog.table.cellWidget(0, 1)
+
+    assert cell.findChildren(QLabel) == []
+    assert "Type: Data" in cell.toolTip()
+
+
+def test_the_consequence_line_matches_its_chip(qapp, tmp_path):
+    """One script, one colour. The line under the table used to be red while the
+    row's chip was amber, so the same fact arrived twice in two severities."""
+    from fibsem.ui.widgets.script_manager_dialog import _MICROSCOPE, _WRITES
+
+    _write(tmp_path, "hw.py", "uses_microscope = True\ndef run(ctx):\n    pass\n")
+    _write(tmp_path, "w.py", "writes = True\ndef run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    dialog.table.selectRow(0)  # hw.py
+    assert _MICROSCOPE in dialog.consequence_label.text()
+    dialog.table.selectRow(1)  # w.py
+    assert _WRITES in dialog.consequence_label.text()
+
+
+def test_only_a_broken_script_is_red(qapp, tmp_path):
+    """Colour in the list says what a script *is*; the confirmation dialog is what
+    warns. Red left for the one thing that is actionable while browsing."""
+    from fibsem.ui.widgets.script_manager_dialog import _ERROR
+
+    _write(tmp_path, "hw.py", "uses_microscope = True\ndef run(ctx):\n    pass\n")
+    _write(tmp_path, "oops.py", "def main(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    dialog.table.selectRow(0)  # hw.py -- the most dangerous, still not red
+    assert _ERROR not in dialog.consequence_label.text()
+    dialog.table.selectRow(1)  # oops.py -- cannot load
+    assert _ERROR in dialog.consequence_label.text()
 
 
 def test_an_empty_folder_says_how_to_start(qapp, tmp_path):
@@ -164,7 +219,7 @@ def test_a_microscope_script_can_be_run_and_says_what_it_will_do(qapp, tmp_path)
     dialog.table.selectRow(0)
 
     assert dialog.run_button.isEnabled()
-    assert "Drives the microscope" in dialog.consequence_label.text()
+    assert "Controls the microscope" in dialog.consequence_label.text()
     # the warning has to be specific about what is missing, not just "careful"
     assert "no limits, no interlocks" in dialog.consequence_label.toolTip()
 
@@ -368,8 +423,18 @@ def test_the_folder_is_elided_but_kept_whole_in_the_tooltip(qapp, tmp_path):
 
 def test_a_long_description_elides_instead_of_clipping(qapp, tmp_path):
     """It used to be cut off mid-glyph, which reads as a typo rather than as
-    text continuing past the edge."""
-    summary = "Archive the experiment folder and every image in it when a workflow finishes"
+    text continuing past the edge.
+
+    The description has to beat the Script column at the dialog's *minimum* width,
+    not at the width passed to resize() -- a layout minimum of ~720px wins over a
+    smaller request, so a merely long sentence stopped eliding the moment the Type
+    column got narrower.
+    """
+    summary = (
+        "Archive the experiment folder and every image in it when a workflow "
+        "finishes, then upload the archive, verify its checksum, and email a "
+        "summary to whoever started the run"
+    )
     _write(tmp_path, "a.py", f'"""{summary}"""\ndef run(ctx):\n    pass\n')
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.resize(520, 400)  # narrow enough that this description cannot fit
@@ -382,21 +447,23 @@ def test_a_long_description_elides_instead_of_clipping(qapp, tmp_path):
     assert summary in dialog.table.cellWidget(0, 0).toolTip()
 
 
-def test_the_auto_flag_says_it_is_not_connected(qapp, tmp_path):
-    """Nothing fires on_workflow_completed yet. An author who declared it has no
-    other way to find that out, and a chip alone would read as a promise."""
+def test_the_auto_flag_gets_no_chip_but_is_still_explained(qapp, tmp_path):
+    """Nothing fires on_workflow_completed yet, so a chip for it was a badge for a
+    feature that does not exist. The author who declared it still needs somewhere to
+    learn that, and a tooltip costs no width."""
     _write(tmp_path, "a.py", "on_workflow_completed = True\ndef run(ctx):\n    pass\n")
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
 
-    assert "off" in _cell_text(dialog, 0, 1)
+    from PyQt5.QtWidgets import QLabel
+    assert dialog.table.cellWidget(0, 1).findChildren(QLabel) == []
     assert "not run automatically yet" in dialog.table.cellWidget(0, 1).toolTip()
     assert "not run automatically yet" in dialog.consequence_label.toolTip()
 
 
-def test_every_chip_carries_a_dot(qapp, tmp_path):
-    """Type and flag chips looked like different kinds of thing for no readable
-    reason. Colour separates them; shape should not."""
+def test_chips_are_text_only(qapp, tmp_path):
+    """The dot separated nothing once every chip carried one, and it cost width in
+    a column that has to fit more than one. Colour and the pill do the work."""
     _write(tmp_path, "s.py",
            "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n")
     dialog = _dialog(tmp_path, context=FakeContext())
@@ -404,8 +471,7 @@ def test_every_chip_carries_a_dot(qapp, tmp_path):
     from PyQt5.QtWidgets import QLabel
     chips = dialog.table.cellWidget(0, 1).findChildren(QLabel)
 
-    assert len(chips) == 3  # Data + writes + auto (off)
-    assert all("9679" in chip.text() for chip in chips)
+    assert [chip.text() for chip in chips] == ["Writes"]
 
 
 def test_the_type_column_fits_the_widest_row_of_chips(qapp, tmp_path):

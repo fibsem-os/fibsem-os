@@ -52,15 +52,34 @@ _TEXT = "#d6d6d6"
 _TEXT_STRONG = "#f0f1f2"
 _TEXT_MUTED = "#868e93"
 _ACCENT = "#50a6ff"
-_WARN = "#e0a030"
 _ERROR = "#d04040"
+
+# Colour here says *what a script is*, not how frightened to be. Amber for
+# Microscope and Writes meant the two most common rows were permanently lit as
+# warnings, which is alarm fatigue in a list you browse rather than act on -- and
+# it left red meaning two different things. The real gate is the confirmation
+# dialog: modal, worded, defaulting to Cancel, and shown at the moment of action.
+# So these are categorical, and _ERROR now means exactly one thing in this
+# dialog: the file is broken.
+_MICROSCOPE = "#4caf72"
+_WRITES = "#4d9de0"
+
+# One type scale for the whole dialog, in px to match the rest of the app's
+# stylesheets. Ten literals were scattered across the file, so "make it smaller"
+# meant finding all of them and keeping the steps between them consistent by hand.
+_FS_TITLE = 14
+_FS_NAME = 12
+_FS_BODY = 11
+_FS_SMALL = 10
 
 _COLUMNS = ["Script", "Type", "Last run"]
 
-# on_workflow_completed is parsed and shown, but nothing fires it: the workflow
-# hook runs on a worker thread, and these scripts touch evented experiment state
-# that must only be mutated from the GUI thread. Said plainly rather than left
-# implied -- an author who declared the flag has no other way to find out.
+# on_workflow_completed is parsed, but nothing fires it: the workflow hook runs on
+# a worker thread, and these scripts touch evented experiment state that must only
+# be mutated from the GUI thread. It gets no chip -- a row badge for a feature that
+# does nothing is a distraction on every row that declares it, and it read as a
+# promise besides. Kept in the tooltips, which is where it costs nothing: an author
+# who declared the flag still has somewhere to find out it is inert.
 AUTO_NOT_CONNECTED = "auto: declared, but scripts do not run automatically yet"
 
 _TEMPLATE = '''"""Describe what this script does — this line becomes its tooltip."""
@@ -89,7 +108,7 @@ QHeaderView::section {{
     color: {_TEXT_MUTED};
     border: none;
     padding: 6px 8px;
-    font-size: 11px;
+    font-size: {_FS_SMALL}px;
 }}
 QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid #31353f; }}
 QTableWidget::item:selected {{ background-color: #2d3947; color: {_TEXT_STRONG}; }}
@@ -102,7 +121,7 @@ QPushButton {{
     color: {_TEXT};
     border-radius: 6px;
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: {_FS_BODY}px;
 }}
 QPushButton:hover {{ background-color: {_ROW_ALT}; }}
 QPushButton:disabled {{ color: {_TEXT_MUTED}; }}
@@ -136,13 +155,19 @@ class _ElidedLabel(QLabel):
         super().paintEvent(event)
 
 
-def _script_type(script: DiscoveredScript) -> "tuple[str, str]":
-    """(label, colour) describing what a script is allowed to touch."""
+def _script_type(script: DiscoveredScript) -> "tuple[str, Optional[str]]":
+    """(label, chip colour) describing what a script is allowed to touch.
+
+    A ``None`` colour means the type earns no chip. Only Data does: it is the
+    default, so it appeared on nearly every row and distinguished nothing, while
+    costing width in a column that has to fit three chips. The label is still
+    returned, because the tooltip can say "Type: Data" for free.
+    """
     if not script.is_runnable:
         return "Error", _ERROR
     if script.uses_microscope:
-        return "Microscope", _WARN
-    return "Data", _TEXT_MUTED
+        return "Microscope", _MICROSCOPE
+    return "Data", None
 
 
 class ScriptManagerDialog(QDialog):
@@ -175,12 +200,12 @@ class ScriptManagerDialog(QDialog):
         titles.setSpacing(2)
         self.title_label = QLabel("User scripts")
         self.title_label.setStyleSheet(
-            f"font-size: 15px; font-weight: 500; color: {_TEXT_STRONG};"
+            f"font-size: {_FS_TITLE}px; font-weight: 500; color: {_TEXT_STRONG};"
         )
         # counts and location are meta, not the heading -- the heading says what
         # this dialog is, the line under it says what is currently in it.
         self.meta_label = QLabel()
-        self.meta_label.setStyleSheet(f"font-size: 12px; color: {_TEXT_MUTED};")
+        self.meta_label.setStyleSheet(f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
         self.meta_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.meta_label.setMinimumWidth(160)
         titles.addWidget(self.title_label)
@@ -219,21 +244,21 @@ class ScriptManagerDialog(QDialog):
         self.detail_label = QLabel()
         self.detail_label.setTextFormat(Qt.RichText)
         self.detail_label.setStyleSheet(
-            f"border: none; font-size: 12px; color: {_TEXT};"
+            f"border: none; font-size: {_FS_BODY}px; color: {_TEXT};"
         )
         # the consequence of running this sits opposite the facts about it, so it
         # reads as a warning rather than another line of metadata
         self.consequence_label = QLabel()
         self.consequence_label.setTextFormat(Qt.RichText)
         self.consequence_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.consequence_label.setStyleSheet("border: none; font-size: 12px;")
+        self.consequence_label.setStyleSheet(f"border: none; font-size: {_FS_BODY}px;")
         detail_layout.addWidget(self.detail_label, 1)
         detail_layout.addWidget(self.consequence_label, 0)
         layout.addWidget(detail_panel)
 
         footer = QHBoxLayout()
         self.hint_label = QLabel()
-        self.hint_label.setStyleSheet(f"font-size: 12px; color: {_TEXT_MUTED};")
+        self.hint_label.setStyleSheet(f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
         footer.addWidget(self.hint_label)
         footer.addStretch()
         close_button = QPushButton("Close")
@@ -271,18 +296,25 @@ class ScriptManagerDialog(QDialog):
 
     @staticmethod
     def _chip(text: str, colour: str) -> QLabel:
-        """A pill label: coloured dot + text, on a tint of the same colour."""
+        """A pill label: text on a tint of its own colour.
+
+        No dot. Once every chip had one it separated nothing, and it cost real
+        width in a 130px column that has to fit three chips on one row.
+        """
         rgb = QColor(colour)
         tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
-        chip = QLabel(f'<span style="color:{colour};">&#9679;</span> {text}')
+        chip = QLabel(text)
         chip.setStyleSheet(
             f"background-color: {tint}; color: {colour};"
-            f"padding: 2px 9px; border-radius: 10px; font-size: 11px;"
+            f"padding: 2px 9px; border-radius: 10px; font-size: {_FS_SMALL}px;"
         )
-        # A rich-text QLabel under-reports sizeHint against the stylesheet padding,
-        # so the last character clips. Measure the visible text and pin the width.
-        metrics = QFontMetrics(chip.font())
-        chip.setMinimumWidth(metrics.horizontalAdvance(f"* {text}") + 26)
+        # sizeHint does not account for the stylesheet padding, so the last character
+        # clips. Measure the text and pin the width -- at the size it actually
+        # renders at, or the default font's metrics pad every chip by the difference.
+        font = chip.font()
+        font.setPixelSize(_FS_SMALL)
+        metrics = QFontMetrics(font)
+        chip.setMinimumWidth(metrics.horizontalAdvance(text) + 26)
         return chip
 
     def _name_cell(self, script: DiscoveredScript) -> QWidget:
@@ -296,12 +328,13 @@ class ScriptManagerDialog(QDialog):
         summary = script.description if script.is_runnable else script.error
         name = _ElidedLabel(script.name)
         name.setStyleSheet(
-            f"font-family: Menlo, monospace; font-size: 13px; background: transparent;"
+            f"font-family: Menlo, monospace; font-size: {_FS_NAME}px;"
+            f"background: transparent;"
             f"color: {_TEXT_STRONG if script.is_runnable else _TEXT_MUTED};"
         )
         detail = _ElidedLabel(summary)
         detail.setStyleSheet(
-            f"font-size: 12px; background: transparent;"
+            f"font-size: {_FS_BODY}px; background: transparent;"
             f"color: {_TEXT if script.is_runnable else _ERROR};"
         )
         layout.addWidget(name)
@@ -311,7 +344,12 @@ class ScriptManagerDialog(QDialog):
         return widget
 
     def _type_cell(self, script: DiscoveredScript) -> QWidget:
-        """The type chip, plus a chip per declared flag."""
+        """Chips for anything out of the ordinary; the tooltip carries the rest.
+
+        Only Microscope, Error and Writes get a chip. Data is the default and
+        on_workflow_completed does nothing yet, so both would be badges that appear
+        constantly and tell you no more than their absence would.
+        """
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         layout = QHBoxLayout(widget)
@@ -319,13 +357,10 @@ class ScriptManagerDialog(QDialog):
         layout.setSpacing(4)
 
         label, colour = _script_type(script)
-        layout.addWidget(self._chip(label, colour))
+        if colour is not None:
+            layout.addWidget(self._chip(label, colour))
         if script.writes:
-            layout.addWidget(self._chip("writes", _WARN))
-        if script.on_workflow_completed:
-            # muted, and labelled off: the flag is recognised but nothing fires it
-            # yet, and a live-looking chip would promise a run that never happens
-            layout.addWidget(self._chip("auto (off)", _TEXT_MUTED))
+            layout.addWidget(self._chip("Writes", _WRITES))
         layout.addStretch()
         notes = [f"Type: {label}"]
         if script.writes:
@@ -383,16 +418,21 @@ class ScriptManagerDialog(QDialog):
         """Widen the type column to the widest row of chips.
 
         ResizeToContents is no use here: it measures the item's size hint, and
-        these cells hold widgets over empty items. A row carries one type chip
-        plus a chip per flag, so any fixed width clips as soon as a script
+        these cells hold widgets over empty items. A row carries at most one type
+        chip plus a chip per flag, so any fixed width clips as soon as a script
         declares more than one.
+
+        Floored at the header's own width: a folder of plain data scripts now has
+        no chips at all, which collapsed this to 28px and clipped the word "Type".
         """
         widths = [
             self.table.cellWidget(row, 1).sizeHint().width()
             for row in range(self.table.rowCount())
             if self.table.cellWidget(row, 1) is not None
         ]
-        self.table.setColumnWidth(1, max(widths, default=140) + 12)
+        header = self.table.horizontalHeader()
+        floor = header.fontMetrics().horizontalAdvance(_COLUMNS[1]) + 24
+        self.table.setColumnWidth(1, max(max(widths, default=0) + 12, floor))
 
     def _update_meta(self) -> None:
         """Counts plus the folder, elided to whatever width the dialog has.
@@ -453,15 +493,17 @@ class ScriptManagerDialog(QDialog):
         if not script.is_runnable:
             consequence, colour, explain = "● Cannot load", _ERROR, script.error
         elif script.uses_microscope:
+            # matches the Microscope chip: the words carry the weight here, and the
+            # confirmation dialog is what actually stops you
             consequence, colour, explain = (
-                "● Drives the microscope", _ERROR,
+                "● Controls the microscope", _MICROSCOPE,
                 "This script controls the hardware directly. Nothing checks what it "
                 "does — no limits, no interlocks. It runs in the background, and Stop "
                 "only works if the script itself checks for it.",
             )
         elif script.writes:
             consequence, colour, explain = (
-                "● Modifies and saves the experiment", _WARN,
+                "● Modifies and saves the experiment", _WRITES,
                 "This script changes the experiment and saves it when it finishes.",
             )
         else:
