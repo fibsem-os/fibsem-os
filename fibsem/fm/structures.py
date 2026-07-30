@@ -41,7 +41,12 @@ from ome_types.model import (
 # enum of the same name here, so the two tilers held different objects for the same
 # concept and `is` comparisons across them silently failed. Imported (and so
 # re-exported) rather than redefined, to keep that from happening again.
-from fibsem.structures import AutoFocusMode, FibsemRectangle, FibsemStagePosition
+from fibsem.structures import (
+    AutoFocusMode,
+    FibsemRectangle,
+    FibsemStagePosition,
+    TileOrderStrategy,
+)
 
 # Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
 # so existing `from fibsem.fm.structures import ...` imports keep working.
@@ -1534,14 +1539,29 @@ class FluorescenceImageMetadata:
 
 @dataclass
 class OverviewParameters:
-    """Parameters for FM overview/tileset acquisition."""
-    
+    """Parameters for FM overview/tileset acquisition.
+
+    Attributes:
+        rows: Number of tile rows.
+        cols: Number of tile columns.
+        overlap: Fractional overlap between adjacent tiles.
+        use_zstack: Acquire a z-stack at each tile.
+        autofocus_mode: When to autofocus during the traversal.
+        tile_order: Traversal strategy over the grid.
+        tile_mask: Optional per-tile enable mask, `tile_mask[row][col]`. None acquires
+            every tile. Disabled tiles are skipped but keep their place: the mosaic is
+            still the full grid size and acquired tiles land at the same canvas
+            coordinates they would have in a dense overview.
+    """
+
     rows: int = 3
     cols: int = 3
     overlap: float = 0.1
     use_zstack: bool = False
     autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
-    
+    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
+    tile_mask: Optional[List[List[bool]]] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
@@ -1550,18 +1570,34 @@ class OverviewParameters:
             "overlap": self.overlap,
             "use_zstack": self.use_zstack,
             "autofocus_mode": self.autofocus_mode.value,
+            "tile_order": self.tile_order.value,
+            # plain bools: np.bool_ does not survive yaml.safe_dump
+            "tile_mask": None if self.tile_mask is None
+            else [[bool(v) for v in row] for row in self.tile_mask],
         }
-    
+
     @classmethod
     def from_dict(cls, ddict: dict) -> "OverviewParameters":
         """Create OverviewParameters from dictionary."""
+        mask = ddict.get("tile_mask")
         return cls(
             rows=ddict.get("rows", 3),
             cols=ddict.get("cols", 3),
             overlap=ddict.get("overlap", 0.1),
             use_zstack=ddict.get("use_zstack", False),
             autofocus_mode=AutoFocusMode(ddict.get("autofocus_mode", AutoFocusMode.NONE.value)),
+            tile_order=TileOrderStrategy(
+                ddict.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
+            ),
+            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
         )
+
+    @property
+    def n_enabled_tiles(self) -> int:
+        """How many tiles will actually be acquired."""
+        if self.tile_mask is None:
+            return self.rows * self.cols
+        return sum(bool(v) for row in self.tile_mask for v in row)
 
 
 @dataclass

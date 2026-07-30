@@ -36,6 +36,11 @@ def plot_tile_positions(
 ) -> Figure:
     """Plot the tile grid with traversal order, for debugging and validation.
 
+    Beam-side adapter over :func:`plot_tile_grid`, which takes the field of view
+    directly -- a fluorescence camera has a real FOV in both axes rather than an
+    `hfw` with the vertical inferred, the same asymmetry `compute_tile_grid_from_fov`
+    exists for.
+
     Args:
         tiles: Ordered list of TilePosition objects (acquisition order).
         settings: Overview acquisition settings (for FOV dimensions and labels).
@@ -47,47 +52,112 @@ def plot_tile_positions(
     Returns:
         The matplotlib Figure.
     """
-    import matplotlib.patches as mpatches
-    from fibsem import constants
-
     image_width, image_height = settings.image_settings.resolution
-    tile_fov_x = settings.image_settings.hfw * constants.SI_TO_MICRO  # µm
+    tile_fov_x = settings.image_settings.hfw
     tile_fov_y = tile_fov_x * (image_height / image_width)
+
+    return plot_tile_grid(
+        tiles,
+        fov_x=tile_fov_x,
+        fov_y=tile_fov_y,
+        ax=ax,
+        stage_positions=stage_positions,
+        title=(
+            f"{settings.tile_order.value.title()} — {settings.nrows}×{settings.ncols} tiles, "
+            f"{settings.overlap*100:.0f}% overlap"
+        ),
+    )
+
+
+def plot_tile_grid(
+    grid: list[TilePosition],
+    fov_x: float,
+    fov_y: float,
+    order: Optional[list[TilePosition]] = None,
+    ax: Optional[plt.Axes] = None,
+    stage_positions: Optional[list[FibsemStagePosition]] = None,
+    title: Optional[str] = None,
+) -> Figure:
+    """Draw a tile grid: what gets acquired, in what order, and what gets skipped.
+
+    Skipped tiles are drawn hollow and unnumbered rather than omitted. A sparse
+    overview otherwise looks identical to a smaller dense one, and the difference
+    between "not acquired" and "acquired but dark" is the whole reason the mask is
+    recorded in the first place.
+
+    Args:
+        grid: Every tile in the grid, enabled or not. Defines what is drawn.
+        fov_x: Tile width in metres.
+        fov_y: Tile height in metres.
+        order: The enabled tiles in traversal order. Defaults to the enabled tiles in
+            the order `grid` gives them. Numbering and the path follow this list.
+        ax: Optional existing axes to draw on; creates a new figure if None.
+        stage_positions: Optional projected positions, same length as `order`. Overlaid
+            as white crosses and a dotted path, so the ideal grid can be compared with
+            the real stage coordinates the projection returned.
+        title: Optional axes title.
+    Returns:
+        The matplotlib Figure.
+    """
+    import matplotlib.patches as mpatches
+
+    if order is None:
+        order = [t for t in grid if t.enabled]
+
+    tile_fov_x = fov_x * constants.SI_TO_MICRO  # µm
+    tile_fov_y = fov_y * constants.SI_TO_MICRO
 
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
     else:
         fig = ax.get_figure()
 
-    # draw tiles
-    for order_idx, tile in enumerate(tiles):
-        cx = tile.dx * constants.SI_TO_MICRO  # µm
-        cy = tile.dy * constants.SI_TO_MICRO
-        x0 = cx - tile_fov_x / 2
-        y0 = cy - tile_fov_y / 2
+    def centre(tile: TilePosition) -> Tuple[float, float]:
+        return tile.dx * constants.SI_TO_MICRO, tile.dy * constants.SI_TO_MICRO
+
+    # skipped tiles first, so the acquired ones draw over them
+    for tile in grid:
+        if tile.enabled:
+            continue
+        cx, cy = centre(tile)
+        ax.add_patch(mpatches.FancyBboxPatch(
+            (cx - tile_fov_x / 2, cy - tile_fov_y / 2), tile_fov_x, tile_fov_y,
+            boxstyle="round,pad=0.01",
+            linewidth=1, edgecolor="#5a5f6e", facecolor="none", linestyle="--",
+        ))
+        ax.text(cx, cy, "—", ha="center", va="center", fontsize=8, color="#5a5f6e")
+
+    for order_idx, tile in enumerate(order):
+        cx, cy = centre(tile)
         colour = POSITION_COLOURS[tile.row % len(POSITION_COLOURS)]
-        rect = mpatches.FancyBboxPatch(
-            (x0, y0), tile_fov_x, tile_fov_y,
+        ax.add_patch(mpatches.FancyBboxPatch(
+            (cx - tile_fov_x / 2, cy - tile_fov_y / 2), tile_fov_x, tile_fov_y,
             boxstyle="round,pad=0.01",
             linewidth=1, edgecolor="white", facecolor=colour, alpha=0.4,
-        )
-        ax.add_patch(rect)
+        ))
         ax.text(cx, cy, str(order_idx), ha="center", va="center",
                 fontsize=8, color="white", fontweight="bold")
 
-    # draw traversal path
-    if len(tiles) > 1:
-        xs = [t.dx * constants.SI_TO_MICRO for t in tiles]
-        ys = [t.dy * constants.SI_TO_MICRO for t in tiles]
-        for k in range(len(tiles) - 1):
-            ax.annotate("", xy=(xs[k + 1], ys[k + 1]), xytext=(xs[k], ys[k]),
+    # traversal path -- through the acquired tiles only, so a jump over a skipped
+    # region is visible as a long arrow rather than hidden
+    if len(order) > 1:
+        pts = [centre(t) for t in order]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            ax.annotate("", xy=(x1, y1), xytext=(x0, y0),
                         arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
 
     # overlay actual projected stage positions (if provided)
-    if stage_positions is not None and len(stage_positions) > 0:
+    if stage_positions is not None and len(stage_positions) > 0 and order:
+        # Anchored on the first tile *visited*, not on the grid origin. The projection
+        # centres the grid on wherever the stage already is, so its coordinates differ
+        # from the grid's by a constant offset. Subtracting only `stage_positions[0]`
+        # leaves the overlay displaced by that offset, which looks exactly like a
+        # geometry error and hides the thing actually worth seeing: whether the *shape*
+        # of the projected path matches the grid it came from.
         ref = stage_positions[0]
-        sxs = [(sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions]
-        sys_ = [(sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions]
+        anchor_x, anchor_y = centre(order[0])
+        sxs = [anchor_x + (sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions]
+        sys_ = [anchor_y + (sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions]
         ax.plot(sxs, sys_, linestyle=":", color="white", lw=0.8, alpha=0.6)
         ax.plot(sxs, sys_, marker="x", color="white", ms=6, markeredgewidth=1.5, linestyle="none")
 
@@ -101,11 +171,8 @@ def plot_tile_positions(
     ax.xaxis.label.set_color("white")
     ax.yaxis.label.set_color("white")
     ax.title.set_color("white")
-    strategy_name = settings.tile_order.value.title()
-    ax.set_title(
-        f"{strategy_name} — {settings.nrows}×{settings.ncols} tiles, "
-        f"{settings.overlap*100:.0f}% overlap"
-    )
+    if title:
+        ax.set_title(title)
     ax.autoscale_view()
     fig.tight_layout()
     return fig

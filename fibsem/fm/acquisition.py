@@ -12,7 +12,7 @@ import matplotlib.patches as patches
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.fm.calibration import run_autofocus
-from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov, order_tiles
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -25,7 +25,7 @@ from fibsem.fm.structures import (
     AutoFocusSettings,
 )
 from fibsem.fm.timing import estimate_tileset_acquisition_time, estimate_positions_acquisition_time
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
@@ -404,7 +404,10 @@ class FMTiledAcquisitionRunner:
         self.save_directory = save_directory
         self.stop_event = stop_event
 
-        # Rows are appended whole, so on a mid-row cancel that row is discarded.
+        # Sized in _setup once the grid is known, and written by index. Every cell that
+        # was not reached -- skipped by the mask, or not yet visited when a cancel came
+        # in -- stays None, so a partial result keeps every acquired tile in its right
+        # place instead of collapsing toward the origin.
         self.tileset: List[List[Optional[FluorescenceImage]]] = []
 
     # ── public entry points ──────────────────────────────────────────────
@@ -465,6 +468,8 @@ class FMTiledAcquisitionRunner:
         self._cols = self.overview_parameters.cols
         self._overlap = self.overview_parameters.overlap
         self._autofocus_mode = self.overview_parameters.autofocus_mode
+        self._tile_order = self.overview_parameters.tile_order
+        self._tile_mask = self.overview_parameters.tile_mask
 
         if self._rows <= 0 or self._cols <= 0:
             raise ValueError("Grid size must contain positive values")
@@ -472,9 +477,22 @@ class FMTiledAcquisitionRunner:
         if not 0.0 <= self._overlap < 1.0:
             raise ValueError("Tile overlap must be between 0.0 and 1.0 (exclusive)")
 
+        # A spiral revisits rows non-sequentially, so "autofocus on each new row" would
+        # fire almost every tile and still leave stale focus in between. Promote it, as
+        # the beam runner does.
+        if (self._autofocus_mode is AutoFocusMode.EACH_ROW
+                and self._tile_order is TileOrderStrategy.SPIRAL):
+            self._autofocus_mode = AutoFocusMode.EACH_TILE
+            logging.info("EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order")
+
+        # Full grid, holes included: the canvas is the whole grid whatever the mask.
+        self.tileset = [[None] * self._cols for _ in range(self._rows)]
+
+        n_enabled = self.overview_parameters.n_enabled_tiles
         logging.info(
             f"Starting tileset acquisition: {self._rows}x{self._cols} grid "
-            f"with {self._overlap:.1%} overlap"
+            f"with {self._overlap:.1%} overlap, {self._tile_order.value} order, "
+            f"{n_enabled}/{self._rows * self._cols} tiles enabled"
         )
 
         # Captured for the restore in _restore(), and as the grid's centre.
@@ -553,7 +571,7 @@ class FMTiledAcquisitionRunner:
         paints row 0 at canvas y=0 regardless, so the two have to agree. They
         disagreed once already (#226).
         """
-        tiles = compute_tile_grid_from_fov(
+        self._grid = compute_tile_grid_from_fov(
             nrows=self._rows,
             ncols=self._cols,
             fov_x=self._fov_x,
@@ -561,7 +579,15 @@ class FMTiledAcquisitionRunner:
             image_width=self._image_width,
             image_height=self._image_height,
             overlap=self._overlap,
+            mask=self._tile_mask,
         )
+        # Ordered, and disabled tiles dropped. The traversal comes from the full grid
+        # extent, so a sparse run follows the dense path with stops missing rather than
+        # a pattern re-derived over the holes -- see order_tiles.
+        self._ordered = order_tiles(self._grid, self._tile_order)
+
+        if not self._ordered:
+            raise ValueError("Tile mask disables every tile; nothing to acquire.")
 
         # The grid measures from its top-left tile; shift so it is centred on where
         # the stage already is. Same convention as TiledAcquisitionRunner.
@@ -574,15 +600,19 @@ class FMTiledAcquisitionRunner:
                 dy=tile.dy + grid_offset_y,
                 base_position=self._initial_position,
             )
-            for tile in tiles
+            for tile in self._grid
         }
 
+        first = self._ordered[0]
         self._emit({"state": "moving", "task": "tileset"})
         self._emit({
             "state": "acquiring", "task": "tileset",
-            "row": 1, "col": 1,
+            "row": first.row + 1, "col": first.col + 1,
             "total_rows": self._rows, "total_cols": self._cols,
-            "current": 1, "total": self._rows * self._cols,
+            # `total` counts tiles that will actually be acquired, not grid cells --
+            # a progress bar that stops at 9/25 on a successful sparse run reads as a
+            # failure.
+            "current": 1, "total": len(self._ordered),
             "estimated_total_time": self._total_estimated_time,
             "estimated_remaining_time": self._total_estimated_time,
         })
@@ -608,25 +638,27 @@ class FMTiledAcquisitionRunner:
             )
 
     def _run_tile_loop(self) -> None:
-        """Visit every tile in row-major order."""
-        for row in range(self._rows):
+        """Visit the enabled tiles in traversal order.
+
+        Tiles are written into the pre-allocated `self.tileset` by index rather than
+        appended. Appending assumed a row-major visit and a full grid -- neither holds
+        once the order is configurable or tiles can be skipped, and the failure is
+        silent: the mosaic would still stitch, with tiles in the wrong places.
+        """
+        prev_row = -1
+        self._n_acquired = 0
+        for tile in self._ordered:
+            # Check before moving, so a cancel skips the travel entirely.
             raise_if_cancelled(self.stop_event, "Tileset acquisition cancelled by user.")
-            self._autofocus_if_mode(AutoFocusMode.EACH_ROW)
 
-            row_images: List[Optional[FluorescenceImage]] = []
-            for col in range(self._cols):
-                # Check before moving, so a cancel skips the travel entirely.
-                raise_if_cancelled(
-                    self.stop_event, "Tileset acquisition cancelled by user."
-                )
-                row_images.append(self._acquire_tile(row, col))
+            if tile.row != prev_row:
+                prev_row = tile.row
+                self._autofocus_if_mode(AutoFocusMode.EACH_ROW)
 
-                if col < self._cols - 1:
-                    self._emit({"state": "moving", "task": "tileset"})
+            self.tileset[tile.row][tile.col] = self._acquire_tile(tile.row, tile.col)
+            self._n_acquired += 1
 
-            self.tileset.append(row_images)
-
-            if row < self._rows - 1:
+            if tile is not self._ordered[-1]:
                 self._emit({"state": "moving", "task": "tileset"})
 
     def _acquire_tile(self, row: int, col: int) -> FluorescenceImage:
@@ -706,8 +738,11 @@ class FMTiledAcquisitionRunner:
         self.microscope.fm.acquisition_progress_signal.emit(payload)
 
     def _emit_tile_progress(self, row: int, col: int) -> None:
-        current_tile = row * self._cols + col + 1
-        total_tiles = self._rows * self._cols
+        # Counted by visits, not by grid index. `row * cols + col` assumed a full
+        # row-major traversal; under a spiral it jumps around, and under a mask it
+        # overcounts by every skipped tile.
+        current_tile = self._n_acquired + 1
+        total_tiles = len(self._ordered)
         elapsed_time = time.time() - self._acquisition_start_time
 
         if current_tile > 1:
@@ -816,10 +851,22 @@ def stitch_tileset(
         if len(row) != cols:
             raise ValueError("Tileset must be rectangular (all rows same length)")
 
-    logging.info(f"Stitching {rows}x{cols} tileset with {tile_overlap:.1%} overlap")
+    # Gaps are expected, not exceptional: a sparse acquisition leaves every skipped
+    # tile as None, and a cancelled one leaves everything it never reached. Both stitch
+    # into a full-size canvas with the missing tiles left as zeros, so acquired tiles
+    # keep the canvas coordinates they would have had in a dense mosaic.
+    acquired = [t for row in tileset for t in row if t is not None]
+    if not acquired:
+        raise ValueError("Tileset contains no acquired tiles")
 
-    # Get reference tile for dimensions
-    ref_tile = tileset[0][0]
+    logging.info(
+        f"Stitching {rows}x{cols} tileset with {tile_overlap:.1%} overlap "
+        f"({len(acquired)}/{rows * cols} tiles acquired)"
+    )
+
+    # Get reference tile for dimensions -- the first acquired one, which is not
+    # necessarily (0, 0).
+    ref_tile = acquired[0]
 
     # Handle both 2D and multi-dimensional data
     if ref_tile.data.ndim == 2:
@@ -860,6 +907,8 @@ def stitch_tileset(
     for row in range(rows):
         for col in range(cols):
             tile = tileset[row][col]
+            if tile is None:
+                continue  # not acquired: leave the canvas zeros
 
             # Calculate position in mosaic
             y_start = row * effective_tile_height
@@ -907,10 +956,8 @@ def stitch_tileset(
 
     # Calculate the center position as average of all tile positions
     if any(
-        hasattr(tileset[row][col].metadata, "stage_position")
-        and tileset[row][col].metadata.stage_position is not None
-        for row in range(rows)
-        for col in range(cols)
+        getattr(tile.metadata, "stage_position", None) is not None
+        for tile in acquired
     ):
         # Collect all stage positions from tiles
         x_positions = []
@@ -920,20 +967,15 @@ def stitch_tileset(
         t_positions = []
         coordinate_systems = []
 
-        for row in range(rows):
-            for col in range(cols):
-                tile_metadata = tileset[row][col].metadata
-                if (
-                    hasattr(tile_metadata, "stage_position")
-                    and tile_metadata.stage_position is not None
-                ):
-                    pos = tile_metadata.stage_position
-                    x_positions.append(pos.x)
-                    y_positions.append(pos.y)
-                    z_positions.append(pos.z)
-                    r_positions.append(pos.r)
-                    t_positions.append(pos.t)
-                    coordinate_systems.append(pos.coordinate_system)
+        for tile in acquired:
+            pos = getattr(tile.metadata, "stage_position", None)
+            if pos is not None:
+                x_positions.append(pos.x)
+                y_positions.append(pos.y)
+                z_positions.append(pos.z)
+                r_positions.append(pos.r)
+                t_positions.append(pos.t)
+                coordinate_systems.append(pos.coordinate_system)
 
         if x_positions:  # If we found any positions
             # Calculate average position (center of mosaic)

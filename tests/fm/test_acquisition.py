@@ -24,13 +24,14 @@ from fibsem.fm.acquisition import (
 )
 from fibsem.fm.structures import (
     AutoFocusMode,
+    AutoFocusSettings,
     ChannelSettings,
     FluorescenceImage,
     FMStagePosition,
     OverviewParameters,
     ZParameters,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, TileOrderStrategy
 
 
 @pytest.fixture
@@ -1198,11 +1199,20 @@ def test_cancel_before_the_first_tile_raises(fm_microscope, monkeypatch):
     with pytest.raises(OperationCancelledError):
         runner.run()
 
-    assert runner.tileset == [], "no tiles were acquired before the cancel"
+    # The grid is allocated up front, so the shape is the grid's whatever happened.
+    assert [[t for t in row] for row in runner.tileset] == [[None, None], [None, None]]
 
 
-def test_cancel_midway_keeps_the_completed_rows_on_the_runner(fm_microscope, monkeypatch):
-    """Rows are appended whole, so a mid-row cancel discards that row's tiles."""
+def test_cancel_midway_keeps_every_acquired_tile_in_its_grid_position(
+    fm_microscope, monkeypatch
+):
+    """A partial row survives, and each tile stays at its own (row, col).
+
+    Tiles used to be appended a whole row at a time, so a mid-row cancel threw that
+    row away. They are now written by index into a pre-allocated grid: nothing
+    acquired is lost, and nothing shifts position to fill a gap -- which matters
+    because the canvas coordinates a tile stitches to come from its indices.
+    """
     microscope = fm_microscope
     _record_tile_positions(microscope, monkeypatch)
     stub = Mock(spec=FluorescenceImage)
@@ -1215,10 +1225,15 @@ def test_cancel_midway_keeps_the_completed_rows_on_the_runner(fm_microscope, mon
     with pytest.raises(OperationCancelledError):
         runner.run()
 
-    # 3 tiles on a 2-wide grid: row 0 complete, row 1 abandoned partway.
-    assert len(runner.tileset) == 1
-    assert len(runner.tileset[0]) == 2
-    assert all(tile is not None for tile in runner.tileset[0])
+    # 3 tiles into a 3x2 typewriter traversal: row 0 complete, row 1 half done.
+    acquired = [
+        (r, c)
+        for r, row in enumerate(runner.tileset)
+        for c, tile in enumerate(row)
+        if tile is not None
+    ]
+    assert acquired == [(0, 0), (0, 1), (1, 0)]
+    assert len(runner.tileset) == 3 and all(len(row) == 2 for row in runner.tileset)
 
 
 def test_cancel_still_restores_the_starting_position(fm_microscope, monkeypatch):
@@ -1288,3 +1303,176 @@ def test_a_genuine_failure_is_not_reported_as_a_cancel(fm_microscope, monkeypatc
 
     with pytest.raises(RuntimeError, match="camera fell over"):
         _runner(microscope, 2, 2).run()
+
+
+# ── sparse tilesets (FIB-392) ────────────────────────────────────────────
+#
+# A masked run acquires a subset of the grid. What must not change is *where* the
+# acquired tiles go: same stage positions and same canvas coordinates as the dense
+# run, so a sparse overview can be compared with, or later filled in from, a full one.
+
+
+def _sparse_runner(microscope, rows, cols, mask=None, order=None, stop_event=None):
+    return acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.1),
+        overview_parameters=OverviewParameters(
+            rows=rows, cols=cols, overlap=0.1, use_zstack=False,
+            autofocus_mode=AutoFocusMode.NONE,
+            tile_order=order or TileOrderStrategy.TYPEWRITER,
+            tile_mask=mask,
+        ),
+        stop_event=stop_event,
+    )
+
+
+def _plus_mask(n):
+    """Middle row and middle column enabled; corners skipped."""
+    mid = n // 2
+    return [[(i == mid or j == mid) for j in range(n)] for i in range(n)]
+
+
+def test_a_masked_run_visits_only_the_enabled_tiles(fm_microscope, monkeypatch):
+    positions = _record_tile_positions(fm_microscope, monkeypatch)
+
+    _sparse_runner(fm_microscope, 5, 5, mask=_plus_mask(5)).run()
+
+    # 9 enabled tiles of 25, plus the restore move at the end. Nothing is driven to a
+    # skipped tile -- the point of a sparse overview is the travel and the exposure it
+    # does not spend.
+    assert len(positions) == 9 + 1
+
+
+def test_skipped_tiles_stay_none_and_the_grid_keeps_its_shape(fm_microscope, monkeypatch):
+    _record_tile_positions(fm_microscope, monkeypatch)
+    mask = _plus_mask(5)
+
+    runner = _sparse_runner(fm_microscope, 5, 5, mask=mask)
+    tileset = runner.run()
+
+    assert len(tileset) == 5 and all(len(row) == 5 for row in tileset)
+    for r in range(5):
+        for c in range(5):
+            assert (tileset[r][c] is not None) is mask[r][c], f"tile ({r}, {c})"
+
+
+def test_masking_changes_which_tiles_are_acquired_never_where(fm_microscope, monkeypatch):
+    """The headline property, at runner level."""
+    dense = _record_tile_positions(fm_microscope, monkeypatch)
+    _sparse_runner(fm_microscope, 5, 5).run()
+    dense_by_tile = {
+        (k // 5, k % 5): p for k, p in enumerate(list(dense)[:25])
+    }
+
+    sparse = _record_tile_positions(fm_microscope, monkeypatch)
+    mask = _plus_mask(5)
+    _sparse_runner(fm_microscope, 5, 5, mask=mask).run()
+
+    enabled = [(r, c) for r in range(5) for c in range(5) if mask[r][c]]
+    for (row, col), position in zip(enabled, list(sparse)[:len(enabled)]):
+        expected = dense_by_tile[(row, col)]
+        assert position.x == pytest.approx(expected.x), f"tile ({row}, {col}) x"
+        assert position.y == pytest.approx(expected.y), f"tile ({row}, {col}) y"
+        assert position.z == pytest.approx(expected.z), f"tile ({row}, {col}) z"
+
+
+def test_a_fully_masked_grid_is_rejected(fm_microscope, monkeypatch):
+    """Rather than silently returning an all-zero mosaic."""
+    _record_tile_positions(fm_microscope, monkeypatch)
+    mask = [[False] * 3 for _ in range(3)]
+
+    with pytest.raises(ValueError, match="disables every tile"):
+        _sparse_runner(fm_microscope, 3, 3, mask=mask).run()
+
+
+def test_progress_totals_count_enabled_tiles_not_grid_cells(fm_microscope, monkeypatch):
+    """A bar that stops at 9/25 on a successful run reads as a failure."""
+    _record_tile_positions(fm_microscope, monkeypatch)
+    emitted = []
+    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+
+    _sparse_runner(fm_microscope, 5, 5, mask=_plus_mask(5)).run()
+
+    totals = {p["total"] for p in emitted if "total" in p}
+    assert totals == {9}
+    counters = [p["current"] for p in emitted if p.get("state") == "acquiring"]
+    assert counters[-1] == 9
+
+
+def test_tile_order_drives_the_visit_sequence(fm_microscope, monkeypatch):
+    """FM had no ordering at all before this; it was hard-coded row-major."""
+    typewriter = _record_tile_positions(fm_microscope, monkeypatch)
+    _sparse_runner(fm_microscope, 3, 3, order=TileOrderStrategy.TYPEWRITER).run()
+
+    serpentine = _record_tile_positions(fm_microscope, monkeypatch)
+    _sparse_runner(fm_microscope, 3, 3, order=TileOrderStrategy.SERPENTINE).run()
+
+    # Row 1 runs right-to-left under serpentine, so tiles 3..5 are reversed.
+    assert [p.x for p in list(serpentine)[3:6]] == [p.x for p in list(typewriter)[3:6]][::-1]
+    # Same set of positions either way -- only the order differs.
+    assert sorted(round(p.x, 12) for p in list(typewriter)[:9]) == \
+           sorted(round(p.x, 12) for p in list(serpentine)[:9])
+
+
+def test_each_row_autofocus_is_promoted_to_each_tile_for_a_spiral(fm_microscope, monkeypatch):
+    """A spiral revisits rows non-sequentially, so "on each new row" is meaningless."""
+    _record_tile_positions(fm_microscope, monkeypatch)
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.1),
+        overview_parameters=OverviewParameters(
+            rows=3, cols=3, overlap=0.1, use_zstack=False,
+            autofocus_mode=AutoFocusMode.EACH_ROW,
+            tile_order=TileOrderStrategy.SPIRAL,
+        ),
+        # _setup resolves the autofocus configuration, and rejects a non-NONE mode
+        # without one -- so the promotion cannot be observed unless this is supplied.
+        autofocus_settings=AutoFocusSettings(),
+    )
+    runner._setup()
+
+    assert runner._autofocus_mode is AutoFocusMode.EACH_TILE
+
+
+def test_each_row_autofocus_survives_a_row_wise_order(fm_microscope, monkeypatch):
+    """The promotion is specific to SPIRAL; typewriter and serpentine keep rows."""
+    _record_tile_positions(fm_microscope, monkeypatch)
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.1),
+        overview_parameters=OverviewParameters(
+            rows=3, cols=3, overlap=0.1, use_zstack=False,
+            autofocus_mode=AutoFocusMode.EACH_ROW,
+            tile_order=TileOrderStrategy.SERPENTINE,
+        ),
+        autofocus_settings=AutoFocusSettings(),
+    )
+    runner._setup()
+
+    assert runner._autofocus_mode is AutoFocusMode.EACH_ROW
+
+
+def test_stitching_leaves_skipped_tiles_as_zeros_at_full_canvas_size(fm_microscope):
+    """The mosaic is the whole grid whatever the mask, with gaps left black."""
+    mask = _plus_mask(3)
+    dense = acquire_and_stitch_tileset(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1),
+    )
+    sparse = acquire_and_stitch_tileset(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1, tile_mask=mask),
+    )
+
+    assert sparse.data.shape == dense.data.shape
+    # The corners are skipped, so the canvas there was never written.
+    tile_h, tile_w = fm_microscope.fm.camera.resolution[1], fm_microscope.fm.camera.resolution[0]
+    assert not sparse.data[0, 0, :tile_h // 2, :tile_w // 2].any(), "top-left corner"
+    assert sparse.data[0, 0].any(), "the enabled tiles were written"
+
+
+def test_a_tileset_of_nothing_but_gaps_is_rejected(fm_microscope):
+    with pytest.raises(ValueError, match="no acquired tiles"):
+        stitch_tileset([[None, None], [None, None]], 0.1)
