@@ -1475,4 +1475,91 @@ def test_stitching_leaves_skipped_tiles_as_zeros_at_full_canvas_size(fm_microsco
 
 def test_a_tileset_of_nothing_but_gaps_is_rejected(fm_microscope):
     with pytest.raises(ValueError, match="no acquired tiles"):
-        stitch_tileset([[None, None], [None, None]], 0.1)
+        stitch_tileset([[None, None], [None, None]], 0.1, FibsemStagePosition())
+
+
+# ── the mosaic is just a large image ─────────────────────────────────────
+#
+# A stitched overview is an ordinary fluorescence image that happens to be big. It
+# carries the metadata a single acquisition carries, describing the whole mosaic --
+# nothing tileset-specific. What that demands is that the metadata be *true*: the
+# centre it reports has to be where the mosaic actually is, whatever was acquired.
+
+
+@pytest.mark.parametrize(
+    ("name", "predicate"),
+    [
+        ("dense", None),
+        ("symmetric-plus", lambda i, j: i == 1 or j == 1),
+        ("off-centre-block", lambda i, j: i < 2 and j < 2),
+        ("single-corner-tile", lambda i, j: (i, j) == (0, 0)),
+    ],
+)
+def test_the_mosaic_centre_is_the_run_centre_whatever_was_acquired(
+    fm_microscope, name, predicate
+):
+    """Averaging the acquired tiles only finds the centre when they are symmetric.
+
+    A single corner tile of a 3x3 averages to that tile -- a full tile away from the
+    mosaic centre, on a canvas that is still the whole 3x3. The grid is laid out
+    centred on the starting stage position, so that position is the answer, exactly,
+    and independently of the mask.
+    """
+    mask = (None if predicate is None
+            else [[predicate(i, j) for j in range(3)] for i in range(3)])
+    centre = fm_microscope.get_stage_position()
+
+    mosaic = acquire_and_stitch_tileset(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1, tile_mask=mask),
+    )
+
+    assert mosaic.metadata.stage_position.x == pytest.approx(centre.x, abs=1e-12)
+    assert mosaic.metadata.stage_position.y == pytest.approx(centre.y, abs=1e-12)
+    assert mosaic.metadata.stage_position.z == pytest.approx(centre.z, abs=1e-12)
+
+
+def test_the_mosaic_records_the_objective_the_run_used(fm_microscope):
+    """Every tile is taken at the run's initial objective position, so it is the
+    mosaic's -- not whatever the first acquired tile happened to carry."""
+    objective = fm_microscope.fm.objective.position
+
+    mosaic = acquire_and_stitch_tileset(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    )
+
+    assert all(ch.objective_position == pytest.approx(objective)
+               for ch in mosaic.metadata.channels)
+
+
+def test_the_mosaic_carries_the_same_metadata_as_a_single_image(fm_microscope):
+    """Only the resolution differs. It is a large image, not a different kind of thing."""
+    channel = ChannelSettings(name="DAPI", excitation_wavelength=358, exposure_time=0.001)
+    single = acquire_image(fm_microscope.fm, channel)
+
+    mosaic = acquire_and_stitch_tileset(
+        microscope=fm_microscope,
+        channel_settings=channel,
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    )
+
+    assert [ch.name for ch in mosaic.metadata.channels] == \
+           [ch.name for ch in single.metadata.channels]
+    assert mosaic.metadata.pixel_size_x == single.metadata.pixel_size_x
+    assert mosaic.metadata.pixel_size_y == single.metadata.pixel_size_y
+    assert mosaic.metadata.resolution[0] > single.metadata.resolution[0]
+    assert mosaic.metadata.resolution == (mosaic.data.shape[-1], mosaic.data.shape[-2])
+
+
+def test_stitching_demands_to_be_told_where_the_mosaic_is():
+    """Not an optional refinement: it is what places the mosaic on the canvas.
+
+    Deriving it from the tiles is available and wrong, so the parameter is required
+    rather than defaulted -- a caller that does not know the centre cannot produce a
+    correctly-placed mosaic, and should fail rather than guess.
+    """
+    with pytest.raises(TypeError, match="centre_position"):
+        stitch_tileset([[Mock(spec=FluorescenceImage)]], 0.1)
