@@ -440,9 +440,20 @@ class FMTiledAcquisitionRunner:
         return self.tileset
 
     def run_and_stitch(self) -> FluorescenceImage:
-        """Acquire every tile and return the stitched mosaic."""
+        """Acquire every tile and return the stitched mosaic.
+
+        The mosaic is an ordinary fluorescence image that happens to be large, and it
+        reports where it is from what the run captured rather than from what the
+        stitcher can infer: the grid is centred on the starting stage position, and
+        every tile is taken at the starting objective position.
+        """
         self.run()
-        return stitch_tileset(self.tileset, self.overview_parameters.overlap)  # type: ignore
+        return stitch_tileset(
+            self.tileset,
+            self.overview_parameters.overlap,
+            centre_position=self._initial_position,
+            objective_position=self._initial_objective_position,
+        )
 
     # ── phases ───────────────────────────────────────────────────────────
 
@@ -815,8 +826,10 @@ def acquire_tileset(
 
 
 def stitch_tileset(
-    tileset: List[List[FluorescenceImage]],
-    tile_overlap: float = 0.1
+    tileset: List[List[Optional[FluorescenceImage]]],
+    tile_overlap: float,
+    centre_position: FibsemStagePosition,
+    objective_position: Optional[float] = None,
 ) -> FluorescenceImage:
     """Stitch a tileset of fluorescence images into a single mosaic image.
 
@@ -825,9 +838,25 @@ def stitch_tileset(
     dimensions (nc_channel, 1, ny, nx). Overlapping regions are handled by taking
     pixels from the rightmost/bottommost tile.
 
+    The result is an ordinary fluorescence image that happens to be large: the same
+    metadata a single acquisition carries, describing the whole mosaic. Nothing about
+    it is tileset-specific, so anything that consumes an FM image consumes this.
+
     Args:
-        tileset: List of lists containing FluorescenceImage objects [row][col]
+        tileset: List of lists containing FluorescenceImage objects [row][col].
+            `None` entries are tiles that were not acquired; they are left as canvas
+            zeros.
         tile_overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
+        centre_position: Stage position of the mosaic centre. Required: where the
+            mosaic sits is what places it on the canvas, so it has to be known rather
+            than inferred. The grid is laid out centred on wherever the stage was when
+            the run started, so the runner passes that position through and it is exact
+            by construction. Deriving it instead -- by averaging the acquired tiles --
+            is only right when they are symmetric about the centre: true of a full
+            grid, false of a masked or cancelled one, and out by up to a whole tile.
+        objective_position: Objective z for the mosaic, recorded on every channel.
+            Every tile is acquired at the run's initial objective position, so that is
+            the mosaic's. Without it the first acquired tile's value is kept.
 
     Returns:
         Single FluorescenceImage containing the stitched mosaic
@@ -954,50 +983,17 @@ def stitch_tileset(
     # Update resolution to reflect new mosaic size
     stitched_metadata.resolution = (mosaic_width, mosaic_height)
 
-    # Calculate the center position as average of all tile positions
-    if any(
-        getattr(tile.metadata, "stage_position", None) is not None
-        for tile in acquired
-    ):
-        # Collect all stage positions from tiles
-        x_positions = []
-        y_positions = []
-        z_positions = []
-        r_positions = []
-        t_positions = []
-        coordinate_systems = []
+    # Where the mosaic is. The grid is laid out centred on wherever the stage was when
+    # the run started, so that position *is* the mosaic centre -- exact, and independent
+    # of which tiles were acquired.
+    stitched_metadata.stage_position = deepcopy(centre_position)
+    stitched_metadata.stage_position.name = f"stitched_mosaic_{rows}x{cols}"
 
-        for tile in acquired:
-            pos = getattr(tile.metadata, "stage_position", None)
-            if pos is not None:
-                x_positions.append(pos.x)
-                y_positions.append(pos.y)
-                z_positions.append(pos.z)
-                r_positions.append(pos.r)
-                t_positions.append(pos.t)
-                coordinate_systems.append(pos.coordinate_system)
-
-        if x_positions:  # If we found any positions
-            # Calculate average position (center of mosaic)
-            avg_x = sum(x_positions) / len(x_positions)
-            avg_y = sum(y_positions) / len(y_positions)
-            avg_z = sum(z_positions) / len(z_positions)
-            avg_r = sum(r_positions) / len(r_positions)
-            avg_t = sum(t_positions) / len(t_positions)
-
-            # Use coordinate system from first tile
-            coord_system = coordinate_systems[0] if coordinate_systems else "Unknown"
-
-            # Update stage position to mosaic center
-            stitched_metadata.stage_position = FibsemStagePosition(
-                x=avg_x,
-                y=avg_y,
-                z=avg_z,
-                r=avg_r,
-                t=avg_t,
-                coordinate_system=coord_system,
-                name=f"stitched_mosaic_{rows}x{cols}",
-            )
+    # Every tile is acquired at the run's initial objective position, so it is the
+    # mosaic's too. Recorded per channel, as it is on a single acquisition.
+    if objective_position is not None:
+        for channel in stitched_metadata.channels:
+            channel.objective_position = objective_position
 
     # Create stitched FluorescenceImage
     stitched_image = FluorescenceImage(data=mosaic_data, metadata=stitched_metadata)
@@ -1057,22 +1053,21 @@ def acquire_and_stitch_tileset(
     # previous check -- empty tileset, or any tile None -- could not tell a user
     # cancel from a tile that genuinely failed, and reported both the same way.
     try:
-        tileset = acquire_tileset(
+        # Driven through the runner rather than the `acquire_tileset` wrapper, so the
+        # stitched mosaic can be given the position and objective the run captured
+        # instead of values inferred from whichever tiles came back.
+        overview_image = FMTiledAcquisitionRunner(
             microscope=microscope,
             channel_settings=channel_settings,
             overview_parameters=overview_parameters,
             zparams=zparams,
-            beam_type=beam_type,
             autofocus_settings=autofocus_settings,
             save_directory=tiles_directory,
             stop_event=stop_event,
-        )
+        ).run_and_stitch()
     except OperationCancelledError:
         logging.info("Tileset acquisition was cancelled, cannot stitch")
         return None
-
-    # Stitch the tileset into a single overview image
-    overview_image = stitch_tileset(tileset, overview_parameters.overlap)  # type: ignore
 
     # Save overview to experiment directory
     if save_directory is not None:
