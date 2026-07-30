@@ -1506,19 +1506,26 @@ class FibsemMicroscope(ABC):
         return self.fm._transform.apply_to_delta(dx, dy)
 
     def _fm_stage_delta(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Relative stage movement for a displacement in the stage-aligned FM image.
+        """Relative stage movement for a displacement seen in the displayed FM image.
 
         The projection shared by :meth:`fm_stable_move` and
         :meth:`project_fm_stable_move`, so the two cannot disagree about where a
         given displacement lands.
 
-        Takes **stage-aligned** image coordinates: the display transform, if any,
-        must already have been undone by the caller. See
-        :meth:`project_fm_stable_move` for why that split exists.
+        Input is in the frame the user is looking at, so the display transform is
+        undone here -- the direct counterpart of `project_stable_move` undoing the
+        beam's scan rotation before projecting. Doing it in the shared helper rather
+        than at one entry point means neither path can skip it.
+
+        That applies to synthesised displacements as much as to clicks. A tile step is
+        expressed in the same frame as the tile it positions, and the mosaic canvas is
+        in display space, because `stitch_tileset` pastes image data that already
+        carries the transform. If the arrangement did not carry it while the content
+        did, the two would disagree and every seam would break.
 
         Args:
-            dx: distance along the x-axis, in stage-aligned image coordinates.
-            dy: distance along the y-axis, in stage-aligned image coordinates.
+            dx: distance along the x-axis, in displayed image coordinates.
+            dy: distance along the y-axis, in displayed image coordinates.
 
         Returns:
             FibsemStagePosition: relative movement, with the y-displacement split
@@ -1529,6 +1536,8 @@ class FibsemMicroscope(ABC):
         """
         if self.fm is None:
             raise ValueError("Fluorescence microscope is not available.")
+
+        dx, dy = self._fm_image_to_stage_delta(dx, dy)
 
         yz_move = self._view_corrected_stage_movement(
             expected_y=dy,
@@ -1549,16 +1558,16 @@ class FibsemMicroscope(ABC):
         `camera_tilt` and the projection itself are already concrete here, so this
         needs no per-driver override.
 
-        Unlike :meth:`fm_stable_move`, this does **not** undo the user's display
-        transform. The undo belongs at the point where a displacement enters from
-        display space -- that is, a click. Callers that synthesise a displacement
-        instead, such as tile stepping computed from the camera's field of view in
-        physical units, were never in display space and have nothing to undo; running
-        them through the undo would make a display preference alter the stage path.
+        Like its beam counterpart, it maps a displacement in the image the user is
+        looking at, so the display transform is undone before projecting -- the same
+        role scan rotation plays for a beam. Both take the displayed frame as their
+        input convention, including for synthesised displacements: `tiled.py` hands
+        `project_stable_move` raw grid offsets and relies on the scan-rotation undo
+        for exactly this reason.
 
         Args:
-            dx: distance along the x-axis, in stage-aligned image coordinates.
-            dy: distance along the y-axis, in stage-aligned image coordinates.
+            dx: distance along the x-axis, in displayed image coordinates.
+            dy: distance along the y-axis, in displayed image coordinates.
             base_position: the position the displacement is measured from.
 
         Returns:
@@ -1605,11 +1614,8 @@ class FibsemMicroscope(ABC):
                 f"(state: {self.fm.objective.state}); the view may not match the sample."
             )
 
-        # The click arrived in display space, so undo the user's transform before
-        # projecting. Displacements that were never in display space must not come
-        # through here -- see project_fm_stable_move.
-        dx, dy = self._fm_image_to_stage_delta(dx, dy)
-
+        # The display transform is undone inside _fm_stage_delta, so this and
+        # project_fm_stable_move share one input convention.
         stage_position = self._fm_stage_delta(dx, dy)
 
         # NOTE: no working-distance restore. That is beam bookkeeping; the objective

@@ -649,14 +649,18 @@ class TestProjectFmStableMove:
         assert moved == []
 
     @pytest.mark.parametrize("mount", ["compustage_fm", "offset_fm"])
-    def test_agrees_with_fm_stable_move(self, request, mount):
+    @pytest.mark.parametrize("transform", list(CameraImageTransform))
+    def test_agrees_with_fm_stable_move(self, request, mount, transform):
         """The projection and the real move must land in the same place.
 
         Both go through `_fm_stage_delta`, so this pins them together rather than
-        merely checking each against a hand-computed number.
+        merely checking each against a hand-computed number. Swept over the display
+        transform as well as the mount because the two now share one input convention:
+        if either stopped undoing the transform, or started undoing it twice, this
+        breaks.
         """
         scope = request.getfixturevalue(mount)
-        scope.fm.set_image_transform(CameraImageTransform.NONE)
+        scope.fm.set_image_transform(transform)
         base = FibsemStagePosition(x=1e-3, y=-2e-3, z=5e-4, r=0, t=0, coordinate_system="RAW")
 
         moved = []
@@ -689,23 +693,30 @@ class TestProjectFmStableMove:
 
         assert (base.x, base.y, base.z) == (1e-3, 2e-3, 3e-3)
 
-    def test_does_not_undo_the_display_transform(self, compustage_fm):
-        """Deliberately unlike fm_stable_move -- and the whole point of the split.
+    def test_undoes_the_display_transform(self, compustage_fm):
+        """Same input convention as fm_stable_move: the frame the user is looking at.
 
-        Input is stage-aligned, so a display preference must not reach it. Callers that
-        synthesise a displacement (tile steps, computed from the camera field of view in
-        physical units) were never in display space; routing them through the undo is
-        what lets a dropdown alter the stage path.
+        The counterpart of project_stable_move undoing the beam's scan rotation, and it
+        applies to synthesised displacements just as much as to clicks -- `tiled.py`
+        hands project_stable_move raw grid offsets and relies on that undo. A tile step
+        is in the same frame as the tile it positions, and the mosaic canvas is in
+        display space because stitch_tileset pastes content that already carries the
+        transform. Arrangement and content have to agree or every seam breaks.
         """
         base = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
-        results = []
-        for transform in CameraImageTransform:
-            compustage_fm.fm.set_image_transform(transform)
-            results.append(compustage_fm.project_fm_stable_move(4e-6, 25e-6, base))
 
-        assert all(r.x == pytest.approx(results[0].x) for r in results)
-        assert all(r.y == pytest.approx(results[0].y) for r in results)
-        assert all(r.z == pytest.approx(results[0].z) for r in results)
+        def project(transform):
+            compustage_fm.fm.set_image_transform(transform)
+            return compustage_fm.project_fm_stable_move(4e-6, 25e-6, base)
+
+        none = project(CameraImageTransform.NONE)
+        flip_x = project(CameraImageTransform.FLIP_X)
+        flip_y = project(CameraImageTransform.FLIP_Y)
+
+        assert flip_x.x == pytest.approx(-none.x), "flip in x must reverse the x move"
+        assert flip_x.y == pytest.approx(none.y), "flip in x must leave y alone"
+        assert flip_y.y == pytest.approx(-none.y), "flip in y must reverse the y move"
+        assert flip_y.x == pytest.approx(none.x), "flip in y must leave x alone"
 
     def test_z_is_only_exercised_by_the_offset_mount(self, compustage_fm, offset_fm):
         """Why the offset fixture exists.
