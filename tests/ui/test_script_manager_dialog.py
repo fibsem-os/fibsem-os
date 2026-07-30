@@ -151,6 +151,20 @@ def test_a_plain_data_script_gets_no_type_chip(qapp, tmp_path):
     assert "Type: Data" in cell.toolTip()
 
 
+def test_a_microscope_script_that_also_writes_admits_to_both(qapp, tmp_path):
+    """Only the worse of the two fits on the line, so the tooltip is the only place
+    the second half can be stated -- and it was silently dropped."""
+    _write(tmp_path, "both.py",
+           "uses_microscope = True\nwrites = True\ndef run(ctx):\n    pass\n")
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.table.selectRow(0)
+
+    assert "Controls the microscope" in dialog.consequence_label.text()
+    tip = dialog.consequence_label.toolTip()
+    assert "no limits, no interlocks" in tip
+    assert "saves it when it finishes" in tip
+
+
 def test_the_consequence_line_matches_its_chip(qapp, tmp_path):
     """One script, one colour. The line under the table used to be red while the
     row's chip was amber, so the same fact arrived twice in two severities."""
@@ -181,9 +195,42 @@ def test_only_a_broken_script_is_red(qapp, tmp_path):
     assert _ERROR in dialog.consequence_label.text()
 
 
-def test_an_empty_folder_says_how_to_start(qapp, tmp_path):
+def test_an_empty_folder_says_how_to_start_where_you_are_looking(qapp, tmp_path):
+    """The message replaces the table rather than sitting under 450px of empty grid
+    with the one useful sentence stranded in the detail panel at the bottom."""
     dialog = _dialog(tmp_path, context=FakeContext())
-    assert "New script" in dialog.detail_label.text()
+
+    from PyQt5.QtWidgets import QLabel
+    shown = dialog.stack.currentWidget()
+    text = " ".join(label.text() for label in shown.findChildren(QLabel))
+
+    assert shown is not dialog.table
+    assert "No scripts in this folder" in text
+    assert "New script" in text and "Change folder" in text
+
+
+def test_the_empty_message_is_not_also_repeated_in_the_detail_panel(qapp, tmp_path):
+    """It used to be the only place it appeared; now it would be the second. The
+    panel hides rather than sitting there as an empty bordered strip."""
+    dialog = _dialog(tmp_path, context=FakeContext())
+    dialog.show()
+
+    assert "New script" not in dialog.detail_label.text()
+    assert not dialog.detail_panel.isVisible()
+
+    _write(tmp_path, "s.py", "def run(ctx):\n    pass\n")
+    dialog.refresh()
+    assert dialog.detail_panel.isVisible()
+
+
+def test_the_table_comes_back_once_a_script_exists(qapp, tmp_path):
+    dialog = _dialog(tmp_path, context=FakeContext())
+    assert dialog.stack.currentWidget() is not dialog.table
+
+    _write(tmp_path, "s.py", "def run(ctx):\n    pass\n")
+    dialog.refresh()
+
+    assert dialog.stack.currentWidget() is dialog.table
 
 
 def test_the_last_run_stamp_is_12_hour(qapp, tmp_path):

@@ -246,6 +246,23 @@ def test_a_script_that_both_writes_and_drives_says_both(qapp, tmp_path):
 
     assert "drives the microscope" in asked[0] and "modifies the experiment" in asked[0]
 
+def test_two_consequences_are_two_sentences_not_a_chain_of_ands(qapp, tmp_path):
+    """Joining the clauses with "and" produced "nothing checks what it does and
+    modifies the experiment", where the second and attaches to "nothing checks" --
+    so the warning stated the opposite of what it meant, on the worst script type."""
+    _write(tmp_path, "hw.py",
+           "uses_microscope = True\nwrites = True\ndef run(ctx):\n    pass\n")
+    runner = _runner(tmp_path, context=FakeContext())
+
+    detail = runner._consequence(runner.discover()[0])
+
+    assert detail == (
+        "It drives the microscope, and nothing checks what it does. "
+        "It modifies the experiment and saves it when it finishes. "
+        "There is no undo."
+    )
+    assert "does and modifies" not in detail
+
 def test_only_one_script_runs_at_a_time(qapp, tmp_path):
     """Two threads commanding one microscope is the failure this prevents."""
     _write(tmp_path, "slow.py",

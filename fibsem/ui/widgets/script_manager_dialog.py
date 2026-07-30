@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -160,8 +161,8 @@ def _script_type(script: DiscoveredScript) -> "tuple[str, Optional[str]]":
 
     A ``None`` colour means the type earns no chip. Only Data does: it is the
     default, so it appeared on nearly every row and distinguished nothing, while
-    costing width in a column that has to fit three chips. The label is still
-    returned, because the tooltip can say "Type: Data" for free.
+    costing width in a column that also has to fit the Writes chip. The label is
+    still returned, because the tooltip can say "Type: Data" for free.
     """
     if not script.is_runnable:
         return "Error", _ERROR
@@ -232,10 +233,17 @@ class ScriptManagerDialog(QDialog):
         header.addWidget(self.rescan_button)
         layout.addLayout(header)
 
+        # The table and its empty state swap places rather than the table sitting
+        # there empty: a headed grid with nothing under it is ~450px of void, and
+        # the one sentence that helps was stranded in the detail panel at the very
+        # bottom. An empty folder is the *first* thing a new user sees here.
         self.table = self._build_table()
-        layout.addWidget(self.table)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.table)
+        self.stack.addWidget(self._build_empty_state())
+        layout.addWidget(self.stack)
 
-        detail_panel = QWidget()
+        self.detail_panel = detail_panel = QWidget()
         detail_panel.setStyleSheet(
             f"background-color: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 6px;"
         )
@@ -270,6 +278,38 @@ class ScriptManagerDialog(QDialog):
         footer.addWidget(close_button)
         footer.addWidget(self.run_button)
         layout.addLayout(footer)
+
+    def _build_empty_state(self) -> QWidget:
+        """Shown instead of the table when the folder holds no scripts.
+
+        Same border and radius as the table so swapping between them does not move
+        anything else in the dialog.
+        """
+        panel = QWidget()
+        panel.setStyleSheet(
+            f"background-color: {_PANEL}; border: 1px solid {_BORDER};"
+            f"border-radius: 6px;"
+        )
+        layout = QVBoxLayout(panel)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(6)
+
+        headline = QLabel("No scripts in this folder")
+        headline.setAlignment(Qt.AlignCenter)
+        headline.setStyleSheet(
+            f"border: none; font-size: {_FS_NAME}px; color: {_TEXT};"
+        )
+        hint = QLabel(
+            "Use New script… to start one from a template, "
+            "or Change folder… to look somewhere else."
+        )
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet(
+            f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
+        )
+        layout.addWidget(headline)
+        layout.addWidget(hint)
+        return panel
 
     def _build_table(self) -> QTableWidget:
         table = QTableWidget()
@@ -407,6 +447,7 @@ class ScriptManagerDialog(QDialog):
                 self.table.setItem(row, col, QTableWidgetItem())
 
         self._fit_type_column()
+        self.stack.setCurrentIndex(0 if self.scripts else 1)
 
         if self.scripts:
             names = [s.name for s in self.scripts]
@@ -418,9 +459,8 @@ class ScriptManagerDialog(QDialog):
         """Widen the type column to the widest row of chips.
 
         ResizeToContents is no use here: it measures the item's size hint, and
-        these cells hold widgets over empty items. A row carries at most one type
-        chip plus a chip per flag, so any fixed width clips as soon as a script
-        declares more than one.
+        these cells hold widgets over empty items. A row can carry a type chip and
+        a Writes chip, so any fixed width clips on a script that declares both.
 
         Floored at the header's own width: a folder of plain data scripts now has
         no chips at all, which collapsed this to 28px and clipped the word "Type".
@@ -471,11 +511,12 @@ class ScriptManagerDialog(QDialog):
         script = self.selected_script()
         host_ready, reason = self.runner.availability()
 
+        # nothing selected and nothing to select: the empty state above already says
+        # so, and an empty bordered strip down here just looks like a rendering fault
+        self.detail_panel.setVisible(bool(self.scripts))
+
         if script is None:
-            empty = (
-                "No scripts in this folder yet — use New script… to create one."
-                if not self.scripts else "No script selected."
-            )
+            empty = "" if not self.scripts else "No script selected."
             self.detail_label.setText(f'<span style="color:{_TEXT_MUTED};">{empty}</span>')
             self.consequence_label.setText("")
             self.run_button.setEnabled(False)
@@ -495,12 +536,19 @@ class ScriptManagerDialog(QDialog):
         elif script.uses_microscope:
             # matches the Microscope chip: the words carry the weight here, and the
             # confirmation dialog is what actually stops you
-            consequence, colour, explain = (
-                "● Controls the microscope", _MICROSCOPE,
+            consequence, colour = "● Controls the microscope", _MICROSCOPE
+            explain = (
                 "This script controls the hardware directly. Nothing checks what it "
                 "does — no limits, no interlocks. It runs in the background, and Stop "
-                "only works if the script itself checks for it.",
+                "only works if the script itself checks for it."
             )
+            if script.writes:
+                # Only the worse of the two fits on screen, so this is the only place
+                # a microscope script that *also* writes admits to the second half.
+                # The row still shows both chips.
+                explain += (
+                    " It also modifies the experiment and saves it when it finishes."
+                )
         elif script.writes:
             consequence, colour, explain = (
                 "● Modifies and saves the experiment", _WRITES,
@@ -511,13 +559,14 @@ class ScriptManagerDialog(QDialog):
                 "● Read-only", _TEXT_MUTED, "This script does not change anything.",
             )
         if script.on_workflow_completed:
-            # already a chip on the row -- repeating it on screen is what pushed
-            # this line past the panel edge on a narrow dialog, so tooltip only
+            # no chip for this any more, and the screen line has no room for it, so
+            # the tooltip is the only place the flag is acknowledged at all
             explain += f" {AUTO_NOT_CONNECTED}."
         self.consequence_label.setToolTip(explain)
-        # Same trap as the chips: a rich-text QLabel under-reports sizeHint
-        # against its rendered width, so the tail clips. Pin it from the metrics
-        # of the plain text before wrapping it in the colour span.
+        # sizeHint does not cover the stylesheet's own font-size, so the tail clips.
+        # Pin from the plain text before it is wrapped in the colour span. Unlike
+        # _chip, this label was styled back in _build(), so by now font() has the
+        # stylesheet size and needs no explicit setPixelSize.
         metrics = QFontMetrics(self.consequence_label.font())
         self.consequence_label.setMinimumWidth(metrics.horizontalAdvance(consequence) + 10)
         consequence = f'<span style="color:{colour};">{consequence}</span>'

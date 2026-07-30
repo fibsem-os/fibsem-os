@@ -136,15 +136,24 @@ class ScriptRunner:
         return box.clickedButton() is run
 
     def _consequence(self, script: DiscoveredScript) -> str:
-        """What running this script will do, for the confirmation box. Empty = no gate."""
+        """What running this script will do, for the confirmation box. Empty = no gate.
+
+        One whole sentence per consequence, not clauses joined with "and". A script
+        declaring both flags used to read "It drives the microscope, and nothing
+        checks what it does and modifies the experiment and saves it when it
+        finishes" -- three ands, and the second one attaches to "nothing checks",
+        so it says the opposite of what it means. That is the most dangerous kind
+        of script and the only one whose warning was broken.
+        """
         parts = []
         if script.uses_microscope:
-            parts.append("drives the microscope, and nothing checks what it does")
+            parts.append("It drives the microscope, and nothing checks what it does.")
         if script.writes:
-            parts.append("modifies the experiment and saves it when it finishes")
+            parts.append("It modifies the experiment and saves it when it finishes.")
         if not parts:
             return ""
-        return "It " + " and ".join(parts) + ". There is no undo."
+        parts.append("There is no undo.")
+        return " ".join(parts)
 
     @property
     def is_running(self) -> bool:
