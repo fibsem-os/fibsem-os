@@ -12,6 +12,7 @@ not convention, because it is a single convenient import away from being broken.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional, Sequence
 
 from fibsem.structures import (
     FibsemStagePosition,
@@ -31,6 +32,9 @@ class TilePosition:
         dy: Y offset from start_position in metres; negative = down (stage y inverted).
         canvas_x: Pixel left edge in the stitched canvas array.
         canvas_y: Pixel top edge in the stitched canvas array.
+        enabled: Whether this tile is to be acquired. Disabled tiles keep their place
+            in the grid -- they still define the canvas extent and the traversal
+            pattern -- but are not visited. See :func:`order_tiles`.
     """
     row: int
     col: int
@@ -38,14 +42,38 @@ class TilePosition:
     dy: float
     canvas_x: int
     canvas_y: int
+    enabled: bool = True
 
-def compute_tile_grid(settings: OverviewAcquisitionSettings) -> list[TilePosition]:
+
+def _validate_mask(mask, nrows: int, ncols: int) -> None:
+    """Reject a mask whose shape does not match the grid.
+
+    A mask is positional: `mask[row][col]`. Silently tolerating the wrong shape
+    would skip or acquire the wrong tiles, which is invisible in the result --
+    a mosaic of zeros looks the same whether the tile was skipped by mistake or
+    the sample was dark there.
+    """
+    if len(mask) != nrows:
+        raise ValueError(
+            f"Tile mask has {len(mask)} rows, but the grid has {nrows}."
+        )
+    for i, row in enumerate(mask):
+        if len(row) != ncols:
+            raise ValueError(
+                f"Tile mask row {i} has {len(row)} columns, but the grid has {ncols}."
+            )
+
+def compute_tile_grid(
+    settings: OverviewAcquisitionSettings,
+    mask: Optional[Sequence[Sequence[bool]]] = None,
+) -> list[TilePosition]:
     """Compute physical and canvas positions for every tile in the grid.
 
     Pure function — no microscope, no side effects.
 
     Args:
         settings: Overview acquisition settings (hfw, resolution, nrows, ncols, overlap).
+        mask: Optional per-tile enable mask, `mask[row][col]`. None enables everything.
     Returns:
         Flat list of TilePosition objects in row-major order (top-left first).
     """
@@ -61,6 +89,7 @@ def compute_tile_grid(settings: OverviewAcquisitionSettings) -> list[TilePositio
         image_width=image_width,
         image_height=image_height,
         overlap=settings.overlap,
+        mask=mask,
     )
 
 
@@ -72,6 +101,7 @@ def compute_tile_grid_from_fov(
     image_width: int,
     image_height: int,
     overlap: float,
+    mask: Optional[Sequence[Sequence[bool]]] = None,
 ) -> list[TilePosition]:
     """Compute the tile grid from a field of view given directly.
 
@@ -93,10 +123,18 @@ def compute_tile_grid_from_fov(
         image_width: Tile width in pixels.
         image_height: Tile height in pixels.
         overlap: Fractional overlap between adjacent tiles.
+        mask: Optional per-tile enable mask, `mask[row][col]`. None enables everything.
+            Disabled tiles are still returned -- they hold the grid's shape, so the
+            canvas extent and the traversal pattern do not change when tiles are
+            skipped. Filtering happens in :func:`order_tiles`.
 
     Returns:
-        Flat list of TilePosition objects in row-major order (top-left first).
+        Flat list of TilePosition objects in row-major order (top-left first),
+        including disabled ones.
     """
+    if mask is not None:
+        _validate_mask(mask, nrows, ncols)
+
     dx_step = fov_x * (1 - overlap)
     dy_step = fov_y * (1 - overlap)
 
@@ -112,6 +150,9 @@ def compute_tile_grid_from_fov(
                 dy=-(i * dy_step),   # negate: stage y axis is inverted
                 canvas_x=j * eff_w,
                 canvas_y=i * eff_h,
+                # bool(): a numpy mask yields np.bool_, which does not survive
+                # yaml.safe_dump when the grid is recorded alongside the mosaic.
+                enabled=True if mask is None else bool(mask[i][j]),
             ))
     return tiles
 
@@ -149,21 +190,32 @@ def _spiral_order(nrows: int, ncols: int) -> list[tuple[int, int]]:
     return result
 
 def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[TilePosition]:
-    """Reorder tiles according to the movement strategy.
+    """Put tiles in traversal order, dropping the disabled ones.
 
     Pure function — no microscope, no side effects.
 
+    Order first, filter second, and in that order deliberately. The traversal is
+    derived from the **full** grid extent and disabled tiles are removed from the
+    resulting sequence, so a sparse acquisition follows the same path the dense one
+    would have and simply misses stops along it. Filtering first would re-derive the
+    pattern over the holes: a spiral would wind around the enabled tiles' bounding
+    box instead of the grid's centre, and serpentine row parity would flip if a whole
+    row were disabled -- a different, and usually longer, stage path.
+
+    This is why `compute_tile_grid*` returns disabled tiles rather than omitting them.
+
     Args:
-        tiles: Flat list of TilePosition objects (any order).
+        tiles: Flat list of TilePosition objects (any order), including disabled ones.
         strategy: TYPEWRITER, SERPENTINE, or SPIRAL.
     Returns:
-        New list with tiles in traversal order.
+        New list of the enabled tiles, in traversal order.
     """
     if strategy is TileOrderStrategy.SPIRAL:
         nrows = max(t.row for t in tiles) + 1
         ncols = max(t.col for t in tiles) + 1
         tile_map = {(t.row, t.col): t for t in tiles}
-        return [tile_map[rc] for rc in _spiral_order(nrows, ncols) if rc in tile_map]
+        ordered = [tile_map[rc] for rc in _spiral_order(nrows, ncols) if rc in tile_map]
+        return [t for t in ordered if t.enabled]
 
     rows = sorted(set(t.row for t in tiles))
     result = []
@@ -171,7 +223,7 @@ def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[
         row_tiles = sorted([t for t in tiles if t.row == row], key=lambda t: t.col)
         if strategy is TileOrderStrategy.SERPENTINE and row_idx % 2 == 1:
             row_tiles = list(reversed(row_tiles))
-        result.extend(row_tiles)
+        result.extend(t for t in row_tiles if t.enabled)
     return result
 
 def validate_tile_stage_positions(

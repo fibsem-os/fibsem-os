@@ -13,6 +13,7 @@ from fibsem.imaging.tiling.geometry import (
 from fibsem.imaging.tiling.plotting import (
     plot_minimap,
     plot_stage_positions_on_image,
+    plot_tile_grid,
     plot_tile_positions,
 )
 from fibsem.imaging.tiling.reprojection import (
@@ -30,6 +31,7 @@ __all__ = [
     "order_tiles",
     "plot_minimap",
     "plot_stage_positions_on_image",
+    "plot_tile_grid",
     "plot_tile_positions",
     "reproject_stage_positions_onto_image",
     "reproject_stage_positions_onto_image2",
