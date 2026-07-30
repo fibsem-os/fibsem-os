@@ -404,6 +404,17 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope,
         viewer: napari viewer object
         microscope: FibsemMicroscope instance
     """
+    if microscope is None:
+        # Expected before a microscope is connected, not an error. FibsemUI builds the
+        # minimap widget during setup, and that widget's `microscope` property reads
+        # through to its parent, which is None until connect. The widget already
+        # treats that as a normal state (`if self.microscope is None: return`); this
+        # was the one path that passed it through to be dereferenced, so every launch
+        # logged "Error updating text overlay: 'NoneType' object has no attribute
+        # '_stage_position'".
+        viewer.text_overlay.text = "<STAGE POSITION UNAVAILABLE>"
+        return
+
     try:
 
         if isinstance(microscope, TescanMicroscope):
