@@ -12,6 +12,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
+from fibsem.conversions import is_inside_image_bounds
 from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
 from dataclasses import dataclass
@@ -620,8 +621,6 @@ def reproject_stage_positions_onto_image(
         bound: Whether to only return points inside the image.
     Returns:
         The reprojected stage positions on the image plane."""
-    from fibsem.ui.napari.utilities import is_inside_image_bounds
-
     # reprojection of positions onto image coordinates
     points = []
     for pos in positions:
@@ -722,8 +721,6 @@ def reproject_stage_positions_onto_image2(
         bound: Whether to only return points inside the image.
     Returns:
         The reprojected stage positions on the image plane."""
-    from fibsem.ui.napari.utilities import is_inside_image_bounds
-
     # reprojection of positions onto image coordinates
     points = []
     for pos in positions:
@@ -773,7 +770,6 @@ def plot_stage_positions_on_image(
         color: The color of the points. (None -> default colour cycle)
     Returns:
         The matplotlib figure."""
-    from fibsem.ui.napari.utilities import is_inside_image_bounds
     if image.metadata is None or image.metadata.microscope_state is None:
         raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
 
@@ -853,7 +849,6 @@ def plot_minimap(
         figsize: Figure size in inches (default: (15, 15))
     Returns:
         The matplotlib figure."""
-    from fibsem.ui.napari.utilities import is_inside_image_bounds
     if image.metadata is None or image.metadata.microscope_state is None:
         raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
 

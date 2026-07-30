@@ -210,3 +210,28 @@ def convert_point_from_metres_to_pixel(point: Point, pixelsize: float) -> Point:
         y=convert_metres_to_pixels(point.y, pixelsize),
     )
     return point_px
+
+
+def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) -> bool:
+    """Check if the coordinates are inside the image bounds.
+
+    Args:
+        coords (Tuple[float, float]): y, x coordinates
+        shape (Tuple[int, int]): image shape (y, x)
+
+    Returns:
+        bool: True if inside image bounds, False otherwise.
+
+    NOTE: the lower bound is exclusive, so row/column 0 reports as outside even
+    though it is a real pixel. Preserved verbatim from the original in
+    `fibsem.ui.napari.utilities`; callers may rely on it, so it is pinned by test
+    rather than corrected here.
+    """
+    ycoord, xcoord = coords
+
+    if (ycoord > 0 and ycoord < shape[0]) and (
+        xcoord > 0 and xcoord < shape[1]
+    ):
+        return True
+
+    return False
