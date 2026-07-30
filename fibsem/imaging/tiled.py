@@ -12,7 +12,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
-from fibsem.cancellation import raise_if_cancelled
+from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
@@ -103,13 +103,25 @@ class TiledAcquisitionRunner:
     # ── public entry point ───────────────────────────────────────────────
 
     def run(self) -> None:
-        """Acquire all tiles."""
+        """Acquire all tiles.
+
+        Always emits a terminal progress update, whatever the outcome. Previously the
+        only one came from `_stitch`, so a caller using `run()` on its own, or any run
+        that was cancelled or failed, left consumers with no way to tell "done" from
+        "still going" -- the progress bar simply stopped moving.
+        """
         self._setup()
         self._compute_grid()
+        outcome, message = "finished", "Acquisition Complete"
         try:
             self._autofocus_if_mode(AutoFocusMode.ONCE)
             self._run_tile_loop()
+        except OperationCancelledError:
+            outcome, message = "cancelled", "Acquisition Cancelled"
+            logging.info("Tiled acquisition cancelled")
+            raise
         except Exception as e:
+            outcome, message = "failed", "Acquisition Failed"
             logging.error(f"Tiled acquisition failed: {e}")
             raise
         finally:
@@ -118,7 +130,30 @@ class TiledAcquisitionRunner:
                 f"{self._start_state.stage_position.pretty}"
             )
             self.microscope.set_microscope_state(self._start_state)
+            self._emit_terminal(outcome, message)
         self._image_settings.path = self._prev_path
+
+    def _emit_terminal(self, outcome: str, message: str) -> None:
+        """Emit the final progress update for the acquisition.
+
+        Carries `counter`/`total`/`msg` because consumers read those unconditionally --
+        `FibsemMinimapWidget.handle_tile_acquisition_progress` indexes them directly
+        and would raise on a payload without them. `finished` is what
+        `AutoLamellaMainUI._on_tile_acquisition_progress` already branches on; it was
+        previously only ever set by `_stitch`. `outcome` is the addition, so a consumer can distinguish a
+        cancel from a failure rather than seeing both as "stopped". Deliberately not
+        called `state`: the fluorescence progress signal already uses that key for the
+        current *phase* (moving / acquiring / finished), and reusing it here for a
+        terminal *outcome* would collide on "finished" while meaning something else.
+        """
+        total_tiles = self.settings.nrows * self.settings.ncols
+        self.microscope.tiled_acquisition_signal.emit({
+            "msg": message,
+            "counter": getattr(self, "_n_tiles_acquired", 0),
+            "total": total_tiles,
+            "finished": True,
+            "outcome": outcome,
+        })
 
     def run_and_stitch(self) -> FibsemImage:
         """Acquire all tiles and return the stitched FibsemImage."""

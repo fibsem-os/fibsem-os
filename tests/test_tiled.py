@@ -264,3 +264,92 @@ def test_validate_positions_all_out_of_bounds():
 
 def test_validate_positions_empty():
     assert validate_tile_stage_positions([], [], _make_limits()) == []
+
+
+# ---------------------------------------------------------------------------
+# Terminal progress state
+#
+# The only terminal emission used to come from _stitch, so run() on its own -- and
+# any cancelled or failed run -- left consumers with a progress bar that just stopped
+# moving. AutoLamellaMainUI already branched on ddict.get("finished"), which nothing
+# on those paths ever set.
+# ---------------------------------------------------------------------------
+
+import threading
+from unittest.mock import MagicMock
+
+from fibsem.cancellation import OperationCancelledError
+from fibsem.imaging.tiled import TiledAcquisitionRunner
+
+
+def _runner_with_recorded_signal(monkeypatch):
+    """A runner whose phases are stubbed, recording what it emits."""
+    emitted = []
+    microscope = MagicMock()
+    microscope.tiled_acquisition_signal.emit = emitted.append
+
+    runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
+    runner.microscope = microscope
+    runner.settings = MagicMock(nrows=2, ncols=3)
+    runner.stop_event = None
+    runner._setup = lambda: None
+    runner._compute_grid = lambda: None
+    runner._autofocus_if_mode = lambda mode: None
+    runner._start_state = MagicMock()
+    runner._image_settings = MagicMock()
+    runner._prev_path = "/tmp"
+    return runner, emitted
+
+
+def test_run_emits_a_terminal_state_on_success(monkeypatch):
+    runner, emitted = _runner_with_recorded_signal(monkeypatch)
+    runner._run_tile_loop = lambda: setattr(runner, "_n_tiles_acquired", 6)
+
+    runner.run()
+
+    assert emitted[-1]["finished"] is True
+    assert emitted[-1]["outcome"] == "finished"
+    assert emitted[-1]["counter"] == 6
+    assert emitted[-1]["total"] == 6
+
+
+def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
+    runner, emitted = _runner_with_recorded_signal(monkeypatch)
+
+    def cancel():
+        runner._n_tiles_acquired = 2
+        raise OperationCancelledError("stopped")
+
+    runner._run_tile_loop = cancel
+
+    with pytest.raises(OperationCancelledError):
+        runner.run()
+
+    assert emitted[-1]["outcome"] == "cancelled"
+    assert emitted[-1]["counter"] == 2, "partial progress is reported, not reset"
+
+
+def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
+    """A failure must be distinguishable from a cancel, not just 'stopped'."""
+    runner, emitted = _runner_with_recorded_signal(monkeypatch)
+
+    def explode():
+        raise RuntimeError("stage fell over")
+
+    runner._run_tile_loop = explode
+
+    with pytest.raises(RuntimeError):
+        runner.run()
+
+    assert emitted[-1]["outcome"] == "failed"
+
+
+def test_the_terminal_payload_satisfies_existing_consumers(monkeypatch):
+    """The minimap handler indexes counter/total/msg directly and would raise."""
+    runner, emitted = _runner_with_recorded_signal(monkeypatch)
+    runner._run_tile_loop = lambda: setattr(runner, "_n_tiles_acquired", 6)
+
+    runner.run()
+
+    for key in ("msg", "counter", "total"):
+        assert key in emitted[-1], f"consumers index {key!r} without a default"
