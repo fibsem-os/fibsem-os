@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
+from fibsem.fm import acquisition
 from fibsem.fm.acquisition import (
     acquire_and_stitch_tileset,
     acquire_at_positions,
@@ -65,10 +66,12 @@ def test_generate_grid_positions_odd_dimensions():
     assert sorted(set(x_coords)) == expected_coords
     assert sorted(set(y_coords)) == expected_coords
 
-    # Check specific positions
-    assert (-10.0, -10.0) in positions  # Top-left
+    # Check specific positions. Row 0 is the top of the mosaic, so the top-left
+    # corner is at positive y -- these were labelled the other way round while the
+    # row direction was inverted, and the labels were the only thing that noticed.
+    assert (-10.0, 10.0) in positions   # Top-left
     assert (0.0, 0.0) in positions      # Center
-    assert (10.0, 10.0) in positions    # Bottom-right
+    assert (10.0, -10.0) in positions   # Bottom-right
 
 def test_generate_grid_positions_even_dimensions():
     """Test grid position generation with even numbers of columns and rows."""
@@ -989,3 +992,158 @@ def test_acquire_multiple_overviews(fm_microscope):
             channel_settings=channel,
             overview_parameters=overview_params,
         )
+
+
+# ---------------------------------------------------------------------------
+# Row direction
+#
+# `acquire_tileset` drives the stage and `stitch_tileset` pastes tiles purely by
+# index -- they never communicate, so they have to agree on which way row indices
+# run or the mosaic comes out with its rows reversed. `imaging/tiled.py` already
+# fixes that convention for beam tilesets (`TilePosition`: "row 0 = top",
+# "dy negative = down"), and both tilers express their steps in image coordinates
+# and hand them to the same projection. So the FM tiler has to match it.
+# ---------------------------------------------------------------------------
+
+
+def _record_tile_moves(microscope, monkeypatch):
+    """Run a tileset with the stage and camera stubbed, returning the moves made.
+
+    Returns a list of (dx, dy) passed to fm_stable_move, in call order.
+    """
+    moves = []
+
+    def fake_move(dx, dy):
+        moves.append((dx, dy))
+        return microscope.get_stage_position()
+
+    stub = Mock(spec=FluorescenceImage)
+    monkeypatch.setattr(microscope, "fm_stable_move", fake_move)
+    monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", lambda *a, **k: stub)
+    return moves
+
+
+def _cumulative_tile_offsets(moves, rows, cols):
+    """Replay the recorded moves into a per-tile (dx, dy) offset from the origin."""
+    x = y = 0.0
+    offsets = {}
+    index = 0  # moves[0] is the move to the start of the grid
+    x, y = moves[0]
+    for row in range(rows):
+        for col in range(cols):
+            offsets[(row, col)] = (x, y)
+            if col < cols - 1:
+                index += 1
+                x += moves[index][0]
+                y += moves[index][1]
+        if row < rows - 1:
+            index += 1
+            x += moves[index][0]
+            y += moves[index][1]
+    return offsets
+
+
+@pytest.mark.parametrize("rows,cols", [(2, 2), (3, 2), (1, 4), (4, 1)])
+def test_acquire_tileset_steps_rows_downward(fm_microscope, monkeypatch, rows, cols):
+    """Row 0 starts at the top of the grid and later rows step down."""
+    microscope = fm_microscope
+    moves = _record_tile_moves(microscope, monkeypatch)
+
+    acquisition.acquire_tileset(
+        microscope=microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=rows, cols=cols, overlap=0.1,
+            use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+        ),
+    )
+
+    offsets = _cumulative_tile_offsets(moves, rows, cols)
+
+    # Row 0 is the top of the mosaic, so it sits at the most positive y.
+    ys = [offsets[(row, 0)][1] for row in range(rows)]
+    assert ys == sorted(ys, reverse=True), f"rows must step downward, got {ys}"
+    if rows > 1:
+        assert ys[0] > ys[-1]
+        # ... and the grid stays centred on the starting position.
+        assert ys[0] == pytest.approx(-ys[-1])
+
+    # Columns are unchanged: col 0 is the left edge, x increases to the right.
+    xs = [offsets[(0, col)][0] for col in range(cols)]
+    assert xs == sorted(xs), f"columns must step rightward, got {xs}"
+
+
+def test_acquire_tileset_row_direction_matches_the_beam_tiler(fm_microscope, monkeypatch):
+    """The FM tiler and the beam tiler must agree on the direction of each axis.
+
+    Pins the two against each other rather than against a hard-coded sign, so the
+    convention can only ever be changed in both places at once.
+    """
+    from fibsem.imaging.tiled import compute_tile_grid
+    from fibsem.structures import ImageSettings, OverviewAcquisitionSettings
+
+    rows, cols = 3, 3
+    microscope = fm_microscope
+    moves = _record_tile_moves(microscope, monkeypatch)
+
+    acquisition.acquire_tileset(
+        microscope=microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=rows, cols=cols, overlap=0.1,
+            use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+        ),
+    )
+    fm_offsets = _cumulative_tile_offsets(moves, rows, cols)
+
+    beam_tiles = compute_tile_grid(
+        OverviewAcquisitionSettings(
+            image_settings=ImageSettings(hfw=100e-6, resolution=[1024, 1024]),
+            nrows=rows, ncols=cols, overlap=0.1,
+        )
+    )
+
+    # compute_tile_grid measures from the top-left tile, acquire_tileset from the
+    # centre, so compare directions between tiles rather than absolute offsets.
+    origin = fm_offsets[(0, 0)]
+    for tile in beam_tiles:
+        fm_dx, fm_dy = fm_offsets[(tile.row, tile.col)]
+        fm_dx, fm_dy = fm_dx - origin[0], fm_dy - origin[1]
+        assert np.sign(fm_dx) == np.sign(tile.dx), (
+            f"x direction disagrees at row {tile.row} col {tile.col}: "
+            f"FM {fm_dx:+.3e} vs beam {tile.dx:+.3e}"
+        )
+        assert np.sign(fm_dy) == np.sign(tile.dy), (
+            f"y direction disagrees at row {tile.row} col {tile.col}: "
+            f"FM {fm_dy:+.3e} vs beam {tile.dy:+.3e}"
+        )
+
+
+def test_generate_grid_positions_orders_rows_top_to_bottom():
+    """Row 0 is the top of the mosaic, so its y is the most positive.
+
+    The other generate_grid_positions tests assert on *sets* of coordinates, and the
+    grid is symmetric about zero -- so every one of them passes with the row order
+    inverted. This pins the ordering itself.
+    """
+    ncols, nrows, fov = 2, 3, 10.0
+    positions = generate_grid_positions(
+        ncols=ncols, nrows=nrows, fov_x=fov, fov_y=fov, overlap=0.0
+    )
+
+    # Positions come out column-major, so each run of `nrows` is one column.
+    for col in range(ncols):
+        column = positions[col * nrows:(col + 1) * nrows]
+        ys = [y for _, y in column]
+        assert ys == sorted(ys, reverse=True), (
+            f"column {col} must run top to bottom, got {ys}"
+        )
+
+    assert max(y for _, y in positions) == pytest.approx(fov)
+    assert min(y for _, y in positions) == pytest.approx(-fov)
