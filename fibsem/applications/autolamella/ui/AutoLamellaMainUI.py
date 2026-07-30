@@ -297,19 +297,32 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # user scripts (FIB-338). The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
-        from fibsem.applications.autolamella.scripting import get_scripts_directory
-        from fibsem.ui.widgets.script_menu import ScriptMenuController
-
-        self.scripts_menu = tools_menu.addMenu("Scripts")
-        if self.scripts_menu is None:
-            raise RuntimeError("Failed to create Scripts submenu in AutoLamella UI.")
-        self.script_menu_controller = ScriptMenuController(
-            menu=self.scripts_menu,
-            scripts_directory=get_scripts_directory,
-            context_factory=self._script_context,
-            notify=self.show_toast,
-            parent=self,
+        #
+        # Behind AUTOLAMELLA_ENABLE_SCRIPTS, and off by default: a script runs with
+        # the application's own hardware access and none of its guard rails. Not
+        # built at all rather than built-and-disabled -- a greyed-out Scripts menu
+        # advertises a feature the user cannot reach and cannot be told how to.
+        # Nothing else creates the menu or the dialog, so this is the whole gate.
+        from fibsem.applications.autolamella.scripting import (
+            get_scripts_directory,
+            scripts_enabled,
         )
+
+        self.scripts_menu = None
+        self.script_menu_controller = None
+        if scripts_enabled():
+            from fibsem.ui.widgets.script_menu import ScriptMenuController
+
+            self.scripts_menu = tools_menu.addMenu("Scripts")
+            if self.scripts_menu is None:
+                raise RuntimeError("Failed to create Scripts submenu in AutoLamella UI.")
+            self.script_menu_controller = ScriptMenuController(
+                menu=self.scripts_menu,
+                scripts_directory=get_scripts_directory,
+                context_factory=self._script_context,
+                notify=self.show_toast,
+                parent=self,
+            )
 
         # add help menu
         help_menu = menu_bar.addMenu("Help")

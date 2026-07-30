@@ -91,3 +91,24 @@ def test_the_controller_exposes_the_runner_it_built(qapp, tmp_path):
     script is running (FIB-340)."""
     controller, _ = _controller(tmp_path, context=FakeContext())
     assert controller.runner.is_running is False
+
+
+@pytest.mark.parametrize("parent_widget", [None, object()])
+def test_the_workflow_gate_holds_when_scripting_is_switched_off(parent_widget):
+    """With AUTOLAMELLA_ENABLE_SCRIPTS unset there is no menu and no controller, so
+    the gate has to read "no script running" rather than raise -- otherwise turning
+    the feature off would break starting a workflow, which is the whole app.
+
+    Called unbound on a stub: the method only reads self.parent_widget, and building
+    a real AutoLamellaUI needs a viewer and a microscope.
+    """
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+
+    class Host:
+        script_menu_controller = None
+
+    stub = type("Stub", (), {"parent_widget": parent_widget})()
+    assert AutoLamellaUI._script_runner_is_busy(stub) is False
+
+    stub_with_host = type("Stub", (), {"parent_widget": Host()})()
+    assert AutoLamellaUI._script_runner_is_busy(stub_with_host) is False
