@@ -1,9 +1,11 @@
+import threading
 from unittest.mock import Mock, call, patch
 
 import numpy as np
 import pytest
 
 from fibsem import utils
+from fibsem.cancellation import OperationCancelledError
 from fibsem.fm import acquisition
 from fibsem.fm.acquisition import (
     acquire_and_stitch_tileset,
@@ -1143,3 +1145,146 @@ def test_acquire_tileset_returns_to_the_starting_position(fm_microscope, monkeyp
     assert final.x == pytest.approx(start.x)
     assert final.y == pytest.approx(start.y)
     assert final.z == pytest.approx(start.z)
+
+
+# ---------------------------------------------------------------------------
+# Cancellation
+#
+# A cancel raises OperationCancelledError -- the same type milling, autofocus and
+# (now) the beam tiler use -- rather than returning a short tileset. The partial
+# tiles stay on the runner, which the function form could not offer.
+#
+# Previously acquire_and_stitch_tileset inferred a cancel from
+#     if not tileset or any(tile is None for row in tileset for tile in row)
+# which cannot distinguish a user cancel from a tile that genuinely failed.
+# ---------------------------------------------------------------------------
+
+
+def _runner(microscope, rows, cols, stop_event=None, overlap=0.1):
+    return acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=rows, cols=cols, overlap=overlap,
+            use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+        ),
+        stop_event=stop_event,
+    )
+
+
+def _cancelling_after(n_tiles, stop_event, stub):
+    """An acquire_image stand-in that trips the stop event after n tiles."""
+    calls = {"n": 0}
+
+    def fake_acquire(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] >= n_tiles:
+            stop_event.set()
+        return stub
+
+    return fake_acquire
+
+
+def test_cancel_before_the_first_tile_raises(fm_microscope, monkeypatch):
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    stop_event = threading.Event()
+    stop_event.set()
+    runner = _runner(microscope, 2, 2, stop_event)
+
+    with pytest.raises(OperationCancelledError):
+        runner.run()
+
+    assert runner.tileset == [], "no tiles were acquired before the cancel"
+
+
+def test_cancel_midway_keeps_the_completed_rows_on_the_runner(fm_microscope, monkeypatch):
+    """Rows are appended whole, so a mid-row cancel discards that row's tiles."""
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    stub = Mock(spec=FluorescenceImage)
+    stop_event = threading.Event()
+    monkeypatch.setattr(
+        "fibsem.fm.acquisition.acquire_image", _cancelling_after(3, stop_event, stub)
+    )
+    runner = _runner(microscope, 3, 2, stop_event)
+
+    with pytest.raises(OperationCancelledError):
+        runner.run()
+
+    # 3 tiles on a 2-wide grid: row 0 complete, row 1 abandoned partway.
+    assert len(runner.tileset) == 1
+    assert len(runner.tileset[0]) == 2
+    assert all(tile is not None for tile in runner.tileset[0])
+
+
+def test_cancel_still_restores_the_starting_position(fm_microscope, monkeypatch):
+    """The restore is in a finally block and must survive the raise."""
+    microscope = fm_microscope
+    start = microscope.get_stage_position()
+    positions = _record_tile_positions(microscope, monkeypatch)
+    stub = Mock(spec=FluorescenceImage)
+    stop_event = threading.Event()
+    monkeypatch.setattr(
+        "fibsem.fm.acquisition.acquire_image", _cancelling_after(2, stop_event, stub)
+    )
+
+    with pytest.raises(OperationCancelledError):
+        _runner(microscope, 3, 3, stop_event).run()
+
+    final = positions[-1]
+    assert final.x == pytest.approx(start.x)
+    assert final.y == pytest.approx(start.y)
+    assert final.z == pytest.approx(start.z)
+
+
+def test_a_cancelled_tile_image_raises(fm_microscope, monkeypatch):
+    """acquire_image returning None is itself the cancellation signal."""
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", lambda *a, **k: None)
+
+    with pytest.raises(OperationCancelledError):
+        _runner(microscope, 2, 2).run()
+
+
+def test_stitching_reports_a_cancel_as_none_not_an_error(fm_microscope, monkeypatch):
+    """The top-level behaviour callers see is unchanged by the new contract."""
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", lambda *a, **k: None)
+
+    result = acquire_and_stitch_tileset(
+        microscope=microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=2, cols=2, overlap=0.1,
+            use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+        ),
+    )
+
+    assert result is None
+
+
+def test_a_genuine_failure_is_not_reported_as_a_cancel(fm_microscope, monkeypatch):
+    """The distinction the old heuristic could not make.
+
+    A tile that fails for a real reason must propagate, not be silently reported as
+    a user cancel. Previously both produced a short tileset and were indistinguishable.
+    """
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+
+    def exploding_acquire(*args, **kwargs):
+        raise RuntimeError("camera fell over")
+
+    monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", exploding_acquire)
+
+    with pytest.raises(RuntimeError, match="camera fell over"):
+        _runner(microscope, 2, 2).run()

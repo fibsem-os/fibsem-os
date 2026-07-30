@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 from fibsem import utils
+from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.fm.calibration import run_autofocus
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.fm.microscope import FluorescenceMicroscope
@@ -369,6 +370,363 @@ def run_tileset_autofocus(
         return False
 
 
+class FMTiledAcquisitionRunner:
+    """Orchestrates a fluorescence tileset acquisition as a series of discrete phases.
+
+    The fluorescence counterpart of `imaging.tiled.TiledAcquisitionRunner`, and
+    deliberately the same shape: `run()` drives `_setup` -> `_compute_grid` ->
+    once-only autofocus -> `_run_tile_loop`, restoring the starting position in a
+    `finally`. The two differ only in what happens at each tile -- channels, z-stacks
+    and objective autofocus here; beam settings and focus stacks there -- which is why
+    they are separate runners over one shared geometry rather than a single class with
+    a mode flag.
+
+    State accumulated across phases lives on `self`, so partial results survive a
+    cancellation: `run()` raises `OperationCancelledError`, and whatever was acquired
+    up to that point remains on `.tileset`.
+    """
+
+    def __init__(
+        self,
+        microscope: 'FibsemMicroscope',
+        channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+        overview_parameters: OverviewParameters,
+        zparams: Optional[ZParameters] = None,
+        autofocus_settings: Optional[AutoFocusSettings] = None,
+        save_directory: Optional[str] = None,
+        stop_event: Optional[threading.Event] = None,
+    ):
+        self.microscope = microscope
+        self.channel_settings = channel_settings
+        self.overview_parameters = overview_parameters
+        self.zparams = zparams
+        self.autofocus_settings = autofocus_settings
+        self.save_directory = save_directory
+        self.stop_event = stop_event
+
+        # Rows are appended whole, so on a mid-row cancel that row is discarded.
+        self.tileset: List[List[Optional[FluorescenceImage]]] = []
+
+    # ── public entry points ──────────────────────────────────────────────
+
+    def run(self) -> List[List[Optional[FluorescenceImage]]]:
+        """Acquire every tile, returning them as [row][col].
+
+        Raises:
+            OperationCancelledError: if the stop event is set. Tiles acquired before
+                that point remain available on `.tileset`.
+        """
+        self._setup()
+        self._compute_grid()
+        try:
+            self._autofocus_if_mode(AutoFocusMode.ONCE)
+            self._run_tile_loop()
+            self._save_parameters()
+        except OperationCancelledError:
+            logging.info("Tileset acquisition cancelled")
+            raise
+        except Exception as e:
+            logging.error(f"Error during tileset acquisition: {e}")
+            raise
+        finally:
+            self._restore()
+
+        logging.info(
+            f"Tileset acquisition complete: {self._rows}x{self._cols} tiles acquired"
+        )
+        return self.tileset
+
+    def run_and_stitch(self) -> FluorescenceImage:
+        """Acquire every tile and return the stitched mosaic."""
+        self.run()
+        return stitch_tileset(self.tileset, self.overview_parameters.overlap)  # type: ignore
+
+    # ── phases ───────────────────────────────────────────────────────────
+
+    def _setup(self) -> None:
+        """Validate inputs, capture what has to be restored, and size the grid."""
+        microscope = self.microscope
+
+        if microscope.fm is None:
+            raise ValueError(
+                "Fluorescence microscope not initialized in the FibsemMicroscope instance"
+            )
+
+        orientation = microscope.get_stage_orientation()
+        if orientation not in ["SEM", "FM"]:
+            raise ValueError(
+                f"Stage is not in SEM, or FM orientation {orientation}. Cannot start acquisition."
+            )
+
+        if not isinstance(self.channel_settings, list):
+            self.channel_settings = [self.channel_settings]
+
+        self._rows = self.overview_parameters.rows
+        self._cols = self.overview_parameters.cols
+        self._overlap = self.overview_parameters.overlap
+        self._autofocus_mode = self.overview_parameters.autofocus_mode
+
+        if self._rows <= 0 or self._cols <= 0:
+            raise ValueError("Grid size must contain positive values")
+
+        if not 0.0 <= self._overlap < 1.0:
+            raise ValueError("Tile overlap must be between 0.0 and 1.0 (exclusive)")
+
+        logging.info(
+            f"Starting tileset acquisition: {self._rows}x{self._cols} grid "
+            f"with {self._overlap:.1%} overlap"
+        )
+
+        # Captured for the restore in _restore(), and as the grid's centre.
+        self._initial_position = microscope.get_stage_position()
+        self._initial_objective_position = microscope.fm.objective.position
+
+        pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
+        self._image_width, self._image_height = microscope.fm.camera.resolution
+        self._fov_x = self._image_width * pixel_size_x
+        self._fov_y = self._image_height * pixel_size_y
+        self._step_x = self._fov_x * (1.0 - self._overlap)
+        self._step_y = self._fov_y * (1.0 - self._overlap)
+
+        self._setup_autofocus()
+
+        time_estimates = estimate_tileset_acquisition_time(
+            self.channel_settings, (self._rows, self._cols), self.zparams,
+            self._autofocus_mode,
+        )
+        self._total_estimated_time = time_estimates["total_time"]
+        self._acquisition_start_time = time.time()
+
+    def _setup_autofocus(self) -> None:
+        """Resolve the autofocus channel, method and z-range once, up front."""
+        self._autofocus_channel = None
+        self._autofocus_method = None
+        self._autofocus_zparams = None
+
+        if self._autofocus_mode == AutoFocusMode.NONE:
+            return
+
+        if self.autofocus_settings is None:
+            raise ValueError(
+                f"Auto focus settings must be provided when autofocus mode "
+                f"{self._autofocus_mode.value} is enabled"
+            )
+
+        if self.autofocus_settings.channel_name:
+            for ch in self.channel_settings:
+                if ch.name == self.autofocus_settings.channel_name:
+                    self._autofocus_channel = ch
+                    break
+
+        if self._autofocus_channel is None:
+            logging.warning(
+                f"Autofocus channel '{self.autofocus_settings.channel_name}' not found, "
+                f"using first channel"
+            )
+            self._autofocus_channel = self.channel_settings[0]
+
+        enabled_passes = [p for p in self.autofocus_settings.passes if p.enabled]
+        if not enabled_passes:
+            raise ValueError("Auto-focus settings has no enabled passes")
+
+        logging.info(f"Auto-focus mode: {self._autofocus_mode.value}")
+        logging.info(
+            f"Auto-focus settings: {self.autofocus_settings.method.value}, "
+            f"{len(enabled_passes)} enabled pass(es)"
+        )
+
+        self._autofocus_method = self.autofocus_settings.method.value
+        # Per-tile / per-row autofocus uses the final (narrowest) enabled pass.
+        # NOTE: a wider initial pass should only be used once, before acquisition.
+        self._autofocus_zparams = ZParameters.from_focus_pass(enabled_passes[-1])
+
+    def _compute_grid(self) -> None:
+        """Lay the grid out once and project every tile to an absolute position.
+
+        Nothing moves here. Walking the grid with relative steps accumulated error
+        over the traversal, and on an offset mount every step carries a real z
+        component -- so the drift was in the focal plane, not just the position. A
+        compustage hides that, having no pre-tilt and therefore z == 0 throughout.
+
+        Using the shared layout also keeps the row direction out of the tile loop.
+        Row 0 is the top of the mosaic and later rows step down; `stitch_tileset`
+        paints row 0 at canvas y=0 regardless, so the two have to agree. They
+        disagreed once already (#226).
+        """
+        tiles = compute_tile_grid_from_fov(
+            nrows=self._rows,
+            ncols=self._cols,
+            fov_x=self._fov_x,
+            fov_y=self._fov_y,
+            image_width=self._image_width,
+            image_height=self._image_height,
+            overlap=self._overlap,
+        )
+
+        # The grid measures from its top-left tile; shift so it is centred on where
+        # the stage already is. Same convention as TiledAcquisitionRunner.
+        grid_offset_x = (self._cols - 1) * self._step_x / 2
+        grid_offset_y = (self._rows - 1) * self._step_y / 2
+
+        self._tile_stage_positions = {
+            (tile.row, tile.col): self.microscope.project_fm_stable_move(
+                dx=tile.dx - grid_offset_x,
+                dy=tile.dy + grid_offset_y,
+                base_position=self._initial_position,
+            )
+            for tile in tiles
+        }
+
+        self._emit({"state": "moving", "task": "tileset"})
+        self._emit({
+            "state": "acquiring", "task": "tileset",
+            "row": 1, "col": 1,
+            "total_rows": self._rows, "total_cols": self._cols,
+            "current": 1, "total": self._rows * self._cols,
+            "estimated_total_time": self._total_estimated_time,
+            "estimated_remaining_time": self._total_estimated_time,
+        })
+
+    def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
+        """Run autofocus when the configured mode matches.
+
+        Raises:
+            OperationCancelledError: if autofocus was cancelled.
+        """
+        if self._autofocus_mode != mode:
+            return
+
+        if not run_tileset_autofocus(
+            self.microscope,
+            self._autofocus_channel,
+            self._autofocus_zparams,
+            method=self._autofocus_method,
+            stop_event=self.stop_event,
+        ):
+            raise OperationCancelledError(
+                f"Tileset autofocus ({mode.value}) cancelled by user."
+            )
+
+    def _run_tile_loop(self) -> None:
+        """Visit every tile in row-major order."""
+        for row in range(self._rows):
+            raise_if_cancelled(self.stop_event, "Tileset acquisition cancelled by user.")
+            self._autofocus_if_mode(AutoFocusMode.EACH_ROW)
+
+            row_images: List[Optional[FluorescenceImage]] = []
+            for col in range(self._cols):
+                # Check before moving, so a cancel skips the travel entirely.
+                raise_if_cancelled(
+                    self.stop_event, "Tileset acquisition cancelled by user."
+                )
+                row_images.append(self._acquire_tile(row, col))
+
+                if col < self._cols - 1:
+                    self._emit({"state": "moving", "task": "tileset"})
+
+            self.tileset.append(row_images)
+
+            if row < self._rows - 1:
+                self._emit({"state": "moving", "task": "tileset"})
+
+    def _acquire_tile(self, row: int, col: int) -> FluorescenceImage:
+        """Move to one tile and acquire it.
+
+        Raises:
+            OperationCancelledError: if cancelled during autofocus or acquisition.
+        """
+        microscope = self.microscope
+
+        # Absolute, from the grid computed up front -- no accumulation.
+        microscope.safe_absolute_stage_movement(self._tile_stage_positions[(row, col)])
+        microscope.fm.objective.move_absolute(self._initial_objective_position)
+
+        self._autofocus_if_mode(AutoFocusMode.EACH_TILE)
+
+        logging.info(f"Acquiring tile [{row + 1}/{self._rows}][{col + 1}/{self._cols}]")
+        self._emit_tile_progress(row, col)
+
+        filename = None
+        if self.save_directory is not None:
+            filename = os.path.join(
+                self.save_directory, f"tile-{row:02d}-{col:02d}.ome.tiff"
+            )
+
+        tile_image = acquire_image(
+            microscope=microscope.fm,
+            channel_settings=self.channel_settings,
+            zparams=self.zparams,
+            stop_event=self.stop_event,
+            filename=filename,
+        )
+
+        # acquire_image returns None only when it was cancelled part-way.
+        if tile_image is None:
+            raise OperationCancelledError(
+                "Tileset acquisition cancelled by user during tile acquisition."
+            )
+
+        if self.zparams is not None:
+            # TODO(FIB-394): make the projection method selectable; focus_stack()
+            # already exists and is simply not reachable from here.
+            tile_image = tile_image.max_intensity_projection()
+
+        return tile_image
+
+    def _save_parameters(self) -> None:
+        """Write the acquisition parameters alongside the tiles."""
+        if self.save_directory is None:
+            return
+
+        params = {
+            "grid_size": (self._rows, self._cols),
+            "tile_overlap": self._overlap,
+            "overview_parameters": self.overview_parameters.to_dict(),
+            "zparameters": self.zparams.to_dict() if self.zparams is not None else None,
+            "autofocus_settings": (
+                self.autofocus_settings.to_dict()
+                if self.autofocus_settings is not None else None
+            ),
+            "channel_settings": [ch.to_dict() for ch in self.channel_settings],
+        }
+        params_filename = os.path.join(self.save_directory, "overview-parameters.json")
+        utils.save_json(params_filename, params)
+        logging.info(f"Saved tileset acquisition parameters to {params_filename}")
+
+    def _restore(self) -> None:
+        """Put the stage and objective back where they started."""
+        logging.info("Returning to initial position")
+        self.microscope.safe_absolute_stage_movement(self._initial_position)
+        self.microscope.fm.objective.move_absolute(self._initial_objective_position)
+        self._emit({"state": "finished"})
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    def _emit(self, payload: dict) -> None:
+        self.microscope.fm.acquisition_progress_signal.emit(payload)
+
+    def _emit_tile_progress(self, row: int, col: int) -> None:
+        current_tile = row * self._cols + col + 1
+        total_tiles = self._rows * self._cols
+        elapsed_time = time.time() - self._acquisition_start_time
+
+        if current_tile > 1:
+            time_per_tile = elapsed_time / (current_tile - 1)
+            estimated_remaining_time = time_per_tile * (total_tiles - current_tile + 1)
+        else:
+            estimated_remaining_time = self._total_estimated_time
+
+        self._emit({
+            "state": "acquiring", "task": "tileset",
+            "row": row + 1, "col": col + 1,
+            "total_rows": self._rows, "total_cols": self._cols,
+            "current": current_tile, "total": total_tiles,
+            "estimated_total_time": self._total_estimated_time,
+            "estimated_remaining_time": estimated_remaining_time,
+            "elapsed_time": elapsed_time,
+        })
+
+
 def acquire_tileset(
     microscope: 'FibsemMicroscope',
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
@@ -381,19 +739,17 @@ def acquire_tileset(
 ) -> List[List[Optional[FluorescenceImage]]]:
     """Acquire a tileset of fluorescence images across a grid pattern.
 
-    This function moves the stage in a grid pattern to acquire multiple overlapping
-    fluorescence images that can later be stitched together to create a larger
-    field of view mosaic. The stage is moved using stable_move to maintain proper
-    focus and positioning.
+    Thin wrapper over :class:`FMTiledAcquisitionRunner`. Use the runner directly when
+    you need the partial tiles after a cancellation, or want to hold the object to
+    poll and stop it -- which is what the acquisition UI wants.
 
     Args:
         microscope: The fluorescence microscope instance
         channel_settings: Single channel or list of channels to acquire
         overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
         zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Unused for stage movement. Tiles are stepped with fm_stable_move,
-            which projects through the camera's own axis tilt; kept for signature
-            compatibility with callers that still pass it.
+        beam_type: Unused for stage movement. Tiles are projected through the camera's
+            own axis tilt; kept for signature compatibility with callers that still pass it.
         autofocus_settings: Optional AutoFocusSettings for autofocus configuration
         save_directory: Optional directory path to save individual tile images (default: None)
         stop_event: Threading event to signal cancellation (optional)
@@ -403,6 +759,7 @@ def acquire_tileset(
 
     Raises:
         ValueError: If grid_size contains non-positive values or overlap is invalid
+        OperationCancelledError: If the acquisition was cancelled by the user.
 
     Example:
         >>> # Acquire a 3x3 grid with 10% overlap
@@ -411,303 +768,15 @@ def acquire_tileset(
         >>> tileset = acquire_tileset(microscope, channel, grid_size=(3, 3), tile_overlap=0.1)
         >>> print(f"Acquired {len(tileset)}x{len(tileset[0])} tiles")
     """
-    if microscope.fm is None:
-        raise ValueError(
-            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
-        )
-
-    orientation = microscope.get_stage_orientation()
-    if orientation not in ["SEM", "FM"]:
-        raise ValueError(f"Stage is not in SEM, or FM orientation {orientation}. Cannot start acquisition.")
-
-    if not isinstance(channel_settings, list):
-        channel_settings = [channel_settings]
-
-    # Extract parameters from overview_parameters
-    rows, cols = overview_parameters.rows, overview_parameters.cols
-    tile_overlap = overview_parameters.overlap
-    autofocus_mode = overview_parameters.autofocus_mode
-    
-    if rows <= 0 or cols <= 0:
-        raise ValueError("Grid size must contain positive values")
-
-    if not 0.0 <= tile_overlap < 1.0:
-        raise ValueError("Tile overlap must be between 0.0 and 1.0 (exclusive)")
-
-    logging.info(
-        f"Starting tileset acquisition: {rows}x{cols} grid with {tile_overlap:.1%} overlap"
-    )
-
-    # Store initial position to return to later
-    initial_position = microscope.get_stage_position()
-    initial_objective_position = microscope.fm.objective.position
-
-    # Calculate the physical field of view from metadata
-    pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
-    image_width, image_height = microscope.fm.camera.resolution
-    fov_x = image_width * pixel_size_x
-    fov_y = image_height * pixel_size_y
-
-    # Calculate step size accounting for overlap
-    step_x = fov_x * (1.0 - tile_overlap)
-    step_y = fov_y * (1.0 - tile_overlap)
-
-    # Set up auto-focus parameters
-    autofocus_channel = None
-    if autofocus_mode != AutoFocusMode.NONE:
-        if autofocus_settings is None:
-            raise ValueError(f"Auto focus settings must be provided when autofocus mode {autofocus_mode.value} is enabled")
-        # Find autofocus channel by name if specified in autofocus_settings
-        if autofocus_settings.channel_name:
-            for ch in channel_settings:
-                if ch.name == autofocus_settings.channel_name:
-                    autofocus_channel = ch
-                    break
-        
-        # Fall back to first channel if no specific channel found
-        if autofocus_channel is None:
-            logging.warning(f"Autofocus channel '{autofocus_settings.channel_name}' not found, using first channel")
-            autofocus_channel = channel_settings[0]
-        # if autofocus_zparams is None:
-            # autofocus_zparams = zparams
-        enabled_passes = [p for p in autofocus_settings.passes if p.enabled]
-        if not enabled_passes:
-            raise ValueError("Auto-focus settings has no enabled passes")
-        logging.info(f"Auto-focus mode: {autofocus_mode.value}")
-        logging.info(f"Auto-focus settings: {autofocus_settings.method.value}, {len(enabled_passes)} enabled pass(es)")
-
-        autofocus_method = autofocus_settings.method.value
-        # Per-tile / per-row autofocus uses the final (narrowest) enabled pass.
-        # NOTE: a wider initial pass should only be used once, before acquisition.
-        autofocus_zparams = ZParameters.from_focus_pass(enabled_passes[-1])
-
-    # Perform initial auto-focus if mode is ONCE (before moving to starting position)
-    if autofocus_mode == AutoFocusMode.ONCE:
-        if not run_tileset_autofocus(
-            microscope,
-            autofocus_channel,
-            autofocus_zparams,
-            method=autofocus_method,
-            stop_event=stop_event,
-        ):
-            logging.info("Initial autofocus cancelled")
-            return []  # Return empty list if cancelled
-
-    # Lay the grid out once, with the shared tiling geometry, and project every tile
-    # to an absolute stage position before moving anywhere.
-    #
-    # Previously this walked the grid with relative steps. That accumulated error over
-    # the traversal, and on an offset mount each step carries a real z component -- so
-    # the drift was in the focal plane, not just the position. Compustage hides it,
-    # having no pre-tilt and therefore z == 0 throughout.
-    #
-    # Using the shared layout also means the row direction lives in one place rather
-    # than in this loop's step signs. Row 0 is the top of the mosaic and later rows
-    # step down; `stitch_tileset` paints row 0 at canvas y=0 regardless, so the two
-    # have to agree. They disagreed once already (#226).
-    tiles = compute_tile_grid_from_fov(
-        nrows=rows,
-        ncols=cols,
-        fov_x=fov_x,
-        fov_y=fov_y,
-        image_width=image_width,
-        image_height=image_height,
-        overlap=tile_overlap,
-    )
-
-    # compute_tile_grid_from_fov measures from the top-left tile; shift so the grid is
-    # centred on where the stage is now. Same convention as TiledAcquisitionRunner.
-    grid_offset_x = (cols - 1) * step_x / 2
-    grid_offset_y = (rows - 1) * step_y / 2
-
-    tile_stage_positions = {
-        (tile.row, tile.col): microscope.project_fm_stable_move(
-            dx=tile.dx - grid_offset_x,
-            dy=tile.dy + grid_offset_y,
-            base_position=initial_position,
-        )
-        for tile in tiles
-    }
-
-    microscope.fm.acquisition_progress_signal.emit({
-        "state": "moving",
-        "task": "tileset",
-    })
-
-    # Initialize results array
-    tileset = []
-
-    # Calculate time estimates for the entire tileset
-    time_estimates = estimate_tileset_acquisition_time(
-        channel_settings, (rows, cols), zparams, autofocus_mode
-    )
-    total_estimated_time = time_estimates["total_time"]
-    acquisition_start_time = time.time()
-
-    # Emit initial acquisition progress signal
-    microscope.fm.acquisition_progress_signal.emit({
-        "state": "acquiring",
-        "task": "tileset",
-        "row": 1,
-        "col": 1,
-        "total_rows": rows,
-        "total_cols": cols,
-        "current": 1,
-        "total": rows * cols,
-        "estimated_total_time": total_estimated_time,
-        "estimated_remaining_time": total_estimated_time,
-    })
-
-    # TODO: migrate to generate_grid_positions
-    # NOTE: when migrating, the position conversion must use the same projection the
-    # movement does. convert_grid_positions_to_stage_positions still goes through
-    # project_stable_move(beam_type=...), which would disagree with fm_stable_move on
-    # an offset mount. It has no callers today, so the two cannot drift apart yet.
-    try:
-        for row in range(rows):
-            # Check for cancellation before each row
-            if stop_event and stop_event.is_set():
-                logging.info("Tileset acquisition cancelled")
-                return tileset
-
-            row_images = []
-
-            # Perform auto-focus at start of each row
-            if autofocus_mode == AutoFocusMode.EACH_ROW:
-                autofocus_success = run_tileset_autofocus(
-                    microscope,
-                    autofocus_channel,
-                    autofocus_zparams,
-                    method=autofocus_method,
-                    stop_event=stop_event,
-                )
-                if not autofocus_success:
-                    logging.info("Tileset acquisition cancelled during row autofocus")
-                    return tileset
-
-            for col in range(cols):
-                # Check for cancellation before moving, so a cancel skips the travel
-                if stop_event and stop_event.is_set():
-                    logging.info("Tileset acquisition cancelled during tile acquisition")
-                    return tileset
-
-                # Absolute, from the grid computed up front -- no accumulation.
-                microscope.safe_absolute_stage_movement(tile_stage_positions[(row, col)])
-
-                microscope.fm.objective.move_absolute(initial_objective_position)
-
-                # Perform auto-focus at each tile
-                if autofocus_mode == AutoFocusMode.EACH_TILE:
-                    autofocus_success = run_tileset_autofocus(
-                        microscope,
-                        autofocus_channel,
-                        autofocus_zparams,
-                        method=autofocus_method,
-                        stop_event=stop_event,
-                    )
-                    if not autofocus_success:
-                        logging.info("Tileset acquisition cancelled during tile autofocus")
-                        return tileset
-
-                logging.info(f"Acquiring tile [{row + 1}/{rows}][{col + 1}/{cols}]")
-
-                # Calculate remaining time estimate based on progress
-                current_tile = row * cols + col + 1
-                total_tiles = rows * cols
-                elapsed_time = time.time() - acquisition_start_time
-
-                if current_tile > 1:
-                    time_per_tile = elapsed_time / (current_tile - 1)
-                    estimated_remaining_time = time_per_tile * (total_tiles - current_tile + 1)
-                else:
-                    estimated_remaining_time = total_estimated_time
-
-                # emit acquisition progress signal
-                microscope.fm.acquisition_progress_signal.emit({
-                    "state": "acquiring",
-                    "task": "tileset",
-                    "row": row + 1,
-                    "col": col + 1,
-                    "total_rows": rows,
-                    "total_cols": cols,
-                    "current": current_tile,
-                    "total": total_tiles,
-                    "estimated_total_time": total_estimated_time,
-                    "estimated_remaining_time": estimated_remaining_time,
-                    "elapsed_time": elapsed_time,
-                })
-
-                # Save individual tile if save_directory is provided
-                filename = None
-                if save_directory is not None:
-                    tile_filename = f"tile-{row:02d}-{col:02d}.ome.tiff"
-                    filename = os.path.join(save_directory, tile_filename)
-
-                # Acquire all channels at current position with cancellation support
-                tile_image = acquire_image(
-                    microscope=microscope.fm,
-                    channel_settings=channel_settings,
-                    zparams=zparams,
-                    stop_event=stop_event,
-                    filename=filename
-                )
-
-                # Check if acquisition was cancelled
-                if tile_image is None:
-                    logging.info("Tileset acquisition cancelled during tile acquisition")
-                    return tileset
-
-                # max intensity projection if zparams is provided
-                if zparams is not None:
-                    tile_image = tile_image.max_intensity_projection()
-                    # tile_image = tile_image.focus_stack() # TODO: support focus stacking
-
-                row_images.append(tile_image)
-
-                # Movement to the next tile happens at the top of its own iteration,
-                # from the precomputed absolute positions.
-                if col < cols - 1:
-                    microscope.fm.acquisition_progress_signal.emit({
-                    "state": "moving",
-                    "task": "tileset",
-                    })
-
-            tileset.append(row_images)
-
-            # Move to next row (except for last row)
-            if row < rows - 1:
-                microscope.fm.acquisition_progress_signal.emit({
-                    "state": "moving",
-                    "task": "tileset",
-                })
-
-        # save the parameters in a metadata json file if save_directory is provided
-        if save_directory is not None:
-            params = {
-                "grid_size": (rows, cols),
-                "tile_overlap": tile_overlap,
-                "overview_parameters": overview_parameters.to_dict(),
-                "zparameters": zparams.to_dict() if zparams is not None else None,
-                "autofocus_settings": autofocus_settings.to_dict() if autofocus_settings is not None else None,
-                "channel_settings": [ch.to_dict() for ch in channel_settings],
-            }
-            params_filename = os.path.join(save_directory, "overview-parameters.json")
-            utils.save_json(params_filename, params)
-            logging.info(f"Saved tileset acquisition parameters to {params_filename}")
-
-    except Exception as e:
-        logging.error(f"Error during tileset acquisition: {e}")
-        raise
-
-    finally:
-        # Return to initial position
-        logging.info("Returning to initial position")
-        microscope.safe_absolute_stage_movement(initial_position)
-        microscope.fm.objective.move_absolute(initial_objective_position)
-        microscope.fm.acquisition_progress_signal.emit({"state": "finished"})
-    
-    logging.info(f"Tileset acquisition complete: {rows}x{cols} tiles acquired")
-    return tileset
+    return FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        overview_parameters=overview_parameters,
+        zparams=zparams,
+        autofocus_settings=autofocus_settings,
+        save_directory=save_directory,
+        stop_event=stop_event,
+    ).run()
 
 
 def stitch_tileset(
@@ -942,19 +1011,21 @@ def acquire_and_stitch_tileset(
         raise ValueError("Z-stack requested in overview parameters but no zparams provided")
 
     # acquire the tileset
-    tileset = acquire_tileset(
-        microscope=microscope,
-        channel_settings=channel_settings,
-        overview_parameters=overview_parameters,
-        zparams=zparams,
-        beam_type=beam_type,
-        autofocus_settings=autofocus_settings,
-        save_directory=tiles_directory,
-        stop_event=stop_event,
-    )
-
-    # Check if acquisition was cancelled (empty or incomplete tileset)
-    if not tileset or any(tile is None for row in tileset for tile in row):
+    # A cancel is now signalled explicitly rather than inferred from the result. The
+    # previous check -- empty tileset, or any tile None -- could not tell a user
+    # cancel from a tile that genuinely failed, and reported both the same way.
+    try:
+        tileset = acquire_tileset(
+            microscope=microscope,
+            channel_settings=channel_settings,
+            overview_parameters=overview_parameters,
+            zparams=zparams,
+            beam_type=beam_type,
+            autofocus_settings=autofocus_settings,
+            save_directory=tiles_directory,
+            stop_event=stop_event,
+        )
+    except OperationCancelledError:
         logging.info("Tileset acquisition was cancelled, cannot stitch")
         return None
 
