@@ -2013,21 +2013,42 @@ def test_estimate_tileset_acquisition_time_stage_movement_calculation():
         exposure_time=0.2,
     )
 
-    # 3x3 grid should have specific movement pattern
+    # One absolute move per tile after the first. The runner projects every tile
+    # position up front and drives straight to each one, so the separate row-advance
+    # and row-reset moves this used to count (6 + 2 + 2 = 10 for a 3x3) no longer
+    # happen -- the estimate described a sweep the acquisition stopped doing when
+    # tiles moved to absolute positions.
     result = estimate_tileset_acquisition_time(channel, grid_size=(3, 3))
 
-    # For 3x3 grid:
-    # - 2 horizontal moves per row × 3 rows = 6 horizontal moves
-    # - 2 vertical moves (to next row) = 2 moves
-    # - 2 row resets (return to first column) = 2 moves
-    # Total: 6 + 2 + 2 = 10 moves
-    expected_moves = 10
-    expected_stage_time = expected_moves * DEFAULT_STAGE_MOVE_TIME  # Using DEFAULT_STAGE_MOVE_TIME
-
+    expected_moves = 8  # 9 tiles, already at the first
     assert result["breakdown"]["stage_movement"]["total_moves"] == expected_moves
-    assert result["stage_movement_time"] == expected_stage_time
+    assert result["stage_movement_time"] == expected_moves * DEFAULT_STAGE_MOVE_TIME
 
-    # Note: Stage move time is now a constant in the timing module
+
+def test_estimate_tileset_acquisition_time_counts_only_enabled_tiles():
+    """A masked run visits its enabled tiles, and only the rows containing one.
+
+    Estimating the full grid reports roughly three times the real duration for a
+    typical sparse selection, and the estimate is what the confirmation dialog and
+    the remaining-time readout are built on.
+    """
+    channel = ChannelSettings(name="Cy5", exposure_time=0.2)
+    plus = [[(i == 2 or j == 2) for j in range(5)] for i in range(5)]
+
+    full = estimate_tileset_acquisition_time(channel, grid_size=(5, 5))
+    sparse = estimate_tileset_acquisition_time(channel, grid_size=(5, 5), tile_mask=plus)
+
+    assert full["tiles"] == 25
+    assert sparse["tiles"] == 9
+    assert sparse["total_time"] < full["total_time"]
+
+    # per-row autofocus fires once per row that actually gets visited
+    masked_rows = [[(i == 0) for j in range(4)] for i in range(4)]
+    one_row = estimate_tileset_acquisition_time(
+        channel, grid_size=(4, 4), autofocus_mode=AutoFocusMode.EACH_ROW,
+        tile_mask=masked_rows,
+    )
+    assert one_row["breakdown"]["autofocus"]["operations"] == 1
 
 
 def test_estimate_tileset_acquisition_time_comprehensive():
