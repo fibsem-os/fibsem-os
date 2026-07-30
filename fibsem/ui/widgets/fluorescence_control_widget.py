@@ -405,14 +405,15 @@ class FMControlWidget(QWidget):
             f"Coordinates: {coords} - {point_clicked} - Movement Type {movement_type} - Alt Modifier {ALT_MODIFIER}"
         )
         if movement_type == "FM":
-            point_clicked = (
-                point_clicked[0],
-                -point_clicked[1],
-            )  # Y-inverse when t=0, need to make this more robust
-
             # fm_stable_move undoes the display transform and projects onto the tilted
             # sample plane, so the move is foreshortening-correct and holds focus.
             # Previously this was a raw relative move with neither correction.
+            #
+            # The click keeps the sign convention the beam paths use (y up-positive,
+            # straight out of image_to_microscope_image_coordinates2). There used to be
+            # a `-point_clicked[1]` here, calibrated at t=0; on a compustage the
+            # projection already reverses y between t=0 and t=-180, so a constant
+            # negation can only ever be right at one of them.
             self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
         logging.info(f"-" * 50)
 
