@@ -171,6 +171,18 @@ Drop a `.py` file in:
 
 Set `AUTOLAMELLA_SCRIPTS_DIR` to use a different folder. **Tools → Scripts → Manage scripts…** shows which folder it resolved to; **Open folder** there creates it if it does not exist yet, and **New script…** writes a working stub into it.
 
+### Working examples
+
+Three complete scripts live in [`examples/scripts/`](examples/scripts), one per tier. Copy any of them into your scripts folder and it will run as-is.
+
+| File | Flags | What it shows |
+| -- | -- | -- |
+| [`export_summary.py`](examples/scripts/export_summary.py) | none | reading the experiment, and how the return value becomes output |
+| [`describe_lamellae.py`](examples/scripts/describe_lamellae.py) | `writes` | changing lamellae and letting the runner save |
+| [`survey_positions.py`](examples/scripts/survey_positions.py) | `uses_microscope` | moving the stage, acquiring, and honouring Stop |
+
+These are executed by the test suite (`tests/autolamella/test_example_scripts.py`) against a real experiment and a simulated microscope, so they cannot quietly rot. That is deliberate: earlier versions of the snippets below shipped with two bugs that only running them would have caught — one addressed a `lamella.state` attribute that does not exist, and one used `microscope.acquire_image`, which ignores `save=True` and writes nothing.
+
 ### The contract
 
 One rule: a module-level `run(ctx)`.
