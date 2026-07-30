@@ -2619,9 +2619,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             image_shape=image_shape,
             pixelsize=pixelsize,
         )
-        px, py = point[0], -point[1]  # Y-inversion (mirrors FMControlWidget)
+        px, py = point[0], point[1]
         # fm_stable_move undoes the display transform and projects through the
         # camera's own axis tilt, so the sample is not foreshortened by the wrong beam.
+        # No hand-applied y-inversion: the projection owns the tilt-dependent sign (it
+        # reverses between t=0 and t=-180 on a compustage) and fm_stable_move undoes
+        # the display transform. Mirrors FMControlWidget.
         worker = FunctionWorker(self.microscope.fm_stable_move, dx=px, dy=py)
         worker.start()
 
