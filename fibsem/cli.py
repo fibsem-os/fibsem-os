@@ -305,23 +305,44 @@ def cmd_info(microscope, _settings, _args) -> int:
 # Parser construction
 # ---------------------------------------------------------------------------
 
-def _build_connection_parser() -> argparse.ArgumentParser:
+def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParser:
+    """The connection arguments, shared by the root parser and every subcommand.
+
+    Built twice, and the difference is load-bearing. argparse parses a subcommand
+    into a fresh namespace and then copies every attribute of it over the root's,
+    so an argument the subparser merely *defaulted* silently overwrites the same
+    argument the root actually *parsed*. With one copy of this parser as a parent
+    of both, every connection flag given before the subcommand reverted without a
+    word: ``fibsem-cli --manufacturer Thermo info`` connected to the Demo
+    simulator, and ``--config`` was ignored outright.
+
+    So the root parser gets the copy carrying the real defaults -- that copy is
+    what guarantees the attribute exists at all -- and the subparsers get the copy
+    whose defaults are ``SUPPRESS``, which leaves each attribute absent unless
+    the flag was actually passed. Both positions then work, and when a flag is
+    given in both the one after the subcommand wins.
+    """
     p = argparse.ArgumentParser(add_help=False)
+
+    def default(value):
+        """The declared default, or nothing at all in the subparsers' copy."""
+        return value if defaults else argparse.SUPPRESS
+
     p.add_argument(
         "--manufacturer",
-        default="Demo",
+        default=default("Demo"),
         choices=["Demo", "Thermo", "Tescan", "Odemis"],
         help="Microscope manufacturer (default: Demo)",
     )
     p.add_argument(
         "--ip-address",
-        default="localhost",
+        default=default("localhost"),
         dest="ip_address",
         help="Microscope IP address (default: localhost)",
     )
     p.add_argument(
         "--config",
-        default=None,
+        default=default(None),
         dest="config_path",
         type=Path,
         metavar="PATH",
@@ -330,7 +351,7 @@ def _build_connection_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--debug",
         action="store_true",
-        default=False,
+        default=default(False),
         help="Enable debug logging",
     )
     return p
@@ -512,11 +533,14 @@ class _VersionAction(argparse.Action):
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    conn = _build_connection_parser()
+    # Two copies on purpose, not an oversight: the root parser holds the real
+    # defaults, the subcommands hold suppressed ones so they cannot overwrite a
+    # flag the root already parsed. See _build_connection_parser.
+    conn = _build_connection_parser(defaults=False)
     root = argparse.ArgumentParser(
         prog="fibsem-cli",
         description="fibsemOS command-line interface for FIB/SEM microscope control",
-        parents=[conn],
+        parents=[_build_connection_parser()],
     )
     root.add_argument(
         "--version",
