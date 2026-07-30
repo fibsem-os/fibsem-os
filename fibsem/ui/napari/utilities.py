@@ -192,23 +192,6 @@ def draw_scalebar_in_napari(
         viewer.layers[SCALEBAR_LAYER_NAME].text = scale_bar_txt
 
 
-def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) -> bool:
-    """Check if the coordinates are inside the image bounds.
-    Args:
-        coords (Tuple[float, float]): y, x coordinates
-        shape (Tuple[int, int]): image shape (y, x)
-    Returns:
-        bool: True if inside image bounds, False otherwise."""
-    ycoord, xcoord = coords
-
-    if (ycoord > 0 and ycoord < shape[0]) and (
-        xcoord > 0 and xcoord < shape[1]
-    ):
-        return True
-    
-    return False
-
-
 def is_position_inside_layer(position: Tuple[float, float], target_layer) -> bool:
     """Check if the position of the event is inside the bounds of the target layer.
     Args:

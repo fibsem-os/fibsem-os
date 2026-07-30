@@ -14,9 +14,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem import conversions
+from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-from fibsem.ui.napari.utilities import is_inside_image_bounds
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.figure import Figure

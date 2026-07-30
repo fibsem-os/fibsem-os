@@ -67,12 +67,12 @@ from fibsem.ui.napari.properties import (
     GRIDBAR_IMAGE_LAYER_PROPERTIES,
     OVERVIEW_IMAGE_LAYER_PROPERTIES,
 )
+from fibsem.conversions import is_inside_image_bounds
 from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
     create_circle_shape,
     create_crosshair_shape,
     create_rectangle_shape,
-    is_inside_image_bounds,
     update_text_overlay,
 )
 from fibsem.ui.widgets.custom_widgets import (
