@@ -22,7 +22,12 @@ def test_plugins_does_not_require_a_microscope():
 
 
 def test_plugins_takes_no_connection_arguments():
-    """Connection flags on the subcommand would imply it connects. It must not."""
+    """Connection flags on the subcommand would imply it connects. It must not.
+
+    ``--debug`` is the exception, declared on the subparser directly: it selects
+    how much this command prints, not what it connects to. See
+    test_debug_is_accepted_on_either_side_of_the_subcommand.
+    """
     with pytest.raises(SystemExit):
         _parse("plugins", "--manufacturer", "Thermo")
 
@@ -81,6 +86,25 @@ def test_broken_plugins_do_not_bury_the_report(monkeypatch, capsys):
     assert logging.getLogger().manager.disable == 0
 
 
+@pytest.mark.parametrize("argv", [("plugins", "--debug"), ("--debug", "plugins")])
+def test_debug_is_accepted_on_either_side_of_the_subcommand(argv):
+    """The position a user types must not be the broken one.
+
+    ``--debug`` reaches the root parser through the connection parent, which this
+    subcommand deliberately does not inherit -- so until it declared its own,
+    ``plugins --debug`` was an unrecognized argument while every other subcommand
+    accepted it there. It is also the flag ``cmd_plugins`` advertises for getting
+    tracebacks back, i.e. the one flag a user diagnosing a plugin will reach for.
+
+    Both positions are pinned because the obvious fix only half works: argparse
+    copies every attribute of the subparser's namespace over the root's, so
+    declaring ``--debug`` with ``default=False`` would fix ``plugins --debug`` and
+    silently reset ``--debug plugins`` to False. ``default=SUPPRESS`` leaves the
+    attribute absent unless the flag is passed, so whatever root parsed survives.
+    """
+    assert _parse(*argv).debug is True
+
+
 def test_debug_keeps_the_tracebacks(monkeypatch):
     """--debug is the escape hatch when the one-line reason is not enough."""
     import logging
@@ -98,7 +122,7 @@ def test_debug_keeps_the_tracebacks(monkeypatch):
         )[1],
     )
 
-    args = _parse("--debug", "plugins")
+    args = _parse("plugins", "--debug")
     assert args.debug is True
     cli.cmd_plugins(args)
     assert observed["disabled"] == 0
