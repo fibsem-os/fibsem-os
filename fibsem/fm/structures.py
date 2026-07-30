@@ -37,17 +37,11 @@ from ome_types.model import (
     Detector as OME_Detector,
 )
 
-from fibsem.structures import FibsemRectangle, FibsemStagePosition
-
-
-class AutoFocusMode(Enum):
-    """Auto-focus modes for tileset acquisition."""
-
-    NONE = "none"
-    ONCE = "once"
-    EACH_ROW = "each_row"
-    EACH_TILE = "each_tile"
-
+# AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
+# enum of the same name here, so the two tilers held different objects for the same
+# concept and `is` comparisons across them silently failed. Imported (and so
+# re-exported) rather than redefined, to keep that from happening again.
+from fibsem.structures import AutoFocusMode, FibsemRectangle, FibsemStagePosition
 
 # Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
 # so existing `from fibsem.fm.structures import ...` imports keep working.

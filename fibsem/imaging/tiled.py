@@ -260,11 +260,11 @@ class TiledAcquisitionRunner:
                 f"{len(out_of_bounds)} tile(s) out of bounds: {details}"
             )
 
-        # EVERY_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
-        # so promote it to EVERY_TILE so focus is always fresh.
-        if self._af_mode is AutoFocusMode.EVERY_ROW and settings.tile_order is TileOrderStrategy.SPIRAL:
-            self._af_mode = AutoFocusMode.EVERY_TILE
-            logging.info("EVERY_ROW autofocus upgraded to EVERY_TILE for SPIRAL tile order")
+        # EACH_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
+        # so promote it to EACH_TILE so focus is always fresh.
+        if self._af_mode is AutoFocusMode.EACH_ROW and settings.tile_order is TileOrderStrategy.SPIRAL:
+            self._af_mode = AutoFocusMode.EACH_TILE
+            logging.info("EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order")
 
     def _run_tile_loop(self) -> None:
         """Move to each tile, autofocus as configured, acquire, and stitch into the canvas."""
@@ -290,9 +290,9 @@ class TiledAcquisitionRunner:
 
             if tile.row != prev_row:
                 prev_row = tile.row
-                self._autofocus_if_mode(AutoFocusMode.EVERY_ROW)
+                self._autofocus_if_mode(AutoFocusMode.EACH_ROW)
 
-            self._autofocus_if_mode(AutoFocusMode.EVERY_TILE)
+            self._autofocus_if_mode(AutoFocusMode.EACH_TILE)
 
             # apply per-tile focus offset (no-op until focus map is implemented)
             self._apply_focus_offset(tile)
