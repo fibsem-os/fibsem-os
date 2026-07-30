@@ -1505,6 +1505,86 @@ class FibsemMicroscope(ABC):
             return dx, dy
         return self.fm._transform.apply_to_delta(dx, dy)
 
+    def _fm_stage_delta(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Relative stage movement for a displacement seen in the displayed FM image.
+
+        The projection shared by :meth:`fm_stable_move` and
+        :meth:`project_fm_stable_move`, so the two cannot disagree about where a
+        given displacement lands.
+
+        Input is in the frame the user is looking at, so the display transform is
+        undone here -- the direct counterpart of `project_stable_move` undoing the
+        beam's scan rotation before projecting. Doing it in the shared helper rather
+        than at one entry point means neither path can skip it.
+
+        That applies to synthesised displacements as much as to clicks. A tile step is
+        expressed in the same frame as the tile it positions, and the mosaic canvas is
+        in display space, because `stitch_tileset` pastes image data that already
+        carries the transform. If the arrangement did not carry it while the content
+        did, the two would disagree and every seam would break.
+
+        Args:
+            dx: distance along the x-axis, in displayed image coordinates.
+            dy: distance along the y-axis, in displayed image coordinates.
+
+        Returns:
+            FibsemStagePosition: relative movement, with the y-displacement split
+            across the stage y- and z-axes by the sample tilt.
+
+        Raises:
+            ValueError: if no fluorescence microscope is available.
+        """
+        if self.fm is None:
+            raise ValueError("Fluorescence microscope is not available.")
+
+        dx, dy = self._fm_image_to_stage_delta(dx, dy)
+
+        yz_move = self._view_corrected_stage_movement(
+            expected_y=dy,
+            view_tilt=np.deg2rad(self.fm.camera_tilt),
+        )
+        return FibsemStagePosition(
+            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
+        )
+
+    def project_fm_stable_move(
+        self, dx: float, dy: float, base_position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """Where the stage would end up after an FM displacement, without moving.
+
+        The fluorescence counterpart of :meth:`project_stable_move`. That one is
+        abstract and reimplemented by every driver, because it carries beam-specific
+        work -- scan rotation, `beam_type` dispatch. A camera has neither, and both
+        `camera_tilt` and the projection itself are already concrete here, so this
+        needs no per-driver override.
+
+        Like its beam counterpart, it maps a displacement in the image the user is
+        looking at, so the display transform is undone before projecting -- the same
+        role scan rotation plays for a beam. Both take the displayed frame as their
+        input convention, including for synthesised displacements: `tiled.py` hands
+        `project_stable_move` raw grid offsets and relies on the scan-rotation undo
+        for exactly this reason.
+
+        Args:
+            dx: distance along the x-axis, in displayed image coordinates.
+            dy: distance along the y-axis, in displayed image coordinates.
+            base_position: the position the displacement is measured from.
+
+        Returns:
+            FibsemStagePosition: the absolute position the displacement lands on.
+
+        Raises:
+            ValueError: if no fluorescence microscope is available.
+        """
+        delta = self._fm_stage_delta(dx, dy)
+
+        new_position = deepcopy(base_position)
+        new_position.x += delta.x
+        new_position.y += delta.y
+        new_position.z += delta.z
+
+        return new_position
+
     def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
         """Move the stage by a displacement seen in the fluorescence image.
 
@@ -1534,15 +1614,9 @@ class FibsemMicroscope(ABC):
                 f"(state: {self.fm.objective.state}); the view may not match the sample."
             )
 
-        dx, dy = self._fm_image_to_stage_delta(dx, dy)
-
-        yz_move = self._view_corrected_stage_movement(
-            expected_y=dy,
-            view_tilt=np.deg2rad(self.fm.camera_tilt),
-        )
-        stage_position = FibsemStagePosition(
-            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
-        )
+        # The display transform is undone inside _fm_stage_delta, so this and
+        # project_fm_stable_move share one input convention.
+        stage_position = self._fm_stage_delta(dx, dy)
 
         # NOTE: no working-distance restore. That is beam bookkeeping; the objective
         # keeps focus because the move stays in the sample plane.
