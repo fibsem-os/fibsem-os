@@ -4,10 +4,17 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
+
+if TYPE_CHECKING:
+    # Type-checking only. `fibsem/imaging/__init__.py` star-imports this module, so a
+    # runtime import here makes every `fibsem.imaging.*` import pull in the microscope
+    # -- and `fibsem.microscope` imports `fibsem.fm.microscope`, which reaches back
+    # into `fibsem.imaging`. `from __future__ import annotations` is already on, so the
+    # annotation below needs no runtime object.
+    from fibsem.microscope import FibsemMicroscope
 
 SLEEP_TIME = 1
 
