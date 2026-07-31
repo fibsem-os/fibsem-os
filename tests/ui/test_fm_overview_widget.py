@@ -658,19 +658,33 @@ def test_positions_outside_the_image_are_still_marked(qapp, overview_widget):
     assert widget.position_overlay._points[0][0] > width / 2
 
 
-def test_an_image_without_geometry_marks_nothing_rather_than_guessing(qapp, overview_widget):
-    """Older images cannot be projected onto. Better an empty overlay than markers in
-    plausible-looking wrong places."""
+def test_an_image_without_geometry_can_still_be_marked(qapp, overview_widget):
+    """Markers live in the canvas frame, which comes from the microscope, so nothing is
+    projected *onto* the image — an image with no recorded geometry no longer blocks it.
+    That matters in practice: tiles from the tiled runner come back without one."""
     widget = overview_widget
     image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
     base = image.metadata.stage_position
     image.metadata.geometry = None
     widget.set_image(image)
 
-    widget.set_positions([_offset(base, name="unknowable")])
+    widget.set_positions([_offset(base, dx=20e-6, name="markable")])
     qapp.processEvents()
 
-    assert widget.position_overlay._points == []
+    assert widget.position_overlay._points, "the image's missing geometry blocked marking"
+
+
+def test_positions_are_dropped_when_no_geometry_is_available_at_all(qapp, overview_widget):
+    """Better an empty overlay than markers in plausible-looking wrong places."""
+    widget = overview_widget
+    original = widget._live_geometry
+    widget._live_geometry = lambda: (None, None, None)
+    try:
+        widget.set_positions([_offset(widget._current_stage_position(), name="nowhere")])
+        qapp.processEvents()
+        assert widget.position_overlay._points == []
+    finally:
+        widget._live_geometry = original
 
 
 def test_clearing_the_positions_clears_the_markers(qapp, overview_widget):
@@ -850,3 +864,56 @@ def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widge
     after = widget.tile_grid_overlay._rect_for(widget.tile_grid_overlay._tiles[0])
     assert after[2] == pytest.approx(before[2])
     assert after[3] == pytest.approx(before[3])
+
+
+def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_widget):
+    """Same context the minimap gives, without its indirection: on a real-space canvas
+    stage coordinates map straight to canvas coordinates, so there is no stitched image
+    to reproject onto. Sizes must match what the microscope reports."""
+    widget = overview_widget
+    image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    widget.set_image(image)
+    qapp.processEvents()
+
+    by_label = {s.label: s for s in widget.stage_overlay._specs}
+    reference = widget.canvas.canvas.reference_pixel_size
+    limits = widget.microscope._stage.limits
+
+    stage = by_label["Stage limits"]
+    assert stage.width == pytest.approx((limits["x"].max - limits["x"].min) / reference)
+    assert stage.height == pytest.approx((limits["y"].max - limits["y"].min) / reference)
+
+    from fibsem.ui.fm.widgets.fm_overview_widget import GRID_RADIUS_M
+    assert by_label["Grid boundary"].radius == pytest.approx(GRID_RADIUS_M / reference)
+
+    assert widget.stage_overlay._artists, "specs were built but nothing was drawn"
+
+
+def test_stage_metadata_does_not_wait_for_an_image(qapp, overview_widget):
+    """The camera and stage can say where things are before anything is acquired, and the
+    planned tile grid is already drawn from exactly that. Requiring an image would show
+    two halves of the same picture at different times."""
+    widget = overview_widget
+    widget._displayed_image = None
+    widget._origin = None
+
+    widget._refresh_stage_metadata()
+
+    labels = [spec.label for spec in widget.stage_overlay._specs]
+    assert "Stage limits" in labels
+    assert "Grid boundary" in labels
+
+
+def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_widget):
+    """Without a geometry there is no frame, and drawing at a guessed scale would put
+    plausible-looking shapes in the wrong places."""
+    widget = overview_widget
+    widget._displayed_image = None
+    widget._origin = None
+    original = widget._live_geometry
+    widget._live_geometry = lambda: (None, None, None)
+    try:
+        widget._refresh_stage_metadata()
+        assert widget.stage_overlay._specs == []
+    finally:
+        widget._live_geometry = original

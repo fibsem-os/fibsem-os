@@ -100,6 +100,11 @@ EMPTY_CONTENT = ContentRect(0.0, 0.0, 0.0, 0.0)
 _LIVE_BADGE_BG = "#2e7d32"  # dark green behind the white "● LIVE" badge
 _MAX_DISPLAY_PX = 2048
 _ZOOM_FACTOR = 1.15
+# How far the view may travel from the content, as a multiple of its longest side.
+# Out: enough to see a mosaic in the context around it, not enough to lose it. In:
+# enough to inspect single pixels, not enough to land between them.
+MAX_ZOOM_OUT = 20.0
+MAX_ZOOM_IN = 200.0
 _REDRAW_INTERVAL = 32  # ms (~60 fps)
 
 _OVERLAY_BTN_STYLE = (
@@ -1040,6 +1045,25 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         cx, cy = event.xdata, event.ydata
         xlim = self._ax.get_xlim()
         ylim = self._ax.get_ylim()
+        if not self._zoom_allowed(abs(xlim[1] - xlim[0]) * factor):
+            return
         self._ax.set_xlim(cx + (xlim[0] - cx) * factor, cx + (xlim[1] - cx) * factor)
         self._ax.set_ylim(cy + (ylim[0] - cy) * factor, cy + (ylim[1] - cy) * factor)
         self._schedule_redraw()
+
+    def _zoom_allowed(self, span: float) -> bool:
+        """Whether the view may show *span* data units across.
+
+        Bounded relative to the content, because unbounded scrolling ends up somewhere
+        useless in one direction and degenerate in the other: far enough out and the
+        content is a speck in an empty field with no way to tell which way to go back;
+        far enough in and you are looking between two pixels. Both are easy to reach by
+        accident on a trackpad, and neither is recoverable except through "reset view".
+        """
+        extent = self._content_extent()
+        if extent is None:
+            return True  # nothing to be relative to
+        content = max(abs(extent[1] - extent[0]), abs(extent[2] - extent[3]))
+        if content <= 0:
+            return True
+        return content / MAX_ZOOM_IN <= span <= content * MAX_ZOOM_OUT

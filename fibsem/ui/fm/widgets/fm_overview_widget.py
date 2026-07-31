@@ -45,6 +45,10 @@ from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.fm.reprojection import project_stage_position
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    MinimapShapesOverlay,
+    ShapeSpec,
+)
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.custom_widgets import TitledPanel
@@ -84,6 +88,9 @@ def progress_slot(progress: FibsemProgressWidget) -> QWidget:
 # Key the in-progress mosaic is drawn under. Distinct from a finished overview's
 # position-derived key, so the preview can be dropped when the real stitch lands.
 PREVIEW_KEY = "fm-preview"
+
+# Radius of the specimen grid, for the boundary circle. Matches the minimap's.
+GRID_RADIUS_M = 1000e-6
 
 
 class FMOverviewWidget(QWidget):
@@ -175,6 +182,11 @@ class FMOverviewWidget(QWidget):
         # Stage positions -- the current pose, lamellae, anything a host hands over --
         # projected onto whatever image is displayed. Non-interactive: this shows where
         # things are, it does not move them.
+        # Where the sample and the stage can physically go -- the context an overview
+        # is read against. Added before the position markers so it sits beneath them.
+        self.stage_overlay = MinimapShapesOverlay(zorder=4.0, crosshair_half_px=24)
+        self.canvas.canvas.add_overlay(self.stage_overlay)
+
         self.position_overlay = PointsOverlay(color="#ffb300", marker="o", size=7)
         self.canvas.canvas.add_overlay(self.position_overlay)
 
@@ -375,6 +387,9 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.set_grid(
             tiles, (height, width), pixel_size, overlap=parameters.overlap
         )
+        # Same camera geometry, so it can be drawn at the same time rather than
+        # waiting for an image the tile grid does not wait for either.
+        self._refresh_stage_metadata()
 
         span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
         span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
@@ -426,6 +441,7 @@ class FMOverviewWidget(QWidget):
         self.canvas.set_placement(self._offset_of(image))
         self.canvas.set_fm_image(image)
         self._refresh_positions()
+        self._refresh_stage_metadata()
         self._refresh_tile_grid()
 
     @staticmethod
@@ -484,47 +500,161 @@ class FMOverviewWidget(QWidget):
         self._positions = list(positions)
         self._refresh_positions()
 
-    def _refresh_positions(self) -> None:
-        """Mark the stage positions in the canvas frame.
+    def _stage_to_canvas(self):
+        """A function mapping a stage position to canvas coordinates, or None.
+
+        The one place stage space meets the canvas frame. Everything drawn from a stage
+        position goes through it -- marked positions, the stage and grid limits, the
+        current pose -- so they are all in the same frame by construction rather than by
+        four callers agreeing to do the same arithmetic.
 
         Projected against the canvas origin rather than onto whichever image happens to
         be displayed, so a marker names the same piece of sample no matter what is on
-        screen -- and markers survive the image being swapped, or there being none yet.
-
-        The projection uses the recorded geometry rather than the live microscope: after
-        an overview is acquired the stage has moved on, and following it would drift
-        every marker off the feature it names.
+        screen. The projection uses the *recorded* geometry rather than the live
+        microscope: after an overview is acquired the stage has moved on, and following
+        it would drift everything off the features it names. That geometry is also what
+        puts the drawing in the current stage orientation -- t = -180 for FM -- since the
+        tilt, rotation and camera flip are all folded into it.
         """
-        if not self._positions or self._origin is None:
-            self.position_overlay.set_points([])
+        # Live, always -- the displayed image contributes nothing here.
+        #
+        # `FMImageGeometry` is system configuration (camera tilt, shuttle pre-tilt, the
+        # camera flip, compustage or not), not pose: the pose enters through the origin
+        # below, as its rotation and tilt. So an image's recorded geometry and the
+        # microscope's live one agree by construction.
+        #
+        # `pixel_size` and `shape` cancel outright. `project_stage_position` answers in
+        # pixels of a hypothetical image, and the very next thing done here is convert
+        # back to metres -- verified identical across a 27,000x range of pixel sizes.
+        # They are arguments to a function that measures in pixels, not inputs to the
+        # geometry.
+        #
+        # Taking it from the displayed image instead made everything drawn from a stage
+        # position vanish the moment an overview was acquired, because acquired tiles
+        # currently lose their geometry (see the note in _live_geometry).
+        geometry, pixel_size, shape = self._live_geometry()
+        if geometry is None or not pixel_size:
+            return None
+
+        origin = self._origin or self._current_stage_position()
+        if origin is None:
+            return None
+        self._origin = origin  # fix it now, so later drawing shares this frame
+
+        def project(position: FibsemStagePosition) -> Tuple[float, float]:
+            point = project_stage_position(
+                position, origin, pixel_size, shape, geometry
+            )
+            return self.canvas.canvas.metres_to_canvas(
+                (point.x - shape[1] / 2) * pixel_size,
+                (point.y - shape[0] / 2) * pixel_size,
+            )
+
+        return project
+
+    def _refresh_stage_metadata(self) -> None:
+        """Draw where the sample and the stage can physically go.
+
+        The context an overview is read against: which grid you are on, how far from its
+        centre, and how much travel is left. Same shapes the minimap draws, but placed
+        straight into the canvas frame -- on a real-space canvas there is no stitched
+        image to reproject onto, so the indirection disappears.
+        """
+        project = self._stage_to_canvas()
+        if project is None:
+            self.stage_overlay.set_shapes([])
             return
 
-        geometry = None
-        pixel_size = None
-        if self._displayed_image is not None:
-            geometry = getattr(self._displayed_image.metadata, "geometry", None)
-            pixel_size = getattr(self._displayed_image.metadata, "pixel_size_x", None)
-        if geometry is None or not pixel_size:
-            # Nothing to project through -- an image acquired before the geometry was
-            # recorded, or none displayed yet.
+        specs = []
+        try:
+            centre = project(FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0))
+        except Exception as e:
+            logging.debug(f"Cannot place the grid centre: {e}")
+            self.stage_overlay.set_shapes([])
+            return
+
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits and self.microscope.stage_is_compustage:
+            # The travel envelope, as a box around the grid centre. Sized from the
+            # limits rather than projected corner-by-corner: the projection is flips
+            # and a tilt, which keep an axis-aligned box axis-aligned.
+            specs.append(ShapeSpec(
+                kind="rect", cx=centre[0], cy=centre[1], color="yellow",
+                width=self._canvas_length(limits["x"].max - limits["x"].min),
+                height=self._canvas_length(limits["y"].max - limits["y"].min),
+                label="Stage limits",
+            ))
+            specs.append(ShapeSpec(
+                kind="circle", cx=centre[0], cy=centre[1], color="red",
+                radius=self._canvas_length(GRID_RADIUS_M), label="Grid boundary",
+            ))
+
+        holder = getattr(self.microscope._stage, "holder", None)
+        for slot in getattr(holder, "slots", {}).values():
+            position = getattr(slot, "position", None)
+            if position is None:
+                continue
+            try:
+                point = project(position)
+            except Exception as e:
+                logging.debug(f"Cannot place slot {position.name!r}: {e}")
+                continue
+            specs.append(ShapeSpec(
+                kind="crosshair", cx=point[0], cy=point[1], color="cyan",
+                label=position.name or "",
+            ))
+
+        self.stage_overlay.set_shapes(specs)
+
+    def _live_geometry(self):
+        """(geometry, pixel_size, shape) from the microscope.
+
+        The single source for projecting stage positions. Not read from the displayed
+        image, both because it need not be -- the geometry is configuration and the other
+        two cancel -- and because it currently *cannot* be: tiles acquired through the
+        tiled runner come back without a geometry, since the metadata constructors that
+        combine channels and z-planes rebuild it field by field and do not carry it over.
+        A stitched mosaic inherits that gap, so anything projected against the mosaic
+        disappeared. Worth fixing upstream regardless, for consumers that have no live
+        microscope to fall back on.
+        """
+        try:
+            width, height = self.fm.camera.resolution
+            return (
+                self.microscope.fm_image_geometry(),
+                self.fm.camera.pixel_size[0],
+                (height, width),
+            )
+        except Exception as e:
+            logging.debug(f"Could not read the live FM geometry: {e}")
+            return None, None, None
+
+    def _current_stage_position(self) -> Optional[FibsemStagePosition]:
+        try:
+            return self.microscope.get_stage_position()
+        except Exception as e:
+            logging.debug(f"Could not read the stage position: {e}")
+            return None
+
+    def _canvas_length(self, metres: float) -> float:
+        """A length in metres as a length in canvas pixels."""
+        reference = self.canvas.canvas.reference_pixel_size
+        return metres / reference if reference else 0.0
+
+    def _refresh_positions(self) -> None:
+        """Mark the stage positions in the canvas frame."""
+        project = self._stage_to_canvas()
+        if not self._positions or project is None:
             self.position_overlay.set_points([])
             return
 
         points, labels = [], []
-        shape = np.asarray(self._displayed_image.data).shape[-2:]
         for position in self._positions:
             try:
-                point = project_stage_position(
-                    position, self._origin, pixel_size, shape, geometry
-                )
+                points.append(project(position))
             except Exception as e:
                 logging.debug(f"Cannot mark {position.name!r}: {e}")
                 continue
-            metres = (
-                (point.x - shape[1] / 2) * pixel_size,
-                (point.y - shape[0] / 2) * pixel_size,
-            )
-            points.append(self.canvas.canvas.metres_to_canvas(*metres))
             labels.append(position.name or "")
 
         self.position_overlay.set_points(points, labels=labels)
