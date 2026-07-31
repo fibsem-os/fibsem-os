@@ -215,6 +215,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._scalebar_visible: bool = True
         self._crosshair_visible: bool = True
         self._crosshair_artists: list = []
+        self._empty_artist = None  # "No image" placeholder; see _plot_empty
         self._hint_artist = None  # transient top-left instruction hint
         self._hint_text: Optional[str] = None  # remembered so it survives set_image
         self._title_artist = None  # top-centre image caption (e.g. FM z-slice)
@@ -678,9 +679,19 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """
         return None
 
+    def _fit_extent(self) -> Optional[Tuple[float, float, float, float]]:
+        """What "fit to view" frames, as ``(xmin, xmax, ymax, ymin)`` or None.
+
+        Separate from :meth:`_content_extent` because the two answer different questions:
+        that one is *the space the canvas represents* (what overlays clamp and anchor to),
+        this one is *the thing worth looking at*. They coincide unless a canvas declares
+        space it has not filled.
+        """
+        return self._content_extent()
+
     def _fit_view(self) -> None:
-        """Set the view to the content extent expanded by ``_view_margin`` on each side."""
-        extent = self._content_extent()
+        """Set the view to the fit extent expanded by ``_view_margin`` on each side."""
+        extent = self._fit_extent()
         if extent is None:
             return
         xmin, xmax, ybot, ytop = extent  # (xmin, xmax, ymax, ymin)
@@ -808,7 +819,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def _plot_empty(self):
         self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
-        self._ax.text(
+        # Kept so a subclass that never calls ax.cla() (one drawing many placed images)
+        # can take the placeholder away once it has content to show.
+        self._empty_artist = self._ax.text(
             0.5,
             0.5,
             "No image",
@@ -931,12 +944,15 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             except (ValueError, NotImplementedError):
                 pass
         self._crosshair_artists = []
-        if not self._crosshair_visible or self._img_w is None:
+        rect = self._content_rect()
+        if not self._crosshair_visible or rect.is_empty:
             return
-        cx, cy = self._img_w / 2.0, self._img_h / 2.0
+        # Centre of the content, wherever that is — for a single image at the origin
+        # this is (w/2, h/2) as before; for content placed in stage space it follows.
+        cx, cy = rect.cx, rect.cy
         # Size both arms from the longest dimension so the crosshair stays square
         # (axes use aspect="equal", so equal data-unit arms are equal on screen).
-        half = max(self._img_w, self._img_h) * 0.05 / 2
+        half = max(rect.width, rect.height) * 0.05 / 2
         kw = dict(color="yellow", linewidth=1, alpha=0.8, zorder=7)
         (h_line,) = self._ax.plot([cx - half, cx + half], [cy, cy], **kw)
         (v_line,) = self._ax.plot([cx, cx], [cy - half, cy + half], **kw)
@@ -951,9 +967,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def _on_press(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
             return
-        if self._img_w is None:
-            # No image: axes span the default [0,1], so xdata/ydata are not image pixels.
-            # Suppress clicks/pan so a stray double-click can't drive a stage move to (~0,0).
+        if self._content_rect().is_empty:
+            # No content: axes span the default [0,1], so xdata/ydata are not canvas
+            # coordinates. Suppress clicks/pan so a stray double-click can't drive a
+            # stage move to (~0,0).
             return
         mods = _modifiers_from_event(event)
         if event.dblclick:
