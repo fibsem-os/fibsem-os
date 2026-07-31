@@ -17,7 +17,6 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QSizePolicy,
@@ -39,7 +38,7 @@ from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.utils import install_wheel_blocker
-from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 
 MUTED = "color: #868e93; font-size: 11px;"
 
@@ -127,7 +126,9 @@ class FMOverviewSettingsWidget(QWidget):
                       for s in TileOrderStrategy)
         )
 
-        self.check_zstack = QCheckBox("Acquire a z-stack at each tile")
+        # No label: this sits in the Z-Stack panel header, which already names it.
+        self.check_zstack = QCheckBox()
+        self.check_zstack.setToolTip("Acquire a z-stack at each tile")
 
         self.combo_autofocus_mode = ValueComboBox(
             items=list(AutoFocusMode),
@@ -164,14 +165,12 @@ class FMOverviewSettingsWidget(QWidget):
         grid_form.addRow("Overlap", self.spin_overlap)
         grid_form.addRow("Tile order", self.combo_tile_order)
         grid_form.addRow("Total FOV", self.label_total_fov)
-        grid_box = QGroupBox("Grid")
-        grid_box.setLayout(grid_form)
+        grid_content = QWidget()
+        grid_content.setLayout(grid_form)
+        self.grid_panel = TitledPanel("Grid", content=grid_content)
 
         self.tile_mask = TileMaskWidget(rows=3, cols=3)
-        mask_layout = QVBoxLayout()
-        mask_layout.addWidget(self.tile_mask)
-        mask_box = QGroupBox("Tiles to acquire")
-        mask_box.setLayout(mask_layout)
+        self.mask_panel = TitledPanel("Tiles to acquire", content=self.tile_mask)
 
         # "When to focus" is the overview's own setting; everything below it -- method,
         # channel, and the sweep passes -- belongs to the sweep and is delegated.
@@ -185,19 +184,22 @@ class FMOverviewSettingsWidget(QWidget):
         focus_layout.setSpacing(6)
         focus_layout.addLayout(focus_form)
         focus_layout.addWidget(self.autofocus_widget)
-        focus_box = QGroupBox("Focus")
-        focus_box.setLayout(focus_layout)
+        focus_content = QWidget()
+        focus_content.setLayout(focus_layout)
+        self.focus_panel = TitledPanel("Focus", content=focus_content)
 
-        # The checkbox is the z-stack's enable, so it lives with what it enables --
-        # and the parameters grey out when it is off, instead of staying live and
+        # The enable checkbox goes in the panel header, not the body: it is the one
+        # piece of z-stack state worth seeing when the panel is folded away, and the
+        # parameters below it grey out when it is off rather than staying live and
         # implying they apply.
         zstack_layout = QVBoxLayout()
         zstack_layout.setContentsMargins(6, 6, 6, 6)
         zstack_layout.setSpacing(4)
-        zstack_layout.addWidget(self.check_zstack)
         zstack_layout.addWidget(self.z_widget)
-        self.zstack_box = QGroupBox("Z-Stack")
-        self.zstack_box.setLayout(zstack_layout)
+        zstack_content = QWidget()
+        zstack_content.setLayout(zstack_layout)
+        self.zstack_panel = TitledPanel("Z-Stack", content=zstack_content)
+        self.zstack_panel.add_header_widget(self.check_zstack)
 
         self.label_summary = QLabel()
         self.label_summary.setStyleSheet(MUTED)
@@ -205,11 +207,21 @@ class FMOverviewSettingsWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(focus_box)
-        layout.addWidget(self.zstack_box)
-        layout.addWidget(grid_box)
-        layout.addWidget(mask_box, stretch=1)
+        layout.addWidget(self.focus_panel)
+        layout.addWidget(self.zstack_panel)
+        layout.addWidget(self.grid_panel)
+        # No stretch on any panel: a stretched panel keeps claiming vertical space when
+        # it is collapsed, so folding it leaves a tall empty box with the title floating
+        # in the middle of it. The trailing stretch below takes the slack instead -- kept
+        # here rather than left to the host, so the panels stay put in any container.
+        layout.addWidget(self.mask_panel)
         layout.addWidget(self.label_summary)
+        layout.addStretch()
+
+        # Grid and the tile mask are what you touch every run; focus and the z-stack are
+        # set once and then left alone, so they start folded to keep the column short.
+        self.focus_panel.collapse()
+        self.zstack_panel.collapse()
 
         self.spin_rows.valueChanged.connect(self._on_grid_size_changed)
         self.spin_cols.valueChanged.connect(self._on_grid_size_changed)
@@ -281,9 +293,6 @@ class FMOverviewSettingsWidget(QWidget):
         )
 
     def _refresh_derived(self) -> None:
-        rows, cols = self.spin_rows.value(), self.spin_cols.value()
-        n_enabled = self.tile_mask.n_enabled
-
         total = self.total_fov()
         self.label_total_fov.setText(
             "—" if total is None
@@ -291,7 +300,9 @@ class FMOverviewSettingsWidget(QWidget):
                  f"{total[1] * constants.SI_TO_MICRO:.0f} µm"
         )
 
-        parts = [f"{n_enabled} of {rows * cols} tiles"]
+        # Warnings only -- the tile count is already on the mask panel, and saying it
+        # twice just makes the second one look like a different number.
+        parts = []
         if getattr(self, "_spiral_conflict", False):
             parts.append("per-row focus becomes per-tile for a spiral")
         if self._focus_without_passes():

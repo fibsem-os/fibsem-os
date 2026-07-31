@@ -1,8 +1,9 @@
 """Pre-flight summary for an FM overview acquisition.
 
-Replaces `OverviewConfirmationDialog`. Same job, house style: one title, a muted meta
-line, count chips, a duration broken down by where it goes, and a primary action in
-the footer.
+Replaces `OverviewConfirmationDialog`. Same job, house style: a meta line, count chips,
+a detail block, a duration broken down by where it goes, and a primary action in the
+footer. Each fact appears once — the window title is the heading, the Channels row is
+the channel count, and the skipped chip is what "sparse" would have said.
 """
 
 from typing import List, Optional
@@ -36,12 +37,6 @@ BORDER = "#3d4251"
 TEXT = "#d6d6d6"
 TEXT_STRONG = "#f0f1f2"
 TEXT_MUTED = "#868e93"
-ACCENT = "#50a6ff"
-
-CHIP_ACQUIRE = "#4caf50"
-CHIP_SKIP = "#868e93"
-CHIP_CHANNEL = "#50a6ff"
-
 
 def format_duration(seconds: float) -> str:
     """`2m 14s`, `1h 03m`, `45s` — whichever reads best at that magnitude."""
@@ -53,22 +48,20 @@ def format_duration(seconds: float) -> str:
     return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
 
 
-def _chip(text: str, color: str) -> QWidget:
-    """Pill label with a coloured dot, matching the app's other summaries."""
+def _chip(text: str) -> QWidget:
+    """Plain pill label. No status dot: these are counts, not states, and a colour
+    that does not encode anything reads as though it does."""
     chip = QFrame()
     chip.setStyleSheet(
         f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
         f" border-radius: 10px; }}"
     )
     layout = QHBoxLayout(chip)
-    layout.setContentsMargins(9, 3, 10, 3)
-    layout.setSpacing(6)
+    layout.setContentsMargins(10, 3, 10, 3)
+    layout.setSpacing(0)
 
-    dot = QLabel("●")
-    dot.setStyleSheet(f"color: {color}; font-size: 10px; border: none;")
     label = QLabel(text)
     label.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-    layout.addWidget(dot)
     layout.addWidget(label)
     return chip
 
@@ -110,7 +103,6 @@ class FMOverviewConfirmationDialog(QDialog):
 
     def _meta_line(self) -> str:
         p = self.parameters
-        total = p.rows * p.cols
         bits = [f"{p.rows} × {p.cols} grid", f"{p.overlap:.0%} overlap"]
         if self.tile_fov is not None:
             fov_x, fov_y = self.tile_fov
@@ -118,8 +110,7 @@ class FMOverviewConfirmationDialog(QDialog):
             height = ((p.rows - 1) * (1 - p.overlap) + 1) * fov_y * constants.SI_TO_MICRO
             bits.append(f"{width:.0f} × {height:.0f} µm")
         bits.append(f"{p.tile_order.value} order")
-        if p.n_enabled_tiles != total:
-            bits.append("sparse")
+        # No "sparse" tag: the skipped chip states the same thing as a number.
         return " · ".join(bits)
 
     def _sweep_rows(self) -> List[tuple]:
@@ -142,9 +133,11 @@ class FMOverviewConfirmationDialog(QDialog):
         else:
             # `search_range` is the total span, not a half-width -- positions cover
             # +/- range/2 -- so it is reported as a span rather than as +/-.
+            # One pass per line: joined with a separator they wrap mid-pass, and the
+            # separator can land at a line end where it reads as a bullet.
             rows.append((
                 "Sweep",
-                "  ·  ".join(
+                "\n".join(
                     f"{p.search_range * constants.SI_TO_MICRO:.0f} µm span, "
                     f"{p.step_size * constants.SI_TO_MICRO:.1f} µm steps "
                     f"({p.n_steps} images)"
@@ -198,22 +191,20 @@ class FMOverviewConfirmationDialog(QDialog):
         total = p.rows * p.cols
         acquired = p.n_enabled_tiles
 
-        title = QLabel("Start overview acquisition")
-        title.setStyleSheet(
-            f"color: {TEXT_STRONG}; font-size: 15px; font-weight: 600;"
-        )
+        # No in-dialog heading: the window title already says "Start Overview
+        # Acquisition", and repeating it 8px below costs a line and says nothing. The
+        # meta line leads instead, so it carries normal text weight rather than muted.
         meta = QLabel(self._meta_line())
-        meta.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        meta.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px;")
         meta.setWordWrap(True)
 
+        # Tile counts only. The channel count was a third chip, but the Channels row
+        # below lists them by name -- the chip added a number, not information.
         chips = QHBoxLayout()
         chips.setSpacing(6)
-        chips.addWidget(_chip(f"{acquired} to acquire", CHIP_ACQUIRE))
+        chips.addWidget(_chip(f"{acquired} to acquire"))
         if acquired != total:
-            chips.addWidget(_chip(f"{total - acquired} skipped", CHIP_SKIP))
-        chips.addWidget(_chip(
-            f"{len(self.channel_settings)} channel"
-            f"{'s' if len(self.channel_settings) != 1 else ''}", CHIP_CHANNEL))
+            chips.addWidget(_chip(f"{total - acquired} skipped"))
         chips.addStretch()
 
         detail = QFrame()
@@ -255,7 +246,6 @@ class FMOverviewConfirmationDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
-        layout.addWidget(title)
         layout.addWidget(meta)
         layout.addLayout(chips)
         layout.addWidget(detail)

@@ -41,6 +41,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
     ProgressUpdate,
@@ -150,8 +151,13 @@ class FMOverviewWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(controls)
-        scroll.setMinimumWidth(360)
-        scroll.setMaximumWidth(480)
+        # A channel row needs 446px before its name field hits its own minimum and the
+        # excitation combo falls off the right edge; group-box margins and the vertical
+        # scrollbar eat ~50px on the way in, so the column itself needs ~500. 510 leaves
+        # a little room for wider fonts. The horizontal bar is off below, so anything
+        # that overflows here is unreachable rather than merely cramped.
+        scroll.setMinimumWidth(510)
+        scroll.setMaximumWidth(560)
         # Vertical only: a horizontal bar here means a control is refusing to shrink,
         # and scrolling sideways to reach a spinbox is worse than a cramped one.
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -213,12 +219,7 @@ class FMOverviewWidget(QWidget):
         self.settings_widget.changed.connect(self._on_settings_changed)
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
-        from PyQt5.QtWidgets import QGroupBox
-        box = QGroupBox(title)
-        inner = QVBoxLayout(box)
-        inner.setContentsMargins(6, 6, 6, 6)
-        inner.addWidget(widget)
-        return box
+        return TitledPanel(title, content=widget)
 
     # ── state ────────────────────────────────────────────────────────────
 

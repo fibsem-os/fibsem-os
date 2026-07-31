@@ -157,11 +157,14 @@ def test_a_spiral_with_per_row_focus_says_what_will_actually_happen(qapp):
     assert "per-tile" not in widget.label_summary.text()
 
 
-def test_the_summary_reports_the_selection(qapp):
+def test_the_selection_is_counted_once(qapp):
+    """The count belongs to the mask panel. It used to be repeated in the summary line
+    below, where a stale second copy would read as a different number."""
     widget = FMOverviewSettingsWidget()
     widget.parameters = OverviewParameters(rows=3, cols=3, tile_mask=plus_mask(3))
 
-    assert "5 of 9 tiles" in widget.label_summary.text()
+    assert "5/9 tiles" in widget.tile_mask.label_count.text()
+    assert "tiles" not in widget.label_summary.text()
 
 
 @pytest.mark.parametrize(
@@ -446,3 +449,86 @@ def test_shrinking_the_text_keeps_the_failed_colouring(qapp):
     progress.update_progress(ProgressUpdate.failed("nope"))
 
     assert "#99121F" in progress._bar.styleSheet()
+
+
+# ── channel detail form ──────────────────────────────────────────────────
+
+
+def test_channel_detail_fields_fill_the_panel(qapp):
+    """macOS styles QFormLayout its own way -- fields frozen at their size hint, so
+    each row ends up a different width and the block floats in the middle of the
+    panel. Pinned behaviourally because the properties that fix it are easy to set
+    and easy to set uselessly: this form previously called `setLabelAlignment` with
+    its own current value, and `ExpandingFieldsGrow` does nothing here because none
+    of these controls carry an Expanding policy."""
+    from PyQt5.QtCore import Qt
+
+    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
+
+    widget = ChannelSettingsWidget(fm=FluorescenceMicroscope())
+    widget.set_channel(ChannelSettings(name="Channel-01"))
+    widget.resize(440, widget.sizeHint().height())
+    widget.show()
+    qapp.processEvents()
+
+    fields = (widget.excitation_combo, widget.emission_combo,
+              widget.exposure_spin, widget.power_spin, widget.gain_spin)
+    widths = {f.width() for f in fields}
+
+    assert len(widths) == 1, f"ragged field widths: {[f.width() for f in fields]}"
+    assert all(f.width() > f.sizeHint().width() for f in fields)
+
+    form = widget.excitation_combo.parent().layout()
+    assert form.labelAlignment() & Qt.AlignLeft
+    assert form.formAlignment() & Qt.AlignLeft
+
+
+def test_channel_rows_do_not_overflow_a_narrow_panel(qapp):
+    """A list item with a zero-width size hint takes the row widget's preferred width,
+    which QLineEdit inflates ~190px beyond what the row needs and which does not track
+    the host. In the overview's controls column that pushed the excitation and emission
+    combos past the right edge -- and the column keeps its horizontal scrollbar off, so
+    they were unreachable rather than merely cramped."""
+    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
+        FluorescenceMultiChannelWidget,
+    )
+
+    widget = FluorescenceMultiChannelWidget(
+        fm=FluorescenceMicroscope(),
+        channel_settings=[ChannelSettings(name="Channel-01")],
+    )
+    widget.show()
+
+    for width in (460, 900):
+        widget.resize(width, 300)
+        qapp.processEvents()
+        qapp.processEvents()
+
+        inner = widget._list._list
+        row = inner.itemWidget(inner.item(0))
+
+        assert row.width() <= inner.viewport().width(), (
+            f"row overflows at host width {width}: "
+            f"{row.width()} > {inner.viewport().width()}"
+        )
+
+
+def test_collapsed_panels_do_not_stretch(qapp):
+    """A panel added with a stretch factor keeps claiming vertical space after it is
+    collapsed, so folding it leaves a tall empty box with the title floating in the
+    middle. Every panel must fold to the same header-only height."""
+    widget = FMOverviewSettingsWidget()
+    widget.show()
+    widget.resize(500, 1200)  # far taller than the folded panels need
+
+    panels = (widget.focus_panel, widget.zstack_panel,
+              widget.grid_panel, widget.mask_panel)
+    for panel in panels:
+        panel.collapse()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    heights = {p.height() for p in panels}
+    assert len(heights) == 1, f"collapsed panels differ in height: {heights}"

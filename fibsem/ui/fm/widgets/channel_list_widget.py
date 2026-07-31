@@ -95,6 +95,19 @@ class _DraggableChannelList(QListWidget):
         super().__init__(parent)
         self._fm = fm
 
+    def resizeEvent(self, event) -> None:
+        """Keep row widths pinned to the viewport as it changes.
+
+        Belongs here rather than on the parent: the parent's own resizeEvent runs
+        before its children are laid out, so it would read the previous width.
+        """
+        super().resizeEvent(event)
+        width = self.viewport().width()
+        for i in range(self.count()):
+            item = self.item(i)
+            if item.sizeHint().width() != width:
+                item.setSizeHint(QSize(width, item.sizeHint().height()))
+
     def mousePressEvent(self, event) -> None:
         if self._fm is not None and self._fm.is_acquiring:
             return  # swallow — prevent highlight change during live acquisition
@@ -788,6 +801,17 @@ class ChannelListWidget(QWidget):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _row_item_size(self) -> QSize:
+        """Row size for a list item, with the width pinned to the viewport.
+
+        A zero width makes Qt fall back to the row widget's own preferred width, which
+        is ~190px wider than the row needs (QLineEdit hints generously) and does not
+        shrink to fit a narrow host. In a side panel the surplus hangs past the right
+        edge, taking the excitation and emission controls with it -- and hosts turn the
+        horizontal scrollbar off, so those controls become unreachable, not just tight.
+        """
+        return QSize(max(0, self._list.viewport().width()), _ROW_HEIGHT)
+
     def _add_row(self, channel: ChannelSettings, enabled: bool = True) -> ChannelRowWidget:
         row = ChannelRowWidget(
             channel=channel,
@@ -797,7 +821,7 @@ class ChannelListWidget(QWidget):
         )
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, channel)
-        item.setSizeHint(QSize(0, _ROW_HEIGHT))
+        item.setSizeHint(self._row_item_size())
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         self._connect_row(row)
@@ -1012,7 +1036,7 @@ class ChannelListWidget(QWidget):
                 excitation_items=self._excitation_items,
                 enabled=enabled,
             )
-            item.setSizeHint(QSize(0, _ROW_HEIGHT))
+            item.setSizeHint(self._row_item_size())
             self._list.setItemWidget(item, row)
             self._connect_row(row)
         self._sync_select_all()

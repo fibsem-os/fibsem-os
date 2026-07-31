@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
     QVBoxLayout,
@@ -67,7 +67,14 @@ class ChannelSettingsWidget(QWidget):
         form = QFormLayout(form_widget)
         form.setContentsMargins(8, 6, 8, 6)
         form.setSpacing(6)
-        form.setLabelAlignment(form.labelAlignment())
+        # macOS styles forms its own way -- fields frozen at their size hint, labels
+        # right-aligned, the whole block centred. That leaves ragged field widths and
+        # dead space on the right, so pin all three to the house style.
+        # AllNonFixedFieldsGrow, not ExpandingFieldsGrow: the latter only grows fields
+        # that already carry an Expanding policy, which none of these do.
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         self.excitation_combo = ValueComboBox(
             items=self._excitation_items,
