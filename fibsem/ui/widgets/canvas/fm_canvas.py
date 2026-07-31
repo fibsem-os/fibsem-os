@@ -26,7 +26,9 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
 )
+from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -170,11 +172,21 @@ class _ChannelRow(QFrame):
 
 
 class FMCanvasWidget(QWidget):
-    """FibsemImageCanvas + per-channel FM layer model + composite + layers popover."""
+    """FibsemImageCanvas + per-channel FM layer model + composite + layers popover.
+
+    The channel model, the layers popover and the z-scrubbing are independent of *how*
+    the blended frame is shown, so a subclass can swap the canvas (:meth:`_make_canvas`)
+    and how the composite reaches it (:meth:`_show_composite`) while keeping all of it —
+    see :class:`FMRealSpaceCanvasWidget`.
+    """
+
+    def _make_canvas(self) -> FibsemCanvasBase:
+        """The canvas this widget composites onto."""
+        return FibsemImageCanvas()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.canvas = FibsemImageCanvas()
+        self.canvas = self._make_canvas()
         self._layers: List[FMLayer] = []
         self._pixel_size: Optional[float] = None
         self._canvas_shape: Optional[Tuple[int, int]] = None  # drawn-axes shape
@@ -315,10 +327,21 @@ class FMCanvasWidget(QWidget):
         if rgb is None:
             return
         h, w = rgb.shape[:2]
-        if self._canvas_shape != (h, w):
+        reshaped = self._canvas_shape != (h, w)
+        self._canvas_shape = (h, w)
+        self._show_composite(rgb, reshaped)
+
+    def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
+        """Put the blended RGB frame on the canvas.
+
+        The only place compositing touches the canvas, and so the seam a subclass
+        overrides to display the same frame differently — placed in stage space rather
+        than filling the view. *reshaped* is True when the frame's pixel dimensions
+        changed, which is the expensive path; the steady state swaps pixels only.
+        """
+        if reshaped:
             # (re)build axes + scalebar at this shape and show the composite
             # directly — no fake single-channel FibsemImage needed
-            self._canvas_shape = (h, w)
             self.canvas.set_array(rgb, pixel_size=self._pixel_size)
         else:
             self.canvas.update_display(rgb)  # steady state: swap pixels only
@@ -418,6 +441,89 @@ class FMCanvasWidget(QWidget):
         super().resizeEvent(event)
         if self._panel.isVisible():
             self._position_panel()
+
+
+class FMRealSpaceCanvasWidget(FMCanvasWidget):
+    """FM channel model and layer controls, composited onto a real-space canvas.
+
+    Identical to :class:`FMCanvasWidget` above the display: the same channel stacks, the
+    same layers popover, the same z-scrubbing. The difference is where the blended frame
+    lands — placed at the stage position it was acquired at, on a black stage-space
+    backdrop, rather than filling the view.
+
+    That placement is what lets overlays work in stage coordinates: a planned tile grid
+    can be drawn before anything is acquired, and position markers do not depend on there
+    being an image to reproject onto.
+
+    Layers are shared across everything placed, which is right for an overview — a mosaic
+    should render uniformly, and per-image contrast would emphasise the seams rather than
+    hide them. See FIB-415 for the per-image case.
+
+    **The canvas is not FM-only.** It knows nothing about modality: ``add_image`` takes
+    any 2-D or RGB array with a position and a pixel size, so a caller can place FIB or
+    SEM images alongside the composite and they will register with it in stage space::
+
+        widget.canvas.add_image(sem_data, centre=(x, y), pixel_size=ps, zorder=-1)
+
+    This widget only manages the one key it composites into (:attr:`COMPOSITE_KEY`), so
+    anything else placed is left alone by a layer change. What is FM-specific here is the
+    *controls* — channels, blending, the layers popover — not the display.
+    """
+
+    COMPOSITE_KEY = "fm-composite"
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._placement: Tuple[float, float] = (0.0, 0.0)
+
+    def _make_canvas(self) -> FibsemCanvasBase:
+        return FibsemRealSpaceCanvas()
+
+    # ── placement ─────────────────────────────────────────────────────────
+
+    def set_placement(self, centre: Tuple[float, float]) -> None:
+        """Where the composite sits, in metres from the canvas origin.
+
+        Set before the frame it applies to. The caller projects a stage position into
+        the display plane (see :mod:`fibsem.fm.reprojection`); this widget only carries
+        the result through to the canvas.
+        """
+        self._placement = (float(centre[0]), float(centre[1]))
+
+    def set_world_extent(self, width: Optional[float], height: Optional[float] = None,
+                         centre: Tuple[float, float] = (0.0, 0.0)) -> None:
+        """Declare the working area the canvas represents — see the canvas method."""
+        self.canvas.set_world_extent(width, height, centre)
+
+    # ── display ───────────────────────────────────────────────────────────
+
+    def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
+        """Place the composite, rather than letting it fill the view.
+
+        A reshaped frame has to be re-placed, since its extent depends on its pixel
+        dimensions; otherwise the pixels are swapped in place, which keeps the artist and
+        so its position and draw order.
+        """
+        if not self._pixel_size:
+            return  # nothing to scale against; the caller has not said how big a pixel is
+        if reshaped or self.COMPOSITE_KEY not in self.canvas.placed_keys:
+            self.canvas.add_image(
+                rgb,
+                centre=self._placement,
+                pixel_size=self._pixel_size,
+                key=self.COMPOSITE_KEY,
+            )
+        else:
+            self.canvas.update_image(self.COMPOSITE_KEY, rgb)
+
+    def set_pixel_size(self, pixel_size: Optional[float]) -> None:
+        """Record the scale without touching the canvas's own.
+
+        The base assigns `canvas.pixel_size` to drive the scalebar, but here the canvas
+        takes its scale from the placed image instead — assigning it directly would set a
+        scalebar that disagrees with what is drawn.
+        """
+        self._pixel_size = pixel_size
 
 
 class FMLayersPanel(QFrame):

@@ -10,7 +10,7 @@ actions along the bottom.
 
 import logging
 import threading
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
@@ -43,7 +43,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.fm.reprojection import reproject_stage_positions_onto_fm_image
+from fibsem.fm.reprojection import project_stage_position
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
@@ -52,7 +52,7 @@ from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
     ProgressUpdate,
 )
-from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
+from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 
 TEXT_MUTED = "#868e93"
 PROGRESS_WIDTH = 260
@@ -111,6 +111,11 @@ class FMOverviewWidget(QWidget):
         self._runner: Optional[FMTiledAcquisitionRunner] = None
         self._mosaic: Optional[FluorescenceImage] = None
         self._displayed_image: Optional[FluorescenceImage] = None
+        # Stage position the canvas frame is built around. Everything shown -- images,
+        # the planned grid, position markers -- is placed relative to it, so it has to
+        # be fixed once and kept: re-deriving it from the newest image would shift the
+        # whole scene each time one arrived. Taken from the first image displayed.
+        self._origin: Optional[FibsemStagePosition] = None
         self._positions: List[FibsemStagePosition] = []
         self._grid_footprint: Optional[tuple] = None
         self._enabled_channels: Optional[List[ChannelSettings]] = None
@@ -137,7 +142,7 @@ class FMOverviewWidget(QWidget):
     # ── layout ───────────────────────────────────────────────────────────
 
     def _init_ui(self, channels: List[ChannelSettings]) -> None:
-        self.canvas = FMCanvasWidget()
+        self.canvas = FMRealSpaceCanvasWidget()
 
         # The planned grid, drawn on the canvas and clickable. A second view of the
         # mask `TileMaskWidget` owns, not a second copy: clicks are routed through the
@@ -321,9 +326,10 @@ class FMOverviewWidget(QWidget):
     def _refresh_tile_grid(self) -> None:
         """Redraw the planned grid on the canvas.
 
-        Needs a tile field of view (from the camera) and an image on the canvas to
-        anchor and scale against. With no image there is nothing to draw the grid
-        relative to, so it is cleared rather than guessed at.
+        Needs a tile field of view and the camera geometry. It does *not* need an image:
+        the grid is anchored to the canvas origin -- the stage position the tileset is
+        planned around -- so it can be drawn before anything is acquired, which is when
+        a planned grid is worth the most.
         """
         fov = self.settings_widget._tile_fov
         if fov is None:
@@ -349,6 +355,14 @@ class FMOverviewWidget(QWidget):
             overlap=parameters.overlap,
             mask=parameters.tile_mask,
         )
+        # Give the canvas a scale before the first image, so the grid has a real frame
+        # to be drawn in rather than arbitrary units. No-op once an image has landed --
+        # by then the image has set it, and changing it would move what is already drawn.
+        self.canvas.canvas.set_reference_pixel_size(pixel_size)
+        # Centred on the origin: the tileset is planned around a stage position, not
+        # around whatever happens to be displayed.
+        self.tile_grid_overlay.set_anchor(self.canvas.canvas.metres_to_canvas(0.0, 0.0))
+
         # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
         # Pinning it here would freeze the scale at whatever was displayed when the
         # settings last changed, and the image underneath changes without them -- the
@@ -356,6 +370,12 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.set_grid(
             tiles, (height, width), pixel_size, overlap=parameters.overlap
         )
+
+        # Frame the planned area, so an empty canvas shows where the run will go rather
+        # than nothing at all, and so clicks land in a meaningful coordinate frame.
+        span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
+        span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
+        self.canvas.set_world_extent(span_x, span_y)
 
         # Refit only when the grid's footprint actually changes. Toggling a tile also
         # comes through here, and refitting on that threw away whatever zoom and pan
@@ -384,16 +404,52 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_panel.raise_()
 
     def set_image(self, image: FluorescenceImage) -> None:
-        """Show an image on the canvas and refresh anything drawn on top of it.
+        """Show an image at the stage position it was acquired at.
 
-        Overlays are positioned against the displayed image, so the image has to be
-        recorded when it is set rather than fetched from the canvas later -- the canvas
-        keeps channel stacks, not the `FluorescenceImage` and its metadata, and the
-        metadata is what carries the pose a position is projected against.
+        Overlays are positioned against the canvas frame, not against whatever is
+        currently displayed, so the image has to be recorded when it is set rather than
+        fetched from the canvas later -- the canvas keeps channel stacks, not the
+        `FluorescenceImage` and its metadata, and the metadata is what carries the pose.
         """
         self._displayed_image = image
+        if self._origin is None:
+            self._origin = self._position_of(image)
+        self.canvas.set_placement(self._offset_of(image))
         self.canvas.set_fm_image(image)
         self._refresh_positions()
+        self._refresh_tile_grid()
+
+    @staticmethod
+    def _position_of(image: FluorescenceImage) -> Optional[FibsemStagePosition]:
+        return getattr(image.metadata, "stage_position", None)
+
+    def _offset_of(self, image: FluorescenceImage) -> Tuple[float, float]:
+        """Where *image*'s centre sits relative to the canvas origin, in metres.
+
+        The stage-to-plane projection the canvas deliberately knows nothing about. Falls
+        back to the origin when the image cannot be projected -- acquired before the
+        geometry was recorded, or with no pose at all -- which puts it in the middle of
+        the view rather than refusing to show it.
+        """
+        position = self._position_of(image)
+        geometry = getattr(image.metadata, "geometry", None)
+        if self._origin is None or position is None or geometry is None:
+            return (0.0, 0.0)
+        try:
+            pixel_size = image.metadata.pixel_size_x
+            shape = np.asarray(image.data).shape[-2:]
+            point = project_stage_position(
+                position, self._origin, pixel_size, shape, geometry
+            )
+            # project_stage_position answers in pixels of an image acquired at the
+            # origin; the canvas wants metres from it, so measure from the centre out.
+            return (
+                (point.x - shape[1] / 2) * pixel_size,
+                (point.y - shape[0] / 2) * pixel_size,
+            )
+        except Exception as e:
+            logging.debug(f"Could not place the image in stage space: {e}")
+            return (0.0, 0.0)
 
     def set_positions(self, positions: List[FibsemStagePosition]) -> None:
         """Stage positions to mark on the overview, e.g. saved lamella positions.
@@ -405,30 +461,49 @@ class FMOverviewWidget(QWidget):
         self._refresh_positions()
 
     def _refresh_positions(self) -> None:
-        """Reproject the marked positions onto the displayed image.
+        """Mark the stage positions in the canvas frame.
 
-        Uses the image's own recorded geometry rather than the live microscope: after
+        Projected against the canvas origin rather than onto whichever image happens to
+        be displayed, so a marker names the same piece of sample no matter what is on
+        screen -- and markers survive the image being swapped, or there being none yet.
+
+        The projection uses the recorded geometry rather than the live microscope: after
         an overview is acquired the stage has moved on, and following it would drift
         every marker off the feature it names.
         """
-        if self._displayed_image is None or not self._positions:
+        if not self._positions or self._origin is None:
             self.position_overlay.set_points([])
             return
 
-        try:
-            points = reproject_stage_positions_onto_fm_image(
-                self._displayed_image, self._positions
+        geometry = None
+        pixel_size = None
+        if self._displayed_image is not None:
+            geometry = getattr(self._displayed_image.metadata, "geometry", None)
+            pixel_size = getattr(self._displayed_image.metadata, "pixel_size_x", None)
+        if geometry is None or not pixel_size:
+            # Nothing to project through -- an image acquired before the geometry was
+            # recorded, or none displayed yet.
+            self.position_overlay.set_points([])
+            return
+
+        points, labels = [], []
+        shape = np.asarray(self._displayed_image.data).shape[-2:]
+        for position in self._positions:
+            try:
+                point = project_stage_position(
+                    position, self._origin, pixel_size, shape, geometry
+                )
+            except Exception as e:
+                logging.debug(f"Cannot mark {position.name!r}: {e}")
+                continue
+            metres = (
+                (point.x - shape[1] / 2) * pixel_size,
+                (point.y - shape[0] / 2) * pixel_size,
             )
-        except ValueError as e:
-            # Images acquired before the geometry was recorded cannot be projected onto.
-            logging.debug(f"Cannot mark positions on this image: {e}")
-            self.position_overlay.set_points([])
-            return
+            points.append(self.canvas.canvas.metres_to_canvas(*metres))
+            labels.append(position.name or "")
 
-        self.position_overlay.set_points(
-            [(p.x, p.y) for p in points],
-            labels=[p.name or "" for p in points],
-        )
+        self.position_overlay.set_points(points, labels=labels)
 
     def _on_grid_resize(self, rows: int, cols: int) -> None:
         """An edge of the grid was dragged.
@@ -676,11 +751,14 @@ class FMOverviewWidget(QWidget):
             for channel, plane in zip(self.channels, planes):
                 self.canvas.set_channel(channel.name, plane, channel.color)
 
+            # The preview mosaic spans the whole planned grid, which is centred on the
+            # position the run started from -- the canvas origin.
+            self.canvas.set_placement((0.0, 0.0))
+
             # The preview is decimated to keep it a sane size, so its pixels are
-            # `preview_stride` times coarser than a tile's. `set_channel` takes raw
-            # planes and cannot know that, and anything drawn on top -- the tile grid,
-            # position markers -- scales against the canvas pixel size, so leaving it
-            # at the tile's would draw them all stride times too large.
+            # `preview_stride` times coarser than a tile's. Placement is by pixel size,
+            # so saying so is all that is needed: coarser pixels over the same count
+            # cover the same ground, and the mosaic lands at the size it represents.
             stride = payload.get("preview_stride", 1) or 1
             self.canvas.set_pixel_size(self.fm.camera.pixel_size[0] * stride)
         except Exception as e:

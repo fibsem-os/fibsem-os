@@ -624,20 +624,22 @@ def _offset(base, dx=0.0, dy=0.0, name=""):
 
 
 def test_positions_are_marked_where_they_are(qapp, overview_widget):
+    """Markers live in the canvas frame, which is anchored on the stage position the
+    overview is built around -- so the origin is (0, 0), not the middle of some image.
+    What matters is that a known stage offset comes out as the same offset on screen."""
     widget = overview_widget
     image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
     widget.set_image(image)
     base = image.metadata.stage_position
     pixel_size = image.metadata.pixel_size_x
-    height, width = image.data.shape[-2:]
 
     widget.set_positions([_offset(base, name="here"),
                           _offset(base, dx=20e-6, name="right")])
     qapp.processEvents()
 
     points = widget.position_overlay._points
-    assert points[0] == pytest.approx((width / 2, height / 2))
-    assert points[1] == pytest.approx((width / 2 + 20e-6 / pixel_size, height / 2))
+    assert points[0] == pytest.approx((0.0, 0.0))  # the origin the canvas is built on
+    assert points[1] == pytest.approx((20e-6 / pixel_size, 0.0))  # 20 um to the right
     assert widget.position_overlay._labels == ["here", "right"]
 
 
@@ -653,7 +655,7 @@ def test_positions_outside_the_image_are_still_marked(qapp, overview_widget):
     widget.set_positions([_offset(base, dx=300e-6, name="far")])
     qapp.processEvents()
 
-    assert widget.position_overlay._points[0][0] > width
+    assert widget.position_overlay._points[0][0] > width / 2
 
 
 def test_an_image_without_geometry_marks_nothing_rather_than_guessing(qapp, overview_widget):

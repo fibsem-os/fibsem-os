@@ -204,14 +204,15 @@ def test_clear_images_empties_the_canvas_but_keeps_overlays():
     assert rec.rects[-1].is_empty  # told the content went away
 
 
-def test_the_placeholder_goes_away_and_comes_back():
-    """The axes are never cleared here, so the "No image" text is managed by hand."""
+def test_there_is_no_placeholder_text():
+    """The black backdrop already says "nothing acquired here", and keeps saying it once
+    images arrive — the gaps between them mean the same thing. Text would also sit in the
+    middle of the tile grid, which is drawn before any acquisition."""
     c = _canvas()
-    assert c._empty_artist is not None
+    assert len(c._ax.texts) == 0
     c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
-    assert c._empty_artist is None
     c.clear_images()
-    assert c._empty_artist is not None
+    assert len(c._ax.texts) == 0
 
 
 # ── validation and conversion ─────────────────────────────────────────────
@@ -228,6 +229,44 @@ def test_one_dimensional_data_is_rejected():
     c = _canvas()
     with pytest.raises(ValueError):
         c.add_image(np.zeros(10), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+
+
+def test_rgb_and_rgba_are_placed_like_any_other_picture():
+    """The composited path: an FM overview arrives here already blended to colour."""
+    c = _canvas()
+    c.add_image(np.zeros((64, 128, 3), np.uint8), centre=(0.0, 0.0),
+                pixel_size=PIXEL_SIZE, key="rgb")
+    c.add_image(np.zeros((64, 128, 4), np.uint8), centre=(0.0, 0.0),
+                pixel_size=PIXEL_SIZE, key="rgba")
+    rect = c._content_rect()
+    assert (rect.width, rect.height) == (128, 64)  # the channel axis is not a dimension
+    assert c._placed["rgb"].artist.get_array().shape[-1] == 3
+
+
+def test_the_display_cap_keeps_the_channel_axis():
+    c = FibsemRealSpaceCanvas(display_max_px=128)
+    c.add_image(np.zeros((1024, 1024, 3), np.uint8), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    assert c._ax.get_images()[0].get_array().shape == (128, 128, 3)
+
+
+def test_stacks_are_rejected_rather_than_misplaced():
+    """z and channels have no single answer once many images share a view, so they are
+    resolved upstream. Left to matplotlib this raises from inside imshow instead."""
+    c = _canvas()
+    for bad in (np.zeros((5, 64, 64)), np.zeros((2, 5, 64, 64)), np.zeros((64, 64, 7))):
+        with pytest.raises(ValueError, match="Project z and composite channels"):
+            c.add_image(bad, centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+
+
+def test_a_rejected_image_does_not_destroy_the_one_it_would_have_replaced():
+    """add_image drops the old artist before drawing the new one, so validating late
+    would mean a bad call silently deleting a good picture."""
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="keep")
+    with pytest.raises(ValueError):
+        c.add_image(np.zeros((5, 64, 64)), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="keep")
+    assert c.placed_keys == ["keep"]
+    assert len(c._ax.get_images()) == 1
 
 
 def test_metres_and_canvas_coordinates_round_trip():
@@ -361,6 +400,45 @@ def test_padding_the_fit_never_hides_an_image():
     images, fit = c._image_extent(), c._fit_extent()
     assert fit[0] <= images[0] and fit[1] >= images[1]
     assert fit[3] <= images[3] and fit[2] >= images[2]
+
+
+def test_the_geometry_survives_a_resize_with_nothing_acquired():
+    """imshow sets aspect="equal" per artist, so an empty canvas would be "auto" and the
+    axes would stretch to the widget — drawing a square grid as a rectangle. Overlays are
+    drawn here before anything is acquired, so the frame has to be square from the start.
+    """
+    def _ratio(c):
+        x0, x1 = c._ax.get_xlim()
+        y0, y1 = c._ax.get_ylim()
+        box = c._ax.get_window_extent()
+        return (box.width / abs(x1 - x0)) / (box.height / abs(y1 - y0))
+
+    c = _canvas()
+    c.resize(1200, 600)
+    c.show()
+    c.set_reference_pixel_size(PIXEL_SIZE)
+    c.set_world_extent(200e-6)
+    _app.processEvents()
+    assert _ratio(c) == pytest.approx(1.0, abs=0.01)
+
+    c.resize(600, 900)  # a resize alone used to distort this 3x
+    _app.processEvents()  # Qt has to lay the resize out before the axes re-fits to it
+    assert _ratio(c) == pytest.approx(1.0, abs=0.01)
+
+
+def test_a_reference_pixel_size_can_be_fixed_before_any_image():
+    """So a planned grid or stage markers have a real frame to be drawn in."""
+    c = _canvas()
+    assert c.set_reference_pixel_size(PIXEL_SIZE) is True
+    assert c.metres_to_canvas(10e-6, 0.0) == pytest.approx((100.0, 0.0))
+
+
+def test_the_reference_pixel_size_is_not_changed_under_a_placed_image():
+    """Their extents were computed against it, so changing it would move them."""
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    assert c.set_reference_pixel_size(PIXEL_SIZE * 4) is False
+    assert c.reference_pixel_size == PIXEL_SIZE
 
 
 def test_the_crosshair_marks_the_origin_not_the_middle_of_the_content():
