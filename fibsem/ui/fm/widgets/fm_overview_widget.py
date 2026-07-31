@@ -36,7 +36,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.ui import stylesheets
-from fibsem.ui.fm.widgets.channel_list_widget import ChannelListWidget
+from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
     format_duration,
@@ -103,7 +103,10 @@ class FMOverviewWidget(QWidget):
     def _init_ui(self, channels: List[ChannelSettings]) -> None:
         self.canvas = FMCanvasWidget()
 
-        self.channel_widget = ChannelListWidget(self.fm, channels)
+        # The list alone shows only name/excitation/emission, with no way to set the
+        # exposure, power or gain a tile is actually acquired at. This composes the
+        # list with the detail panel for the selected channel, and is a drop-in for it.
+        self.channel_widget = FluorescenceMultiChannelWidget(self.fm, channels)
         # Every overview setting lives in one widget, z-stack included, so their order
         # is decided in one place rather than split across two.
         self.settings_widget = FMOverviewSettingsWidget(
