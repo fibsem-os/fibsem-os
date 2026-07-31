@@ -1585,6 +1585,32 @@ class FibsemMicroscope(ABC):
 
         return new_position
 
+    def fm_image_geometry(self) -> "FMImageGeometry":
+        """The geometry the FM is currently imaging under.
+
+        Stamped onto acquired images so they can be reprojected later without a live
+        microscope, and used for the live view here so that both paths run the same
+        projection rather than two that merely agree today.
+
+        Raises:
+            ValueError: if no fluorescence microscope is available.
+        """
+        from fibsem.fm.structures import CameraImageTransform, FMImageGeometry
+
+        if self.fm is None:
+            raise ValueError("Fluorescence microscope is not available.")
+
+        return FMImageGeometry(
+            transform=self.fm._transform or CameraImageTransform.NONE,
+            camera_tilt=self.fm.camera_tilt,
+            column_tilt=self.system.electron.column_tilt,
+            fib_column_tilt=self.system.ion.column_tilt,
+            shuttle_pre_tilt=self.system.stage.shuttle_pre_tilt,
+            rotation_reference=self.system.stage.rotation_reference,
+            rotation_180=self.system.stage.rotation_180,
+            is_compustage=self.stage_is_compustage,
+        )
+
     def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
         """Move the stage by a displacement seen in the fluorescence image.
 
