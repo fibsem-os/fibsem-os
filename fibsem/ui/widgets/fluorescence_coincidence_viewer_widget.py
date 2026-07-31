@@ -273,7 +273,7 @@ class _FmImageCanvas(QWidget):
                 self.canvas.set_array(frame, pixel_size=px)
             else:
                 self.canvas.update_display(frame, pixel_size=px)
-            self.canvas._ax.set_title(f"FM  z={z}/{nz - 1}", color="white", fontsize=10)
+            self.canvas.set_title(f"FM  z={z}/{nz - 1}")
             self.canvas.draw_idle()
         except Exception:
             logging.exception("Error plotting FM z-slice")
@@ -2163,7 +2163,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         stage = self._get_selected_stage()
         if stage is None:
             return
-        pixel_size = self.fib_canvas.canvas._pixel_size
+        pixel_size = self.fib_canvas.canvas.pixel_size
         img_w = self.fib_canvas.canvas.img_width
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:
@@ -2191,7 +2191,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Translate a FIB rect drag into a pattern position update via _move_patterns."""
         if self.milling_viewer_widget is None:
             return
-        pixel_size = self.fib_canvas.canvas._pixel_size
+        pixel_size = self.fib_canvas.canvas.pixel_size
         img_w = self.fib_canvas.canvas.img_width
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:
@@ -2279,7 +2279,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Stable-move the stage to the double-clicked position on the FIB canvas."""
         if self._is_milling_active:
             return
-        pixel_size = self.fib_canvas.canvas._pixel_size
+        pixel_size = self.fib_canvas.canvas.pixel_size
         img_w = self.fib_canvas.canvas.img_width
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:

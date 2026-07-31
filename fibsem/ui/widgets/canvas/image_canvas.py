@@ -161,6 +161,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._crosshair_artists: list = []
         self._hint_artist = None  # transient top-left instruction hint
         self._hint_text: Optional[str] = None  # remembered so it survives set_image
+        self._title_artist = None  # top-centre image caption (e.g. FM z-slice)
+        self._title_text: Optional[str] = None  # remembered so it survives set_image
         self._info_artist = None  # bottom-left microscope-state info bar
         self._info_text: Optional[str] = None  # remembered so it survives set_image
         self._live_artist = None  # top-right "LIVE" badge during live acquisition
@@ -244,6 +246,30 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
     def img_height(self) -> Optional[int]:
         return self._img_h
 
+    @property
+    def pixel_size(self) -> Optional[float]:
+        """Metres per pixel of the displayed image, or None if not known.
+
+        Companion to :attr:`img_width` / :attr:`img_height` — together they let a
+        caller convert canvas pixel coordinates to physical units. Normally set from
+        the *pixel_size* argument to :meth:`set_array` / :meth:`update_display`.
+        """
+        return self._pixel_size
+
+    @pixel_size.setter
+    def pixel_size(self, value: Optional[float]) -> None:
+        """Rescale the scalebar to a new metres/px, for a caller that owns the scale
+        independently of the pixel data (e.g. the FM canvas, which composites layers
+        and sets the scale separately from the RGB frame).
+
+        Note the None semantics differ from the *pixel_size* argument of
+        :meth:`set_array` / :meth:`update_display`, where None means "leave unchanged":
+        assigning None here is an explicit "no longer known" and drops the scalebar.
+        """
+        self._pixel_size = value
+        self._refresh_scalebar()
+        self.draw_idle()
+
     # ── public API ────────────────────────────────────────────────────────
 
     def set_image(self, image: FibsemImage, cmap: str = "gray") -> None:
@@ -312,6 +338,7 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._refresh_scalebar()
         self._refresh_crosshair()
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
+        self._refresh_title()  # ditto: restore the remembered title
         self._refresh_info_bar()  # ditto: restore the remembered info bar
         self._refresh_live_badge()  # ditto: keep the LIVE badge across streamed frames
         self._refresh_flash()  # ditto: keep a live flash (e.g. WD scroll) visible across frames
@@ -387,6 +414,42 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
                 fontsize=8, color="#1a1a1a", zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
                           edgecolor="none", alpha=0.85),
+            )
+
+    def set_title(self, text: Optional[str]) -> None:
+        """Show a caption centred at the top of the image, or hide with None/''.
+
+        For labelling what the frame *is* (e.g. an FM z-slice index), as opposed to
+        the instruction hint (top-left) or the microscope-state info bar (bottom-left).
+        Remembered + re-applied after each image change, like the hint.
+
+        Deliberately drawn inside the axes rather than via ``Axes.set_title``: the
+        figure is laid out edge-to-edge (``subplots_adjust(top=1)``), so a real axes
+        title lands above the figure and is clipped whenever the pane is wider in
+        aspect than the image — e.g. any square frame in a wide pane.
+
+        Shares the top-centre slot with :meth:`flash_message`, which is drawn above it
+        for the second or so it is on screen.
+        """
+        self._title_text = text or None
+        self._refresh_title()
+        self.draw_idle()
+
+    def _refresh_title(self) -> None:
+        """(Re)create the title artist from the cached text, or remove it."""
+        if self._title_artist is not None:
+            try:
+                self._title_artist.remove()
+            except Exception:
+                pass
+            self._title_artist = None
+        if self._title_text:
+            self._title_artist = self._ax.text(
+                0.5, 0.985, self._title_text,
+                transform=self._ax.transAxes, ha="center", va="top",
+                fontsize=10, color="#ffffff", zorder=11,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
+                          edgecolor="none", alpha=0.55),
             )
 
     def set_info_text(self, text: Optional[str]) -> None:
@@ -537,6 +600,8 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         self._crosshair_artists = []
         self._hint_artist = None  # removed by cla(); drop the cached text too
         self._hint_text = None
+        self._title_artist = None
+        self._title_text = None
         self._info_artist = None
         self._info_text = None
         self._live_artist = None
