@@ -124,6 +124,94 @@ def test_a_layer_change_leaves_other_images_alone():
     assert [layer.name for layer in w._layers] == ["GFP"]  # not listed as a layer
 
 
+# ── more than one overview ────────────────────────────────────────────────
+
+
+def test_a_second_overview_joins_the_first():
+    """The reason for placing anything in stage space: acquire somewhere else and it
+    lines up with what is already shown instead of replacing it."""
+    w = _widget()
+    w.set_composite_key("a")
+    w.set_placement((0.0, 0.0))
+    w.set_channel("GFP", _plane(), "#00ff00")
+
+    w.set_composite_key("b")
+    w.set_placement((200e-6, 0.0))
+    w.set_channel("GFP", _plane(), "#00ff00")
+
+    assert set(w.canvas.placed_keys) == {"a", "b"}
+    a, b = w.canvas._placed["a"].extent, w.canvas._placed["b"].extent
+    assert (b[0] + b[1]) / 2 - (a[0] + a[1]) / 2 == pytest.approx(2000)  # 200 um
+
+
+def test_reusing_a_key_replaces_that_overview():
+    w = _widget()
+    for _ in range(3):
+        w.set_composite_key("same")
+        w.set_channel("GFP", _plane(), "#00ff00")
+    assert w.canvas.placed_keys == ["same"]
+
+
+def test_a_layer_change_restyles_every_overview_not_just_the_newest():
+    """Layers are display state shared by everything placed; the pixels are not. Without
+    re-rendering the held planes, recolouring would leave the same data drawn two
+    different ways side by side."""
+    w = _widget()
+    plane = _plane()
+    for key, centre in (("a", (0.0, 0.0)), ("b", (200e-6, 0.0))):
+        w.set_composite_key(key)
+        w.set_placement(centre)
+        w.set_channel("GFP", plane, "green")
+
+    w._layers[0].color = "red"
+    w._recomposite()
+
+    def red_mean(key):
+        return float(np.asarray(w.canvas._placed[key].artist.get_array())[..., 0].mean())
+
+    assert red_mean("a") == pytest.approx(red_mean("b"))
+    assert red_mean("a") > 0  # actually recoloured, not merely equal at zero
+
+
+def test_overviews_can_be_cleared_without_disturbing_the_channel_model():
+    w = _widget()
+    for key in ("a", "b"):
+        w.set_composite_key(key)
+        w.set_channel("GFP", _plane(), "#00ff00")
+
+    w.clear_overviews()
+
+    assert w.canvas.placed_keys == []
+    assert w.placed_overviews() == []
+    assert [layer.name for layer in w._layers] == ["GFP"]  # channels survive
+
+
+def test_a_coarse_overview_sits_behind_a_detailed_one_whenever_it_arrived():
+    """A wide survey acquired after a detailed overview covers the same ground, so by
+    arrival order it would hide the better data. Ordering by pixel size instead keeps
+    the most detailed image on top however the run happened to be sequenced."""
+    w = _widget()
+    w.set_composite_key("detailed")
+    w.set_channel("GFP", _plane(), "#00ff00")
+
+    w.set_pixel_size(PIXEL_SIZE * 4)  # a later, coarser survey on the same canvas
+    w.set_composite_key("survey")
+    w.set_channel("GFP", _plane(), "#00ff00")
+
+    detailed_z = w.canvas._placed["detailed"].artist.get_zorder()
+    survey_z = w.canvas._placed["survey"].artist.get_zorder()
+    assert survey_z < detailed_z  # coarser is behind, despite arriving later
+
+
+def test_held_planes_track_what_was_placed():
+    w = _widget()
+    w.set_composite_key("a")
+    w.set_channel("GFP", _plane(), "#00ff00")
+    w.set_composite_key("b")
+    w.set_channel("GFP", _plane(), "#00ff00")
+    assert w.placed_overviews() == ["a", "b"]
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):

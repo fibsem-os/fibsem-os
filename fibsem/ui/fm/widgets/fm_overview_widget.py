@@ -81,6 +81,11 @@ def progress_slot(progress: FibsemProgressWidget) -> QWidget:
     return slot
 
 
+# Key the in-progress mosaic is drawn under. Distinct from a finished overview's
+# position-derived key, so the preview can be dropped when the real stitch lands.
+PREVIEW_KEY = "fm-preview"
+
+
 class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
@@ -414,6 +419,7 @@ class FMOverviewWidget(QWidget):
         self._displayed_image = image
         if self._origin is None:
             self._origin = self._position_of(image)
+        self.canvas.set_composite_key(self._key_for(image))
         self.canvas.set_placement(self._offset_of(image))
         self.canvas.set_fm_image(image)
         self._refresh_positions()
@@ -422,6 +428,21 @@ class FMOverviewWidget(QWidget):
     @staticmethod
     def _position_of(image: FluorescenceImage) -> Optional[FibsemStagePosition]:
         return getattr(image.metadata, "stage_position", None)
+
+    @staticmethod
+    def _key_for(image: FluorescenceImage) -> str:
+        """Identify an overview by when it was acquired.
+
+        Not by position: a small overview and a wider one taken over the same area at
+        different times are both worth keeping, and keying on position would silently
+        drop the first. `stitch_tileset` carries the first tile's acquisition date onto
+        the mosaic, so this is unique per run.
+
+        A property of the image rather than a counter, so showing the same image twice
+        replaces it instead of drawing a second copy on top of itself.
+        """
+        stamp = getattr(image.metadata, "acquisition_date", None)
+        return f"overview@{stamp}" if stamp else "overview"
 
     def _offset_of(self, image: FluorescenceImage) -> Tuple[float, float]:
         """Where *image*'s centre sits relative to the canvas origin, in metres.
@@ -748,19 +769,28 @@ class FMOverviewWidget(QWidget):
             planes = np.asarray(image)
             if planes.ndim == 2:
                 planes = planes[np.newaxis]
-            for channel, plane in zip(self.channels, planes):
-                self.canvas.set_channel(channel.name, plane, channel.color)
 
+            # Where, and at what scale, *before* any pixels: `set_channel` composites
+            # and places immediately, so anything established after it applies a tick
+            # late -- the first frame of a run would land under the previous run's key
+            # at the previous run's pixel size, which drew it at the wrong size on top
+            # of a finished overview.
+            #
+            # Its own key, so the in-progress preview neither replaces a finished
+            # overview nor survives as one: it is swapped for the real stitch at the end.
+            self.canvas.set_composite_key(PREVIEW_KEY)
             # The preview mosaic spans the whole planned grid, which is centred on the
             # position the run started from -- the canvas origin.
             self.canvas.set_placement((0.0, 0.0))
-
             # The preview is decimated to keep it a sane size, so its pixels are
             # `preview_stride` times coarser than a tile's. Placement is by pixel size,
             # so saying so is all that is needed: coarser pixels over the same count
             # cover the same ground, and the mosaic lands at the size it represents.
             stride = payload.get("preview_stride", 1) or 1
             self.canvas.set_pixel_size(self.fm.camera.pixel_size[0] * stride)
+
+            for channel, plane in zip(self.channels, planes):
+                self.canvas.set_channel(channel.name, plane, channel.color)
         except Exception as e:
             logging.debug(f"Could not display the overview preview: {e}")
 
@@ -770,8 +800,11 @@ class FMOverviewWidget(QWidget):
         self.progress_tile_detail.reset()
 
         if state == "overview-finished" and self._mosaic is not None:
-            # Swap the decimated preview for the real thing.
+            # Swap the decimated preview for the real thing. Dropped rather than left
+            # underneath: it covers the same ground at a coarser scale, so keeping it
+            # would only be a blurred copy hidden behind the stitch.
             self.set_image(self._mosaic)
+            self.canvas.canvas.remove_image(PREVIEW_KEY)
             shape = self._mosaic.data.shape
             self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px")
             self.progress_tiles.update_progress(ProgressUpdate.done())

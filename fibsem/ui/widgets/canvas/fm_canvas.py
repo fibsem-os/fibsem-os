@@ -11,6 +11,7 @@ are Phase 6b.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -475,11 +476,34 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._placement: Tuple[float, float] = (0.0, 0.0)
+        self._composite_key: str = self.COMPOSITE_KEY
+        # Channel planes of everything placed, so a layer change can re-render images
+        # composited long ago. Only the newest is in `_layers`; the rest are here.
+        self._held: Dict[str, Dict[str, np.ndarray]] = {}
 
     def _make_canvas(self) -> FibsemCanvasBase:
         return FibsemRealSpaceCanvas()
 
     # ── placement ─────────────────────────────────────────────────────────
+
+    def set_composite_key(self, key: str) -> None:
+        """Choose which placed image subsequent channel data composites into.
+
+        Re-using a key replaces that image; a new key adds one. So a second overview
+        acquired somewhere else joins the first on the canvas rather than replacing it,
+        which is the reason for placing things in stage space at all.
+        """
+        self._composite_key = key
+
+    def placed_overviews(self) -> List[str]:
+        """Keys of everything this widget has composited, oldest first."""
+        return list(self._held)
+
+    def clear_overviews(self) -> None:
+        """Drop every composited image, leaving overlays and the channel model alone."""
+        for key in list(self._held):
+            self.canvas.remove_image(key)
+        self._held.clear()
 
     def set_placement(self, centre: Tuple[float, float]) -> None:
         """Where the composite sits, in metres from the canvas origin.
@@ -506,15 +530,59 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """
         if not self._pixel_size:
             return  # nothing to scale against; the caller has not said how big a pixel is
-        if reshaped or self.COMPOSITE_KEY not in self.canvas.placed_keys:
+        key = self._composite_key
+        # Keep this image's planes, so a later layer change can re-render it once its
+        # channels are no longer the ones in `_layers`.
+        self._held[key] = {
+            layer.name: layer.data for layer in self._layers if layer.data is not None
+        }
+        if reshaped or key not in self.canvas.placed_keys:
             self.canvas.add_image(
                 rgb,
                 centre=self._placement,
                 pixel_size=self._pixel_size,
-                key=self.COMPOSITE_KEY,
+                key=key,
+                zorder=self._detail_zorder(self._pixel_size),
             )
         else:
-            self.canvas.update_image(self.COMPOSITE_KEY, rgb)
+            self.canvas.update_image(key, rgb)
+        self._restyle_others(key)
+
+    @staticmethod
+    def _detail_zorder(pixel_size: float) -> float:
+        """Draw finer images over coarser ones, whatever order they arrived in.
+
+        Arrival order is the wrong answer here. A wide, coarse overview acquired *after*
+        a detailed one covers the same ground, so by default it would hide the better
+        data underneath it — and the more detail an image has, the more it deserves to
+        be on top. Ordering by pixel size instead means a coarse survey always sits
+        behind whatever was taken at higher resolution over it.
+        """
+        return -pixel_size * 1e9  # nanometres/px, negated: smaller pixels draw on top
+
+    def _restyle_others(self, current: str) -> None:
+        """Re-render everything except *current* under the present layer settings.
+
+        Layers are display state shared by everything placed; the pixels are not. So a
+        colour or contrast change has to be applied to each held image's own planes,
+        which is why they are kept. Without this, changing a channel's colour would
+        recolour the newest overview and leave the others as they were — the same data
+        drawn two different ways, side by side.
+        """
+        for key, planes in self._held.items():
+            if key == current or key not in self.canvas.placed_keys:
+                continue
+            layers = [
+                replace(layer, data=planes[layer.name], _clim_cache=None)
+                for layer in self._layers
+                if layer.name in planes
+            ]
+            if not layers:
+                continue
+            shape = layers[0].data.shape[:2]
+            rgb = composite_fm_layers(layers, shape)
+            if rgb is not None:
+                self.canvas.update_image(key, rgb)
 
     def set_pixel_size(self, pixel_size: Optional[float]) -> None:
         """Record the scale without touching the canvas's own.
