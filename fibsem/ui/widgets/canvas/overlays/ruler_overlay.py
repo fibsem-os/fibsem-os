@@ -99,7 +99,7 @@ class RulerOverlay(CanvasOverlay):
     def on_image_changed(self, width: int, height: int) -> None:
         self._img_w, self._img_h = width, height
         if self._canvas is not None:
-            self._pixel_size = self._canvas._pixel_size
+            self._pixel_size = self._canvas.pixel_size
         if self._ax is None or width == 0 or height == 0 or not self._visible:
             self._remove_artists()  # inert while hidden / between images
             return
