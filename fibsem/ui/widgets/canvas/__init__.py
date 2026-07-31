@@ -2,6 +2,8 @@
 
 This package groups the (napari-free) canvas widgets and their supporting state:
 
+- :mod:`~fibsem.ui.widgets.canvas.canvas_base` — :class:`FibsemCanvasBase`, the
+  content-agnostic navigation / overlay / toolbar / chrome half of the canvas.
 - :mod:`~fibsem.ui.widgets.canvas.image_canvas` — the core :class:`FibsemImageCanvas`.
 - :mod:`~fibsem.ui.widgets.canvas.fm_canvas` — fluorescence-microscopy canvas.
 - :mod:`~fibsem.ui.widgets.canvas.fm_composite` — FM layer compositing helpers.
@@ -29,6 +31,7 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     SceneModel,
 )
 from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
+from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.quad_view import (
@@ -38,6 +41,8 @@ from fibsem.ui.widgets.canvas.quad_view import (
 )
 
 __all__ = [
+    # canvas_base
+    "FibsemCanvasBase",
     # image_canvas
     "FibsemImageCanvas",
     # fm_canvas
