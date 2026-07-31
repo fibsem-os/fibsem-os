@@ -208,6 +208,44 @@ def test_fm_timelapse_frame_displays_without_disturbing_state():
     assert "(3/9)" in widget.frame_label.text()
 
 
+def test_scrubbing_to_a_dim_timelapse_frame_rescales():
+    """The regression this file exists to prevent recurring.
+
+    A coincidence milling run is exactly an FM intensity drop over time, so a stored
+    timelapse frame routinely has a far smaller range than the live one. The old widget
+    normalised every frame to [0,1] with clim (0,1); handing raw frames to the canvas
+    only preserves that if update_display rescales, otherwise a dim frame is drawn
+    against the bright live frame's clim and renders near-black.
+    """
+    widget = _FmImageCanvas()
+    rng = np.random.default_rng(0)
+    widget.set_image(_FakeFmImage((rng.random((1, 1, 512, 512)) * 4000).astype(np.uint16)))
+
+    dim = (rng.random((512, 512)) * 400).astype(np.float32)  # a 10x drop
+    widget.display_timelapse_frame(dim, idx=1, total=5, ts=0.0)
+
+    artist = widget.canvas._ax.get_images()[0]
+    lo, hi = artist.get_clim()
+    shown = np.asarray(artist.get_array())
+    used = (shown.max() - shown.min()) / max(1e-9, hi - lo)
+    assert used > 0.95, (
+        f"dim frame uses only {used * 100:.0f}% of the display range "
+        f"(clim={lo:.0f}..{hi:.0f}, data={shown.min():.0f}..{shown.max():.0f}) — "
+        "it is being drawn against the previous frame's range"
+    )
+
+
+def test_rgb_updates_are_not_rescaled():
+    """The rescale must stay scoped to grayscale — imshow doesn't scale RGB either,
+    and the FM composite canvas swaps RGB through this same path."""
+    canvas = FibsemImageCanvas()
+    rng = np.random.default_rng(0)
+    canvas.set_array((rng.random((64, 64, 3)) * 255).astype(np.uint8))
+    before = canvas._ax.get_images()[0].get_clim()
+    canvas.update_display((rng.random((64, 64, 3)) * 40).astype(np.uint8))
+    assert canvas._ax.get_images()[0].get_clim() == before
+
+
 def test_clear_resets_both_quadrants():
     fib = _FibImageCanvas()
     fib.set_image(_fib_image())

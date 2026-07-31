@@ -344,6 +344,12 @@ class FibsemImageCanvas(FigureCanvasQTAgg):
         imgs[0].set_data(to_show)
         if clim is not None:
             imgs[0].set_clim(*clim)
+        elif self._is_gray:
+            # Rescale to the new data, matching set_array's imshow autoscale. Without
+            # this the frame is drawn against the *previous* frame's intensity range:
+            # scrubbing back to a dim FM timelapse frame after an intensity drop
+            # rendered it near-black. RGB is excluded — imshow doesn't scale it either.
+            imgs[0].set_clim(float(to_show.min()), float(to_show.max()))
         if pixel_size and pixel_size > 0 and pixel_size != self._pixel_size:
             self._pixel_size = pixel_size
             self._refresh_scalebar()
