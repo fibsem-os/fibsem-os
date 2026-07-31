@@ -938,6 +938,13 @@ class FluorescenceMicroscope(ABC):
             objective_numerical_aperture=self.objective.numerical_aperture,
         )
 
+        # Stamp the geometry the image is being captured under, so a stage position can
+        # be projected onto it later without assuming the microscope still matches --
+        # by then the stage has usually moved, and the display transform may have been
+        # flipped. Needs the parent for the stage and system settings, so an FM with no
+        # parent records nothing rather than recording a default that looks valid.
+        geometry = self.parent.fm_image_geometry() if self.parent else None
+
         # Create complete image metadata
         return FluorescenceImageMetadata(
             acquisition_date=datetime.now().isoformat(),
@@ -945,6 +952,7 @@ class FluorescenceMicroscope(ABC):
             pixel_size_y=self.camera.pixel_size[1],
             resolution=(self.camera.resolution[0], self.camera.resolution[1]),
             stage_position=stage_position,
+            geometry=geometry,
             channels=[channel_metadata],
         )
 
