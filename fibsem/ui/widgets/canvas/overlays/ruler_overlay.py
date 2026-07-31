@@ -11,6 +11,7 @@ from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
@@ -52,8 +53,7 @@ class RulerOverlay(CanvasOverlay):
         self._color = color
         self._ax = None
         self._canvas: Optional["FibsemImageCanvas"] = None
-        self._img_w: Optional[int] = None
-        self._img_h: Optional[int] = None
+        self._rect: Optional["ContentRect"] = None  # canvas content bounds
         self._pixel_size: Optional[float] = None
 
         # endpoints in data coords (None until seeded)
@@ -96,11 +96,11 @@ class RulerOverlay(CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
-        self._img_w, self._img_h = width, height
+    def on_content_changed(self, rect: "ContentRect") -> None:
+        self._rect = rect
         if self._canvas is not None:
             self._pixel_size = self._canvas.pixel_size
-        if self._ax is None or width == 0 or height == 0 or not self._visible:
+        if self._ax is None or rect.is_empty or not self._visible:
             self._remove_artists()  # inert while hidden / between images
             return
         if self._p1 is None or self._p2 is None:
@@ -116,7 +116,7 @@ class RulerOverlay(CanvasOverlay):
         self._visible = visible
         if not visible:
             self._remove_artists()
-        elif self._img_w:
+        elif self._rect is not None and not self._rect.is_empty:
             if self._p1 is None or self._p2 is None:
                 self._seed_default()
             self._rebuild()
@@ -133,19 +133,20 @@ class RulerOverlay(CanvasOverlay):
     # ── build / teardown ──────────────────────────────────────────────────
 
     def _seed_default(self) -> None:
-        if not self._img_w or not self._img_h:
+        rect = self._rect
+        if rect is None or rect.is_empty:
             return
-        cx, cy = self._img_w / 2.0, self._img_h / 2.0
-        half = self._img_w * 0.125
-        self._p1 = [cx - half, cy]
-        self._p2 = [cx + half, cy]
+        half = rect.width * 0.125
+        self._p1 = [rect.cx - half, rect.cy]
+        self._p2 = [rect.cx + half, rect.cy]
 
     def _clamp(self) -> None:
-        if self._img_w is None:
+        rect = self._rect
+        if rect is None:
             return
         for p in (self._p1, self._p2):
-            p[0] = _clampf(p[0], 0.0, self._img_w)
-            p[1] = _clampf(p[1], 0.0, self._img_h)
+            p[0] = _clampf(p[0], rect.x0, rect.x1)
+            p[1] = _clampf(p[1], rect.y0, rect.y1)
 
     def _remove_artists(self) -> None:
         for a in (self._line, self._dots, self._label):
@@ -247,16 +248,19 @@ class RulerOverlay(CanvasOverlay):
         dx = event.xdata - self._drag_start_data[0]
         dy = event.ydata - self._drag_start_data[1]
         p1, p2 = self._drag_start_pts
-        W, H = self._img_w, self._img_h
+        rect = self._rect
+        if rect is None:
+            return
+        left, top, right, bottom = rect.x0, rect.y0, rect.x1, rect.y1
         if self._drag == "p1":
-            self._p1 = [_clampf(p1[0] + dx, 0, W), _clampf(p1[1] + dy, 0, H)]
+            self._p1 = [_clampf(p1[0] + dx, left, right), _clampf(p1[1] + dy, top, bottom)]
         elif self._drag == "p2":
-            self._p2 = [_clampf(p2[0] + dx, 0, W), _clampf(p2[1] + dy, 0, H)]
+            self._p2 = [_clampf(p2[0] + dx, left, right), _clampf(p2[1] + dy, top, bottom)]
         else:  # move the whole line, clamped so both endpoints stay in bounds
             minx, maxx = min(p1[0], p2[0]), max(p1[0], p2[0])
             miny, maxy = min(p1[1], p2[1]), max(p1[1], p2[1])
-            dx = _clampf(dx, -minx, W - maxx)
-            dy = _clampf(dy, -miny, H - maxy)
+            dx = _clampf(dx, left - minx, right - maxx)
+            dy = _clampf(dy, top - miny, bottom - maxy)
             self._p1 = [p1[0] + dx, p1[1] + dy]
             self._p2 = [p2[0] + dx, p2[1] + dy]
         self._update_artists()

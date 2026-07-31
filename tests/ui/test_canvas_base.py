@@ -8,9 +8,17 @@ changed, since _fit_view previously read the image artist's extent directly.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_base.py
 """
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import sys
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -50,6 +51,51 @@ if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ContentRect:
+    """The region overlays clamp and anchor to, in canvas coordinates.
+
+    For a canvas holding one image this is ``(0, 0, width, height)`` — the image's
+    pixel grid, so ``x0``/``y0`` are zero and the arithmetic is the same as the
+    ``(width, height)`` pair this replaced. For a canvas holding many images placed
+    in stage space it is their union, whose origin is *not* the coordinate origin.
+    Overlays should therefore anchor with :attr:`cx` / :attr:`cy` and clamp against
+    :attr:`x0` / :attr:`x1` rather than assuming content starts at (0, 0).
+
+    Distinct from the canvas's matplotlib extent (``_content_extent``), which carries
+    imshow's half-pixel offset and exists only to fit the view.
+    """
+
+    x0: float
+    y0: float
+    width: float
+    height: float
+
+    @property
+    def x1(self) -> float:
+        return self.x0 + self.width
+
+    @property
+    def y1(self) -> float:
+        return self.y0 + self.height
+
+    @property
+    def cx(self) -> float:
+        """Horizontal centre — where an overlay with no better anchor should sit."""
+        return self.x0 + self.width / 2.0
+
+    @property
+    def cy(self) -> float:
+        return self.y0 + self.height / 2.0
+
+    @property
+    def is_empty(self) -> bool:
+        return self.width <= 0 or self.height <= 0
+
+
+EMPTY_CONTENT = ContentRect(0.0, 0.0, 0.0, 0.0)
 
 _LIVE_BADGE_BG = "#2e7d32"  # dark green behind the white "● LIVE" badge
 _MAX_DISPLAY_PX = 2048
@@ -512,11 +558,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._legend_artist = None  # removed by cla(); drop the cached entries too
         self._legend_entries = None
         self._plot_empty()
-        for overlay in self._overlays:
-            try:
-                overlay.on_image_changed(0, 0)
-            except Exception:
-                pass
+        self._notify_overlays(EMPTY_CONTENT)
         self.draw_idle()
 
     # ── overlay buttons ───────────────────────────────────────────────────
@@ -595,6 +637,38 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         if contrast is not None and contrast.isVisible():
             contrast.reposition()
 
+    def _content_rect(self) -> ContentRect:
+        """The rectangle overlays clamp and anchor to.
+
+        Defaults to the content size recorded by the subclass, anchored at the origin
+        — correct for a single image. A canvas that places content away from the
+        origin (e.g. images positioned in stage space) overrides this.
+        """
+        if self._img_w is None or self._img_h is None:
+            return EMPTY_CONTENT
+        return ContentRect(0.0, 0.0, self._img_w, self._img_h)
+
+    def _notify_overlay(self, overlay, rect: ContentRect) -> None:
+        """Tell one overlay the content rectangle changed.
+
+        Prefers the rect-based ``on_content_changed``; falls back to the older
+        ``on_image_changed(width, height)`` so a duck-typed overlay written against
+        the previous protocol keeps working untouched.
+        """
+        handler = getattr(overlay, "on_content_changed", None)
+        if handler is None:
+            overlay.on_image_changed(rect.width, rect.height)
+        else:
+            handler(rect)
+
+    def _notify_overlays(self, rect: ContentRect) -> None:
+        """Broadcast a content change to every registered overlay."""
+        for overlay in self._overlays:
+            try:
+                self._notify_overlay(overlay, rect)
+            except Exception:
+                _logger.exception("Overlay content update failed: %r", overlay)
+
     def _content_extent(self) -> Optional[Tuple[float, float, float, float]]:
         """Extent of the drawn content as ``(xmin, xmax, ymax, ymin)``, or None if empty.
 
@@ -641,9 +715,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         overlay.attach(self._ax, self)
         if self._img_w is not None:
             try:
-                overlay.on_image_changed(self._img_w, self._img_h)
+                self._notify_overlay(overlay, self._content_rect())
             except Exception:
-                _logger.exception("Overlay on_image_changed failed: %r", overlay)
+                _logger.exception("Overlay content update failed: %r", overlay)
         self.draw_idle()
 
     def remove_overlay(self, overlay: CanvasOverlay) -> None:

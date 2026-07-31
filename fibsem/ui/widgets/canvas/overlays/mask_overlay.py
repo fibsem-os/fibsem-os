@@ -21,6 +21,7 @@ from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _logger = logging.getLogger(__name__)
@@ -52,10 +53,10 @@ class MaskOverlay(CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
-        # ax was cleared + a new image drawn; re-create from the cached mask
+    def on_content_changed(self, rect: "ContentRect") -> None:
+        # ax was cleared + new content drawn; re-create from the cached mask
         self._remove_artist()
-        if self._mask is not None and width > 0:
+        if self._mask is not None and not rect.is_empty:
             self._draw()
 
     # ── public API ────────────────────────────────────────────────────────

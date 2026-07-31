@@ -16,6 +16,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 
 WIDTH = HEIGHT = 1024
@@ -53,6 +54,11 @@ class _FakeCanvas:
         self._view_margin = margin
 
 
+def _seed_content(overlay, width=WIDTH, height=HEIGHT):
+    """Tell the overlay how much canvas content there is, via the real protocol."""
+    overlay.on_content_changed(ContentRect(0.0, 0.0, width, height))
+
+
 def build(rows=3, cols=3, overlap=OVERLAP, mask=None):
     from matplotlib.figure import Figure
 
@@ -65,7 +71,7 @@ def build(rows=3, cols=3, overlap=OVERLAP, mask=None):
     overlay._ax = Figure().add_subplot(111)
     overlay._canvas = _FakeCanvas()
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
-    overlay._img_w, overlay._img_h = WIDTH, HEIGHT
+    _seed_content(overlay)
     return overlay, tiles
 
 
@@ -153,7 +159,7 @@ def test_nothing_is_drawn_without_an_image(qapp):
     """There is nothing to anchor or scale against, so the grid is cleared rather than
     drawn at a guessed position."""
     overlay, _ = build(3, 3)
-    overlay._img_w = overlay._img_h = 0
+    _seed_content(overlay, 0, 0)
 
     overlay._redraw()
 
@@ -165,7 +171,7 @@ def test_a_differing_display_pixel_size_rescales_the_grid(qapp):
     the two pixel sizes would draw the grid at the wrong scale."""
     tiles = compute_tile_grid_from_fov(3, 3, FOV, FOV, WIDTH, HEIGHT, OVERLAP)
     overlay = TileGridOverlay()
-    overlay._img_w, overlay._img_h = WIDTH, HEIGHT
+    _seed_content(overlay)
 
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
     full = overlay._rect_for(tiles[0])[2]
@@ -275,8 +281,8 @@ def _event(overlay, x, y, button=1):
 def _edges(overlay):
     span_w, span_h = overlay._extent()
     return (
-        overlay._img_w / 2 + span_w / 2,   # right
-        overlay._img_h / 2 + span_h / 2,   # bottom
+        overlay._rect.cx + span_w / 2,   # right
+        overlay._rect.cy + span_h / 2,   # bottom
     )
 
 
@@ -286,10 +292,10 @@ def test_only_the_outer_edges_grab(qapp):
     overlay, _ = build(3, 3, overlap=OVERLAP)
     right, bottom = _edges(overlay)
 
-    assert overlay._edge_at(right, overlay._img_h / 2) == (True, False)
-    assert overlay._edge_at(overlay._img_w / 2, bottom) == (False, True)
+    assert overlay._edge_at(right, overlay._rect.cy) == (True, False)
+    assert overlay._edge_at(overlay._rect.cx, bottom) == (False, True)
     assert overlay._edge_at(right, bottom) == (True, True)      # corner: both axes
-    assert overlay._edge_at(overlay._img_w / 2, overlay._img_h / 2) is None
+    assert overlay._edge_at(overlay._rect.cx, overlay._rect.cy) is None
 
 
 def test_the_bounding_lines_do_not_grab_far_outside_the_grid(qapp):
@@ -298,7 +304,7 @@ def test_the_bounding_lines_do_not_grab_far_outside_the_grid(qapp):
     overlay, _ = build(3, 3)
     right, bottom = _edges(overlay)
 
-    assert overlay._edge_at(right, bottom + overlay._img_h) is None
+    assert overlay._edge_at(right, bottom + overlay._rect.height) is None
 
 
 def test_dragging_an_edge_outward_adds_tiles_symmetrically(qapp):
@@ -309,8 +315,8 @@ def test_dragging_an_edge_outward_adds_tiles_symmetrically(qapp):
     overlay.grid_resize_requested.connect(lambda r, c: requested.append((r, c)))
     right, _ = _edges(overlay)
 
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
-    overlay._on_drag(_event(overlay, right + WIDTH, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
+    overlay._on_drag(_event(overlay, right + WIDTH, overlay._rect.cy))
 
     rows, cols = requested[-1]
     assert rows == 3, "dragging a vertical edge must not change the row count"
@@ -323,8 +329,8 @@ def test_dragging_an_edge_inward_removes_tiles(qapp):
     overlay.grid_resize_requested.connect(lambda r, c: requested.append((r, c)))
     right, _ = _edges(overlay)
 
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
-    overlay._on_drag(_event(overlay, right - 2 * WIDTH, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
+    overlay._on_drag(_event(overlay, right - 2 * WIDTH, overlay._rect.cy))
 
     assert requested[-1][1] < 5
 
@@ -337,14 +343,14 @@ def test_the_dragged_edge_follows_the_cursor(qapp):
     overlay.grid_resize_requested.connect(lambda r, c: resized.append((r, c)))
     right, _ = _edges(overlay)
     step = WIDTH * (1 - OVERLAP)
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
     for target in (right + step, right + 2 * step, right - step):
-        overlay._on_drag(_event(overlay, target, overlay._img_h / 2))
+        overlay._on_drag(_event(overlay, target, overlay._rect.cy))
         rows, cols = resized[-1]
         # rebuild at the requested size and measure where its edge landed
         grown, _ = build(rows, cols, overlap=OVERLAP)
-        landed = grown._img_w / 2 + grown._extent()[0] / 2
+        landed = grown._rect.cx + grown._extent()[0] / 2
 
         assert abs(landed - target) <= step / 2 + 1
 
@@ -354,9 +360,9 @@ def test_a_drag_never_shrinks_past_a_single_tile(qapp):
     resized = []
     overlay.grid_resize_requested.connect(lambda r, c: resized.append((r, c)))
     right, _ = _edges(overlay)
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
-    overlay._on_drag(_event(overlay, overlay._img_w / 2, overlay._img_h / 2))
+    overlay._on_drag(_event(overlay, overlay._rect.cx, overlay._rect.cy))
 
     assert resized[-1][1] >= 1
 
@@ -364,7 +370,7 @@ def test_a_drag_never_shrinks_past_a_single_tile(qapp):
 def test_a_press_away_from_an_edge_starts_no_resize(qapp):
     overlay, _ = build(3, 3)
 
-    overlay._on_press(_event(overlay, overlay._img_w / 2, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, overlay._rect.cx, overlay._rect.cy))
 
     assert overlay.is_resizing is False
 
@@ -376,12 +382,12 @@ def test_a_press_on_an_edge_claims_the_gesture_from_the_canvas(qapp):
     overlay._canvas._overlay_consuming_event = False
     right, _ = _edges(overlay)
 
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
     assert overlay.is_resizing is True
     assert overlay._canvas._overlay_consuming_event is True
 
-    overlay._on_release(_event(overlay, right, overlay._img_h / 2))
+    overlay._on_release(_event(overlay, right, overlay._rect.cy))
     assert overlay.is_resizing is False
 
 
@@ -390,7 +396,7 @@ def test_a_hidden_grid_cannot_be_resized(qapp):
     right, _ = _edges(overlay)
     overlay.set_grid_visible(False)
 
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
     assert overlay.is_resizing is False
 
@@ -400,7 +406,7 @@ def test_a_hidden_grid_cannot_be_resized(qapp):
 
 def _corners(overlay):
     span_w, span_h = overlay._extent()
-    cx, cy = overlay._img_w / 2, overlay._img_h / 2
+    cx, cy = overlay._rect.cx, overlay._rect.cy
     return cx - span_w / 2, cx + span_w / 2, cy - span_h / 2, cy + span_h / 2
 
 
@@ -433,7 +439,7 @@ def test_the_edges_get_axis_cursors_and_the_interior_none(qapp):
 
     overlay, _ = build(3, 3)
     left, right, top, bottom = _corners(overlay)
-    cx, cy = overlay._img_w / 2, overlay._img_h / 2
+    cx, cy = overlay._rect.cx, overlay._rect.cy
 
     assert overlay._cursor_for(*overlay._edge_sides(right, cy)) == Qt.SizeHorCursor
     assert overlay._cursor_for(*overlay._edge_sides(left, cy)) == Qt.SizeHorCursor
@@ -448,7 +454,7 @@ def test_a_hidden_grid_shows_no_resize_cursor(qapp):
     _, right, _, _ = _corners(overlay)
     overlay.set_grid_visible(False)
 
-    overlay._update_cursor(_event(overlay, right, overlay._img_h / 2))
+    overlay._update_cursor(_event(overlay, right, overlay._rect.cy))
 
     assert overlay._cursor_set is False
 
@@ -460,8 +466,8 @@ def test_a_drag_survives_the_grid_being_cleared_underneath_it(qapp):
     escaping a handler can take the app down (FIB-329)."""
     overlay, _ = build(3, 3, overlap=OVERLAP)
     right, _ = _edges(overlay)
-    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
     overlay.clear()
 
-    overlay._on_drag(_event(overlay, right + WIDTH, overlay._img_h / 2))
+    overlay._on_drag(_event(overlay, right + WIDTH, overlay._rect.cy))

@@ -30,6 +30,10 @@ class AlignmentOverlayTest(QWidget):
         self.overlay = AlignmentAreaOverlay(editable=True)
         self.canvas.add_overlay(self.overlay)
         self.overlay.set_area(FibsemRectangle(0.25, 0.25, 0.5, 0.5))
+        # Visibility is opt-in: the overlay starts hidden so a consumer can attach it
+        # before it has an area to show (see LamellaDefaultConfigWidget). Without this
+        # the demo drew nothing at all.
+        self.overlay.set_visible(True)
         self.overlay.alignment_area_changed.connect(self._show_area)
 
         self.label = QLabel()

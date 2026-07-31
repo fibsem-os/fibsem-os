@@ -112,11 +112,7 @@ class FibsemImageCanvas(FibsemCanvasBase):
         self._refresh_flash()  # ditto: keep a live flash (e.g. WD scroll) visible across frames
         self._refresh_legend()  # ditto: restore the patch legend
 
-        for overlay in self._overlays:
-            try:
-                overlay.on_image_changed(w, h)
-            except Exception:
-                _logger.exception("Overlay on_image_changed failed: %r", overlay)
+        self._notify_overlays(self._content_rect())
 
         self.draw_idle()
 
