@@ -13,7 +13,7 @@ import threading
 from typing import List, Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -34,13 +34,19 @@ from fibsem.fm.structures import (
     OverviewParameters,
 )
 from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.fm.reprojection import reproject_stage_positions_onto_fm_image
+from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
@@ -104,6 +110,9 @@ class FMOverviewWidget(QWidget):
         self._worker: Optional[FunctionWorker] = None
         self._runner: Optional[FMTiledAcquisitionRunner] = None
         self._mosaic: Optional[FluorescenceImage] = None
+        self._displayed_image: Optional[FluorescenceImage] = None
+        self._positions: List[FibsemStagePosition] = []
+        self._grid_footprint: Optional[tuple] = None
         self._enabled_channels: Optional[List[ChannelSettings]] = None
 
         self._init_ui(channel_settings or self._default_channels())
@@ -129,6 +138,35 @@ class FMOverviewWidget(QWidget):
 
     def _init_ui(self, channels: List[ChannelSettings]) -> None:
         self.canvas = FMCanvasWidget()
+
+        # The planned grid, drawn on the canvas and clickable. A second view of the
+        # mask `TileMaskWidget` owns, not a second copy: clicks are routed through the
+        # settings widget so there is one place the selection lives.
+        self.tile_grid_overlay = TileGridOverlay()
+        self.canvas.canvas.add_overlay(self.tile_grid_overlay)
+
+        # Grid display options live on the canvas toolbar, beside the layers control:
+        # they are about reading the image, not about what gets acquired, so they do
+        # not belong in the settings column with the parameters of the run.
+        self.btn_tile_grid = self.canvas.canvas.add_toolbar_button(
+            "mdi:grid", "Tile grid", self._toggle_tile_grid_panel, checkable=True
+        )
+        self.canvas.canvas._reposition_overlay_buttons()
+        self.tile_grid_panel = TileGridOptionsPanel(self)
+        self.tile_grid_panel.hide()
+        self.tile_grid_panel.visibility_changed.connect(
+            self.tile_grid_overlay.set_grid_visible
+        )
+        self.tile_grid_panel.color_changed.connect(self.tile_grid_overlay.set_color)
+        self.tile_grid_panel.fill_alpha_changed.connect(
+            self.tile_grid_overlay.set_fill_alpha
+        )
+
+        # Stage positions -- the current pose, lamellae, anything a host hands over --
+        # projected onto whatever image is displayed. Non-interactive: this shows where
+        # things are, it does not move them.
+        self.position_overlay = PointsOverlay(color="#ffb300", marker="o", size=7)
+        self.canvas.canvas.add_overlay(self.position_overlay)
 
         # The list alone shows only name/excitation/emission, with no way to set the
         # exposure, power or gain a tile is actually acquired at. This composes the
@@ -217,6 +255,8 @@ class FMOverviewWidget(QWidget):
         self.channel_widget.settings_changed.connect(self._on_channels_changed)
         self.channel_widget.enabled_changed.connect(self._on_enabled_changed)
         self.settings_widget.changed.connect(self._on_settings_changed)
+        self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
+        self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
         return TitledPanel(title, content=widget)
@@ -256,9 +296,174 @@ class FMOverviewWidget(QWidget):
         self._enabled_channels = list(channels)
         self._on_settings_changed()
 
+    def _update_grid_summary(self) -> None:
+        """Describe the grid on the canvas-side panel.
+
+        Built from the settings widget's own formatted values rather than recomputed,
+        so the two cannot end up quoting different numbers for the same grid.
+        """
+        parameters = self.settings_widget.parameters
+        total = parameters.rows * parameters.cols
+        parts = [
+            f"{parameters.rows} × {parameters.cols}",
+            f"{parameters.overlap:.0%} overlap",
+        ]
+        parts.append(f"{parameters.n_enabled_tiles}/{total} tiles")
+
+        # The field of view goes on its own line rather than into the join: the panel
+        # is narrow, and wrapping a "287 × 287 µm" mid-value reads as two numbers.
+        summary = "  ·  ".join(parts)
+        fov = self.settings_widget.label_total_fov.text()
+        if fov and fov != "—":
+            summary = f"{summary}\n{fov}"
+        self.tile_grid_panel.set_summary(summary)
+
+    def _refresh_tile_grid(self) -> None:
+        """Redraw the planned grid on the canvas.
+
+        Needs a tile field of view (from the camera) and an image on the canvas to
+        anchor and scale against. With no image there is nothing to draw the grid
+        relative to, so it is cleared rather than guessed at.
+        """
+        fov = self.settings_widget._tile_fov
+        if fov is None:
+            self.tile_grid_overlay.clear()
+            return
+
+        try:
+            width, height = self.fm.camera.resolution
+            pixel_size = self.fm.camera.pixel_size[0]
+        except Exception as e:
+            logging.debug(f"Could not read the camera geometry for the tile grid: {e}")
+            self.tile_grid_overlay.clear()
+            return
+
+        parameters = self.settings_widget.parameters
+        tiles = compute_tile_grid_from_fov(
+            nrows=parameters.rows,
+            ncols=parameters.cols,
+            fov_x=fov[0],
+            fov_y=fov[1],
+            image_width=width,
+            image_height=height,
+            overlap=parameters.overlap,
+            mask=parameters.tile_mask,
+        )
+        # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
+        # Pinning it here would freeze the scale at whatever was displayed when the
+        # settings last changed, and the image underneath changes without them -- the
+        # live preview swaps in a decimated mosaic mid-run.
+        self.tile_grid_overlay.set_grid(
+            tiles, (height, width), pixel_size, overlap=parameters.overlap
+        )
+
+        # Refit only when the grid's footprint actually changes. Toggling a tile also
+        # comes through here, and refitting on that threw away whatever zoom and pan
+        # the user had set -- so clicking a tile appeared to zoom the view.
+        # Recorded whether or not the view is refitted, so that a drag -- which
+        # suppresses the refit on every step -- does not leave the footprint looking
+        # stale and jump the view on the next unrelated settings change.
+        footprint = (parameters.rows, parameters.cols, parameters.overlap)
+        changed = footprint != self._grid_footprint
+        self._grid_footprint = footprint
+        if changed and not self.tile_grid_overlay.is_resizing:
+            self.tile_grid_overlay.fit_view()
+
+    def _toggle_tile_grid_panel(self) -> None:
+        if not self.btn_tile_grid.isChecked():
+            self.tile_grid_panel.hide()
+            return
+
+        self.tile_grid_panel.adjustSize()
+        # Anchored in global coordinates: the panel is a top-level tool window, so it
+        # cannot be placed relative to the canvas in widget coordinates.
+        canvas = self.canvas.canvas
+        anchor = canvas.mapToGlobal(QPoint(canvas.width() - 8, 44))
+        self.tile_grid_panel.move(anchor.x() - self.tile_grid_panel.width(), anchor.y())
+        self.tile_grid_panel.show()
+        self.tile_grid_panel.raise_()
+
+    def set_image(self, image: FluorescenceImage) -> None:
+        """Show an image on the canvas and refresh anything drawn on top of it.
+
+        Overlays are positioned against the displayed image, so the image has to be
+        recorded when it is set rather than fetched from the canvas later -- the canvas
+        keeps channel stacks, not the `FluorescenceImage` and its metadata, and the
+        metadata is what carries the pose a position is projected against.
+        """
+        self._displayed_image = image
+        self.canvas.set_fm_image(image)
+        self._refresh_positions()
+
+    def set_positions(self, positions: List[FibsemStagePosition]) -> None:
+        """Stage positions to mark on the overview, e.g. saved lamella positions.
+
+        Names are carried onto the markers, so a caller does not have to keep a
+        parallel list of labels in the order it happened to pass them.
+        """
+        self._positions = list(positions)
+        self._refresh_positions()
+
+    def _refresh_positions(self) -> None:
+        """Reproject the marked positions onto the displayed image.
+
+        Uses the image's own recorded geometry rather than the live microscope: after
+        an overview is acquired the stage has moved on, and following it would drift
+        every marker off the feature it names.
+        """
+        if self._displayed_image is None or not self._positions:
+            self.position_overlay.set_points([])
+            return
+
+        try:
+            points = reproject_stage_positions_onto_fm_image(
+                self._displayed_image, self._positions
+            )
+        except ValueError as e:
+            # Images acquired before the geometry was recorded cannot be projected onto.
+            logging.debug(f"Cannot mark positions on this image: {e}")
+            self.position_overlay.set_points([])
+            return
+
+        self.position_overlay.set_points(
+            [(p.x, p.y) for p in points],
+            labels=[p.name or "" for p in points],
+        )
+
+    def _on_grid_resize(self, rows: int, cols: int) -> None:
+        """An edge of the grid was dragged.
+
+        Writes to the settings widget, which owns rows and columns, for the same reason
+        a tile click does: the canvas is a view of that state, not a second copy.
+        """
+        # One call rather than two spin boxes: a drag emits on every motion event, and
+        # setting them separately would refresh twice per step and pass through a grid
+        # size that was never requested.
+        self.settings_widget.set_grid_size(rows, cols)
+
+    def _on_tile_toggled(self, row: int, col: int, enabled: bool) -> None:
+        """A tile was clicked on the canvas.
+
+        The mask belongs to the settings widget, so this writes there and lets the
+        resulting `changed` redraw the overlay -- rather than updating the overlay
+        directly, which would leave the two views to drift apart on any path that
+        touched only one of them.
+        """
+        mask = self.settings_widget.tile_mask.mask
+        parameters = self.settings_widget.parameters
+        if mask is None:
+            mask = [[True] * parameters.cols for _ in range(parameters.rows)]
+        if not (0 <= row < len(mask) and 0 <= col < len(mask[row])):
+            return
+
+        mask[row][col] = enabled
+        self.settings_widget.tile_mask.mask = mask
+
     def _on_settings_changed(self) -> None:
         if self.is_acquiring:
             return
+        self._refresh_tile_grid()
+        self._update_grid_summary()
         parameters = self.settings_widget.parameters
         enabled = parameters.n_enabled_tiles > 0
         self.button_acquire.setEnabled(enabled)
@@ -470,6 +675,14 @@ class FMOverviewWidget(QWidget):
                 planes = planes[np.newaxis]
             for channel, plane in zip(self.channels, planes):
                 self.canvas.set_channel(channel.name, plane, channel.color)
+
+            # The preview is decimated to keep it a sane size, so its pixels are
+            # `preview_stride` times coarser than a tile's. `set_channel` takes raw
+            # planes and cannot know that, and anything drawn on top -- the tile grid,
+            # position markers -- scales against the canvas pixel size, so leaving it
+            # at the tile's would draw them all stride times too large.
+            stride = payload.get("preview_stride", 1) or 1
+            self.canvas.set_pixel_size(self.fm.camera.pixel_size[0] * stride)
         except Exception as e:
             logging.debug(f"Could not display the overview preview: {e}")
 
@@ -480,7 +693,7 @@ class FMOverviewWidget(QWidget):
 
         if state == "overview-finished" and self._mosaic is not None:
             # Swap the decimated preview for the real thing.
-            self.canvas.set_fm_image(self._mosaic)
+            self.set_image(self._mosaic)
             shape = self._mosaic.data.shape
             self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px")
             self.progress_tiles.update_progress(ProgressUpdate.done())
